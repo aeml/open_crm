@@ -12,6 +12,7 @@ import (
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
@@ -41,11 +42,20 @@ type contactsService interface {
 	Archive(context.Context, int64, int64, int64) error
 }
 
+type companiesService interface {
+	ListByOrganization(context.Context, int64, modulecompanies.ListQuery) (modulecompanies.ListResult, error)
+	GetByID(context.Context, int64, int64) (modulecompanies.Detail, error)
+	Create(context.Context, int64, int64, modulecompanies.CreateInput) (modulecompanies.Detail, error)
+	Update(context.Context, int64, int64, int64, modulecompanies.UpdateInput) (modulecompanies.Detail, error)
+	Archive(context.Context, int64, int64, int64) error
+}
+
 type Dependencies struct {
-	CheckReadiness  func(context.Context) error
-	AuthService     authService
-	UsersService    usersService
-	ContactsService contactsService
+	CheckReadiness   func(context.Context) error
+	AuthService      authService
+	UsersService     usersService
+	ContactsService  contactsService
+	CompaniesService companiesService
 }
 
 type statusResponse struct {
@@ -125,6 +135,37 @@ type contactDetailResponse struct {
 	} `json:"meta"`
 }
 
+type companyRequest struct {
+	Name             string  `json:"name"`
+	Domain           string  `json:"domain"`
+	Industry         string  `json:"industry"`
+	Phone            string  `json:"phone"`
+	Website          string  `json:"website"`
+	Status           string  `json:"status"`
+	LinkedContactIDs []int64 `json:"linkedContactIDs"`
+}
+
+type companiesListResponse struct {
+	Data struct {
+		Companies []modulecompanies.Summary `json:"companies"`
+		Meta      modulecompanies.ListMeta  `json:"meta"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type companyDetailResponse struct {
+	Data struct {
+		Company        modulecompanies.Summary         `json:"company"`
+		LinkedContacts []modulecompanies.LinkedContact `json:"linkedContacts"`
+		Activities     []modulecompanies.ActivityEntry `json:"activities"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	dependencies := Dependencies{}
 	if len(deps) > 0 {
@@ -161,6 +202,21 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/contacts/{contactID}", func(w http.ResponseWriter, r *http.Request) {
 		handleArchiveContact(dependencies.AuthService, dependencies.ContactsService, w, r)
+	})
+	mux.HandleFunc("GET /api/companies", func(w http.ResponseWriter, r *http.Request) {
+		handleListCompanies(dependencies.AuthService, dependencies.CompaniesService, w, r)
+	})
+	mux.HandleFunc("POST /api/companies", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateCompany(dependencies.AuthService, dependencies.CompaniesService, w, r)
+	})
+	mux.HandleFunc("GET /api/companies/{companyID}", func(w http.ResponseWriter, r *http.Request) {
+		handleGetCompany(dependencies.AuthService, dependencies.CompaniesService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/companies/{companyID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateCompany(dependencies.AuthService, dependencies.CompaniesService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/companies/{companyID}", func(w http.ResponseWriter, r *http.Request) {
+		handleArchiveCompany(dependencies.AuthService, dependencies.CompaniesService, w, r)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		respondStatus(w, r, http.StatusOK, "ok")
@@ -449,6 +505,134 @@ func handleArchiveContact(auth authService, contacts contactsService, w http.Res
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func handleListCompanies(auth authService, companies companiesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if companies == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Companies service unavailable")
+		return
+	}
+
+	query := modulecompanies.ListQuery{
+		Search:   strings.TrimSpace(r.URL.Query().Get("q")),
+		Page:     parsePositiveInt(r.URL.Query().Get("page"), 1),
+		PageSize: parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+	}
+	result, err := companies.ListByOrganization(r.Context(), state.Organization.ID, query)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load companies")
+		return
+	}
+
+	response := companiesListResponse{}
+	response.Data.Companies = result.Companies
+	response.Data.Meta = result.Meta
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleGetCompany(auth authService, companies companiesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if companies == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Companies service unavailable")
+		return
+	}
+
+	companyID, ok := parsePathInt64(w, r, "companyID")
+	if !ok {
+		return
+	}
+	result, err := companies.GetByID(r.Context(), state.Organization.ID, companyID)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load company")
+		return
+	}
+
+	respondCompanyDetail(w, r, http.StatusOK, result)
+}
+
+func handleCreateCompany(auth authService, companies companiesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if companies == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Companies service unavailable")
+		return
+	}
+
+	input, ok := decodeCompanyRequest(w, r)
+	if !ok {
+		return
+	}
+	result, err := companies.Create(r.Context(), state.Organization.ID, state.User.ID, input)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create company")
+		return
+	}
+
+	respondCompanyDetail(w, r, http.StatusCreated, result)
+}
+
+func handleUpdateCompany(auth authService, companies companiesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if companies == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Companies service unavailable")
+		return
+	}
+
+	companyID, ok := parsePathInt64(w, r, "companyID")
+	if !ok {
+		return
+	}
+	input, decoded := decodeCompanyRequest(w, r)
+	if !decoded {
+		return
+	}
+	result, err := companies.Update(r.Context(), state.Organization.ID, companyID, state.User.ID, modulecompanies.UpdateInput(input))
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update company")
+		return
+	}
+
+	respondCompanyDetail(w, r, http.StatusOK, result)
+}
+
+func handleArchiveCompany(auth authService, companies companiesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if companies == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Companies service unavailable")
+		return
+	}
+
+	companyID, ok := parsePathInt64(w, r, "companyID")
+	if !ok {
+		return
+	}
+	if err := companies.Archive(r.Context(), state.Organization.ID, companyID, state.User.ID); err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to archive company")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func decodeContactRequest(w http.ResponseWriter, r *http.Request) (modulecontacts.CreateInput, bool) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	var request contactRequest
@@ -471,11 +655,43 @@ func decodeContactRequest(w http.ResponseWriter, r *http.Request) (modulecontact
 	return input, true
 }
 
+func decodeCompanyRequest(w http.ResponseWriter, r *http.Request) (modulecompanies.CreateInput, bool) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	var request companyRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return modulecompanies.CreateInput{}, false
+	}
+	input := modulecompanies.CreateInput{
+		Name:             strings.TrimSpace(request.Name),
+		Domain:           strings.TrimSpace(request.Domain),
+		Industry:         strings.TrimSpace(request.Industry),
+		Phone:            strings.TrimSpace(request.Phone),
+		Website:          strings.TrimSpace(request.Website),
+		Status:           strings.TrimSpace(request.Status),
+		LinkedContactIDs: request.LinkedContactIDs,
+	}
+	if input.Name == "" {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Company name is required")
+		return modulecompanies.CreateInput{}, false
+	}
+	return input, true
+}
+
 func respondContactDetail(w http.ResponseWriter, r *http.Request, statusCode int, detail modulecontacts.Detail) {
 	response := contactDetailResponse{}
 	response.Data.Contact = detail.Summary
 	response.Data.Notes = detail.Notes
 	response.Data.Tasks = detail.Tasks
+	response.Data.Activities = detail.Activities
+	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteJSON(w, statusCode, response)
+}
+
+func respondCompanyDetail(w http.ResponseWriter, r *http.Request, statusCode int, detail modulecompanies.Detail) {
+	response := companyDetailResponse{}
+	response.Data.Company = detail.Summary
+	response.Data.LinkedContacts = detail.LinkedContacts
 	response.Data.Activities = detail.Activities
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)
