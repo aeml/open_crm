@@ -8,6 +8,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/app"
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	"github.com/aeml/open_crm/apps/api/internal/db"
+	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 )
 
 func main() {
@@ -15,6 +16,17 @@ func main() {
 	dbConfig, dbConfigErr := db.LoadConfigFromEnv()
 	if dbConfigErr != nil {
 		log.Printf("database config warning: %v", dbConfigErr)
+	}
+
+	var authService *moduleauth.Service
+	if dbConfigErr == nil {
+		pool, err := db.NewPool(context.Background(), dbConfig)
+		if err != nil {
+			log.Printf("auth service disabled: %v", err)
+		} else {
+			defer pool.Close()
+			authService = moduleauth.NewService(pool)
+		}
 	}
 
 	server := &http.Server{
@@ -26,6 +38,7 @@ func main() {
 				}
 				return db.CheckReadiness(ctx, dbConfig)
 			},
+			AuthService: authService,
 		}),
 	}
 

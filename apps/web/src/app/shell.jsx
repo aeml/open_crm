@@ -13,7 +13,7 @@ export function AppShell({ children }) {
         <main className="app-content">
           <PageHeader
             eyebrow="Pipeline at a glance"
-            title="Open CRM"
+            title="Pipeline overview"
             description="Track customers, deals, and follow-ups without drowning in a messy admin panel."
             actions={<Button>New Contact</Button>}
           />

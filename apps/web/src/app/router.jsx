@@ -6,12 +6,14 @@ import { ContactsRoute } from '../routes/contacts'
 import { CompaniesRoute } from '../routes/companies'
 import { DealsRoute } from '../routes/deals'
 import { TasksRoute } from '../routes/tasks'
+import { LoginRoute } from '../routes/login'
 
 export function AppRouter() {
   return (
     <BrowserRouter>
       <AppProviders>
         <Routes>
+          <Route path="/login" element={<LoginRoute />} />
           <Route path="/" element={<RootRoute />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardRoute />} />
@@ -19,8 +21,8 @@ export function AppRouter() {
             <Route path="companies" element={<CompaniesRoute />} />
             <Route path="deals" element={<DealsRoute />} />
             <Route path="tasks" element={<TasksRoute />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AppProviders>
     </BrowserRouter>

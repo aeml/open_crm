@@ -6,8 +6,10 @@ import (
 )
 
 type Env struct {
-	Port           string
-	AllowedOrigins []string
+	Port                string
+	AllowedOrigins      []string
+	SessionCookieSecret string
+	GOEnv               string
 }
 
 func Load() Env {
@@ -17,8 +19,10 @@ func Load() Env {
 	}
 
 	return Env{
-		Port:           port,
-		AllowedOrigins: parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
+		Port:                port,
+		AllowedOrigins:      parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
+		SessionCookieSecret: os.Getenv("SESSION_COOKIE_SECRET"),
+		GOEnv:               os.Getenv("GO_ENV"),
 	}
 }
 

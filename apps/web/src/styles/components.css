@@ -70,3 +70,38 @@
 .field-label {
   font-weight: 600;
 }
+
+.text-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.85rem 1rem;
+  color: var(--text);
+}
+
+.text-input:focus {
+  outline: 2px solid rgba(39, 94, 254, 0.2);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.card-stack {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.auth-stack {
+  gap: var(--space-3);
+}
+
+.auth-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.form-error {
+  margin: 0;
+  color: #b42318;
+  font-weight: 600;
+}
