@@ -41,7 +41,13 @@ jobs:
 
       - name: Build frontend for Pages
         working-directory: apps/web
+        env:
+          VITE_API_BASE_URL: https://crmserver.mendola.tech
+          GITHUB_ACTIONS: 'true'
         run: npm run build:pages
+
+      - name: Copy SPA fallback
+        run: cp apps/web/dist/index.html apps/web/dist/404.html
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

@@ -16,7 +16,8 @@ make test
 
 Frontend:
 - `.github/workflows/frontend-pages.yml` builds `apps/web` and deploys `apps/web/dist` to GitHub Pages.
-- In the repo settings, set Pages to use GitHub Actions as the source.
+- It publishes a `CNAME` file for `crm.mendola.tech` and copies `index.html` to `404.html` so client-side routing still works on Pages.
+- In the repo settings, set Pages to use GitHub Actions as the source and set the custom domain to `crm.mendola.tech`.
 
 Backend + database:
 - `.github/workflows/backend-deploy.yml` syncs the repo to `aeml@ssh.mendola.tech:~/open_crm`, writes `.env.production` from a GitHub secret, then runs `docker compose -f docker-compose.deploy.yml --env-file .env.production up -d --build` on the remote host.
@@ -24,6 +25,9 @@ Backend + database:
 Required GitHub secrets:
 - `SSH_PRIVATE_KEY`
 - `DEPLOY_ENV`
+
+Frontend public build config:
+- the Pages workflow injects `VITE_API_BASE_URL=https://crmserver.mendola.tech`
 
 Example `DEPLOY_ENV` contents:
 ```env
