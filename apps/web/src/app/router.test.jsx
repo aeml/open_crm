@@ -1,23 +1,67 @@
-import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, expect, it, vi, afterEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import { AppRouter } from './router'
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
 describe('AppRouter', () => {
-  it('renders dashboard content at the default route shell', () => {
+  it('renders dashboard content at the default route shell when authenticated', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: {
+              id: 1,
+              email: 'owner@acme.test',
+              firstName: 'Demo',
+              lastName: 'Owner'
+            },
+            organization: {
+              id: 1,
+              name: 'Acme, Inc.',
+              slug: 'acme-inc'
+            },
+            membership: {
+              role: 'owner'
+            }
+          }
+        })
+      })
+    )
+
     window.history.pushState({}, '', '/dashboard')
 
     render(<AppRouter />)
 
-    expect(screen.getByText(/keep the next best action obvious/i)).toBeInTheDocument()
+    expect(await screen.findByText(/keep the next best action obvious/i)).toBeInTheDocument()
   })
 
-  it('renders the contacts route without blanking the app shell', () => {
+  it('redirects protected routes to login when unauthenticated', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authentication required'
+          }
+        })
+      })
+    )
+
     window.history.pushState({}, '', '/contacts')
 
     render(<AppRouter />)
 
-    expect(screen.getByRole('heading', { name: /contacts/i })).toBeInTheDocument()
-    expect(screen.getByText(/keep the right people moving/i)).toBeInTheDocument()
-    expect(screen.getByRole('list', { name: /contacts list/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /sign in to open crm/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/login')
+    })
   })
 })

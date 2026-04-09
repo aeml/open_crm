@@ -5,7 +5,8 @@ const links = [
   { to: '/contacts', label: 'Contacts' },
   { to: '/companies', label: 'Companies' },
   { to: '/deals', label: 'Deals' },
-  { to: '/tasks', label: 'Tasks' }
+  { to: '/tasks', label: 'Tasks' },
+  { to: '/settings/users', label: 'Users' }
 ]
 
 export function SideNav() {

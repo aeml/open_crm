@@ -5,9 +5,15 @@ import (
 	"testing"
 )
 
+type seededUser struct {
+	email        string
+	passwordHash string
+}
+
 type seedRecorder struct {
 	organizationSeeded bool
 	userEmails         []string
+	seededUsers        []seededUser
 	stageNames         []string
 }
 
@@ -16,8 +22,9 @@ func (r *seedRecorder) SeedOrganization() error {
 	return nil
 }
 
-func (r *seedRecorder) SeedUser(email string) error {
+func (r *seedRecorder) SeedUser(email, passwordHash string) error {
 	r.userEmails = append(r.userEmails, email)
+	r.seededUsers = append(r.seededUsers, seededUser{email: email, passwordHash: passwordHash})
 	return nil
 }
 
@@ -49,5 +56,25 @@ func TestSeedDatabaseSeedsDefaultWorkspaceShape(t *testing.T) {
 
 	if len(recorder.stageNames) != len(DefaultDealStages()) {
 		t.Fatalf("expected %d default stages, got %d", len(DefaultDealStages()), len(recorder.stageNames))
+	}
+}
+
+func TestSeedDatabaseHashesSeededPasswords(t *testing.T) {
+	recorder := &seedRecorder{}
+	if err := seedDatabase(context.Background(), recorder); err != nil {
+		t.Fatalf("expected seed routine to succeed, got error: %v", err)
+	}
+
+	if len(recorder.seededUsers) != 4 {
+		t.Fatalf("expected 4 seeded users, got %d", len(recorder.seededUsers))
+	}
+
+	for _, user := range recorder.seededUsers {
+		if user.passwordHash == "" {
+			t.Fatalf("expected password hash for %s to be set", user.email)
+		}
+		if user.passwordHash == defaultSeedPassword {
+			t.Fatalf("expected password for %s to be hashed, got plaintext", user.email)
+		}
 	}
 }

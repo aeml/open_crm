@@ -90,3 +90,29 @@ func TestNewServerDoesNotAllowUnknownOrigin(t *testing.T) {
 		t.Fatalf("expected no allow-origin header for disallowed origin, got %q", got)
 	}
 }
+
+func TestNewServerAuthMeRequiresSession(t *testing.T) {
+	server := NewServer(config.Env{SessionCookieSecret: "test-secret"})
+
+	request := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+
+	var response struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected valid JSON response, got error: %v", err)
+	}
+
+	if response.Error.Code != "UNAUTHORIZED" {
+		t.Fatalf("expected error code UNAUTHORIZED, got %q", response.Error.Code)
+	}
+}

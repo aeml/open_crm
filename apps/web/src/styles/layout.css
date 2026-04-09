@@ -77,6 +77,10 @@
   gap: var(--space-4);
 }
 
+.settings-grid {
+  align-items: start;
+}
+
 .hero-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
