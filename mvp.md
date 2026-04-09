@@ -786,7 +786,277 @@ That means choosing boring, explicit structure over flashy patterns.
 
 ---
 
-## 16. Immediate next move
+## 16. API conventions and response envelope
+
+Keep the API boring and consistent.
+
+Success response shape:
+```json
+{
+  "data": {},
+  "meta": {
+    "requestId": "req_123",
+    "pagination": null
+  }
+}
+```
+
+List response shape:
+```json
+{
+  "data": [],
+  "meta": {
+    "requestId": "req_123",
+    "pagination": {
+      "page": 1,
+      "pageSize": 25,
+      "total": 200,
+      "hasNextPage": true
+    }
+  }
+}
+```
+
+Error response shape:
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed",
+    "details": {
+      "fieldErrors": {
+        "email": ["Invalid email"]
+      }
+    }
+  },
+  "meta": {
+    "requestId": "req_123"
+  }
+}
+```
+
+Rules:
+- all handlers return one of these shapes
+- every request gets a `requestId`
+- avoid leaking raw database errors to clients
+- use stable error codes even if messages change
+- use `PATCH` for partial updates and `POST` for create actions
+- normalize empty-string form input to `null` where that is the domain meaning
+
+Recommended initial error codes:
+- `VALIDATION_ERROR`
+- `UNAUTHORIZED`
+- `FORBIDDEN`
+- `NOT_FOUND`
+- `CONFLICT`
+- `INVARIANT_VIOLATION`
+- `INTERNAL_ERROR`
+
+---
+
+## 17. Permissions matrix
+
+Do not hand-wave authorization. Write it down and code to it.
+
+### Organization and users
+
+| Capability | owner | admin | member | viewer |
+|---|---|---|---|---|
+| View org data | yes | yes | yes | yes |
+| Manage org settings | yes | yes | no | no |
+| List users | yes | yes | no | no |
+| Create users | yes | yes | no | no |
+| Change roles | yes | yes, except owner transfer | no | no |
+| Delete/deactivate users | yes | yes | no | no |
+
+### CRM entities
+
+| Capability | owner | admin | member | viewer |
+|---|---|---|---|---|
+| View contacts/companies/deals | yes | yes | yes | yes |
+| Create contacts/companies/deals | yes | yes | yes | no |
+| Edit contacts/companies/deals | yes | yes | yes | no |
+| Archive contacts/companies/deals | yes | yes | yes | no |
+| Create notes/tasks | yes | yes | yes | no |
+| Complete assigned tasks | yes | yes | yes | no |
+| View dashboard | yes | yes | yes | yes |
+
+Rules worth enforcing early:
+- only org members can access org data
+- cross-org IDs must resolve as `404`, not `403`, to avoid leaking record existence
+- owner transfer is not an MVP feature unless it is deliberately implemented
+- viewer cannot mutate anything, period
+
+---
+
+## 18. Data lifecycle and record rules
+
+This is where a lot of CRUD apps become a swamp. Don’t let that happen.
+
+### Create rules
+- all writes must stamp actor user and organization context
+- create endpoints must validate referenced foreign keys inside the same org
+- defaults should be set server-side, not trusted from clients
+
+### Update rules
+- `updated_at` changes on every meaningful mutation
+- partial updates should only touch supplied fields
+- changing a deal stage must create an activity entry with old and new stage metadata
+
+### Archive rules
+- archive instead of delete for companies, contacts, and deals
+- archived records stay queryable by explicit filter or direct detail route
+- archived records do not appear in default active lists
+- linking new notes/tasks to archived entities should be blocked unless there is a deliberate business case
+
+### Hard delete policy
+- hard delete only for sessions and maybe failed/incomplete seed data in development
+- do not expose hard delete routes for core CRM entities in MVP
+
+### Referential integrity rules
+- do not allow cross-org references, ever
+- use DB foreign keys where possible
+- polymorphic note/task targets need explicit service-level validation because the DB cannot save you there
+
+---
+
+## 19. Query, indexing, and performance posture
+
+Don’t optimize for fantasy scale, but don’t be sloppy either.
+
+Initial indexes worth having:
+- `organization_memberships (organization_id, user_id)` unique
+- `users (email)` unique
+- `companies (organization_id, name)`
+- `companies (organization_id, domain)`
+- `contacts (organization_id, email)`
+- `contacts (organization_id, last_name, first_name)`
+- `deals (organization_id, stage_id)`
+- `deals (organization_id, owner_user_id)`
+- `tasks (organization_id, status, due_at)`
+- `activities (organization_id, entity_type, entity_id, created_at desc)`
+
+Search posture:
+- start with `ILIKE` on bounded fields
+- search should always include `organization_id` and active/not-archived filters
+- cap page size aggressively; 25 default, 100 max
+- if search becomes hot, add trigram indexes on `companies.name`, `contacts.first_name`, `contacts.last_name`, and maybe `contacts.email`
+
+Dashboard posture:
+- compute simple aggregates live first
+- if dashboard queries become visibly slow, add small read-model queries or materialized views later
+- do not add background jobs just to feel sophisticated
+
+---
+
+## 20. Seed data, fixtures, and developer ergonomics
+
+A repo like this lives or dies on setup friction.
+
+Seed command should create:
+- one organization: `Acme, Inc.`
+- one owner user: `owner@acme.test`
+- one admin user: `admin@acme.test`
+- one member user: `member@acme.test`
+- one viewer user: `viewer@acme.test`
+- default password for local dev from env var or a clearly documented dev default
+- default deal stages:
+  - Lead
+  - Qualified
+  - Proposal
+  - Negotiation
+  - Closed Won
+  - Closed Lost
+- a small demo set of companies, contacts, deals, notes, and tasks
+
+Seed rules:
+- make it idempotent enough for local re-runs
+- clearly separate dev seed from future production bootstrap
+- never hide credentials; print the seeded login accounts in the seed script output for local dev
+
+Developer experience baseline:
+- one command to start Postgres
+- one command to run migrations
+- one command to seed
+- one command to start both apps
+- if a command needs five env vars and three manual steps, the plan is bad
+
+---
+
+## 21. Observability, logging, and operational sanity
+
+Build just enough to debug real failures.
+
+Backend logging:
+- structured JSON logs in production
+- pretty logs in local dev
+- every request log includes `requestId`, `userId` if authenticated, `organizationId` if resolved, route, status code, and duration
+- log auth failures, permission denials, and unexpected exceptions
+- do not log passwords, session tokens, or raw cookies
+
+Health endpoints:
+- `GET /healthz` for simple process health
+- `GET /readyz` for dependency readiness including DB connectivity
+
+Operational checks for MVP:
+- startup should fail loudly if required env vars are missing
+- DB connection errors should be explicit
+- migrations should run as an intentional command, not magically on every boot
+
+---
+
+## 22. Delivery plan by milestone
+
+This repo should be built to a few concrete milestones, not as an endless blob of “in progress.”
+
+### Milestone A: Foundation
+Includes:
+- Slice 0
+- Slice 1
+- minimal README
+- CI for typecheck/lint/tests
+
+Done means:
+- a new engineer can clone, run Postgres, migrate, seed, and boot the repo
+- the database is shaped correctly enough to support the first real features
+
+### Milestone B: Usable internal alpha
+Includes:
+- Slice 2
+- Slice 3
+- Slice 4
+
+Done means:
+- org admin can log in
+- manage users
+- create and update contacts
+- trust the app not to leak tenant data
+
+### Milestone C: Core CRM loop
+Includes:
+- Slice 5
+- Slice 6
+- Slice 7
+
+Done means:
+- contacts, companies, and deals are connected
+- notes/tasks/activity timeline make the app feel like a CRM instead of a spreadsheet with opinions
+
+### Milestone D: MVP ready for broader use
+Includes:
+- Slice 8
+- Slice 9
+- docs cleanup
+- basic operational runbook
+
+Done means:
+- the app is coherent
+- the happy path is tested
+- main is shippable without crossed fingers
+
+---
+
+## 23. Immediate next move
 
 Start with Slice 0 and Slice 1 only.
 
@@ -800,4 +1070,354 @@ The first real build sequence should be:
 5. companies slice
 6. deals slice
 
+Before writing the first line of feature code, lock these repo-level decisions:
+- package manager is pnpm
+- backend is Fastify + Drizzle + Postgres
+- frontend is React + Vite + TanStack Router + TanStack Query
+- auth is server-side sessions, not JWT cargo culting
+- deploy shape is modular monolith + web app + Postgres
+
 If those are clean, the rest gets much easier.
+
+---
+
+## 24. Detailed execution plan for Slice 0: repo bootstrap
+
+This is the first slice because it makes every later slice cheaper.
+
+### Outcome
+By the end of Slice 0:
+- the monorepo installs cleanly
+- Postgres runs locally via Docker Compose
+- API and web apps both boot
+- contracts package builds and is consumed by both apps
+- CI can lint and typecheck without heroics
+
+### Task 0.1: Create the root workspace files
+
+Files:
+- create `package.json`
+- create `pnpm-workspace.yaml`
+- create `.gitignore`
+- create `.npmrc`
+- create `.env.example`
+- create `README.md`
+
+Rules:
+- root `package.json` should expose top-level scripts only for orchestration
+- do not dump app-specific scripts into the root unless they are cross-workspace wrappers
+- pin Node and pnpm versions in `package.json` engines or `.nvmrc` later if needed
+
+Recommended root scripts:
+- `dev`
+- `build`
+- `typecheck`
+- `lint`
+- `test`
+- `db:migrate`
+- `db:generate`
+- `db:seed`
+- `format`
+
+### Task 0.2: Create shared config packages
+
+Files:
+- create `packages/config/typescript/base.json`
+- create `packages/config/typescript/node.json`
+- create `packages/config/typescript/react.json`
+- create `packages/config/eslint/base.cjs`
+- create `packages/config/eslint/react.cjs`
+- create `packages/config/package.json`
+
+Rules:
+- one place for tsconfig defaults
+- one place for eslint defaults
+- app packages extend shared config rather than copy-pasting local config sludge
+
+### Task 0.3: Create the contracts package
+
+Files:
+- create `packages/contracts/package.json`
+- create `packages/contracts/tsconfig.json`
+- create `packages/contracts/src/index.ts`
+- create `packages/contracts/src/common.ts`
+
+Initial contract scope:
+- shared pagination schema
+- shared API envelope types
+- shared ID/date/status schema helpers
+- auth/session DTOs can land in Slice 2
+
+Do not stuff domain logic in here. This package is for contracts, not “shared everything.”
+
+### Task 0.4: Bootstrap the API app
+
+Files:
+- create `apps/api/package.json`
+- create `apps/api/tsconfig.json`
+- create `apps/api/src/server.ts`
+- create `apps/api/src/app.ts`
+- create `apps/api/src/config/env.ts`
+- create `apps/api/src/lib/logger.ts`
+- create `apps/api/src/routes/health.routes.ts`
+
+Initial behavior:
+- Fastify server starts on configurable port
+- `/healthz` returns process health
+- `/readyz` checks DB reachability once DB is wired in Slice 1
+- env parsing is strict and fails startup loudly when broken
+
+### Task 0.5: Bootstrap the web app
+
+Files:
+- create `apps/web/package.json`
+- create `apps/web/tsconfig.json`
+- create `apps/web/vite.config.ts`
+- create `apps/web/index.html`
+- create `apps/web/src/main.tsx`
+- create `apps/web/src/app/router.tsx`
+- create `apps/web/src/app/providers.tsx`
+- create `apps/web/src/routes/__root.tsx`
+- create `apps/web/src/routes/index.tsx`
+- create `apps/web/src/styles/index.css`
+
+Initial behavior:
+- Vite dev server boots
+- root route renders a placeholder shell
+- TanStack Query provider is wired once
+- routing is in place without pretending the whole app exists yet
+
+### Task 0.6: Add Docker Compose for Postgres
+
+Files:
+- create `docker-compose.yml`
+- create `infra/docker/postgres/init.sql` only if absolutely needed
+
+Rules:
+- Postgres is the only required container in local dev for now
+- use a named volume
+- expose `5432`
+- add healthcheck
+- do not build a local app container yet unless deployment forces it
+
+### Task 0.7: Add baseline test and quality tooling
+
+Files:
+- create root and app-level config for Vitest and ESLint as needed
+- create `apps/api/src/app.test.ts`
+- create `apps/web/src/routes/index.test.tsx`
+- create `.github/workflows/ci.yml`
+
+Initial quality bar:
+- API test proves server can boot and answer `/healthz`
+- web test proves placeholder route renders
+- CI runs install, lint, typecheck, and tests
+
+### Task 0.8: Verify Slice 0
+
+Commands:
+```bash
+pnpm install
+docker compose up -d postgres
+pnpm dev
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
+Expected outcome:
+- install succeeds
+- Postgres container is healthy
+- API and web app boot without manual patching
+- lint/typecheck/tests pass
+
+### Slice 0 exit criteria
+- a fresh clone can boot in under 10 minutes
+- there is one obvious place for backend code, one for frontend code, and one for contracts
+- no fake abstractions were introduced “for later”
+
+---
+
+## 25. Detailed execution plan for Slice 1: database and schema foundation
+
+This slice is where the repo stops being scaffolding and starts being a product.
+
+### Outcome
+By the end of Slice 1:
+- Drizzle is wired to Postgres
+- migrations create the core auth and CRM tables
+- the repo can seed a usable demo org
+- DB readiness works
+- tests cover tenant scoping and schema assumptions where practical
+
+### Task 1.1: Add DB dependencies and config
+
+Files:
+- modify `apps/api/package.json`
+- create `apps/api/drizzle.config.ts`
+- create `apps/api/src/db/client.ts`
+- create `apps/api/src/db/migrate.ts`
+
+Rules:
+- DB client creation lives in one place
+- use connection pooling appropriate for Node server usage
+- env-driven connection string only; do not scatter DB config across files
+
+### Task 1.2: Define shared table primitives
+
+Files:
+- create `apps/api/src/db/schema/_shared.ts`
+
+Put the boring repeated columns here:
+- `id`
+- `organizationId`
+- `createdAt`
+- `updatedAt`
+- `archivedAt`
+
+But do not get too clever. Shared helpers should remove repetition, not obscure schema meaning.
+
+### Task 1.3: Create auth/core schema
+
+Files:
+- create `apps/api/src/db/schema/core.ts`
+- create `apps/api/src/db/schema/auth.ts`
+
+Tables:
+- `organizations`
+- `users`
+- `organization_memberships`
+- `sessions`
+
+Important constraints:
+- unique user email
+- unique org slug
+- unique membership on `(organization_id, user_id)`
+- session token hash or opaque session ID stored safely
+
+### Task 1.4: Create CRM schema
+
+Files:
+- create `apps/api/src/db/schema/crm.ts`
+
+Tables:
+- `companies`
+- `contacts`
+- `contact_company_links`
+- `deal_stages`
+- `deals`
+- `notes`
+- `tasks`
+- `activities`
+
+Rules:
+- every tenant-owned table carries `organization_id`
+- foreign keys should be explicit where structurally possible
+- indexes should reflect the query plan in this document, not guesswork from a blog post
+
+### Task 1.5: Generate and review the initial migration
+
+Files:
+- create `apps/api/src/db/migrations/*`
+
+Rules:
+- generate migration from schema definitions
+- inspect the SQL instead of blindly trusting the generator
+- make sure index names and constraint names are readable
+- if the generated SQL is ugly or wrong, fix it before shipping
+
+### Task 1.6: Add DB readiness and startup integration
+
+Files:
+- modify `apps/api/src/app.ts`
+- modify `apps/api/src/routes/health.routes.ts`
+
+Behavior:
+- `/healthz` should return process-up regardless of DB state
+- `/readyz` should fail if DB cannot be reached
+- startup logs should print enough to diagnose DB config problems fast
+
+### Task 1.7: Create seed script
+
+Files:
+- create `apps/api/src/db/seed.ts`
+
+Seed content:
+- dev org and users from Section 20
+- default deal stages
+- small sample CRM dataset
+
+Rules:
+- seed should be re-runnable without exploding
+- passwords must be hashed the same way production auth will hash them
+- print seeded credentials and org info clearly at the end
+
+### Task 1.8: Add repository smoke tests around DB assumptions
+
+Files:
+- create `apps/api/tests/integration/db-schema.test.ts`
+- create `apps/api/tests/integration/tenant-isolation.test.ts`
+
+Minimum tests:
+- migration-applied schema can insert a user/org/membership tuple
+- duplicate membership is rejected
+- cross-org linked data is rejected by service validation or constraints where relevant
+- archived rows stay out of default active queries once repositories exist
+
+### Task 1.9: Verify Slice 1
+
+Commands:
+```bash
+docker compose up -d postgres
+pnpm db:generate
+pnpm db:migrate
+pnpm db:seed
+pnpm test
+```
+
+Expected outcome:
+- migration runs cleanly on empty DB
+- seed completes cleanly
+- seeded credentials are printed
+- readiness endpoint passes with DB up
+- tests pass
+
+### Slice 1 exit criteria
+- schema matches the domain model in this document
+- local DB setup is boring and repeatable
+- the repo is ready for auth implementation without backtracking on core table design
+
+---
+
+## 26. Non-negotiable implementation rules for the first build phase
+
+These rules prevent stupid drift early.
+
+- no branchy speculative architecture work before Slice 0 and 1 are real
+- no generic repository base class unless it materially simplifies real code already written
+- no codegen-heavy API client workflow for MVP
+- no Redis, queues, cron workers, or websocket layer unless a real feature forces them
+- no soft-deleting users or org memberships without a clearly defined behavior model
+- no mixing tenant resolution logic into random route handlers; centralize it
+- no frontend global store for CRUD data that TanStack Query already handles well
+- no unbounded list endpoints
+- no nullable chaos; if a field is optional, define why
+
+---
+
+## 27. What to document as the repo evolves
+
+`mvp.md` is the product/engineering plan. Keep it honest.
+
+As implementation begins, also add:
+- `README.md` for setup and daily dev workflow
+- `docs/adr/` for a few short architecture decisions if a decision becomes sticky
+- `docs/runbooks/local-development.md` if setup gets non-trivial
+- `docs/runbooks/release.md` once deployment exists
+
+Good ADR candidates:
+- why server-side sessions beat JWT for this repo
+- why modular monolith beats service sprawl here
+- why Postgres is the single source of truth for MVP
+
+If a decision stops being true, update the docs. Dead docs are worse than no docs.
