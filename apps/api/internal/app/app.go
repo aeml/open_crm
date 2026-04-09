@@ -17,6 +17,7 @@ import (
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
+	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -60,6 +61,12 @@ type dealsService interface {
 	UpdateStage(context.Context, int64, int64, int64, moduledeals.UpdateStageInput) (moduledeals.Detail, error)
 }
 
+type tasksService interface {
+	ListByOrganization(context.Context, int64, moduletasks.ListQuery) (moduletasks.ListResult, error)
+	Create(context.Context, int64, int64, moduletasks.CreateInput) (moduletasks.Detail, error)
+	Update(context.Context, int64, int64, int64, moduletasks.UpdateInput) (moduletasks.Detail, error)
+}
+
 type orgProfileService interface {
 	GetByOrganizationID(context.Context, int64) (moduleorgprofile.Detail, error)
 	UpdateByOrganizationID(context.Context, int64, int64, moduleorgprofile.UpdateInput) (moduleorgprofile.Detail, error)
@@ -76,6 +83,7 @@ type Dependencies struct {
 	ContactsService   contactsService
 	CompaniesService  companiesService
 	DealsService      dealsService
+	TasksService      tasksService
 	OrgProfileService orgProfileService
 	OnboardingService onboardingService
 }
@@ -209,6 +217,25 @@ type dealRequest struct {
 	OwnerUserID       int64  `json:"ownerUserId"`
 }
 
+type taskCreateRequest struct {
+	EntityType       string `json:"entityType"`
+	EntityID         int64  `json:"entityId"`
+	Title            string `json:"title"`
+	Description      string `json:"description"`
+	Status           string `json:"status"`
+	DueAt            string `json:"dueAt"`
+	AssignedToUserID int64  `json:"assignedToUserId"`
+}
+
+type taskUpdateRequest struct {
+	Title            string `json:"title"`
+	Description      string `json:"description"`
+	Status           string `json:"status"`
+	DueAt            string `json:"dueAt"`
+	CompletedAt      string `json:"completedAt"`
+	AssignedToUserID int64  `json:"assignedToUserId"`
+}
+
 type dealStageUpdateRequest struct {
 	StageID int64 `json:"stageId"`
 }
@@ -244,6 +271,26 @@ type dealDetailResponse struct {
 
 type organizationProfileRequest struct {
 	BusinessType string `json:"businessType"`
+}
+
+type tasksListResponse struct {
+	Data struct {
+		Tasks []moduletasks.Summary `json:"tasks"`
+		Meta  moduletasks.ListMeta  `json:"meta"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type taskDetailResponse struct {
+	Data struct {
+		Task       moduletasks.Summary         `json:"task"`
+		Activities []moduletasks.ActivityEntry `json:"activities"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
 }
 
 type organizationProfileResponse struct {
@@ -321,6 +368,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}/stage", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateDealStage(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("GET /api/tasks", func(w http.ResponseWriter, r *http.Request) {
+		handleListTasks(dependencies.AuthService, dependencies.TasksService, w, r)
+	})
+	mux.HandleFunc("POST /api/tasks", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateTask(dependencies.AuthService, dependencies.TasksService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/tasks/{taskID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateTask(dependencies.AuthService, dependencies.TasksService, w, r)
 	})
 	mux.HandleFunc("GET /api/organization/profile", func(w http.ResponseWriter, r *http.Request) {
 		handleGetOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, w, r)
@@ -893,6 +949,88 @@ func handleUpdateDealStage(auth authService, deals dealsService, w http.Response
 	respondDealDetail(w, r, http.StatusOK, result)
 }
 
+func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if tasks == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Tasks service unavailable")
+		return
+	}
+
+	result, err := tasks.ListByOrganization(r.Context(), state.Organization.ID, moduletasks.ListQuery{
+		Search:     strings.TrimSpace(r.URL.Query().Get("q")),
+		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
+		EntityType: strings.TrimSpace(r.URL.Query().Get("entityType")),
+		Page:       parsePositiveInt(r.URL.Query().Get("page"), 1),
+		PageSize:   parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+	})
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load tasks")
+		return
+	}
+
+	response := tasksListResponse{}
+	response.Data.Tasks = result.Tasks
+	response.Data.Meta = result.Meta
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleCreateTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if tasks == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Tasks service unavailable")
+		return
+	}
+
+	input, ok := decodeTaskCreateRequest(w, r)
+	if !ok {
+		return
+	}
+	result, err := tasks.Create(r.Context(), state.Organization.ID, state.User.ID, input)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create task")
+		return
+	}
+
+	respondTaskDetail(w, r, http.StatusCreated, result)
+}
+
+func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if tasks == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Tasks service unavailable")
+		return
+	}
+
+	taskID, ok := parsePathInt64(w, r, "taskID")
+	if !ok {
+		return
+	}
+	input, decoded := decodeTaskUpdateRequest(w, r)
+	if !decoded {
+		return
+	}
+	result, err := tasks.Update(r.Context(), state.Organization.ID, taskID, state.User.ID, input)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update task")
+		return
+	}
+
+	respondTaskDetail(w, r, http.StatusOK, result)
+}
+
 func handleGetOrganizationProfile(auth authService, profiles orgProfileService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, err := requireCurrentSession(auth, r)
@@ -993,6 +1131,47 @@ func decodeCompanyRequest(w http.ResponseWriter, r *http.Request) (modulecompani
 	return input, true
 }
 
+func decodeTaskCreateRequest(w http.ResponseWriter, r *http.Request) (moduletasks.CreateInput, bool) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	var request taskCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return moduletasks.CreateInput{}, false
+	}
+	input := moduletasks.CreateInput{
+		EntityType:       strings.TrimSpace(request.EntityType),
+		EntityID:         request.EntityID,
+		Title:            strings.TrimSpace(request.Title),
+		Description:      strings.TrimSpace(request.Description),
+		Status:           strings.TrimSpace(request.Status),
+		DueAt:            strings.TrimSpace(request.DueAt),
+		AssignedToUserID: request.AssignedToUserID,
+	}
+	if input.EntityType == "" || input.EntityID <= 0 || input.Title == "" {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Entity type, entity id, and title are required")
+		return moduletasks.CreateInput{}, false
+	}
+	return input, true
+}
+
+func decodeTaskUpdateRequest(w http.ResponseWriter, r *http.Request) (moduletasks.UpdateInput, bool) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	var request taskUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return moduletasks.UpdateInput{}, false
+	}
+	input := moduletasks.UpdateInput{
+		Title:            strings.TrimSpace(request.Title),
+		Description:      strings.TrimSpace(request.Description),
+		Status:           strings.TrimSpace(request.Status),
+		DueAt:            strings.TrimSpace(request.DueAt),
+		CompletedAt:      strings.TrimSpace(request.CompletedAt),
+		AssignedToUserID: request.AssignedToUserID,
+	}
+	return input, true
+}
+
 func respondContactDetail(w http.ResponseWriter, r *http.Request, statusCode int, detail modulecontacts.Detail) {
 	response := contactDetailResponse{}
 	response.Data.Contact = detail.Summary
@@ -1015,6 +1194,14 @@ func respondCompanyDetail(w http.ResponseWriter, r *http.Request, statusCode int
 func respondDealDetail(w http.ResponseWriter, r *http.Request, statusCode int, detail moduledeals.Detail) {
 	response := dealDetailResponse{}
 	response.Data.Deal = detail.Summary
+	response.Data.Activities = detail.Activities
+	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteJSON(w, statusCode, response)
+}
+
+func respondTaskDetail(w http.ResponseWriter, r *http.Request, statusCode int, detail moduletasks.Detail) {
+	response := taskDetailResponse{}
+	response.Data.Task = detail.Task
 	response.Data.Activities = detail.Activities
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)

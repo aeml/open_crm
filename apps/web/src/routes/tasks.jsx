@@ -1,49 +1,306 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Card } from '../components/ui/card'
+import { Button } from '../components/ui/button'
+import { Field } from '../components/ui/field'
+import { createTask, listTasks, updateTask } from '../lib/tasks'
 
-const tasks = [
-  {
-    title: 'Call Morgan about rollout timing',
-    due: 'Today · 11:00 AM',
-    owner: 'Owner'
-  },
-  {
-    title: 'Send Atlas redlines',
-    due: 'Today · 2:30 PM',
-    owner: 'Admin'
-  },
-  {
-    title: 'Prep Bluebird onboarding checklist',
-    due: 'Tomorrow · 9:00 AM',
-    owner: 'Member'
+const emptyForm = {
+  title: '',
+  entityType: 'deal',
+  entityId: '',
+  description: '',
+  status: 'open',
+  dueAt: '',
+  completedAt: '',
+  assignedToUserId: ''
+}
+
+function formatDueLabel(task) {
+  if (task.completedAt) {
+    return `Completed ${new Date(task.completedAt).toLocaleString()}`
   }
-]
+  if (!task.dueAt) {
+    return 'No due date'
+  }
+  return `Due ${new Date(task.dueAt).toLocaleString()}`
+}
 
 export function TasksRoute() {
+  const [tasks, setTasks] = useState([])
+  const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('open')
+  const [selectedTaskId, setSelectedTaskId] = useState(null)
+  const [detail, setDetail] = useState(null)
+  const [detailCache, setDetailCache] = useState({})
+  const [form, setForm] = useState(emptyForm)
+  const [error, setError] = useState('')
+
+  const selectedTask = detail?.task || null
+  const selectedActivities = detail?.activities || []
+
+  async function loadTasks(nextSearch = search, nextStatus = statusFilter) {
+    const data = await listTasks({ search: nextSearch, status: nextStatus })
+    setTasks(data.tasks || [])
+    setMeta(data.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function run() {
+      try {
+        await loadTasks('', 'open')
+        if (!cancelled) {
+          setError('')
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || 'Unable to load tasks.')
+        }
+      }
+    }
+
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function handleSearchChange(event) {
+    const value = event.target.value
+    setSearch(value)
+    try {
+      await loadTasks(value, statusFilter)
+      setError('')
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load tasks.')
+    }
+  }
+
+  async function handleToggleStatus(nextStatus) {
+    setStatusFilter(nextStatus)
+    try {
+      await loadTasks(search, nextStatus)
+      setError('')
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load tasks.')
+    }
+  }
+
+  function syncTaskIntoState(task, activities) {
+    setDetailCache((current) => ({ ...current, [task.id]: { task, activities } }))
+    setDetail({ task, activities })
+    setSelectedTaskId(task.id)
+    setForm({
+      title: task.title || '',
+      entityType: task.entityType || 'deal',
+      entityId: String(task.entityId || ''),
+      description: task.description || '',
+      status: task.status || 'open',
+      dueAt: task.dueAt ? task.dueAt.slice(0, 16) : '',
+      completedAt: task.completedAt ? task.completedAt.slice(0, 16) : '',
+      assignedToUserId: task.assignedToUserId ? String(task.assignedToUserId) : ''
+    })
+  }
+
+  async function handleCreate(event) {
+    event.preventDefault()
+    try {
+      const data = await createTask({
+        entityType: form.entityType,
+        entityId: Number.parseInt(form.entityId, 10),
+        title: form.title,
+        description: form.description,
+        status: form.status,
+        dueAt: form.dueAt ? `${form.dueAt}:00Z` : '',
+        assignedToUserId: Number.parseInt(form.assignedToUserId, 10) || 0
+      })
+      const nextTasks = [data.task, ...tasks.filter((task) => task.id !== data.task.id)]
+      setTasks(nextTasks)
+      setMeta((current) => ({ ...current, total: current.total + 1, openCount: current.openCount + (data.task.status === 'completed' ? 0 : 1), completedCount: current.completedCount + (data.task.status === 'completed' ? 1 : 0) }))
+      syncTaskIntoState(data.task, data.activities || [])
+      setError('')
+    } catch (saveError) {
+      setError(saveError.message || 'Unable to create task.')
+    }
+  }
+
+  async function handleUpdate(event) {
+    event.preventDefault()
+    if (!selectedTaskId) {
+      return
+    }
+
+    try {
+      const data = await updateTask(selectedTaskId, {
+        title: form.title,
+        description: form.description,
+        status: form.status,
+        dueAt: form.dueAt ? `${form.dueAt}:00Z` : '',
+        completedAt: form.completedAt ? `${form.completedAt}:00Z` : '',
+        assignedToUserId: Number.parseInt(form.assignedToUserId, 10) || 0
+      })
+      setTasks((current) => current.map((task) => (task.id === selectedTaskId ? data.task : task)))
+      syncTaskIntoState(data.task, data.activities || [])
+      setError('')
+    } catch (saveError) {
+      setError(saveError.message || 'Unable to update task.')
+    }
+  }
+
+  async function handleOpenTask(task) {
+    const cached = detailCache[task.id]
+    if (cached) {
+      syncTaskIntoState(cached.task, cached.activities || [])
+      return
+    }
+
+    syncTaskIntoState(task, [])
+  }
+
+  const summaryLabel = useMemo(() => (statusFilter === 'completed' ? 'Completed tasks' : 'Open tasks'), [statusFilter])
+
   return (
-    <section className="dashboard-grid">
+    <section className="dashboard-grid contacts-grid">
       <Card>
         <div className="card-stack">
           <div className="section-header">
             <div>
               <h2>Tasks</h2>
-              <p>Next actions stay visible so the team does the work.</p>
+              <p>Keep the next real action visible and close it cleanly.</p>
+            </div>
+            <div className="button-row">
+              <Button className={statusFilter === 'open' ? '' : 'button-secondary'} onClick={() => handleToggleStatus('open')}>Show open</Button>
+              <Button className={statusFilter === 'completed' ? '' : 'button-secondary'} onClick={() => handleToggleStatus('completed')}>Show completed</Button>
             </div>
           </div>
+          <div className="record-list" role="list" aria-label="Task summary list">
+            <article className="record-row" role="listitem">
+              <div>
+                <p>Open tasks</p>
+              </div>
+              <div>
+                <p>{meta.openCount}</p>
+              </div>
+            </article>
+            <article className="record-row" role="listitem">
+              <div>
+                <p>Completed tasks</p>
+              </div>
+              <div>
+                <p>{meta.completedCount}</p>
+              </div>
+            </article>
+          </div>
+          <Field label="Search tasks">
+            <input className="text-input" value={search} onChange={handleSearchChange} />
+          </Field>
+          {error ? <p className="form-error">{error}</p> : null}
+          <h3>{summaryLabel}</h3>
           <div className="record-list" role="list" aria-label="Tasks list">
             {tasks.map((task) => (
-              <article className="record-row" key={task.title} role="listitem">
+              <article className="record-row" key={task.id} role="listitem">
                 <div>
-                  <h3>{task.title}</h3>
-                  <p>{task.due}</p>
+                  <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenTask(task)}>
+                    {task.title}
+                  </button>
+                  <p>{task.entityLabel || `${task.entityType} #${task.entityId}`}</p>
                 </div>
                 <div>
-                  <p>{task.owner}</p>
+                  <p>{task.assignedToUserName || 'Unassigned'}</p>
+                  <p>{formatDueLabel(task)}</p>
                 </div>
               </article>
             ))}
           </div>
         </div>
       </Card>
+
+      <Card>
+        <div className="card-stack">
+          <div>
+            <h2>New task</h2>
+            <p>Assign work against a contact, company, or deal.</p>
+          </div>
+          <form className="auth-form" onSubmit={handleCreate}>
+            <Field label="Task title">
+              <input className="text-input" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} required />
+            </Field>
+            <Field label="Entity type">
+              <select className="text-input" value={form.entityType} onChange={(event) => setForm((current) => ({ ...current, entityType: event.target.value }))}>
+                <option value="deal">Deal</option>
+                <option value="company">Company</option>
+                <option value="contact">Contact</option>
+              </select>
+            </Field>
+            <Field label="Entity ID">
+              <input className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required />
+            </Field>
+            <Field label="Description">
+              <textarea className="text-input" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
+            </Field>
+            <Field label="Assigned to user ID">
+              <input className="text-input" value={form.assignedToUserId} onChange={(event) => setForm((current) => ({ ...current, assignedToUserId: event.target.value }))} />
+            </Field>
+            <Field label="Due at">
+              <input className="text-input" type="datetime-local" value={form.dueAt} onChange={(event) => setForm((current) => ({ ...current, dueAt: event.target.value }))} />
+            </Field>
+            <Button type="submit">Save task</Button>
+          </form>
+        </div>
+      </Card>
+
+      {selectedTask ? (
+        <Card>
+          <div className="card-stack">
+            <div className="section-header">
+              <div>
+                <h2>{selectedTask.title}</h2>
+                <p>{selectedTask.entityLabel || `${selectedTask.entityType} #${selectedTask.entityId}`}</p>
+              </div>
+            </div>
+            <form className="auth-form" onSubmit={handleUpdate}>
+              <Field label="Task title">
+                <input className="text-input" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} required />
+              </Field>
+              <Field label="Description">
+                <textarea className="text-input" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
+              </Field>
+              <Field label="Assigned to user ID">
+                <input className="text-input" value={form.assignedToUserId} onChange={(event) => setForm((current) => ({ ...current, assignedToUserId: event.target.value }))} />
+              </Field>
+              <Field label="Status">
+                <select className="text-input" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
+                  <option value="open">Open</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </Field>
+              <Field label="Due at">
+                <input className="text-input" type="datetime-local" value={form.dueAt} onChange={(event) => setForm((current) => ({ ...current, dueAt: event.target.value }))} />
+              </Field>
+              <Field label="Completed at">
+                <input className="text-input" type="datetime-local" value={form.completedAt} onChange={(event) => setForm((current) => ({ ...current, completedAt: event.target.value }))} />
+              </Field>
+              <Button type="submit">Update task</Button>
+            </form>
+            <Card>
+              <div className="card-stack">
+                <h3>Activity</h3>
+                <div className="record-list" role="list" aria-label="Task activity list">
+                  {selectedActivities.map((activity) => (
+                    <article className="record-row" key={activity.id} role="listitem">
+                      <div>
+                        <p>{activity.summary}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          </div>
+        </Card>
+      ) : null}
     </section>
   )
 }
