@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/aeml/open_crm/apps/api/internal/config"
 )
 
 type healthzResponse struct {
@@ -17,7 +19,7 @@ type healthzResponse struct {
 }
 
 func TestNewServerHealthz(t *testing.T) {
-	server := NewServer()
+	server := NewServer(config.Env{})
 
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	recorder := httptest.NewRecorder()
@@ -47,5 +49,44 @@ func TestNewServerHealthz(t *testing.T) {
 
 	if response.Meta.RequestID == "" {
 		t.Fatal("expected response meta.requestId to be populated")
+	}
+}
+
+func TestNewServerPreflightAllowsConfiguredOrigin(t *testing.T) {
+	env := config.Env{AllowedOrigins: []string{"https://mendola.tech"}}
+	server := NewServer(env)
+
+	request := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
+	request.Header.Set("Origin", "https://mendola.tech")
+	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "https://mendola.tech" {
+		t.Fatalf("expected allowed origin header to match request origin, got %q", got)
+	}
+
+	if got := recorder.Header().Get("Vary"); got == "" {
+		t.Fatal("expected Vary header to be set for CORS response")
+	}
+}
+
+func TestNewServerDoesNotAllowUnknownOrigin(t *testing.T) {
+	env := config.Env{AllowedOrigins: []string{"https://mendola.tech"}}
+	server := NewServer(env)
+
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request.Header.Set("Origin", "https://evil.example")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("expected no allow-origin header for disallowed origin, got %q", got)
 	}
 }

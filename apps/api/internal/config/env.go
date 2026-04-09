@@ -1,9 +1,13 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 type Env struct {
-	Port string
+	Port           string
+	AllowedOrigins []string
 }
 
 func Load() Env {
@@ -12,9 +16,30 @@ func Load() Env {
 		port = "8080"
 	}
 
-	return Env{Port: port}
+	return Env{
+		Port:           port,
+		AllowedOrigins: parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
+	}
 }
 
 func (e Env) APIAddress() string {
 	return ":" + e.Port
+}
+
+func parseAllowedOrigins(value string) []string {
+	if value == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+	origins := make([]string, 0, len(parts))
+	for _, part := range parts {
+		origin := strings.TrimSpace(part)
+		if origin == "" {
+			continue
+		}
+		origins = append(origins, origin)
+	}
+
+	return origins
 }

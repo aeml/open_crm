@@ -12,7 +12,7 @@ func main() {
 	env := config.Load()
 	server := &http.Server{
 		Addr:    env.APIAddress(),
-		Handler: app.NewServer(),
+		Handler: app.NewServer(env),
 	}
 
 	log.Printf("open_crm api listening on %s", env.APIAddress())
