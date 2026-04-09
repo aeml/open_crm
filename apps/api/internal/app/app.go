@@ -6,11 +6,13 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -31,10 +33,19 @@ type usersService interface {
 	CreateForOrganization(context.Context, int64, moduleusers.CreateUserInput) (moduleusers.UserSummary, error)
 }
 
+type contactsService interface {
+	ListByOrganization(context.Context, int64, modulecontacts.ListQuery) (modulecontacts.ListResult, error)
+	GetByID(context.Context, int64, int64) (modulecontacts.Detail, error)
+	Create(context.Context, int64, int64, modulecontacts.CreateInput) (modulecontacts.Detail, error)
+	Update(context.Context, int64, int64, int64, modulecontacts.UpdateInput) (modulecontacts.Detail, error)
+	Archive(context.Context, int64, int64, int64) error
+}
+
 type Dependencies struct {
-	CheckReadiness func(context.Context) error
-	AuthService    authService
-	UsersService   usersService
+	CheckReadiness  func(context.Context) error
+	AuthService     authService
+	UsersService    usersService
+	ContactsService contactsService
 }
 
 type statusResponse struct {
@@ -83,6 +94,37 @@ type userResponse struct {
 	} `json:"meta"`
 }
 
+type contactRequest struct {
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Email     string `json:"email"`
+	Phone     string `json:"phone"`
+	JobTitle  string `json:"jobTitle"`
+	Status    string `json:"status"`
+}
+
+type contactsListResponse struct {
+	Data struct {
+		Contacts []modulecontacts.Summary `json:"contacts"`
+		Meta     modulecontacts.ListMeta  `json:"meta"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type contactDetailResponse struct {
+	Data struct {
+		Contact    modulecontacts.Summary         `json:"contact"`
+		Notes      []modulecontacts.NoteEntry     `json:"notes"`
+		Tasks      []modulecontacts.TaskEntry     `json:"tasks"`
+		Activities []modulecontacts.ActivityEntry `json:"activities"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	dependencies := Dependencies{}
 	if len(deps) > 0 {
@@ -104,6 +146,21 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateUser(dependencies.AuthService, dependencies.UsersService, w, r)
+	})
+	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
+		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)
+	})
+	mux.HandleFunc("POST /api/contacts", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateContact(dependencies.AuthService, dependencies.ContactsService, w, r)
+	})
+	mux.HandleFunc("GET /api/contacts/{contactID}", func(w http.ResponseWriter, r *http.Request) {
+		handleGetContact(dependencies.AuthService, dependencies.ContactsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/contacts/{contactID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateContact(dependencies.AuthService, dependencies.ContactsService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/contacts/{contactID}", func(w http.ResponseWriter, r *http.Request) {
+		handleArchiveContact(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		respondStatus(w, r, http.StatusOK, "ok")
@@ -262,6 +319,185 @@ func handleCreateUser(auth authService, users usersService, w http.ResponseWrite
 	response.Data.User = created
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusCreated, response)
+}
+
+func handleListContacts(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if contacts == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
+		return
+	}
+
+	query := modulecontacts.ListQuery{
+		Search:   strings.TrimSpace(r.URL.Query().Get("q")),
+		Page:     parsePositiveInt(r.URL.Query().Get("page"), 1),
+		PageSize: parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+	}
+	result, err := contacts.ListByOrganization(r.Context(), state.Organization.ID, query)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load contacts")
+		return
+	}
+
+	response := contactsListResponse{}
+	response.Data.Contacts = result.Contacts
+	response.Data.Meta = result.Meta
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleGetContact(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if contacts == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
+		return
+	}
+
+	contactID, ok := parsePathInt64(w, r, "contactID")
+	if !ok {
+		return
+	}
+	result, err := contacts.GetByID(r.Context(), state.Organization.ID, contactID)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load contact")
+		return
+	}
+
+	respondContactDetail(w, r, http.StatusOK, result)
+}
+
+func handleCreateContact(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if contacts == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
+		return
+	}
+
+	input, ok := decodeContactRequest(w, r)
+	if !ok {
+		return
+	}
+	result, err := contacts.Create(r.Context(), state.Organization.ID, state.User.ID, input)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create contact")
+		return
+	}
+
+	respondContactDetail(w, r, http.StatusCreated, result)
+}
+
+func handleUpdateContact(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if contacts == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
+		return
+	}
+
+	contactID, ok := parsePathInt64(w, r, "contactID")
+	if !ok {
+		return
+	}
+	input, decoded := decodeContactRequest(w, r)
+	if !decoded {
+		return
+	}
+	result, err := contacts.Update(r.Context(), state.Organization.ID, contactID, state.User.ID, modulecontacts.UpdateInput(input))
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update contact")
+		return
+	}
+
+	respondContactDetail(w, r, http.StatusOK, result)
+}
+
+func handleArchiveContact(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if contacts == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
+		return
+	}
+
+	contactID, ok := parsePathInt64(w, r, "contactID")
+	if !ok {
+		return
+	}
+	if err := contacts.Archive(r.Context(), state.Organization.ID, contactID, state.User.ID); err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to archive contact")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func decodeContactRequest(w http.ResponseWriter, r *http.Request) (modulecontacts.CreateInput, bool) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	var request contactRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return modulecontacts.CreateInput{}, false
+	}
+	input := modulecontacts.CreateInput{
+		FirstName: strings.TrimSpace(request.FirstName),
+		LastName:  strings.TrimSpace(request.LastName),
+		Email:     strings.TrimSpace(request.Email),
+		Phone:     strings.TrimSpace(request.Phone),
+		JobTitle:  strings.TrimSpace(request.JobTitle),
+		Status:    strings.TrimSpace(request.Status),
+	}
+	if input.FirstName == "" || input.LastName == "" {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "First name and last name are required")
+		return modulecontacts.CreateInput{}, false
+	}
+	return input, true
+}
+
+func respondContactDetail(w http.ResponseWriter, r *http.Request, statusCode int, detail modulecontacts.Detail) {
+	response := contactDetailResponse{}
+	response.Data.Contact = detail.Summary
+	response.Data.Notes = detail.Notes
+	response.Data.Tasks = detail.Tasks
+	response.Data.Activities = detail.Activities
+	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteJSON(w, statusCode, response)
+}
+
+func parsePathInt64(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	value := strings.TrimSpace(r.PathValue(name))
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid resource id")
+		return 0, false
+	}
+	return parsed, true
+}
+
+func parsePositiveInt(value string, fallback int) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func requireOrgAdmin(auth authService, w http.ResponseWriter, r *http.Request) (moduleauth.SessionState, bool) {

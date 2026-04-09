@@ -23,6 +23,24 @@
   background: var(--accent-strong);
 }
 
+.button-ghost {
+  background: transparent;
+  color: var(--accent);
+  padding: 0;
+  border-radius: 0;
+}
+
+.button-danger {
+  background: #b42318;
+  color: white;
+}
+
+.contact-link {
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: left;
+}
+
 .eyebrow {
   margin: 0 0 var(--space-1);
   color: var(--accent);

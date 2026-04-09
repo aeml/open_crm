@@ -9,6 +9,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	"github.com/aeml/open_crm/apps/api/internal/db"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 )
 
@@ -21,6 +22,7 @@ func main() {
 
 	var authService *moduleauth.Service
 	var usersService *moduleusers.Service
+	var contactsService *modulecontacts.Service
 	if dbConfigErr == nil {
 		pool, err := db.NewPool(context.Background(), dbConfig)
 		if err != nil {
@@ -29,6 +31,7 @@ func main() {
 			defer pool.Close()
 			authService = moduleauth.NewService(pool)
 			usersService = moduleusers.NewService(pool)
+			contactsService = modulecontacts.NewService(pool)
 		}
 	}
 
@@ -41,8 +44,9 @@ func main() {
 				}
 				return db.CheckReadiness(ctx, dbConfig)
 			},
-			AuthService:  authService,
-			UsersService: usersService,
+			AuthService:     authService,
+			UsersService:    usersService,
+			ContactsService: contactsService,
 		}),
 	}
 
