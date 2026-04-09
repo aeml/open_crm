@@ -8,7 +8,7 @@ import (
 
 func TestLoadUsesProductionPortAndAllowedOrigins(t *testing.T) {
 	t.Setenv("API_PORT", "18089")
-	t.Setenv("ALLOWED_ORIGINS", "https://mendola.tech,https://www.mendola.tech")
+	t.Setenv("ALLOWED_ORIGINS", "https://crm.mendola.tech")
 
 	env := Load()
 
@@ -16,7 +16,7 @@ func TestLoadUsesProductionPortAndAllowedOrigins(t *testing.T) {
 		t.Fatalf("expected port 18089, got %q", env.Port)
 	}
 
-	expectedOrigins := []string{"https://mendola.tech", "https://www.mendola.tech"}
+	expectedOrigins := []string{"https://crm.mendola.tech"}
 	if !reflect.DeepEqual(env.AllowedOrigins, expectedOrigins) {
 		t.Fatalf("expected allowed origins %v, got %v", expectedOrigins, env.AllowedOrigins)
 	}

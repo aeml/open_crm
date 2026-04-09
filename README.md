@@ -29,10 +29,10 @@ Example `DEPLOY_ENV` contents:
 ```env
 POSTGRES_DB=open_crm
 POSTGRES_USER=open_crm
-POSTGRES_PASSWORD=change-me
+POSTGRES_PASSWORD=***
 API_PORT=18089
-SESSION_COOKIE_SECRET=change-me
-ALLOWED_ORIGINS=https://mendola.tech,https://www.mendola.tech
+SESSION_COOKIE_SECRET=***
+ALLOWED_ORIGINS=https://crm.mendola.tech
 GO_ENV=production
 ```
 
@@ -44,24 +44,24 @@ Remote host requirements:
 ## Production backend host
 
 The Go API should be exposed publicly as:
-- `https://crmserver.mendola.tech`
+- `https://crm.mendola.tech`
 
 The container should bind only on loopback on the server:
 - `127.0.0.1:18089 -> container:8080`
 
 That is the right shape. Let nginx face the internet. Do not expose the Go container directly on `0.0.0.0`.
 
-## Nginx config for crmserver.mendola.tech
+## Nginx config for crm.mendola.tech
 
 Create:
-- `/etc/nginx/sites-available/crmserver.mendola.tech`
+- `/etc/nginx/sites-available/crm.mendola.tech`
 
 Use this server block:
 ```nginx
 server {
     listen 80;
     listen [::]:80;
-    server_name crmserver.mendola.tech;
+    server_name crm.mendola.tech;
 
     location / {
         proxy_pass http://127.0.0.1:18089;
@@ -77,18 +77,18 @@ server {
 
 Enable it:
 ```bash
-sudo ln -s /etc/nginx/sites-available/crmserver.mendola.tech /etc/nginx/sites-enabled/crmserver.mendola.tech
+sudo ln -s /etc/nginx/sites-available/crm.mendola.tech /etc/nginx/sites-enabled/crm.mendola.tech
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
 ## SSL certificate with certbot
 
-Once DNS for `crmserver.mendola.tech` points to the server and nginx is serving port 80:
+Once DNS for `crm.mendola.tech` points to the server and nginx is serving port 80:
 ```bash
 sudo apt-get update
 sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d crmserver.mendola.tech
+sudo certbot --nginx -d crm.mendola.tech
 ```
 
 Then verify renewal timer exists:
@@ -121,12 +121,12 @@ Notes:
 
 Set this in `DEPLOY_ENV`:
 ```env
-ALLOWED_ORIGINS=https://mendola.tech,https://www.mendola.tech
+ALLOWED_ORIGINS=https://crm.mendola.tech
 ```
 
-That means the backend will only emit CORS allow headers for those frontend origins.
+That means the backend will only emit CORS allow headers for the CRM frontend origin.
 
-If your frontend ends up living on GitHub Pages instead of the apex domain, update it to the exact Pages origin, for example:
+If your frontend ends up living somewhere else later, update it to that exact origin, for example:
 ```env
 ALLOWED_ORIGINS=https://aeml.github.io
 ```

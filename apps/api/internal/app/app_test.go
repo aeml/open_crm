@@ -53,11 +53,11 @@ func TestNewServerHealthz(t *testing.T) {
 }
 
 func TestNewServerPreflightAllowsConfiguredOrigin(t *testing.T) {
-	env := config.Env{AllowedOrigins: []string{"https://mendola.tech"}}
+	env := config.Env{AllowedOrigins: []string{"https://crm.mendola.tech"}}
 	server := NewServer(env)
 
 	request := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
-	request.Header.Set("Origin", "https://mendola.tech")
+	request.Header.Set("Origin", "https://crm.mendola.tech")
 	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
 	recorder := httptest.NewRecorder()
 
@@ -67,7 +67,7 @@ func TestNewServerPreflightAllowsConfiguredOrigin(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
 	}
 
-	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "https://mendola.tech" {
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "https://crm.mendola.tech" {
 		t.Fatalf("expected allowed origin header to match request origin, got %q", got)
 	}
 
@@ -77,7 +77,7 @@ func TestNewServerPreflightAllowsConfiguredOrigin(t *testing.T) {
 }
 
 func TestNewServerDoesNotAllowUnknownOrigin(t *testing.T) {
-	env := config.Env{AllowedOrigins: []string{"https://mendola.tech"}}
+	env := config.Env{AllowedOrigins: []string{"https://crm.mendola.tech"}}
 	server := NewServer(env)
 
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
