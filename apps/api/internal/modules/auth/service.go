@@ -15,6 +15,23 @@ import (
 
 var ErrUnauthorized = errors.New("unauthorized")
 
+const credentialLookupSQL = `
+	SELECT u.id, u.email, u.password_hash
+	FROM users u
+	WHERE u.email = $1
+	LIMIT 1
+`
+
+const sessionStateByUserSQL = `
+	SELECT u.id, u.email, u.first_name, u.last_name, o.id, o.name, o.slug, o.business_type, om.role
+	FROM organization_memberships om
+	JOIN users u ON u.id = om.user_id
+	JOIN organizations o ON o.id = om.organization_id
+	WHERE om.user_id = $1
+	ORDER BY om.id ASC
+	LIMIT 1
+`
+
 type User struct {
 	ID        int64  `json:"id"`
 	Email     string `json:"email"`
@@ -57,37 +74,27 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 		return LoginResult{}, fmt.Errorf("auth service not configured")
 	}
 
-	email = strings.TrimSpace(email)
+	email = normalizeLoginEmail(email)
 	password = strings.TrimSpace(password)
 
 	var (
-		userID                   int64
-		storedEmail              string
-		passwordHash             string
-		firstName                string
-		lastName                 string
-		organizationID           int64
-		organizationName         string
-		organizationSlug         string
-		organizationBusinessType string
-		role                     string
+		userID       int64
+		storedEmail  string
+		passwordHash string
 	)
 
-	err := s.pool.QueryRow(ctx, `
-		SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, o.id, o.name, o.slug, o.business_type, om.role
-		FROM users u
-		JOIN organization_memberships om ON om.user_id = u.id
-		JOIN organizations o ON o.id = om.organization_id
-		WHERE lower(u.email) = lower($1)
-		ORDER BY om.id ASC
-		LIMIT 1
-	`, email).Scan(&userID, &storedEmail, &passwordHash, &firstName, &lastName, &organizationID, &organizationName, &organizationSlug, &organizationBusinessType, &role)
+	err := s.pool.QueryRow(ctx, credentialLookupSQL, email).Scan(&userID, &storedEmail, &passwordHash)
 	if err != nil {
 		return LoginResult{}, ErrUnauthorized
 	}
 
 	if !platformauth.CheckPassword(passwordHash, password) {
 		return LoginResult{}, ErrUnauthorized
+	}
+
+	state, err := s.loadSessionStateByUserID(ctx, userID)
+	if err != nil {
+		return LoginResult{}, err
 	}
 
 	token, err := platformauth.NewSessionToken()
@@ -99,18 +106,14 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO sessions (user_id, organization_id, token_hash, expires_at, created_at, last_seen_at)
 		VALUES ($1, $2, $3, NOW() + INTERVAL '30 days', NOW(), NOW())
-	`, userID, organizationID, tokenHash)
+	`, state.User.ID, state.Organization.ID, tokenHash)
 	if err != nil {
 		return LoginResult{}, fmt.Errorf("persist session: %w", err)
 	}
 
 	return LoginResult{
 		SessionToken: token,
-		State: SessionState{
-			User:         User{ID: userID, Email: storedEmail, FirstName: firstName, LastName: lastName},
-			Organization: Organization{ID: organizationID, Name: organizationName, Slug: organizationSlug, BusinessType: organizationBusinessType},
-			Membership:   Membership{Role: role},
-		},
+		State:        state,
 	}, nil
 }
 
@@ -179,4 +182,27 @@ func SeedPasswordHash(password string) (string, error) {
 
 func SeedSessionExpiry() time.Time {
 	return time.Now().Add(30 * 24 * time.Hour)
+}
+
+func normalizeLoginEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func (s *Service) loadSessionStateByUserID(ctx context.Context, userID int64) (SessionState, error) {
+	var state SessionState
+	err := s.pool.QueryRow(ctx, sessionStateByUserSQL, userID).Scan(
+		&state.User.ID,
+		&state.User.Email,
+		&state.User.FirstName,
+		&state.User.LastName,
+		&state.Organization.ID,
+		&state.Organization.Name,
+		&state.Organization.Slug,
+		&state.Organization.BusinessType,
+		&state.Membership.Role,
+	)
+	if err != nil {
+		return SessionState{}, ErrUnauthorized
+	}
+	return state, nil
 }
