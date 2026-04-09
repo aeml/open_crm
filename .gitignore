@@ -1,0 +1,6 @@
+.DS_Store
+.env
+apps/web/node_modules/
+apps/web/dist/
+apps/api/bin/
+*.log
