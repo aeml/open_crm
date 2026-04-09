@@ -1,3 +1,8 @@
+x-api-env: &api-env
+  API_PORT: 8080
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS is required}
+  DATABASE_URL: "postgres://${POSTGRES_USER:-open_crm}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-open_crm}?sslmode=disable"
+
 services:
   postgres:
     image: postgres:16
@@ -16,6 +21,20 @@ services:
       timeout: 5s
       retries: 5
 
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - .env.production
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["/app/open_crm_migrate"]
+    restart: "no"
+
   api:
     build:
       context: .
@@ -24,9 +43,7 @@ services:
     env_file:
       - .env.production
     environment:
-      API_PORT: 8080
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS is required}
-      DATABASE_URL: postgres://${POSTGRES_USER:-open_crm}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-open_crm}?sslmode=disable
+      <<: *api-env
     depends_on:
       postgres:
         condition: service_healthy

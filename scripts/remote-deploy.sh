@@ -14,5 +14,11 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-docker compose -f docker-compose.deploy.yml --env-file .env.production up -d --build --remove-orphans
-docker compose -f docker-compose.deploy.yml --env-file .env.production ps
+COMPOSE=(docker compose -f docker-compose.deploy.yml --env-file .env.production)
+
+"${COMPOSE[@]}" pull postgres || true
+"${COMPOSE[@]}" build api migrate
+"${COMPOSE[@]}" up -d postgres
+"${COMPOSE[@]}" run --rm migrate
+"${COMPOSE[@]}" up -d api --remove-orphans
+"${COMPOSE[@]}" ps

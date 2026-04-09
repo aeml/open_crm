@@ -14,6 +14,7 @@ import (
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
@@ -52,6 +53,13 @@ type companiesService interface {
 	Archive(context.Context, int64, int64, int64) error
 }
 
+type dealsService interface {
+	ListStagesByOrganization(context.Context, int64) ([]moduledeals.Stage, error)
+	ListByOrganization(context.Context, int64, moduledeals.ListQuery) (moduledeals.ListResult, error)
+	Create(context.Context, int64, int64, moduledeals.CreateInput) (moduledeals.Detail, error)
+	UpdateStage(context.Context, int64, int64, int64, moduledeals.UpdateStageInput) (moduledeals.Detail, error)
+}
+
 type orgProfileService interface {
 	GetByOrganizationID(context.Context, int64) (moduleorgprofile.Detail, error)
 	UpdateByOrganizationID(context.Context, int64, int64, moduleorgprofile.UpdateInput) (moduleorgprofile.Detail, error)
@@ -67,6 +75,7 @@ type Dependencies struct {
 	UsersService      usersService
 	ContactsService   contactsService
 	CompaniesService  companiesService
+	DealsService      dealsService
 	OrgProfileService orgProfileService
 	OnboardingService onboardingService
 }
@@ -188,6 +197,51 @@ type companyDetailResponse struct {
 	} `json:"meta"`
 }
 
+type dealRequest struct {
+	Name              string `json:"name"`
+	StageID           int64  `json:"stageId"`
+	CompanyID         int64  `json:"companyId"`
+	PrimaryContactID  int64  `json:"primaryContactId"`
+	Status            string `json:"status"`
+	ValueAmount       string `json:"valueAmount"`
+	ValueCurrency     string `json:"valueCurrency"`
+	ExpectedCloseDate string `json:"expectedCloseDate"`
+	OwnerUserID       int64  `json:"ownerUserId"`
+}
+
+type dealStageUpdateRequest struct {
+	StageID int64 `json:"stageId"`
+}
+
+type dealStagesResponse struct {
+	Data struct {
+		Stages []moduledeals.Stage `json:"stages"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type dealsListResponse struct {
+	Data struct {
+		Deals []moduledeals.Summary `json:"deals"`
+		Meta  moduledeals.ListMeta  `json:"meta"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type dealDetailResponse struct {
+	Data struct {
+		Deal       moduledeals.Summary         `json:"deal"`
+		Activities []moduledeals.ActivityEntry `json:"activities"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type organizationProfileRequest struct {
 	BusinessType string `json:"businessType"`
 }
@@ -255,6 +309,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/companies/{companyID}", func(w http.ResponseWriter, r *http.Request) {
 		handleArchiveCompany(dependencies.AuthService, dependencies.CompaniesService, w, r)
+	})
+	mux.HandleFunc("GET /api/deal-stages", func(w http.ResponseWriter, r *http.Request) {
+		handleListDealStages(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("GET /api/deals", func(w http.ResponseWriter, r *http.Request) {
+		handleListDeals(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("POST /api/deals", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/deals/{dealID}/stage", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateDealStage(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("GET /api/organization/profile", func(w http.ResponseWriter, r *http.Request) {
 		handleGetOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, w, r)
@@ -707,6 +773,126 @@ func handleArchiveCompany(auth authService, companies companiesService, w http.R
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func handleListDealStages(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	stages, err := deals.ListStagesByOrganization(r.Context(), state.Organization.ID)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load deal stages")
+		return
+	}
+
+	response := dealStagesResponse{}
+	response.Data.Stages = stages
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	result, err := deals.ListByOrganization(r.Context(), state.Organization.ID, moduledeals.ListQuery{
+		Search:      strings.TrimSpace(r.URL.Query().Get("q")),
+		StageID:     moduledeals.ParseInt64(r.URL.Query().Get("stageId")),
+		OwnerUserID: moduledeals.ParseInt64(r.URL.Query().Get("ownerUserId")),
+		Page:        parsePositiveInt(r.URL.Query().Get("page"), 1),
+		PageSize:    parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+	})
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load deals")
+		return
+	}
+
+	response := dealsListResponse{}
+	response.Data.Deals = result.Deals
+	response.Data.Meta = result.Meta
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleCreateDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	var request dealRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return
+	}
+
+	result, err := deals.Create(r.Context(), state.Organization.ID, state.User.ID, moduledeals.CreateInput{
+		Name:              strings.TrimSpace(request.Name),
+		StageID:           request.StageID,
+		CompanyID:         request.CompanyID,
+		PrimaryContactID:  request.PrimaryContactID,
+		Status:            strings.TrimSpace(request.Status),
+		ValueAmount:       strings.TrimSpace(request.ValueAmount),
+		ValueCurrency:     strings.TrimSpace(request.ValueCurrency),
+		ExpectedCloseDate: strings.TrimSpace(request.ExpectedCloseDate),
+		OwnerUserID:       request.OwnerUserID,
+	})
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create deal")
+		return
+	}
+
+	respondDealDetail(w, r, http.StatusCreated, result)
+}
+
+func handleUpdateDealStage(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	dealID, ok := parsePathInt64(w, r, "dealID")
+	if !ok {
+		return
+	}
+
+	var request dealStageUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return
+	}
+
+	result, err := deals.UpdateStage(r.Context(), state.Organization.ID, dealID, state.User.ID, moduledeals.UpdateStageInput{StageID: request.StageID})
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update deal stage")
+		return
+	}
+
+	respondDealDetail(w, r, http.StatusOK, result)
+}
+
 func handleGetOrganizationProfile(auth authService, profiles orgProfileService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, err := requireCurrentSession(auth, r)
@@ -821,6 +1007,14 @@ func respondCompanyDetail(w http.ResponseWriter, r *http.Request, statusCode int
 	response := companyDetailResponse{}
 	response.Data.Company = detail.Summary
 	response.Data.LinkedContacts = detail.LinkedContacts
+	response.Data.Activities = detail.Activities
+	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteJSON(w, statusCode, response)
+}
+
+func respondDealDetail(w http.ResponseWriter, r *http.Request, statusCode int, detail moduledeals.Detail) {
+	response := dealDetailResponse{}
+	response.Data.Deal = detail.Summary
 	response.Data.Activities = detail.Activities
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)

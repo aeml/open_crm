@@ -20,7 +20,9 @@ Frontend:
 - In the repo settings, set Pages to use GitHub Actions as the source and set the custom domain to `crm.mendola.tech`.
 
 Backend + database:
-- `.github/workflows/backend-deploy.yml` syncs the repo to `aeml@ssh.mendola.tech:~/open_crm`, writes `.env.production` from a GitHub secret, then runs `docker compose -f docker-compose.deploy.yml --env-file .env.production up -d --build` on the remote host.
+- `.github/workflows/backend-deploy.yml` syncs the repo to `aeml@ssh.mendola.tech:~/open_crm`, writes `.env.production` from a GitHub secret, then runs `scripts/remote-deploy.sh` on the remote host.
+- That deploy script preserves the Postgres named volume, rebuilds the API image, starts Postgres, runs migrations against the existing database, then starts the API.
+- Re-deploying does not wipe Postgres data unless someone explicitly deletes the `postgres_data` volume on the server.
 
 Required GitHub secrets:
 - `SSH_PRIVATE_KEY`
@@ -40,10 +42,22 @@ ALLOWED_ORIGINS=https://crm.mendola.tech
 GO_ENV=production
 ```
 
+Notes:
+- do not hardcode `DATABASE_URL` separately unless you want to; deploy compose derives it from the Postgres variables above
+- keep `POSTGRES_PASSWORD` and `SESSION_COOKIE_SECRET` set in the GitHub secret; without them deploys should fail loudly
+
 Remote host requirements:
 - Docker with Compose plugin installed
 - user `aeml` able to run Docker
 - repo deploy target directory `~/open_crm`
+- enough disk for Docker images plus the persistent `postgres_data` volume
+
+Deploy behavior on every push to `main`:
+- sync repo to server
+- rewrite `~/open_crm/.env.production` from `DEPLOY_ENV`
+- rebuild API and migration images
+- keep the existing Postgres volume mounted
+- run migrations before starting the API
 
 ## Production backend host
 
