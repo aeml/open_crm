@@ -1,27 +1,31 @@
 # Open CRM MVP Plan
 
-> For Hermes: implement this as small vertical slices on `main`. Start with a modular monolith backend, a separate web app, Postgres in Docker Compose, typed contracts, TDD for core domain logic, and boring infrastructure that is easy to debug at 3am.
+> For Hermes: build this as small vertical slices on `main`. Use a Go modular monolith for the backend, a JavaScript React app for the frontend, Postgres in Docker Compose, plain SQL where it stays readable, and a UI that feels clean without dragging in a circus of dependencies.
 
-Goal: ship a clean, production-capable CRM MVP for managing organizations, users, contacts, companies, deals, notes, tasks, and activity history without painting the repo into a corner.
+Goal: ship a production-capable CRM MVP for managing organizations, users, contacts, companies, deals, notes, tasks, and activity history without creating a repo that needs a support group.
 
-Architecture: use a simple monorepo with one backend service, one frontend app, and a small shared contracts package. Keep the backend as a modular monolith: clear domain modules, explicit service boundaries, single database, no fake microservices.
+Architecture: one Go API service, one JavaScript web app, one Postgres database. Keep the backend modular inside one process. Keep the frontend simple, fast, and visually polished with hand-rolled design primitives instead of a massive component stack.
 
 Tech stack:
-- Package manager: pnpm workspaces
-- Language: TypeScript everywhere
-- Web: React + Vite + TanStack Router + TanStack Query + React Hook Form + Zod + Tailwind
-- API: Fastify + Zod + Drizzle ORM + PostgreSQL
-- Auth: server-side sessions stored in Postgres, HttpOnly cookies, Argon2id password hashing
+- Backend language: Go 1.23+
+- Backend HTTP: Go stdlib `net/http` with `ServeMux`
+- Backend DB access: `pgx/v5` with explicit SQL and small repositories
+- Auth: server-side sessions stored in Postgres, signed opaque session cookie, Argon2id password hashing
 - Database: PostgreSQL 16 via Docker Compose
-- Testing: Vitest, Testing Library, Playwright for critical flows, supertest for API integration
-- Tooling: ESLint, Prettier, Husky optional later, GitHub Actions CI
+- Frontend language: JavaScript
+- Frontend UI: React + Vite + React Router + plain CSS
+- Frontend data access: `fetch` with a thin API client, no heavy state library
+- Testing: Go `testing` + `httptest`, Vitest + Testing Library, Playwright only for a few critical flows later
+- Tooling: `go`, `npm`, Docker Compose, GitHub Actions, `make` for top-level orchestration
+
+Guiding principle: minimal dependencies does not mean ugly. It means every dependency has to earn its existence.
 
 ---
 
 ## 1. Product scope
 
 This MVP should do a few things well:
-- manage organizations/workspaces
+- manage organizations and memberships
 - manage users and roles inside an organization
 - manage contacts
 - manage companies
@@ -29,7 +33,7 @@ This MVP should do a few things well:
 - manage deals/opportunities with stages and values
 - attach notes and tasks to contacts, companies, and deals
 - maintain a visible activity timeline for writes
-- support search, filtering, and simple dashboard counts
+- support search, filtering, and basic dashboard counts
 
 Do not overbuild v1.
 
@@ -38,30 +42,49 @@ Explicit non-goals for MVP:
 - email sync
 - calendar sync
 - custom workflow engine
-- public API versioning guarantees
 - mobile app
-- event bus / Kafka / service mesh nonsense
+- event bus / queue sprawl
+- microservices
+- public API versioning guarantees
 - multi-region anything
+- real-time collaboration features
 
 ---
 
 ## 2. Core engineering stance
 
-### Build a modular monolith, not microservices
+### Build a modular monolith, not fake distributed systems
 
 Microservices here would be cargo cult bullshit. The right move is:
-- one API app
-- one web app
+- one Go API app
+- one JavaScript web app
 - one Postgres database
-- clear module boundaries inside the API
-- clear shared contracts package between frontend and backend
+- clear module boundaries inside the backend
+- explicit APIs between frontend and backend
 
 That gets us:
 - fast local dev
 - simple deploys
 - fewer moving parts
-- easier tracing and debugging
-- clean future extraction points if scale ever justifies it
+- easier debugging
+- cleaner ownership boundaries
+- realistic future extraction points if they are ever actually needed
+
+### Use boring, explicit primitives
+
+Backend:
+- stdlib HTTP server
+- explicit routes
+- explicit services
+- explicit repositories
+- explicit SQL
+
+Frontend:
+- React for composable UI
+- React Router for navigation
+- plain CSS with tokens and reusable UI primitives
+- local component state plus a tiny amount of React context where it really helps
+- `fetch` wrappers, not a whole data access religion
 
 ### Use Postgres as the source of truth
 
@@ -76,13 +99,14 @@ Do not add Redis on day one. Earn it later.
 ### Optimize for maintainability
 
 Rules:
-- each domain module owns its schema, service logic, and HTTP handlers
-- route handlers stay thin
+- each domain module owns its routes, service logic, repository logic, and tests
+- HTTP handlers stay thin
 - business rules live in services
-- SQL access stays in repositories/data access functions
-- shared validation lives in `packages/contracts`
+- SQL access lives in repositories
 - no circular dependencies between modules
-- no “utils” dumping ground; make helpers live near the domain they serve
+- no generic base repository nonsense unless it materially simplifies real code already written
+- no `utils` junk drawer; helpers live near the domain they help
+- no ORM if plain SQL is still clean and obvious
 
 ---
 
@@ -92,34 +116,43 @@ Rules:
 open_crm/
   apps/
     api/
-      src/
-        app.ts
-        server.ts
+      cmd/
+        open_crm_api/
+          main.go
+        migrate/
+          main.go
+        seed/
+          main.go
+      internal/
         config/
-          env.ts
+          env.go
         db/
-          client.ts
-          schema/
-            core.ts
-            auth.ts
-            crm.ts
+          postgres.go
           migrations/
-        lib/
-          errors.ts
-          logger.ts
-          pagination.ts
+            001_initial_schema.sql
+            002_seed_helpers.sql
+        platform/
+          logger/
+            logger.go
+          auth/
+            passwords.go
+            sessions.go
+          web/
+            json.go
+            errors.go
+            middleware.go
         modules/
           auth/
-            auth.routes.ts
-            auth.service.ts
-            auth.repository.ts
-            auth.types.ts
-            auth.test.ts
+            handler.go
+            service.go
+            repository.go
+            types.go
+            auth_test.go
           orgs/
-            orgs.routes.ts
-            orgs.service.ts
-            orgs.repository.ts
-            orgs.test.ts
+            handler.go
+            service.go
+            repository.go
+            orgs_test.go
           users/
           contacts/
           companies/
@@ -128,80 +161,141 @@ open_crm/
           tasks/
           activities/
           dashboard/
-      tests/
-        helpers/
+      test/
         integration/
-      package.json
-      tsconfig.json
-      vitest.config.ts
+        fixtures/
+      go.mod
+      go.sum
+      Makefile
     web/
       src/
-        main.tsx
+        main.jsx
         app/
-          router.tsx
-          providers.tsx
+          router.jsx
+          providers.jsx
+          shell.jsx
         components/
+          ui/
+            button.jsx
+            card.jsx
+            field.jsx
+            modal.jsx
+            table.jsx
+          layout/
+            app_header.jsx
+            side_nav.jsx
+            page_header.jsx
         features/
           auth/
           contacts/
           companies/
           deals/
+          tasks/
           dashboard/
-        hooks/
         lib/
-          api-client.ts
-          forms.ts
+          api.js
+          date.js
+          forms.js
+          validation.js
         routes/
-          __root.tsx
-          login.tsx
-          dashboard.tsx
+          root.jsx
+          login.jsx
+          dashboard.jsx
           contacts/
+            index.jsx
+            detail.jsx
           companies/
+            index.jsx
+            detail.jsx
           deals/
+            index.jsx
+            detail.jsx
+          tasks/
+            index.jsx
+          settings/
+            users.jsx
         styles/
+          tokens.css
+          base.css
+          layout.css
+          components.css
+          utilities.css
       public/
       package.json
-      vite.config.ts
-  packages/
-    contracts/
-      src/
-        auth.ts
-        common.ts
-        contacts.ts
-        companies.ts
-        deals.ts
-        notes.ts
-        tasks.ts
-        index.ts
-      package.json
-      tsconfig.json
-    config/
-      eslint/
-      typescript/
-  infra/
-    docker/
-      postgres/
-        init.sql
+      vite.config.js
+      vitest.config.js
+  docs/
+    adr/
+    runbooks/
   .github/
     workflows/
       ci.yml
   docker-compose.yml
   .env.example
   .gitignore
-  package.json
-  pnpm-workspace.yaml
+  Makefile
   README.md
   mvp.md
 ```
 
 Notes:
-- do not add Turborepo unless the repo actually starts hurting without it
-- do not split `packages/contracts` into five packages before there is real pain
-- keep schema files grouped logically, not one 2,000-line monster
+- no npm workspace is required at the root unless the frontend eventually grows more packages
+- no shared contracts package until there is real pain that justifies it
+- keep the backend module layout consistent so adding a new domain module is obvious
+- keep CSS organized by concern, not as a 7,000-line blob
 
 ---
 
-## 4. Domain model for MVP
+## 4. Dependency budget
+
+Minimal dependencies is a hard requirement here, not a suggestion.
+
+### Backend dependency budget
+
+Use only what earns its keep:
+- `github.com/jackc/pgx/v5` for Postgres access and pooling
+- `golang.org/x/crypto` for Argon2id
+- maybe one tiny assertion helper for tests if it truly improves readability, but default to stdlib testing first
+
+Do not add for MVP:
+- Gin
+- Echo
+- Fiber
+- GORM
+- sqlx unless raw `pgx` becomes painful
+- dependency injection frameworks
+- validation frameworks unless hand-written validation actually becomes unmanageable
+- background job libraries
+
+The stdlib is good now. Use it.
+
+### Frontend dependency budget
+
+Use only what materially improves UX or developer speed:
+- `react`
+- `react-dom`
+- `react-router-dom`
+- `vite`
+- `vitest`
+- `@testing-library/react`
+- `@testing-library/jest-dom`
+- maybe `@testing-library/user-event`
+
+Do not add for MVP:
+- Tailwind
+- component libraries
+- state libraries like Redux, Zustand, MobX
+- TanStack Query
+- React Hook Form
+- schema validation libraries on the client
+- date libraries unless native date handling proves unbearable
+- icon packs with 2,000 icons when 12 inline SVGs will do
+
+Nice UI does not require dependency obesity.
+
+---
+
+## 5. Domain model for MVP
 
 ### Organizations and membership
 
@@ -227,8 +321,8 @@ Tables:
 - `companies`
 - `contacts`
 - `contact_company_links`
-- `deals`
 - `deal_stages`
+- `deals`
 - `notes`
 - `tasks`
 - `activities`
@@ -257,6 +351,15 @@ Recommended minimum fields:
 - `user_id`
 - `role`
 - `created_at`
+
+`sessions`
+- `id`
+- `user_id`
+- `organization_id`
+- `token_hash`
+- `expires_at`
+- `created_at`
+- `last_seen_at`
 
 `companies`
 - `id`
@@ -359,45 +462,57 @@ Recommended minimum fields:
 - every tenant-owned table gets `organization_id`
 - every primary entity gets `created_at` and `updated_at`
 - use `archived_at` instead of hard delete for CRM records
-- unique indexes should be scoped by organization when appropriate
+- unique indexes should be scoped by organization where appropriate
 - avoid JSON blobs for core business fields
 - JSON is fine for flexible activity metadata only
+- use explicit SQL migrations checked into git
 
 ---
 
-## 5. Backend module design
+## 6. Backend module design
 
-Each module should follow the same shape:
-- `*.routes.ts`: Fastify route registration and request/response wiring
-- `*.service.ts`: business rules, orchestration, permissions
-- `*.repository.ts`: Drizzle queries and persistence operations
-- `*.types.ts`: local domain types if contracts package is not enough
-- `*.test.ts`: focused tests for business rules
+Each backend module should follow the same shape:
+- `handler.go`: route registration and HTTP request/response wiring
+- `service.go`: business rules, orchestration, permissions
+- `repository.go`: SQL queries and persistence operations
+- `types.go`: request/response and internal domain structs
+- `*_test.go`: focused tests for business rules and handler behavior
 
 Example boundary:
-- `contacts.service.ts` can call `contacts.repository.ts` and `activities.service.ts`
+- `contacts/service.go` can call `contacts/repository.go` and `activities/service.go`
 - it should not know raw SQL details
-- route handlers should not compose SQL directly
+- handlers should not compose SQL directly
 
 Shared cross-cutting pieces:
 - auth/session middleware
-- org membership guard
-- pagination helper
-- typed error classes
+- org membership resolution middleware
+- request ID middleware
+- pagination helpers
+- typed application errors
+- JSON response helpers
 - audit/activity writer
+
+Backend rules:
+- keep handlers thin
+- keep services explicit
+- write SQL that a human can read six months later
+- prefer small functions over generic magic
+- use transactions for multi-write flows
+- always scope tenant-owned queries by `organization_id`
 
 ---
 
-## 6. Frontend design
+## 7. Frontend design
 
-The frontend should feel boring in a good way.
+The frontend should feel boring in a good way: obvious, fast, clean, and low-friction.
 
 Use:
+- React with JavaScript, not TypeScript for this repo
 - route-based feature organization
-- TanStack Query for server state
-- local component state for UI-only concerns
-- React Hook Form + Zod for forms
-- feature-local components before global shared components
+- local component state for UI concerns
+- `fetch` plus small feature-local hooks for server interaction
+- plain CSS with design tokens, layout primitives, and reusable form/table/card styles
+- small reusable UI primitives after patterns appear twice, not before
 
 Suggested page set for MVP:
 - `/login`
@@ -413,19 +528,53 @@ Suggested page set for MVP:
 
 UI rules:
 - list/detail pattern everywhere
-- same filter/search bar pattern for contacts, companies, deals
-- drawer or modal for quick create where it helps
-- no giant global state store for CRUD forms
-- no generated client SDK until the API actually stabilizes
+- same filter/search bar pattern for contacts, companies, and deals
+- create and edit flows should feel consistent across entities
+- keyboard-friendly forms
+- clear empty states
+- fast perceived performance through good loading states and optimistic-feeling UI, not fake spinners everywhere
+- no giant global state store for CRUD screens
+- no component framework that dictates the product’s personality
+
+### UI/UX design stance
+
+A nice UI here means:
+- readable hierarchy
+- low visual noise
+- sharp spacing discipline
+- predictable actions
+- obvious next steps
+- no cramped forms
+- table/list views that are actually usable
+- detail pages that group related information well
+
+Recommended visual approach:
+- neutral base palette with one strong accent color
+- generous whitespace
+- 8px spacing scale
+- strong typography contrast
+- cards and panels used sparingly, not everywhere
+- subtle borders and shadows, not glassmorphism clownery
+- inline feedback close to the field or action that caused it
+
+### Frontend dependency stance
+
+Do this with code, not libraries:
+- validation helpers in `src/lib/validation.js`
+- reusable `Field`, `Button`, `Card`, `Table`, and `Modal` components
+- CSS tokens in `tokens.css`
+- shared page layout primitives in `components/layout`
+
+That is enough to make it look polished if the taste is good.
 
 ---
 
-## 7. Auth and authorization
+## 8. Auth and authorization
 
 MVP auth should be simple and robust:
 - email + password login
 - password hashes with Argon2id
-- opaque server-side sessions in Postgres
+- opaque server-side sessions stored in Postgres
 - session cookie is HttpOnly, Secure in production, SameSite=Lax
 - org membership checked on every tenant-scoped request
 
@@ -438,7 +587,7 @@ Do not do OAuth first. It looks fancy and solves the wrong problem for an MVP.
 
 ---
 
-## 8. API shape
+## 9. API shape
 
 Keep the API explicit and unsurprising.
 
@@ -466,329 +615,6 @@ Suggested route groups:
 - `POST /tasks`
 - `PATCH /tasks/:id`
 - `GET /dashboard/summary`
-
-Request and response validation:
-- define Zod contracts in `packages/contracts`
-- reuse those contracts in API and UI
-- return structured validation errors
-
-Pagination:
-- cursor pagination for lists if easy
-- offset pagination is acceptable for MVP if kept consistent
-
-Search:
-- simple `ILIKE` search first
-- add trigram or full-text indexes only when real data says it matters
-
----
-
-## 9. Activity and audit trail
-
-Every write to a core entity should create an activity row.
-
-Minimum events:
-- contact created
-- contact updated
-- company created
-- company updated
-- deal created
-- deal stage changed
-- note added
-- task created
-- task completed
-
-Keep it simple:
-- write activity in the same transaction where possible
-- store a short human-readable summary plus structured metadata
-- render timeline items from activity rows instead of trying to reconstruct history later
-
-This buys a lot of product value cheaply.
-
----
-
-## 10. Local development and containerization
-
-Use Docker Compose for Postgres.
-
-Initial `docker-compose.yml` should include:
-- `postgres` service on port `5432`
-- named volume for persistence
-- healthcheck with `pg_isready`
-
-Environment variables:
-- `DATABASE_URL`
-- `SESSION_COOKIE_SECRET`
-- `APP_BASE_URL`
-- `VITE_API_BASE_URL`
-- `NODE_ENV`
-
-Recommended local dev commands:
-- `pnpm install`
-- `docker compose up -d postgres`
-- `pnpm db:migrate`
-- `pnpm dev`
-
-Do not containerize the app immediately unless deployment requires it. Containerize Postgres first. Keep app dev fast.
-
----
-
-## 11. Testing strategy
-
-Be selective and serious.
-
-### Backend
-- unit tests for business rules in services
-- integration tests for route handlers + DB behavior
-- test auth/session edge cases
-- test tenant isolation hard
-
-### Frontend
-- component tests for forms, lists, and validation behavior
-- a few route-level tests
-- Playwright smoke tests for:
-  - login
-  - create contact
-  - create company
-  - create deal
-  - add note
-  - complete task
-
-### High-value invariants
-- users cannot read another org’s records
-- archived records do not appear in active lists
-- activity rows are created on writes
-- deal stage changes persist and render correctly
-- company/contact linking stays consistent
-
----
-
-## 12. CI and quality gates
-
-Initial CI should stay lean:
-- install dependencies
-- typecheck
-- lint
-- run backend tests
-- run frontend tests
-- optionally run Playwright later once the app exists
-
-Do not build a Rube Goldberg CI pipeline. Fast and trustworthy beats elaborate.
-
----
-
-## 13. MVP implementation slices
-
-These are the right slices to ship in order.
-
-### Slice 0: Repo bootstrap
-
-Objective: create the workspace, local dev setup, shared config, and Postgres wiring.
-
-Files to create:
-- `package.json`
-- `pnpm-workspace.yaml`
-- `.gitignore`
-- `.env.example`
-- `docker-compose.yml`
-- `README.md`
-- `apps/api/package.json`
-- `apps/web/package.json`
-- `packages/contracts/package.json`
-- base TypeScript and ESLint config files
-
-Acceptance criteria:
-- `pnpm install` works
-- `docker compose up -d postgres` works
-- both app packages boot with placeholder pages
-- CI can run basic typecheck/lint
-
-### Slice 1: Database and schema foundation
-
-Objective: set up Drizzle, migrations, core tables, and seed data.
-
-Files to create:
-- `apps/api/src/db/client.ts`
-- `apps/api/src/db/schema/core.ts`
-- `apps/api/src/db/schema/auth.ts`
-- `apps/api/src/db/schema/crm.ts`
-- `apps/api/src/db/migrations/*`
-- `apps/api/src/db/seed.ts`
-
-Acceptance criteria:
-- migrations create all foundation tables
-- a seed command creates a default org, owner user, and default deal stages
-- schema includes tenant boundaries and indexes
-
-### Slice 2: Auth and current-session flow
-
-Objective: make login/logout/me fully work.
-
-Files to create:
-- `apps/api/src/modules/auth/*`
-- `apps/web/src/routes/login.tsx`
-- `apps/web/src/features/auth/*`
-- `packages/contracts/src/auth.ts`
-
-Acceptance criteria:
-- user can log in with seeded account
-- session cookie persists across page refresh
-- `/auth/me` returns current user + org membership
-- unauthorized routes redirect to login
-
-### Slice 3: Organizations and user management
-
-Objective: basic org context and user listing/invite creation.
-
-Files to create:
-- `apps/api/src/modules/orgs/*`
-- `apps/api/src/modules/users/*`
-- `apps/web/src/routes/settings/users.tsx`
-- `packages/contracts/src/common.ts`
-
-Acceptance criteria:
-- current org resolves on each request
-- admin can list users in org
-- admin can create another user account for the org
-- role-based access is enforced
-
-### Slice 4: Contacts vertical slice
-
-Objective: contacts list, detail, create, update, archive, and activity entries.
-
-Files to create:
-- `apps/api/src/modules/contacts/*`
-- `apps/web/src/routes/contacts/index.tsx`
-- `apps/web/src/routes/contacts/$contactId.tsx`
-- `apps/web/src/features/contacts/*`
-- `packages/contracts/src/contacts.ts`
-
-Acceptance criteria:
-- searchable paginated contact list
-- create/edit form with validation
-- detail page shows notes/tasks/activity sections
-- archive hides contact from default list
-
-### Slice 5: Companies vertical slice
-
-Objective: same quality bar as contacts, plus contact/company linking.
-
-Files to create:
-- `apps/api/src/modules/companies/*`
-- `apps/web/src/routes/companies/index.tsx`
-- `apps/web/src/routes/companies/$companyId.tsx`
-- `apps/web/src/features/companies/*`
-- `packages/contracts/src/companies.ts`
-
-Acceptance criteria:
-- company CRUD works
-- contact can be linked to one or more companies
-- company detail shows linked contacts and recent activity
-
-### Slice 6: Deals and stages vertical slice
-
-Objective: deal pipeline, stage changes, and summary metrics.
-
-Files to create:
-- `apps/api/src/modules/deals/*`
-- `apps/web/src/routes/deals/index.tsx`
-- `apps/web/src/routes/deals/$dealId.tsx`
-- `apps/web/src/features/deals/*`
-- `packages/contracts/src/deals.ts`
-
-Acceptance criteria:
-- deal CRUD works
-- stage transitions work
-- list view supports filtering by stage and owner
-- dashboard can show open deals, won deals, and total pipeline value
-
-### Slice 7: Notes, tasks, and activity timeline
-
-Objective: shared engagement layer across CRM entities.
-
-Files to create:
-- `apps/api/src/modules/notes/*`
-- `apps/api/src/modules/tasks/*`
-- `apps/api/src/modules/activities/*`
-- `apps/web/src/features/notes/*`
-- `apps/web/src/features/tasks/*`
-- `packages/contracts/src/notes.ts`
-- `packages/contracts/src/tasks.ts`
-
-Acceptance criteria:
-- note creation works for contacts, companies, deals
-- tasks can be assigned and completed
-- entity detail pages show unified activity timeline
-
-### Slice 8: Dashboard and operational polish
-
-Objective: make the app feel coherent and usable.
-
-Files to create:
-- `apps/api/src/modules/dashboard/*`
-- `apps/web/src/routes/dashboard.tsx`
-- `apps/web/src/features/dashboard/*`
-
-Acceptance criteria:
-- dashboard shows counts and recent activity
-- empty states are handled cleanly
-- form UX is consistent
-- app is usable without dev-only knowledge
-
-### Slice 9: CI hardening and release readiness
-
-Objective: make the repo safe to keep shipping from `main`.
-
-Files to create:
-- `.github/workflows/ci.yml`
-- `apps/api/tests/integration/*`
-- `apps/web/e2e/*`
-
-Acceptance criteria:
-- CI runs on push to main
-- critical auth and CRUD flows are covered
-- readme documents setup, dev flow, and env vars
-
----
-
-## 14. Coding standards for implementation
-
-### Backend
-- keep route files thin
-- return DTOs, not raw DB rows if shape drift is likely
-- use transactions for multi-write operations
-- centralize permission checks in services or dedicated guards
-- prefer small pure functions for business rules
-
-### Frontend
-- colocate feature code near the route it serves
-- keep API hooks near features, not in a giant global folder
-- isolate reusable table/form components only after the second real use
-- do not over-abstract CRUD screens before patterns settle
-
-### Database
-- add indexes intentionally
-- document every non-obvious constraint
-- never let org scoping be optional in repositories
-
----
-
-## 15. What “good” looks like for this repo
-
-A good v1 of `open_crm` should feel like this:
-- you can clone it and be productive in minutes
-- there is one obvious way to add a new domain module
-- entity flows are consistent across contacts, companies, and deals
-- tests catch tenant isolation and core CRUD regressions
-- there is no mystery architecture
-- adding a second engineer does not create chaos
-
-That means choosing boring, explicit structure over flashy patterns.
-
----
-
-## 16. API conventions and response envelope
-
-Keep the API boring and consistent.
 
 Success response shape:
 ```json
@@ -835,26 +661,118 @@ Error response shape:
 }
 ```
 
-Rules:
-- all handlers return one of these shapes
-- every request gets a `requestId`
-- avoid leaking raw database errors to clients
-- use stable error codes even if messages change
-- use `PATCH` for partial updates and `POST` for create actions
-- normalize empty-string form input to `null` where that is the domain meaning
+Validation rules:
+- validate on the backend with explicit request structs and validation functions
+- client-side validation should improve UX, not replace server validation
+- use stable error codes even if human messages change
+- normalize empty strings to `null` where that is the actual domain meaning
 
-Recommended initial error codes:
-- `VALIDATION_ERROR`
-- `UNAUTHORIZED`
-- `FORBIDDEN`
-- `NOT_FOUND`
-- `CONFLICT`
-- `INVARIANT_VIOLATION`
-- `INTERNAL_ERROR`
+Pagination:
+- offset pagination is fine for MVP if kept consistent
+- default page size 25, cap at 100
+
+Search:
+- simple `ILIKE` search first
+- add trigram or full-text indexes only when real data proves it matters
 
 ---
 
-## 17. Permissions matrix
+## 10. Activity and audit trail
+
+Every write to a core entity should create an activity row.
+
+Minimum events:
+- contact created
+- contact updated
+- company created
+- company updated
+- deal created
+- deal stage changed
+- note added
+- task created
+- task completed
+
+Keep it simple:
+- write activity in the same transaction where possible
+- store a short human-readable summary plus structured metadata
+- render timeline items from activity rows instead of trying to reconstruct history later
+
+This buys a lot of product value cheaply.
+
+---
+
+## 11. Local development and containerization
+
+Use Docker Compose for Postgres.
+
+Initial `docker-compose.yml` should include:
+- `postgres` service on port `5432`
+- named volume for persistence
+- healthcheck with `pg_isready`
+
+Environment variables:
+- `DATABASE_URL`
+- `SESSION_COOKIE_SECRET`
+- `APP_BASE_URL`
+- `WEB_BASE_URL`
+- `API_BASE_URL`
+- `NODE_ENV`
+- `GO_ENV`
+
+Recommended local dev commands:
+- `make db-up`
+- `make db-migrate`
+- `make db-seed`
+- `make api-dev`
+- `make web-dev`
+
+Do not containerize the app immediately unless deployment requires it. Containerize Postgres first. Keep app dev fast.
+
+---
+
+## 12. Testing strategy
+
+Be selective and serious.
+
+### Backend
+- unit tests for business rules in services
+- handler tests with `httptest`
+- integration tests for DB behavior and tenant isolation
+- auth/session edge case tests
+
+### Frontend
+- component tests for forms, lists, and validation behavior
+- route-level tests for main screens
+- Playwright smoke tests later for:
+  - login
+  - create contact
+  - create company
+  - create deal
+  - add note
+  - complete task
+
+### High-value invariants
+- users cannot read another org’s records
+- archived records do not appear in active lists
+- activity rows are created on writes
+- deal stage changes persist and render correctly
+- company/contact linking stays consistent
+
+---
+
+## 13. CI and quality gates
+
+Initial CI should stay lean:
+- setup Go and run backend tests
+- setup Node and run frontend install/tests/build
+- run lint if linting is actually configured and useful
+- keep CI fast enough that it does not become background wallpaper
+
+Do not build a Rube Goldberg CI pipeline. Fast and trustworthy beats elaborate.
+
+---
+
+## 14. Permissions matrix
 
 Do not hand-wave authorization. Write it down and code to it.
 
@@ -867,7 +785,7 @@ Do not hand-wave authorization. Write it down and code to it.
 | List users | yes | yes | no | no |
 | Create users | yes | yes | no | no |
 | Change roles | yes | yes, except owner transfer | no | no |
-| Delete/deactivate users | yes | yes | no | no |
+| Deactivate users | yes | yes | no | no |
 
 ### CRM entities
 
@@ -884,12 +802,12 @@ Do not hand-wave authorization. Write it down and code to it.
 Rules worth enforcing early:
 - only org members can access org data
 - cross-org IDs must resolve as `404`, not `403`, to avoid leaking record existence
-- owner transfer is not an MVP feature unless it is deliberately implemented
+- owner transfer is not an MVP feature unless deliberately implemented later
 - viewer cannot mutate anything, period
 
 ---
 
-## 18. Data lifecycle and record rules
+## 15. Data lifecycle and record rules
 
 This is where a lot of CRUD apps become a swamp. Don’t let that happen.
 
@@ -920,9 +838,9 @@ This is where a lot of CRUD apps become a swamp. Don’t let that happen.
 
 ---
 
-## 19. Query, indexing, and performance posture
+## 16. Query, indexing, and performance posture
 
-Don’t optimize for fantasy scale, but don’t be sloppy either.
+Do not optimize for fantasy scale, but do not be sloppy either.
 
 Initial indexes worth having:
 - `organization_memberships (organization_id, user_id)` unique
@@ -939,17 +857,17 @@ Initial indexes worth having:
 Search posture:
 - start with `ILIKE` on bounded fields
 - search should always include `organization_id` and active/not-archived filters
-- cap page size aggressively; 25 default, 100 max
-- if search becomes hot, add trigram indexes on `companies.name`, `contacts.first_name`, `contacts.last_name`, and maybe `contacts.email`
+- cap page size aggressively
+- if search becomes hot, add trigram indexes on the few fields that matter
 
 Dashboard posture:
 - compute simple aggregates live first
 - if dashboard queries become visibly slow, add small read-model queries or materialized views later
-- do not add background jobs just to feel sophisticated
+- do not add workers or caches just to feel sophisticated
 
 ---
 
-## 20. Seed data, fixtures, and developer ergonomics
+## 17. Seed data, fixtures, and developer ergonomics
 
 A repo like this lives or dies on setup friction.
 
@@ -978,18 +896,19 @@ Developer experience baseline:
 - one command to start Postgres
 - one command to run migrations
 - one command to seed
-- one command to start both apps
+- one command to run the API
+- one command to run the web app
 - if a command needs five env vars and three manual steps, the plan is bad
 
 ---
 
-## 21. Observability, logging, and operational sanity
+## 18. Observability, logging, and operational sanity
 
 Build just enough to debug real failures.
 
 Backend logging:
-- structured JSON logs in production
-- pretty logs in local dev
+- structured logs in production
+- readable logs in local dev
 - every request log includes `requestId`, `userId` if authenticated, `organizationId` if resolved, route, status code, and duration
 - log auth failures, permission denials, and unexpected exceptions
 - do not log passwords, session tokens, or raw cookies
@@ -1005,7 +924,7 @@ Operational checks for MVP:
 
 ---
 
-## 22. Delivery plan by milestone
+## 19. Delivery plan by milestone
 
 This repo should be built to a few concrete milestones, not as an endless blob of “in progress.”
 
@@ -1014,7 +933,7 @@ Includes:
 - Slice 0
 - Slice 1
 - minimal README
-- CI for typecheck/lint/tests
+- CI for backend and frontend tests
 
 Done means:
 - a new engineer can clone, run Postgres, migrate, seed, and boot the repo
@@ -1056,251 +975,358 @@ Done means:
 
 ---
 
-## 23. Immediate next move
+## 20. MVP implementation slices
 
-Start with Slice 0 and Slice 1 only.
+These are the right slices to ship in order.
 
-Do not try to scaffold the whole product in one blast. That is how repos turn into dead weight.
+### Slice 0: Repo bootstrap
 
-The first real build sequence should be:
-1. workspace bootstrap
-2. Postgres + Drizzle + migrations
-3. seeded owner login
-4. contacts slice
-5. companies slice
-6. deals slice
+Objective: create the repo structure, local dev setup, baseline Go API, baseline JS web app, and Postgres wiring.
 
-Before writing the first line of feature code, lock these repo-level decisions:
-- package manager is pnpm
-- backend is Fastify + Drizzle + Postgres
-- frontend is React + Vite + TanStack Router + TanStack Query
-- auth is server-side sessions, not JWT cargo culting
-- deploy shape is modular monolith + web app + Postgres
+Files to create:
+- `Makefile`
+- `.gitignore`
+- `.env.example`
+- `docker-compose.yml`
+- `README.md`
+- `apps/api/go.mod`
+- `apps/api/cmd/open_crm_api/main.go`
+- `apps/api/internal/config/env.go`
+- `apps/api/internal/platform/logger/logger.go`
+- `apps/api/internal/platform/web/json.go`
+- `apps/api/internal/platform/web/errors.go`
+- `apps/api/internal/modules/health/handler.go` or equivalent health route wiring
+- `apps/web/package.json`
+- `apps/web/vite.config.js`
+- `apps/web/src/main.jsx`
+- `apps/web/src/app/router.jsx`
+- `apps/web/src/routes/root.jsx`
+- `apps/web/src/routes/dashboard.jsx`
+- `apps/web/src/styles/*`
 
-If those are clean, the rest gets much easier.
+Acceptance criteria:
+- Go API boots and serves `/healthz`
+- web app boots and renders a clean placeholder shell
+- Postgres starts with Docker Compose
+- `make` targets exist for the common dev flows
+- CI can run basic backend/frontend checks
+
+### Slice 1: Database and schema foundation
+
+Objective: set up Postgres access, SQL migrations, core tables, and seed data.
+
+Files to create:
+- `apps/api/internal/db/postgres.go`
+- `apps/api/internal/db/migrations/*`
+- `apps/api/cmd/migrate/main.go`
+- `apps/api/cmd/seed/main.go`
+- `apps/api/internal/modules/*/repository.go` foundation files as needed
+
+Acceptance criteria:
+- migrations create the core auth and CRM tables
+- a seed command creates a default org, owner user, and default deal stages
+- schema includes tenant boundaries and indexes
+- `/readyz` reflects DB readiness
+
+### Slice 2: Auth and current-session flow
+
+Objective: make login/logout/me fully work.
+
+Files to create:
+- `apps/api/internal/modules/auth/*`
+- `apps/web/src/routes/login.jsx`
+- `apps/web/src/features/auth/*`
+
+Acceptance criteria:
+- user can log in with seeded account
+- session cookie persists across page refresh
+- `/auth/me` returns current user + org membership
+- unauthorized routes redirect to login
+
+### Slice 3: Organizations and user management
+
+Objective: basic org context and user listing/create flow.
+
+Files to create:
+- `apps/api/internal/modules/orgs/*`
+- `apps/api/internal/modules/users/*`
+- `apps/web/src/routes/settings/users.jsx`
+
+Acceptance criteria:
+- current org resolves on each request
+- admin can list users in org
+- admin can create another user account for the org
+- role-based access is enforced
+
+### Slice 4: Contacts vertical slice
+
+Objective: contacts list, detail, create, update, archive, and activity entries.
+
+Files to create:
+- `apps/api/internal/modules/contacts/*`
+- `apps/web/src/routes/contacts/index.jsx`
+- `apps/web/src/routes/contacts/detail.jsx`
+- `apps/web/src/features/contacts/*`
+
+Acceptance criteria:
+- searchable paginated contact list
+- create/edit form with validation
+- detail page shows notes/tasks/activity sections
+- archive hides contact from default list
+
+### Slice 5: Companies vertical slice
+
+Objective: same quality bar as contacts, plus contact/company linking.
+
+Files to create:
+- `apps/api/internal/modules/companies/*`
+- `apps/web/src/routes/companies/index.jsx`
+- `apps/web/src/routes/companies/detail.jsx`
+- `apps/web/src/features/companies/*`
+
+Acceptance criteria:
+- company CRUD works
+- contact can be linked to one or more companies
+- company detail shows linked contacts and recent activity
+
+### Slice 6: Deals and stages vertical slice
+
+Objective: deal pipeline, stage changes, and summary metrics.
+
+Files to create:
+- `apps/api/internal/modules/deals/*`
+- `apps/web/src/routes/deals/index.jsx`
+- `apps/web/src/routes/deals/detail.jsx`
+- `apps/web/src/features/deals/*`
+
+Acceptance criteria:
+- deal CRUD works
+- stage transitions work
+- list view supports filtering by stage and owner
+- dashboard can show open deals, won deals, and total pipeline value
+
+### Slice 7: Notes, tasks, and activity timeline
+
+Objective: shared engagement layer across CRM entities.
+
+Files to create:
+- `apps/api/internal/modules/notes/*`
+- `apps/api/internal/modules/tasks/*`
+- `apps/api/internal/modules/activities/*`
+- `apps/web/src/features/notes/*`
+- `apps/web/src/features/tasks/*`
+
+Acceptance criteria:
+- note creation works for contacts, companies, deals
+- tasks can be assigned and completed
+- entity detail pages show unified activity timeline
+
+### Slice 8: Dashboard and UX polish
+
+Objective: make the app feel coherent, pleasant, and fast.
+
+Files to create:
+- `apps/api/internal/modules/dashboard/*`
+- `apps/web/src/routes/dashboard.jsx`
+- `apps/web/src/features/dashboard/*`
+- `apps/web/src/styles/components.css`
+- `apps/web/src/styles/layout.css`
+
+Acceptance criteria:
+- dashboard shows counts and recent activity
+- empty states are handled cleanly
+- spacing, typography, and feedback patterns are consistent
+- app is usable without dev-only knowledge
+
+### Slice 9: CI hardening and release readiness
+
+Objective: make the repo safe to keep shipping from `main`.
+
+Files to create:
+- `.github/workflows/ci.yml`
+- `apps/api/test/integration/*`
+- `apps/web/src/**/*.test.jsx`
+- `apps/web/e2e/*` later if needed
+
+Acceptance criteria:
+- CI runs on push to main
+- critical auth and CRUD flows are covered
+- readme documents setup, dev flow, and env vars
 
 ---
 
-## 24. Detailed execution plan for Slice 0: repo bootstrap
+## 21. Detailed execution plan for Slice 0: repo bootstrap
 
 This is the first slice because it makes every later slice cheaper.
 
 ### Outcome
 By the end of Slice 0:
-- the monorepo installs cleanly
+- the repo boots cleanly
 - Postgres runs locally via Docker Compose
 - API and web apps both boot
-- contracts package builds and is consumed by both apps
-- CI can lint and typecheck without heroics
+- the frontend has a good-looking shell, not raw scaffolding garbage
+- CI can run without heroics
 
-### Task 0.1: Create the root workspace files
+### Task 0.1: Create root workflow files
 
 Files:
-- create `package.json`
-- create `pnpm-workspace.yaml`
+- create `Makefile`
 - create `.gitignore`
-- create `.npmrc`
 - create `.env.example`
 - create `README.md`
+- create `docker-compose.yml`
 
-Rules:
-- root `package.json` should expose top-level scripts only for orchestration
-- do not dump app-specific scripts into the root unless they are cross-workspace wrappers
-- pin Node and pnpm versions in `package.json` engines or `.nvmrc` later if needed
-
-Recommended root scripts:
-- `dev`
-- `build`
-- `typecheck`
-- `lint`
+Recommended root targets:
+- `db-up`
+- `db-down`
+- `db-migrate`
+- `db-seed`
+- `api-dev`
+- `web-dev`
+- `test-api`
+- `test-web`
 - `test`
-- `db:migrate`
-- `db:generate`
-- `db:seed`
-- `format`
 
-### Task 0.2: Create shared config packages
+### Task 0.2: Bootstrap the Go API module
 
 Files:
-- create `packages/config/typescript/base.json`
-- create `packages/config/typescript/node.json`
-- create `packages/config/typescript/react.json`
-- create `packages/config/eslint/base.cjs`
-- create `packages/config/eslint/react.cjs`
-- create `packages/config/package.json`
-
-Rules:
-- one place for tsconfig defaults
-- one place for eslint defaults
-- app packages extend shared config rather than copy-pasting local config sludge
-
-### Task 0.3: Create the contracts package
-
-Files:
-- create `packages/contracts/package.json`
-- create `packages/contracts/tsconfig.json`
-- create `packages/contracts/src/index.ts`
-- create `packages/contracts/src/common.ts`
-
-Initial contract scope:
-- shared pagination schema
-- shared API envelope types
-- shared ID/date/status schema helpers
-- auth/session DTOs can land in Slice 2
-
-Do not stuff domain logic in here. This package is for contracts, not “shared everything.”
-
-### Task 0.4: Bootstrap the API app
-
-Files:
-- create `apps/api/package.json`
-- create `apps/api/tsconfig.json`
-- create `apps/api/src/server.ts`
-- create `apps/api/src/app.ts`
-- create `apps/api/src/config/env.ts`
-- create `apps/api/src/lib/logger.ts`
-- create `apps/api/src/routes/health.routes.ts`
+- create `apps/api/go.mod`
+- create `apps/api/cmd/open_crm_api/main.go`
+- create `apps/api/internal/config/env.go`
+- create `apps/api/internal/platform/logger/logger.go`
+- create `apps/api/internal/platform/web/json.go`
+- create `apps/api/internal/platform/web/errors.go`
+- create `apps/api/internal/platform/web/middleware.go`
 
 Initial behavior:
-- Fastify server starts on configurable port
-- `/healthz` returns process health
-- `/readyz` checks DB reachability once DB is wired in Slice 1
+- API starts on configurable port
+- `GET /healthz` returns process health
+- request IDs are assigned early
 - env parsing is strict and fails startup loudly when broken
 
-### Task 0.5: Bootstrap the web app
+### Task 0.3: Bootstrap the JS web app
 
 Files:
 - create `apps/web/package.json`
-- create `apps/web/tsconfig.json`
-- create `apps/web/vite.config.ts`
+- create `apps/web/vite.config.js`
 - create `apps/web/index.html`
-- create `apps/web/src/main.tsx`
-- create `apps/web/src/app/router.tsx`
-- create `apps/web/src/app/providers.tsx`
-- create `apps/web/src/routes/__root.tsx`
-- create `apps/web/src/routes/index.tsx`
-- create `apps/web/src/styles/index.css`
+- create `apps/web/src/main.jsx`
+- create `apps/web/src/app/router.jsx`
+- create `apps/web/src/app/providers.jsx`
+- create `apps/web/src/app/shell.jsx`
+- create `apps/web/src/routes/root.jsx`
+- create `apps/web/src/routes/dashboard.jsx`
+- create `apps/web/src/styles/tokens.css`
+- create `apps/web/src/styles/base.css`
+- create `apps/web/src/styles/layout.css`
+- create `apps/web/src/styles/components.css`
 
 Initial behavior:
 - Vite dev server boots
-- root route renders a placeholder shell
-- TanStack Query provider is wired once
-- routing is in place without pretending the whole app exists yet
+- root route renders a clean application shell
+- navigation and page layout feel intentional, not default-template ugly
+- CSS tokens define color, spacing, border radius, shadow, and typography scales
 
-### Task 0.6: Add Docker Compose for Postgres
+### Task 0.4: Add minimal reusable UI primitives
+
+Files:
+- create `apps/web/src/components/ui/button.jsx`
+- create `apps/web/src/components/ui/card.jsx`
+- create `apps/web/src/components/ui/field.jsx`
+- create `apps/web/src/components/layout/app_header.jsx`
+- create `apps/web/src/components/layout/side_nav.jsx`
+- create `apps/web/src/components/layout/page_header.jsx`
+
+Rules:
+- keep components small and obvious
+- style them well once instead of importing a UI framework
+- prioritize readability, spacing, and hover/focus states
+
+### Task 0.5: Add Docker Compose for Postgres
 
 Files:
 - create `docker-compose.yml`
-- create `infra/docker/postgres/init.sql` only if absolutely needed
 
 Rules:
 - Postgres is the only required container in local dev for now
 - use a named volume
 - expose `5432`
 - add healthcheck
-- do not build a local app container yet unless deployment forces it
+- do not build app containers yet unless deployment forces it
 
-### Task 0.7: Add baseline test and quality tooling
+### Task 0.6: Add baseline test and CI wiring
 
 Files:
-- create root and app-level config for Vitest and ESLint as needed
-- create `apps/api/src/app.test.ts`
-- create `apps/web/src/routes/index.test.tsx`
+- create `apps/api/internal/platform/web/health_test.go` or equivalent
+- create `apps/web/src/routes/dashboard.test.jsx`
 - create `.github/workflows/ci.yml`
 
 Initial quality bar:
-- API test proves server can boot and answer `/healthz`
-- web test proves placeholder route renders
-- CI runs install, lint, typecheck, and tests
+- backend test proves API can answer `/healthz`
+- frontend test proves the placeholder shell renders
+- CI runs backend tests and frontend tests/build
 
-### Task 0.8: Verify Slice 0
+### Task 0.7: Verify Slice 0
 
 Commands:
 ```bash
-pnpm install
-docker compose up -d postgres
-pnpm dev
-pnpm lint
-pnpm typecheck
-pnpm test
+make db-up
+make api-dev
+make web-dev
+make test
 ```
 
 Expected outcome:
-- install succeeds
 - Postgres container is healthy
-- API and web app boot without manual patching
-- lint/typecheck/tests pass
+- API boots cleanly
+- web app boots cleanly
+- initial UI shell already looks deliberate
+- tests pass
 
 ### Slice 0 exit criteria
 - a fresh clone can boot in under 10 minutes
-- there is one obvious place for backend code, one for frontend code, and one for contracts
-- no fake abstractions were introduced “for later”
+- the web app does not look like bare scaffolding
+- there is one obvious place for backend code and one for frontend code
+- no fake abstractions were introduced for imaginary future scale
 
 ---
 
-## 25. Detailed execution plan for Slice 1: database and schema foundation
+## 22. Detailed execution plan for Slice 1: database and schema foundation
 
 This slice is where the repo stops being scaffolding and starts being a product.
 
 ### Outcome
 By the end of Slice 1:
-- Drizzle is wired to Postgres
-- migrations create the core auth and CRM tables
+- `pgx` is wired to Postgres
+- SQL migrations create the core auth and CRM tables
 - the repo can seed a usable demo org
 - DB readiness works
-- tests cover tenant scoping and schema assumptions where practical
+- tests cover schema assumptions and tenant scoping where practical
 
-### Task 1.1: Add DB dependencies and config
+### Task 1.1: Add DB dependencies and connection layer
 
 Files:
-- modify `apps/api/package.json`
-- create `apps/api/drizzle.config.ts`
-- create `apps/api/src/db/client.ts`
-- create `apps/api/src/db/migrate.ts`
+- modify `apps/api/go.mod`
+- create `apps/api/internal/db/postgres.go`
+- create `apps/api/cmd/migrate/main.go`
 
 Rules:
-- DB client creation lives in one place
-- use connection pooling appropriate for Node server usage
-- env-driven connection string only; do not scatter DB config across files
+- DB connection creation lives in one place
+- use `pgxpool`
+- use env-driven connection strings only
+- do not scatter DB config across files
 
-### Task 1.2: Define shared table primitives
-
-Files:
-- create `apps/api/src/db/schema/_shared.ts`
-
-Put the boring repeated columns here:
-- `id`
-- `organizationId`
-- `createdAt`
-- `updatedAt`
-- `archivedAt`
-
-But do not get too clever. Shared helpers should remove repetition, not obscure schema meaning.
-
-### Task 1.3: Create auth/core schema
+### Task 1.2: Create explicit SQL migrations
 
 Files:
-- create `apps/api/src/db/schema/core.ts`
-- create `apps/api/src/db/schema/auth.ts`
+- create `apps/api/internal/db/migrations/001_initial_schema.sql`
+- create `apps/api/internal/db/migrations/002_seed_helpers.sql` only if it truly earns its existence
 
 Tables:
 - `organizations`
 - `users`
 - `organization_memberships`
 - `sessions`
-
-Important constraints:
-- unique user email
-- unique org slug
-- unique membership on `(organization_id, user_id)`
-- session token hash or opaque session ID stored safely
-
-### Task 1.4: Create CRM schema
-
-Files:
-- create `apps/api/src/db/schema/crm.ts`
-
-Tables:
 - `companies`
 - `contacts`
 - `contact_company_links`
@@ -1311,68 +1337,56 @@ Tables:
 - `activities`
 
 Rules:
+- migrations are reviewed SQL, not generated sludge trusted blindly
+- index and constraint names should be readable
 - every tenant-owned table carries `organization_id`
-- foreign keys should be explicit where structurally possible
-- indexes should reflect the query plan in this document, not guesswork from a blog post
 
-### Task 1.5: Generate and review the initial migration
+### Task 1.3: Add DB readiness and startup integration
 
 Files:
-- create `apps/api/src/db/migrations/*`
-
-Rules:
-- generate migration from schema definitions
-- inspect the SQL instead of blindly trusting the generator
-- make sure index names and constraint names are readable
-- if the generated SQL is ugly or wrong, fix it before shipping
-
-### Task 1.6: Add DB readiness and startup integration
-
-Files:
-- modify `apps/api/src/app.ts`
-- modify `apps/api/src/routes/health.routes.ts`
+- modify API startup wiring
+- add DB checks to `GET /readyz`
 
 Behavior:
-- `/healthz` should return process-up regardless of DB state
-- `/readyz` should fail if DB cannot be reached
-- startup logs should print enough to diagnose DB config problems fast
+- `/healthz` returns process-up regardless of DB state
+- `/readyz` fails if DB cannot be reached
+- startup logs print enough to diagnose DB config failures fast
 
-### Task 1.7: Create seed script
+### Task 1.4: Create seed command
 
 Files:
-- create `apps/api/src/db/seed.ts`
+- create `apps/api/cmd/seed/main.go`
 
 Seed content:
-- dev org and users from Section 20
+- dev org and users from Section 17
 - default deal stages
 - small sample CRM dataset
 
 Rules:
 - seed should be re-runnable without exploding
 - passwords must be hashed the same way production auth will hash them
-- print seeded credentials and org info clearly at the end
+- print seeded credentials clearly at the end
 
-### Task 1.8: Add repository smoke tests around DB assumptions
+### Task 1.5: Add DB integration tests
 
 Files:
-- create `apps/api/tests/integration/db-schema.test.ts`
-- create `apps/api/tests/integration/tenant-isolation.test.ts`
+- create `apps/api/test/integration/db_schema_test.go`
+- create `apps/api/test/integration/tenant_isolation_test.go`
 
 Minimum tests:
 - migration-applied schema can insert a user/org/membership tuple
 - duplicate membership is rejected
 - cross-org linked data is rejected by service validation or constraints where relevant
-- archived rows stay out of default active queries once repositories exist
+- readiness endpoint passes with DB up
 
-### Task 1.9: Verify Slice 1
+### Task 1.6: Verify Slice 1
 
 Commands:
 ```bash
-docker compose up -d postgres
-pnpm db:generate
-pnpm db:migrate
-pnpm db:seed
-pnpm test
+make db-up
+make db-migrate
+make db-seed
+make test-api
 ```
 
 Expected outcome:
@@ -1389,35 +1403,65 @@ Expected outcome:
 
 ---
 
-## 26. Non-negotiable implementation rules for the first build phase
+## 23. Non-negotiable implementation rules for the first build phase
 
 These rules prevent stupid drift early.
 
 - no branchy speculative architecture work before Slice 0 and 1 are real
+- no Gin/Echo/Fiber because “everyone uses it”
+- no ORM if plain SQL is still readable
 - no generic repository base class unless it materially simplifies real code already written
-- no codegen-heavy API client workflow for MVP
 - no Redis, queues, cron workers, or websocket layer unless a real feature forces them
-- no soft-deleting users or org memberships without a clearly defined behavior model
-- no mixing tenant resolution logic into random route handlers; centralize it
-- no frontend global store for CRUD data that TanStack Query already handles well
+- no frontend state library for CRUD data that plain React and a small API client already handle fine
+- no Tailwind or component framework as a crutch for visual design
 - no unbounded list endpoints
 - no nullable chaos; if a field is optional, define why
+- no auth token gymnastics when a good session cookie solves the problem cleanly
 
 ---
 
-## 27. What to document as the repo evolves
+## 24. What to document as the repo evolves
 
-`mvp.md` is the product/engineering plan. Keep it honest.
+`mvp.md` is the product and engineering plan. Keep it honest.
 
 As implementation begins, also add:
 - `README.md` for setup and daily dev workflow
-- `docs/adr/` for a few short architecture decisions if a decision becomes sticky
+- `docs/adr/` for short architecture decisions when a decision becomes sticky
 - `docs/runbooks/local-development.md` if setup gets non-trivial
 - `docs/runbooks/release.md` once deployment exists
+- `docs/ui-guidelines.md` once the first polished UI patterns exist
 
 Good ADR candidates:
+- why Go stdlib HTTP beat framework sprawl here
 - why server-side sessions beat JWT for this repo
-- why modular monolith beats service sprawl here
-- why Postgres is the single source of truth for MVP
+- why plain SQL beat ORM abstraction for MVP
+- why the frontend stayed JavaScript with minimal dependencies
 
 If a decision stops being true, update the docs. Dead docs are worse than no docs.
+
+---
+
+## 25. Immediate next move
+
+Start with Slice 0 and Slice 1 only.
+
+Do not try to scaffold the whole product in one blast. That is how repos turn into dead weight.
+
+The first real build sequence should be:
+1. repo bootstrap
+2. Go API skeleton
+3. JS web shell with polished base styles
+4. Postgres + SQL migrations
+5. seeded owner login
+6. contacts slice
+7. companies slice
+8. deals slice
+
+Before writing the first line of feature code, lock these repo-level decisions:
+- backend is Go + stdlib HTTP + pgx + Postgres
+- frontend is JavaScript + React + Vite + React Router + plain CSS
+- auth is server-side sessions, not JWT cargo culting
+- visual quality comes from deliberate design primitives, not dumping a UI framework into the repo
+- dependency count stays low unless a dependency clearly buys speed, quality, or reliability
+
+If those are clean, the rest gets much easier.
