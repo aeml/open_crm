@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -15,5 +16,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("migrations ready for %s with %d file(s)\n", cfg.DatabaseURL, len(db.MigrationFiles()))
+	if err := db.RunMigrations(context.Background(), cfg); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("applied %d migration(s)\n", len(db.MigrationFiles()))
 }
