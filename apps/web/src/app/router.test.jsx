@@ -23,7 +23,8 @@ describe('AppRouter', () => {
             organization: {
               id: 1,
               name: 'Acme, Inc.',
-              slug: 'acme-inc'
+              slug: 'acme-inc',
+              businessType: 'general'
             },
             membership: {
               role: 'owner'

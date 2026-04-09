@@ -4,11 +4,13 @@ import { API_BASE_URL } from '../lib/config'
 const AuthContext = createContext({
   status: 'unauthenticated',
   session: null,
+  businessProfile: null,
   error: '',
   login: async () => {
     throw new Error('Unable to sign in.')
   },
-  refreshSession: async () => null
+  refreshSession: async () => null,
+  setBusinessProfile: () => {}
 })
 
 function getErrorMessage(payload, fallbackMessage) {
@@ -18,6 +20,7 @@ function getErrorMessage(payload, fallbackMessage) {
 export function AppProviders({ children }) {
   const [status, setStatus] = useState('checking')
   const [session, setSession] = useState(null)
+  const [businessProfile, setBusinessProfile] = useState(null)
   const [error, setError] = useState('')
 
   const refreshSession = useCallback(async () => {
@@ -40,6 +43,7 @@ export function AppProviders({ children }) {
         if (response.status === 401) {
           setStatus('unauthenticated')
           setSession(null)
+          setBusinessProfile(null)
           return null
         }
 
@@ -47,11 +51,13 @@ export function AppProviders({ children }) {
       }
 
       setSession(payload.data)
+      setBusinessProfile(null)
       setStatus('authenticated')
       return payload.data
     } catch (refreshError) {
       setStatus('unauthenticated')
       setSession(null)
+      setBusinessProfile(null)
       setError(refreshError.message || 'Unable to load your session.')
       return null
     }
@@ -77,11 +83,13 @@ export function AppProviders({ children }) {
       const message = getErrorMessage(payload, 'Unable to sign in.')
       setStatus('unauthenticated')
       setSession(null)
+      setBusinessProfile(null)
       setError(message)
       throw new Error(message)
     }
 
     setSession(payload.data)
+    setBusinessProfile(null)
     setStatus('authenticated')
     setError('')
     return payload.data
@@ -91,11 +99,13 @@ export function AppProviders({ children }) {
     () => ({
       status,
       session,
+      businessProfile,
       error,
       login,
-      refreshSession
+      refreshSession,
+      setBusinessProfile
     }),
-    [error, login, refreshSession, session, status]
+    [businessProfile, error, login, refreshSession, session, status]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

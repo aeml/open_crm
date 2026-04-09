@@ -23,9 +23,10 @@ type User struct {
 }
 
 type Organization struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
-	Slug string `json:"slug"`
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	Slug         string `json:"slug"`
+	BusinessType string `json:"businessType"`
 }
 
 type Membership struct {
@@ -60,26 +61,27 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 	password = strings.TrimSpace(password)
 
 	var (
-		userID           int64
-		storedEmail      string
-		passwordHash     string
-		firstName        string
-		lastName         string
-		organizationID   int64
-		organizationName string
-		organizationSlug string
-		role             string
+		userID                   int64
+		storedEmail              string
+		passwordHash             string
+		firstName                string
+		lastName                 string
+		organizationID           int64
+		organizationName         string
+		organizationSlug         string
+		organizationBusinessType string
+		role                     string
 	)
 
 	err := s.pool.QueryRow(ctx, `
-		SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, o.id, o.name, o.slug, om.role
+		SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, o.id, o.name, o.slug, o.business_type, om.role
 		FROM users u
 		JOIN organization_memberships om ON om.user_id = u.id
 		JOIN organizations o ON o.id = om.organization_id
 		WHERE lower(u.email) = lower($1)
 		ORDER BY om.id ASC
 		LIMIT 1
-	`, email).Scan(&userID, &storedEmail, &passwordHash, &firstName, &lastName, &organizationID, &organizationName, &organizationSlug, &role)
+	`, email).Scan(&userID, &storedEmail, &passwordHash, &firstName, &lastName, &organizationID, &organizationName, &organizationSlug, &organizationBusinessType, &role)
 	if err != nil {
 		return LoginResult{}, ErrUnauthorized
 	}
@@ -106,7 +108,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 		SessionToken: token,
 		State: SessionState{
 			User:         User{ID: userID, Email: storedEmail, FirstName: firstName, LastName: lastName},
-			Organization: Organization{ID: organizationID, Name: organizationName, Slug: organizationSlug},
+			Organization: Organization{ID: organizationID, Name: organizationName, Slug: organizationSlug, BusinessType: organizationBusinessType},
 			Membership:   Membership{Role: role},
 		},
 	}, nil
@@ -123,7 +125,7 @@ func (s *Service) CurrentSession(ctx context.Context, sessionToken string) (Sess
 	tokenHash := hashToken(sessionToken)
 	var state SessionState
 	err := s.pool.QueryRow(ctx, `
-		SELECT u.id, u.email, u.first_name, u.last_name, o.id, o.name, o.slug, om.role
+		SELECT u.id, u.email, u.first_name, u.last_name, o.id, o.name, o.slug, o.business_type, om.role
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		JOIN organizations o ON o.id = s.organization_id
@@ -139,6 +141,7 @@ func (s *Service) CurrentSession(ctx context.Context, sessionToken string) (Sess
 		&state.Organization.ID,
 		&state.Organization.Name,
 		&state.Organization.Slug,
+		&state.Organization.BusinessType,
 		&state.Membership.Role,
 	)
 	if err != nil {

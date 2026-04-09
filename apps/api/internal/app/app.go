@@ -14,6 +14,7 @@ import (
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -50,12 +51,18 @@ type companiesService interface {
 	Archive(context.Context, int64, int64, int64) error
 }
 
+type orgProfileService interface {
+	GetByOrganizationID(context.Context, int64) (moduleorgprofile.Detail, error)
+	UpdateByOrganizationID(context.Context, int64, int64, moduleorgprofile.UpdateInput) (moduleorgprofile.Detail, error)
+}
+
 type Dependencies struct {
-	CheckReadiness   func(context.Context) error
-	AuthService      authService
-	UsersService     usersService
-	ContactsService  contactsService
-	CompaniesService companiesService
+	CheckReadiness    func(context.Context) error
+	AuthService       authService
+	UsersService      usersService
+	ContactsService   contactsService
+	CompaniesService  companiesService
+	OrgProfileService orgProfileService
 }
 
 type statusResponse struct {
@@ -166,6 +173,19 @@ type companyDetailResponse struct {
 	} `json:"meta"`
 }
 
+type organizationProfileRequest struct {
+	BusinessType string `json:"businessType"`
+}
+
+type organizationProfileResponse struct {
+	Data struct {
+		Profile moduleorgprofile.Detail `json:"profile"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	dependencies := Dependencies{}
 	if len(deps) > 0 {
@@ -217,6 +237,12 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/companies/{companyID}", func(w http.ResponseWriter, r *http.Request) {
 		handleArchiveCompany(dependencies.AuthService, dependencies.CompaniesService, w, r)
+	})
+	mux.HandleFunc("GET /api/organization/profile", func(w http.ResponseWriter, r *http.Request) {
+		handleGetOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/organization/profile", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, w, r)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		respondStatus(w, r, http.StatusOK, "ok")
@@ -633,6 +659,61 @@ func handleArchiveCompany(auth authService, companies companiesService, w http.R
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func handleGetOrganizationProfile(auth authService, profiles orgProfileService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, err := requireCurrentSession(auth, r)
+	if err != nil {
+		if errors.Is(err, moduleauth.ErrUnauthorized) {
+			platformweb.WriteError(w, http.StatusUnauthorized, requestID, "UNAUTHORIZED", "Authentication required")
+			return
+		}
+		if errors.Is(err, errServiceUnavailable) {
+			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Authentication service unavailable")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load current session")
+		return
+	}
+	if profiles == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Organization profile service unavailable")
+		return
+	}
+
+	result, profileErr := profiles.GetByOrganizationID(r.Context(), state.Organization.ID)
+	if profileErr != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load organization profile")
+		return
+	}
+
+	respondOrganizationProfile(w, r, http.StatusOK, result)
+}
+
+func handleUpdateOrganizationProfile(auth authService, profiles orgProfileService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if profiles == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Organization profile service unavailable")
+		return
+	}
+
+	var request organizationProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return
+	}
+
+	result, profileErr := profiles.UpdateByOrganizationID(r.Context(), state.Organization.ID, state.User.ID, moduleorgprofile.UpdateInput{BusinessType: strings.TrimSpace(request.BusinessType)})
+	if profileErr != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update organization profile")
+		return
+	}
+
+	respondOrganizationProfile(w, r, http.StatusOK, result)
+}
+
 func decodeContactRequest(w http.ResponseWriter, r *http.Request) (modulecontacts.CreateInput, bool) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	var request contactRequest
@@ -693,6 +774,13 @@ func respondCompanyDetail(w http.ResponseWriter, r *http.Request, statusCode int
 	response.Data.Company = detail.Summary
 	response.Data.LinkedContacts = detail.LinkedContacts
 	response.Data.Activities = detail.Activities
+	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteJSON(w, statusCode, response)
+}
+
+func respondOrganizationProfile(w http.ResponseWriter, r *http.Request, statusCode int, detail moduleorgprofile.Detail) {
+	response := organizationProfileResponse{}
+	response.Data.Profile = detail
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)
 }
