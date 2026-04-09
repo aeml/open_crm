@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:pages": "vite build --base=/open_crm/",
     "test": "vitest run"
   },
   "dependencies": {

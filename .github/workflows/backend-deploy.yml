@@ -1,0 +1,72 @@
+name: Deploy backend to ssh.mendola.tech
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'docker-compose.deploy.yml'
+      - 'scripts/remote-deploy.sh'
+      - '.github/workflows/backend-deploy.yml'
+      - '.dockerignore'
+      - 'README.md'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ssh.mendola.tech
+      DEPLOY_USER: aeml
+      DEPLOY_PATH: ~/open_crm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key and known hosts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s' '${{ secrets.SSH_PRIVATE_KEY }}' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          cat > ~/.ssh/known_hosts <<'EOF'
+          ssh.mendola.tech ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDpx/zhU5btINk/lKwg0rwU7AfVCTEoNOQj5acHLumdbnZGaULwR4kSVWkCPpmVIJZ4sfIPsFcu7JsblwFMZ4A9f5u6vkr5FGfVGgReHTaczzb9po8wHA+DRIBgZLxLlSkxWUkZGNSCb+JmWRlT1tRi8ko9BnkYmsZBcc0dOE/xUPGXaY8Wg9XJOKdMVF83DSDb89nh3FR2BP+0xZILt50keNvnKO8q/SietbEf2DIzlAV2xGLgKJgRx6fplDh7RvjCYhrDj88b3SZxZH3P532q/ZDwL1FcMxfG6QgubNzI5v/GRl/voqKHw2Fb9ScRdWSE9Y86KzJ8vEe+bv1AeWuFRl/M5H2kq69zPaNwO7W9sgzNYFDNA7JN3yea8VnFPWumwv4+I5IBOCtMTna8GGyHtFyX/cAMAOt4QzfXccoBiAX5r8hm7COhMKkEeEojVRnjbep+OYalL7fNXHQb5erHLynCGrjrFlpuWuXzD5EbMIAz52ym2cVJ2hANwbEOLB0=
+          ssh.mendola.tech ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBMlVVcJeHlJFmorFIxpFn91ERrjnKH2LIjgbP8oZLLRHZIdoy7q8Rnq6+axL5flPKQ+Uc+8NyZkkMSXb/eo6w2Y=
+          ssh.mendola.tech ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGiPjpRvGPRwDs4CoG7cAk412OIiNsrlllMFoCuMM5w8
+          EOF
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Prepare remote directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes ${DEPLOY_USER}@${DEPLOY_HOST} "mkdir -p ${DEPLOY_PATH}"
+
+      - name: Upload deploy bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -az --delete \
+            --exclude '.git' \
+            --exclude 'apps/web/node_modules' \
+            --exclude 'apps/web/dist' \
+            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            ./ ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/
+
+      - name: Upload production environment file
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/open_crm.env <<'EOF'
+          ${{ secrets.DEPLOY_ENV }}
+          EOF
+          scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes /tmp/open_crm.env ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/.env.production
+          rm -f /tmp/open_crm.env
+
+      - name: Deploy stack on remote host
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes ${DEPLOY_USER}@${DEPLOY_HOST} "chmod +x ${DEPLOY_PATH}/scripts/remote-deploy.sh && ${DEPLOY_PATH}/scripts/remote-deploy.sh ${DEPLOY_PATH}"

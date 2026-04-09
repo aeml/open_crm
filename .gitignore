@@ -3,4 +3,5 @@
 apps/web/node_modules/
 apps/web/dist/
 apps/api/bin/
+.env.production
 *.log
