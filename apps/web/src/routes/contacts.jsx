@@ -3,6 +3,7 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { archiveContact, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
+import { createNote } from '../lib/notes'
 
 const emptyForm = {
   firstName: '',
@@ -26,9 +27,11 @@ export function ContactsRoute() {
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
   const [form, setForm] = useState(emptyForm)
+  const [noteBody, setNoteBody] = useState('')
   const [error, setError] = useState('')
 
   const selectedContact = detail?.contact || null
+  const selectedNotes = detail?.notes || []
   const selectedActivities = detail?.activities || []
 
   async function loadContacts(nextSearch = '') {
@@ -98,6 +101,7 @@ export function ContactsRoute() {
         jobTitle: cached.contact.jobTitle || '',
         status: cached.contact.status || 'lead'
       })
+      setNoteBody('')
       setMode('detail')
       return
     }
@@ -115,6 +119,7 @@ export function ContactsRoute() {
         jobTitle: data.contact.jobTitle || '',
         status: data.contact.status || 'lead'
       })
+      setNoteBody('')
       setMode('detail')
       setError('')
     } catch (loadError) {
@@ -139,6 +144,7 @@ export function ContactsRoute() {
         jobTitle: data.contact.jobTitle || '',
         status: data.contact.status || 'lead'
       })
+      setNoteBody('')
       setMode('detail')
       setError('')
     } catch (saveError) {
@@ -191,10 +197,42 @@ export function ContactsRoute() {
       })
       setSelectedContactId(null)
       setForm(emptyForm)
+      setNoteBody('')
       setMode('list')
       setError('')
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive contact.')
+    }
+  }
+
+  async function handleCreateNote(event) {
+    event.preventDefault()
+    if (!selectedContactId || !noteBody.trim()) {
+      return
+    }
+
+    try {
+      const data = await createNote({
+        entityType: 'contact',
+        entityId: selectedContactId,
+        body: noteBody.trim()
+      })
+      setDetail((current) => {
+        if (!current) {
+          return current
+        }
+        const next = {
+          ...current,
+          notes: [data.note, ...(current.notes || [])],
+          activities: [data.activity, ...(current.activities || [])]
+        }
+        setDetailCache((cache) => ({ ...cache, [selectedContactId]: next }))
+        return next
+      })
+      setNoteBody('')
+      setError('')
+    } catch (noteError) {
+      setError(noteError.message || 'Unable to add note.')
     }
   }
 
@@ -313,7 +351,22 @@ export function ContactsRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Notes</h3>
-                <p>Notes will land here in the shared activity slice.</p>
+                <form className="auth-form" onSubmit={handleCreateNote}>
+                  <Field label="New note">
+                    <textarea className="text-input" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={4} />
+                  </Field>
+                  <Button type="submit">Add note</Button>
+                </form>
+                <div className="record-list" role="list" aria-label="Notes list">
+                  {selectedNotes.map((note) => (
+                    <article className="record-row" key={note.id} role="listitem">
+                      <div>
+                        <p>{note.body}</p>
+                        <p className="field-hint">{note.createdByUserName || 'Unknown author'}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
               </div>
             </Card>
             <Card>

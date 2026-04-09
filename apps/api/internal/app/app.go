@@ -16,6 +16,7 @@ import (
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
@@ -77,6 +78,11 @@ type dashboardService interface {
 	SummaryByOrganization(context.Context, int64) (moduledashboard.Summary, error)
 }
 
+type notesService interface {
+	ListByEntity(context.Context, int64, string, int64) ([]modulenotes.Entry, error)
+	Create(context.Context, int64, int64, modulenotes.CreateInput) (modulenotes.CreateResult, error)
+}
+
 type onboardingService interface {
 	BootstrapOrganization(context.Context, moduleonboarding.BootstrapInput) (moduleauth.LoginResult, error)
 }
@@ -91,6 +97,7 @@ type Dependencies struct {
 	TasksService      tasksService
 	OrgProfileService orgProfileService
 	DashboardService  dashboardService
+	NotesService      notesService
 	OnboardingService onboardingService
 }
 
@@ -275,6 +282,31 @@ type dealDetailResponse struct {
 	} `json:"meta"`
 }
 
+type noteRequest struct {
+	EntityType string `json:"entityType"`
+	EntityID   int64  `json:"entityId"`
+	Body       string `json:"body"`
+}
+
+type notesListResponse struct {
+	Data struct {
+		Notes []modulenotes.Entry `json:"notes"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type noteDetailResponse struct {
+	Data struct {
+		Note     modulenotes.Entry         `json:"note"`
+		Activity modulenotes.ActivityEntry `json:"activity"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type organizationProfileRequest struct {
 	BusinessType string `json:"businessType"`
 }
@@ -381,6 +413,12 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}/stage", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateDealStage(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("GET /api/notes", func(w http.ResponseWriter, r *http.Request) {
+		handleListNotes(dependencies.AuthService, dependencies.NotesService, w, r)
+	})
+	mux.HandleFunc("POST /api/notes", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateNote(dependencies.AuthService, dependencies.NotesService, w, r)
 	})
 	mux.HandleFunc("GET /api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		handleListTasks(dependencies.AuthService, dependencies.TasksService, w, r)
@@ -955,6 +993,10 @@ func handleUpdateDealStage(auth authService, deals dealsService, w http.Response
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
 		return
 	}
+	if request.StageID <= 0 {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Stage is required")
+		return
+	}
 
 	result, err := deals.UpdateStage(r.Context(), state.Organization.ID, dealID, state.User.ID, moduledeals.UpdateStageInput{StageID: request.StageID})
 	if err != nil {
@@ -963,6 +1005,58 @@ func handleUpdateDealStage(auth authService, deals dealsService, w http.Response
 	}
 
 	respondDealDetail(w, r, http.StatusOK, result)
+}
+
+func handleListNotes(auth authService, notes notesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if notes == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Notes service unavailable")
+		return
+	}
+
+	entityType := strings.TrimSpace(r.URL.Query().Get("entityType"))
+	entityID, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("entityId")), 10, 64)
+	if err != nil || entityID <= 0 || entityType == "" {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Entity type and entity id are required")
+		return
+	}
+
+	result, notesErr := notes.ListByEntity(r.Context(), state.Organization.ID, entityType, entityID)
+	if notesErr != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load notes")
+		return
+	}
+
+	respondNotesList(w, r, http.StatusOK, result)
+}
+
+func handleCreateNote(auth authService, notes notesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if notes == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Notes service unavailable")
+		return
+	}
+
+	input, decoded := decodeNoteRequest(w, r)
+	if !decoded {
+		return
+	}
+
+	result, notesErr := notes.Create(r.Context(), state.Organization.ID, state.User.ID, input)
+	if notesErr != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create note")
+		return
+	}
+
+	respondNoteDetail(w, r, http.StatusCreated, result)
 }
 
 func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
@@ -1190,6 +1284,25 @@ func decodeTaskCreateRequest(w http.ResponseWriter, r *http.Request) (moduletask
 	return input, true
 }
 
+func decodeNoteRequest(w http.ResponseWriter, r *http.Request) (modulenotes.CreateInput, bool) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	var request noteRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return modulenotes.CreateInput{}, false
+	}
+	input := modulenotes.CreateInput{
+		EntityType: strings.TrimSpace(request.EntityType),
+		EntityID:   request.EntityID,
+		Body:       strings.TrimSpace(request.Body),
+	}
+	if input.EntityType == "" || input.EntityID <= 0 || input.Body == "" {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Entity type, entity id, and body are required")
+		return modulenotes.CreateInput{}, false
+	}
+	return input, true
+}
+
 func decodeTaskUpdateRequest(w http.ResponseWriter, r *http.Request) (moduletasks.UpdateInput, bool) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	var request taskUpdateRequest
@@ -1231,6 +1344,21 @@ func respondDealDetail(w http.ResponseWriter, r *http.Request, statusCode int, d
 	response := dealDetailResponse{}
 	response.Data.Deal = detail.Summary
 	response.Data.Activities = detail.Activities
+	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteJSON(w, statusCode, response)
+}
+
+func respondNotesList(w http.ResponseWriter, r *http.Request, statusCode int, notes []modulenotes.Entry) {
+	response := notesListResponse{}
+	response.Data.Notes = notes
+	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteJSON(w, statusCode, response)
+}
+
+func respondNoteDetail(w http.ResponseWriter, r *http.Request, statusCode int, detail modulenotes.CreateResult) {
+	response := noteDetailResponse{}
+	response.Data.Note = detail.Note
+	response.Data.Activity = detail.Activity
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)
 }
