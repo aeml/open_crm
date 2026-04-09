@@ -32,18 +32,47 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           python3 - <<'PY'
+          import base64
           import os
+          import re
+          import sys
           from pathlib import Path
 
-          raw = os.environ['SSH_PRIVATE_KEY']
+          raw = os.environ.get('SSH_PRIVATE_KEY', '')
+          if not raw.strip():
+              raise SystemExit('SSH_PRIVATE_KEY is empty')
+
           normalized = raw.replace('\r\n', '\n').replace('\r', '\n').strip()
-          if '\\n' in normalized and '-----BEGIN' in normalized:
+
+          if normalized[:1] == normalized[-1:] and normalized[:1] in {'"', "'"}:
+              normalized = normalized[1:-1].strip()
+
+          if '\\n' in normalized:
               normalized = normalized.replace('\\n', '\n')
+
+          if 'BEGIN' not in normalized and re.fullmatch(r'[A-Za-z0-9+/=\n]+', normalized):
+              try:
+                  decoded = base64.b64decode(normalized).decode('utf-8')
+              except Exception:
+                  decoded = None
+              if decoded and 'BEGIN' in decoded:
+                  normalized = decoded.strip()
+
+          lines = [line.rstrip() for line in normalized.split('\n') if line.strip()]
+          if lines and lines[0].startswith('-----BEGIN ') and lines[-1].startswith('-----END '):
+              normalized = '\n'.join(lines)
+          else:
+              raise SystemExit('SSH_PRIVATE_KEY is not a recognizable private key format')
+
           if not normalized.endswith('\n'):
               normalized += '\n'
-          Path.home().joinpath('.ssh', 'id_ed25519').write_text(normalized)
+
+          key_path = Path.home().joinpath('.ssh', 'id_ed25519')
+          key_path.write_text(normalized)
+          print(f'Wrote SSH key with {len(lines)} non-empty lines; header={lines[0]}')
           PY
           chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -l -f ~/.ssh/id_ed25519
           ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null
           cat > ~/.ssh/known_hosts <<'EOF'
           ssh.mendola.tech ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDpx/zhU5btINk/lKwg0rwU7AfVCTEoNOQj5acHLumdbnZGaULwR4kSVWkCPpmVIJZ4sfIPsFcu7JsblwFMZ4A9f5u6vkr5FGfVGgReHTaczzb9po8wHA+DRIBgZLxLlSkxWUkZGNSCb+JmWRlT1tRi8ko9BnkYmsZBcc0dOE/xUPGXaY8Wg9XJOKdMVF83DSDb89nh3FR2BP+0xZILt50keNvnKO8q/SietbEf2DIzlAV2xGLgKJgRx6fplDh7RvjCYhrDj88b3SZxZH3P532q/ZDwL1FcMxfG6QgubNzI5v/GRl/voqKHw2Fb9ScRdWSE9Y86KzJ8vEe+bv1AeWuFRl/M5H2kq69zPaNwO7W9sgzNYFDNA7JN3yea8VnFPWumwv4+I5IBOCtMTna8GGyHtFyX/cAMAOt4QzfXccoBiAX5r8hm7COhMKkEeEojVRnjbep+OYalL7fNXHQb5erHLynCGrjrFlpuWuXzD5EbMIAz52ym2cVJ2hANwbEOLB0=
