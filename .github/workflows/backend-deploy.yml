@@ -25,12 +25,26 @@ jobs:
 
       - name: Set up SSH key and known hosts
         shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s' '${{ secrets.SSH_PRIVATE_KEY }}' > ~/.ssh/id_ed25519
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          raw = os.environ['SSH_PRIVATE_KEY']
+          normalized = raw.replace('\r\n', '\n').replace('\r', '\n').strip()
+          if '\\n' in normalized and '-----BEGIN' in normalized:
+              normalized = normalized.replace('\\n', '\n')
+          if not normalized.endswith('\n'):
+              normalized += '\n'
+          Path.home().joinpath('.ssh', 'id_ed25519').write_text(normalized)
+          PY
           chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null
           cat > ~/.ssh/known_hosts <<'EOF'
           ssh.mendola.tech ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDpx/zhU5btINk/lKwg0rwU7AfVCTEoNOQj5acHLumdbnZGaULwR4kSVWkCPpmVIJZ4sfIPsFcu7JsblwFMZ4A9f5u6vkr5FGfVGgReHTaczzb9po8wHA+DRIBgZLxLlSkxWUkZGNSCb+JmWRlT1tRi8ko9BnkYmsZBcc0dOE/xUPGXaY8Wg9XJOKdMVF83DSDb89nh3FR2BP+0xZILt50keNvnKO8q/SietbEf2DIzlAV2xGLgKJgRx6fplDh7RvjCYhrDj88b3SZxZH3P532q/ZDwL1FcMxfG6QgubNzI5v/GRl/voqKHw2Fb9ScRdWSE9Y86KzJ8vEe+bv1AeWuFRl/M5H2kq69zPaNwO7W9sgzNYFDNA7JN3yea8VnFPWumwv4+I5IBOCtMTna8GGyHtFyX/cAMAOt4QzfXccoBiAX5r8hm7COhMKkEeEojVRnjbep+OYalL7fNXHQb5erHLynCGrjrFlpuWuXzD5EbMIAz52ym2cVJ2hANwbEOLB0=
           ssh.mendola.tech ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBMlVVcJeHlJFmorFIxpFn91ERrjnKH2LIjgbP8oZLLRHZIdoy7q8Rnq6+axL5flPKQ+Uc+8NyZkkMSXb/eo6w2Y=
