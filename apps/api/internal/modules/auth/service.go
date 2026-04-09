@@ -164,9 +164,13 @@ func (s *Service) Logout(ctx context.Context, sessionToken string) error {
 	return err
 }
 
-func hashToken(token string) string {
+func HashSessionToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+func hashToken(token string) string {
+	return HashSessionToken(token)
 }
 
 func SeedPasswordHash(password string) (string, error) {

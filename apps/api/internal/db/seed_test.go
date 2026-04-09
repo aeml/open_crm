@@ -23,3 +23,27 @@ func TestDefaultDealStages(t *testing.T) {
 		t.Fatal("expected Closed Lost to be closed and not won")
 	}
 }
+
+func TestDefaultDealStagesForBusinessType(t *testing.T) {
+	cases := []struct {
+		businessType string
+		expected     []string
+	}{
+		{businessType: "general", expected: []string{"Lead", "Qualified", "Proposal", "Negotiation", "Closed Won", "Closed Lost"}},
+		{businessType: "services", expected: []string{"Lead", "Discovery", "Scoping", "Proposal", "Closed Won", "Closed Lost"}},
+		{businessType: "product-sales", expected: []string{"Prospect", "Qualified", "Demo", "Proposal", "Closed Won", "Closed Lost"}},
+		{businessType: "construction-services", expected: []string{"Lead", "Site Visit", "Estimate", "Contract", "Closed Won", "Closed Lost"}},
+	}
+
+	for _, tc := range cases {
+		stages := DefaultDealStagesForBusinessType(tc.businessType)
+		if len(stages) != len(tc.expected) {
+			t.Fatalf("expected %d stages for %s, got %d", len(tc.expected), tc.businessType, len(stages))
+		}
+		for i, name := range tc.expected {
+			if stages[i].Name != name {
+				t.Fatalf("expected %s stage %d to be %q, got %q", tc.businessType, i, name, stages[i].Name)
+			}
+		}
+	}
+}

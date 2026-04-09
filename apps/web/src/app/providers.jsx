@@ -9,6 +9,9 @@ const AuthContext = createContext({
   login: async () => {
     throw new Error('Unable to sign in.')
   },
+  bootstrap: async () => {
+    throw new Error('Unable to create workspace.')
+  },
   refreshSession: async () => null,
   setBusinessProfile: () => {}
 })
@@ -95,6 +98,34 @@ export function AppProviders({ children }) {
     return payload.data
   }, [])
 
+  const bootstrap = useCallback(async (input) => {
+    const response = await fetch(`${API_BASE_URL}/auth/bootstrap`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(input)
+    })
+
+    const payload = await response.json()
+
+    if (!response.ok) {
+      const message = getErrorMessage(payload, 'Unable to create workspace.')
+      setStatus('unauthenticated')
+      setSession(null)
+      setBusinessProfile(null)
+      setError(message)
+      throw new Error(message)
+    }
+
+    setSession(payload.data)
+    setBusinessProfile(null)
+    setStatus('authenticated')
+    setError('')
+    return payload.data
+  }, [])
+
   const value = useMemo(
     () => ({
       status,
@@ -102,10 +133,11 @@ export function AppProviders({ children }) {
       businessProfile,
       error,
       login,
+      bootstrap,
       refreshSession,
       setBusinessProfile
     }),
-    [businessProfile, error, login, refreshSession, session, status]
+    [bootstrap, businessProfile, error, login, refreshSession, session, status]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

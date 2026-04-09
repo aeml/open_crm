@@ -48,7 +48,7 @@ func (s *Service) GetByOrganizationID(ctx context.Context, organizationID int64)
 		return Detail{}, fmt.Errorf("get organization business type: %w", err)
 	}
 
-	return buildDetail(organizationID, businessType)
+	return BuildDetailForBusinessType(organizationID, businessType)
 }
 
 func (s *Service) UpdateByOrganizationID(ctx context.Context, organizationID, _ int64, input UpdateInput) (Detail, error) {
@@ -70,10 +70,10 @@ func (s *Service) UpdateByOrganizationID(ctx context.Context, organizationID, _ 
 		return Detail{}, fmt.Errorf("update organization business type: %w", err)
 	}
 
-	return buildDetail(organizationID, businessType)
+	return BuildDetailForBusinessType(organizationID, businessType)
 }
 
-func buildDetail(organizationID int64, businessType string) (Detail, error) {
+func BuildDetailForBusinessType(organizationID int64, businessType string) (Detail, error) {
 	businessType = normalizeBusinessType(businessType)
 	definition, ok := profileDefinitions()[businessType]
 	if !ok {

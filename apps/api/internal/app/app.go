@@ -14,6 +14,7 @@ import (
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
@@ -56,6 +57,10 @@ type orgProfileService interface {
 	UpdateByOrganizationID(context.Context, int64, int64, moduleorgprofile.UpdateInput) (moduleorgprofile.Detail, error)
 }
 
+type onboardingService interface {
+	BootstrapOrganization(context.Context, moduleonboarding.BootstrapInput) (moduleauth.LoginResult, error)
+}
+
 type Dependencies struct {
 	CheckReadiness    func(context.Context) error
 	AuthService       authService
@@ -63,6 +68,7 @@ type Dependencies struct {
 	ContactsService   contactsService
 	CompaniesService  companiesService
 	OrgProfileService orgProfileService
+	OnboardingService onboardingService
 }
 
 type statusResponse struct {
@@ -84,6 +90,15 @@ type sessionResponse struct {
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type bootstrapRequest struct {
+	OrganizationName string `json:"organizationName"`
+	BusinessType     string `json:"businessType"`
+	FirstName        string `json:"firstName"`
+	LastName         string `json:"lastName"`
+	Email            string `json:"email"`
+	Password         string `json:"password"`
 }
 
 type createUserRequest struct {
@@ -196,6 +211,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("POST /auth/login", func(w http.ResponseWriter, r *http.Request) {
 		handleLogin(env, dependencies.AuthService, w, r)
 	})
+	mux.HandleFunc("POST /auth/bootstrap", func(w http.ResponseWriter, r *http.Request) {
+		handleBootstrap(env, dependencies.OnboardingService, w, r)
+	})
 	mux.HandleFunc("GET /auth/me", func(w http.ResponseWriter, r *http.Request) {
 		handleCurrentSession(dependencies.AuthService, w, r)
 	})
@@ -298,6 +316,36 @@ func handleLogin(env config.Env, service authService, w http.ResponseWriter, r *
 
 	setSessionCookie(w, env, result.SessionToken)
 	respondSession(w, r, http.StatusOK, result.State)
+}
+
+func handleBootstrap(env config.Env, service onboardingService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	if service == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Onboarding service unavailable")
+		return
+	}
+
+	var request bootstrapRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return
+	}
+
+	result, err := service.BootstrapOrganization(r.Context(), moduleonboarding.BootstrapInput{
+		OrganizationName: strings.TrimSpace(request.OrganizationName),
+		BusinessType:     strings.TrimSpace(request.BusinessType),
+		FirstName:        strings.TrimSpace(request.FirstName),
+		LastName:         strings.TrimSpace(request.LastName),
+		Email:            strings.TrimSpace(request.Email),
+		Password:         normalizePassword(request.Password),
+	})
+	if err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Unable to bootstrap workspace")
+		return
+	}
+
+	setSessionCookie(w, env, result.SessionToken)
+	respondSession(w, r, http.StatusCreated, result.State)
 }
 
 func handleCurrentSession(service authService, w http.ResponseWriter, r *http.Request) {

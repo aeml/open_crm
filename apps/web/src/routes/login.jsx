@@ -47,6 +47,7 @@ export function LoginRoute() {
             </p>
           </div>
           <form className="auth-form" onSubmit={handleSubmit}>
+            <p className="page-description">Need a clean start? <a href="/bootstrap">Create a workspace</a>.</p>
             <Field label="Email">
               <input
                 className="text-input"
