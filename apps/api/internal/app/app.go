@@ -14,6 +14,7 @@ import (
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
@@ -72,6 +73,10 @@ type orgProfileService interface {
 	UpdateByOrganizationID(context.Context, int64, int64, moduleorgprofile.UpdateInput) (moduleorgprofile.Detail, error)
 }
 
+type dashboardService interface {
+	SummaryByOrganization(context.Context, int64) (moduledashboard.Summary, error)
+}
+
 type onboardingService interface {
 	BootstrapOrganization(context.Context, moduleonboarding.BootstrapInput) (moduleauth.LoginResult, error)
 }
@@ -85,6 +90,7 @@ type Dependencies struct {
 	DealsService      dealsService
 	TasksService      tasksService
 	OrgProfileService orgProfileService
+	DashboardService  dashboardService
 	OnboardingService onboardingService
 }
 
@@ -302,6 +308,13 @@ type organizationProfileResponse struct {
 	} `json:"meta"`
 }
 
+type dashboardSummaryResponse struct {
+	Data moduledashboard.Summary `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	dependencies := Dependencies{}
 	if len(deps) > 0 {
@@ -377,6 +390,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/tasks/{taskID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateTask(dependencies.AuthService, dependencies.TasksService, w, r)
+	})
+	mux.HandleFunc("GET /api/dashboard/summary", func(w http.ResponseWriter, r *http.Request) {
+		handleDashboardSummary(dependencies.AuthService, dependencies.DashboardService, w, r)
 	})
 	mux.HandleFunc("GET /api/organization/profile", func(w http.ResponseWriter, r *http.Request) {
 		handleGetOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, w, r)
@@ -1031,6 +1047,26 @@ func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWrite
 	respondTaskDetail(w, r, http.StatusOK, result)
 }
 
+func handleDashboardSummary(auth authService, dashboard dashboardService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if dashboard == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Dashboard service unavailable")
+		return
+	}
+
+	summary, err := dashboard.SummaryByOrganization(r.Context(), state.Organization.ID)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load dashboard summary")
+		return
+	}
+
+	respondDashboardSummary(w, r, http.StatusOK, summary)
+}
+
 func handleGetOrganizationProfile(auth authService, profiles orgProfileService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, err := requireCurrentSession(auth, r)
@@ -1203,6 +1239,12 @@ func respondTaskDetail(w http.ResponseWriter, r *http.Request, statusCode int, d
 	response := taskDetailResponse{}
 	response.Data.Task = detail.Task
 	response.Data.Activities = detail.Activities
+	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteJSON(w, statusCode, response)
+}
+
+func respondDashboardSummary(w http.ResponseWriter, r *http.Request, statusCode int, summary moduledashboard.Summary) {
+	response := dashboardSummaryResponse{Data: summary}
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)
 }

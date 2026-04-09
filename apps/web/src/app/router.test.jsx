@@ -7,10 +7,10 @@ afterEach(() => {
 })
 
 describe('AppRouter', () => {
-  it('renders dashboard content at the default route shell when authenticated', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
+  it('renders dashboard summary metrics and recent activity when authenticated', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           data: {
@@ -32,13 +32,43 @@ describe('AppRouter', () => {
           }
         })
       })
-    )
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            pipelineValue: '48000.00',
+            openDealsCount: 3,
+            wonDealsCount: 1,
+            openTasksCount: 8,
+            dueTodayCount: 2,
+            newContactsCount: 5,
+            recentActivities: [
+              {
+                id: 91,
+                action: 'deal.stage_changed',
+                summary: 'Deal moved to Negotiation',
+                entityType: 'deal',
+                entityId: 12,
+                actorName: 'Alex Admin',
+                createdAt: '2026-04-10T12:00:00Z'
+              }
+            ]
+          }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
 
     window.history.pushState({}, '', '/dashboard')
 
     render(<AppRouter />)
 
-    expect(await screen.findByText(/keep the next best action obvious/i)).toBeInTheDocument()
+    expect(await screen.findByText('$48,000.00')).toBeInTheDocument()
+    expect(await screen.findByText(/deal moved to negotiation/i)).toBeInTheDocument()
+    expect(screen.getByText('5 this week')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/dashboard\/summary$/), expect.any(Object))
+    })
   })
 
   it('redirects protected routes to login when unauthenticated', async () => {

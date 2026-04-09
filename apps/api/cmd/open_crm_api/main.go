@@ -11,6 +11,7 @@ import (
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
@@ -31,6 +32,7 @@ func main() {
 	var companiesService *modulecompanies.Service
 	var dealsService *moduledeals.Service
 	var tasksService *moduletasks.Service
+	var dashboardService *moduledashboard.Service
 	var onboardingService *moduleonboarding.Service
 	var orgProfileService *moduleorgprofile.Service
 	if dbConfigErr == nil {
@@ -45,6 +47,7 @@ func main() {
 			companiesService = modulecompanies.NewService(pool)
 			dealsService = moduledeals.NewService(pool)
 			tasksService = moduletasks.NewService(pool)
+			dashboardService = moduledashboard.NewService(pool)
 			onboardingService = moduleonboarding.NewService(pool)
 			orgProfileService = moduleorgprofile.NewService(pool)
 		}
@@ -65,6 +68,7 @@ func main() {
 			CompaniesService:  companiesService,
 			DealsService:      dealsService,
 			TasksService:      tasksService,
+			DashboardService:  dashboardService,
 			OnboardingService: onboardingService,
 			OrgProfileService: orgProfileService,
 		}),

@@ -89,7 +89,7 @@ describe('auth flow', () => {
       )
     })
 
-    expect(await screen.findByText(/keep the next best action obvious/i)).toBeInTheDocument()
+    expect(await screen.findByText(/see what is live in the pipeline/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(window.location.pathname).toBe('/dashboard')
     })
