@@ -44,24 +44,24 @@ Remote host requirements:
 ## Production backend host
 
 The Go API should be exposed publicly as:
-- `https://crm.mendola.tech`
+- `https://crmserver.mendola.tech`
 
 The container should bind only on loopback on the server:
 - `127.0.0.1:18089 -> container:8080`
 
 That is the right shape. Let nginx face the internet. Do not expose the Go container directly on `0.0.0.0`.
 
-## Nginx config for crm.mendola.tech
+## Nginx config for crmserver.mendola.tech
 
 Create:
-- `/etc/nginx/sites-available/crm.mendola.tech`
+- `/etc/nginx/sites-available/crmserver.mendola.tech`
 
 Use this server block:
 ```nginx
 server {
     listen 80;
     listen [::]:80;
-    server_name crm.mendola.tech;
+    server_name crmserver.mendola.tech;
 
     location / {
         proxy_pass http://127.0.0.1:18089;
@@ -77,18 +77,18 @@ server {
 
 Enable it:
 ```bash
-sudo ln -s /etc/nginx/sites-available/crm.mendola.tech /etc/nginx/sites-enabled/crm.mendola.tech
+sudo ln -s /etc/nginx/sites-available/crmserver.mendola.tech /etc/nginx/sites-enabled/crmserver.mendola.tech
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
 ## SSL certificate with certbot
 
-Once DNS for `crm.mendola.tech` points to the server and nginx is serving port 80:
+Once DNS for `crmserver.mendola.tech` points to the server and nginx is serving port 80:
 ```bash
 sudo apt-get update
 sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d crm.mendola.tech
+sudo certbot --nginx -d crmserver.mendola.tech
 ```
 
 Then verify renewal timer exists:
@@ -124,7 +124,7 @@ Set this in `DEPLOY_ENV`:
 ALLOWED_ORIGINS=https://crm.mendola.tech
 ```
 
-That means the backend will only emit CORS allow headers for the CRM frontend origin.
+That means the backend at `crmserver.mendola.tech` will only emit CORS allow headers for the frontend origin `https://crm.mendola.tech`.
 
 If your frontend ends up living somewhere else later, update it to that exact origin, for example:
 ```env
