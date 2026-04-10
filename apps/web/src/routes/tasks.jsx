@@ -3,6 +3,7 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { createTask, listTasks, updateTask } from '../lib/tasks'
+import { listDeals } from '../lib/deals'
 
 const emptyForm = {
   title: '',
@@ -33,6 +34,7 @@ export function TasksRoute() {
   const [selectedTaskId, setSelectedTaskId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
+  const [dealOptions, setDealOptions] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [error, setError] = useState('')
 
@@ -45,12 +47,24 @@ export function TasksRoute() {
     setMeta(data.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
   }
 
+  async function loadDealOptions() {
+    const data = await listDeals()
+    const nextDeals = data.deals || []
+    setDealOptions(nextDeals)
+    setForm((current) => {
+      if (current.entityType !== 'deal' || current.entityId || nextDeals.length === 0) {
+        return current
+      }
+      return { ...current, entityId: String(nextDeals[0].id) }
+    })
+  }
+
   useEffect(() => {
     let cancelled = false
 
     async function run() {
       try {
-        await loadTasks('', 'open')
+        await Promise.all([loadTasks('', 'open'), loadDealOptions()])
         if (!cancelled) {
           setError('')
         }
@@ -229,15 +243,21 @@ export function TasksRoute() {
               <input className="text-input" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} required />
             </Field>
             <Field label="Entity type">
-              <select className="text-input" value={form.entityType} onChange={(event) => setForm((current) => ({ ...current, entityType: event.target.value }))}>
+              <select className="text-input" value={form.entityType} onChange={(event) => setForm((current) => ({ ...current, entityType: event.target.value, entityId: event.target.value === 'deal' && dealOptions[0] ? String(dealOptions[0].id) : '' }))}>
                 <option value="deal">Deal</option>
                 <option value="company">Company</option>
                 <option value="contact">Contact</option>
               </select>
             </Field>
-            <Field label="Entity ID">
-              <input className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required />
-            </Field>
+            {form.entityType === 'deal' ? (
+              <Field label="Deal">
+                <select className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required>
+                  {dealOptions.map((deal) => (
+                    <option key={deal.id} value={deal.id}>{deal.name}</option>
+                  ))}
+                </select>
+              </Field>
+            ) : null}
             <Field label="Description">
               <textarea className="text-input" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
             </Field>
