@@ -37,6 +37,7 @@ export function DealsRoute() {
   const [deals, setDeals] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
   const [form, setForm] = useState(emptyForm)
+  const [search, setSearch] = useState('')
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [selectedStageId, setSelectedStageId] = useState('')
   const [notes, setNotes] = useState([])
@@ -46,8 +47,14 @@ export function DealsRoute() {
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
 
-  async function loadPipeline() {
-    const [loadedStages, loadedDeals] = await Promise.all([listDealStages(), listDeals()])
+  async function loadDeals(nextSearch = search) {
+    const loadedDeals = await listDeals({ search: nextSearch })
+    setDeals(loadedDeals.deals || [])
+    setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
+  }
+
+  async function loadPipeline(nextSearch = search) {
+    const [loadedStages, loadedDeals] = await Promise.all([listDealStages(), listDeals({ search: nextSearch })])
     setStages(loadedStages)
     setDeals(loadedDeals.deals || [])
     setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
@@ -82,6 +89,17 @@ export function DealsRoute() {
   }, [])
 
   const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
+
+  async function handleSearchChange(event) {
+    const value = event.target.value
+    setSearch(value)
+    try {
+      await loadDeals(value)
+      setError('')
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load deals.')
+    }
+  }
 
   async function handleCreate(event) {
     event.preventDefault()
@@ -235,6 +253,9 @@ export function DealsRoute() {
               </div>
             </article>
           </div>
+          <Field label="Search deals">
+            <input className="text-input" value={search} onChange={handleSearchChange} />
+          </Field>
           {error ? <p className="form-error">{error}</p> : null}
           <div className="record-list" role="list" aria-label="Deals list">
             {deals.map((deal) => (
@@ -252,6 +273,7 @@ export function DealsRoute() {
               </article>
             ))}
           </div>
+          <p className="field-hint">Showing {deals.length} of {meta.total} deals.</p>
         </div>
       </Card>
 
