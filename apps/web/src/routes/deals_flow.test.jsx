@@ -47,6 +47,28 @@ describe('deals flow', () => {
         ok: true,
         json: async () => ({
           data: {
+            companies: [
+              { id: 6, name: 'Bluebird Health', domain: 'bluebird.example', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             deals: [
               { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 }
             ],
@@ -105,6 +127,28 @@ describe('deals flow', () => {
               { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
             ],
             meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '48000.00' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            companies: [
+              { id: 6, name: 'Bluebird Health', domain: 'bluebird.example', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
           }
         })
       })
@@ -193,10 +237,15 @@ describe('deals flow', () => {
     expect(screen.getAllByText('$48,000.00').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/proposal/i).length).toBeGreaterThan(0)
 
+    expect(screen.queryByLabelText(/company id/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/primary contact id/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^company$/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/primary contact/i)).toBeInTheDocument()
+
     fireEvent.change(screen.getByLabelText(/deal name/i), { target: { value: 'Bluebird Rollout' } })
     fireEvent.change(screen.getByLabelText(/stage/i), { target: { value: '2' } })
-    fireEvent.change(screen.getByLabelText(/company id/i), { target: { value: '6' } })
-    fireEvent.change(screen.getByLabelText(/primary contact id/i), { target: { value: '8' } })
+    fireEvent.change(screen.getByLabelText(/^company$/i), { target: { value: '6' } })
+    fireEvent.change(screen.getByLabelText(/primary contact/i), { target: { value: '8' } })
     fireEvent.change(screen.getByLabelText(/value amount/i), { target: { value: '60000.00' } })
     fireEvent.change(screen.getByLabelText(/value currency/i), { target: { value: 'USD' } })
     fireEvent.change(screen.getByLabelText(/expected close date/i), { target: { value: '2026-05-02' } })

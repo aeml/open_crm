@@ -5,6 +5,8 @@ import { Field } from '../components/ui/field'
 import { createDeal, listDeals, listDealStages, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
+import { listCompanies } from '../lib/companies'
+import { listContacts } from '../lib/contacts'
 
 const emptyForm = {
   name: '',
@@ -38,6 +40,8 @@ export function DealsRoute() {
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
   const [form, setForm] = useState(emptyForm)
   const [search, setSearch] = useState('')
+  const [companyOptions, setCompanyOptions] = useState([])
+  const [contactOptions, setContactOptions] = useState([])
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [selectedStageId, setSelectedStageId] = useState('')
   const [notes, setNotes] = useState([])
@@ -54,16 +58,26 @@ export function DealsRoute() {
   }
 
   async function loadPipeline(nextSearch = search) {
-    const [loadedStages, loadedDeals] = await Promise.all([listDealStages(), listDeals({ search: nextSearch })])
+    const [loadedStages, loadedDeals, loadedCompanies, loadedContacts] = await Promise.all([
+      listDealStages(),
+      listDeals({ search: nextSearch }),
+      listCompanies(),
+      listContacts()
+    ])
     setStages(loadedStages)
     setDeals(loadedDeals.deals || [])
+    setCompanyOptions(loadedCompanies.companies || [])
+    setContactOptions(loadedContacts.contacts || [])
     setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
     if (loadedStages.length > 0 && !selectedStageId) {
       setSelectedStageId(String(loadedStages[0].id))
     }
-    if (loadedStages.length > 0 && !form.stageId) {
-      setForm((current) => ({ ...current, stageId: String(loadedStages[0].id) }))
-    }
+    setForm((current) => ({
+      ...current,
+      stageId: current.stageId || (loadedStages[0] ? String(loadedStages[0].id) : ''),
+      companyId: current.companyId || (loadedCompanies.companies?.[0] ? String(loadedCompanies.companies[0].id) : ''),
+      primaryContactId: current.primaryContactId || (loadedContacts.contacts?.[0] ? String(loadedContacts.contacts[0].id) : '')
+    }))
   }
 
   useEffect(() => {
@@ -294,11 +308,19 @@ export function DealsRoute() {
                 ))}
               </select>
             </Field>
-            <Field label="Company ID">
-              <input className="text-input" value={form.companyId} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))} />
+            <Field label="Company">
+              <select className="text-input" value={form.companyId} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}>
+                {companyOptions.map((company) => (
+                  <option key={company.id} value={company.id}>{company.name}</option>
+                ))}
+              </select>
             </Field>
-            <Field label="Primary contact ID">
-              <input className="text-input" value={form.primaryContactId} onChange={(event) => setForm((current) => ({ ...current, primaryContactId: event.target.value }))} />
+            <Field label="Primary contact">
+              <select className="text-input" value={form.primaryContactId} onChange={(event) => setForm((current) => ({ ...current, primaryContactId: event.target.value }))}>
+                {contactOptions.map((contact) => (
+                  <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Value amount">
               <input className="text-input" value={form.valueAmount} onChange={(event) => setForm((current) => ({ ...current, valueAmount: event.target.value }))} />

@@ -118,6 +118,8 @@ describe('entity task visibility', () => {
           }
         })
       })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { companies: [{ id: 6, name: 'Bluebird Health', domain: 'bluebird.example', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }], meta: { page: 1, pageSize: 20, total: 1 } } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { contacts: [{ id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }], meta: { page: 1, pageSize: 20, total: 1 } } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { notes: [] } }) })
       .mockResolvedValueOnce({
         ok: true,
