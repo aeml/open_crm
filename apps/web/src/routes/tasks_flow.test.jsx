@@ -82,6 +82,17 @@ describe('tasks flow', () => {
         ok: true,
         json: async () => ({
           data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             tasks: [
               {
                 id: 51,
@@ -199,7 +210,9 @@ describe('tasks flow', () => {
     })
 
     expect(screen.queryByLabelText(/entity id/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^deal$/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/entity type/i), { target: { value: 'company' } })
     expect(screen.getByLabelText(/^company$/i)).toBeInTheDocument()
@@ -212,13 +225,16 @@ describe('tasks flow', () => {
     fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Prepare rollout checklist' } })
     fireEvent.change(screen.getByLabelText(/^contact$/i), { target: { value: '8' } })
     fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'Lock owners before kickoff.' } })
-    fireEvent.change(screen.getByLabelText(/assigned to user id/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/^assigned to$/i), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText(/due at/i), { target: { value: '2026-04-16T09:00' } })
     fireEvent.click(screen.getByRole('button', { name: /save task/i }))
 
     expect(await screen.findByRole('heading', { name: /prepare rollout checklist/i })).toBeInTheDocument()
     expect(screen.getByText(/task created/i)).toBeInTheDocument()
+    expect(screen.queryAllByLabelText(/assigned to user id/i)).toHaveLength(0)
+    expect(screen.getAllByLabelText(/^assigned to$/i).length).toBeGreaterThan(0)
 
+    fireEvent.change(screen.getAllByLabelText(/^assigned to$/i)[1], { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'completed' } })
     fireEvent.change(screen.getByLabelText(/completed at/i), { target: { value: '2026-04-10T14:15' } })
     fireEvent.change(screen.getAllByLabelText(/description/i)[1], { target: { value: 'Completed and handed off.' } })

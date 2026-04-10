@@ -6,6 +6,7 @@ import { createTask, listTasks, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
+import { listOrganizationUsers } from '../lib/users'
 
 const emptyForm = {
   title: '',
@@ -39,6 +40,7 @@ export function TasksRoute() {
   const [dealOptions, setDealOptions] = useState([])
   const [companyOptions, setCompanyOptions] = useState([])
   const [contactOptions, setContactOptions] = useState([])
+  const [userOptions, setUserOptions] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [error, setError] = useState('')
 
@@ -87,12 +89,23 @@ export function TasksRoute() {
     })
   }
 
+  async function loadUserOptions() {
+    const nextUsers = await listOrganizationUsers()
+    setUserOptions(nextUsers)
+    setForm((current) => {
+      if (current.assignedToUserId || nextUsers.length === 0) {
+        return current
+      }
+      return { ...current, assignedToUserId: String(nextUsers[0].id) }
+    })
+  }
+
   useEffect(() => {
     let cancelled = false
 
     async function run() {
       try {
-        await Promise.all([loadTasks('', 'open'), loadDealOptions(), loadCompanyOptions(), loadContactOptions()])
+        await Promise.all([loadTasks('', 'open'), loadDealOptions(), loadCompanyOptions(), loadContactOptions(), loadUserOptions()])
         if (!cancelled) {
           setError('')
         }
@@ -320,8 +333,12 @@ export function TasksRoute() {
             <Field label="Description">
               <textarea className="text-input" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
             </Field>
-            <Field label="Assigned to user ID">
-              <input className="text-input" value={form.assignedToUserId} onChange={(event) => setForm((current) => ({ ...current, assignedToUserId: event.target.value }))} />
+            <Field label="Assigned to">
+              <select className="text-input" value={form.assignedToUserId} onChange={(event) => setForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
+                {userOptions.map((user) => (
+                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Due at">
               <input className="text-input" type="datetime-local" value={form.dueAt} onChange={(event) => setForm((current) => ({ ...current, dueAt: event.target.value }))} />
@@ -347,8 +364,12 @@ export function TasksRoute() {
               <Field label="Description">
                 <textarea className="text-input" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
               </Field>
-              <Field label="Assigned to user ID">
-                <input className="text-input" value={form.assignedToUserId} onChange={(event) => setForm((current) => ({ ...current, assignedToUserId: event.target.value }))} />
+              <Field label="Assigned to">
+                <select className="text-input" value={form.assignedToUserId} onChange={(event) => setForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
+                  {userOptions.map((user) => (
+                    <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                  ))}
+                </select>
               </Field>
               <Field label="Status">
                 <select className="text-input" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
