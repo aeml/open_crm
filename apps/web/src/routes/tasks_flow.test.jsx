@@ -60,6 +60,28 @@ describe('tasks flow', () => {
         ok: true,
         json: async () => ({
           data: {
+            companies: [
+              { id: 6, name: 'Bluebird Health', domain: 'bluebird.example', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             tasks: [
               {
                 id: 51,
@@ -88,9 +110,9 @@ describe('tasks flow', () => {
           data: {
             task: {
               id: 77,
-              entityType: 'deal',
-              entityId: 12,
-              entityLabel: 'Bluebird Rollout',
+              entityType: 'contact',
+              entityId: 8,
+              entityLabel: 'Ava Stone',
               title: 'Prepare rollout checklist',
               description: 'Lock owners before kickoff.',
               status: 'open',
@@ -177,10 +199,18 @@ describe('tasks flow', () => {
     })
 
     expect(screen.queryByLabelText(/entity id/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^deal$/i)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/entity type/i), { target: { value: 'company' } })
+    expect(screen.getByLabelText(/^company$/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/^deal$/i)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/entity type/i), { target: { value: 'contact' } })
+    expect(screen.getByLabelText(/^contact$/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/^company$/i)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Prepare rollout checklist' } })
-    fireEvent.change(screen.getByLabelText(/entity type/i), { target: { value: 'deal' } })
-    fireEvent.change(screen.getByLabelText(/deal/i), { target: { value: '12' } })
+    fireEvent.change(screen.getByLabelText(/^contact$/i), { target: { value: '8' } })
     fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'Lock owners before kickoff.' } })
     fireEvent.change(screen.getByLabelText(/assigned to user id/i), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText(/due at/i), { target: { value: '2026-04-16T09:00' } })

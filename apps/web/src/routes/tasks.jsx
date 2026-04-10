@@ -4,6 +4,8 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { createTask, listTasks, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
+import { listCompanies } from '../lib/companies'
+import { listContacts } from '../lib/contacts'
 
 const emptyForm = {
   title: '',
@@ -35,6 +37,8 @@ export function TasksRoute() {
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
   const [dealOptions, setDealOptions] = useState([])
+  const [companyOptions, setCompanyOptions] = useState([])
+  const [contactOptions, setContactOptions] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [error, setError] = useState('')
 
@@ -59,12 +63,36 @@ export function TasksRoute() {
     })
   }
 
+  async function loadCompanyOptions() {
+    const data = await listCompanies()
+    const nextCompanies = data.companies || []
+    setCompanyOptions(nextCompanies)
+    setForm((current) => {
+      if (current.entityType !== 'company' || current.entityId || nextCompanies.length === 0) {
+        return current
+      }
+      return { ...current, entityId: String(nextCompanies[0].id) }
+    })
+  }
+
+  async function loadContactOptions() {
+    const data = await listContacts()
+    const nextContacts = data.contacts || []
+    setContactOptions(nextContacts)
+    setForm((current) => {
+      if (current.entityType !== 'contact' || current.entityId || nextContacts.length === 0) {
+        return current
+      }
+      return { ...current, entityId: String(nextContacts[0].id) }
+    })
+  }
+
   useEffect(() => {
     let cancelled = false
 
     async function run() {
       try {
-        await Promise.all([loadTasks('', 'open'), loadDealOptions()])
+        await Promise.all([loadTasks('', 'open'), loadDealOptions(), loadCompanyOptions(), loadContactOptions()])
         if (!cancelled) {
           setError('')
         }
@@ -100,6 +128,19 @@ export function TasksRoute() {
     } catch (loadError) {
       setError(loadError.message || 'Unable to load tasks.')
     }
+  }
+
+  function getDefaultEntityId(nextEntityType) {
+    if (nextEntityType === 'deal') {
+      return dealOptions[0] ? String(dealOptions[0].id) : ''
+    }
+    if (nextEntityType === 'company') {
+      return companyOptions[0] ? String(companyOptions[0].id) : ''
+    }
+    if (nextEntityType === 'contact') {
+      return contactOptions[0] ? String(contactOptions[0].id) : ''
+    }
+    return ''
   }
 
   function syncTaskIntoState(task, activities) {
@@ -243,7 +284,7 @@ export function TasksRoute() {
               <input className="text-input" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} required />
             </Field>
             <Field label="Entity type">
-              <select className="text-input" value={form.entityType} onChange={(event) => setForm((current) => ({ ...current, entityType: event.target.value, entityId: event.target.value === 'deal' && dealOptions[0] ? String(dealOptions[0].id) : '' }))}>
+              <select className="text-input" value={form.entityType} onChange={(event) => setForm((current) => ({ ...current, entityType: event.target.value, entityId: getDefaultEntityId(event.target.value) }))}>
                 <option value="deal">Deal</option>
                 <option value="company">Company</option>
                 <option value="contact">Contact</option>
@@ -254,6 +295,24 @@ export function TasksRoute() {
                 <select className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required>
                   {dealOptions.map((deal) => (
                     <option key={deal.id} value={deal.id}>{deal.name}</option>
+                  ))}
+                </select>
+              </Field>
+            ) : null}
+            {form.entityType === 'company' ? (
+              <Field label="Company">
+                <select className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required>
+                  {companyOptions.map((company) => (
+                    <option key={company.id} value={company.id}>{company.name}</option>
+                  ))}
+                </select>
+              </Field>
+            ) : null}
+            {form.entityType === 'contact' ? (
+              <Field label="Contact">
+                <select className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required>
+                  {contactOptions.map((contact) => (
+                    <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
                   ))}
                 </select>
               </Field>
