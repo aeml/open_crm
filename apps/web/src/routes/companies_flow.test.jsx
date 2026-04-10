@@ -35,12 +35,42 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
+            companies: [
+              { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             company: { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],
             activities: [
               { id: 22, action: 'company.created', summary: 'Company created' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            notes: [
+              {
+                id: 41,
+                entityType: 'company',
+                entityId: 5,
+                body: 'Met procurement lead and validated timeline.',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner',
+                createdAt: '2026-04-10T11:00:00Z',
+                updatedAt: '2026-04-10T11:00:00Z'
+              }
             ]
           }
         })
@@ -65,6 +95,10 @@ describe('companies flow', () => {
     expect(await screen.findByRole('heading', { name: /northstar logistics/i })).toBeInTheDocument()
     expect(screen.getByText('morgan@acme.test')).toBeInTheDocument()
     expect(screen.getByText(/company created/i)).toBeInTheDocument()
+    expect(await screen.findByText(/met procurement lead and validated timeline/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/notes\?entityType=company&entityId=5$/), expect.any(Object))
+    })
   })
 
   it('creates, updates, and archives a company', async () => {
@@ -94,7 +128,32 @@ describe('companies flow', () => {
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],
-            activities: []
+            activities: [],
+            notes: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          data: {
+            note: {
+              id: 42,
+              entityType: 'company',
+              entityId: 6,
+              body: 'Procurement asked for revised payment terms.',
+              createdByUserId: 1,
+              createdByUserName: 'Demo Owner',
+              createdAt: '2026-04-10T11:30:00Z',
+              updatedAt: '2026-04-10T11:30:00Z'
+            },
+            activity: {
+              id: 24,
+              action: 'note.created',
+              summary: 'Note added',
+              createdAt: '2026-04-10T11:30:00Z'
+            }
           }
         })
       })
@@ -132,6 +191,12 @@ describe('companies flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /save company/i }))
 
     expect(await screen.findByRole('heading', { name: /atlas manufacturing/i })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/new note/i), { target: { value: 'Procurement asked for revised payment terms.' } })
+    fireEvent.click(screen.getByRole('button', { name: /add note/i }))
+
+    expect(await screen.findByText(/procurement asked for revised payment terms/i)).toBeInTheDocument()
+    expect(screen.getByText(/note added/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'customer' } })
     fireEvent.change(screen.getByLabelText(/linked contact ids/i), { target: { value: '7,8' } })

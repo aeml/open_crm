@@ -3,6 +3,7 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
+import { createNote, listNotes } from '../lib/notes'
 
 const emptyForm = {
   name: '',
@@ -30,10 +31,12 @@ export function CompaniesRoute() {
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
   const [form, setForm] = useState(emptyForm)
+  const [noteBody, setNoteBody] = useState('')
   const [error, setError] = useState('')
 
   const selectedCompany = detail?.company || null
   const linkedContacts = detail?.linkedContacts || []
+  const selectedNotes = detail?.notes || []
   const selectedActivities = detail?.activities || []
 
   async function loadCompanies(nextSearch = '') {
@@ -108,16 +111,22 @@ export function CompaniesRoute() {
       setSelectedCompanyId(company.id)
       setDetail(cached)
       fillFormFromDetail(cached)
+      setNoteBody('')
       setMode('detail')
       return
     }
 
     try {
-      const data = await getCompany(company.id)
-      setDetailCache((current) => ({ ...current, [company.id]: data }))
+      const [data, notes] = await Promise.all([
+        getCompany(company.id),
+        listNotes('company', company.id)
+      ])
+      const detailData = { ...data, notes }
+      setDetailCache((current) => ({ ...current, [company.id]: detailData }))
       setSelectedCompanyId(company.id)
-      setDetail(data)
-      fillFormFromDetail(data)
+      setDetail(detailData)
+      fillFormFromDetail(detailData)
+      setNoteBody('')
       setMode('detail')
       setError('')
     } catch (loadError) {
@@ -137,12 +146,14 @@ export function CompaniesRoute() {
         status: form.status,
         linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs)
       })
-      setDetailCache((current) => ({ ...current, [data.company.id]: data }))
+      const detailData = { ...data, notes: data.notes || [] }
+      setDetailCache((current) => ({ ...current, [data.company.id]: detailData }))
       setCompanies((current) => [...current, data.company])
       setMeta((current) => ({ ...current, total: current.total + 1 }))
       setSelectedCompanyId(data.company.id)
-      setDetail(data)
-      fillFormFromDetail(data)
+      setDetail(detailData)
+      fillFormFromDetail(detailData)
+      setNoteBody('')
       setMode('detail')
       setError('')
     } catch (saveError) {
@@ -166,10 +177,11 @@ export function CompaniesRoute() {
         status: form.status,
         linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs)
       })
-      setDetailCache((current) => ({ ...current, [selectedCompanyId]: data }))
+      const detailData = { ...data, notes: detail?.notes || [] }
+      setDetailCache((current) => ({ ...current, [selectedCompanyId]: detailData }))
       setCompanies((current) => current.map((entry) => (entry.id === selectedCompanyId ? data.company : entry)))
-      setDetail(data)
-      fillFormFromDetail(data)
+      setDetail(detailData)
+      fillFormFromDetail(detailData)
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to update company.')
@@ -196,10 +208,42 @@ export function CompaniesRoute() {
       })
       setSelectedCompanyId(null)
       setForm(emptyForm)
+      setNoteBody('')
       setMode('list')
       setError('')
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive company.')
+    }
+  }
+
+  async function handleCreateNote(event) {
+    event.preventDefault()
+    if (!selectedCompanyId || !noteBody.trim()) {
+      return
+    }
+
+    try {
+      const data = await createNote({
+        entityType: 'company',
+        entityId: selectedCompanyId,
+        body: noteBody.trim()
+      })
+      setDetail((current) => {
+        if (!current) {
+          return current
+        }
+        const next = {
+          ...current,
+          notes: [data.note, ...(current.notes || [])],
+          activities: [data.activity, ...(current.activities || [])]
+        }
+        setDetailCache((cache) => ({ ...cache, [selectedCompanyId]: next }))
+        return next
+      })
+      setNoteBody('')
+      setError('')
+    } catch (noteError) {
+      setError(noteError.message || 'Unable to add note.')
     }
   }
 
@@ -334,6 +378,27 @@ export function CompaniesRoute() {
                       <div>
                         <p>{contact.email}</p>
                         <p>{contact.isPrimary ? 'Primary' : 'Linked'}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </Card>
+            <Card>
+              <div className="card-stack">
+                <h3>Notes</h3>
+                <form className="auth-form" onSubmit={handleCreateNote}>
+                  <Field label="New note">
+                    <textarea className="text-input" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={4} />
+                  </Field>
+                  <Button type="submit">Add note</Button>
+                </form>
+                <div className="record-list" role="list" aria-label="Company notes list">
+                  {selectedNotes.map((note) => (
+                    <article className="record-row" key={note.id} role="listitem">
+                      <div>
+                        <p>{note.body}</p>
+                        <p className="field-hint">{note.createdByUserName || 'Unknown author'}</p>
                       </div>
                     </article>
                   ))}

@@ -49,7 +49,32 @@ describe('deals flow', () => {
         json: async () => ({
           data: {
             deal: { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 },
-            activities: []
+            activities: [],
+            notes: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          data: {
+            note: {
+              id: 51,
+              entityType: 'deal',
+              entityId: 12,
+              body: 'Legal requested updated indemnity language.',
+              createdByUserId: 1,
+              createdByUserName: 'Demo Owner',
+              createdAt: '2026-04-10T12:00:00Z',
+              updatedAt: '2026-04-10T12:00:00Z'
+            },
+            activity: {
+              id: 100,
+              action: 'note.created',
+              summary: 'Note added',
+              createdAt: '2026-04-10T12:00:00Z'
+            }
           }
         })
       })
@@ -87,6 +112,12 @@ describe('deals flow', () => {
 
     expect((await screen.findAllByText(/bluebird rollout/i)).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/qualified/i).length).toBeGreaterThan(0)
+
+    fireEvent.change(screen.getByLabelText(/new note/i), { target: { value: 'Legal requested updated indemnity language.' } })
+    fireEvent.click(screen.getByRole('button', { name: /add note/i }))
+
+    expect(await screen.findByText(/legal requested updated indemnity language/i)).toBeInTheDocument()
+    expect(screen.getByText(/note added/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/move stage/i), { target: { value: '3' } })
     fireEvent.click(screen.getByRole('button', { name: /move to stage/i }))
