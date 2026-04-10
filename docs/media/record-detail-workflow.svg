@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" fill="none">
+  <rect width="1280" height="720" rx="28" fill="#F8FAFC"/>
+  <rect x="40" y="40" width="360" height="640" rx="24" fill="#FFFFFF" stroke="#D7DEEA"/>
+  <rect x="430" y="40" width="810" height="640" rx="24" fill="#FFFFFF" stroke="#D7DEEA"/>
+
+  <rect x="72" y="74" width="160" height="18" rx="9" fill="#0F172A"/>
+  <rect x="72" y="116" width="290" height="44" rx="14" fill="#E2E8F0"/>
+  <rect x="72" y="188" width="296" height="84" rx="18" fill="#EFF6FF" stroke="#BFDBFE"/>
+  <rect x="72" y="288" width="296" height="84" rx="18" fill="#FFFFFF" stroke="#E2E8F0"/>
+  <rect x="72" y="388" width="296" height="84" rx="18" fill="#FFFFFF" stroke="#E2E8F0"/>
+
+  <rect x="462" y="74" width="220" height="16" rx="8" fill="#0F172A"/>
+  <rect x="462" y="108" width="320" height="14" rx="7" fill="#94A3B8"/>
+  <rect x="462" y="148" width="350" height="1" fill="#E2E8F0"/>
+
+  <rect x="462" y="180" width="340" height="180" rx="22" fill="#FFFFFF" stroke="#D7DEEA"/>
+  <rect x="826" y="180" width="382" height="180" rx="22" fill="#FFFFFF" stroke="#D7DEEA"/>
+  <rect x="462" y="388" width="746" height="260" rx="22" fill="#FFFFFF" stroke="#D7DEEA"/>
+
+  <rect x="486" y="208" width="120" height="14" rx="7" fill="#0F172A"/>
+  <rect x="486" y="242" width="120" height="38" rx="12" fill="#E2E8F0"/>
+  <rect x="486" y="292" width="220" height="38" rx="12" fill="#1D4ED8" fill-opacity="0.12"/>
+
+  <rect x="850" y="208" width="90" height="14" rx="7" fill="#0F172A"/>
+  <rect x="850" y="242" width="320" height="18" rx="9" fill="#E2E8F0"/>
+  <rect x="850" y="276" width="280" height="18" rx="9" fill="#E2E8F0"/>
+  <rect x="850" y="310" width="300" height="18" rx="9" fill="#E2E8F0"/>
+
+  <rect x="486" y="418" width="110" height="14" rx="7" fill="#0F172A"/>
+  <rect x="486" y="456" width="690" height="18" rx="9" fill="#E2E8F0"/>
+  <rect x="486" y="490" width="650" height="18" rx="9" fill="#E2E8F0"/>
+  <rect x="486" y="524" width="700" height="18" rx="9" fill="#E2E8F0"/>
+  <rect x="486" y="558" width="520" height="18" rx="9" fill="#E2E8F0"/>
+
+  <text x="486" y="616" fill="#475569" font-family="Arial, Helvetica, sans-serif" font-size="22">Record detail workflow placeholder</text>
+  <text x="486" y="648" fill="#64748B" font-family="Arial, Helvetica, sans-serif" font-size="18">Replace with a real contact/company/deal detail screenshot showing notes, tasks, and activity.</text>
+</svg>

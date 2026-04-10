@@ -7,6 +7,17 @@
 
 Open CRM is a production-capable CRM MVP built as a boring, explicit full-stack app: one Go API, one React web app, one Postgres database, and just enough product surface to be useful without turning into enterprise sludge.
 
+## Live links
+- App: https://crm.mendola.tech
+- API: https://crmserver.mendola.tech
+- Repo: https://github.com/aeml/open_crm
+
+## Preview
+![Open CRM dashboard summary placeholder](docs/media/dashboard-summary.svg)
+![Open CRM record detail workflow placeholder](docs/media/record-detail-workflow.svg)
+
+> Replace the placeholder SVGs in `docs/media/` with real product screenshots or a short workflow GIF when you want the README to show live UI instead of polished stand-ins.
+
 ## Why this project exists
 - Ship a real CRM workflow surface without hiding behind fake architecture
 - Prove that a modular monolith can stay clean, fast to debug, and production-ready
@@ -105,10 +116,6 @@ open_crm/
 ```
 
 ## Deployment
-
-Production URLs:
-- Frontend: https://crm.mendola.tech
-- API: https://crmserver.mendola.tech
 
 Frontend deploy:
 - `.github/workflows/frontend-pages.yml`
