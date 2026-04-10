@@ -13,10 +13,10 @@ Open CRM is a production-capable CRM MVP built as a boring, explicit full-stack 
 - Repo: https://github.com/aeml/open_crm
 
 ## Preview
-![Open CRM dashboard summary placeholder](docs/media/dashboard-summary.svg)
-![Open CRM record detail workflow placeholder](docs/media/record-detail-workflow.svg)
+![Open CRM dashboard screenshot](docs/media/dashboard-summary.png)
+![Open CRM record detail workflow screenshot](docs/media/record-detail-workflow.png)
 
-> Replace the placeholder SVGs in `docs/media/` with real product screenshots or a short workflow GIF when you want the README to show live UI instead of polished stand-ins.
+> README screenshots use disposable demo data captured from the live app so the product surface is visible without exposing real customer information.
 
 ## Why this project exists
 - Ship a real CRM workflow surface without hiding behind fake architecture
