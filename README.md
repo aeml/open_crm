@@ -1,37 +1,134 @@
-# open_crm
+# Open CRM
 
-A clean CRM MVP built with a Go backend, a JavaScript React frontend, and Postgres.
+[![Frontend Deploy](https://github.com/aeml/open_crm/actions/workflows/frontend-pages.yml/badge.svg)](https://github.com/aeml/open_crm/actions/workflows/frontend-pages.yml)
+[![Backend Deploy](https://github.com/aeml/open_crm/actions/workflows/backend-deploy.yml/badge.svg)](https://github.com/aeml/open_crm/actions/workflows/backend-deploy.yml)
 
-## Local commands
+> Built by [Robert Mendola](https://mendola.tech)
+
+Open CRM is a production-capable CRM MVP built as a boring, explicit full-stack app: one Go API, one React web app, one Postgres database, and just enough product surface to be useful without turning into enterprise sludge.
+
+## Why this project exists
+- Ship a real CRM workflow surface without hiding behind fake architecture
+- Prove that a modular monolith can stay clean, fast to debug, and production-ready
+- Cover the day-to-day operator loop: contacts, companies, deals, tasks, notes, activity, and dashboard visibility
+- Keep the stack small enough that runtime behavior is obvious when something breaks
+
+## What ships today
+- Workspace bootstrap and owner sign-in flow
+- Organization users and role-aware settings
+- Contacts, companies, and deals with searchable list + detail workflows
+- Notes and tasks attached directly to contacts, companies, and deals
+- Activity history for write operations
+- Dashboard summary with live counts and recent activity
+- Business-profile adaptation for different CRM operating modes
+- Production deploys for both frontend and backend
+
+## Technical highlights
+- Go 1.23 API using `net/http`, `ServeMux`, `pgx/v5`, explicit SQL, and server-side sessions
+- React 18 + Vite + React Router frontend with plain CSS and small reusable UI primitives
+- PostgreSQL 16 as the source of truth for auth, CRM records, tasks, notes, and dashboard data
+- Thin fetch-based API clients instead of a heavy frontend state framework
+- Vitest + Testing Library on the frontend, Go `testing` + `httptest` on the backend
+- GitHub Actions deployment split cleanly between static frontend hosting and SSH-based backend rollout
+
+## What it demonstrates
+- Full-stack product execution instead of toy scaffolding
+- Clear runtime behavior over abstraction theater
+- Boring deployment primitives that are easy to reason about
+- Shipping useful operator workflows without dependency sprawl
+
+## Architecture at a glance
+
+```mermaid
+graph LR
+    Browser[User Browser] --> Web[React + Vite Web App]
+    Web --> API[Go API]
+    API --> Auth[Session + Auth Layer]
+    API --> Modules[Contacts / Companies / Deals / Tasks / Notes / Dashboard]
+    Modules --> DB[(PostgreSQL)]
+```
+
+## Stack
+
+| Layer | Technology |
+|-------|------------|
+| Frontend | React 18, Vite, React Router, plain CSS |
+| Backend | Go 1.23, stdlib `net/http`, `pgx/v5` |
+| Auth | Argon2id password hashing, signed opaque session cookie, Postgres-backed sessions |
+| Database | PostgreSQL 16 via Docker Compose |
+| Testing | Vitest, Testing Library, Go `testing`, `httptest` |
+| Deploy | GitHub Pages for frontend, GitHub Actions + SSH + Docker Compose for backend |
+
+## Local development
+
+Prerequisites:
+- Go 1.23+
+- Node.js 18+
+- Docker with Compose plugin
+
+Quick start:
 
 ```bash
 cp .env.example .env
 make db-up
+make db-migrate
 make api-dev
 make web-dev
-make test
 ```
 
-## GitHub Actions deployment
+Useful commands:
 
-Frontend:
-- `.github/workflows/frontend-pages.yml` builds `apps/web` and deploys `apps/web/dist` to GitHub Pages.
-- It publishes a `CNAME` file for `crm.mendola.tech` and copies `index.html` to `404.html` so client-side routing still works on Pages.
-- In the repo settings, set Pages to use GitHub Actions as the source and set the custom domain to `crm.mendola.tech`.
+```bash
+make db-up       # start Postgres
+make db-down     # stop the compose stack
+make db-migrate  # run migrations
+make db-seed     # seed local data
+make api-dev     # run the Go API
+make web-dev     # run the Vite frontend
+make test        # backend + frontend tests
+```
 
-Backend + database:
-- `.github/workflows/backend-deploy.yml` syncs the repo to `aeml@ssh.mendola.tech:~/open_crm`, writes `.env.production` from a GitHub secret, then runs `scripts/remote-deploy.sh` on the remote host.
-- That deploy script preserves the Postgres named volume, rebuilds the API image, starts Postgres, runs migrations against the existing database, then starts the API.
-- Re-deploying does not wipe Postgres data unless someone explicitly deletes the `postgres_data` volume on the server.
+## Repo layout
+
+```text
+open_crm/
+├── apps/
+│   ├── api/     # Go API, migrations, seed/migrate commands
+│   └── web/     # React frontend
+├── scripts/     # deploy helpers
+├── .github/workflows/
+│   ├── frontend-pages.yml
+│   └── backend-deploy.yml
+├── docker-compose.deploy.yml
+├── Makefile
+└── mvp.md
+```
+
+## Deployment
+
+Production URLs:
+- Frontend: https://crm.mendola.tech
+- API: https://crmserver.mendola.tech
+
+Frontend deploy:
+- `.github/workflows/frontend-pages.yml`
+- Runs frontend tests, builds `apps/web`, and deploys to GitHub Pages
+- Injects `VITE_API_BASE_URL=https://crmserver.mendola.tech`
+- Copies `index.html` to `404.html` so client-side routing still works on Pages
+
+Backend deploy:
+- `.github/workflows/backend-deploy.yml`
+- Syncs the repo to `aeml@ssh.mendola.tech:~/open_crm`
+- Writes `.env.production` from the `DEPLOY_ENV` GitHub secret
+- Runs `scripts/remote-deploy.sh` on the remote host
+- Rebuilds the API, runs migrations, and preserves the existing Postgres volume
 
 Required GitHub secrets:
 - `SSH_PRIVATE_KEY`
 - `DEPLOY_ENV`
 
-Frontend public build config:
-- the Pages workflow injects `VITE_API_BASE_URL=https://crmserver.mendola.tech`
+Example `DEPLOY_ENV`:
 
-Example `DEPLOY_ENV` contents:
 ```env
 POSTGRES_DB=open_crm
 POSTGRES_USER=open_crm
@@ -42,111 +139,24 @@ ALLOWED_ORIGINS=https://crm.mendola.tech
 GO_ENV=production
 ```
 
-Notes:
-- do not hardcode `DATABASE_URL` separately unless you want to; deploy compose derives it from the Postgres variables above
-- keep `POSTGRES_PASSWORD` and `SESSION_COOKIE_SECRET` set in the GitHub secret; without them deploys should fail loudly
+## Product scope
 
-Remote host requirements:
-- Docker with Compose plugin installed
-- user `aeml` able to run Docker
-- repo deploy target directory `~/open_crm`
-- enough disk for Docker images plus the persistent `postgres_data` volume
+This repo intentionally stays focused on the core CRM loop:
+- organizations and users
+- contacts and companies
+- deals and pipeline tracking
+- notes, tasks, and activity history
+- dashboard visibility and basic filtering/search
 
-Deploy behavior on every push to `main`:
-- sync repo to server
-- rewrite `~/open_crm/.env.production` from `DEPLOY_ENV`
-- rebuild API and migration images
-- keep the existing Postgres volume mounted
-- run migrations before starting the API
+Explicit non-goals for MVP:
+- marketing automation
+- email sync
+- calendar sync
+- workflow-engine nonsense
+- microservices
+- public API/platform ambitions before the core product earns them
 
-## Production backend host
+## Status
 
-The Go API should be exposed publicly as:
-- `https://crmserver.mendola.tech`
-
-The container should bind only on loopback on the server:
-- `127.0.0.1:18089 -> container:8080`
-
-That is the right shape. Let nginx face the internet. Do not expose the Go container directly on `0.0.0.0`.
-
-## Nginx config for crmserver.mendola.tech
-
-Create:
-- `/etc/nginx/sites-available/crmserver.mendola.tech`
-
-Use this server block:
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name crmserver.mendola.tech;
-
-    location / {
-        proxy_pass http://127.0.0.1:18089;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 60s;
-    }
-}
-```
-
-Enable it:
-```bash
-sudo ln -s /etc/nginx/sites-available/crmserver.mendola.tech /etc/nginx/sites-enabled/crmserver.mendola.tech
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-## SSL certificate with certbot
-
-Once DNS for `crmserver.mendola.tech` points to the server and nginx is serving port 80:
-```bash
-sudo apt-get update
-sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d crmserver.mendola.tech
-```
-
-Then verify renewal timer exists:
-```bash
-systemctl status certbot.timer
-```
-
-Test renewal:
-```bash
-sudo certbot renew --dry-run
-```
-
-## UFW rules
-
-Use UFW like this:
-```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 'Nginx Full'
-sudo ufw deny 18089/tcp
-sudo ufw enable
-sudo ufw status verbose
-```
-
-Notes:
-- port `18089` should not be publicly reachable
-- nginx on `80/443` should be the only public entrypoint for the backend
-- because Docker binds the app to `127.0.0.1:18089`, public exposure is already avoided at the compose layer too
-
-## CORS policy
-
-Set this in `DEPLOY_ENV`:
-```env
-ALLOWED_ORIGINS=https://crm.mendola.tech
-```
-
-That means the backend at `crmserver.mendola.tech` will only emit CORS allow headers for the frontend origin `https://crm.mendola.tech`.
-
-If your frontend ends up living somewhere else later, update it to that exact origin, for example:
-```env
-ALLOWED_ORIGINS=https://aeml.github.io
-```
-
-Do not use `*` for CORS here. That would be sloppy and wrong for an authenticated app.
+This is an MVP-complete foundation for a clean, operator-focused CRM.
+The next work should come from real usage friction, not invented architecture projects.
