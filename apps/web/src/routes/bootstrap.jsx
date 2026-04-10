@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
@@ -51,6 +51,7 @@ export function BootstrapRoute() {
             <p className="eyebrow">Start clean</p>
             <h1>Create your workspace</h1>
             <p className="page-description">Set up the company, choose the business type, and land as the owner in one pass.</p>
+            <p className="page-description">Already have an account? <Link to="/login">Sign in</Link>.</p>
           </div>
           <form className="auth-form" onSubmit={handleSubmit}>
             <Field label="Company name">
