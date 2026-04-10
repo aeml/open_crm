@@ -47,6 +47,17 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             companies: [
               { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
@@ -160,6 +171,8 @@ describe('companies flow', () => {
     expect(screen.getByText(/company created/i)).toBeInTheDocument()
     expect(await screen.findByText(/met procurement lead and validated timeline/i)).toBeInTheDocument()
     expect(screen.getByText(/collect warehouse onboarding contacts/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/notes\?entityType=company&entityId=5$/), expect.any(Object))
     })
@@ -169,7 +182,7 @@ describe('companies flow', () => {
 
     fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Send procurement checklist' } })
     fireEvent.change(screen.getByLabelText(/task description/i), { target: { value: 'Share vendor intake requirements.' } })
-    fireEvent.change(screen.getByLabelText(/assigned to user id/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/^assigned to$/i), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText(/due at/i), { target: { value: '2026-04-20T16:30' } })
     fireEvent.click(screen.getByRole('button', { name: /^save task$/i }))
 
@@ -211,6 +224,17 @@ describe('companies flow', () => {
               { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead' }
             ],
             meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
           }
         })
       })

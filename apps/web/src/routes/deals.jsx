@@ -7,6 +7,7 @@ import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
+import { listOrganizationUsers } from '../lib/users'
 
 const emptyForm = {
   name: '',
@@ -42,6 +43,7 @@ export function DealsRoute() {
   const [search, setSearch] = useState('')
   const [companyOptions, setCompanyOptions] = useState([])
   const [contactOptions, setContactOptions] = useState([])
+  const [userOptions, setUserOptions] = useState([])
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [selectedStageId, setSelectedStageId] = useState('')
   const [notes, setNotes] = useState([])
@@ -58,16 +60,18 @@ export function DealsRoute() {
   }
 
   async function loadPipeline(nextSearch = search) {
-    const [loadedStages, loadedDeals, loadedCompanies, loadedContacts] = await Promise.all([
+    const [loadedStages, loadedDeals, loadedCompanies, loadedContacts, loadedUsers] = await Promise.all([
       listDealStages(),
       listDeals({ search: nextSearch }),
       listCompanies(),
-      listContacts()
+      listContacts(),
+      listOrganizationUsers()
     ])
     setStages(loadedStages)
     setDeals(loadedDeals.deals || [])
     setCompanyOptions(loadedCompanies.companies || [])
     setContactOptions(loadedContacts.contacts || [])
+    setUserOptions(loadedUsers)
     setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
     if (loadedStages.length > 0 && !selectedStageId) {
       setSelectedStageId(String(loadedStages[0].id))
@@ -78,6 +82,12 @@ export function DealsRoute() {
       companyId: current.companyId || (loadedCompanies.companies?.[0] ? String(loadedCompanies.companies[0].id) : ''),
       primaryContactId: current.primaryContactId || (loadedContacts.contacts?.[0] ? String(loadedContacts.contacts[0].id) : '')
     }))
+    setTaskForm((current) => {
+      if (current.assignedToUserId || loadedUsers.length === 0) {
+        return current
+      }
+      return { ...current, assignedToUserId: String(loadedUsers[0].id) }
+    })
   }
 
   useEffect(() => {
@@ -384,8 +394,12 @@ export function DealsRoute() {
                   <Field label="Task description">
                     <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
                   </Field>
-                  <Field label="Assigned to user ID">
-                    <input className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))} />
+                  <Field label="Assigned to">
+                    <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
+                      {userOptions.map((user) => (
+                        <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                      ))}
+                    </select>
                   </Field>
                   <Field label="Due at">
                     <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />

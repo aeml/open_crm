@@ -69,6 +69,17 @@ describe('deals flow', () => {
         ok: true,
         json: async () => ({
           data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             deals: [
               { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 }
             ],
@@ -149,6 +160,17 @@ describe('deals flow', () => {
               { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
           }
         })
       })
@@ -253,10 +275,12 @@ describe('deals flow', () => {
 
     expect((await screen.findAllByText(/bluebird rollout/i)).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/qualified/i).length).toBeGreaterThan(0)
+    expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Draft rollout kickoff agenda' } })
     fireEvent.change(screen.getByLabelText(/task description/i), { target: { value: 'Include legal and operations handoff.' } })
-    fireEvent.change(screen.getByLabelText(/assigned to user id/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/^assigned to$/i), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText(/due at/i), { target: { value: '2026-04-21T13:00' } })
     fireEvent.click(screen.getByRole('button', { name: /^save task$/i }))
 

@@ -6,6 +6,7 @@ import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listContacts } from '../lib/contacts'
+import { listOrganizationUsers } from '../lib/users'
 
 const emptyForm = {
   name: '',
@@ -40,6 +41,7 @@ export function CompaniesRoute() {
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
   const [contactOptions, setContactOptions] = useState([])
+  const [userOptions, setUserOptions] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
@@ -77,6 +79,17 @@ export function CompaniesRoute() {
     setContactOptions(data.contacts || [])
   }
 
+  async function loadUserOptions() {
+    const nextUsers = await listOrganizationUsers()
+    setUserOptions(nextUsers)
+    setTaskForm((current) => {
+      if (current.assignedToUserId || nextUsers.length === 0) {
+        return current
+      }
+      return { ...current, assignedToUserId: String(nextUsers[0].id) }
+    })
+  }
+
   function fillFormFromDetail(data) {
     setForm({
       name: data.company.name || '',
@@ -94,7 +107,7 @@ export function CompaniesRoute() {
 
     async function run() {
       try {
-        await Promise.all([loadCompanies(''), loadContactOptions()])
+        await Promise.all([loadCompanies(''), loadContactOptions(), loadUserOptions()])
         if (!cancelled) {
           setError('')
         }
@@ -482,8 +495,12 @@ export function CompaniesRoute() {
                   <Field label="Task description">
                     <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
                   </Field>
-                  <Field label="Assigned to user ID">
-                    <input className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))} />
+                  <Field label="Assigned to">
+                    <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
+                      {userOptions.map((user) => (
+                        <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                      ))}
+                    </select>
                   </Field>
                   <Field label="Due at">
                     <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />

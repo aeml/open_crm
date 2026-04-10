@@ -35,6 +35,17 @@ describe('contacts flow', () => {
         ok: true,
         json: async () => ({
           data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             contacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
             ],
@@ -125,13 +136,15 @@ describe('contacts flow', () => {
 
     expect(await screen.findByRole('heading', { name: /morgan lee/i })).toBeInTheDocument()
     expect(screen.getByText(/contact created/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&entityType=contact&entityId=7$/), expect.any(Object))
     })
 
     fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Book follow-up demo' } })
     fireEvent.change(screen.getByLabelText(/task description/i), { target: { value: 'Lock demo slot with ops team.' } })
-    fireEvent.change(screen.getByLabelText(/assigned to user id/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/^assigned to$/i), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText(/due at/i), { target: { value: '2026-04-19T14:00' } })
     fireEvent.click(screen.getByRole('button', { name: /^save task$/i }))
 
@@ -162,6 +175,17 @@ describe('contacts flow', () => {
         ok: true,
         json: async () => ({
           data: { contacts: [], meta: { page: 1, pageSize: 20, total: 0 } }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
+          }
         })
       })
       .mockResolvedValueOnce({
