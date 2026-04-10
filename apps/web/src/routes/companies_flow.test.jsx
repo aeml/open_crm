@@ -35,6 +35,18 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             companies: [
               { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
@@ -194,6 +206,18 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             company: { id: 6, name: 'Atlas Manufacturing', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
@@ -252,12 +276,15 @@ describe('companies flow', () => {
     expect(await screen.findByRole('heading', { name: /companies/i })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /add company/i }))
+    expect(screen.queryByLabelText(/linked contact ids/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^linked contact$/i)).toBeInTheDocument()
+
     fireEvent.change(screen.getByLabelText(/company name/i), { target: { value: 'Atlas Manufacturing' } })
     fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: 'atlas.example' } })
     fireEvent.change(screen.getByLabelText(/industry/i), { target: { value: 'Industrial' } })
     fireEvent.change(screen.getByLabelText(/phone/i), { target: { value: '555-0200' } })
     fireEvent.change(screen.getByLabelText(/website/i), { target: { value: 'https://atlas.example' } })
-    fireEvent.change(screen.getByLabelText(/linked contact ids/i), { target: { value: '7' } })
+    fireEvent.change(screen.getByLabelText(/^linked contact$/i), { target: { value: '7' } })
     fireEvent.click(screen.getByRole('button', { name: /save company/i }))
 
     expect(await screen.findByRole('heading', { name: /atlas manufacturing/i })).toBeInTheDocument()
@@ -268,8 +295,11 @@ describe('companies flow', () => {
     expect(await screen.findByText(/procurement asked for revised payment terms/i)).toBeInTheDocument()
     expect(screen.getByText(/note added/i)).toBeInTheDocument()
 
+    expect(screen.queryByLabelText(/linked contact ids/i)).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^linked contact$/i)).toBeInTheDocument()
+
     fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'customer' } })
-    fireEvent.change(screen.getByLabelText(/linked contact ids/i), { target: { value: '7,8' } })
+    fireEvent.change(screen.getByLabelText(/^linked contact$/i), { target: { value: '8' } })
     fireEvent.click(screen.getByRole('button', { name: /update company/i }))
 
     expect(await screen.findByText(/company updated/i)).toBeInTheDocument()

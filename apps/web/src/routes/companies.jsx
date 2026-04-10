@@ -5,6 +5,7 @@ import { Field } from '../components/ui/field'
 import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
+import { listContacts } from '../lib/contacts'
 
 const emptyForm = {
   name: '',
@@ -24,7 +25,7 @@ const emptyTaskForm = {
 }
 
 function parseLinkedContactIDs(value) {
-  return value
+  return String(value || '')
     .split(',')
     .map((entry) => Number.parseInt(entry.trim(), 10))
     .filter((entry) => Number.isInteger(entry) && entry > 0)
@@ -38,6 +39,7 @@ export function CompaniesRoute() {
   const [selectedCompanyId, setSelectedCompanyId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
+  const [contactOptions, setContactOptions] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
@@ -70,6 +72,11 @@ export function CompaniesRoute() {
     setMeta({ page: 1, pageSize: 20, total: 0 })
   }
 
+  async function loadContactOptions() {
+    const data = await listContacts()
+    setContactOptions(data.contacts || [])
+  }
+
   function fillFormFromDetail(data) {
     setForm({
       name: data.company.name || '',
@@ -87,7 +94,7 @@ export function CompaniesRoute() {
 
     async function run() {
       try {
-        await loadCompanies('')
+        await Promise.all([loadCompanies(''), loadContactOptions()])
         if (!cancelled) {
           setError('')
         }
@@ -366,8 +373,13 @@ export function CompaniesRoute() {
               <Field label="Website">
                 <input className="text-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} />
               </Field>
-              <Field label="Linked contact IDs">
-                <input className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => ({ ...current, linkedContactIDs: event.target.value }))} />
+              <Field label="Linked contact">
+                <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => ({ ...current, linkedContactIDs: event.target.value }))}>
+                  <option value="">No linked contact</option>
+                  {contactOptions.map((contact) => (
+                    <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
+                  ))}
+                </select>
               </Field>
               <Button type="submit">Save company</Button>
             </form>
@@ -410,8 +422,13 @@ export function CompaniesRoute() {
                   <option value="lead">Lead</option>
                 </select>
               </Field>
-              <Field label="Linked contact IDs">
-                <input className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => ({ ...current, linkedContactIDs: event.target.value }))} />
+              <Field label="Linked contact">
+                <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => ({ ...current, linkedContactIDs: event.target.value }))}>
+                  <option value="">No linked contact</option>
+                  {contactOptions.map((contact) => (
+                    <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
+                  ))}
+                </select>
               </Field>
               <Button type="submit">Update company</Button>
             </form>

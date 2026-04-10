@@ -35,6 +35,17 @@ describe('entity task visibility', () => {
         ok: true,
         json: async () => ({
           data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             company: { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [],
             activities: []
