@@ -80,6 +80,32 @@ describe('contacts flow', () => {
           }
         })
       })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          data: {
+            task: {
+              id: 73,
+              entityType: 'contact',
+              entityId: 7,
+              entityLabel: 'Morgan Lee',
+              title: 'Book follow-up demo',
+              description: 'Lock demo slot with ops team.',
+              status: 'open',
+              dueAt: '2026-04-19T14:00:00Z',
+              completedAt: '',
+              assignedToUserId: 2,
+              assignedToUserName: 'Alex Admin',
+              createdByUserId: 1,
+              createdByUserName: 'Demo Owner'
+            },
+            activities: [
+              { id: 111, action: 'task.created', summary: 'Task created' }
+            ]
+          }
+        })
+      })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/contacts')
@@ -101,6 +127,21 @@ describe('contacts flow', () => {
     expect(screen.getByText(/contact created/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&entityType=contact&entityId=7$/), expect.any(Object))
+    })
+
+    fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Book follow-up demo' } })
+    fireEvent.change(screen.getByLabelText(/task description/i), { target: { value: 'Lock demo slot with ops team.' } })
+    fireEvent.change(screen.getByLabelText(/assigned to user id/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/due at/i), { target: { value: '2026-04-19T14:00' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save task$/i }))
+
+    expect(await screen.findByText(/book follow-up demo/i)).toBeInTheDocument()
+    expect(screen.getByText(/task created/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks$/), expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"entityType":"contact"')
+      }))
     })
   })
 

@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
 import { createNote, listNotes } from '../lib/notes'
-import { listTasks } from '../lib/tasks'
+import { createTask, listTasks } from '../lib/tasks'
 
 const emptyForm = {
   name: '',
@@ -14,6 +14,13 @@ const emptyForm = {
   website: '',
   status: 'prospect',
   linkedContactIDs: ''
+}
+
+const emptyTaskForm = {
+  title: '',
+  description: '',
+  dueAt: '',
+  assignedToUserId: ''
 }
 
 function parseLinkedContactIDs(value) {
@@ -33,6 +40,7 @@ export function CompaniesRoute() {
   const [detailCache, setDetailCache] = useState({})
   const [form, setForm] = useState(emptyForm)
   const [noteBody, setNoteBody] = useState('')
+  const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [error, setError] = useState('')
 
   const selectedCompany = detail?.company || null
@@ -114,6 +122,7 @@ export function CompaniesRoute() {
       setDetail(cached)
       fillFormFromDetail(cached)
       setNoteBody('')
+      setTaskForm(emptyTaskForm)
       setMode('detail')
       return
     }
@@ -130,6 +139,7 @@ export function CompaniesRoute() {
       setDetail(detailData)
       fillFormFromDetail(detailData)
       setNoteBody('')
+      setTaskForm(emptyTaskForm)
       setMode('detail')
       setError('')
     } catch (loadError) {
@@ -149,7 +159,7 @@ export function CompaniesRoute() {
         status: form.status,
         linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs)
       })
-      const detailData = { ...data, notes: data.notes || [] }
+      const detailData = { ...data, notes: data.notes || [], tasks: data.tasks || [] }
       setDetailCache((current) => ({ ...current, [data.company.id]: detailData }))
       setCompanies((current) => [...current, data.company])
       setMeta((current) => ({ ...current, total: current.total + 1 }))
@@ -157,6 +167,7 @@ export function CompaniesRoute() {
       setDetail(detailData)
       fillFormFromDetail(detailData)
       setNoteBody('')
+      setTaskForm(emptyTaskForm)
       setMode('detail')
       setError('')
     } catch (saveError) {
@@ -212,6 +223,7 @@ export function CompaniesRoute() {
       setSelectedCompanyId(null)
       setForm(emptyForm)
       setNoteBody('')
+      setTaskForm(emptyTaskForm)
       setMode('list')
       setError('')
     } catch (archiveError) {
@@ -247,6 +259,41 @@ export function CompaniesRoute() {
       setError('')
     } catch (noteError) {
       setError(noteError.message || 'Unable to add note.')
+    }
+  }
+
+  async function handleCreateTask(event) {
+    event.preventDefault()
+    if (!selectedCompanyId || !taskForm.title.trim()) {
+      return
+    }
+
+    try {
+      const data = await createTask({
+        entityType: 'company',
+        entityId: selectedCompanyId,
+        title: taskForm.title.trim(),
+        description: taskForm.description.trim(),
+        status: 'open',
+        dueAt: taskForm.dueAt ? `${taskForm.dueAt}:00Z` : '',
+        assignedToUserId: Number.parseInt(taskForm.assignedToUserId, 10) || 0
+      })
+      setDetail((current) => {
+        if (!current) {
+          return current
+        }
+        const next = {
+          ...current,
+          tasks: [data.task, ...(current.tasks || []).filter((task) => task.id !== data.task.id)],
+          activities: [...(data.activities || []), ...(current.activities || [])]
+        }
+        setDetailCache((cache) => ({ ...cache, [selectedCompanyId]: next }))
+        return next
+      })
+      setTaskForm(emptyTaskForm)
+      setError('')
+    } catch (taskError) {
+      setError(taskError.message || 'Unable to create task.')
     }
   }
 
@@ -411,6 +458,21 @@ export function CompaniesRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Tasks</h3>
+                <form className="auth-form" onSubmit={handleCreateTask}>
+                  <Field label="Task title">
+                    <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
+                  </Field>
+                  <Field label="Task description">
+                    <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
+                  </Field>
+                  <Field label="Assigned to user ID">
+                    <input className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))} />
+                  </Field>
+                  <Field label="Due at">
+                    <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
+                  </Field>
+                  <Button type="submit">Save task</Button>
+                </form>
                 <div className="record-list" role="list" aria-label="Company tasks list">
                   {selectedTasks.map((task) => (
                     <article className="record-row" key={task.id} role="listitem">

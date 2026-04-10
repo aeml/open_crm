@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { createDeal, listDeals, listDealStages, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
-import { listTasks } from '../lib/tasks'
+import { createTask, listTasks } from '../lib/tasks'
 
 const emptyForm = {
   name: '',
@@ -15,6 +15,13 @@ const emptyForm = {
   valueAmount: '',
   valueCurrency: 'USD',
   expectedCloseDate: ''
+}
+
+const emptyTaskForm = {
+  title: '',
+  description: '',
+  dueAt: '',
+  assignedToUserId: ''
 }
 
 function formatMoney(value, currency = 'USD') {
@@ -35,6 +42,7 @@ export function DealsRoute() {
   const [notes, setNotes] = useState([])
   const [tasks, setTasks] = useState([])
   const [noteBody, setNoteBody] = useState('')
+  const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
 
@@ -92,6 +100,7 @@ export function DealsRoute() {
       setNotes(data.notes || [])
       setTasks(data.tasks || [])
       setNoteBody('')
+      setTaskForm(emptyTaskForm)
       setActivities(data.activities || [])
       setSelectedDealId(data.deal.id)
       setSelectedStageId(String(data.deal.stageId))
@@ -128,6 +137,7 @@ export function DealsRoute() {
     setSelectedStageId(String(deal.stageId))
     setActivities([])
     setNoteBody('')
+    setTaskForm(emptyTaskForm)
     try {
       const [loadedNotes, taskData] = await Promise.all([
         listNotes('deal', deal.id),
@@ -161,6 +171,31 @@ export function DealsRoute() {
       setError('')
     } catch (noteError) {
       setError(noteError.message || 'Unable to add note.')
+    }
+  }
+
+  async function handleCreateTask(event) {
+    event.preventDefault()
+    if (!selectedDealId || !taskForm.title.trim()) {
+      return
+    }
+
+    try {
+      const data = await createTask({
+        entityType: 'deal',
+        entityId: selectedDealId,
+        title: taskForm.title.trim(),
+        description: taskForm.description.trim(),
+        status: 'open',
+        dueAt: taskForm.dueAt ? `${taskForm.dueAt}:00Z` : '',
+        assignedToUserId: Number.parseInt(taskForm.assignedToUserId, 10) || 0
+      })
+      setTasks((current) => [data.task, ...current.filter((task) => task.id !== data.task.id)])
+      setActivities((current) => [...(data.activities || []), ...current])
+      setTaskForm(emptyTaskForm)
+      setError('')
+    } catch (taskError) {
+      setError(taskError.message || 'Unable to create task.')
     }
   }
 
@@ -298,6 +333,21 @@ export function DealsRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Tasks</h3>
+                <form className="auth-form" onSubmit={handleCreateTask}>
+                  <Field label="Task title">
+                    <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
+                  </Field>
+                  <Field label="Task description">
+                    <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
+                  </Field>
+                  <Field label="Assigned to user ID">
+                    <input className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))} />
+                  </Field>
+                  <Field label="Due at">
+                    <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
+                  </Field>
+                  <Button type="submit">Save task</Button>
+                </form>
                 <div className="record-list" role="list" aria-label="Deal tasks list">
                   {tasks.map((task) => (
                     <article className="record-row" key={task.id} role="listitem">

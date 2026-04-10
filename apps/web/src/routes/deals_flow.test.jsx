@@ -50,7 +50,34 @@ describe('deals flow', () => {
           data: {
             deal: { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 },
             activities: [],
-            notes: []
+            notes: [],
+            tasks: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          data: {
+            task: {
+              id: 92,
+              entityType: 'deal',
+              entityId: 12,
+              entityLabel: 'Bluebird Rollout',
+              title: 'Draft rollout kickoff agenda',
+              description: 'Include legal and operations handoff.',
+              status: 'open',
+              dueAt: '2026-04-21T13:00:00Z',
+              completedAt: '',
+              assignedToUserId: 2,
+              assignedToUserName: 'Alex Admin',
+              createdByUserId: 1,
+              createdByUserName: 'Demo Owner'
+            },
+            activities: [
+              { id: 101, action: 'task.created', summary: 'Task created' }
+            ]
           }
         })
       })
@@ -112,6 +139,21 @@ describe('deals flow', () => {
 
     expect((await screen.findAllByText(/bluebird rollout/i)).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/qualified/i).length).toBeGreaterThan(0)
+
+    fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Draft rollout kickoff agenda' } })
+    fireEvent.change(screen.getByLabelText(/task description/i), { target: { value: 'Include legal and operations handoff.' } })
+    fireEvent.change(screen.getByLabelText(/assigned to user id/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/due at/i), { target: { value: '2026-04-21T13:00' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save task$/i }))
+
+    expect(await screen.findByText(/draft rollout kickoff agenda/i)).toBeInTheDocument()
+    expect(screen.getByText(/task created/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks$/), expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"entityType":"deal"')
+      }))
+    })
 
     fireEvent.change(screen.getByLabelText(/new note/i), { target: { value: 'Legal requested updated indemnity language.' } })
     fireEvent.click(screen.getByRole('button', { name: /add note/i }))

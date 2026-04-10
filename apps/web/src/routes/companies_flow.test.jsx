@@ -100,6 +100,32 @@ describe('companies flow', () => {
           }
         })
       })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          data: {
+            task: {
+              id: 89,
+              entityType: 'company',
+              entityId: 5,
+              entityLabel: 'Northstar Logistics',
+              title: 'Send procurement checklist',
+              description: 'Share vendor intake requirements.',
+              status: 'open',
+              dueAt: '2026-04-20T16:30:00Z',
+              completedAt: '',
+              assignedToUserId: 2,
+              assignedToUserName: 'Alex Admin',
+              createdByUserId: 1,
+              createdByUserName: 'Demo Owner'
+            },
+            activities: [
+              { id: 112, action: 'task.created', summary: 'Task created' }
+            ]
+          }
+        })
+      })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/companies')
@@ -127,6 +153,21 @@ describe('companies flow', () => {
     })
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&entityType=company&entityId=5$/), expect.any(Object))
+    })
+
+    fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Send procurement checklist' } })
+    fireEvent.change(screen.getByLabelText(/task description/i), { target: { value: 'Share vendor intake requirements.' } })
+    fireEvent.change(screen.getByLabelText(/assigned to user id/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/due at/i), { target: { value: '2026-04-20T16:30' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save task$/i }))
+
+    expect(await screen.findByText(/send procurement checklist/i)).toBeInTheDocument()
+    expect(screen.getByText(/task created/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks$/), expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"entityType":"company"')
+      }))
     })
   })
 

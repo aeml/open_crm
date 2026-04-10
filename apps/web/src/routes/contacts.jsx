@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { archiveContact, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
 import { createNote } from '../lib/notes'
-import { listTasks } from '../lib/tasks'
+import { createTask, listTasks } from '../lib/tasks'
 
 const emptyForm = {
   firstName: '',
@@ -13,6 +13,13 @@ const emptyForm = {
   phone: '',
   jobTitle: '',
   status: 'lead'
+}
+
+const emptyTaskForm = {
+  title: '',
+  description: '',
+  dueAt: '',
+  assignedToUserId: ''
 }
 
 function fullName(contact) {
@@ -29,6 +36,7 @@ export function ContactsRoute() {
   const [detailCache, setDetailCache] = useState({})
   const [form, setForm] = useState(emptyForm)
   const [noteBody, setNoteBody] = useState('')
+  const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [error, setError] = useState('')
 
   const selectedContact = detail?.contact || null
@@ -104,6 +112,7 @@ export function ContactsRoute() {
         status: cached.contact.status || 'lead'
       })
       setNoteBody('')
+      setTaskForm(emptyTaskForm)
       setMode('detail')
       return
     }
@@ -126,6 +135,7 @@ export function ContactsRoute() {
         status: data.contact.status || 'lead'
       })
       setNoteBody('')
+      setTaskForm(emptyTaskForm)
       setMode('detail')
       setError('')
     } catch (loadError) {
@@ -137,20 +147,22 @@ export function ContactsRoute() {
     event.preventDefault()
     try {
       const data = await createContact(form)
-      setDetailCache((current) => ({ ...current, [data.contact.id]: data }))
+      const detailData = { ...data, notes: data.notes || [], tasks: data.tasks || [] }
+      setDetailCache((current) => ({ ...current, [data.contact.id]: detailData }))
       setContacts((current) => [...current, data.contact])
       setMeta((current) => ({ ...current, total: current.total + 1 }))
       setSelectedContactId(data.contact.id)
-      setDetail(data)
+      setDetail(detailData)
       setForm({
-        firstName: data.contact.firstName || '',
-        lastName: data.contact.lastName || '',
-        email: data.contact.email || '',
-        phone: data.contact.phone || '',
-        jobTitle: data.contact.jobTitle || '',
-        status: data.contact.status || 'lead'
+        firstName: detailData.contact.firstName || '',
+        lastName: detailData.contact.lastName || '',
+        email: detailData.contact.email || '',
+        phone: detailData.contact.phone || '',
+        jobTitle: detailData.contact.jobTitle || '',
+        status: detailData.contact.status || 'lead'
       })
       setNoteBody('')
+      setTaskForm(emptyTaskForm)
       setMode('detail')
       setError('')
     } catch (saveError) {
@@ -166,9 +178,14 @@ export function ContactsRoute() {
 
     try {
       const data = await updateContact(selectedContactId, form)
-      setDetailCache((current) => ({ ...current, [selectedContactId]: data }))
+      const detailData = {
+        ...data,
+        notes: detail?.notes || data.notes || [],
+        tasks: detail?.tasks || data.tasks || []
+      }
+      setDetailCache((current) => ({ ...current, [selectedContactId]: detailData }))
       setContacts((current) => current.map((entry) => (entry.id === selectedContactId ? data.contact : entry)))
-      setDetail(data)
+      setDetail(detailData)
       setForm({
         firstName: data.contact.firstName || '',
         lastName: data.contact.lastName || '',
@@ -204,6 +221,7 @@ export function ContactsRoute() {
       setSelectedContactId(null)
       setForm(emptyForm)
       setNoteBody('')
+      setTaskForm(emptyTaskForm)
       setMode('list')
       setError('')
     } catch (archiveError) {
@@ -239,6 +257,41 @@ export function ContactsRoute() {
       setError('')
     } catch (noteError) {
       setError(noteError.message || 'Unable to add note.')
+    }
+  }
+
+  async function handleCreateTask(event) {
+    event.preventDefault()
+    if (!selectedContactId || !taskForm.title.trim()) {
+      return
+    }
+
+    try {
+      const data = await createTask({
+        entityType: 'contact',
+        entityId: selectedContactId,
+        title: taskForm.title.trim(),
+        description: taskForm.description.trim(),
+        status: 'open',
+        dueAt: taskForm.dueAt ? `${taskForm.dueAt}:00Z` : '',
+        assignedToUserId: Number.parseInt(taskForm.assignedToUserId, 10) || 0
+      })
+      setDetail((current) => {
+        if (!current) {
+          return current
+        }
+        const next = {
+          ...current,
+          tasks: [data.task, ...(current.tasks || []).filter((task) => task.id !== data.task.id)],
+          activities: [...(data.activities || []), ...(current.activities || [])]
+        }
+        setDetailCache((cache) => ({ ...cache, [selectedContactId]: next }))
+        return next
+      })
+      setTaskForm(emptyTaskForm)
+      setError('')
+    } catch (taskError) {
+      setError(taskError.message || 'Unable to create task.')
     }
   }
 
@@ -378,6 +431,21 @@ export function ContactsRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Tasks</h3>
+                <form className="auth-form" onSubmit={handleCreateTask}>
+                  <Field label="Task title">
+                    <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
+                  </Field>
+                  <Field label="Task description">
+                    <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
+                  </Field>
+                  <Field label="Assigned to user ID">
+                    <input className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))} />
+                  </Field>
+                  <Field label="Due at">
+                    <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
+                  </Field>
+                  <Button type="submit">Save task</Button>
+                </form>
                 <div className="record-list" role="list" aria-label="Contact tasks list">
                   {selectedTasks.map((task) => (
                     <article className="record-row" key={task.id} role="listitem">
