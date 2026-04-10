@@ -198,6 +198,7 @@ export function TasksRoute() {
           </Field>
           {error ? <p className="form-error">{error}</p> : null}
           <h3>{summaryLabel}</h3>
+          <p className="field-hint">Showing {tasks.length} of {meta.total} {statusFilter} tasks.</p>
           <div className="record-list" role="list" aria-label="Tasks list">
             {tasks.map((task) => (
               <article className="record-row" key={task.id} role="listitem">

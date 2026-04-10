@@ -155,8 +155,11 @@ describe('tasks flow', () => {
     expect(await screen.findByRole('heading', { name: /^tasks$/i })).toBeInTheDocument()
     expect(await screen.findByText(/call morgan about rollout timing/i)).toBeInTheDocument()
     expect(screen.getAllByText(/open tasks/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/showing 1 of 1 open tasks/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/search tasks/i), { target: { value: 'morgan' } })
+
+    expect(await screen.findByText(/showing 1 of 1 open tasks/i)).toBeInTheDocument()
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&q=morgan/), expect.any(Object))
