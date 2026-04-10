@@ -1074,6 +1074,7 @@ func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter
 		Search:     strings.TrimSpace(r.URL.Query().Get("q")),
 		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
 		EntityType: strings.TrimSpace(r.URL.Query().Get("entityType")),
+		EntityID:   moduletasks.ParseInt64(r.URL.Query().Get("entityId")),
 		Page:       parsePositiveInt(r.URL.Query().Get("page"), 1),
 		PageSize:   parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
 	})

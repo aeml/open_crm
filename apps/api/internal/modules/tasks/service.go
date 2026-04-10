@@ -44,6 +44,7 @@ type ListQuery struct {
 	Search     string
 	Status     string
 	EntityType string
+	EntityID   int64
 	Page       int
 	PageSize   int
 }
@@ -385,6 +386,9 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	query.Search = strings.TrimSpace(strings.ToLower(query.Search))
 	query.Status = normalizeStatus(query.Status)
 	query.EntityType = normalizeEntityType(query.EntityType)
+	if query.EntityID < 0 {
+		query.EntityID = 0
+	}
 	if query.Page <= 0 {
 		query.Page = 1
 	}
@@ -530,6 +534,10 @@ func buildTaskFilters(organizationID int64, query ListQuery) (string, []any) {
 	if query.EntityType != "" {
 		parts = append(parts, fmt.Sprintf(" AND t.entity_type = $%d", len(args)+1))
 		args = append(args, query.EntityType)
+	}
+	if query.EntityID > 0 {
+		parts = append(parts, fmt.Sprintf(" AND t.entity_id = $%d", len(args)+1))
+		args = append(args, query.EntityID)
 	}
 	return strings.Join(parts, ""), args
 }

@@ -4,6 +4,7 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { archiveContact, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
 import { createNote } from '../lib/notes'
+import { listTasks } from '../lib/tasks'
 
 const emptyForm = {
   firstName: '',
@@ -32,6 +33,7 @@ export function ContactsRoute() {
 
   const selectedContact = detail?.contact || null
   const selectedNotes = detail?.notes || []
+  const selectedTasks = detail?.tasks || []
   const selectedActivities = detail?.activities || []
 
   async function loadContacts(nextSearch = '') {
@@ -107,10 +109,14 @@ export function ContactsRoute() {
     }
 
     try {
-      const data = await getContact(contact.id)
-      setDetailCache((current) => ({ ...current, [contact.id]: data }))
+      const [data, taskData] = await Promise.all([
+        getContact(contact.id),
+        listTasks({ status: 'open', entityType: 'contact', entityId: contact.id })
+      ])
+      const detailData = { ...data, tasks: taskData.tasks || [] }
+      setDetailCache((current) => ({ ...current, [contact.id]: detailData }))
       setSelectedContactId(contact.id)
-      setDetail(data)
+      setDetail(detailData)
       setForm({
         firstName: data.contact.firstName || '',
         lastName: data.contact.lastName || '',
@@ -372,7 +378,16 @@ export function ContactsRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Tasks</h3>
-                <p>Tasks will land here in the shared activity slice.</p>
+                <div className="record-list" role="list" aria-label="Contact tasks list">
+                  {selectedTasks.map((task) => (
+                    <article className="record-row" key={task.id} role="listitem">
+                      <div>
+                        <p>{task.title}</p>
+                        <p className="field-hint">{task.assignedToUserName || 'Unassigned'}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
               </div>
             </Card>
             <Card>

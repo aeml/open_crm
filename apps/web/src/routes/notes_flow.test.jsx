@@ -57,6 +57,15 @@ describe('notes workflow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         status: 201,
         json: async () => ({
           data: {
@@ -96,7 +105,7 @@ describe('notes workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: /add note/i }))
 
     expect(await screen.findByText(/sent follow-up recap with pricing ranges/i)).toBeInTheDocument()
-    expect(screen.getByText(/note added/i)).toBeInTheDocument()
+    expect(await screen.findByText(/note added/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/notes$/), expect.objectContaining({ method: 'POST' }))
     })

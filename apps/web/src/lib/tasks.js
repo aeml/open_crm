@@ -13,9 +13,10 @@ async function readJSON(response) {
 
 export async function listTasks(query = {}) {
   const params = new URLSearchParams()
-  if (query.search) params.set('q', query.search)
   if (query.status) params.set('status', query.status)
   if (query.entityType) params.set('entityType', query.entityType)
+  if (query.entityId) params.set('entityId', String(query.entityId))
+  if (query.search) params.set('q', query.search)
   const suffix = params.toString() ? `?${params.toString()}` : ''
 
   const response = await fetch(`${API_BASE_URL}/api/tasks${suffix}`, {

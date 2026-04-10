@@ -75,6 +75,31 @@ describe('companies flow', () => {
           }
         })
       })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            tasks: [
+              {
+                id: 88,
+                entityType: 'company',
+                entityId: 5,
+                entityLabel: 'Northstar Logistics',
+                title: 'Collect warehouse onboarding contacts',
+                description: 'Need ops and procurement owners.',
+                status: 'open',
+                dueAt: '2026-04-18T15:00:00Z',
+                completedAt: '',
+                assignedToUserId: 2,
+                assignedToUserName: 'Alex Admin',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner'
+              }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
+          }
+        })
+      })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/companies')
@@ -96,8 +121,12 @@ describe('companies flow', () => {
     expect(screen.getByText('morgan@acme.test')).toBeInTheDocument()
     expect(screen.getByText(/company created/i)).toBeInTheDocument()
     expect(await screen.findByText(/met procurement lead and validated timeline/i)).toBeInTheDocument()
+    expect(screen.getByText(/collect warehouse onboarding contacts/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/notes\?entityType=company&entityId=5$/), expect.any(Object))
+    })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&entityType=company&entityId=5$/), expect.any(Object))
     })
   })
 

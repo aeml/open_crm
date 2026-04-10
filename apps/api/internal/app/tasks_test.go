@@ -77,7 +77,7 @@ func TestListTasksUsesCurrentOrganizationAndFilters(t *testing.T) {
 	}
 	server := authenticatedTasksServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/tasks?q=morgan&status=open&entityType=deal&page=2&pageSize=10", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/tasks?q=morgan&status=open&entityType=deal&entityId=12&page=2&pageSize=10", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -89,7 +89,7 @@ func TestListTasksUsesCurrentOrganizationAndFilters(t *testing.T) {
 	if service.lastListOrgID != 42 {
 		t.Fatalf("expected org id 42, got %d", service.lastListOrgID)
 	}
-	if service.lastListQuery.Search != "morgan" || service.lastListQuery.Status != "open" || service.lastListQuery.EntityType != "deal" || service.lastListQuery.Page != 2 || service.lastListQuery.PageSize != 10 {
+	if service.lastListQuery.Search != "morgan" || service.lastListQuery.Status != "open" || service.lastListQuery.EntityType != "deal" || service.lastListQuery.EntityID != 12 || service.lastListQuery.Page != 2 || service.lastListQuery.PageSize != 10 {
 		t.Fatalf("unexpected list query: %#v", service.lastListQuery)
 	}
 

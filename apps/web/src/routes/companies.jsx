@@ -4,6 +4,7 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
 import { createNote, listNotes } from '../lib/notes'
+import { listTasks } from '../lib/tasks'
 
 const emptyForm = {
   name: '',
@@ -37,6 +38,7 @@ export function CompaniesRoute() {
   const selectedCompany = detail?.company || null
   const linkedContacts = detail?.linkedContacts || []
   const selectedNotes = detail?.notes || []
+  const selectedTasks = detail?.tasks || []
   const selectedActivities = detail?.activities || []
 
   async function loadCompanies(nextSearch = '') {
@@ -117,11 +119,12 @@ export function CompaniesRoute() {
     }
 
     try {
-      const [data, notes] = await Promise.all([
+      const [data, notes, taskData] = await Promise.all([
         getCompany(company.id),
-        listNotes('company', company.id)
+        listNotes('company', company.id),
+        listTasks({ status: 'open', entityType: 'company', entityId: company.id })
       ])
-      const detailData = { ...data, notes }
+      const detailData = { ...data, notes, tasks: taskData.tasks || [] }
       setDetailCache((current) => ({ ...current, [company.id]: detailData }))
       setSelectedCompanyId(company.id)
       setDetail(detailData)
@@ -177,7 +180,7 @@ export function CompaniesRoute() {
         status: form.status,
         linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs)
       })
-      const detailData = { ...data, notes: detail?.notes || [] }
+      const detailData = { ...data, notes: detail?.notes || [], tasks: detail?.tasks || [] }
       setDetailCache((current) => ({ ...current, [selectedCompanyId]: detailData }))
       setCompanies((current) => current.map((entry) => (entry.id === selectedCompanyId ? data.company : entry)))
       setDetail(detailData)
@@ -399,6 +402,21 @@ export function CompaniesRoute() {
                       <div>
                         <p>{note.body}</p>
                         <p className="field-hint">{note.createdByUserName || 'Unknown author'}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </Card>
+            <Card>
+              <div className="card-stack">
+                <h3>Tasks</h3>
+                <div className="record-list" role="list" aria-label="Company tasks list">
+                  {selectedTasks.map((task) => (
+                    <article className="record-row" key={task.id} role="listitem">
+                      <div>
+                        <p>{task.title}</p>
+                        <p className="field-hint">{task.assignedToUserName || 'Unassigned'}</p>
                       </div>
                     </article>
                   ))}

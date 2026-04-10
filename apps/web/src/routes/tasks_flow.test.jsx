@@ -159,7 +159,7 @@ describe('tasks flow', () => {
     fireEvent.change(screen.getByLabelText(/search tasks/i), { target: { value: 'morgan' } })
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?q=morgan/), expect.any(Object))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&q=morgan/), expect.any(Object))
     })
 
     fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Prepare rollout checklist' } })

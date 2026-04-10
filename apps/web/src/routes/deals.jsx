@@ -4,6 +4,7 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { createDeal, listDeals, listDealStages, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
+import { listTasks } from '../lib/tasks'
 
 const emptyForm = {
   name: '',
@@ -32,6 +33,7 @@ export function DealsRoute() {
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [selectedStageId, setSelectedStageId] = useState('')
   const [notes, setNotes] = useState([])
+  const [tasks, setTasks] = useState([])
   const [noteBody, setNoteBody] = useState('')
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
@@ -88,6 +90,7 @@ export function DealsRoute() {
       })
       setDeals((current) => [...current, data.deal])
       setNotes(data.notes || [])
+      setTasks(data.tasks || [])
       setNoteBody('')
       setActivities(data.activities || [])
       setSelectedDealId(data.deal.id)
@@ -126,11 +129,16 @@ export function DealsRoute() {
     setActivities([])
     setNoteBody('')
     try {
-      const loadedNotes = await listNotes('deal', deal.id)
+      const [loadedNotes, taskData] = await Promise.all([
+        listNotes('deal', deal.id),
+        listTasks({ status: 'open', entityType: 'deal', entityId: deal.id })
+      ])
       setNotes(loadedNotes)
+      setTasks(taskData.tasks || [])
       setError('')
     } catch (loadError) {
       setNotes([])
+      setTasks([])
       setError(loadError.message || 'Unable to load notes.')
     }
   }
@@ -281,6 +289,21 @@ export function DealsRoute() {
                       <div>
                         <p>{note.body}</p>
                         <p className="field-hint">{note.createdByUserName || 'Unknown author'}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </Card>
+            <Card>
+              <div className="card-stack">
+                <h3>Tasks</h3>
+                <div className="record-list" role="list" aria-label="Deal tasks list">
+                  {tasks.map((task) => (
+                    <article className="record-row" key={task.id} role="listitem">
+                      <div>
+                        <p>{task.title}</p>
+                        <p className="field-hint">{task.assignedToUserName || 'Unassigned'}</p>
                       </div>
                     </article>
                   ))}
