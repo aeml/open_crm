@@ -131,6 +131,26 @@ func TestAuthMeReturnsCurrentSessionState(t *testing.T) {
 	}
 }
 
+func TestAuthMeClearsSessionCookieWhenSessionIsUnauthorized(t *testing.T) {
+	service := &fakeAuthService{currentSessionErr: moduleauth.ErrUnauthorized}
+	server := NewServer(config.Env{}, Dependencies{AuthService: service})
+
+	request := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "stale-session-token"})
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+
+	cookies := recorder.Result().Cookies()
+	if len(cookies) == 0 || cookies[0].Name != sessionCookieName || cookies[0].MaxAge >= 0 {
+		t.Fatalf("expected unauthorized auth/me to clear the session cookie, got %#v", cookies)
+	}
+}
+
 func TestLogoutClearsSessionCookie(t *testing.T) {
 	service := &fakeAuthService{}
 	server := NewServer(config.Env{}, Dependencies{AuthService: service})
@@ -152,6 +172,26 @@ func TestLogoutClearsSessionCookie(t *testing.T) {
 	cookies := recorder.Result().Cookies()
 	if len(cookies) == 0 || cookies[0].MaxAge >= 0 {
 		t.Fatal("expected logout to clear the session cookie")
+	}
+}
+
+func TestLogoutClearsSessionCookieWhenSessionIsAlreadyUnauthorized(t *testing.T) {
+	service := &fakeAuthService{logoutErr: moduleauth.ErrUnauthorized}
+	server := NewServer(config.Env{}, Dependencies{AuthService: service})
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "stale-session-token"})
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+
+	cookies := recorder.Result().Cookies()
+	if len(cookies) == 0 || cookies[0].Name != sessionCookieName || cookies[0].MaxAge >= 0 {
+		t.Fatalf("expected logout to clear the stale session cookie, got %#v", cookies)
 	}
 }
 

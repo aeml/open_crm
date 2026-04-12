@@ -361,7 +361,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleBootstrap(env, dependencies.OnboardingService, w, r)
 	})
 	mux.HandleFunc("GET /auth/me", func(w http.ResponseWriter, r *http.Request) {
-		handleCurrentSession(dependencies.AuthService, w, r)
+		handleCurrentSession(env, dependencies.AuthService, w, r)
 	})
 	mux.HandleFunc("POST /auth/logout", func(w http.ResponseWriter, r *http.Request) {
 		handleLogout(env, dependencies.AuthService, w, r)
@@ -524,7 +524,7 @@ func handleBootstrap(env config.Env, service onboardingService, w http.ResponseW
 	respondSession(w, r, http.StatusCreated, result.State)
 }
 
-func handleCurrentSession(service authService, w http.ResponseWriter, r *http.Request) {
+func handleCurrentSession(env config.Env, service authService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	sessionToken, ok := readSessionCookie(r)
 	if !ok {
@@ -539,6 +539,7 @@ func handleCurrentSession(service authService, w http.ResponseWriter, r *http.Re
 	state, err := service.CurrentSession(r.Context(), sessionToken)
 	if err != nil {
 		if errors.Is(err, moduleauth.ErrUnauthorized) {
+			clearSessionCookie(w, env)
 			platformweb.WriteError(w, http.StatusUnauthorized, requestID, "UNAUTHORIZED", "Authentication required")
 			return
 		}
@@ -554,7 +555,7 @@ func handleLogout(env config.Env, service authService, w http.ResponseWriter, r 
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	sessionToken, ok := readSessionCookie(r)
 	if ok && service != nil {
-		if err := service.Logout(r.Context(), sessionToken); err != nil {
+		if err := service.Logout(r.Context(), sessionToken); err != nil && !errors.Is(err, moduleauth.ErrUnauthorized) {
 			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to log out")
 			return
 		}

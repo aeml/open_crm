@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Open CRM</title>
+  <rect width="64" height="64" rx="14" fill="#111827"/>
+  <path d="M20 20h24v8H28v8h14v8H28v8h16v8H20z" fill="#f8fafc"/>
+  <path d="M44 20h-8v8h8c2.209 0 4 1.791 4 4v16c0 2.209-1.791 4-4 4h-8v8h8c6.627 0 12-5.373 12-12V32c0-6.627-5.373-12-12-12z" fill="#22c55e"/>
+</svg>
