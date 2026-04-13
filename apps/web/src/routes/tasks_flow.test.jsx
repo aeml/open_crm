@@ -300,6 +300,31 @@ describe('tasks flow', () => {
           }
         })
       })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            task: {
+              id: 78,
+              entityType: 'contact',
+              entityId: 8,
+              entityLabel: 'Ava Stone',
+              title: 'Collect signed agreement',
+              description: 'Received yesterday.',
+              status: 'completed',
+              dueAt: '2026-04-09T10:00:00Z',
+              completedAt: '2026-04-09T16:30:00Z',
+              assignedToUserId: 2,
+              assignedToUserName: 'Alex Admin',
+              createdByUserId: 1,
+              createdByUserName: 'Demo Owner'
+            },
+            activities: [
+              { id: 205, action: 'task.reassigned', summary: 'Task reassigned' }
+            ]
+          }
+        })
+      })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/tasks')
@@ -451,8 +476,17 @@ describe('tasks flow', () => {
     const reopenedCompletedTaskList = screen.getByRole('list', { name: /tasks list/i })
     expect(within(reopenedCompletedTaskList).queryByText(/prepare rollout checklist/i)).not.toBeInTheDocument()
 
+    fireEvent.change(screen.getByLabelText(/assign collect signed agreement/i), { target: { value: '2' } })
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/assign collect signed agreement/i)).toHaveValue('2')
+    })
+
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\/77$/), expect.objectContaining({ method: 'PATCH' }))
+    })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\/78$/), expect.objectContaining({ method: 'PATCH' }))
     })
   })
 

@@ -526,6 +526,29 @@ export function TasksRoute() {
     return handleQuickStatus(task, 'open')
   }
 
+  async function handleQuickAssign(task, nextAssignedToUserId) {
+    try {
+      const data = await updateTask(task.id, {
+        title: task.title,
+        description: task.description || '',
+        status: task.status,
+        dueAt: task.dueAt || '',
+        completedAt: task.completedAt || '',
+        assignedToUserId: Number.parseInt(nextAssignedToUserId, 10) || 0
+      })
+
+      setTasks((current) => current.map((currentTask) => (currentTask.id === task.id ? data.task : currentTask)))
+      if (selectedTaskId === task.id) {
+        syncTaskIntoState(data.task, data.activities || [])
+      } else {
+        setDetailCache((current) => ({ ...current, [task.id]: { task: data.task, activities: data.activities || [] } }))
+      }
+      setError('')
+    } catch (saveError) {
+      setError(saveError.message || 'Unable to update task.')
+    }
+  }
+
   const summaryLabel = useMemo(() => taskListHeading(statusFilter, dueView, labels), [dueView, labels, statusFilter])
 
   return (
@@ -629,7 +652,12 @@ export function TasksRoute() {
                   )}
                 </div>
                 <div>
-                  <p>{task.assignedToUserName || 'Unassigned'}</p>
+                  <select className="text-input" aria-label={`Assign ${task.title}`} value={task.assignedToUserId ? String(task.assignedToUserId) : ''} onChange={(event) => handleQuickAssign(task, event.target.value)}>
+                    <option value="">Unassigned</option>
+                    {userOptions.map((user) => (
+                      <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                    ))}
+                  </select>
                   <p>{formatDueLabel(task)}</p>
                 </div>
               </article>
