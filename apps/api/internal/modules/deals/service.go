@@ -81,6 +81,17 @@ type CreateInput struct {
 	OwnerUserID       int64  `json:"ownerUserId"`
 }
 
+type UpdateInput struct {
+	Name              string `json:"name"`
+	CompanyID         int64  `json:"companyId"`
+	PrimaryContactID  int64  `json:"primaryContactId"`
+	Status            string `json:"status"`
+	ValueAmount       string `json:"valueAmount"`
+	ValueCurrency     string `json:"valueCurrency"`
+	ExpectedCloseDate string `json:"expectedCloseDate"`
+	OwnerUserID       int64  `json:"ownerUserId"`
+}
+
 type UpdateStageInput struct {
 	StageID int64 `json:"stageId"`
 }
@@ -297,6 +308,49 @@ func (s *Service) UpdateStage(ctx context.Context, organizationID, dealID, actor
 	return s.GetByID(ctx, organizationID, dealID)
 }
 
+func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserID int64, input UpdateInput) (Detail, error) {
+	if s == nil || s.pool == nil {
+		return Detail{}, fmt.Errorf("deals service not configured")
+	}
+
+	input = normalizeUpdateInput(input)
+	if input.Name == "" {
+		return Detail{}, fmt.Errorf("deal name is required")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Detail{}, fmt.Errorf("begin update deal transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE deals
+		SET name = $3,
+		    company_id = NULLIF($4, 0),
+		    primary_contact_id = NULLIF($5, 0),
+		    status = NULLIF($6, ''),
+		    value_amount = NULLIF($7, '')::numeric,
+		    value_currency = NULLIF($8, ''),
+		    expected_close_date = NULLIF($9, '')::date,
+		    owner_user_id = COALESCE(NULLIF($10, 0), owner_user_id, $11),
+		    updated_at = NOW()
+		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
+	`, organizationID, dealID, input.Name, input.CompanyID, input.PrimaryContactID, input.Status, input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, input.OwnerUserID, actorUserID); err != nil {
+		return Detail{}, fmt.Errorf("update deal: %w", err)
+	}
+
+	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.updated", "Deal updated"); err != nil {
+		return Detail{}, fmt.Errorf("insert deal update activity: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Detail{}, fmt.Errorf("commit update deal transaction: %w", err)
+	}
+
+	return s.GetByID(ctx, organizationID, dealID)
+}
+
 func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (Detail, error) {
 	if s == nil || s.pool == nil {
 		return Detail{}, fmt.Errorf("deals service not configured")
@@ -398,6 +452,15 @@ func normalizeCreateInput(input CreateInput, actorUserID int64) CreateInput {
 	if input.OwnerUserID <= 0 {
 		input.OwnerUserID = actorUserID
 	}
+	return input
+}
+
+func normalizeUpdateInput(input UpdateInput) UpdateInput {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
+	input.ValueAmount = strings.TrimSpace(input.ValueAmount)
+	input.ValueCurrency = strings.TrimSpace(strings.ToUpper(input.ValueCurrency))
+	input.ExpectedCloseDate = strings.TrimSpace(input.ExpectedCloseDate)
 	return input
 }
 

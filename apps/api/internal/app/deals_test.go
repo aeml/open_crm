@@ -23,6 +23,8 @@ type fakeDealsService struct {
 	getErr                 error
 	createResult           moduledeals.Detail
 	createErr              error
+	updateResult           moduledeals.Detail
+	updateErr              error
 	updateStageResult      moduledeals.Detail
 	updateStageErr         error
 	lastListStagesOrgID    int64
@@ -33,6 +35,10 @@ type fakeDealsService struct {
 	lastCreateOrgID        int64
 	lastCreateActorID      int64
 	lastCreateInput        moduledeals.CreateInput
+	lastUpdateOrgID        int64
+	lastUpdateDealID       int64
+	lastUpdateActorID      int64
+	lastUpdateInput        moduledeals.UpdateInput
 	lastUpdateStageOrgID   int64
 	lastUpdateStageDealID  int64
 	lastUpdateStageActorID int64
@@ -61,6 +67,14 @@ func (f *fakeDealsService) Create(_ context.Context, organizationID, actorUserID
 	f.lastCreateActorID = actorUserID
 	f.lastCreateInput = input
 	return f.createResult, f.createErr
+}
+
+func (f *fakeDealsService) Update(_ context.Context, organizationID, dealID, actorUserID int64, input moduledeals.UpdateInput) (moduledeals.Detail, error) {
+	f.lastUpdateOrgID = organizationID
+	f.lastUpdateDealID = dealID
+	f.lastUpdateActorID = actorUserID
+	f.lastUpdateInput = input
+	return f.updateResult, f.updateErr
 }
 
 func (f *fakeDealsService) UpdateStage(_ context.Context, organizationID, dealID, actorUserID int64, input moduledeals.UpdateStageInput) (moduledeals.Detail, error) {
@@ -202,6 +216,34 @@ func TestGetDealUsesCurrentOrganization(t *testing.T) {
 	}
 	if response.Data.Deal.ID != 12 || response.Data.Deal.Name != "Bluebird Rollout" {
 		t.Fatalf("unexpected deal payload: %#v", response.Data.Deal)
+	}
+}
+
+func TestUpdateDealUsesCurrentOrganization(t *testing.T) {
+	service := &fakeDealsService{
+		updateResult: moduledeals.Detail{
+			Summary:    moduledeals.Summary{ID: 12, Name: "Bluebird Expansion", StageID: 2, StageName: "Qualified", CompanyID: 6, PrimaryContactID: 8, Status: "won", ValueAmount: "72000.00", ValueCurrency: "USD", ExpectedCloseDate: "2026-05-14", OwnerUserID: 1},
+			Activities: []moduledeals.ActivityEntry{{ID: 93, Action: "deal.updated", Summary: "Deal updated", CreatedAt: time.Date(2026, 4, 10, 13, 0, 0, 0, time.UTC)}},
+		},
+	}
+	server := authenticatedDealsServer(service)
+
+	body := bytes.NewBufferString(`{"name":"Bluebird Expansion","companyId":6,"primaryContactId":8,"status":"won","valueAmount":"72000.00","valueCurrency":"USD","expectedCloseDate":"2026-05-14","ownerUserId":1}`)
+	request := httptest.NewRequest(http.MethodPatch, "/api/deals/12", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastUpdateOrgID != 42 || service.lastUpdateDealID != 12 || service.lastUpdateActorID != 1 {
+		t.Fatalf("unexpected update routing: org=%d deal=%d actor=%d", service.lastUpdateOrgID, service.lastUpdateDealID, service.lastUpdateActorID)
+	}
+	if service.lastUpdateInput.Name != "Bluebird Expansion" || service.lastUpdateInput.Status != "won" || service.lastUpdateInput.CompanyID != 6 {
+		t.Fatalf("unexpected update input: %#v", service.lastUpdateInput)
 	}
 }
 

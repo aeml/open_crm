@@ -61,6 +61,7 @@ type dealsService interface {
 	ListByOrganization(context.Context, int64, moduledeals.ListQuery) (moduledeals.ListResult, error)
 	GetByID(context.Context, int64, int64) (moduledeals.Detail, error)
 	Create(context.Context, int64, int64, moduledeals.CreateInput) (moduledeals.Detail, error)
+	Update(context.Context, int64, int64, int64, moduledeals.UpdateInput) (moduledeals.Detail, error)
 	UpdateStage(context.Context, int64, int64, int64, moduledeals.UpdateStageInput) (moduledeals.Detail, error)
 }
 
@@ -414,6 +415,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/deals", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateDeal(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}/stage", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateDealStage(dependencies.AuthService, dependencies.DealsService, w, r)
@@ -996,6 +1000,46 @@ func handleGetDeal(auth authService, deals dealsService, w http.ResponseWriter, 
 	result, err := deals.GetByID(r.Context(), state.Organization.ID, dealID)
 	if err != nil {
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load deal")
+		return
+	}
+
+	respondDealDetail(w, r, http.StatusOK, result)
+}
+
+func handleUpdateDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	dealID, ok := parsePathInt64(w, r, "dealID")
+	if !ok {
+		return
+	}
+
+	var request dealRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return
+	}
+
+	result, err := deals.Update(r.Context(), state.Organization.ID, dealID, state.User.ID, moduledeals.UpdateInput{
+		Name:              strings.TrimSpace(request.Name),
+		CompanyID:         request.CompanyID,
+		PrimaryContactID:  request.PrimaryContactID,
+		Status:            strings.TrimSpace(request.Status),
+		ValueAmount:       strings.TrimSpace(request.ValueAmount),
+		ValueCurrency:     strings.TrimSpace(request.ValueCurrency),
+		ExpectedCloseDate: strings.TrimSpace(request.ExpectedCloseDate),
+		OwnerUserID:       request.OwnerUserID,
+	})
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update deal")
 		return
 	}
 

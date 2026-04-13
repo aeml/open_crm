@@ -74,6 +74,24 @@ export async function getDeal(dealID) {
 	return payload?.data
 }
 
+export async function updateDeal(dealID, input) {
+	const response = await fetch(`${API_BASE_URL}/api/deals/${dealID}`, {
+		method: 'PATCH',
+		credentials: 'include',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(input)
+	})
+	const payload = await readJSON(response)
+
+	if (!response.ok) {
+		throw new Error(getErrorMessage(payload, 'Unable to update deal.'))
+	}
+
+	return payload?.data
+}
+
 export async function updateDealStage(dealID, stageId) {
   const response = await fetch(`${API_BASE_URL}/api/deals/${dealID}/stage`, {
     method: 'PATCH',

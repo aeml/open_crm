@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
-import { createDeal, getDeal, listDeals, listDealStages, updateDealStage } from '../lib/deals'
+import { createDeal, getDeal, listDeals, listDealStages, updateDeal, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -36,6 +36,19 @@ function formatMoney(value, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(amount)
 }
 
+function dealFormValues(deal) {
+  return {
+    name: deal.name || '',
+    stageId: deal.stageId ? String(deal.stageId) : '',
+    companyId: deal.companyId ? String(deal.companyId) : '',
+    primaryContactId: deal.primaryContactId ? String(deal.primaryContactId) : '',
+    status: deal.status || 'open',
+    valueAmount: deal.valueAmount || '',
+    valueCurrency: deal.valueCurrency || 'USD',
+    expectedCloseDate: deal.expectedCloseDate || ''
+  }
+}
+
 export function DealsRoute() {
   const navigate = useNavigate()
   const { dealId } = useParams()
@@ -44,6 +57,7 @@ export function DealsRoute() {
   const [deals, setDeals] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
   const [form, setForm] = useState(emptyForm)
+  const [detailForm, setDetailForm] = useState(emptyForm)
   const [search, setSearch] = useState('')
   const [companyOptions, setCompanyOptions] = useState([])
   const [contactOptions, setContactOptions] = useState([])
@@ -167,6 +181,7 @@ export function DealsRoute() {
         })
         setSelectedDealId(dealData.deal.id)
         setSelectedStageId(String(dealData.deal.stageId))
+        setDetailForm(dealFormValues(dealData.deal))
         setActivities(dealData.activities || [])
         setNotes(loadedNotes)
         setTasks(taskData.tasks || [])
@@ -218,6 +233,7 @@ export function DealsRoute() {
       setActivities(data.activities || [])
       setSelectedDealId(data.deal.id)
       setSelectedStageId(String(data.deal.stageId))
+      setDetailForm(dealFormValues(data.deal))
       setMeta((current) => ({
         ...current,
         total: current.total + 1,
@@ -250,6 +266,7 @@ export function DealsRoute() {
   async function handleSelectDeal(deal) {
     setSelectedDealId(deal.id)
     setSelectedStageId(String(deal.stageId))
+    setDetailForm(dealFormValues(deal))
     setActivities([])
     setNoteBody('')
     setTaskForm(emptyTaskForm)
@@ -266,6 +283,32 @@ export function DealsRoute() {
       setNotes([])
       setTasks([])
       setError(loadError.message || 'Unable to load notes.')
+    }
+  }
+
+  async function handleUpdate(event) {
+    event.preventDefault()
+    if (!selectedDealId) {
+      return
+    }
+
+    try {
+      const data = await updateDeal(selectedDealId, {
+        name: detailForm.name,
+        companyId: Number.parseInt(detailForm.companyId, 10) || 0,
+        primaryContactId: Number.parseInt(detailForm.primaryContactId, 10) || 0,
+        status: detailForm.status,
+        valueAmount: detailForm.valueAmount,
+        valueCurrency: detailForm.valueCurrency,
+        expectedCloseDate: detailForm.expectedCloseDate,
+        ownerUserId: selectedDeal?.ownerUserId || 0
+      })
+      setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
+      setDetailForm(dealFormValues(data.deal))
+      setActivities(data.activities || [])
+      setError('')
+    } catch (saveError) {
+      setError(saveError.message || 'Unable to update deal.')
     }
   }
 
@@ -394,6 +437,7 @@ export function DealsRoute() {
             </Field>
             <Field label="Company">
               <select className="text-input" value={form.companyId} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}>
+                <option value="">No company linked</option>
                 {companyOptions.map((company) => (
                   <option key={company.id} value={company.id}>{company.name}</option>
                 ))}
@@ -401,6 +445,7 @@ export function DealsRoute() {
             </Field>
             <Field label="Primary contact">
               <select className="text-input" value={form.primaryContactId} onChange={(event) => setForm((current) => ({ ...current, primaryContactId: event.target.value }))}>
+                <option value="">No primary contact</option>
                 {contactOptions.map((contact) => (
                   <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
                 ))}
@@ -429,6 +474,44 @@ export function DealsRoute() {
                 <p>{selectedDeal.companyName || 'No company linked'}</p>
               </div>
             </div>
+            <form className="auth-form" aria-label="Deal details form" onSubmit={handleUpdate}>
+              <Field label="Deal name">
+                <input className="text-input" value={detailForm.name} onChange={(event) => setDetailForm((current) => ({ ...current, name: event.target.value }))} required />
+              </Field>
+              <Field label="Company">
+                <select className="text-input" value={detailForm.companyId} onChange={(event) => setDetailForm((current) => ({ ...current, companyId: event.target.value }))}>
+                  <option value="">No company linked</option>
+                  {companyOptions.map((company) => (
+                    <option key={company.id} value={company.id}>{company.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Primary contact">
+                <select className="text-input" value={detailForm.primaryContactId} onChange={(event) => setDetailForm((current) => ({ ...current, primaryContactId: event.target.value }))}>
+                  <option value="">No primary contact</option>
+                  {contactOptions.map((contact) => (
+                    <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Status">
+                <select className="text-input" value={detailForm.status} onChange={(event) => setDetailForm((current) => ({ ...current, status: event.target.value }))}>
+                  <option value="open">Open</option>
+                  <option value="won">Won</option>
+                  <option value="lost">Lost</option>
+                </select>
+              </Field>
+              <Field label="Value amount">
+                <input className="text-input" value={detailForm.valueAmount} onChange={(event) => setDetailForm((current) => ({ ...current, valueAmount: event.target.value }))} />
+              </Field>
+              <Field label="Value currency">
+                <input className="text-input" value={detailForm.valueCurrency} onChange={(event) => setDetailForm((current) => ({ ...current, valueCurrency: event.target.value }))} />
+              </Field>
+              <Field label="Expected close date">
+                <input className="text-input" type="date" value={detailForm.expectedCloseDate} onChange={(event) => setDetailForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
+              </Field>
+              <Button type="submit">Update deal</Button>
+            </form>
             <Field label="Move stage">
               <select className="text-input" value={selectedStageId} onChange={(event) => setSelectedStageId(event.target.value)}>
                 {stages.map((stage) => (

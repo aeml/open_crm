@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 
 afterEach(() => {
@@ -188,6 +188,17 @@ describe('deals flow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({
+          data: {
+            deal: { id: 12, name: 'Bluebird Expansion', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'won', valueAmount: '72000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-14', ownerUserId: 1 },
+            activities: [
+              { id: 98, action: 'deal.updated', summary: 'Deal updated' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         status: 201,
         json: async () => ({
           data: {
@@ -277,6 +288,24 @@ describe('deals flow', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/deals/12')
     })
+
+    const detailForm = screen.getByRole('form', { name: /deal details form/i })
+
+    fireEvent.change(within(detailForm).getByLabelText(/deal name/i), { target: { value: 'Bluebird Expansion' } })
+    fireEvent.change(within(detailForm).getByLabelText(/status/i), { target: { value: 'won' } })
+    fireEvent.change(within(detailForm).getByLabelText(/value amount/i), { target: { value: '72000.00' } })
+    fireEvent.change(within(detailForm).getByLabelText(/expected close date/i), { target: { value: '2026-05-14' } })
+    fireEvent.click(within(detailForm).getByRole('button', { name: /update deal/i }))
+
+    expect(await screen.findByText(/deal updated/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/bluebird expansion/i).length).toBeGreaterThan(0)
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12$/), expect.objectContaining({
+        method: 'PATCH',
+        body: expect.stringContaining('"status":"won"')
+      }))
+    })
+
     expect(screen.getAllByText(/qualified/i).length).toBeGreaterThan(0)
     expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
