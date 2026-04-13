@@ -542,6 +542,7 @@ describe('deals flow', () => {
     render(<AppRouter />)
 
     expect(await screen.findByRole('heading', { name: /jobs/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /jobs/i })).toBeInTheDocument()
     expect(screen.getByText(/open jobs/i)).toBeInTheDocument()
     expect(screen.getByText(/won jobs/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/search jobs/i)).toBeInTheDocument()

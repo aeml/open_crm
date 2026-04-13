@@ -11,9 +11,41 @@ const baseLinks = [
   { to: '/settings/business-profile', labelKey: 'businessProfile', fallback: 'Business Profile' }
 ]
 
+function defaultLabelsForBusinessType(businessType) {
+  if (businessType === 'services') {
+    return {
+      companies: 'Clients',
+      deals: 'Jobs',
+      tasks: 'Service Tasks'
+    }
+  }
+
+  if (businessType === 'construction-services') {
+    return {
+      companies: 'Clients',
+      deals: 'Jobs',
+      tasks: 'Site Tasks'
+    }
+  }
+
+  if (businessType === 'product-sales') {
+    return {
+      companies: 'Accounts',
+      deals: 'Opportunities',
+      tasks: 'Follow-ups'
+    }
+  }
+
+  return {}
+}
+
 export function SideNav() {
-  const { businessProfile } = useAuth()
-  const labels = businessProfile?.labels || {}
+  const { session, businessProfile } = useAuth()
+  const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
+  const labels = {
+    ...defaultLabelsForBusinessType(businessType),
+    ...(businessProfile?.labels || {})
+  }
 
   return (
     <aside className="side-nav">
