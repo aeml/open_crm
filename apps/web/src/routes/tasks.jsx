@@ -20,6 +20,8 @@ const emptyForm = {
   assignedToUserId: ''
 }
 
+const unassignedAssigneeFilter = 'unassigned'
+
 function formatDueLabel(task) {
   if (task.completedAt) {
     return `Completed ${new Date(task.completedAt).toLocaleString()}`
@@ -189,6 +191,18 @@ function sortOpenTasks(tasks) {
   })
 }
 
+function matchesAssignee(task, assigneeFilter) {
+  if (assigneeFilter === 'all') {
+    return true
+  }
+
+  if (assigneeFilter === unassignedAssigneeFilter) {
+    return !task.assignedToUserId
+  }
+
+  return String(task.assignedToUserId || '') === assigneeFilter
+}
+
 export function TasksRoute() {
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
@@ -198,6 +212,7 @@ export function TasksRoute() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('open')
   const [dueView, setDueView] = useState('all')
+  const [assigneeFilter, setAssigneeFilter] = useState('all')
   const [selectedTaskId, setSelectedTaskId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
@@ -211,12 +226,14 @@ export function TasksRoute() {
   const selectedTask = detail?.task || null
   const selectedActivities = detail?.activities || []
   const visibleTasks = useMemo(() => {
+    const filteredTasks = tasks.filter((task) => matchesAssignee(task, assigneeFilter))
+
     if (statusFilter !== 'open') {
-      return tasks
+      return filteredTasks
     }
 
-    return sortOpenTasks(tasks.filter((task) => matchesDueView(task, dueView)))
-  }, [dueView, statusFilter, tasks])
+    return sortOpenTasks(filteredTasks.filter((task) => matchesDueView(task, dueView)))
+  }, [assigneeFilter, dueView, statusFilter, tasks])
 
   async function loadTasks(nextSearch = search, nextStatus = statusFilter) {
     const data = await listTasks({ search: nextSearch, status: nextStatus })
@@ -437,6 +454,15 @@ export function TasksRoute() {
           </div>
           <Field label={labels.searchLabel}>
             <input className="text-input" value={search} onChange={handleSearchChange} />
+          </Field>
+          <Field label="Assignee">
+            <select className="text-input" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
+              <option value="all">All assignees</option>
+              <option value={unassignedAssigneeFilter}>Unassigned</option>
+              {userOptions.map((user) => (
+                <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+              ))}
+            </select>
           </Field>
           {statusFilter === 'open' ? (
             <Field label={labels.viewLabel}>

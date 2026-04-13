@@ -35,8 +35,8 @@ describe('tasks flow', () => {
                 status: 'open',
                 dueAt: '2099-04-16T09:00:00Z',
                 completedAt: '',
-                assignedToUserId: 2,
-                assignedToUserName: 'Alex Admin',
+                assignedToUserId: 1,
+                assignedToUserName: 'Demo Owner',
                 createdByUserId: 1,
                 createdByUserName: 'Demo Owner'
               },
@@ -221,6 +221,15 @@ describe('tasks flow', () => {
       'Call Morgan about rollout timing',
       'Confirm installer arrival window'
     ])
+
+    fireEvent.change(screen.getByLabelText(/^assignee$/i), { target: { value: '1' } })
+
+    expect(screen.getByText(/showing 1 of 2 open tasks/i)).toBeInTheDocument()
+    const ownerTaskList = screen.getByRole('list', { name: /tasks list/i })
+    expect(within(ownerTaskList).getByText(/confirm installer arrival window/i)).toBeInTheDocument()
+    expect(within(ownerTaskList).queryByText(/call morgan about rollout timing/i)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/^assignee$/i), { target: { value: 'all' } })
 
     fireEvent.change(screen.getByLabelText(/task view/i), { target: { value: 'upcoming' } })
 
