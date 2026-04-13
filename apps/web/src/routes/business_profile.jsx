@@ -7,9 +7,9 @@ import { getBusinessProfile, updateBusinessProfile } from '../lib/business_profi
 
 const businessTypeOptions = [
   { value: 'general', label: 'General CRM' },
-  { value: 'services', label: 'Services' },
-  { value: 'product-sales', label: 'Product Sales' },
-  { value: 'construction-services', label: 'Construction Services' }
+  { value: 'services', label: 'Services (Clients + Jobs)' },
+  { value: 'product-sales', label: 'Product Sales (Accounts + Opportunities)' },
+  { value: 'construction-services', label: 'Construction Services (Clients + Jobs)' }
 ]
 
 export function BusinessProfileRoute() {
@@ -108,7 +108,7 @@ export function BusinessProfileRoute() {
               <select className="text-input" value={businessType} onChange={(event) => setBusinessType(event.target.value)} disabled={!canManageProfile}>
                 {businessTypeOptions.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {option.value}
+                    {option.label}
                   </option>
                 ))}
               </select>

@@ -30,7 +30,7 @@ func TestDefaultDealStagesForBusinessType(t *testing.T) {
 		expected     []string
 	}{
 		{businessType: "general", expected: []string{"Lead", "Qualified", "Proposal", "Negotiation", "Closed Won", "Closed Lost"}},
-		{businessType: "services", expected: []string{"Lead", "Discovery", "Scoping", "Proposal", "Closed Won", "Closed Lost"}},
+		{businessType: "services", expected: []string{"Lead", "Discovery", "Scope", "Quote", "Closed Won", "Closed Lost"}},
 		{businessType: "product-sales", expected: []string{"Prospect", "Qualified", "Demo", "Proposal", "Closed Won", "Closed Lost"}},
 		{businessType: "construction-services", expected: []string{"Lead", "Site Visit", "Estimate", "Contract", "Closed Won", "Closed Lost"}},
 	}

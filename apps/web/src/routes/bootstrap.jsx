@@ -7,9 +7,9 @@ import { useAuth } from '../app/providers'
 
 const businessTypeOptions = [
   { value: 'general', label: 'General CRM' },
-  { value: 'services', label: 'Services' },
-  { value: 'product-sales', label: 'Product Sales' },
-  { value: 'construction-services', label: 'Construction Services' }
+  { value: 'services', label: 'Services (Clients + Jobs)' },
+  { value: 'product-sales', label: 'Product Sales (Accounts + Opportunities)' },
+  { value: 'construction-services', label: 'Construction Services (Clients + Jobs)' }
 ]
 
 export function BootstrapRoute() {

@@ -8,8 +8,8 @@ func DefaultDealStagesForBusinessType(businessType string) []DealStageSeed {
 		return []DealStageSeed{
 			{Name: "Lead", Position: 1},
 			{Name: "Discovery", Position: 2},
-			{Name: "Scoping", Position: 3},
-			{Name: "Proposal", Position: 4},
+			{Name: "Scope", Position: 3},
+			{Name: "Quote", Position: 4},
 			{Name: "Closed Won", Position: 5, IsClosed: true, IsWon: true},
 			{Name: "Closed Lost", Position: 6, IsClosed: true, IsWon: false},
 		}

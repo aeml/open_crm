@@ -52,6 +52,8 @@ describe('onboarding flow', () => {
 
     expect(await screen.findByRole('heading', { name: /create your workspace/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login')
+    expect(screen.getByRole('option', { name: /^services \(clients \+ jobs\)$/i })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /^product sales \(accounts \+ opportunities\)$/i })).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/company name/i), { target: { value: 'Northstar Logistics' } })
     fireEvent.change(screen.getByLabelText(/business type/i), { target: { value: 'product-sales' } })

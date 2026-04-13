@@ -46,7 +46,9 @@ describe('business profile flow', () => {
     render(<AppRouter />)
 
     expect(await screen.findByRole('heading', { name: /business profile/i })).toBeInTheDocument()
-    expect(await screen.findByDisplayValue('construction-services')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /^construction services \(clients \+ jobs\)$/i }).selected).toBe(true)
+    })
     expect(screen.getByRole('link', { name: /clients/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /jobs/i })).toBeInTheDocument()
   })
