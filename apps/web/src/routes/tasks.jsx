@@ -239,6 +239,14 @@ function matchesEntityType(task, entityTypeFilter) {
   return task.entityType === entityTypeFilter
 }
 
+function matchesStatus(task, statusFilter) {
+  if (statusFilter === 'completed') {
+    return task.status === 'completed'
+  }
+
+  return task.status !== 'completed'
+}
+
 function emptyTaskListMessage(statusFilter, dueView, labels) {
   if (statusFilter !== 'open') {
     return `No ${labels.summaryCompleted.toLowerCase()} match the current filters.`
@@ -285,15 +293,16 @@ export function TasksRoute() {
   const selectedTask = detail?.task || null
   const selectedActivities = detail?.activities || []
   const emptyMessage = useMemo(() => emptyTaskListMessage(statusFilter, dueView, labels), [dueView, labels, statusFilter])
+  const statusTasks = useMemo(() => tasks.filter((task) => matchesStatus(task, statusFilter)), [statusFilter, tasks])
   const visibleTasks = useMemo(() => {
-    const filteredTasks = tasks.filter((task) => matchesAssignee(task, assigneeFilter) && matchesEntityType(task, entityTypeFilter))
+    const filteredTasks = statusTasks.filter((task) => matchesAssignee(task, assigneeFilter) && matchesEntityType(task, entityTypeFilter))
 
     if (statusFilter !== 'open') {
       return sortCompletedTasks(filteredTasks)
     }
 
     return sortOpenTasks(filteredTasks.filter((task) => matchesDueView(task, dueView)))
-  }, [assigneeFilter, dueView, entityTypeFilter, statusFilter, tasks])
+  }, [assigneeFilter, dueView, entityTypeFilter, statusFilter, statusTasks])
 
   async function loadTasks(nextSearch = search, nextStatus = statusFilter) {
     const data = await listTasks({ search: nextSearch, status: nextStatus })
@@ -478,6 +487,35 @@ export function TasksRoute() {
     syncTaskIntoState(task, [])
   }
 
+  async function handleQuickComplete(task) {
+    try {
+      const completedAt = new Date().toISOString()
+      const data = await updateTask(task.id, {
+        title: task.title,
+        description: task.description || '',
+        status: 'completed',
+        dueAt: task.dueAt || '',
+        completedAt,
+        assignedToUserId: task.assignedToUserId || 0
+      })
+
+      setTasks((current) => current.map((currentTask) => (currentTask.id === task.id ? data.task : currentTask)))
+      setMeta((current) => ({
+        ...current,
+        openCount: Math.max(0, current.openCount - 1),
+        completedCount: current.completedCount + 1
+      }))
+      if (selectedTaskId === task.id) {
+        syncTaskIntoState(data.task, data.activities || [])
+      } else {
+        setDetailCache((current) => ({ ...current, [task.id]: { task: data.task, activities: data.activities || [] } }))
+      }
+      setError('')
+    } catch (saveError) {
+      setError(saveError.message || 'Unable to update task.')
+    }
+  }
+
   const summaryLabel = useMemo(() => taskListHeading(statusFilter, dueView, labels), [dueView, labels, statusFilter])
 
   return (
@@ -555,7 +593,7 @@ export function TasksRoute() {
           ) : null}
           {error ? <p className="form-error">{error}</p> : null}
           <h3>{summaryLabel}</h3>
-          <p className="field-hint">Showing {visibleTasks.length} of {tasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>
+          <p className="field-hint">Showing {visibleTasks.length} of {statusTasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>
           <div className="record-list" role="list" aria-label="Tasks list">
             {visibleTasks.length === 0 ? (
               <article className="record-row" role="listitem">
@@ -570,6 +608,11 @@ export function TasksRoute() {
                     {task.title}
                   </button>
                   <p>{task.entityLabel || `${task.entityType} #${task.entityId}`}</p>
+                  {statusFilter === 'open' ? (
+                    <Button className="button-secondary" type="button" onClick={() => handleQuickComplete(task)} aria-label={`Complete ${task.title}`}>
+                      Complete
+                    </Button>
+                  ) : null}
                 </div>
                 <div>
                   <p>{task.assignedToUserName || 'Unassigned'}</p>
