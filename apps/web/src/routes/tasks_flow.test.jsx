@@ -312,6 +312,15 @@ describe('tasks flow', () => {
 
     fireEvent.change(screen.getByLabelText(/^assignee$/i), { target: { value: 'all' } })
 
+    fireEvent.change(screen.getByLabelText(/^assignee$/i), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText(/record type filter/i), { target: { value: 'contact' } })
+
+    expect(screen.getByText(/showing 0 of 4 open tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/no open tasks match the current filters/i)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/^assignee$/i), { target: { value: 'all' } })
+    fireEvent.change(screen.getByLabelText(/record type filter/i), { target: { value: 'all' } })
+
     fireEvent.change(screen.getByLabelText(/task view/i), { target: { value: 'upcoming' } })
 
     expect(await screen.findByRole('heading', { name: /^upcoming tasks$/i })).toBeInTheDocument()

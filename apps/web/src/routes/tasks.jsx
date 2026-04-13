@@ -239,6 +239,27 @@ function matchesEntityType(task, entityTypeFilter) {
   return task.entityType === entityTypeFilter
 }
 
+function emptyTaskListMessage(statusFilter, dueView, labels) {
+  if (statusFilter !== 'open') {
+    return `No ${labels.summaryCompleted.toLowerCase()} match the current filters.`
+  }
+
+  if (dueView === 'overdue') {
+    return `No ${labels.overdueHeading.toLowerCase()} match the current filters.`
+  }
+  if (dueView === 'dueToday') {
+    return `No ${labels.dueTodayHeading.toLowerCase()} match the current filters.`
+  }
+  if (dueView === 'upcoming') {
+    return `No ${labels.upcomingHeading.toLowerCase()} match the current filters.`
+  }
+  if (dueView === 'noDueDate') {
+    return `No ${labels.noDueDateHeading.toLowerCase()} match the current filters.`
+  }
+
+  return `No ${labels.summaryOpen.toLowerCase()} match the current filters.`
+}
+
 export function TasksRoute() {
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
@@ -263,6 +284,7 @@ export function TasksRoute() {
 
   const selectedTask = detail?.task || null
   const selectedActivities = detail?.activities || []
+  const emptyMessage = useMemo(() => emptyTaskListMessage(statusFilter, dueView, labels), [dueView, labels, statusFilter])
   const visibleTasks = useMemo(() => {
     const filteredTasks = tasks.filter((task) => matchesAssignee(task, assigneeFilter) && matchesEntityType(task, entityTypeFilter))
 
@@ -535,7 +557,13 @@ export function TasksRoute() {
           <h3>{summaryLabel}</h3>
           <p className="field-hint">Showing {visibleTasks.length} of {tasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>
           <div className="record-list" role="list" aria-label="Tasks list">
-            {visibleTasks.map((task) => (
+            {visibleTasks.length === 0 ? (
+              <article className="record-row" role="listitem">
+                <div>
+                  <p>{emptyMessage}</p>
+                </div>
+              </article>
+            ) : visibleTasks.map((task) => (
               <article className="record-row" key={task.id} role="listitem">
                 <div>
                   <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenTask(task)}>
