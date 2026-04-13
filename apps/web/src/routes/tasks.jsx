@@ -45,6 +45,7 @@ function taskLabels(businessType) {
       completedHeading: 'Completed service tasks',
       showingSuffix: 'service tasks',
       entityTypeLabel: 'Linked record type',
+      entityTypeFilterLabel: 'Linked record filter',
       dealOption: 'Job',
       dealLabel: 'Job',
       companyLabel: 'Client',
@@ -68,6 +69,7 @@ function taskLabels(businessType) {
     completedHeading: 'Completed tasks',
     showingSuffix: 'tasks',
     entityTypeLabel: 'Entity type',
+    entityTypeFilterLabel: 'Record type filter',
     dealOption: 'Deal',
     dealLabel: 'Deal',
     companyLabel: 'Company',
@@ -203,6 +205,14 @@ function matchesAssignee(task, assigneeFilter) {
   return String(task.assignedToUserId || '') === assigneeFilter
 }
 
+function matchesEntityType(task, entityTypeFilter) {
+  if (entityTypeFilter === 'all') {
+    return true
+  }
+
+  return task.entityType === entityTypeFilter
+}
+
 export function TasksRoute() {
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
@@ -213,6 +223,7 @@ export function TasksRoute() {
   const [statusFilter, setStatusFilter] = useState('open')
   const [dueView, setDueView] = useState('all')
   const [assigneeFilter, setAssigneeFilter] = useState('all')
+  const [entityTypeFilter, setEntityTypeFilter] = useState('all')
   const [selectedTaskId, setSelectedTaskId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
@@ -226,14 +237,14 @@ export function TasksRoute() {
   const selectedTask = detail?.task || null
   const selectedActivities = detail?.activities || []
   const visibleTasks = useMemo(() => {
-    const filteredTasks = tasks.filter((task) => matchesAssignee(task, assigneeFilter))
+    const filteredTasks = tasks.filter((task) => matchesAssignee(task, assigneeFilter) && matchesEntityType(task, entityTypeFilter))
 
     if (statusFilter !== 'open') {
       return filteredTasks
     }
 
     return sortOpenTasks(filteredTasks.filter((task) => matchesDueView(task, dueView)))
-  }, [assigneeFilter, dueView, statusFilter, tasks])
+  }, [assigneeFilter, dueView, entityTypeFilter, statusFilter, tasks])
 
   async function loadTasks(nextSearch = search, nextStatus = statusFilter) {
     const data = await listTasks({ search: nextSearch, status: nextStatus })
@@ -462,6 +473,14 @@ export function TasksRoute() {
               {userOptions.map((user) => (
                 <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
               ))}
+            </select>
+          </Field>
+          <Field label={labels.entityTypeFilterLabel}>
+            <select className="text-input" value={entityTypeFilter} onChange={(event) => setEntityTypeFilter(event.target.value)}>
+              <option value="all">All record types</option>
+              <option value="deal">{labels.dealOption}</option>
+              <option value="company">{labels.companyLabel}</option>
+              <option value="contact">Contact</option>
             </select>
           </Field>
           {statusFilter === 'open' ? (
