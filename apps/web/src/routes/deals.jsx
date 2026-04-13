@@ -9,6 +9,7 @@ import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
 import { listOrganizationUsers } from '../lib/users'
+import { useAuth } from '../app/providers'
 
 const emptyForm = {
   name: '',
@@ -49,10 +50,51 @@ function dealFormValues(deal) {
   }
 }
 
+function pipelineLabels(businessType) {
+  if (businessType === 'services' || businessType === 'construction-services') {
+    return {
+      collection: 'Jobs',
+      singular: 'Job',
+      createHeading: 'New job',
+      createDescription: 'Create jobs against the real org stage list.',
+      summaryOpen: 'Open jobs',
+      summaryWon: 'Won jobs',
+      searchLabel: 'Search jobs',
+      listAria: 'Jobs list',
+      notesAria: 'Job notes list',
+      tasksAria: 'Job tasks list',
+      activityAria: 'Job activity list',
+      archiveAction: 'Archive job',
+      moveAction: 'Move job to stage',
+      moveLabel: 'Move job stage'
+    }
+  }
+
+  return {
+    collection: 'Deals',
+    singular: 'Deal',
+    createHeading: 'New deal',
+    createDescription: 'Create pipeline entries against the real org stage list.',
+    summaryOpen: 'Open deals',
+    summaryWon: 'Won deals',
+    searchLabel: 'Search deals',
+    listAria: 'Deals list',
+    notesAria: 'Deal notes list',
+    tasksAria: 'Deal tasks list',
+    activityAria: 'Deal activity list',
+    archiveAction: 'Archive deal',
+    moveAction: 'Move to stage',
+    moveLabel: 'Move stage'
+  }
+}
+
 export function DealsRoute() {
   const navigate = useNavigate()
   const { dealId } = useParams()
+  const { session, businessProfile } = useAuth()
   const routeDealId = Number.parseInt(dealId || '', 10)
+  const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
+  const labels = pipelineLabels(businessType)
   const [stages, setStages] = useState([])
   const [deals, setDeals] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
@@ -390,27 +432,27 @@ export function DealsRoute() {
     <section className="dashboard-grid contacts-grid">
       <Card>
         <div className="card-stack">
-          <div className="section-header">
-            <div>
-              <h2>Deals</h2>
-              <p>Real pipeline, real stages, no fake dashboard filler.</p>
+            <div className="section-header">
+              <div>
+                <h2>{labels.collection}</h2>
+                <p>Real pipeline, real stages, no fake dashboard filler.</p>
+              </div>
             </div>
-          </div>
           <div className="record-list" role="list" aria-label="Pipeline summary">
             <article className="record-row" role="listitem">
               <div>
-                <p>Open deals</p>
+                <p>{labels.summaryOpen}</p>
               </div>
               <div>
-                <p>{meta.openCount}</p>
-              </div>
-            </article>
-            <article className="record-row" role="listitem">
-              <div>
-                <p>Won deals</p>
-              </div>
-              <div>
-                <p>{meta.wonCount}</p>
+                  <p>{meta.openCount}</p>
+                </div>
+              </article>
+              <article className="record-row" role="listitem">
+                <div>
+                  <p>{labels.summaryWon}</p>
+                </div>
+                <div>
+                  <p>{meta.wonCount}</p>
               </div>
             </article>
             <article className="record-row" role="listitem">
@@ -422,11 +464,11 @@ export function DealsRoute() {
               </div>
             </article>
           </div>
-          <Field label="Search deals">
+          <Field label={labels.searchLabel}>
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
           {error ? <p className="form-error">{error}</p> : null}
-          <div className="record-list" role="list" aria-label="Deals list">
+          <div className="record-list" role="list" aria-label={labels.listAria}>
             {deals.map((deal) => (
               <article className="record-row" key={deal.id} role="listitem">
                 <div>
@@ -449,11 +491,11 @@ export function DealsRoute() {
       <Card>
         <div className="card-stack">
           <div>
-            <h2>New deal</h2>
-            <p>Create pipeline entries against the real org stage list.</p>
+            <h2>{labels.createHeading}</h2>
+            <p>{labels.createDescription}</p>
           </div>
           <form className="auth-form" onSubmit={handleCreate}>
-            <Field label="Deal name">
+            <Field label={`${labels.singular} name`}>
               <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
             </Field>
             <Field label="Stage">
@@ -488,7 +530,7 @@ export function DealsRoute() {
             <Field label="Expected close date">
               <input className="text-input" type="date" value={form.expectedCloseDate} onChange={(event) => setForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
             </Field>
-            <Button type="submit">Save deal</Button>
+            <Button type="submit">{`Save ${labels.singular.toLowerCase()}`}</Button>
           </form>
         </div>
       </Card>
@@ -502,11 +544,11 @@ export function DealsRoute() {
                 <p>{selectedDeal.companyName || 'No company linked'}</p>
               </div>
               <Button className="button-danger" onClick={handleArchive}>
-                Archive deal
+                {labels.archiveAction}
               </Button>
             </div>
             <form className="auth-form" aria-label="Deal details form" onSubmit={handleUpdate}>
-              <Field label="Deal name">
+              <Field label={`${labels.singular} name`}>
                 <input className="text-input" value={detailForm.name} onChange={(event) => setDetailForm((current) => ({ ...current, name: event.target.value }))} required />
               </Field>
               <Field label="Company">
@@ -541,16 +583,16 @@ export function DealsRoute() {
               <Field label="Expected close date">
                 <input className="text-input" type="date" value={detailForm.expectedCloseDate} onChange={(event) => setDetailForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
               </Field>
-              <Button type="submit">Update deal</Button>
+              <Button type="submit">{`Update ${labels.singular.toLowerCase()}`}</Button>
             </form>
-            <Field label="Move stage">
+            <Field label={labels.moveLabel}>
               <select className="text-input" value={selectedStageId} onChange={(event) => setSelectedStageId(event.target.value)}>
                 {stages.map((stage) => (
                   <option key={stage.id} value={stage.id}>{stage.name}</option>
                 ))}
               </select>
             </Field>
-            <Button onClick={handleMoveStage}>Move to stage</Button>
+            <Button onClick={handleMoveStage}>{labels.moveAction}</Button>
             <Card>
               <div className="card-stack">
                 <h3>Notes</h3>
@@ -560,7 +602,7 @@ export function DealsRoute() {
                   </Field>
                   <Button type="submit">Add note</Button>
                 </form>
-                <div className="record-list" role="list" aria-label="Deal notes list">
+                <div className="record-list" role="list" aria-label={labels.notesAria}>
                   {notes.map((note) => (
                     <article className="record-row" key={note.id} role="listitem">
                       <div>
@@ -594,7 +636,7 @@ export function DealsRoute() {
                   </Field>
                   <Button type="submit">Save task</Button>
                 </form>
-                <div className="record-list" role="list" aria-label="Deal tasks list">
+                <div className="record-list" role="list" aria-label={labels.tasksAria}>
                   {tasks.map((task) => (
                     <article className="record-row" key={task.id} role="listitem">
                       <div>
@@ -609,7 +651,7 @@ export function DealsRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Activity</h3>
-                <div className="record-list" role="list" aria-label="Deal activity list">
+                <div className="record-list" role="list" aria-label={labels.activityAria}>
                   {activities.map((activity) => (
                     <article className="record-row" key={activity.id} role="listitem">
                       <div>

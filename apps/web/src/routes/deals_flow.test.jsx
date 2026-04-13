@@ -487,4 +487,66 @@ describe('deals flow', () => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/notes\?entityType=deal&entityId=12$/), expect.any(Object))
     })
   })
+
+  it('uses jobs language for service businesses on the pipeline page', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'services' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            stages: [
+              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
+              { id: 2, name: 'Quote', position: 2, isClosed: false, isWon: false }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deals: [
+              { id: 21, name: 'Northstar Boiler Repair', stageId: 2, stageName: 'Quote', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '4800.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '4800.00' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { contacts: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { users: [{ id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }] } })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/deals')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /jobs/i })).toBeInTheDocument()
+    expect(screen.getByText(/open jobs/i)).toBeInTheDocument()
+    expect(screen.getByText(/won jobs/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/search jobs/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /new job/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/job name/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /save job/i })).toBeInTheDocument()
+  })
 })
