@@ -487,23 +487,25 @@ export function TasksRoute() {
     syncTaskIntoState(task, [])
   }
 
-  async function handleQuickComplete(task) {
+  async function handleQuickStatus(task, nextStatus) {
     try {
-      const completedAt = new Date().toISOString()
+      const completedAt = nextStatus === 'completed' ? new Date().toISOString() : ''
       const data = await updateTask(task.id, {
         title: task.title,
         description: task.description || '',
-        status: 'completed',
+        status: nextStatus,
         dueAt: task.dueAt || '',
         completedAt,
         assignedToUserId: task.assignedToUserId || 0
       })
 
+      const wasCompleted = task.status === 'completed'
+      const isCompleted = data.task.status === 'completed'
       setTasks((current) => current.map((currentTask) => (currentTask.id === task.id ? data.task : currentTask)))
       setMeta((current) => ({
         ...current,
-        openCount: Math.max(0, current.openCount - 1),
-        completedCount: current.completedCount + 1
+        openCount: Math.max(0, current.openCount + (wasCompleted ? 1 : 0) - (isCompleted ? 1 : 0)),
+        completedCount: Math.max(0, current.completedCount + (isCompleted ? 1 : 0) - (wasCompleted ? 1 : 0))
       }))
       if (selectedTaskId === task.id) {
         syncTaskIntoState(data.task, data.activities || [])
@@ -514,6 +516,14 @@ export function TasksRoute() {
     } catch (saveError) {
       setError(saveError.message || 'Unable to update task.')
     }
+  }
+
+  function handleQuickComplete(task) {
+    return handleQuickStatus(task, 'completed')
+  }
+
+  function handleQuickReopen(task) {
+    return handleQuickStatus(task, 'open')
   }
 
   const summaryLabel = useMemo(() => taskListHeading(statusFilter, dueView, labels), [dueView, labels, statusFilter])
@@ -612,7 +622,11 @@ export function TasksRoute() {
                     <Button className="button-secondary" type="button" onClick={() => handleQuickComplete(task)} aria-label={`Complete ${task.title}`}>
                       Complete
                     </Button>
-                  ) : null}
+                  ) : (
+                    <Button className="button-secondary" type="button" onClick={() => handleQuickReopen(task)} aria-label={`Reopen ${task.title}`}>
+                      Reopen
+                    </Button>
+                  )}
                 </div>
                 <div>
                   <p>{task.assignedToUserName || 'Unassigned'}</p>

@@ -275,6 +275,31 @@ describe('tasks flow', () => {
           }
         })
       })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            task: {
+              id: 77,
+              entityType: 'deal',
+              entityId: 12,
+              entityLabel: 'Bluebird Rollout',
+              title: 'Prepare rollout checklist',
+              description: 'Completed and handed off.',
+              status: 'open',
+              dueAt: '2026-04-16T09:00:00Z',
+              completedAt: '',
+              assignedToUserId: 2,
+              assignedToUserName: 'Alex Admin',
+              createdByUserId: 1,
+              createdByUserName: 'Demo Owner'
+            },
+            activities: [
+              { id: 204, action: 'task.reopened', summary: 'Task reopened' }
+            ]
+          }
+        })
+      })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/tasks')
@@ -415,8 +440,16 @@ describe('tasks flow', () => {
     const completedTaskList = screen.getByRole('list', { name: /tasks list/i })
     expect(within(completedTaskList).getAllByRole('button').map((button) => button.textContent)).toEqual([
       'Prepare rollout checklist',
-      'Collect signed agreement'
+      'Reopen',
+      'Collect signed agreement',
+      'Reopen'
     ])
+
+    fireEvent.click(screen.getByRole('button', { name: /reopen prepare rollout checklist/i }))
+
+    expect(await screen.findByText(/showing 1 of 1 completed tasks/i)).toBeInTheDocument()
+    const reopenedCompletedTaskList = screen.getByRole('list', { name: /tasks list/i })
+    expect(within(reopenedCompletedTaskList).queryByText(/prepare rollout checklist/i)).not.toBeInTheDocument()
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\/77$/), expect.objectContaining({ method: 'PATCH' }))
