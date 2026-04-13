@@ -269,6 +269,19 @@ function emptyTaskListMessage(statusFilter, dueView, labels) {
   return `No ${labels.summaryOpen.toLowerCase()} match the current filters.`
 }
 
+function formatActivityTimestamp(createdAt) {
+  if (!createdAt) {
+    return 'Time unavailable'
+  }
+
+  const parsed = new Date(createdAt)
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Time unavailable'
+  }
+
+  return parsed.toLocaleString()
+}
+
 export function TasksRoute() {
   const navigate = useNavigate()
   const { taskId } = useParams()
@@ -865,10 +878,17 @@ export function TasksRoute() {
               <div className="card-stack">
                 <h3>Activity</h3>
                 <div className="record-list" role="list" aria-label={labels.activityAria}>
-                  {selectedActivities.map((activity) => (
+                  {selectedActivities.length === 0 ? (
+                    <article className="record-row" role="listitem">
+                      <div>
+                        <p>No task activity yet.</p>
+                      </div>
+                    </article>
+                  ) : selectedActivities.map((activity) => (
                     <article className="record-row" key={activity.id} role="listitem">
                       <div>
                         <p>{activity.summary}</p>
+                        <p className="field-hint">{formatActivityTimestamp(activity.createdAt)}</p>
                       </div>
                     </article>
                   ))}

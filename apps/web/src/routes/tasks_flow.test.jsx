@@ -451,6 +451,7 @@ describe('tasks flow', () => {
 
     expect(await screen.findByRole('heading', { name: /prepare rollout checklist/i })).toBeInTheDocument()
     expect(screen.getByText(/task created/i)).toBeInTheDocument()
+    expect(screen.getByText(/4\/10\/2026/i)).toBeInTheDocument()
     expect(window.location.pathname).toBe('/tasks/77')
     expect(screen.queryAllByLabelText(/assigned to user id/i)).toHaveLength(0)
     expect(screen.getAllByLabelText(/^assigned to$/i).length).toBeGreaterThan(0)
@@ -479,6 +480,7 @@ describe('tasks flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /reopen prepare rollout checklist/i }))
 
     expect(await screen.findByText(/showing 1 of 1 completed tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/task reopened/i)).toBeInTheDocument()
     const reopenedCompletedTaskList = screen.getByRole('list', { name: /tasks list/i })
     expect(within(reopenedCompletedTaskList).queryByText(/prepare rollout checklist/i)).not.toBeInTheDocument()
 
@@ -487,6 +489,7 @@ describe('tasks flow', () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/assign collect signed agreement/i)).toHaveValue('2')
     })
+    expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\/77$/), expect.objectContaining({ method: 'PATCH' }))
