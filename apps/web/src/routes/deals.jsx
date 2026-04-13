@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -36,6 +37,9 @@ function formatMoney(value, currency = 'USD') {
 }
 
 export function DealsRoute() {
+  const navigate = useNavigate()
+  const { dealId } = useParams()
+  const routeDealId = Number.parseInt(dealId || '', 10)
   const [stages, setStages] = useState([])
   const [deals, setDeals] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
@@ -114,6 +118,28 @@ export function DealsRoute() {
 
   const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
 
+  useEffect(() => {
+    if (!Number.isInteger(routeDealId) || routeDealId <= 0) {
+      if (selectedDealId) {
+        setSelectedDealId(null)
+        setSelectedStageId('')
+        setNotes([])
+        setTasks([])
+        setActivities([])
+        setNoteBody('')
+        setTaskForm(emptyTaskForm)
+      }
+      return
+    }
+
+    const routeDeal = deals.find((entry) => entry.id === routeDealId)
+    if (!routeDeal || selectedDealId === routeDealId) {
+      return
+    }
+
+    handleSelectDeal(routeDeal)
+  }, [deals, routeDealId, selectedDealId])
+
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
@@ -153,6 +179,7 @@ export function DealsRoute() {
         pipelineValue: String(Number.parseFloat(current.pipelineValue || '0') + Number.parseFloat(data.deal.valueAmount || '0'))
       }))
       setForm((current) => ({ ...emptyForm, stageId: current.stageId || form.stageId || (stages[0] ? String(stages[0].id) : '') }))
+      navigate(`/deals/${data.deal.id}`)
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to create deal.')
@@ -180,6 +207,7 @@ export function DealsRoute() {
     setActivities([])
     setNoteBody('')
     setTaskForm(emptyTaskForm)
+    navigate(`/deals/${deal.id}`)
     try {
       const [loadedNotes, taskData] = await Promise.all([
         listNotes('deal', deal.id),

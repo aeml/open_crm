@@ -274,6 +274,9 @@ describe('deals flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /save deal/i }))
 
     expect((await screen.findAllByText(/bluebird rollout/i)).length).toBeGreaterThan(0)
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/deals/12')
+    })
     expect(screen.getAllByText(/qualified/i).length).toBeGreaterThan(0)
     expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
@@ -305,6 +308,132 @@ describe('deals flow', () => {
     expect(await screen.findByText(/deal moved to proposal/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/stage$/), expect.objectContaining({ method: 'PATCH' }))
+    })
+  })
+
+  it('loads a deal directly from the detail route when it is present in the pipeline list', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            stages: [
+              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
+              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false },
+              { id: 3, name: 'Proposal', position: 3, isClosed: false, isWon: false }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deals: [
+              { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '60000.00' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            companies: [
+              { id: 6, name: 'Bluebird Health', domain: 'bluebird.example', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            notes: [
+              {
+                id: 51,
+                entityType: 'deal',
+                entityId: 12,
+                body: 'Legal requested updated indemnity language.',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner',
+                createdAt: '2026-04-10T12:00:00Z',
+                updatedAt: '2026-04-10T12:00:00Z'
+              }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            tasks: [
+              {
+                id: 92,
+                entityType: 'deal',
+                entityId: 12,
+                entityLabel: 'Bluebird Rollout',
+                title: 'Draft rollout kickoff agenda',
+                description: 'Include legal and operations handoff.',
+                status: 'open',
+                dueAt: '2026-04-21T13:00:00Z',
+                completedAt: '',
+                assignedToUserId: 1,
+                assignedToUserName: 'Demo Owner',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner'
+              }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
+          }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/deals/12')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /bluebird rollout/i })).toBeInTheDocument()
+    expect(screen.getByText(/legal requested updated indemnity language/i)).toBeInTheDocument()
+    expect(screen.getByText(/draft rollout kickoff agenda/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/notes\?entityType=deal&entityId=12$/), expect.any(Object))
     })
   })
 })
