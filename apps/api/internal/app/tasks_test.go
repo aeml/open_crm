@@ -15,25 +15,29 @@ import (
 )
 
 type fakeTasksService struct {
-	listResult        moduletasks.ListResult
-	listErr           error
-	getResult         moduletasks.Detail
-	getErr            error
-	createResult      moduletasks.Detail
-	createErr         error
-	updateResult      moduletasks.Detail
-	updateErr         error
-	lastListOrgID     int64
-	lastListQuery     moduletasks.ListQuery
-	lastGetOrgID      int64
-	lastGetTaskID     int64
-	lastCreateOrgID   int64
-	lastCreateActorID int64
-	lastCreateInput   moduletasks.CreateInput
-	lastUpdateOrgID   int64
-	lastUpdateTaskID  int64
-	lastUpdateActorID int64
-	lastUpdateInput   moduletasks.UpdateInput
+	listResult         moduletasks.ListResult
+	listErr            error
+	getResult          moduletasks.Detail
+	getErr             error
+	createResult       moduletasks.Detail
+	createErr          error
+	archiveErr         error
+	updateResult       moduletasks.Detail
+	updateErr          error
+	lastListOrgID      int64
+	lastListQuery      moduletasks.ListQuery
+	lastGetOrgID       int64
+	lastGetTaskID      int64
+	lastCreateOrgID    int64
+	lastCreateActorID  int64
+	lastCreateInput    moduletasks.CreateInput
+	lastArchiveOrgID   int64
+	lastArchiveTaskID  int64
+	lastArchiveActorID int64
+	lastUpdateOrgID    int64
+	lastUpdateTaskID   int64
+	lastUpdateActorID  int64
+	lastUpdateInput    moduletasks.UpdateInput
 }
 
 func (f *fakeTasksService) ListByOrganization(_ context.Context, organizationID int64, query moduletasks.ListQuery) (moduletasks.ListResult, error) {
@@ -53,6 +57,13 @@ func (f *fakeTasksService) Create(_ context.Context, organizationID, actorUserID
 	f.lastCreateActorID = actorUserID
 	f.lastCreateInput = input
 	return f.createResult, f.createErr
+}
+
+func (f *fakeTasksService) Archive(_ context.Context, organizationID, taskID, actorUserID int64) error {
+	f.lastArchiveOrgID = organizationID
+	f.lastArchiveTaskID = taskID
+	f.lastArchiveActorID = actorUserID
+	return f.archiveErr
 }
 
 func (f *fakeTasksService) Update(_ context.Context, organizationID, taskID, actorUserID int64, input moduletasks.UpdateInput) (moduletasks.Detail, error) {
@@ -202,5 +213,23 @@ func TestUpdateTaskUsesCurrentOrganization(t *testing.T) {
 	}
 	if service.lastUpdateInput.Status != "completed" || service.lastUpdateInput.CompletedAt != "2026-04-10T14:15:00Z" {
 		t.Fatalf("unexpected update input: %#v", service.lastUpdateInput)
+	}
+}
+
+func TestArchiveTaskUsesCurrentOrganization(t *testing.T) {
+	service := &fakeTasksService{}
+	server := authenticatedTasksServer(service)
+
+	request := httptest.NewRequest(http.MethodDelete, "/api/tasks/77", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+	if service.lastArchiveOrgID != 42 || service.lastArchiveTaskID != 77 || service.lastArchiveActorID != 1 {
+		t.Fatalf("unexpected archive routing: org=%d task=%d actor=%d", service.lastArchiveOrgID, service.lastArchiveTaskID, service.lastArchiveActorID)
 	}
 }

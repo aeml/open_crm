@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
-import { createTask, getTask, listTasks, updateTask } from '../lib/tasks'
+import { archiveTask, createTask, getTask, listTasks, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
@@ -616,6 +616,34 @@ export function TasksRoute() {
     }
   }
 
+  async function handleArchive() {
+    if (!selectedTaskId) {
+      return
+    }
+
+    try {
+      const archivedTask = detail?.task
+      await archiveTask(selectedTaskId)
+      setTasks((current) => current.filter((task) => task.id !== selectedTaskId))
+      setMeta((current) => ({
+        ...current,
+        total: Math.max(0, current.total - 1),
+        openCount: Math.max(0, current.openCount - (archivedTask?.status === 'completed' ? 0 : 1)),
+        completedCount: Math.max(0, current.completedCount - (archivedTask?.status === 'completed' ? 1 : 0))
+      }))
+      setDetailCache((current) => {
+        const next = { ...current }
+        delete next[selectedTaskId]
+        return next
+      })
+      clearSelectedTask()
+      navigate('/tasks')
+      setError('')
+    } catch (archiveError) {
+      setError(archiveError.message || 'Unable to archive task.')
+    }
+  }
+
   const summaryLabel = useMemo(() => taskListHeading(statusFilter, dueView, labels), [dueView, labels, statusFilter])
 
   return (
@@ -831,6 +859,7 @@ export function TasksRoute() {
                 <input className="text-input" type="datetime-local" value={form.completedAt} onChange={(event) => setForm((current) => ({ ...current, completedAt: event.target.value }))} />
               </Field>
               <Button type="submit">Update task</Button>
+              <Button className="button-danger" type="button" onClick={handleArchive}>Archive task</Button>
             </form>
             <Card>
               <div className="card-stack">

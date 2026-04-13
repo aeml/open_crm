@@ -325,6 +325,11 @@ describe('tasks flow', () => {
           }
         })
       })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+        json: async () => ({})
+      })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/tasks')
@@ -489,6 +494,14 @@ describe('tasks flow', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\/78$/), expect.objectContaining({ method: 'PATCH' }))
     })
+
+    fireEvent.click(screen.getByRole('button', { name: /archive task/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\/77$/), expect.objectContaining({ method: 'DELETE' }))
+    })
+    expect(window.location.pathname).toBe('/tasks')
+    expect(screen.queryByRole('heading', { name: /prepare rollout checklist/i })).not.toBeInTheDocument()
   })
 
   it('uses service task wording for service businesses', async () => {

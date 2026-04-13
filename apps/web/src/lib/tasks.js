@@ -79,3 +79,15 @@ export async function updateTask(taskID, input) {
 
   return payload?.data
 }
+
+export async function archiveTask(taskID) {
+  const response = await fetch(`${API_BASE_URL}/api/tasks/${taskID}`, {
+    method: 'DELETE',
+    credentials: 'include'
+  })
+
+  if (!response.ok) {
+    const payload = await readJSON(response)
+    throw new Error(getErrorMessage(payload, 'Unable to archive task.'))
+  }
+}

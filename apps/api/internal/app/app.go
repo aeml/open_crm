@@ -69,6 +69,7 @@ type dealsService interface {
 type tasksService interface {
 	ListByOrganization(context.Context, int64, moduletasks.ListQuery) (moduletasks.ListResult, error)
 	GetByID(context.Context, int64, int64) (moduletasks.Detail, error)
+	Archive(context.Context, int64, int64, int64) error
 	Create(context.Context, int64, int64, moduletasks.CreateInput) (moduletasks.Detail, error)
 	Update(context.Context, int64, int64, int64, moduletasks.UpdateInput) (moduletasks.Detail, error)
 }
@@ -444,6 +445,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/tasks/{taskID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateTask(dependencies.AuthService, dependencies.TasksService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/tasks/{taskID}", func(w http.ResponseWriter, r *http.Request) {
+		handleArchiveTask(dependencies.AuthService, dependencies.TasksService, w, r)
 	})
 	mux.HandleFunc("GET /api/dashboard/summary", func(w http.ResponseWriter, r *http.Request) {
 		handleDashboardSummary(dependencies.AuthService, dependencies.DashboardService, w, r)
@@ -1271,6 +1275,29 @@ func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWrite
 	}
 
 	respondTaskDetail(w, r, http.StatusOK, result)
+}
+
+func handleArchiveTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if tasks == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Tasks service unavailable")
+		return
+	}
+
+	taskID, ok := parsePathInt64(w, r, "taskID")
+	if !ok {
+		return
+	}
+	if err := tasks.Archive(r.Context(), state.Organization.ID, taskID, state.User.ID); err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to archive task")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleDashboardSummary(auth authService, dashboard dashboardService, w http.ResponseWriter, r *http.Request) {

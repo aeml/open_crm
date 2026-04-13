@@ -108,7 +108,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 		LEFT JOIN contacts c ON t.entity_type = 'contact' AND c.organization_id = t.organization_id AND c.id = t.entity_id AND c.archived_at IS NULL
 		LEFT JOIN companies company ON t.entity_type = 'company' AND company.organization_id = t.organization_id AND company.id = t.entity_id AND company.archived_at IS NULL
 		LEFT JOIN deals deal ON t.entity_type = 'deal' AND deal.organization_id = t.organization_id AND deal.id = t.entity_id AND deal.archived_at IS NULL
-		WHERE t.organization_id = $1` + filterSQL
+		WHERE t.organization_id = $1 AND t.archived_at IS NULL` + filterSQL
 	if err := s.pool.QueryRow(ctx, countSQL, args...).Scan(&total, &openCount, &completedCount); err != nil {
 		return ListResult{}, fmt.Errorf("count tasks: %w", err)
 	}
@@ -142,7 +142,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 		LEFT JOIN contacts c ON t.entity_type = 'contact' AND c.organization_id = t.organization_id AND c.id = t.entity_id AND c.archived_at IS NULL
 		LEFT JOIN companies company ON t.entity_type = 'company' AND company.organization_id = t.organization_id AND company.id = t.entity_id AND company.archived_at IS NULL
 		LEFT JOIN deals deal ON t.entity_type = 'deal' AND deal.organization_id = t.organization_id AND deal.id = t.entity_id AND deal.archived_at IS NULL
-		WHERE t.organization_id = $1`+filterSQL+`
+		WHERE t.organization_id = $1 AND t.archived_at IS NULL`+filterSQL+`
 		ORDER BY CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END ASC, t.due_at ASC NULLS LAST, t.id DESC
 		LIMIT $`+fmt.Sprint(limitArg)+` OFFSET $`+fmt.Sprint(offsetArg), args...)
 	if err != nil {
@@ -274,6 +274,23 @@ func (s *Service) Update(ctx context.Context, organizationID, taskID, actorUserI
 	return s.GetByID(ctx, organizationID, taskID)
 }
 
+func (s *Service) Archive(ctx context.Context, organizationID, taskID, actorUserID int64) error {
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("tasks service not configured")
+	}
+
+	_, err := s.pool.Exec(ctx, `
+		UPDATE tasks
+		SET archived_at = NOW(), updated_at = NOW()
+		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
+	`, organizationID, taskID)
+	if err != nil {
+		return fmt.Errorf("archive task: %w", err)
+	}
+
+	return nil
+}
+
 func (s *Service) GetByID(ctx context.Context, organizationID, taskID int64) (Detail, error) {
 	if s == nil || s.pool == nil {
 		return Detail{}, fmt.Errorf("tasks service not configured")
@@ -306,7 +323,7 @@ func (s *Service) GetByID(ctx context.Context, organizationID, taskID int64) (De
 		LEFT JOIN contacts c ON t.entity_type = 'contact' AND c.organization_id = t.organization_id AND c.id = t.entity_id AND c.archived_at IS NULL
 		LEFT JOIN companies company ON t.entity_type = 'company' AND company.organization_id = t.organization_id AND company.id = t.entity_id AND company.archived_at IS NULL
 		LEFT JOIN deals deal ON t.entity_type = 'deal' AND deal.organization_id = t.organization_id AND deal.id = t.entity_id AND deal.archived_at IS NULL
-		WHERE t.organization_id = $1 AND t.id = $2
+		WHERE t.organization_id = $1 AND t.id = $2 AND t.archived_at IS NULL
 	`, organizationID, taskID).Scan(
 		&detail.Task.ID,
 		&detail.Task.EntityType,
