@@ -25,6 +25,7 @@ type fakeDealsService struct {
 	createErr              error
 	updateResult           moduledeals.Detail
 	updateErr              error
+	archiveErr             error
 	updateStageResult      moduledeals.Detail
 	updateStageErr         error
 	lastListStagesOrgID    int64
@@ -39,6 +40,9 @@ type fakeDealsService struct {
 	lastUpdateDealID       int64
 	lastUpdateActorID      int64
 	lastUpdateInput        moduledeals.UpdateInput
+	lastArchiveOrgID       int64
+	lastArchiveDealID      int64
+	lastArchiveActorID     int64
 	lastUpdateStageOrgID   int64
 	lastUpdateStageDealID  int64
 	lastUpdateStageActorID int64
@@ -75,6 +79,13 @@ func (f *fakeDealsService) Update(_ context.Context, organizationID, dealID, act
 	f.lastUpdateActorID = actorUserID
 	f.lastUpdateInput = input
 	return f.updateResult, f.updateErr
+}
+
+func (f *fakeDealsService) Archive(_ context.Context, organizationID, dealID, actorUserID int64) error {
+	f.lastArchiveOrgID = organizationID
+	f.lastArchiveDealID = dealID
+	f.lastArchiveActorID = actorUserID
+	return f.archiveErr
 }
 
 func (f *fakeDealsService) UpdateStage(_ context.Context, organizationID, dealID, actorUserID int64, input moduledeals.UpdateStageInput) (moduledeals.Detail, error) {
@@ -244,6 +255,24 @@ func TestUpdateDealUsesCurrentOrganization(t *testing.T) {
 	}
 	if service.lastUpdateInput.Name != "Bluebird Expansion" || service.lastUpdateInput.Status != "won" || service.lastUpdateInput.CompanyID != 6 {
 		t.Fatalf("unexpected update input: %#v", service.lastUpdateInput)
+	}
+}
+
+func TestArchiveDealUsesCurrentOrganization(t *testing.T) {
+	service := &fakeDealsService{}
+	server := authenticatedDealsServer(service)
+
+	request := httptest.NewRequest(http.MethodDelete, "/api/deals/12", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+	if service.lastArchiveOrgID != 42 || service.lastArchiveDealID != 12 || service.lastArchiveActorID != 1 {
+		t.Fatalf("unexpected archive routing: org=%d deal=%d actor=%d", service.lastArchiveOrgID, service.lastArchiveDealID, service.lastArchiveActorID)
 	}
 }
 

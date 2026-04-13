@@ -351,6 +351,22 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 	return s.GetByID(ctx, organizationID, dealID)
 }
 
+func (s *Service) Archive(ctx context.Context, organizationID, dealID, actorUserID int64) error {
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("deals service not configured")
+	}
+
+	_, err := s.pool.Exec(ctx, `
+		UPDATE deals
+		SET archived_at = NOW(), updated_at = NOW(), owner_user_id = COALESCE(owner_user_id, $3)
+		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
+	`, organizationID, dealID, actorUserID)
+	if err != nil {
+		return fmt.Errorf("archive deal: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (Detail, error) {
 	if s == nil || s.pool == nil {
 		return Detail{}, fmt.Errorf("deals service not configured")

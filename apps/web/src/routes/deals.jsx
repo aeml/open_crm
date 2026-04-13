@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
-import { createDeal, getDeal, listDeals, listDealStages, updateDeal, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, getDeal, listDeals, listDealStages, updateDeal, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -312,6 +312,34 @@ export function DealsRoute() {
     }
   }
 
+  async function handleArchive() {
+    if (!selectedDealId) {
+      return
+    }
+
+    try {
+      await archiveDeal(selectedDealId)
+      setDeals((current) => current.filter((entry) => entry.id !== selectedDealId))
+      setMeta((current) => ({
+        ...current,
+        total: Math.max(0, current.total - 1),
+        openCount: Math.max(0, current.openCount - 1)
+      }))
+      setSelectedDealId(null)
+      setSelectedStageId('')
+      setDetailForm(emptyForm)
+      setNotes([])
+      setTasks([])
+      setActivities([])
+      setNoteBody('')
+      setTaskForm(emptyTaskForm)
+      navigate('/deals')
+      setError('')
+    } catch (archiveError) {
+      setError(archiveError.message || 'Unable to archive deal.')
+    }
+  }
+
   async function handleCreateNote(event) {
     event.preventDefault()
     if (!selectedDealId || !noteBody.trim()) {
@@ -473,6 +501,9 @@ export function DealsRoute() {
                 <h2>{selectedDeal.name}</h2>
                 <p>{selectedDeal.companyName || 'No company linked'}</p>
               </div>
+              <Button className="button-danger" onClick={handleArchive}>
+                Archive deal
+              </Button>
             </div>
             <form className="auth-form" aria-label="Deal details form" onSubmit={handleUpdate}>
               <Field label="Deal name">

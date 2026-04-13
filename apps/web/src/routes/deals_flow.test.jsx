@@ -258,6 +258,7 @@ describe('deals flow', () => {
           }
         })
       })
+      .mockResolvedValueOnce({ ok: true, status: 204, json: async () => ({}) })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/deals')
@@ -337,6 +338,15 @@ describe('deals flow', () => {
     expect(await screen.findByText(/deal moved to proposal/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/stage$/), expect.objectContaining({ method: 'PATCH' }))
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /archive deal/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12$/), expect.objectContaining({ method: 'DELETE' }))
+    })
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/deals')
     })
   })
 

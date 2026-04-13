@@ -62,6 +62,7 @@ type dealsService interface {
 	GetByID(context.Context, int64, int64) (moduledeals.Detail, error)
 	Create(context.Context, int64, int64, moduledeals.CreateInput) (moduledeals.Detail, error)
 	Update(context.Context, int64, int64, int64, moduledeals.UpdateInput) (moduledeals.Detail, error)
+	Archive(context.Context, int64, int64, int64) error
 	UpdateStage(context.Context, int64, int64, int64, moduledeals.UpdateStageInput) (moduledeals.Detail, error)
 }
 
@@ -418,6 +419,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateDeal(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
+		handleArchiveDeal(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}/stage", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateDealStage(dependencies.AuthService, dependencies.DealsService, w, r)
@@ -1044,6 +1048,30 @@ func handleUpdateDeal(auth authService, deals dealsService, w http.ResponseWrite
 	}
 
 	respondDealDetail(w, r, http.StatusOK, result)
+}
+
+func handleArchiveDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	dealID, ok := parsePathInt64(w, r, "dealID")
+	if !ok {
+		return
+	}
+
+	if err := deals.Archive(r.Context(), state.Organization.ID, dealID, state.User.ID); err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to archive deal")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleUpdateDealStage(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {

@@ -92,6 +92,20 @@ export async function updateDeal(dealID, input) {
 	return payload?.data
 }
 
+export async function archiveDeal(dealID) {
+	const response = await fetch(`${API_BASE_URL}/api/deals/${dealID}`, {
+		method: 'DELETE',
+		credentials: 'include'
+	})
+	const payload = await readJSON(response)
+
+	if (!response.ok) {
+		throw new Error(getErrorMessage(payload, 'Unable to archive deal.'))
+	}
+
+	return payload
+}
+
 export async function updateDealStage(dealID, stageId) {
   const response = await fetch(`${API_BASE_URL}/api/deals/${dealID}/stage`, {
     method: 'PATCH',
