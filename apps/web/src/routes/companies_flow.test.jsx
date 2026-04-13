@@ -167,6 +167,9 @@ describe('companies flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /northstar logistics/i }))
 
     expect(await screen.findByRole('heading', { name: /northstar logistics/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/companies/5')
+    })
     expect(screen.getByText('morgan@acme.test')).toBeInTheDocument()
     expect(screen.getByText(/company created/i)).toBeInTheDocument()
     expect(await screen.findByText(/met procurement lead and validated timeline/i)).toBeInTheDocument()
@@ -312,6 +315,9 @@ describe('companies flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /save company/i }))
 
     expect(await screen.findByRole('heading', { name: /atlas manufacturing/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/companies/6')
+    })
 
     fireEvent.change(screen.getByLabelText(/new note/i), { target: { value: 'Procurement asked for revised payment terms.' } })
     fireEvent.click(screen.getByRole('button', { name: /add note/i }))
@@ -333,6 +339,109 @@ describe('companies flow', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/companies\/6$/), expect.objectContaining({ method: 'DELETE' }))
+    })
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/companies')
+    })
+  })
+
+  it('loads a company directly from the detail route', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            companies: [
+              { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            company: { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
+            linkedContacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
+            ],
+            activities: [
+              { id: 22, action: 'company.created', summary: 'Company created' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            notes: [
+              {
+                id: 41,
+                entityType: 'company',
+                entityId: 5,
+                body: 'Met procurement lead and validated timeline.',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner',
+                createdAt: '2026-04-10T11:00:00Z',
+                updatedAt: '2026-04-10T11:00:00Z'
+              }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/companies/5')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /northstar logistics/i })).toBeInTheDocument()
+    expect(screen.getByText(/met procurement lead and validated timeline/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/companies\/5$/), expect.any(Object))
     })
   })
 })

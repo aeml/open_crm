@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -33,6 +34,9 @@ function parseLinkedContactIDs(value) {
 }
 
 export function CompaniesRoute() {
+  const navigate = useNavigate()
+  const { companyId } = useParams()
+  const routeCompanyId = Number.parseInt(companyId || '', 10)
   const [mode, setMode] = useState('list')
   const [companies, setCompanies] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
@@ -136,36 +140,102 @@ export function CompaniesRoute() {
   }
 
   async function handleOpenCompany(company) {
-    const cached = detailCache[company.id]
+    const companyID = company.id
+    const cached = detailCache[companyID]
     if (cached) {
-      setSelectedCompanyId(company.id)
+      setSelectedCompanyId(companyID)
       setDetail(cached)
       fillFormFromDetail(cached)
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setMode('detail')
+      navigate(`/companies/${companyID}`)
       return
     }
 
     try {
       const [data, notes, taskData] = await Promise.all([
-        getCompany(company.id),
-        listNotes('company', company.id),
-        listTasks({ status: 'open', entityType: 'company', entityId: company.id })
+        getCompany(companyID),
+        listNotes('company', companyID),
+        listTasks({ status: 'open', entityType: 'company', entityId: companyID })
       ])
       const detailData = { ...data, notes, tasks: taskData.tasks || [] }
-      setDetailCache((current) => ({ ...current, [company.id]: detailData }))
-      setSelectedCompanyId(company.id)
+      setDetailCache((current) => ({ ...current, [companyID]: detailData }))
+      setSelectedCompanyId(companyID)
       setDetail(detailData)
       fillFormFromDetail(detailData)
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setMode('detail')
+      navigate(`/companies/${companyID}`)
       setError('')
     } catch (loadError) {
       setError(loadError.message || 'Unable to load company.')
     }
   }
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function openRouteCompany() {
+      if (!Number.isInteger(routeCompanyId) || routeCompanyId <= 0) {
+        if (selectedCompanyId || mode === 'detail') {
+          setSelectedCompanyId(null)
+          setDetail(null)
+          setForm(emptyForm)
+          setNoteBody('')
+          setTaskForm(emptyTaskForm)
+          setMode('list')
+        }
+        return
+      }
+
+      if (selectedCompanyId === routeCompanyId && detail?.company?.id === routeCompanyId) {
+        return
+      }
+
+      const cached = detailCache[routeCompanyId]
+      if (cached) {
+        setSelectedCompanyId(routeCompanyId)
+        setDetail(cached)
+        fillFormFromDetail(cached)
+        setNoteBody('')
+        setTaskForm(emptyTaskForm)
+        setMode('detail')
+        setError('')
+        return
+      }
+
+      try {
+        const [data, notes, taskData] = await Promise.all([
+          getCompany(routeCompanyId),
+          listNotes('company', routeCompanyId),
+          listTasks({ status: 'open', entityType: 'company', entityId: routeCompanyId })
+        ])
+        if (cancelled) {
+          return
+        }
+        const detailData = { ...data, notes, tasks: taskData.tasks || [] }
+        setDetailCache((current) => ({ ...current, [routeCompanyId]: detailData }))
+        setSelectedCompanyId(routeCompanyId)
+        setDetail(detailData)
+        fillFormFromDetail(detailData)
+        setNoteBody('')
+        setTaskForm(emptyTaskForm)
+        setMode('detail')
+        setError('')
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || 'Unable to load company.')
+        }
+      }
+    }
+
+    openRouteCompany()
+    return () => {
+      cancelled = true
+    }
+  }, [detail, detailCache, mode, routeCompanyId, selectedCompanyId])
 
   async function handleCreate(event) {
     event.preventDefault()
@@ -189,6 +259,7 @@ export function CompaniesRoute() {
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setMode('detail')
+      navigate(`/companies/${data.company.id}`)
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to create company.')
@@ -245,6 +316,7 @@ export function CompaniesRoute() {
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setMode('list')
+      navigate('/companies')
       setError('')
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive company.')
@@ -330,6 +402,7 @@ export function CompaniesRoute() {
             </div>
             <Button
               onClick={() => {
+                navigate('/companies')
                 setMode('create')
                 setForm(emptyForm)
                 setDetail(null)

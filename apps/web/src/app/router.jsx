@@ -24,6 +24,7 @@ export function AppRouter() {
             <Route path="contacts" element={<ContactsRoute />} />
             <Route path="contacts/:contactId" element={<ContactsRoute />} />
             <Route path="companies" element={<CompaniesRoute />} />
+            <Route path="companies/:companyId" element={<CompaniesRoute />} />
             <Route path="deals" element={<DealsRoute />} />
             <Route path="tasks" element={<TasksRoute />} />
             <Route path="settings/users" element={<SettingsUsersRoute />} />
