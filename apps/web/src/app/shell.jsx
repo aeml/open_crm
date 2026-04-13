@@ -12,9 +12,9 @@ const profileCopy = {
     action: 'New Contact'
   },
   services: {
-    eyebrow: 'Service work at a glance',
-    title: 'Service pipeline overview',
-    description: 'Track clients, engagements, and follow-ups without drowning in a messy admin panel.',
+    eyebrow: 'Jobs at a glance',
+    title: 'Job pipeline overview',
+    description: 'Track clients, jobs, and service tasks without drowning in a messy admin panel.',
     action: 'New Contact'
   },
   'product-sales': {

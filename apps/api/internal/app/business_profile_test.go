@@ -53,9 +53,9 @@ func TestGetBusinessProfileUsesCurrentOrganization(t *testing.T) {
 	service := &fakeOrgProfileService{
 		getResult: moduleorgprofile.Detail{
 			OrganizationID: 42,
-			BusinessType:   "construction-services",
-			DisplayName:    "Construction Services",
-			Modules:        []string{"contacts", "companies", "deals", "tasks", "estimates"},
+			BusinessType:   "services",
+			DisplayName:    "Services",
+			Modules:        []string{"contacts", "companies", "deals", "tasks", "projects"},
 			Labels: map[string]string{
 				"companies": "Clients",
 				"deals":     "Jobs",
@@ -85,11 +85,14 @@ func TestGetBusinessProfileUsesCurrentOrganization(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("expected valid JSON, got error: %v", err)
 	}
-	if response.Data.Profile.BusinessType != "construction-services" {
+	if response.Data.Profile.BusinessType != "services" {
 		t.Fatalf("unexpected business type: %#v", response.Data.Profile)
 	}
 	if response.Data.Profile.Labels["companies"] != "Clients" {
 		t.Fatalf("expected adaptive companies label, got %#v", response.Data.Profile.Labels)
+	}
+	if response.Data.Profile.Labels["deals"] != "Jobs" {
+		t.Fatalf("expected adaptive jobs label, got %#v", response.Data.Profile.Labels)
 	}
 }
 

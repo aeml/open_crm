@@ -122,7 +122,7 @@ func profileDefinitions() map[string]profileDefinition {
 			Labels: map[string]string{
 				"contacts":  "Contacts",
 				"companies": "Clients",
-				"deals":     "Engagements",
+				"deals":     "Jobs",
 				"tasks":     "Service Tasks",
 			},
 		},
