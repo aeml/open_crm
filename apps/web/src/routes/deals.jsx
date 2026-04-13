@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
-import { createDeal, listDeals, listDealStages, updateDealStage } from '../lib/deals'
+import { createDeal, getDeal, listDeals, listDealStages, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -56,6 +56,7 @@ export function DealsRoute() {
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
+  const [pipelineReady, setPipelineReady] = useState(false)
 
   async function loadDeals(nextSearch = search) {
     const loadedDeals = await listDeals({ search: nextSearch })
@@ -92,6 +93,7 @@ export function DealsRoute() {
       }
       return { ...current, assignedToUserId: String(loadedUsers[0].id) }
     })
+    setPipelineReady(true)
   }
 
   useEffect(() => {
@@ -105,6 +107,7 @@ export function DealsRoute() {
         }
       } catch (loadError) {
         if (!cancelled) {
+          setPipelineReady(true)
           setError(loadError.message || 'Unable to load deals.')
         }
       }
@@ -119,26 +122,69 @@ export function DealsRoute() {
   const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
 
   useEffect(() => {
-    if (!Number.isInteger(routeDealId) || routeDealId <= 0) {
-      if (selectedDealId) {
-        setSelectedDealId(null)
-        setSelectedStageId('')
-        setNotes([])
-        setTasks([])
-        setActivities([])
+    let cancelled = false
+
+    async function syncRouteDeal() {
+      if (!pipelineReady) {
+        return
+      }
+
+      if (!Number.isInteger(routeDealId) || routeDealId <= 0) {
+        if (selectedDealId) {
+          setSelectedDealId(null)
+          setSelectedStageId('')
+          setNotes([])
+          setTasks([])
+          setActivities([])
+          setNoteBody('')
+          setTaskForm(emptyTaskForm)
+        }
+        return
+      }
+
+      if (selectedDealId === routeDealId) {
+        return
+      }
+
+      const routeDeal = deals.find((entry) => entry.id === routeDealId)
+      if (routeDeal) {
+        await handleSelectDeal(routeDeal)
+        return
+      }
+
+      try {
+        const [dealData, loadedNotes, taskData] = await Promise.all([
+          getDeal(routeDealId),
+          listNotes('deal', routeDealId),
+          listTasks({ status: 'open', entityType: 'deal', entityId: routeDealId })
+        ])
+        if (cancelled) {
+          return
+        }
+        setDeals((current) => {
+          const next = current.filter((entry) => entry.id !== routeDealId)
+          return [dealData.deal, ...next]
+        })
+        setSelectedDealId(dealData.deal.id)
+        setSelectedStageId(String(dealData.deal.stageId))
+        setActivities(dealData.activities || [])
+        setNotes(loadedNotes)
+        setTasks(taskData.tasks || [])
         setNoteBody('')
         setTaskForm(emptyTaskForm)
+        setError('')
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || 'Unable to load deal.')
+        }
       }
-      return
     }
 
-    const routeDeal = deals.find((entry) => entry.id === routeDealId)
-    if (!routeDeal || selectedDealId === routeDealId) {
-      return
+    syncRouteDeal()
+    return () => {
+      cancelled = true
     }
-
-    handleSelectDeal(routeDeal)
-  }, [deals, routeDealId, selectedDealId])
+  }, [deals, pipelineReady, routeDealId, selectedDealId])
 
   async function handleSearchChange(event) {
     const value = event.target.value

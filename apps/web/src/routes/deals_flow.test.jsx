@@ -311,7 +311,7 @@ describe('deals flow', () => {
     })
   })
 
-  it('loads a deal directly from the detail route when it is present in the pipeline list', async () => {
+  it('loads a deal directly from the detail route when it is not present in the pipeline list', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
@@ -340,10 +340,8 @@ describe('deals flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            deals: [
-              { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '60000.00' }
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
           }
         })
       })
@@ -375,6 +373,17 @@ describe('deals flow', () => {
           data: {
             users: [
               { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deal: { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 },
+            activities: [
+              { id: 99, action: 'deal.created', summary: 'Deal created' }
             ]
           }
         })
@@ -432,6 +441,9 @@ describe('deals flow', () => {
     expect(await screen.findByRole('heading', { name: /bluebird rollout/i })).toBeInTheDocument()
     expect(screen.getByText(/legal requested updated indemnity language/i)).toBeInTheDocument()
     expect(screen.getByText(/draft rollout kickoff agenda/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12$/), expect.any(Object))
+    })
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/notes\?entityType=deal&entityId=12$/), expect.any(Object))
     })

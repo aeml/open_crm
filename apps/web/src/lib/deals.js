@@ -58,7 +58,20 @@ export async function createDeal(input) {
     throw new Error(getErrorMessage(payload, 'Unable to create deal.'))
   }
 
-  return payload?.data
+	return payload?.data
+}
+
+export async function getDeal(dealID) {
+	const response = await fetch(`${API_BASE_URL}/api/deals/${dealID}`, {
+		credentials: 'include'
+	})
+	const payload = await readJSON(response)
+
+	if (!response.ok) {
+		throw new Error(getErrorMessage(payload, 'Unable to load deal.'))
+	}
+
+	return payload?.data
 }
 
 export async function updateDealStage(dealID, stageId) {

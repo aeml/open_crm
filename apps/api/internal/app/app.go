@@ -59,6 +59,7 @@ type companiesService interface {
 type dealsService interface {
 	ListStagesByOrganization(context.Context, int64) ([]moduledeals.Stage, error)
 	ListByOrganization(context.Context, int64, moduledeals.ListQuery) (moduledeals.ListResult, error)
+	GetByID(context.Context, int64, int64) (moduledeals.Detail, error)
 	Create(context.Context, int64, int64, moduledeals.CreateInput) (moduledeals.Detail, error)
 	UpdateStage(context.Context, int64, int64, int64, moduledeals.UpdateStageInput) (moduledeals.Detail, error)
 }
@@ -407,6 +408,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/deals", func(w http.ResponseWriter, r *http.Request) {
 		handleListDeals(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("GET /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
+		handleGetDeal(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("POST /api/deals", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, w, r)
@@ -971,6 +975,31 @@ func handleCreateDeal(auth authService, deals dealsService, w http.ResponseWrite
 	}
 
 	respondDealDetail(w, r, http.StatusCreated, result)
+}
+
+func handleGetDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	dealID, ok := parsePathInt64(w, r, "dealID")
+	if !ok {
+		return
+	}
+
+	result, err := deals.GetByID(r.Context(), state.Organization.ID, dealID)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load deal")
+		return
+	}
+
+	respondDealDetail(w, r, http.StatusOK, result)
 }
 
 func handleUpdateDealStage(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {

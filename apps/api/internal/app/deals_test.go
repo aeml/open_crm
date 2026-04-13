@@ -19,6 +19,8 @@ type fakeDealsService struct {
 	listStagesErr          error
 	listResult             moduledeals.ListResult
 	listErr                error
+	getResult              moduledeals.Detail
+	getErr                 error
 	createResult           moduledeals.Detail
 	createErr              error
 	updateStageResult      moduledeals.Detail
@@ -26,6 +28,8 @@ type fakeDealsService struct {
 	lastListStagesOrgID    int64
 	lastListOrgID          int64
 	lastListQuery          moduledeals.ListQuery
+	lastGetOrgID           int64
+	lastGetDealID          int64
 	lastCreateOrgID        int64
 	lastCreateActorID      int64
 	lastCreateInput        moduledeals.CreateInput
@@ -44,6 +48,12 @@ func (f *fakeDealsService) ListByOrganization(_ context.Context, organizationID 
 	f.lastListOrgID = organizationID
 	f.lastListQuery = query
 	return f.listResult, f.listErr
+}
+
+func (f *fakeDealsService) GetByID(_ context.Context, organizationID, dealID int64) (moduledeals.Detail, error) {
+	f.lastGetOrgID = organizationID
+	f.lastGetDealID = dealID
+	return f.getResult, f.getErr
 }
 
 func (f *fakeDealsService) Create(_ context.Context, organizationID, actorUserID int64, input moduledeals.CreateInput) (moduledeals.Detail, error) {
@@ -157,6 +167,41 @@ func TestCreateDealUsesCurrentOrganization(t *testing.T) {
 	}
 	if service.lastCreateInput.Name != "Bluebird Rollout" || service.lastCreateInput.StageID != 2 || service.lastCreateInput.CompanyID != 5 {
 		t.Fatalf("unexpected create input: %#v", service.lastCreateInput)
+	}
+}
+
+func TestGetDealUsesCurrentOrganization(t *testing.T) {
+	service := &fakeDealsService{
+		getResult: moduledeals.Detail{
+			Summary:    moduledeals.Summary{ID: 12, Name: "Bluebird Rollout", StageID: 2, StageName: "Qualified", ValueAmount: "60000.00", ValueCurrency: "USD", Status: "open", OwnerUserID: 1},
+			Activities: []moduledeals.ActivityEntry{{ID: 92, Action: "deal.created", Summary: "Deal created", CreatedAt: time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)}},
+		},
+	}
+	server := authenticatedDealsServer(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/deals/12", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastGetOrgID != 42 || service.lastGetDealID != 12 {
+		t.Fatalf("unexpected get routing: org=%d deal=%d", service.lastGetOrgID, service.lastGetDealID)
+	}
+
+	var response struct {
+		Data struct {
+			Deal moduledeals.Summary `json:"deal"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected valid JSON, got error: %v", err)
+	}
+	if response.Data.Deal.ID != 12 || response.Data.Deal.Name != "Bluebird Rollout" {
+		t.Fatalf("unexpected deal payload: %#v", response.Data.Deal)
 	}
 }
 
