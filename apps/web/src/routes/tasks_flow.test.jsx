@@ -263,6 +263,16 @@ describe('tasks flow', () => {
 
     fireEvent.change(screen.getByLabelText(/record type filter/i), { target: { value: 'all' } })
 
+    fireEvent.click(screen.getByRole('button', { name: /my tasks/i }))
+
+    expect(screen.getByText(/showing 1 of 3 open tasks/i)).toBeInTheDocument()
+    const myTaskList = screen.getByRole('list', { name: /tasks list/i })
+    expect(within(myTaskList).getByText(/confirm installer arrival window/i)).toBeInTheDocument()
+    expect(within(myTaskList).queryByText(/call morgan about rollout timing/i)).not.toBeInTheDocument()
+    expect(within(myTaskList).queryByText(/send onboarding packet/i)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/^assignee$/i), { target: { value: 'all' } })
+
     fireEvent.change(screen.getByLabelText(/^assignee$/i), { target: { value: '1' } })
 
     expect(screen.getByText(/showing 1 of 3 open tasks/i)).toBeInTheDocument()

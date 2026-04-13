@@ -242,6 +242,7 @@ function matchesEntityType(task, entityTypeFilter) {
 export function TasksRoute() {
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
+  const currentUserId = session?.user?.id ? String(session.user.id) : ''
   const labels = taskLabels(businessType)
   const [tasks, setTasks] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
@@ -493,13 +494,20 @@ export function TasksRoute() {
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
           <Field label="Assignee">
-            <select className="text-input" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
-              <option value="all">All assignees</option>
-              <option value={unassignedAssigneeFilter}>Unassigned</option>
-              {userOptions.map((user) => (
-                <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-              ))}
-            </select>
+            <div className="button-row">
+              <select className="text-input" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
+                <option value="all">All assignees</option>
+                <option value={unassignedAssigneeFilter}>Unassigned</option>
+                {userOptions.map((user) => (
+                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                ))}
+              </select>
+              {currentUserId ? (
+                <Button className={assigneeFilter === currentUserId ? '' : 'button-secondary'} type="button" onClick={() => setAssigneeFilter(currentUserId)}>
+                  My tasks
+                </Button>
+              ) : null}
+            </div>
           </Field>
           <Field label={labels.entityTypeFilterLabel}>
             <select className="text-input" value={entityTypeFilter} onChange={(event) => setEntityTypeFilter(event.target.value)}>
