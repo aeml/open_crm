@@ -133,6 +133,126 @@ describe('AppRouter', () => {
     expect(screen.getByText(/jobs, contacts, clients, and service tasks/i)).toBeInTheDocument()
   })
 
+  it('loads task detail routes directly', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: {
+              id: 1,
+              email: 'owner@acme.test',
+              firstName: 'Demo',
+              lastName: 'Owner'
+            },
+            organization: {
+              id: 1,
+              name: 'Acme, Inc.',
+              slug: 'acme-inc',
+              businessType: 'general'
+            },
+            membership: {
+              role: 'owner'
+            }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deals: [
+              { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '60000.00' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            companies: [
+              { id: 6, name: 'Bluebird Health', domain: 'bluebird.example', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            task: {
+              id: 77,
+              entityType: 'deal',
+              entityId: 12,
+              entityLabel: 'Bluebird Rollout',
+              title: 'Prepare rollout checklist',
+              description: 'Lock owners before kickoff.',
+              status: 'open',
+              dueAt: '2026-04-16T09:00:00Z',
+              completedAt: '',
+              assignedToUserId: 1,
+              assignedToUserName: 'Demo Owner',
+              createdByUserId: 1,
+              createdByUserName: 'Demo Owner'
+            },
+            activities: [
+              {
+                id: 201,
+                action: 'task.created',
+                summary: 'Task created'
+              }
+            ]
+          }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    window.history.pushState({}, '', '/tasks/77')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /prepare rollout checklist/i })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/tasks/77')
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\/77$/), expect.any(Object))
+    })
+  })
+
   it('redirects protected routes to login when unauthenticated', async () => {
     vi.stubGlobal(
       'fetch',

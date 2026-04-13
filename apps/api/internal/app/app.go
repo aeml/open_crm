@@ -68,6 +68,7 @@ type dealsService interface {
 
 type tasksService interface {
 	ListByOrganization(context.Context, int64, moduletasks.ListQuery) (moduletasks.ListResult, error)
+	GetByID(context.Context, int64, int64) (moduletasks.Detail, error)
 	Create(context.Context, int64, int64, moduletasks.CreateInput) (moduletasks.Detail, error)
 	Update(context.Context, int64, int64, int64, moduletasks.UpdateInput) (moduletasks.Detail, error)
 }
@@ -434,6 +435,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		handleListTasks(dependencies.AuthService, dependencies.TasksService, w, r)
+	})
+	mux.HandleFunc("GET /api/tasks/{taskID}", func(w http.ResponseWriter, r *http.Request) {
+		handleGetTask(dependencies.AuthService, dependencies.TasksService, w, r)
 	})
 	mux.HandleFunc("POST /api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateTask(dependencies.AuthService, dependencies.TasksService, w, r)
@@ -1214,6 +1218,31 @@ func handleCreateTask(auth authService, tasks tasksService, w http.ResponseWrite
 	}
 
 	respondTaskDetail(w, r, http.StatusCreated, result)
+}
+
+func handleGetTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if tasks == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Tasks service unavailable")
+		return
+	}
+
+	taskID, ok := parsePathInt64(w, r, "taskID")
+	if !ok {
+		return
+	}
+
+	result, err := tasks.GetByID(r.Context(), state.Organization.ID, taskID)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load task")
+		return
+	}
+
+	respondTaskDetail(w, r, http.StatusOK, result)
 }
 
 func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {

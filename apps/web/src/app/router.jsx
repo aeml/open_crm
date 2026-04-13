@@ -28,6 +28,7 @@ export function AppRouter() {
             <Route path="deals" element={<DealsRoute />} />
             <Route path="deals/:dealId" element={<DealsRoute />} />
             <Route path="tasks" element={<TasksRoute />} />
+            <Route path="tasks/:taskId" element={<TasksRoute />} />
             <Route path="settings/users" element={<SettingsUsersRoute />} />
             <Route path="settings/business-profile" element={<BusinessProfileRoute />} />
           </Route>

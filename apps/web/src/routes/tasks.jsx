@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
-import { createTask, listTasks, updateTask } from '../lib/tasks'
+import { createTask, getTask, listTasks, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
@@ -269,6 +270,9 @@ function emptyTaskListMessage(statusFilter, dueView, labels) {
 }
 
 export function TasksRoute() {
+  const navigate = useNavigate()
+  const { taskId } = useParams()
+  const routeTaskId = Number.parseInt(taskId || '', 10)
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
@@ -379,6 +383,59 @@ export function TasksRoute() {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function syncRouteTask() {
+      if (!Number.isInteger(routeTaskId) || routeTaskId <= 0) {
+        if (selectedTaskId) {
+          clearSelectedTask()
+        }
+        return
+      }
+
+      if (selectedTaskId === routeTaskId && detail?.task?.id === routeTaskId) {
+        return
+      }
+
+      const cached = detailCache[routeTaskId]
+      if (cached) {
+        syncTaskIntoState(cached.task, cached.activities || [])
+        setError('')
+        return
+      }
+
+      const routeTask = tasks.find((entry) => entry.id === routeTaskId)
+      if (routeTask) {
+        syncTaskIntoState(routeTask, [])
+        setError('')
+        return
+      }
+
+      try {
+        const data = await getTask(routeTaskId)
+        if (cancelled) {
+          return
+        }
+        setTasks((current) => {
+          const next = current.filter((entry) => entry.id !== routeTaskId)
+          return [data.task, ...next]
+        })
+        syncTaskIntoState(data.task, data.activities || [])
+        setError('')
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || 'Unable to load task.')
+        }
+      }
+    }
+
+    syncRouteTask()
+    return () => {
+      cancelled = true
+    }
+  }, [detail, detailCache, routeTaskId, selectedTaskId, tasks])
+
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
@@ -432,6 +489,12 @@ export function TasksRoute() {
     })
   }
 
+  function clearSelectedTask() {
+    setSelectedTaskId(null)
+    setDetail(null)
+    setForm(emptyForm)
+  }
+
   async function handleCreate(event) {
     event.preventDefault()
     try {
@@ -448,6 +511,7 @@ export function TasksRoute() {
       setTasks(nextTasks)
       setMeta((current) => ({ ...current, total: current.total + 1, openCount: current.openCount + (data.task.status === 'completed' ? 0 : 1), completedCount: current.completedCount + (data.task.status === 'completed' ? 1 : 0) }))
       syncTaskIntoState(data.task, data.activities || [])
+      navigate(`/tasks/${data.task.id}`)
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to create task.')
@@ -471,6 +535,7 @@ export function TasksRoute() {
       })
       setTasks((current) => current.map((task) => (task.id === selectedTaskId ? data.task : task)))
       syncTaskIntoState(data.task, data.activities || [])
+      navigate(`/tasks/${data.task.id}`)
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to update task.')
@@ -481,10 +546,12 @@ export function TasksRoute() {
     const cached = detailCache[task.id]
     if (cached) {
       syncTaskIntoState(cached.task, cached.activities || [])
+      navigate(`/tasks/${task.id}`)
       return
     }
 
     syncTaskIntoState(task, [])
+    navigate(`/tasks/${task.id}`)
   }
 
   async function handleQuickStatus(task, nextStatus) {

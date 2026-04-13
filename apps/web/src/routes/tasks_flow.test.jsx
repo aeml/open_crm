@@ -446,6 +446,7 @@ describe('tasks flow', () => {
 
     expect(await screen.findByRole('heading', { name: /prepare rollout checklist/i })).toBeInTheDocument()
     expect(screen.getByText(/task created/i)).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/tasks/77')
     expect(screen.queryAllByLabelText(/assigned to user id/i)).toHaveLength(0)
     expect(screen.getAllByLabelText(/^assigned to$/i).length).toBeGreaterThan(0)
 

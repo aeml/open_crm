@@ -49,6 +49,19 @@ export async function createTask(input) {
   return payload?.data
 }
 
+export async function getTask(taskID) {
+  const response = await fetch(`${API_BASE_URL}/api/tasks/${taskID}`, {
+    credentials: 'include'
+  })
+  const payload = await readJSON(response)
+
+  if (!response.ok) {
+    throw new Error(getErrorMessage(payload, 'Unable to load task.'))
+  }
+
+  return payload?.data
+}
+
 export async function updateTask(taskID, input) {
   const response = await fetch(`${API_BASE_URL}/api/tasks/${taskID}`, {
     method: 'PATCH',

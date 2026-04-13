@@ -17,12 +17,16 @@ import (
 type fakeTasksService struct {
 	listResult        moduletasks.ListResult
 	listErr           error
+	getResult         moduletasks.Detail
+	getErr            error
 	createResult      moduletasks.Detail
 	createErr         error
 	updateResult      moduletasks.Detail
 	updateErr         error
 	lastListOrgID     int64
 	lastListQuery     moduletasks.ListQuery
+	lastGetOrgID      int64
+	lastGetTaskID     int64
 	lastCreateOrgID   int64
 	lastCreateActorID int64
 	lastCreateInput   moduletasks.CreateInput
@@ -36,6 +40,12 @@ func (f *fakeTasksService) ListByOrganization(_ context.Context, organizationID 
 	f.lastListOrgID = organizationID
 	f.lastListQuery = query
 	return f.listResult, f.listErr
+}
+
+func (f *fakeTasksService) GetByID(_ context.Context, organizationID, taskID int64) (moduletasks.Detail, error) {
+	f.lastGetOrgID = organizationID
+	f.lastGetTaskID = taskID
+	return f.getResult, f.getErr
 }
 
 func (f *fakeTasksService) Create(_ context.Context, organizationID, actorUserID int64, input moduletasks.CreateInput) (moduletasks.Detail, error) {
@@ -137,6 +147,31 @@ func TestCreateTaskUsesCurrentOrganization(t *testing.T) {
 	}
 	if service.lastCreateInput.EntityType != "deal" || service.lastCreateInput.EntityID != 12 || service.lastCreateInput.AssignedToUserID != 2 {
 		t.Fatalf("unexpected create input: %#v", service.lastCreateInput)
+	}
+}
+
+func TestGetTaskUsesCurrentOrganization(t *testing.T) {
+	service := &fakeTasksService{
+		getResult: moduletasks.Detail{
+			Task: moduletasks.Summary{
+				ID: 77, EntityType: "deal", EntityID: 12, EntityLabel: "Bluebird Rollout", Title: "Prepare rollout checklist", Description: "Lock owners before kickoff.", Status: "open", DueAt: "2026-04-16T09:00:00Z", AssignedToUserID: 2, AssignedToUserName: "Alex Admin", CreatedByUserID: 1, CreatedByUserName: "Demo Owner",
+			},
+			Activities: []moduletasks.ActivityEntry{{ID: 201, Action: "task.created", Summary: "Task created", CreatedAt: time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)}},
+		},
+	}
+	server := authenticatedTasksServer(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/tasks/77", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastGetOrgID != 42 || service.lastGetTaskID != 77 {
+		t.Fatalf("unexpected get routing: org=%d task=%d", service.lastGetOrgID, service.lastGetTaskID)
 	}
 }
 
