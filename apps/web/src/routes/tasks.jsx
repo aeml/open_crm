@@ -507,6 +507,9 @@ export function TasksRoute() {
                   My tasks
                 </Button>
               ) : null}
+              <Button className={assigneeFilter === unassignedAssigneeFilter ? '' : 'button-secondary'} type="button" onClick={() => setAssigneeFilter(unassignedAssigneeFilter)}>
+                Unassigned
+              </Button>
             </div>
           </Field>
           <Field label={labels.entityTypeFilterLabel}>

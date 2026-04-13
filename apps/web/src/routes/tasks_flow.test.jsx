@@ -69,9 +69,24 @@ describe('tasks flow', () => {
                 assignedToUserName: 'Alex Admin',
                 createdByUserId: 1,
                 createdByUserName: 'Demo Owner'
+              },
+              {
+                id: 54,
+                entityType: 'company',
+                entityId: 6,
+                entityLabel: 'Bluebird Health',
+                title: 'Verify site access window',
+                description: 'Need lockbox confirmation.',
+                status: 'open',
+                dueAt: '2026-04-18T15:00:00Z',
+                completedAt: '',
+                assignedToUserId: 0,
+                assignedToUserName: '',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner'
               }
             ],
-            meta: { page: 1, pageSize: 20, total: 3, openCount: 3, completedCount: 0 }
+            meta: { page: 1, pageSize: 20, total: 4, openCount: 4, completedCount: 0 }
           }
         })
       })
@@ -244,38 +259,53 @@ describe('tasks flow', () => {
     expect(await screen.findByRole('heading', { name: /^tasks$/i })).toBeInTheDocument()
     expect(await screen.findByText(/call morgan about rollout timing/i)).toBeInTheDocument()
     expect(screen.getAllByText(/open tasks/i).length).toBeGreaterThan(0)
-    expect(screen.getByText(/showing 3 of 3 open tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing 4 of 4 open tasks/i)).toBeInTheDocument()
 
     const initialTaskList = screen.getByRole('list', { name: /tasks list/i })
     expect(within(initialTaskList).getAllByRole('button').map((button) => button.textContent)).toEqual([
       'Call Morgan about rollout timing',
+      'Verify site access window',
       'Confirm installer arrival window',
       'Send onboarding packet'
     ])
 
     fireEvent.change(screen.getByLabelText(/record type filter/i), { target: { value: 'contact' } })
 
-    expect(screen.getByText(/showing 1 of 3 open tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing 1 of 4 open tasks/i)).toBeInTheDocument()
     const contactTaskList = screen.getByRole('list', { name: /tasks list/i })
     expect(within(contactTaskList).getByText(/send onboarding packet/i)).toBeInTheDocument()
     expect(within(contactTaskList).queryByText(/call morgan about rollout timing/i)).not.toBeInTheDocument()
     expect(within(contactTaskList).queryByText(/confirm installer arrival window/i)).not.toBeInTheDocument()
+    expect(within(contactTaskList).queryByText(/verify site access window/i)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/record type filter/i), { target: { value: 'all' } })
 
     fireEvent.click(screen.getByRole('button', { name: /my tasks/i }))
 
-    expect(screen.getByText(/showing 1 of 3 open tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing 1 of 4 open tasks/i)).toBeInTheDocument()
     const myTaskList = screen.getByRole('list', { name: /tasks list/i })
     expect(within(myTaskList).getByText(/confirm installer arrival window/i)).toBeInTheDocument()
     expect(within(myTaskList).queryByText(/call morgan about rollout timing/i)).not.toBeInTheDocument()
     expect(within(myTaskList).queryByText(/send onboarding packet/i)).not.toBeInTheDocument()
+    expect(within(myTaskList).queryByText(/verify site access window/i)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/^assignee$/i), { target: { value: 'all' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /^unassigned$/i }))
+
+    expect(screen.getByText(/showing 1 of 4 open tasks/i)).toBeInTheDocument()
+    const unassignedTaskList = screen.getByRole('list', { name: /tasks list/i })
+    expect(within(unassignedTaskList).getByText(/verify site access window/i)).toBeInTheDocument()
+    expect(within(unassignedTaskList).getByText(/^unassigned$/i)).toBeInTheDocument()
+    expect(within(unassignedTaskList).queryByText(/confirm installer arrival window/i)).not.toBeInTheDocument()
+    expect(within(unassignedTaskList).queryByText(/call morgan about rollout timing/i)).not.toBeInTheDocument()
+    expect(within(unassignedTaskList).queryByText(/send onboarding packet/i)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/^assignee$/i), { target: { value: 'all' } })
 
     fireEvent.change(screen.getByLabelText(/^assignee$/i), { target: { value: '1' } })
 
-    expect(screen.getByText(/showing 1 of 3 open tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing 1 of 4 open tasks/i)).toBeInTheDocument()
     const ownerTaskList = screen.getByRole('list', { name: /tasks list/i })
     expect(within(ownerTaskList).getByText(/confirm installer arrival window/i)).toBeInTheDocument()
     expect(within(ownerTaskList).queryByText(/call morgan about rollout timing/i)).not.toBeInTheDocument()
@@ -287,8 +317,9 @@ describe('tasks flow', () => {
     expect(await screen.findByRole('heading', { name: /^upcoming tasks$/i })).toBeInTheDocument()
     const taskList = screen.getByRole('list', { name: /tasks list/i })
     expect(within(taskList).getByText(/confirm installer arrival window/i)).toBeInTheDocument()
+    expect(within(taskList).getByText(/verify site access window/i)).toBeInTheDocument()
     expect(within(taskList).queryByText(/call morgan about rollout timing/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/showing 1 of 3 upcoming tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing 2 of 4 upcoming tasks/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/task view/i), { target: { value: 'all' } })
 
