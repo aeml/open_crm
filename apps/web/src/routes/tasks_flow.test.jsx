@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 
 afterEach(() => {
@@ -33,7 +33,22 @@ describe('tasks flow', () => {
                 title: 'Call Morgan about rollout timing',
                 description: 'Confirm launch window.',
                 status: 'open',
-                dueAt: '2026-04-15T11:00:00Z',
+                dueAt: '2026-04-10T11:00:00Z',
+                completedAt: '',
+                assignedToUserId: 2,
+                assignedToUserName: 'Alex Admin',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner'
+              },
+              {
+                id: 52,
+                entityType: 'deal',
+                entityId: 12,
+                entityLabel: 'Bluebird Rollout',
+                title: 'Confirm installer arrival window',
+                description: 'Need final arrival confirmation.',
+                status: 'open',
+                dueAt: '2099-04-16T09:00:00Z',
                 completedAt: '',
                 assignedToUserId: 2,
                 assignedToUserName: 'Alex Admin',
@@ -41,7 +56,7 @@ describe('tasks flow', () => {
                 createdByUserName: 'Demo Owner'
               }
             ],
-            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
+            meta: { page: 1, pageSize: 20, total: 2, openCount: 2, completedCount: 0 }
           }
         })
       })
@@ -102,7 +117,7 @@ describe('tasks flow', () => {
                 title: 'Call Morgan about rollout timing',
                 description: 'Confirm launch window.',
                 status: 'open',
-                dueAt: '2026-04-15T11:00:00Z',
+                dueAt: '2026-04-10T11:00:00Z',
                 completedAt: '',
                 assignedToUserId: 2,
                 assignedToUserName: 'Alex Admin',
@@ -199,7 +214,17 @@ describe('tasks flow', () => {
     expect(await screen.findByRole('heading', { name: /^tasks$/i })).toBeInTheDocument()
     expect(await screen.findByText(/call morgan about rollout timing/i)).toBeInTheDocument()
     expect(screen.getAllByText(/open tasks/i).length).toBeGreaterThan(0)
-    expect(screen.getByText(/showing 1 of 1 open tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing 2 of 2 open tasks/i)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/task view/i), { target: { value: 'upcoming' } })
+
+    expect(await screen.findByRole('heading', { name: /^upcoming tasks$/i })).toBeInTheDocument()
+    const taskList = screen.getByRole('list', { name: /tasks list/i })
+    expect(within(taskList).getByText(/confirm installer arrival window/i)).toBeInTheDocument()
+    expect(within(taskList).queryByText(/call morgan about rollout timing/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/showing 1 of 2 upcoming tasks/i)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/task view/i), { target: { value: 'all' } })
 
     fireEvent.change(screen.getByLabelText(/search tasks/i), { target: { value: 'morgan' } })
 

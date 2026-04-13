@@ -46,6 +46,11 @@ function taskLabels(businessType) {
       dealOption: 'Job',
       dealLabel: 'Job',
       companyLabel: 'Client',
+      viewLabel: 'Service task view',
+      overdueHeading: 'Overdue service tasks',
+      dueTodayHeading: 'Service tasks due today',
+      upcomingHeading: 'Upcoming service tasks',
+      noDueDateHeading: 'Service tasks without due dates',
       activityAria: 'Service task activity list'
     }
   }
@@ -64,16 +69,98 @@ function taskLabels(businessType) {
     dealOption: 'Deal',
     dealLabel: 'Deal',
     companyLabel: 'Company',
+    viewLabel: 'Task view',
+    overdueHeading: 'Overdue tasks',
+    dueTodayHeading: 'Tasks due today',
+    upcomingHeading: 'Upcoming tasks',
+    noDueDateHeading: 'Tasks without due dates',
     activityAria: 'Task activity list'
   }
 }
 
-function taskCountLabel(statusFilter, labels) {
+function taskCountLabel(statusFilter, dueView, labels) {
   if (statusFilter === 'completed') {
     return labels.summaryCompleted.toLowerCase()
   }
 
+  if (dueView === 'overdue') {
+    return labels.overdueHeading.toLowerCase()
+  }
+  if (dueView === 'dueToday') {
+    return labels.dueTodayHeading.toLowerCase()
+  }
+  if (dueView === 'upcoming') {
+    return labels.upcomingHeading.toLowerCase()
+  }
+  if (dueView === 'noDueDate') {
+    return labels.noDueDateHeading.toLowerCase()
+  }
+
   return labels.summaryOpen.toLowerCase()
+}
+
+function taskListHeading(statusFilter, dueView, labels) {
+  if (statusFilter === 'completed') {
+    return labels.completedHeading
+  }
+
+  if (dueView === 'overdue') {
+    return labels.overdueHeading
+  }
+  if (dueView === 'dueToday') {
+    return labels.dueTodayHeading
+  }
+  if (dueView === 'upcoming') {
+    return labels.upcomingHeading
+  }
+  if (dueView === 'noDueDate') {
+    return labels.noDueDateHeading
+  }
+
+  return labels.openHeading
+}
+
+function startOfToday(now) {
+  const next = new Date(now)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
+function endOfToday(now) {
+  const next = new Date(now)
+  next.setHours(23, 59, 59, 999)
+  return next
+}
+
+function matchesDueView(task, dueView) {
+  if (dueView === 'all') {
+    return true
+  }
+
+  if (!task.dueAt) {
+    return dueView === 'noDueDate'
+  }
+
+  const dueAt = new Date(task.dueAt)
+  if (Number.isNaN(dueAt.getTime())) {
+    return dueView === 'noDueDate'
+  }
+
+  const now = new Date()
+  const dayStart = startOfToday(now)
+  const dayEnd = endOfToday(now)
+
+  if (dueView === 'overdue') {
+    return dueAt < dayStart
+  }
+  if (dueView === 'dueToday') {
+    return dueAt >= dayStart && dueAt <= dayEnd
+  }
+  if (dueView === 'upcoming') {
+    return dueAt > dayEnd
+  }
+
+  return false
 }
 
 export function TasksRoute() {
@@ -84,6 +171,7 @@ export function TasksRoute() {
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('open')
+  const [dueView, setDueView] = useState('all')
   const [selectedTaskId, setSelectedTaskId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
@@ -96,6 +184,13 @@ export function TasksRoute() {
 
   const selectedTask = detail?.task || null
   const selectedActivities = detail?.activities || []
+  const visibleTasks = useMemo(() => {
+    if (statusFilter !== 'open') {
+      return tasks
+    }
+
+    return tasks.filter((task) => matchesDueView(task, dueView))
+  }, [dueView, statusFilter, tasks])
 
   async function loadTasks(nextSearch = search, nextStatus = statusFilter) {
     const data = await listTasks({ search: nextSearch, status: nextStatus })
@@ -177,6 +272,9 @@ export function TasksRoute() {
     setSearch(value)
     try {
       await loadTasks(value, statusFilter)
+      if (statusFilter === 'open') {
+        setDueView('all')
+      }
       setError('')
     } catch (loadError) {
       setError(loadError.message || 'Unable to load tasks.')
@@ -277,7 +375,7 @@ export function TasksRoute() {
     syncTaskIntoState(task, [])
   }
 
-  const summaryLabel = useMemo(() => (statusFilter === 'completed' ? labels.completedHeading : labels.openHeading), [labels.completedHeading, labels.openHeading, statusFilter])
+  const summaryLabel = useMemo(() => taskListHeading(statusFilter, dueView, labels), [dueView, labels, statusFilter])
 
   return (
     <section className="dashboard-grid contacts-grid">
@@ -314,11 +412,22 @@ export function TasksRoute() {
           <Field label={labels.searchLabel}>
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
+          {statusFilter === 'open' ? (
+            <Field label={labels.viewLabel}>
+              <select className="text-input" value={dueView} onChange={(event) => setDueView(event.target.value)}>
+                <option value="all">All open</option>
+                <option value="overdue">Overdue</option>
+                <option value="dueToday">Due today</option>
+                <option value="upcoming">Upcoming</option>
+                <option value="noDueDate">No due date</option>
+              </select>
+            </Field>
+          ) : null}
           {error ? <p className="form-error">{error}</p> : null}
           <h3>{summaryLabel}</h3>
-          <p className="field-hint">Showing {tasks.length} of {meta.total} {taskCountLabel(statusFilter, labels)}.</p>
+          <p className="field-hint">Showing {visibleTasks.length} of {tasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>
           <div className="record-list" role="list" aria-label="Tasks list">
-            {tasks.map((task) => (
+            {visibleTasks.map((task) => (
               <article className="record-row" key={task.id} role="listitem">
                 <div>
                   <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenTask(task)}>
