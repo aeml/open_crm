@@ -201,6 +201,21 @@ describe('tasks flow', () => {
           data: {
             tasks: [
               {
+                id: 78,
+                entityType: 'contact',
+                entityId: 8,
+                entityLabel: 'Ava Stone',
+                title: 'Collect signed agreement',
+                description: 'Received yesterday.',
+                status: 'completed',
+                dueAt: '2026-04-09T10:00:00Z',
+                completedAt: '2026-04-09T16:30:00Z',
+                assignedToUserId: 1,
+                assignedToUserName: 'Demo Owner',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner'
+              },
+              {
                 id: 77,
                 entityType: 'deal',
                 entityId: 12,
@@ -216,7 +231,7 @@ describe('tasks flow', () => {
                 createdByUserName: 'Demo Owner'
               }
             ],
-            meta: { page: 1, pageSize: 20, total: 1, openCount: 0, completedCount: 1 }
+            meta: { page: 1, pageSize: 20, total: 2, openCount: 0, completedCount: 2 }
           }
         })
       })
@@ -313,6 +328,11 @@ describe('tasks flow', () => {
 
     expect(await screen.findByRole('heading', { name: /^completed tasks$/i })).toBeInTheDocument()
     expect(screen.getAllByText(/prepare rollout checklist/i).length).toBeGreaterThan(0)
+    const completedTaskList = screen.getByRole('list', { name: /tasks list/i })
+    expect(within(completedTaskList).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Prepare rollout checklist',
+      'Collect signed agreement'
+    ])
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\/77$/), expect.objectContaining({ method: 'PATCH' }))

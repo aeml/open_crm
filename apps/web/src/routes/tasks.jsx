@@ -193,6 +193,32 @@ function sortOpenTasks(tasks) {
   })
 }
 
+function taskCompletedSortValue(task) {
+  if (!task.completedAt) {
+    return Number.NEGATIVE_INFINITY
+  }
+
+  const completedAt = new Date(task.completedAt)
+  if (Number.isNaN(completedAt.getTime())) {
+    return Number.NEGATIVE_INFINITY
+  }
+
+  return completedAt.getTime()
+}
+
+function sortCompletedTasks(tasks) {
+  return [...tasks].sort((left, right) => {
+    const leftCompleted = taskCompletedSortValue(left)
+    const rightCompleted = taskCompletedSortValue(right)
+
+    if (leftCompleted === rightCompleted) {
+      return (left.id || 0) - (right.id || 0)
+    }
+
+    return rightCompleted - leftCompleted
+  })
+}
+
 function matchesAssignee(task, assigneeFilter) {
   if (assigneeFilter === 'all') {
     return true
@@ -240,7 +266,7 @@ export function TasksRoute() {
     const filteredTasks = tasks.filter((task) => matchesAssignee(task, assigneeFilter) && matchesEntityType(task, entityTypeFilter))
 
     if (statusFilter !== 'open') {
-      return filteredTasks
+      return sortCompletedTasks(filteredTasks)
     }
 
     return sortOpenTasks(filteredTasks.filter((task) => matchesDueView(task, dueView)))
