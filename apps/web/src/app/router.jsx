@@ -22,6 +22,7 @@ export function AppRouter() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardRoute />} />
             <Route path="contacts" element={<ContactsRoute />} />
+            <Route path="contacts/:contactId" element={<ContactsRoute />} />
             <Route path="companies" element={<CompaniesRoute />} />
             <Route path="deals" element={<DealsRoute />} />
             <Route path="tasks" element={<TasksRoute />} />

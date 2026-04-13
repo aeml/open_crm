@@ -135,6 +135,9 @@ describe('contacts flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /morgan lee/i }))
 
     expect(await screen.findByRole('heading', { name: /morgan lee/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/contacts/7')
+    })
     expect(screen.getByText(/contact created/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
@@ -230,6 +233,9 @@ describe('contacts flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /save contact/i }))
 
     expect(await screen.findByRole('heading', { name: /ava stone/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/contacts/8')
+    })
 
     fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'customer' } })
     fireEvent.click(screen.getByRole('button', { name: /update contact/i }))
@@ -240,6 +246,78 @@ describe('contacts flow', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/contacts\/8$/), expect.objectContaining({ method: 'DELETE' }))
+    })
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/contacts')
+    })
+  })
+
+  it('loads a contact directly from the detail route', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
+            notes: [],
+            tasks: [],
+            activities: [
+              { id: 100, action: 'contact.created', summary: 'Contact created' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/contacts/7')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /morgan lee/i })).toBeInTheDocument()
+    expect(screen.getByText(/contact created/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/contacts\/7$/), expect.any(Object))
     })
   })
 })

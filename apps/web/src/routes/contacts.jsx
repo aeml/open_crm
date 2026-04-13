@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -27,7 +28,21 @@ function fullName(contact) {
   return `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
 }
 
+function contactFormValues(contact) {
+  return {
+    firstName: contact.firstName || '',
+    lastName: contact.lastName || '',
+    email: contact.email || '',
+    phone: contact.phone || '',
+    jobTitle: contact.jobTitle || '',
+    status: contact.status || 'lead'
+  }
+}
+
 export function ContactsRoute() {
+  const navigate = useNavigate()
+  const { contactId } = useParams()
+  const routeContactId = Number.parseInt(contactId || '', 10)
   const [mode, setMode] = useState('list')
   const [contacts, setContacts] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
@@ -112,49 +127,100 @@ export function ContactsRoute() {
   }
 
   async function handleOpenContact(contact) {
-    const cached = detailCache[contact.id]
+    const contactID = contact.id
+    const cached = detailCache[contactID]
     if (cached) {
-      setSelectedContactId(contact.id)
+      setSelectedContactId(contactID)
       setDetail(cached)
-      setForm({
-        firstName: cached.contact.firstName || '',
-        lastName: cached.contact.lastName || '',
-        email: cached.contact.email || '',
-        phone: cached.contact.phone || '',
-        jobTitle: cached.contact.jobTitle || '',
-        status: cached.contact.status || 'lead'
-      })
+      setForm(contactFormValues(cached.contact))
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setMode('detail')
+      navigate(`/contacts/${contactID}`)
       return
     }
 
     try {
       const [data, taskData] = await Promise.all([
-        getContact(contact.id),
-        listTasks({ status: 'open', entityType: 'contact', entityId: contact.id })
+        getContact(contactID),
+        listTasks({ status: 'open', entityType: 'contact', entityId: contactID })
       ])
       const detailData = { ...data, tasks: taskData.tasks || [] }
-      setDetailCache((current) => ({ ...current, [contact.id]: detailData }))
-      setSelectedContactId(contact.id)
+      setDetailCache((current) => ({ ...current, [contactID]: detailData }))
+      setSelectedContactId(contactID)
       setDetail(detailData)
-      setForm({
-        firstName: data.contact.firstName || '',
-        lastName: data.contact.lastName || '',
-        email: data.contact.email || '',
-        phone: data.contact.phone || '',
-        jobTitle: data.contact.jobTitle || '',
-        status: data.contact.status || 'lead'
-      })
+      setForm(contactFormValues(data.contact))
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setMode('detail')
+      navigate(`/contacts/${contactID}`)
       setError('')
     } catch (loadError) {
       setError(loadError.message || 'Unable to load contact.')
     }
   }
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function openRouteContact() {
+      if (!Number.isInteger(routeContactId) || routeContactId <= 0) {
+        if (selectedContactId || mode === 'detail') {
+          setSelectedContactId(null)
+          setDetail(null)
+          setForm(emptyForm)
+          setNoteBody('')
+          setTaskForm(emptyTaskForm)
+          setMode('list')
+        }
+        return
+      }
+
+      if (selectedContactId === routeContactId && detail?.contact?.id === routeContactId) {
+        return
+      }
+
+      const cached = detailCache[routeContactId]
+      if (cached) {
+        setSelectedContactId(routeContactId)
+        setDetail(cached)
+        setForm(contactFormValues(cached.contact))
+        setNoteBody('')
+        setTaskForm(emptyTaskForm)
+        setMode('detail')
+        setError('')
+        return
+      }
+
+      try {
+        const [data, taskData] = await Promise.all([
+          getContact(routeContactId),
+          listTasks({ status: 'open', entityType: 'contact', entityId: routeContactId })
+        ])
+        if (cancelled) {
+          return
+        }
+        const detailData = { ...data, tasks: taskData.tasks || [] }
+        setDetailCache((current) => ({ ...current, [routeContactId]: detailData }))
+        setSelectedContactId(routeContactId)
+        setDetail(detailData)
+        setForm(contactFormValues(detailData.contact))
+        setNoteBody('')
+        setTaskForm(emptyTaskForm)
+        setMode('detail')
+        setError('')
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError.message || 'Unable to load contact.')
+        }
+      }
+    }
+
+    openRouteContact()
+    return () => {
+      cancelled = true
+    }
+  }, [detail, detailCache, mode, routeContactId, selectedContactId])
 
   async function handleCreate(event) {
     event.preventDefault()
@@ -166,17 +232,11 @@ export function ContactsRoute() {
       setMeta((current) => ({ ...current, total: current.total + 1 }))
       setSelectedContactId(data.contact.id)
       setDetail(detailData)
-      setForm({
-        firstName: detailData.contact.firstName || '',
-        lastName: detailData.contact.lastName || '',
-        email: detailData.contact.email || '',
-        phone: detailData.contact.phone || '',
-        jobTitle: detailData.contact.jobTitle || '',
-        status: detailData.contact.status || 'lead'
-      })
+      setForm(contactFormValues(detailData.contact))
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setMode('detail')
+      navigate(`/contacts/${data.contact.id}`)
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to create contact.')
@@ -199,14 +259,7 @@ export function ContactsRoute() {
       setDetailCache((current) => ({ ...current, [selectedContactId]: detailData }))
       setContacts((current) => current.map((entry) => (entry.id === selectedContactId ? data.contact : entry)))
       setDetail(detailData)
-      setForm({
-        firstName: data.contact.firstName || '',
-        lastName: data.contact.lastName || '',
-        email: data.contact.email || '',
-        phone: data.contact.phone || '',
-        jobTitle: data.contact.jobTitle || '',
-        status: data.contact.status || 'lead'
-      })
+      setForm(contactFormValues(data.contact))
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to update contact.')
@@ -236,6 +289,7 @@ export function ContactsRoute() {
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setMode('list')
+      navigate('/contacts')
       setError('')
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive contact.')
@@ -321,6 +375,7 @@ export function ContactsRoute() {
             </div>
             <Button
               onClick={() => {
+                navigate('/contacts')
                 setMode('create')
                 setForm(emptyForm)
                 setDetail(null)
