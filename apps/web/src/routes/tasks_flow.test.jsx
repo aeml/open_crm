@@ -252,4 +252,65 @@ describe('tasks flow', () => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\/77$/), expect.objectContaining({ method: 'PATCH' }))
     })
   })
+
+  it('uses service task wording for service businesses', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'services' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deals: [
+              { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '60000.00' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { contacts: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { users: [{ id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }] } })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/tasks')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /^service tasks$/i })).toBeInTheDocument()
+    expect(screen.getAllByText(/open service tasks/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/completed service tasks/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/search service tasks/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /new service task/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/linked record type/i)).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /^job$/i })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /^client$/i })).toBeInTheDocument()
+  })
 })

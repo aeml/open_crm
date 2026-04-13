@@ -7,6 +7,7 @@ import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
 import { listOrganizationUsers } from '../lib/users'
+import { useAuth } from '../app/providers'
 
 const emptyForm = {
   title: '',
@@ -29,7 +30,56 @@ function formatDueLabel(task) {
   return `Due ${new Date(task.dueAt).toLocaleString()}`
 }
 
+function taskLabels(businessType) {
+  if (businessType === 'services' || businessType === 'construction-services') {
+    return {
+      collection: 'Service Tasks',
+      createHeading: 'New service task',
+      createDescription: 'Assign work against a contact, client, or job.',
+      summaryOpen: 'Open service tasks',
+      summaryCompleted: 'Completed service tasks',
+      searchLabel: 'Search service tasks',
+      openHeading: 'Open service tasks',
+      completedHeading: 'Completed service tasks',
+      showingSuffix: 'service tasks',
+      entityTypeLabel: 'Linked record type',
+      dealOption: 'Job',
+      dealLabel: 'Job',
+      companyLabel: 'Client',
+      activityAria: 'Service task activity list'
+    }
+  }
+
+  return {
+    collection: 'Tasks',
+    createHeading: 'New task',
+    createDescription: 'Assign work against a contact, company, or deal.',
+    summaryOpen: 'Open tasks',
+    summaryCompleted: 'Completed tasks',
+    searchLabel: 'Search tasks',
+    openHeading: 'Open tasks',
+    completedHeading: 'Completed tasks',
+    showingSuffix: 'tasks',
+    entityTypeLabel: 'Entity type',
+    dealOption: 'Deal',
+    dealLabel: 'Deal',
+    companyLabel: 'Company',
+    activityAria: 'Task activity list'
+  }
+}
+
+function taskCountLabel(statusFilter, labels) {
+  if (statusFilter === 'completed') {
+    return labels.summaryCompleted.toLowerCase()
+  }
+
+  return labels.summaryOpen.toLowerCase()
+}
+
 export function TasksRoute() {
+  const { session, businessProfile } = useAuth()
+  const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
+  const labels = taskLabels(businessType)
   const [tasks, setTasks] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
   const [search, setSearch] = useState('')
@@ -227,17 +277,17 @@ export function TasksRoute() {
     syncTaskIntoState(task, [])
   }
 
-  const summaryLabel = useMemo(() => (statusFilter === 'completed' ? 'Completed tasks' : 'Open tasks'), [statusFilter])
+  const summaryLabel = useMemo(() => (statusFilter === 'completed' ? labels.completedHeading : labels.openHeading), [labels.completedHeading, labels.openHeading, statusFilter])
 
   return (
     <section className="dashboard-grid contacts-grid">
       <Card>
         <div className="card-stack">
-          <div className="section-header">
-            <div>
-              <h2>Tasks</h2>
-              <p>Keep the next real action visible and close it cleanly.</p>
-            </div>
+            <div className="section-header">
+              <div>
+                <h2>{labels.collection}</h2>
+                <p>Keep the next real action visible and close it cleanly.</p>
+              </div>
             <div className="button-row">
               <Button className={statusFilter === 'open' ? '' : 'button-secondary'} onClick={() => handleToggleStatus('open')}>Show open</Button>
               <Button className={statusFilter === 'completed' ? '' : 'button-secondary'} onClick={() => handleToggleStatus('completed')}>Show completed</Button>
@@ -246,7 +296,7 @@ export function TasksRoute() {
           <div className="record-list" role="list" aria-label="Task summary list">
             <article className="record-row" role="listitem">
               <div>
-                <p>Open tasks</p>
+                <p>{labels.summaryOpen}</p>
               </div>
               <div>
                 <p>{meta.openCount}</p>
@@ -254,19 +304,19 @@ export function TasksRoute() {
             </article>
             <article className="record-row" role="listitem">
               <div>
-                <p>Completed tasks</p>
+                <p>{labels.summaryCompleted}</p>
               </div>
               <div>
                 <p>{meta.completedCount}</p>
               </div>
             </article>
           </div>
-          <Field label="Search tasks">
+          <Field label={labels.searchLabel}>
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
           {error ? <p className="form-error">{error}</p> : null}
           <h3>{summaryLabel}</h3>
-          <p className="field-hint">Showing {tasks.length} of {meta.total} {statusFilter} tasks.</p>
+          <p className="field-hint">Showing {tasks.length} of {meta.total} {taskCountLabel(statusFilter, labels)}.</p>
           <div className="record-list" role="list" aria-label="Tasks list">
             {tasks.map((task) => (
               <article className="record-row" key={task.id} role="listitem">
@@ -289,22 +339,22 @@ export function TasksRoute() {
       <Card>
         <div className="card-stack">
           <div>
-            <h2>New task</h2>
-            <p>Assign work against a contact, company, or deal.</p>
+            <h2>{labels.createHeading}</h2>
+            <p>{labels.createDescription}</p>
           </div>
           <form className="auth-form" onSubmit={handleCreate}>
             <Field label="Task title">
               <input className="text-input" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} required />
             </Field>
-            <Field label="Entity type">
+            <Field label={labels.entityTypeLabel}>
               <select className="text-input" value={form.entityType} onChange={(event) => setForm((current) => ({ ...current, entityType: event.target.value, entityId: getDefaultEntityId(event.target.value) }))}>
-                <option value="deal">Deal</option>
-                <option value="company">Company</option>
+                <option value="deal">{labels.dealOption}</option>
+                <option value="company">{labels.companyLabel}</option>
                 <option value="contact">Contact</option>
               </select>
             </Field>
             {form.entityType === 'deal' ? (
-              <Field label="Deal">
+              <Field label={labels.dealLabel}>
                 <select className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required>
                   {dealOptions.map((deal) => (
                     <option key={deal.id} value={deal.id}>{deal.name}</option>
@@ -313,7 +363,7 @@ export function TasksRoute() {
               </Field>
             ) : null}
             {form.entityType === 'company' ? (
-              <Field label="Company">
+              <Field label={labels.companyLabel}>
                 <select className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required>
                   {companyOptions.map((company) => (
                     <option key={company.id} value={company.id}>{company.name}</option>
@@ -388,7 +438,7 @@ export function TasksRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Activity</h3>
-                <div className="record-list" role="list" aria-label="Task activity list">
+                <div className="record-list" role="list" aria-label={labels.activityAria}>
                   {selectedActivities.map((activity) => (
                     <article className="record-row" key={activity.id} role="listitem">
                       <div>
