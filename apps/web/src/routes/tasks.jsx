@@ -163,6 +163,32 @@ function matchesDueView(task, dueView) {
   return false
 }
 
+function taskDueSortValue(task) {
+  if (!task.dueAt) {
+    return Number.POSITIVE_INFINITY
+  }
+
+  const dueAt = new Date(task.dueAt)
+  if (Number.isNaN(dueAt.getTime())) {
+    return Number.POSITIVE_INFINITY
+  }
+
+  return dueAt.getTime()
+}
+
+function sortOpenTasks(tasks) {
+  return [...tasks].sort((left, right) => {
+    const leftDue = taskDueSortValue(left)
+    const rightDue = taskDueSortValue(right)
+
+    if (leftDue === rightDue) {
+      return (left.id || 0) - (right.id || 0)
+    }
+
+    return leftDue - rightDue
+  })
+}
+
 export function TasksRoute() {
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
@@ -189,7 +215,7 @@ export function TasksRoute() {
       return tasks
     }
 
-    return tasks.filter((task) => matchesDueView(task, dueView))
+    return sortOpenTasks(tasks.filter((task) => matchesDueView(task, dueView)))
   }, [dueView, statusFilter, tasks])
 
   async function loadTasks(nextSearch = search, nextStatus = statusFilter) {

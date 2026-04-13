@@ -30,10 +30,10 @@ describe('tasks flow', () => {
                 entityType: 'deal',
                 entityId: 12,
                 entityLabel: 'Bluebird Rollout',
-                title: 'Call Morgan about rollout timing',
-                description: 'Confirm launch window.',
+                title: 'Confirm installer arrival window',
+                description: 'Need final arrival confirmation.',
                 status: 'open',
-                dueAt: '2026-04-10T11:00:00Z',
+                dueAt: '2099-04-16T09:00:00Z',
                 completedAt: '',
                 assignedToUserId: 2,
                 assignedToUserName: 'Alex Admin',
@@ -45,10 +45,10 @@ describe('tasks flow', () => {
                 entityType: 'deal',
                 entityId: 12,
                 entityLabel: 'Bluebird Rollout',
-                title: 'Confirm installer arrival window',
-                description: 'Need final arrival confirmation.',
+                title: 'Call Morgan about rollout timing',
+                description: 'Confirm launch window.',
                 status: 'open',
-                dueAt: '2099-04-16T09:00:00Z',
+                dueAt: '2026-04-10T11:00:00Z',
                 completedAt: '',
                 assignedToUserId: 2,
                 assignedToUserName: 'Alex Admin',
@@ -215,6 +215,12 @@ describe('tasks flow', () => {
     expect(await screen.findByText(/call morgan about rollout timing/i)).toBeInTheDocument()
     expect(screen.getAllByText(/open tasks/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/showing 2 of 2 open tasks/i)).toBeInTheDocument()
+
+    const initialTaskList = screen.getByRole('list', { name: /tasks list/i })
+    expect(within(initialTaskList).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Call Morgan about rollout timing',
+      'Confirm installer arrival window'
+    ])
 
     fireEvent.change(screen.getByLabelText(/task view/i), { target: { value: 'upcoming' } })
 
