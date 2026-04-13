@@ -60,6 +60,13 @@ function pipelineLabels(businessType) {
       summaryOpen: 'Open jobs',
       summaryWon: 'Won jobs',
       searchLabel: 'Search jobs',
+      companyLabel: 'Client',
+      companyEmpty: 'No client linked',
+      contactLabel: 'Primary contact',
+      contactEmpty: 'No primary contact',
+      valueLabel: 'Job value',
+      dateLabel: 'Target date',
+      showingLabel: 'jobs',
       listAria: 'Jobs list',
       notesAria: 'Job notes list',
       tasksAria: 'Job tasks list',
@@ -78,6 +85,13 @@ function pipelineLabels(businessType) {
     summaryOpen: 'Open deals',
     summaryWon: 'Won deals',
     searchLabel: 'Search deals',
+    companyLabel: 'Company',
+    companyEmpty: 'No company linked',
+    contactLabel: 'Primary contact',
+    contactEmpty: 'No primary contact',
+    valueLabel: 'Value amount',
+    dateLabel: 'Expected close date',
+    showingLabel: 'deals',
     listAria: 'Deals list',
     notesAria: 'Deal notes list',
     tasksAria: 'Deal tasks list',
@@ -479,12 +493,12 @@ export function DealsRoute() {
                 </div>
                 <div>
                   <p>{formatMoney(deal.valueAmount, deal.valueCurrency)}</p>
-                  <p>{deal.companyName || 'No company linked'}</p>
+                  <p>{deal.companyName || labels.companyEmpty}</p>
                 </div>
               </article>
             ))}
           </div>
-          <p className="field-hint">Showing {deals.length} of {meta.total} deals.</p>
+          <p className="field-hint">Showing {deals.length} of {meta.total} {labels.showingLabel}.</p>
         </div>
       </Card>
 
@@ -505,29 +519,29 @@ export function DealsRoute() {
                 ))}
               </select>
             </Field>
-            <Field label="Company">
+            <Field label={labels.companyLabel}>
               <select className="text-input" value={form.companyId} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}>
-                <option value="">No company linked</option>
+                <option value="">{labels.companyEmpty}</option>
                 {companyOptions.map((company) => (
                   <option key={company.id} value={company.id}>{company.name}</option>
                 ))}
               </select>
             </Field>
-            <Field label="Primary contact">
+            <Field label={labels.contactLabel}>
               <select className="text-input" value={form.primaryContactId} onChange={(event) => setForm((current) => ({ ...current, primaryContactId: event.target.value }))}>
-                <option value="">No primary contact</option>
+                <option value="">{labels.contactEmpty}</option>
                 {contactOptions.map((contact) => (
                   <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
                 ))}
               </select>
             </Field>
-            <Field label="Value amount">
+            <Field label={labels.valueLabel}>
               <input className="text-input" value={form.valueAmount} onChange={(event) => setForm((current) => ({ ...current, valueAmount: event.target.value }))} />
             </Field>
             <Field label="Value currency">
               <input className="text-input" value={form.valueCurrency} onChange={(event) => setForm((current) => ({ ...current, valueCurrency: event.target.value }))} />
             </Field>
-            <Field label="Expected close date">
+            <Field label={labels.dateLabel}>
               <input className="text-input" type="date" value={form.expectedCloseDate} onChange={(event) => setForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
             </Field>
             <Button type="submit">{`Save ${labels.singular.toLowerCase()}`}</Button>
@@ -541,7 +555,7 @@ export function DealsRoute() {
             <div className="section-header">
               <div>
                 <h2>{selectedDeal.name}</h2>
-                <p>{selectedDeal.companyName || 'No company linked'}</p>
+                <p>{selectedDeal.companyName || labels.companyEmpty}</p>
               </div>
               <Button className="button-danger" onClick={handleArchive}>
                 {labels.archiveAction}
@@ -551,17 +565,17 @@ export function DealsRoute() {
               <Field label={`${labels.singular} name`}>
                 <input className="text-input" value={detailForm.name} onChange={(event) => setDetailForm((current) => ({ ...current, name: event.target.value }))} required />
               </Field>
-              <Field label="Company">
+              <Field label={labels.companyLabel}>
                 <select className="text-input" value={detailForm.companyId} onChange={(event) => setDetailForm((current) => ({ ...current, companyId: event.target.value }))}>
-                  <option value="">No company linked</option>
+                  <option value="">{labels.companyEmpty}</option>
                   {companyOptions.map((company) => (
                     <option key={company.id} value={company.id}>{company.name}</option>
                   ))}
                 </select>
               </Field>
-              <Field label="Primary contact">
+              <Field label={labels.contactLabel}>
                 <select className="text-input" value={detailForm.primaryContactId} onChange={(event) => setDetailForm((current) => ({ ...current, primaryContactId: event.target.value }))}>
-                  <option value="">No primary contact</option>
+                  <option value="">{labels.contactEmpty}</option>
                   {contactOptions.map((contact) => (
                     <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
                   ))}
@@ -574,13 +588,13 @@ export function DealsRoute() {
                   <option value="lost">Lost</option>
                 </select>
               </Field>
-              <Field label="Value amount">
+              <Field label={labels.valueLabel}>
                 <input className="text-input" value={detailForm.valueAmount} onChange={(event) => setDetailForm((current) => ({ ...current, valueAmount: event.target.value }))} />
               </Field>
               <Field label="Value currency">
                 <input className="text-input" value={detailForm.valueCurrency} onChange={(event) => setDetailForm((current) => ({ ...current, valueCurrency: event.target.value }))} />
               </Field>
-              <Field label="Expected close date">
+              <Field label={labels.dateLabel}>
                 <input className="text-input" type="date" value={detailForm.expectedCloseDate} onChange={(event) => setDetailForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
               </Field>
               <Button type="submit">{`Update ${labels.singular.toLowerCase()}`}</Button>
