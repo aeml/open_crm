@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { getDashboardSummary } from '../lib/dashboard'
+import { useAuth } from '../app/providers'
 
 function formatMoney(value) {
   const amount = Number.parseFloat(value || '0')
@@ -23,7 +24,32 @@ function formatRelativeTimestamp(value) {
   return date.toLocaleString()
 }
 
+function dashboardLabels(businessType) {
+  if (businessType === 'services' || businessType === 'construction-services') {
+    return {
+      pipelineLabel: 'Open jobs value',
+      dueTodayLabel: 'Due today',
+      contactsLabel: 'New contacts',
+      openRecordsLabel: 'Open jobs',
+      wonRecordsLabel: 'Won jobs',
+      activityDescription: 'The last real changes across jobs, contacts, clients, and service tasks.'
+    }
+  }
+
+  return {
+    pipelineLabel: 'Open pipeline',
+    dueTodayLabel: 'Due today',
+    contactsLabel: 'New contacts',
+    openRecordsLabel: 'Open deals',
+    wonRecordsLabel: 'Won deals',
+    activityDescription: 'The last real changes across deals, contacts, companies, and tasks.'
+  }
+}
+
 export function DashboardRoute() {
+  const { session, businessProfile } = useAuth()
+  const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
+  const labels = dashboardLabels(businessType)
   const [summary, setSummary] = useState({
     pipelineValue: '0',
     openDealsCount: 0,
@@ -60,11 +86,11 @@ export function DashboardRoute() {
 
   const heroMetrics = useMemo(
     () => [
-      { label: 'Open pipeline', value: formatMoney(summary.pipelineValue) },
-      { label: 'Due today', value: `${summary.dueTodayCount} tasks` },
-      { label: 'New contacts', value: `${summary.newContactsCount} this week` }
+      { label: labels.pipelineLabel, value: formatMoney(summary.pipelineValue) },
+      { label: labels.dueTodayLabel, value: `${summary.dueTodayCount} tasks` },
+      { label: labels.contactsLabel, value: `${summary.newContactsCount} this week` }
     ],
-    [summary.dueTodayCount, summary.newContactsCount, summary.pipelineValue]
+    [labels.contactsLabel, labels.dueTodayLabel, labels.pipelineLabel, summary.dueTodayCount, summary.newContactsCount, summary.pipelineValue]
   )
 
   return (
@@ -91,7 +117,7 @@ export function DashboardRoute() {
             <div className="record-list" role="list" aria-label="Dashboard summary metrics">
               <article className="record-row" role="listitem">
                 <div>
-                  <p>Open deals</p>
+                  <p>{labels.openRecordsLabel}</p>
                 </div>
                 <div>
                   <p>{summary.openDealsCount}</p>
@@ -99,7 +125,7 @@ export function DashboardRoute() {
               </article>
               <article className="record-row" role="listitem">
                 <div>
-                  <p>Won deals</p>
+                  <p>{labels.wonRecordsLabel}</p>
                 </div>
                 <div>
                   <p>{summary.wonDealsCount}</p>
@@ -121,7 +147,7 @@ export function DashboardRoute() {
           <div className="card-stack">
             <div>
               <h2>Recent activity</h2>
-              <p>The last real changes across deals, contacts, companies, and tasks.</p>
+              <p>{labels.activityDescription}</p>
             </div>
             {summary.recentActivities.length === 0 ? (
               <p className="field-hint">No activity yet. Start creating records and it will show up here.</p>

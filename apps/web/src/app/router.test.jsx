@@ -71,6 +71,68 @@ describe('AppRouter', () => {
     })
   })
 
+  it('adapts dashboard metric copy for service businesses', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: {
+              id: 1,
+              email: 'owner@acme.test',
+              firstName: 'Demo',
+              lastName: 'Owner'
+            },
+            organization: {
+              id: 1,
+              name: 'Acme, Inc.',
+              slug: 'acme-inc',
+              businessType: 'services'
+            },
+            membership: {
+              role: 'owner'
+            }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            pipelineValue: '12400.00',
+            openDealsCount: 4,
+            wonDealsCount: 2,
+            openTasksCount: 6,
+            dueTodayCount: 3,
+            newContactsCount: 2,
+            recentActivities: [
+              {
+                id: 91,
+                action: 'deal.stage_changed',
+                summary: 'Job moved to Quote',
+                entityType: 'deal',
+                entityId: 12,
+                actorName: 'Alex Admin',
+                createdAt: '2026-04-10T12:00:00Z'
+              }
+            ]
+          }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    window.history.pushState({}, '', '/dashboard')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/open jobs value/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/open jobs/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/won jobs/i)).toBeInTheDocument()
+    expect(screen.getByText(/jobs, contacts, clients, and service tasks/i)).toBeInTheDocument()
+  })
+
   it('redirects protected routes to login when unauthenticated', async () => {
     vi.stubGlobal(
       'fetch',
