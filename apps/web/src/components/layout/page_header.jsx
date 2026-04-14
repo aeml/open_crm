@@ -6,7 +6,7 @@ export function PageHeader({ eyebrow, title, description, actions }) {
         <h2>{title}</h2>
         <p className="page-description">{description}</p>
       </div>
-      <div>{actions}</div>
+      {actions ? <div>{actions}</div> : null}
     </section>
   )
 }

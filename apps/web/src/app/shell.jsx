@@ -1,4 +1,3 @@
-import { Button } from '../components/ui/button'
 import { AppHeader } from '../components/layout/app_header'
 import { SideNav } from '../components/layout/side_nav'
 import { PageHeader } from '../components/layout/page_header'
@@ -8,26 +7,22 @@ const profileCopy = {
   general: {
     eyebrow: 'Pipeline at a glance',
     title: 'Pipeline overview',
-    description: 'Track customers, deals, and follow-ups without drowning in a messy admin panel.',
-    action: 'New Contact'
+    description: 'Track customers, deals, and follow-ups without drowning in a messy admin panel.'
   },
   services: {
     eyebrow: 'Jobs at a glance',
     title: 'Job pipeline overview',
-    description: 'Track clients, jobs, and service tasks without drowning in a messy admin panel.',
-    action: 'New Contact'
+    description: 'Track clients, jobs, and service tasks without drowning in a messy admin panel.'
   },
   'product-sales': {
     eyebrow: 'Revenue at a glance',
     title: 'Sales pipeline overview',
-    description: 'Track accounts, opportunities, and follow-ups without drowning in a messy admin panel.',
-    action: 'New Contact'
+    description: 'Track accounts, opportunities, and follow-ups without drowning in a messy admin panel.'
   },
   'construction-services': {
     eyebrow: 'Jobs at a glance',
     title: 'Job pipeline overview',
-    description: 'Track clients, jobs, and site tasks without drowning in a messy admin panel.',
-    action: 'New Contact'
+    description: 'Track clients, jobs, and site tasks without drowning in a messy admin panel.'
   }
 }
 
@@ -46,7 +41,6 @@ export function AppShell({ children }) {
             eyebrow={copy.eyebrow}
             title={copy.title}
             description={copy.description}
-            actions={<Button>{copy.action}</Button>}
           />
           {children}
         </main>
