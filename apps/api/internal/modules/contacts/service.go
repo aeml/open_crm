@@ -403,7 +403,14 @@ func ensureNoDuplicateContact(ctx context.Context, pool *pgxpool.Pool, organizat
 
 	phoneDigits := normalizePhoneDigits(input.Phone)
 	row := pool.QueryRow(ctx, `
-		SELECT id, first_name, last_name
+		SELECT id, first_name, last_name,
+			CASE
+				WHEN ($5 <> '' AND lower(first_name) = lower($3) AND lower(last_name) = lower($4) AND lower(email) = lower($5)) THEN 'name_email'
+				WHEN ($6 <> '' AND regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') = $6) THEN 'phone'
+				WHEN ($5 <> '' AND lower(email) = lower($5)) THEN 'email'
+				WHEN (lower(first_name) = lower($3) AND lower(last_name) = lower($4) AND COALESCE(NULLIF(lower(email), ''), '__empty__') = COALESCE(NULLIF(lower($5), ''), '__empty__')) THEN 'name'
+				ELSE 'record'
+			END
 		FROM contacts
 		WHERE organization_id = $1
 		  AND archived_at IS NULL
@@ -419,12 +426,28 @@ func ensureNoDuplicateContact(ctx context.Context, pool *pgxpool.Pool, organizat
 	var duplicateID int64
 	var firstName string
 	var lastName string
-	if err := row.Scan(&duplicateID, &firstName, &lastName); err != nil {
+	var reason string
+	if err := row.Scan(&duplicateID, &firstName, &lastName, &reason); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return fmt.Errorf("check duplicate contact: %w", err)
 	}
 
-	return fmt.Errorf("%w: %s %s", ErrDuplicateContact, strings.TrimSpace(firstName), strings.TrimSpace(lastName))
+	return fmt.Errorf("%w: %s %s (%s)", ErrDuplicateContact, strings.TrimSpace(firstName), strings.TrimSpace(lastName), duplicateContactReason(reason))
+}
+
+func duplicateContactReason(reason string) string {
+	switch reason {
+	case "name_email":
+		return "same name and email"
+	case "phone":
+		return "matching phone"
+	case "email":
+		return "matching email"
+	case "name":
+		return "same name"
+	default:
+		return "possible duplicate"
+	}
 }

@@ -37,3 +37,24 @@ func TestNormalizeUpdateInputNormalizesWebsite(t *testing.T) {
 		t.Fatalf("expected normalized website, got %q", input.Website)
 	}
 }
+
+func TestDuplicateCompanyReason(t *testing.T) {
+	tests := []struct {
+		name   string
+		reason string
+		want   string
+	}{
+		{name: "website", reason: "website", want: "matching website"},
+		{name: "phone", reason: "phone", want: "matching phone"},
+		{name: "name", reason: "name", want: "same name"},
+		{name: "default", reason: "other", want: "possible duplicate"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := duplicateCompanyReason(test.reason); got != test.want {
+				t.Fatalf("duplicateCompanyReason(%q) = %q, want %q", test.reason, got, test.want)
+			}
+		})
+	}
+}

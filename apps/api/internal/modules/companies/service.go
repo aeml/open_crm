@@ -536,7 +536,13 @@ func ensureNoDuplicateCompany(ctx context.Context, pool *pgxpool.Pool, organizat
 
 	phoneDigits := normalizePhoneDigits(input.Phone)
 	row := pool.QueryRow(ctx, `
-		SELECT id, name
+		SELECT id, name,
+			CASE
+				WHEN ($5 <> '' AND lower(website) = lower($5)) THEN 'website'
+				WHEN ($4 <> '' AND regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') = $4) THEN 'phone'
+				WHEN lower(name) = lower($3) THEN 'name'
+				ELSE 'record'
+			END
 		FROM companies
 		WHERE organization_id = $1
 		  AND archived_at IS NULL
@@ -551,14 +557,28 @@ func ensureNoDuplicateCompany(ctx context.Context, pool *pgxpool.Pool, organizat
 
 	var duplicateID int64
 	var name string
-	if err := row.Scan(&duplicateID, &name); err != nil {
+	var reason string
+	if err := row.Scan(&duplicateID, &name, &reason); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return fmt.Errorf("check duplicate company: %w", err)
 	}
 
-	return fmt.Errorf("%w: %s", ErrDuplicateCompany, strings.TrimSpace(name))
+	return fmt.Errorf("%w: %s (%s)", ErrDuplicateCompany, strings.TrimSpace(name), duplicateCompanyReason(reason))
+}
+
+func duplicateCompanyReason(reason string) string {
+	switch reason {
+	case "website":
+		return "matching website"
+	case "phone":
+		return "matching phone"
+	case "name":
+		return "same name"
+	default:
+		return "possible duplicate"
+	}
 }
 
 func companyActivitySummary(clientType, verb string) string {
