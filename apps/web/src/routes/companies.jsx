@@ -411,7 +411,7 @@ export function CompaniesRoute() {
           <div className="section-header">
             <div>
               <h2>Companies</h2>
-              <p>See account ownership and live pipeline in one place.</p>
+              <p>See client ownership, linked people, and live pipeline in one place.</p>
             </div>
             <Button
               onClick={() => {
@@ -422,14 +422,14 @@ export function CompaniesRoute() {
                 setSelectedCompanyId(null)
               }}
             >
-              Add company
+              Add client
             </Button>
           </div>
-          <Field label="Search companies">
+          <Field label="Search clients">
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
           {error ? <p className="form-error">{error}</p> : null}
-          <div className="record-list" role="list" aria-label="Companies list">
+          <div className="record-list" role="list" aria-label="Clients list">
             {companies.map((company) => (
               <article className="record-row" key={company.id} role="listitem">
                 <div>
@@ -445,7 +445,7 @@ export function CompaniesRoute() {
               </article>
             ))}
           </div>
-          <p className="field-hint">Showing {companies.length} of {meta.total} companies.</p>
+          <p className="field-hint">Showing {companies.length} of {meta.total} clients.</p>
         </div>
       </Card>
 
@@ -453,11 +453,11 @@ export function CompaniesRoute() {
         <Card>
           <div className="card-stack">
             <div>
-              <h2>New company</h2>
-              <p>Add an account and tie the right contacts to it immediately.</p>
-            </div>
+                <h2>New client</h2>
+                <p>Add an organization client and tie the right contacts to it immediately.</p>
+              </div>
             <form className="auth-form" onSubmit={handleCreate}>
-              <Field label="Company name">
+              <Field label="Client name">
                 <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
               </Field>
               <Field label="Domain">
@@ -480,7 +480,7 @@ export function CompaniesRoute() {
                   ))}
                 </select>
               </Field>
-              <Button type="submit">Save company</Button>
+              <Button type="submit">Save client</Button>
             </form>
           </div>
         </Card>
@@ -495,11 +495,11 @@ export function CompaniesRoute() {
                 <p>{selectedCompany.domain}</p>
               </div>
               <Button className="button-danger" onClick={handleArchive}>
-                Archive company
+                Archive client
               </Button>
             </div>
             <form className="auth-form" onSubmit={handleUpdate}>
-              <Field label="Company name">
+              <Field label="Client name">
                 <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
               </Field>
               <Field label="Domain">
@@ -529,13 +529,19 @@ export function CompaniesRoute() {
                   ))}
                 </select>
               </Field>
-              <Button type="submit">Update company</Button>
+              <Button type="submit">Update client</Button>
             </form>
             <Card>
               <div className="card-stack">
-                <h3>Linked contacts</h3>
+                <h3>People</h3>
                 <div className="record-list" role="list" aria-label="Linked contacts list">
-                  {linkedContacts.map((contact) => (
+                  {linkedContacts.length === 0 ? (
+                    <article className="record-row" role="listitem">
+                      <div>
+                        <p>No linked people yet.</p>
+                      </div>
+                    </article>
+                  ) : linkedContacts.map((contact) => (
                     <article className="record-row" key={contact.id} role="listitem">
                       <div>
                         <p>{contact.firstName} {contact.lastName}</p>
@@ -559,7 +565,7 @@ export function CompaniesRoute() {
                   </Field>
                   <Button type="submit">Add note</Button>
                 </form>
-                <div className="record-list" role="list" aria-label="Company notes list">
+                <div className="record-list" role="list" aria-label="Client notes list">
                   {selectedNotes.map((note) => (
                     <article className="record-row" key={note.id} role="listitem">
                       <div>
@@ -593,7 +599,7 @@ export function CompaniesRoute() {
                   </Field>
                   <Button type="submit">Save task</Button>
                 </form>
-                <div className="record-list" role="list" aria-label="Company tasks list">
+                <div className="record-list" role="list" aria-label="Client tasks list">
                   {selectedTasks.map((task) => (
                     <article className="record-row" key={task.id} role="listitem">
                       <div>

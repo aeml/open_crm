@@ -7,7 +7,7 @@ afterEach(() => {
 })
 
 describe('companies flow', () => {
-  it('loads searchable companies list and opens company detail with linked contacts', async () => {
+  it('loads searchable clients list and opens client detail with linked contacts', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
@@ -155,10 +155,10 @@ describe('companies flow', () => {
 
     render(<AppRouter />)
 
-    expect(await screen.findByRole('heading', { name: /companies/i })).toBeInTheDocument()
+    expect(await screen.findByText(/see client ownership, linked people, and live pipeline in one place/i)).toBeInTheDocument()
     expect(await screen.findByText('northstar.example')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText(/search companies/i), { target: { value: 'northstar' } })
+    fireEvent.change(screen.getByLabelText(/search clients/i), { target: { value: 'northstar' } })
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/companies\?q=northstar/), expect.any(Object))
@@ -200,7 +200,7 @@ describe('companies flow', () => {
     })
   })
 
-  it('creates, updates, and archives a company', async () => {
+  it('creates, updates, and archives a client', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
@@ -301,19 +301,19 @@ describe('companies flow', () => {
 
     render(<AppRouter />)
 
-    expect(await screen.findByRole('heading', { name: /companies/i })).toBeInTheDocument()
+    expect(await screen.findByText(/see client ownership, linked people, and live pipeline in one place/i)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /add company/i }))
+    fireEvent.click(screen.getByRole('button', { name: /add client/i }))
     expect(screen.queryByLabelText(/linked contact ids/i)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^linked contact$/i)).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText(/company name/i), { target: { value: 'Atlas Manufacturing' } })
+    fireEvent.change(screen.getByLabelText(/client name/i), { target: { value: 'Atlas Manufacturing' } })
     fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: 'atlas.example' } })
     fireEvent.change(screen.getByLabelText(/industry/i), { target: { value: 'Industrial' } })
     fireEvent.change(screen.getByLabelText(/phone/i), { target: { value: '555-0200' } })
     fireEvent.change(screen.getByLabelText(/website/i), { target: { value: 'https://atlas.example' } })
     fireEvent.change(screen.getByLabelText(/^linked contact$/i), { target: { value: '7' } })
-    fireEvent.click(screen.getByRole('button', { name: /save company/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save client/i }))
 
     expect(await screen.findByRole('heading', { name: /atlas manufacturing/i })).toBeInTheDocument()
     await waitFor(() => {
@@ -331,13 +331,13 @@ describe('companies flow', () => {
 
     fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'customer' } })
     fireEvent.change(screen.getByLabelText(/^linked contact$/i), { target: { value: '8' } })
-    fireEvent.click(screen.getByRole('button', { name: /update company/i }))
+    fireEvent.click(screen.getByRole('button', { name: /update client/i }))
 
     expect(await screen.findByText(/company updated/i)).toBeInTheDocument()
     expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
     expect(screen.getByText('ava@acme.test')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /archive company/i }))
+    fireEvent.click(screen.getByRole('button', { name: /archive client/i }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/companies\/6$/), expect.objectContaining({ method: 'DELETE' }))

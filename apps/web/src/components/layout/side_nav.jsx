@@ -3,7 +3,6 @@ import { useAuth } from '../../app/providers'
 
 const baseLinks = [
   { to: '/dashboard', labelKey: 'dashboard', fallback: 'Dashboard' },
-  { to: '/contacts', labelKey: 'contacts', fallback: 'Contacts' },
   { to: '/companies', labelKey: 'companies', fallback: 'Companies' },
   { to: '/deals', labelKey: 'deals', fallback: 'Deals' },
   { to: '/tasks', labelKey: 'tasks', fallback: 'Tasks' },
@@ -39,6 +38,18 @@ function defaultLabelsForBusinessType(businessType) {
   return {}
 }
 
+function defaultFallbacksForBusinessType(businessType) {
+  if (businessType === 'product-sales') {
+    return {
+      companies: 'Accounts'
+    }
+  }
+
+  return {
+    companies: 'Clients'
+  }
+}
+
 export function SideNav() {
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
@@ -46,6 +57,7 @@ export function SideNav() {
     ...defaultLabelsForBusinessType(businessType),
     ...(businessProfile?.labels || {})
   }
+  const fallbacks = defaultFallbacksForBusinessType(businessType)
 
   return (
     <aside className="side-nav">
@@ -55,7 +67,7 @@ export function SideNav() {
           {baseLinks.map((link) => (
             <li key={link.to}>
               <NavLink to={link.to} className="side-nav-link">
-                {labels[link.labelKey] || link.fallback}
+                {labels[link.labelKey] || fallbacks[link.labelKey] || link.fallback}
               </NavLink>
             </li>
           ))}
