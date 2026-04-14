@@ -4,10 +4,18 @@ function getErrorMessage(payload, fallbackMessage) {
   return payload?.error?.message || fallbackMessage
 }
 
+function duplicateReasonLabel(message) {
+  const match = String(message || '').match(/\(([^()]+)\)\s*$/)
+  if (!match?.[1]) {
+    return 'possible duplicate'
+  }
+  return match[1].trim().toLowerCase()
+}
+
 function getCompanySaveError(response, payload, fallbackMessage) {
   const message = getErrorMessage(payload, fallbackMessage)
   if (response.status === 409) {
-    return `Possible duplicate company. Review the existing record before saving again. ${message}`
+    return `Possible duplicate company: ${duplicateReasonLabel(message)}. Review the existing record before saving again. ${message}`
   }
   return message
 }

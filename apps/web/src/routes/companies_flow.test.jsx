@@ -721,7 +721,7 @@ describe('companies flow', () => {
     fireEvent.change(within(createForm).getAllByLabelText(/website/i)[0], { target: { value: 'https://atlas.example' } })
     fireEvent.click(screen.getByRole('button', { name: /save client/i }))
 
-    expect(await screen.findByText(/possible duplicate company\. review the existing record before saving again\./i)).toBeInTheDocument()
+    expect(await screen.findByText(/possible duplicate company: matching website\. review the existing record before saving again\./i)).toBeInTheDocument()
     expect(screen.getByText(/duplicate company: atlas manufacturing/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /search existing clients for atlas manufacturing/i }))
 

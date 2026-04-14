@@ -222,7 +222,7 @@ describe('contacts flow', () => {
     fireEvent.change(within(detailForm).getByLabelText(/email/i), { target: { value: 'ava+dupe@acme.test' } })
     fireEvent.click(screen.getByRole('button', { name: /update contact/i }))
 
-    expect(await screen.findByText(/possible duplicate contact\. review the existing record before saving again\./i)).toBeInTheDocument()
+    expect(await screen.findByText(/possible duplicate contact: matching email\. review the existing record before saving again\./i)).toBeInTheDocument()
     expect(screen.getByText(/duplicate contact: ava stone/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /search existing contacts for ava stone/i }))
 

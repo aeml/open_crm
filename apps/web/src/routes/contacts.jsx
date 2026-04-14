@@ -71,9 +71,13 @@ function formatActivityTimestamp(createdAt) {
 }
 
 function duplicateSearchTerm(message, fallback = '') {
-  const match = String(message || '').match(/duplicate contact:\s*([^()]+)/i)
-  if (match?.[1]) {
-    return match[1].trim()
+  const text = String(message || '')
+  const marker = text.toLowerCase().lastIndexOf('duplicate contact:')
+  if (marker >= 0) {
+    const candidate = text.slice(marker + 'duplicate contact:'.length).split('(')[0].trim()
+    if (candidate) {
+      return candidate
+    }
   }
   return String(fallback || '').trim()
 }
