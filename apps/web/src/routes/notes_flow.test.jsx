@@ -101,14 +101,9 @@ describe('notes workflow', () => {
       })
 
     vi.stubGlobal('fetch', fetchMock)
-    window.history.pushState({}, '', '/contacts')
+    window.history.pushState({}, '', '/contacts/7')
 
     render(<AppRouter />)
-
-    expect(await screen.findByRole('heading', { name: /contacts/i })).toBeInTheDocument()
-    expect(await screen.findByText('morgan@acme.test')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /morgan lee/i }))
 
     expect(await screen.findByText(/initial discovery call logged/i)).toBeInTheDocument()
 

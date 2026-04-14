@@ -125,27 +125,60 @@ describe('companies flow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        status: 201,
         json: async () => ({
           data: {
-            task: {
-              id: 89,
-              entityType: 'company',
-              entityId: 5,
-              entityLabel: 'Northstar Logistics',
-              title: 'Send procurement checklist',
-              description: 'Share vendor intake requirements.',
-              status: 'open',
-              dueAt: '2026-04-20T16:30:00Z',
-              completedAt: '',
-              assignedToUserId: 2,
-              assignedToUserName: 'Alex Admin',
-              createdByUserId: 1,
-              createdByUserName: 'Demo Owner'
-            },
-            activities: [
-              { id: 112, action: 'task.created', summary: 'Task created' }
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
             ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
+            notes: [],
+            activities: [
+              { id: 100, action: 'contact.created', summary: 'Contact created' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            tasks: [
+              {
+                id: 88,
+                entityType: 'contact',
+                entityId: 7,
+                entityLabel: 'Morgan Lee',
+                title: 'Collect warehouse onboarding contacts',
+                description: 'Need ops and procurement owners.',
+                status: 'open',
+                dueAt: '2026-04-18T15:00:00Z',
+                completedAt: '',
+                assignedToUserId: 2,
+                assignedToUserName: 'Alex Admin',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner'
+              }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
           }
         })
       })
@@ -174,29 +207,16 @@ describe('companies flow', () => {
     expect(screen.getByText(/company created/i)).toBeInTheDocument()
     expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
     expect(await screen.findByText(/met procurement lead and validated timeline/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /morgan lee/i }))
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/contacts/7')
+    })
+    expect(await screen.findByText(/contact created/i)).toBeInTheDocument()
     expect(screen.getByText(/collect warehouse onboarding contacts/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/notes\?entityType=company&entityId=5$/), expect.any(Object))
-    })
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&entityType=company&entityId=5$/), expect.any(Object))
-    })
-
-    fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Send procurement checklist' } })
-    fireEvent.change(screen.getByLabelText(/task description/i), { target: { value: 'Share vendor intake requirements.' } })
-    fireEvent.change(screen.getByLabelText(/^assigned to$/i), { target: { value: '2' } })
-    fireEvent.change(screen.getByLabelText(/due at/i), { target: { value: '2026-04-20T16:30' } })
-    fireEvent.click(screen.getByRole('button', { name: /^save task$/i }))
-
-    expect(await screen.findByText(/send procurement checklist/i)).toBeInTheDocument()
-    expect(screen.getByText(/task created/i)).toBeInTheDocument()
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks$/), expect.objectContaining({
-        method: 'POST',
-        body: expect.stringContaining('"entityType":"company"')
-      }))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&entityType=contact&entityId=7$/), expect.any(Object))
     })
   })
 

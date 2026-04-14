@@ -302,7 +302,7 @@ export function ContactsRoute() {
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setMode('list')
-      navigate('/contacts')
+      navigate('/companies')
       setError('')
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive contact.')

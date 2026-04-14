@@ -544,7 +544,9 @@ export function CompaniesRoute() {
                   ) : linkedContacts.map((contact) => (
                     <article className="record-row" key={contact.id} role="listitem">
                       <div>
-                        <p>{contact.firstName} {contact.lastName}</p>
+                        <button className="button button-ghost contact-link" type="button" onClick={() => navigate(`/contacts/${contact.id}`)}>
+                          {contact.firstName} {contact.lastName}
+                        </button>
                         <p>{contact.relationshipTitle || 'Linked contact'}</p>
                       </div>
                       <div>

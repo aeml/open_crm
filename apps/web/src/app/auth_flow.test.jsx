@@ -22,7 +22,7 @@ describe('auth flow', () => {
       })
     )
 
-    window.history.pushState({}, '', '/contacts')
+    window.history.pushState({}, '', '/companies')
 
     render(<AppRouter />)
 

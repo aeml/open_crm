@@ -21,7 +21,7 @@ export function AppRouter() {
           <Route path="/" element={<RootRoute />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardRoute />} />
-            <Route path="contacts" element={<ContactsRoute />} />
+            <Route path="contacts" element={<Navigate to="/companies" replace />} />
             <Route path="contacts/:contactId" element={<ContactsRoute />} />
             <Route path="companies" element={<CompaniesRoute />} />
             <Route path="companies/:companyId" element={<CompaniesRoute />} />
