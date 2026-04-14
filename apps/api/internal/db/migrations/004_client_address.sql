@@ -1,0 +1,5 @@
+ALTER TABLE companies
+    ADD COLUMN IF NOT EXISTS address TEXT;
+
+ALTER TABLE contacts
+    ADD COLUMN IF NOT EXISTS address TEXT;

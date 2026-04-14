@@ -13,6 +13,7 @@ const emptyForm = {
   lastName: '',
   email: '',
   phone: '',
+  address: '',
   jobTitle: '',
   status: 'lead'
 }
@@ -34,6 +35,7 @@ function contactFormValues(contact) {
     lastName: contact.lastName || '',
     email: contact.email || '',
     phone: contact.phone || '',
+    address: contact.address || '',
     jobTitle: contact.jobTitle || '',
     status: contact.status || 'lead'
   }
@@ -412,7 +414,7 @@ export function ContactsRoute() {
                   <p>{contact.jobTitle || 'No title'}</p>
                 </div>
                 <div>
-                  <p>{contact.email}</p>
+                  <p>{contact.email || contact.address || 'No contact details'}</p>
                   <p>{contact.status}</p>
                 </div>
               </article>
@@ -442,6 +444,9 @@ export function ContactsRoute() {
               <Field label="Phone">
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
               </Field>
+              <Field label="Address">
+                <textarea className="text-input" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} rows={3} />
+              </Field>
               <Field label="Job title">
                 <input className="text-input" value={form.jobTitle} onChange={(event) => setForm((current) => ({ ...current, jobTitle: event.target.value }))} />
               </Field>
@@ -457,7 +462,7 @@ export function ContactsRoute() {
             <div className="section-header">
               <div>
                 <h2>{detailTitle}</h2>
-                <p>{selectedContact.email}</p>
+                <p>{selectedContact.email || selectedContact.address || selectedContact.phone}</p>
               </div>
               <Button className="button-danger" onClick={handleArchive}>
                 Archive contact
@@ -475,6 +480,9 @@ export function ContactsRoute() {
               </Field>
               <Field label="Phone">
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+              </Field>
+              <Field label="Address">
+                <textarea className="text-input" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} rows={3} />
               </Field>
               <Field label="Job title">
                 <input className="text-input" value={form.jobTitle} onChange={(event) => setForm((current) => ({ ...current, jobTitle: event.target.value }))} />

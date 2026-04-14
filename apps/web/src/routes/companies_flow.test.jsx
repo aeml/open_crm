@@ -25,7 +25,7 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', address: '100 Dock St', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -71,7 +71,7 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', address: '100 Dock St', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -90,7 +90,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
+            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', address: '100 Dock St', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],
@@ -210,7 +210,7 @@ describe('companies flow', () => {
     render(<AppRouter />)
 
     expect(await screen.findByText(/see client ownership, linked people, and live pipeline in one place/i)).toBeInTheDocument()
-    expect(await screen.findByText('northstar.example')).toBeInTheDocument()
+    expect(await screen.findByText('100 Dock St')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/search clients/i), { target: { value: 'northstar' } })
 
@@ -300,7 +300,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
+            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', address: '55 Foundry Way', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],
@@ -336,7 +336,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'customer' },
+            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', address: '55 Foundry Way', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'customer' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true },
               { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', relationshipTitle: 'Evaluator', isPrimary: false }
@@ -368,6 +368,7 @@ describe('companies flow', () => {
     expect(screen.getByLabelText(/client type/i)).toHaveValue('organization')
 
     fireEvent.change(screen.getByLabelText(/client name/i), { target: { value: 'Atlas Manufacturing' } })
+    fireEvent.change(screen.getByLabelText(/address/i), { target: { value: '55 Foundry Way' } })
     fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: 'atlas.example' } })
     fireEvent.change(screen.getByLabelText(/industry/i), { target: { value: 'Industrial' } })
     fireEvent.change(screen.getByLabelText(/phone/i), { target: { value: '555-0200' } })
@@ -392,6 +393,7 @@ describe('companies flow', () => {
     expect(within(detailForm).getByLabelText(/linked contact/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'customer' } })
+    fireEvent.change(screen.getByLabelText(/address/i), { target: { value: '55 Foundry Way' } })
     fireEvent.change(within(detailForm).getByLabelText(/linked contact/i), { target: { value: '8' } })
     fireEvent.click(screen.getByRole('button', { name: /update client/i }))
 
@@ -410,11 +412,11 @@ describe('companies flow', () => {
 
     const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/companies$/) && options?.method === 'POST')
     expect(createCall).toBeTruthy()
-    expect(JSON.parse(createCall[1].body)).toMatchObject({ clientType: 'organization', linkedContactIDs: [7] })
+    expect(JSON.parse(createCall[1].body)).toMatchObject({ clientType: 'organization', address: '55 Foundry Way', linkedContactIDs: [7] })
 
     const updateCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/companies\/6$/) && options?.method === 'PATCH')
     expect(updateCall).toBeTruthy()
-    expect(JSON.parse(updateCall[1].body)).toMatchObject({ clientType: 'organization', linkedContactIDs: [8] })
+    expect(JSON.parse(updateCall[1].body)).toMatchObject({ clientType: 'organization', address: '55 Foundry Way', linkedContactIDs: [8] })
   })
 
   it('creates an individual client with one linked person record', async () => {
@@ -441,8 +443,8 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Consultant', status: 'lead', isClient: false },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'Founder', status: 'lead', isClient: false }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', address: '100 Dock St', jobTitle: 'Consultant', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', address: '55 Foundry Way', jobTitle: 'Founder', status: 'lead', isClient: false }
             ],
             meta: { page: 1, pageSize: 20, total: 2 }
           }
@@ -453,8 +455,8 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Consultant', status: 'lead', isClient: false },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'Founder', status: 'lead', isClient: false }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', address: '100 Dock St', jobTitle: 'Consultant', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', address: '55 Foundry Way', jobTitle: 'Founder', status: 'lead', isClient: false }
             ],
             meta: { page: 1, pageSize: 20, total: 2 }
           }
@@ -475,7 +477,7 @@ describe('companies flow', () => {
         status: 201,
         json: async () => ({
           data: {
-            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', jobTitle: '', status: 'prospect', isClient: true },
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', address: '55 Foundry Way', jobTitle: '', status: 'prospect', isClient: true },
             notes: [],
             activities: []
           }
@@ -486,8 +488,8 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Consultant', status: 'lead', isClient: false },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', jobTitle: '', status: 'prospect', isClient: true }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', address: '100 Dock St', jobTitle: 'Consultant', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', address: '55 Foundry Way', jobTitle: '', status: 'prospect', isClient: true }
             ],
             meta: { page: 1, pageSize: 20, total: 2 }
           }
@@ -507,7 +509,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', jobTitle: '', status: 'prospect', isClient: true },
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', address: '55 Foundry Way', jobTitle: '', status: 'prospect', isClient: true },
             notes: [],
             activities: []
           }
@@ -539,6 +541,7 @@ describe('companies flow', () => {
     expect(within(createForm).getByLabelText(/person record/i)).toBeInTheDocument()
     expect(within(createForm).getByLabelText(/full name/i)).toBeInTheDocument()
     expect(within(createForm).getByLabelText(/phone number/i)).toBeInTheDocument()
+    expect(within(createForm).getByLabelText(/address/i)).toBeInTheDocument()
     expect(within(createForm).queryByLabelText(/^domain/i)).not.toBeInTheDocument()
     expect(within(createForm).queryByLabelText(/industry/i)).not.toBeInTheDocument()
     expect(within(createForm).queryByLabelText(/website/i)).not.toBeInTheDocument()
@@ -548,6 +551,7 @@ describe('companies flow', () => {
     expect(within(createForm).getByLabelText(/phone number/i)).toHaveValue('555-0100')
     fireEvent.change(within(createForm).getByLabelText(/person record/i), { target: { value: '8' } })
     fireEvent.change(within(createForm).getByLabelText(/full name/i), { target: { value: 'Ava Stone' } })
+    fireEvent.change(within(createForm).getByLabelText(/address/i), { target: { value: '55 Foundry Way' } })
     fireEvent.click(screen.getByRole('button', { name: /save client/i }))
 
     expect(await screen.findByRole('heading', { name: /ava stone/i })).toBeInTheDocument()
@@ -557,7 +561,7 @@ describe('companies flow', () => {
 
     const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/contacts$/) && options?.method === 'POST')
     expect(createCall).toBeTruthy()
-    expect(JSON.parse(createCall[1].body)).toMatchObject({ firstName: 'Ava', lastName: 'Stone', phone: '555-0100', status: 'prospect', isClient: true })
+    expect(JSON.parse(createCall[1].body)).toMatchObject({ firstName: 'Ava', lastName: 'Stone', phone: '555-0100', address: '55 Foundry Way', status: 'prospect', isClient: true })
   })
 
   it('loads a company directly from the detail route', async () => {
@@ -578,7 +582,7 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', address: '100 Dock St', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -620,7 +624,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
+            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', address: '100 Dock St', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],

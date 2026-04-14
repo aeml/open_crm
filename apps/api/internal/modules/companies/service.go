@@ -14,6 +14,7 @@ type Summary struct {
 	ID         int64  `json:"id"`
 	Name       string `json:"name"`
 	ClientType string `json:"clientType"`
+	Address    string `json:"address"`
 	Domain     string `json:"domain"`
 	Industry   string `json:"industry"`
 	Phone      string `json:"phone"`
@@ -57,6 +58,7 @@ type ListResult struct {
 type CreateInput struct {
 	Name             string  `json:"name"`
 	ClientType       string  `json:"clientType"`
+	Address          string  `json:"address"`
 	Domain           string  `json:"domain"`
 	Industry         string  `json:"industry"`
 	Phone            string  `json:"phone"`
@@ -68,6 +70,7 @@ type CreateInput struct {
 type UpdateInput struct {
 	Name             string  `json:"name"`
 	ClientType       string  `json:"clientType"`
+	Address          string  `json:"address"`
 	Domain           string  `json:"domain"`
 	Industry         string  `json:"industry"`
 	Phone            string  `json:"phone"`
@@ -121,7 +124,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	limitArg := len(args) - 1
 	offsetArg := len(args)
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, client_type, COALESCE(domain, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
+		SELECT id, name, client_type, COALESCE(address, ''), COALESCE(domain, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
 		FROM companies
 		WHERE organization_id = $1 AND archived_at IS NULL`+filter+`
 		ORDER BY name ASC, id ASC
@@ -134,7 +137,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	companies := make([]Summary, 0)
 	for rows.Next() {
 		var company Summary
-		if err := rows.Scan(&company.ID, &company.Name, &company.ClientType, &company.Domain, &company.Industry, &company.Phone, &company.Website, &company.Status); err != nil {
+		if err := rows.Scan(&company.ID, &company.Name, &company.ClientType, &company.Address, &company.Domain, &company.Industry, &company.Phone, &company.Website, &company.Status); err != nil {
 			return ListResult{}, fmt.Errorf("scan company: %w", err)
 		}
 		companies = append(companies, company)
@@ -163,10 +166,10 @@ func (s *Service) GetByID(ctx context.Context, organizationID, companyID int64) 
 		Activities:     []ActivityEntry{},
 	}
 	if err := s.pool.QueryRow(ctx, `
-		SELECT id, name, client_type, COALESCE(domain, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
+		SELECT id, name, client_type, COALESCE(address, ''), COALESCE(domain, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
 		FROM companies
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, companyID).Scan(&detail.Summary.ID, &detail.Summary.Name, &detail.Summary.ClientType, &detail.Summary.Domain, &detail.Summary.Industry, &detail.Summary.Phone, &detail.Summary.Website, &detail.Summary.Status); err != nil {
+	`, organizationID, companyID).Scan(&detail.Summary.ID, &detail.Summary.Name, &detail.Summary.ClientType, &detail.Summary.Address, &detail.Summary.Domain, &detail.Summary.Industry, &detail.Summary.Phone, &detail.Summary.Website, &detail.Summary.Status); err != nil {
 		return Detail{}, fmt.Errorf("get company: %w", err)
 	}
 
@@ -236,10 +239,10 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 
 	var companyID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO companies (organization_id, name, client_type, domain, industry, phone, website, status, owner_user_id)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9)
+		INSERT INTO companies (organization_id, name, client_type, address, domain, industry, phone, website, status, owner_user_id)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), $10)
 		RETURNING id
-	`, organizationID, input.Name, input.ClientType, input.Domain, input.Industry, input.Phone, input.Website, input.Status, actorUserID).Scan(&companyID); err != nil {
+	`, organizationID, input.Name, input.ClientType, input.Address, input.Domain, input.Industry, input.Phone, input.Website, input.Status, actorUserID).Scan(&companyID); err != nil {
 		return Detail{}, fmt.Errorf("insert company: %w", err)
 	}
 
@@ -277,15 +280,16 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 		UPDATE companies
 		SET name = $3,
 		    client_type = $4,
-		    domain = NULLIF($5, ''),
-		    industry = NULLIF($6, ''),
-		    phone = NULLIF($7, ''),
-		    website = NULLIF($8, ''),
-		    status = NULLIF($9, ''),
+		    address = NULLIF($5, ''),
+		    domain = NULLIF($6, ''),
+		    industry = NULLIF($7, ''),
+		    phone = NULLIF($8, ''),
+		    website = NULLIF($9, ''),
+		    status = NULLIF($10, ''),
 		    updated_at = NOW(),
-		    owner_user_id = COALESCE(owner_user_id, $10)
+		    owner_user_id = COALESCE(owner_user_id, $11)
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, companyID, input.Name, input.ClientType, input.Domain, input.Industry, input.Phone, input.Website, input.Status, actorUserID); err != nil {
+	`, organizationID, companyID, input.Name, input.ClientType, input.Address, input.Domain, input.Industry, input.Phone, input.Website, input.Status, actorUserID); err != nil {
 		return Detail{}, fmt.Errorf("update company: %w", err)
 	}
 
@@ -369,6 +373,7 @@ func uniquePositiveIDs(values []int64) []int64 {
 func normalizeCreateInput(input CreateInput) CreateInput {
 	input.Name = strings.TrimSpace(input.Name)
 	input.ClientType = normalizeClientType(input.ClientType)
+	input.Address = strings.TrimSpace(input.Address)
 	input.Domain = strings.TrimSpace(strings.ToLower(input.Domain))
 	input.Industry = strings.TrimSpace(input.Industry)
 	input.Phone = strings.TrimSpace(input.Phone)
@@ -381,6 +386,7 @@ func normalizeCreateInput(input CreateInput) CreateInput {
 func normalizeUpdateInput(input UpdateInput) UpdateInput {
 	input.Name = strings.TrimSpace(input.Name)
 	input.ClientType = normalizeClientType(input.ClientType)
+	input.Address = strings.TrimSpace(input.Address)
 	input.Domain = strings.TrimSpace(strings.ToLower(input.Domain))
 	input.Industry = strings.TrimSpace(input.Industry)
 	input.Phone = strings.TrimSpace(input.Phone)

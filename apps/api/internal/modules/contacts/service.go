@@ -16,6 +16,7 @@ type Summary struct {
 	LastName  string `json:"lastName"`
 	Email     string `json:"email"`
 	Phone     string `json:"phone"`
+	Address   string `json:"address"`
 	JobTitle  string `json:"jobTitle"`
 	Status    string `json:"status"`
 	IsClient  bool   `json:"isClient"`
@@ -43,6 +44,7 @@ type CreateInput struct {
 	LastName  string `json:"lastName"`
 	Email     string `json:"email"`
 	Phone     string `json:"phone"`
+	Address   string `json:"address"`
 	JobTitle  string `json:"jobTitle"`
 	Status    string `json:"status"`
 	IsClient  bool   `json:"isClient"`
@@ -53,6 +55,7 @@ type UpdateInput struct {
 	LastName  string `json:"lastName"`
 	Email     string `json:"email"`
 	Phone     string `json:"phone"`
+	Address   string `json:"address"`
 	JobTitle  string `json:"jobTitle"`
 	Status    string `json:"status"`
 	IsClient  bool   `json:"isClient"`
@@ -115,7 +118,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	limitArg := len(args) - 1
 	offsetArg := len(args)
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client
+		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client
 		FROM contacts
 		WHERE organization_id = $1 AND archived_at IS NULL`+filter+`
 		ORDER BY last_name ASC, first_name ASC, id ASC
@@ -128,7 +131,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	contacts := make([]Summary, 0)
 	for rows.Next() {
 		var contact Summary
-		if err := rows.Scan(&contact.ID, &contact.FirstName, &contact.LastName, &contact.Email, &contact.Phone, &contact.JobTitle, &contact.Status, &contact.IsClient); err != nil {
+		if err := rows.Scan(&contact.ID, &contact.FirstName, &contact.LastName, &contact.Email, &contact.Phone, &contact.Address, &contact.JobTitle, &contact.Status, &contact.IsClient); err != nil {
 			return ListResult{}, fmt.Errorf("scan contact: %w", err)
 		}
 		contacts = append(contacts, contact)
@@ -158,10 +161,10 @@ func (s *Service) GetByID(ctx context.Context, organizationID, contactID int64) 
 		Activities: []ActivityEntry{},
 	}
 	if err := s.pool.QueryRow(ctx, `
-		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client
+		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client
 		FROM contacts
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, contactID).Scan(&detail.Summary.ID, &detail.Summary.FirstName, &detail.Summary.LastName, &detail.Summary.Email, &detail.Summary.Phone, &detail.Summary.JobTitle, &detail.Summary.Status, &detail.Summary.IsClient); err != nil {
+	`, organizationID, contactID).Scan(&detail.Summary.ID, &detail.Summary.FirstName, &detail.Summary.LastName, &detail.Summary.Email, &detail.Summary.Phone, &detail.Summary.Address, &detail.Summary.JobTitle, &detail.Summary.Status, &detail.Summary.IsClient); err != nil {
 		return Detail{}, fmt.Errorf("get contact: %w", err)
 	}
 
@@ -208,10 +211,10 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 
 	var contactID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO contacts (organization_id, first_name, last_name, email, phone, job_title, status, is_client, owner_user_id)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), $8, $9)
+		INSERT INTO contacts (organization_id, first_name, last_name, email, phone, address, job_title, status, is_client, owner_user_id)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10)
 		RETURNING id
-	`, organizationID, input.FirstName, input.LastName, input.Email, input.Phone, input.JobTitle, input.Status, input.IsClient, actorUserID).Scan(&contactID); err != nil {
+	`, organizationID, input.FirstName, input.LastName, input.Email, input.Phone, input.Address, input.JobTitle, input.Status, input.IsClient, actorUserID).Scan(&contactID); err != nil {
 		return Detail{}, fmt.Errorf("insert contact: %w", err)
 	}
 
@@ -248,12 +251,13 @@ func (s *Service) Update(ctx context.Context, organizationID, contactID, actorUs
 		    last_name = $4,
 		    email = NULLIF($5, ''),
 		    phone = NULLIF($6, ''),
-		    job_title = NULLIF($7, ''),
-		    status = NULLIF($8, ''),
-		    is_client = $9,
+		    address = NULLIF($7, ''),
+		    job_title = NULLIF($8, ''),
+		    status = NULLIF($9, ''),
+		    is_client = $10,
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, contactID, input.FirstName, input.LastName, input.Email, input.Phone, input.JobTitle, input.Status, input.IsClient); err != nil {
+	`, organizationID, contactID, input.FirstName, input.LastName, input.Email, input.Phone, input.Address, input.JobTitle, input.Status, input.IsClient); err != nil {
 		return Detail{}, fmt.Errorf("update contact: %w", err)
 	}
 
@@ -301,6 +305,7 @@ func normalizeCreateInput(input CreateInput) CreateInput {
 	input.LastName = strings.TrimSpace(input.LastName)
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	input.Phone = strings.TrimSpace(input.Phone)
+	input.Address = strings.TrimSpace(input.Address)
 	input.JobTitle = strings.TrimSpace(input.JobTitle)
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	return input
@@ -311,6 +316,7 @@ func normalizeUpdateInput(input UpdateInput) UpdateInput {
 	input.LastName = strings.TrimSpace(input.LastName)
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	input.Phone = strings.TrimSpace(input.Phone)
+	input.Address = strings.TrimSpace(input.Address)
 	input.JobTitle = strings.TrimSpace(input.JobTitle)
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	return input

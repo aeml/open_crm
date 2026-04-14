@@ -12,6 +12,7 @@ import { listOrganizationUsers } from '../lib/users'
 const emptyForm = {
   name: '',
   clientType: 'organization',
+  address: '',
   domain: '',
   industry: '',
   phone: '',
@@ -55,6 +56,7 @@ function individualClientFromContact(contact) {
     entityType: 'contact',
     clientType: 'individual',
     name: `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+    address: contact.address || '',
     domain: '',
     industry: contact.jobTitle || '',
     phone: contact.phone || '',
@@ -100,6 +102,7 @@ function buildCompanyPayload(form) {
   return {
     name: form.name,
     clientType: normalizeClientType(form.clientType),
+    address: form.address,
     domain: individual ? '' : form.domain,
     industry: individual ? '' : form.industry,
     phone: form.phone,
@@ -144,7 +147,7 @@ function detailSubtitle(company, linkedContacts = []) {
   if (isIndividualClient(company.clientType)) {
     return (linkedContacts?.[0]?.email) || company.phone || company.status || 'Individual client'
   }
-  return company.domain || company.status || ''
+  return company.address || company.domain || company.status || ''
 }
 
 function applyLinkedContactSelection(currentForm, contactOptions, value) {
@@ -245,6 +248,7 @@ export function CompaniesRoute() {
     setForm({
       name: data.company.name || '',
       clientType: normalizeClientType(data.company.clientType),
+      address: data.company.address || '',
       domain: data.company.domain || '',
       industry: data.company.industry || '',
       phone: data.company.phone || '',
@@ -400,6 +404,7 @@ export function CompaniesRoute() {
           lastName: fullName.lastName,
           email: '',
           phone: form.phone,
+          address: form.address,
           jobTitle: '',
           status: form.status,
           isClient: true
@@ -594,7 +599,7 @@ export function CompaniesRoute() {
                   <p>{company.industry || `${clientTypeLabel(company.clientType)} client`}</p>
                 </div>
                 <div>
-                  <p>{company.domain || company.email || clientTypeLabel(company.clientType)}</p>
+                  <p>{company.address || company.domain || company.email || clientTypeLabel(company.clientType)}</p>
                   <p>{company.status}</p>
                 </div>
               </article>
@@ -631,6 +636,9 @@ export function CompaniesRoute() {
               </Field>
               <Field label={phoneFieldLabel(form.clientType)}>
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+              </Field>
+              <Field label="Address">
+                <textarea className="text-input" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} rows={3} />
               </Field>
               <Field label={linkedContactFieldLabel(form.clientType)} hint={linkedContactFieldHint(form.clientType)}>
                 <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => applyLinkedContactSelection(current, contactOptions, event.target.value))}>
@@ -691,6 +699,9 @@ export function CompaniesRoute() {
               </Field>
               <Field label={phoneFieldLabel(form.clientType)}>
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+              </Field>
+              <Field label="Address">
+                <textarea className="text-input" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} rows={3} />
               </Field>
               <Field label="Status">
                 <select className="text-input" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>

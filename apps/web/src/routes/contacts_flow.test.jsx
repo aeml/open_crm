@@ -25,7 +25,7 @@ describe('contacts flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', address: '100 Dock St', jobTitle: 'Head of RevOps', status: 'lead' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -46,7 +46,7 @@ describe('contacts flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
+            contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', address: '100 Dock St', jobTitle: 'Head of RevOps', status: 'lead' },
             notes: [],
             activities: [
               { id: 100, action: 'contact.created', summary: 'Contact created' }
@@ -168,7 +168,7 @@ describe('contacts flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', address: '100 Dock St', jobTitle: 'Head of RevOps', status: 'lead' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -230,7 +230,7 @@ describe('contacts flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', jobTitle: 'COO', status: 'lead' },
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', address: '55 Foundry Way', jobTitle: 'COO', status: 'lead' },
             notes: [],
             activities: []
           }
@@ -249,7 +249,7 @@ describe('contacts flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', jobTitle: 'COO', status: 'customer' },
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', address: '55 Foundry Way', jobTitle: 'COO', status: 'customer' },
             notes: [],
             tasks: [],
             activities: [
@@ -270,6 +270,8 @@ describe('contacts flow', () => {
       expect(window.location.pathname).toBe('/contacts/8')
     })
 
+    fireEvent.change(screen.getByLabelText(/address/i), { target: { value: '55 Foundry Way' } })
+
     fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'customer' } })
     fireEvent.click(screen.getByRole('button', { name: /update contact/i }))
 
@@ -284,6 +286,10 @@ describe('contacts flow', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/companies')
     })
+
+    const updateCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/contacts\/8$/) && options?.method === 'PATCH')
+    expect(updateCall).toBeTruthy()
+    expect(JSON.parse(updateCall[1].body)).toMatchObject({ address: '55 Foundry Way', status: 'customer' })
   })
 
   it('loads a contact directly from the detail route', async () => {
@@ -304,7 +310,7 @@ describe('contacts flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', address: '100 Dock St', jobTitle: 'Head of RevOps', status: 'lead' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -324,7 +330,7 @@ describe('contacts flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
+            contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', address: '100 Dock St', jobTitle: 'Head of RevOps', status: 'lead' },
             notes: [],
             tasks: [],
             activities: [

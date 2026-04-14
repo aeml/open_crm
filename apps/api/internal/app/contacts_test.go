@@ -94,7 +94,7 @@ func addSessionCookie(request *http.Request) {
 func TestListContactsUsesCurrentOrganizationAndQuery(t *testing.T) {
 	service := &fakeContactsService{
 		listResult: modulecontacts.ListResult{
-			Contacts: []modulecontacts.Summary{{ID: 7, FirstName: "Morgan", LastName: "Lee", Email: "morgan@acme.test", Status: "lead", IsClient: true}},
+			Contacts: []modulecontacts.Summary{{ID: 7, FirstName: "Morgan", LastName: "Lee", Email: "morgan@acme.test", Address: "100 Dock St", Status: "lead", IsClient: true}},
 			Meta:     modulecontacts.ListMeta{Page: 2, PageSize: 10, Total: 1},
 		},
 	}
@@ -133,7 +133,7 @@ func TestListContactsUsesCurrentOrganizationAndQuery(t *testing.T) {
 func TestGetContactDetailUsesCurrentOrganization(t *testing.T) {
 	service := &fakeContactsService{
 		getResult: modulecontacts.Detail{
-			Summary:    modulecontacts.Summary{ID: 7, FirstName: "Morgan", LastName: "Lee", Email: "morgan@acme.test", Status: "lead", IsClient: true},
+			Summary:    modulecontacts.Summary{ID: 7, FirstName: "Morgan", LastName: "Lee", Email: "morgan@acme.test", Address: "100 Dock St", Status: "lead", IsClient: true},
 			Activities: []modulecontacts.ActivityEntry{{ID: 99, Action: "contact.created", Summary: "Contact created", CreatedAt: time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)}},
 		},
 	}
@@ -156,12 +156,12 @@ func TestGetContactDetailUsesCurrentOrganization(t *testing.T) {
 func TestCreateContactValidatesAndReturnsCreatedDetail(t *testing.T) {
 	service := &fakeContactsService{
 		createResult: modulecontacts.Detail{
-			Summary: modulecontacts.Summary{ID: 8, FirstName: "Ava", LastName: "Stone", Email: "ava@acme.test", Status: "lead", IsClient: true},
+			Summary: modulecontacts.Summary{ID: 8, FirstName: "Ava", LastName: "Stone", Email: "ava@acme.test", Address: "55 Foundry Way", Status: "lead", IsClient: true},
 		},
 	}
 	server := authenticatedContactsServer(service)
 
-	body := bytes.NewBufferString(`{"firstName":"Ava","lastName":"Stone","email":"ava@acme.test","phone":"555-0100","jobTitle":"COO","status":"lead","isClient":true}`)
+	body := bytes.NewBufferString(`{"firstName":"Ava","lastName":"Stone","email":"ava@acme.test","phone":"555-0100","address":"55 Foundry Way","jobTitle":"COO","status":"lead","isClient":true}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/contacts", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -175,7 +175,7 @@ func TestCreateContactValidatesAndReturnsCreatedDetail(t *testing.T) {
 	if service.lastCreateOrgID != 42 || service.lastCreateActorID != 1 {
 		t.Fatalf("unexpected create routing: org=%d actor=%d", service.lastCreateOrgID, service.lastCreateActorID)
 	}
-	if service.lastCreateInput.FirstName != "Ava" || service.lastCreateInput.JobTitle != "COO" || !service.lastCreateInput.IsClient {
+	if service.lastCreateInput.FirstName != "Ava" || service.lastCreateInput.JobTitle != "COO" || service.lastCreateInput.Address != "55 Foundry Way" || !service.lastCreateInput.IsClient {
 		t.Fatalf("unexpected create input: %#v", service.lastCreateInput)
 	}
 }
@@ -183,12 +183,12 @@ func TestCreateContactValidatesAndReturnsCreatedDetail(t *testing.T) {
 func TestUpdateContactUsesCurrentOrganization(t *testing.T) {
 	service := &fakeContactsService{
 		updateResult: modulecontacts.Detail{
-			Summary: modulecontacts.Summary{ID: 8, FirstName: "Ava", LastName: "Stone", Email: "ava@acme.test", Status: "customer", IsClient: true},
+			Summary: modulecontacts.Summary{ID: 8, FirstName: "Ava", LastName: "Stone", Email: "ava@acme.test", Address: "55 Foundry Way", Status: "customer", IsClient: true},
 		},
 	}
 	server := authenticatedContactsServer(service)
 
-	body := bytes.NewBufferString(`{"firstName":"Ava","lastName":"Stone","email":"ava@acme.test","phone":"555-0100","jobTitle":"COO","status":"customer","isClient":true}`)
+	body := bytes.NewBufferString(`{"firstName":"Ava","lastName":"Stone","email":"ava@acme.test","phone":"555-0100","address":"55 Foundry Way","jobTitle":"COO","status":"customer","isClient":true}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/contacts/8", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -202,7 +202,7 @@ func TestUpdateContactUsesCurrentOrganization(t *testing.T) {
 	if service.lastUpdateOrgID != 42 || service.lastUpdateID != 8 || service.lastUpdateActorID != 1 {
 		t.Fatalf("unexpected update routing: org=%d id=%d actor=%d", service.lastUpdateOrgID, service.lastUpdateID, service.lastUpdateActorID)
 	}
-	if service.lastUpdateInput.Status != "customer" || !service.lastUpdateInput.IsClient {
+	if service.lastUpdateInput.Status != "customer" || service.lastUpdateInput.Address != "55 Foundry Way" || !service.lastUpdateInput.IsClient {
 		t.Fatalf("unexpected update input: %#v", service.lastUpdateInput)
 	}
 }
