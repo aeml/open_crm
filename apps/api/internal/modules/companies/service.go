@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -440,7 +441,7 @@ func normalizeCreateInput(input CreateInput) CreateInput {
 	input.Country = strings.TrimSpace(input.Country)
 	input.Industry = strings.TrimSpace(input.Industry)
 	input.Phone = strings.TrimSpace(input.Phone)
-	input.Website = strings.TrimSpace(input.Website)
+	input.Website = normalizeWebsite(input.Website)
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	input.LinkedContactIDs = uniquePositiveIDs(input.LinkedContactIDs)
 	return input
@@ -457,7 +458,7 @@ func normalizeUpdateInput(input UpdateInput) UpdateInput {
 	input.Country = strings.TrimSpace(input.Country)
 	input.Industry = strings.TrimSpace(input.Industry)
 	input.Phone = strings.TrimSpace(input.Phone)
-	input.Website = strings.TrimSpace(input.Website)
+	input.Website = normalizeWebsite(input.Website)
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	input.LinkedContactIDs = uniquePositiveIDs(input.LinkedContactIDs)
 	return input
@@ -495,6 +496,37 @@ func normalizePhoneDigits(value string) string {
 		}
 	}
 	return builder.String()
+}
+
+func normalizeWebsite(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	if !strings.Contains(value, "://") {
+		value = "https://" + value
+	}
+
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return strings.ToLower(value)
+	}
+	if parsed.Host == "" && parsed.Path != "" {
+		parsed.Host = parsed.Path
+		parsed.Path = ""
+	}
+
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(parsed.Host)
+	if (parsed.Scheme == "https" && parsed.Port() == "443") || (parsed.Scheme == "http" && parsed.Port() == "80") {
+		parsed.Host = parsed.Hostname()
+	}
+	if parsed.Path == "/" {
+		parsed.Path = ""
+	}
+
+	return parsed.String()
 }
 
 func ensureNoDuplicateCompany(ctx context.Context, pool *pgxpool.Pool, organizationID, companyID int64, input CreateInput) error {
