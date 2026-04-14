@@ -130,6 +130,7 @@ export function DealsRoute() {
   const [form, setForm] = useState(emptyForm)
   const [detailForm, setDetailForm] = useState(emptyForm)
   const [search, setSearch] = useState('')
+  const [stageFilter, setStageFilter] = useState('all')
   const [ownerFilter, setOwnerFilter] = useState('all')
   const [companyOptions, setCompanyOptions] = useState([])
   const [contactOptions, setContactOptions] = useState([])
@@ -144,20 +145,22 @@ export function DealsRoute() {
   const [error, setError] = useState('')
   const [pipelineReady, setPipelineReady] = useState(false)
 
-  async function loadDeals(nextSearch = search, nextOwnerFilter = ownerFilter) {
+  async function loadDeals(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
     const loadedDeals = await listDeals({
       search: nextSearch,
+      stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
       ownerUserId: nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
     })
     setDeals(loadedDeals.deals || [])
     setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
   }
 
-  async function loadPipeline(nextSearch = search, nextOwnerFilter = ownerFilter) {
+  async function loadPipeline(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
     const [loadedStages, loadedDeals, loadedCompanies, loadedContacts, loadedUsers] = await Promise.all([
       listDealStages(),
       listDeals({
         search: nextSearch,
+        stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
         ownerUserId: nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
       }),
       listCompanies(),
@@ -284,7 +287,18 @@ export function DealsRoute() {
     const value = event.target.value
     setSearch(value)
     try {
-      await loadDeals(value)
+      await loadDeals(value, stageFilter, ownerFilter)
+      setError('')
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load deals.')
+    }
+  }
+
+  async function handleStageFilterChange(event) {
+    const value = event.target.value
+    setStageFilter(value)
+    try {
+      await loadDeals(search, value, ownerFilter)
       setError('')
     } catch (loadError) {
       setError(loadError.message || 'Unable to load deals.')
@@ -470,7 +484,7 @@ export function DealsRoute() {
     const value = event.target.value
     setOwnerFilter(value)
     try {
-      await loadDeals(search, value)
+      await loadDeals(search, stageFilter, value)
       setError('')
     } catch (loadError) {
       setError(loadError.message || 'Unable to load deals.')
@@ -515,6 +529,14 @@ export function DealsRoute() {
           </div>
           <Field label={labels.searchLabel}>
             <input className="text-input" value={search} onChange={handleSearchChange} />
+          </Field>
+          <Field label="Stage filter">
+            <select className="text-input" value={stageFilter} onChange={handleStageFilterChange}>
+              <option value="all">All stages</option>
+              {stages.map((stage) => (
+                <option key={stage.id} value={stage.id}>{stage.name}</option>
+              ))}
+            </select>
           </Field>
           <Field label="Owner filter">
             <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>

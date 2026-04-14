@@ -191,6 +191,26 @@ describe('deals flow', () => {
         json: async () => ({
           data: {
             deals: [
+              { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '60000.00' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deals: [
               { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
             ],
             meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '48000.00' }
@@ -300,7 +320,7 @@ describe('deals flow', () => {
     expect(screen.getByLabelText(/primary contact/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/deal name/i), { target: { value: 'Bluebird Rollout' } })
-    fireEvent.change(screen.getByLabelText(/stage/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/^stage$/i), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText(/^company$/i), { target: { value: '6' } })
     fireEvent.change(screen.getByLabelText(/primary contact/i), { target: { value: '8' } })
     fireEvent.change(screen.getByLabelText(/value amount/i), { target: { value: '60000.00' } })
@@ -314,10 +334,21 @@ describe('deals flow', () => {
       expect(window.location.pathname).toBe('/deals/12')
     })
 
-    fireEvent.change(screen.getByLabelText(/owner filter/i), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText(/stage filter/i), { target: { value: '2' } })
 
     expect(await screen.findByText(/showing 1 of 1 deals/i)).toBeInTheDocument()
+    expect(screen.queryByText(/northstar expansion/i)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/owner filter/i), { target: { value: '1' } })
+
+    expect(await screen.findByText(/showing 0 of 0 deals/i)).toBeInTheDocument()
     expect(screen.queryByText(/bluebird rollout/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/northstar expansion/i)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/stage filter/i), { target: { value: 'all' } })
+
+    expect(await screen.findByText(/showing 1 of 1 deals/i)).toBeInTheDocument()
+    expect(screen.getByText(/northstar expansion/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/owner filter/i), { target: { value: 'all' } })
 
