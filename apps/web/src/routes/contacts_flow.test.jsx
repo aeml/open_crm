@@ -196,7 +196,18 @@ describe('contacts flow', () => {
         ok: false,
         status: 409,
         json: async () => ({
-          error: { message: 'duplicate contact: Ava Stone' }
+          error: { message: 'duplicate contact: Ava Stone (matching email)' }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'COO', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
         })
       })
 
@@ -213,6 +224,12 @@ describe('contacts flow', () => {
 
     expect(await screen.findByText(/possible duplicate contact\. review the existing record before saving again\./i)).toBeInTheDocument()
     expect(screen.getByText(/duplicate contact: ava stone/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /search existing contacts for ava stone/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/search contacts/i)).toHaveValue('Ava Stone')
+    })
+    expect(await screen.findByRole('button', { name: /ava stone/i })).toBeInTheDocument()
   })
 
   it('redirects the old contacts workspace route to clients', async () => {

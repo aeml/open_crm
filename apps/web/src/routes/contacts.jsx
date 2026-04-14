@@ -70,6 +70,14 @@ function formatActivityTimestamp(createdAt) {
   return parsed.toLocaleString()
 }
 
+function duplicateSearchTerm(message, fallback = '') {
+  const match = String(message || '').match(/duplicate contact:\s*([^()]+)/i)
+  if (match?.[1]) {
+    return match[1].trim()
+  }
+  return String(fallback || '').trim()
+}
+
 export function ContactsRoute() {
   const navigate = useNavigate()
   const { contactId } = useParams()
@@ -86,6 +94,7 @@ export function ContactsRoute() {
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [error, setError] = useState('')
+  const [duplicateSearch, setDuplicateSearch] = useState('')
 
   const selectedContact = detail?.contact || null
   const selectedNotes = detail?.notes || []
@@ -132,6 +141,7 @@ export function ContactsRoute() {
         await Promise.all([loadContacts(''), loadUserOptions()])
         if (!cancelled) {
           setError('')
+          setDuplicateSearch('')
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -151,6 +161,21 @@ export function ContactsRoute() {
     setSearch(value)
     try {
       await loadContacts(value)
+      setError('')
+      setDuplicateSearch('')
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load contacts.')
+    }
+  }
+
+  async function handleDuplicateSearch() {
+    if (!duplicateSearch) {
+      return
+    }
+
+    setSearch(duplicateSearch)
+    try {
+      await loadContacts(duplicateSearch)
       setError('')
     } catch (loadError) {
       setError(loadError.message || 'Unable to load contacts.')
@@ -269,8 +294,10 @@ export function ContactsRoute() {
       setMode('detail')
       navigate(`/contacts/${data.contact.id}`)
       setError('')
+      setDuplicateSearch('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to create contact.')
+      setDuplicateSearch(duplicateSearchTerm(saveError.message, form.email || `${form.firstName} ${form.lastName}`))
     }
   }
 
@@ -292,8 +319,10 @@ export function ContactsRoute() {
       setDetail(detailData)
       setForm(contactFormValues(data.contact))
       setError('')
+      setDuplicateSearch('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to update contact.')
+      setDuplicateSearch(duplicateSearchTerm(saveError.message, form.email || `${form.firstName} ${form.lastName}`))
     }
   }
 
@@ -322,6 +351,7 @@ export function ContactsRoute() {
       setMode('list')
       navigate('/companies')
       setError('')
+      setDuplicateSearch('')
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive contact.')
     }
@@ -419,7 +449,18 @@ export function ContactsRoute() {
           <Field label="Search contacts">
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
-          {error ? <p className="form-error">{error}</p> : null}
+          {error ? (
+            <div className="card-stack">
+              <p className="form-error">{error}</p>
+              {duplicateSearch ? (
+                <div>
+                  <Button className="button-secondary" onClick={handleDuplicateSearch}>
+                    Search existing contacts for {duplicateSearch}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="record-list" role="list" aria-label="Contacts list">
             {contacts.map((contact) => (
               <article className="record-row" key={contact.id} role="listitem">

@@ -207,6 +207,14 @@ function formatActivityTimestamp(createdAt) {
   return parsed.toLocaleString()
 }
 
+function duplicateSearchTerm(message, fallback = '') {
+  const match = String(message || '').match(/duplicate (?:company|contact):\s*([^()]+)/i)
+  if (match?.[1]) {
+    return match[1].trim()
+  }
+  return String(fallback || '').trim()
+}
+
 export function CompaniesRoute() {
   const navigate = useNavigate()
   const { companyId } = useParams()
@@ -224,6 +232,7 @@ export function CompaniesRoute() {
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [error, setError] = useState('')
+  const [duplicateSearch, setDuplicateSearch] = useState('')
 
   const selectedCompany = detail?.company || null
   const linkedContacts = detail?.linkedContacts || []
@@ -298,6 +307,7 @@ export function CompaniesRoute() {
         await Promise.all([loadCompanies(''), loadContactOptions(), loadUserOptions()])
         if (!cancelled) {
           setError('')
+          setDuplicateSearch('')
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -317,6 +327,25 @@ export function CompaniesRoute() {
     setSearch(value)
     try {
       await loadCompanies(value)
+      setError('')
+      setDuplicateSearch('')
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load companies.')
+    }
+  }
+
+  async function handleDuplicateSearch() {
+    if (!duplicateSearch) {
+      return
+    }
+
+    setSearch(duplicateSearch)
+    setMode('list')
+    setDetail(null)
+    setSelectedCompanyId(null)
+    navigate('/companies')
+    try {
+      await loadCompanies(duplicateSearch)
       setError('')
     } catch (loadError) {
       setError(loadError.message || 'Unable to load companies.')
@@ -453,6 +482,7 @@ export function CompaniesRoute() {
         setMode('list')
         navigate(`/contacts/${data.contact.id}`)
         setError('')
+        setDuplicateSearch('')
         return
       }
 
@@ -474,8 +504,10 @@ export function CompaniesRoute() {
       setMode('detail')
       navigate(`/companies/${data.company.id}`)
       setError('')
+      setDuplicateSearch('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to create company.')
+      setDuplicateSearch(duplicateSearchTerm(saveError.message, form.website || form.email || form.phone || form.name))
     }
   }
 
@@ -498,8 +530,10 @@ export function CompaniesRoute() {
       setDetail(detailData)
       fillFormFromDetail(detailData)
       setError('')
+      setDuplicateSearch('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to update company.')
+      setDuplicateSearch(duplicateSearchTerm(saveError.message, form.website || form.email || form.phone || form.name))
     }
   }
 
@@ -528,6 +562,7 @@ export function CompaniesRoute() {
       setMode('list')
       navigate('/companies')
       setError('')
+      setDuplicateSearch('')
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive company.')
     }
@@ -625,7 +660,18 @@ export function CompaniesRoute() {
           <Field label="Search clients">
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
-          {error ? <p className="form-error">{error}</p> : null}
+          {error ? (
+            <div className="card-stack">
+              <p className="form-error">{error}</p>
+              {duplicateSearch ? (
+                <div>
+                  <Button className="button-secondary" onClick={handleDuplicateSearch}>
+                    Search existing clients for {duplicateSearch}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="record-list" role="list" aria-label="Clients list">
             {companies.map((company) => (
               <article className="record-row" key={company.id} role="listitem">

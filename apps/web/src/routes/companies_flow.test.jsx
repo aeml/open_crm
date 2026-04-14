@@ -682,7 +682,27 @@ describe('companies flow', () => {
         ok: false,
         status: 409,
         json: async () => ({
-          error: { message: 'duplicate company: Atlas Manufacturing' }
+          error: { message: 'duplicate company: Atlas Manufacturing (matching website)' }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            companies: [
+              { id: 9, name: 'Atlas Manufacturing', clientType: 'organization', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [],
+            meta: { page: 1, pageSize: 20, total: 0 }
+          }
         })
       })
 
@@ -703,6 +723,12 @@ describe('companies flow', () => {
 
     expect(await screen.findByText(/possible duplicate company\. review the existing record before saving again\./i)).toBeInTheDocument()
     expect(screen.getByText(/duplicate company: atlas manufacturing/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /search existing clients for atlas manufacturing/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/search clients/i)).toHaveValue('Atlas Manufacturing')
+    })
+    expect(await screen.findByRole('button', { name: /^atlas manufacturing$/i })).toBeInTheDocument()
   })
 
   it('loads a company directly from the detail route', async () => {
