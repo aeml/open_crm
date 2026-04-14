@@ -25,7 +25,7 @@ describe('entity task visibility', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -36,7 +36,18 @@ describe('entity task visibility', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -57,13 +68,20 @@ describe('entity task visibility', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
+            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [],
             activities: []
           }
         })
       })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { notes: [] } }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            notes: []
+          }
+        })
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -95,7 +113,7 @@ describe('entity task visibility', () => {
 
     render(<AppRouter />)
 
-    expect(await screen.findByRole('heading', { name: /companies/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /clients/i })).toBeInTheDocument()
     expect(await screen.findByText('northstar.example')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /northstar logistics/i }))
 
