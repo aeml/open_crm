@@ -334,7 +334,7 @@ describe('companies flow', () => {
     fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: 'atlas.example' } })
     fireEvent.change(screen.getByLabelText(/industry/i), { target: { value: 'Industrial' } })
     fireEvent.change(screen.getByLabelText(/phone/i), { target: { value: '555-0200' } })
-    fireEvent.change(screen.getByLabelText(/website/i), { target: { value: 'https://atlas.example' } })
+    fireEvent.change(within(createForm).getAllByLabelText(/website/i)[0], { target: { value: 'https://atlas.example' } })
     fireEvent.change(within(createForm).getByLabelText(/linked contact/i), { target: { value: '7' } })
     fireEvent.click(screen.getByRole('button', { name: /save client/i }))
 
@@ -449,18 +449,28 @@ describe('companies flow', () => {
 
     expect(screen.getByText(/individual clients need one linked person record/i)).toBeInTheDocument()
     expect(within(createForm).getByLabelText(/person record/i)).toBeInTheDocument()
+    expect(within(createForm).getByLabelText(/full name/i)).toBeInTheDocument()
+    expect(within(createForm).getByLabelText(/phone number/i)).toBeInTheDocument()
+    expect(within(createForm).queryByLabelText(/^domain/i)).not.toBeInTheDocument()
+    expect(within(createForm).queryByLabelText(/industry/i)).not.toBeInTheDocument()
+    expect(within(createForm).queryByLabelText(/website/i)).not.toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText(/client name/i), { target: { value: 'Morgan Lee' } })
     fireEvent.change(within(createForm).getByLabelText(/person record/i), { target: { value: '7' } })
+    expect(within(createForm).getByLabelText(/full name/i)).toHaveValue('Morgan Lee')
+    expect(within(createForm).getByLabelText(/phone number/i)).toHaveValue('555-0100')
     fireEvent.change(within(createForm).getByLabelText(/person record/i), { target: { value: '8' } })
+    fireEvent.change(within(createForm).getByLabelText(/full name/i), { target: { value: 'Ava Stone' } })
     fireEvent.click(screen.getByRole('button', { name: /save client/i }))
 
     expect(await screen.findByRole('heading', { name: /morgan lee/i })).toBeInTheDocument()
     expect(screen.getByText(/client record/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/^domain/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/industry/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/website/i)).not.toBeInTheDocument()
 
     const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/companies$/) && options?.method === 'POST')
     expect(createCall).toBeTruthy()
-    expect(JSON.parse(createCall[1].body)).toMatchObject({ clientType: 'individual', linkedContactIDs: [8] })
+    expect(JSON.parse(createCall[1].body)).toMatchObject({ clientType: 'individual', name: 'Ava Stone', phone: '555-0100', linkedContactIDs: [8], domain: '', industry: '', website: '' })
   })
 
   it('loads a company directly from the detail route', async () => {

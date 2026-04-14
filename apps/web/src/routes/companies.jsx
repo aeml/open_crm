@@ -38,55 +38,85 @@ function normalizeClientType(value) {
   return value === 'individual' ? 'individual' : 'organization'
 }
 
+function isIndividualClient(clientType) {
+  return normalizeClientType(clientType) === 'individual'
+}
+
 function limitLinkedContacts(clientType, value) {
   const ids = parseLinkedContactIDs(value)
-  if (normalizeClientType(clientType) === 'individual') {
+  if (isIndividualClient(clientType)) {
     return ids.slice(0, 1).join(',')
   }
   return ids.join(',')
 }
 
 function buildCompanyPayload(form) {
+  const individual = isIndividualClient(form.clientType)
   return {
     name: form.name,
     clientType: normalizeClientType(form.clientType),
-    domain: form.domain,
-    industry: form.industry,
+    domain: individual ? '' : form.domain,
+    industry: individual ? '' : form.industry,
     phone: form.phone,
-    website: form.website,
+    website: individual ? '' : form.website,
     status: form.status,
     linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs)
   }
 }
 
 function clientTypeLabel(clientType) {
-  return normalizeClientType(clientType) === 'individual' ? 'Individual' : 'Organization'
+  return isIndividualClient(clientType) ? 'Individual' : 'Organization'
 }
 
 function linkedContactFieldLabel(clientType) {
-  return normalizeClientType(clientType) === 'individual' ? 'Person record' : 'Linked contact'
+  return isIndividualClient(clientType) ? 'Person record' : 'Linked contact'
 }
 
 function linkedContactFieldHint(clientType) {
-  return normalizeClientType(clientType) === 'individual'
+  return isIndividualClient(clientType)
     ? 'Individual clients need one linked person record.'
     : 'Link the main person for this organization client.'
 }
 
 function createDescription(clientType) {
-  return normalizeClientType(clientType) === 'individual'
+  return isIndividualClient(clientType)
     ? 'Add an individual client and link the matching person record.'
     : 'Add an organization client and tie the right contacts to it immediately.'
 }
 
-function detailSubtitle(company) {
+function nameFieldLabel(clientType) {
+  return isIndividualClient(clientType) ? 'Full name' : 'Client name'
+}
+
+function phoneFieldLabel(clientType) {
+  return isIndividualClient(clientType) ? 'Phone number' : 'Phone'
+}
+
+function detailSubtitle(company, linkedContacts) {
   if (!company) {
     return ''
   }
-  if (normalizeClientType(company.clientType) === 'individual') {
-    return company.phone || company.status || 'Individual client'
+  if (isIndividualClient(company.clientType)) {
+    return (linkedContacts?.[0]?.email) || company.phone || company.status || 'Individual client'
   }
   return company.domain || company.status || ''
+}
+
+function applyLinkedContactSelection(currentForm, contactOptions, value) {
+  const nextLinkedContactIDs = limitLinkedContacts(currentForm.clientType, value)
+  if (!isIndividualClient(currentForm.clientType)) {
+    return { ...currentForm, linkedContactIDs: nextLinkedContactIDs }
+  }
+
+  const selectedID = parseLinkedContactIDs(nextLinkedContactIDs)[0] || 0
+  const selectedContact = contactOptions.find((contact) => contact.id === selectedID)
+
+  return {
+    ...currentForm,
+    linkedContactIDs: nextLinkedContactIDs,
+    name: currentForm.name || `${selectedContact?.firstName || ''} ${selectedContact?.lastName || ''}`.trim(),
+    phone: currentForm.phone || selectedContact?.phone || ''
+  }
 }
 
 function formatActivityTimestamp(createdAt) {
@@ -516,29 +546,33 @@ export function CompaniesRoute() {
                   <option value="individual">Individual</option>
                 </select>
               </Field>
-              <Field label="Client name">
+              <Field label={nameFieldLabel(form.clientType)}>
                 <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
               </Field>
-              <Field label="Domain">
-                <input className="text-input" value={form.domain} onChange={(event) => setForm((current) => ({ ...current, domain: event.target.value }))} />
-              </Field>
-              <Field label="Industry">
-                <input className="text-input" value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} />
-              </Field>
-              <Field label="Phone">
+              <Field label={phoneFieldLabel(form.clientType)}>
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
               </Field>
-              <Field label="Website">
-                <input className="text-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} />
-              </Field>
               <Field label={linkedContactFieldLabel(form.clientType)} hint={linkedContactFieldHint(form.clientType)}>
-                <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => ({ ...current, linkedContactIDs: event.target.value }))}>
+                <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => applyLinkedContactSelection(current, contactOptions, event.target.value))}>
                   <option value="">{normalizeClientType(form.clientType) === 'individual' ? 'Select person record' : 'No linked contact'}</option>
                   {contactOptions.map((contact) => (
                     <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
                   ))}
                 </select>
               </Field>
+              {!isIndividualClient(form.clientType) ? (
+                <>
+                  <Field label="Domain" hint="Company website or email domain, like acme.com.">
+                    <input className="text-input" value={form.domain} onChange={(event) => setForm((current) => ({ ...current, domain: event.target.value }))} />
+                  </Field>
+                  <Field label="Industry">
+                    <input className="text-input" value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} />
+                  </Field>
+                  <Field label="Website">
+                    <input className="text-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} />
+                  </Field>
+                </>
+              ) : null}
               <Button type="submit">Save client</Button>
             </form>
           </div>
@@ -572,20 +606,11 @@ export function CompaniesRoute() {
                   <option value="individual">Individual</option>
                 </select>
               </Field>
-              <Field label="Client name">
+              <Field label={nameFieldLabel(form.clientType)}>
                 <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
               </Field>
-              <Field label="Domain">
-                <input className="text-input" value={form.domain} onChange={(event) => setForm((current) => ({ ...current, domain: event.target.value }))} />
-              </Field>
-              <Field label="Industry">
-                <input className="text-input" value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} />
-              </Field>
-              <Field label="Phone">
+              <Field label={phoneFieldLabel(form.clientType)}>
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
-              </Field>
-              <Field label="Website">
-                <input className="text-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} />
               </Field>
               <Field label="Status">
                 <select className="text-input" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
@@ -595,13 +620,26 @@ export function CompaniesRoute() {
                 </select>
               </Field>
               <Field label={linkedContactFieldLabel(form.clientType)} hint={linkedContactFieldHint(form.clientType)}>
-                <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => ({ ...current, linkedContactIDs: event.target.value }))}>
+                <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => applyLinkedContactSelection(current, contactOptions, event.target.value))}>
                   <option value="">{normalizeClientType(form.clientType) === 'individual' ? 'Select person record' : 'No linked contact'}</option>
                   {contactOptions.map((contact) => (
                     <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
                   ))}
                 </select>
               </Field>
+              {!isIndividualClient(form.clientType) ? (
+                <>
+                  <Field label="Domain" hint="Company website or email domain, like acme.com.">
+                    <input className="text-input" value={form.domain} onChange={(event) => setForm((current) => ({ ...current, domain: event.target.value }))} />
+                  </Field>
+                  <Field label="Industry">
+                    <input className="text-input" value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} />
+                  </Field>
+                  <Field label="Website">
+                    <input className="text-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} />
+                  </Field>
+                </>
+              ) : null}
               <Button type="submit">Update client</Button>
             </form>
             <Card>
