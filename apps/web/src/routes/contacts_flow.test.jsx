@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 
 afterEach(() => {
@@ -137,6 +137,82 @@ describe('contacts flow', () => {
         body: expect.stringContaining('"entityType":"contact"')
       }))
     })
+  })
+
+  it('shows a clearer duplicate warning when updating a contact fails with conflict', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'COO', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'COO', status: 'lead' },
+            notes: [],
+            activities: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          error: { message: 'duplicate contact: Ava Stone' }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/contacts/8')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /ava stone/i })).toBeInTheDocument()
+
+    const detailForm = screen.getByRole('button', { name: /update contact/i }).closest('form')
+    fireEvent.change(within(detailForm).getByLabelText(/email/i), { target: { value: 'ava+dupe@acme.test' } })
+    fireEvent.click(screen.getByRole('button', { name: /update contact/i }))
+
+    expect(await screen.findByText(/possible duplicate contact\. review the existing record before saving again\./i)).toBeInTheDocument()
+    expect(screen.getByText(/duplicate contact: ava stone/i)).toBeInTheDocument()
   })
 
   it('redirects the old contacts workspace route to clients', async () => {

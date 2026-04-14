@@ -4,6 +4,14 @@ function getErrorMessage(payload, fallbackMessage) {
   return payload?.error?.message || fallbackMessage
 }
 
+function getContactSaveError(response, payload, fallbackMessage) {
+  const message = getErrorMessage(payload, fallbackMessage)
+  if (response.status === 409) {
+    return `Possible duplicate contact. Review the existing record before saving again. ${message}`
+  }
+  return message
+}
+
 async function readJSON(response) {
   if (response.status === 204) {
     return {}
@@ -50,7 +58,7 @@ export async function createContact(input) {
   const payload = await readJSON(response)
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(payload, 'Unable to create contact.'))
+    throw new Error(getContactSaveError(response, payload, 'Unable to create contact.'))
   }
 
   return payload?.data
@@ -68,7 +76,7 @@ export async function updateContact(contactID, input) {
   const payload = await readJSON(response)
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(payload, 'Unable to update contact.'))
+    throw new Error(getContactSaveError(response, payload, 'Unable to update contact.'))
   }
 
   return payload?.data

@@ -627,6 +627,84 @@ describe('companies flow', () => {
     expect(JSON.parse(createCall[1].body)).toMatchObject({ firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', status: 'prospect', isClient: true })
   })
 
+  it('shows a clearer duplicate warning when creating a company client fails with conflict', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          error: { message: 'duplicate company: Atlas Manufacturing' }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/companies')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/see client ownership, linked people, and live pipeline in one place/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /add client/i }))
+    const createForm = screen.getByRole('button', { name: /save client/i }).closest('form')
+
+    fireEvent.change(within(createForm).getByLabelText(/client name/i), { target: { value: 'Atlas Manufacturing' } })
+    fireEvent.change(within(createForm).getByLabelText(/phone/i), { target: { value: '555-0200' } })
+    fireEvent.change(within(createForm).getAllByLabelText(/website/i)[0], { target: { value: 'https://atlas.example' } })
+    fireEvent.click(screen.getByRole('button', { name: /save client/i }))
+
+    expect(await screen.findByText(/possible duplicate company\. review the existing record before saving again\./i)).toBeInTheDocument()
+    expect(screen.getByText(/duplicate company: atlas manufacturing/i)).toBeInTheDocument()
+  })
+
   it('loads a company directly from the detail route', async () => {
     const fetchMock = vi
       .fn()
