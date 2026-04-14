@@ -19,7 +19,8 @@ const emptyForm = {
   status: 'open',
   valueAmount: '',
   valueCurrency: 'USD',
-  expectedCloseDate: ''
+  expectedCloseDate: '',
+  ownerUserId: ''
 }
 
 const emptyTaskForm = {
@@ -46,7 +47,8 @@ function dealFormValues(deal) {
     status: deal.status || 'open',
     valueAmount: deal.valueAmount || '',
     valueCurrency: deal.valueCurrency || 'USD',
-    expectedCloseDate: deal.expectedCloseDate || ''
+    expectedCloseDate: deal.expectedCloseDate || '',
+    ownerUserId: deal.ownerUserId ? String(deal.ownerUserId) : ''
   }
 }
 
@@ -128,6 +130,7 @@ export function DealsRoute() {
   const [form, setForm] = useState(emptyForm)
   const [detailForm, setDetailForm] = useState(emptyForm)
   const [search, setSearch] = useState('')
+  const [ownerFilter, setOwnerFilter] = useState('all')
   const [companyOptions, setCompanyOptions] = useState([])
   const [contactOptions, setContactOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
@@ -141,16 +144,22 @@ export function DealsRoute() {
   const [error, setError] = useState('')
   const [pipelineReady, setPipelineReady] = useState(false)
 
-  async function loadDeals(nextSearch = search) {
-    const loadedDeals = await listDeals({ search: nextSearch })
+  async function loadDeals(nextSearch = search, nextOwnerFilter = ownerFilter) {
+    const loadedDeals = await listDeals({
+      search: nextSearch,
+      ownerUserId: nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
+    })
     setDeals(loadedDeals.deals || [])
     setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
   }
 
-  async function loadPipeline(nextSearch = search) {
+  async function loadPipeline(nextSearch = search, nextOwnerFilter = ownerFilter) {
     const [loadedStages, loadedDeals, loadedCompanies, loadedContacts, loadedUsers] = await Promise.all([
       listDealStages(),
-      listDeals({ search: nextSearch }),
+      listDeals({
+        search: nextSearch,
+        ownerUserId: nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
+      }),
       listCompanies(),
       listContacts(),
       listOrganizationUsers()
@@ -168,7 +177,8 @@ export function DealsRoute() {
       ...current,
       stageId: current.stageId || (loadedStages[0] ? String(loadedStages[0].id) : ''),
       companyId: current.companyId || (loadedCompanies.companies?.[0] ? String(loadedCompanies.companies[0].id) : ''),
-      primaryContactId: current.primaryContactId || (loadedContacts.contacts?.[0] ? String(loadedContacts.contacts[0].id) : '')
+      primaryContactId: current.primaryContactId || (loadedContacts.contacts?.[0] ? String(loadedContacts.contacts[0].id) : ''),
+      ownerUserId: current.ownerUserId || (loadedUsers[0] ? String(loadedUsers[0].id) : '')
     }))
     setTaskForm((current) => {
       if (current.assignedToUserId || loadedUsers.length === 0) {
@@ -292,7 +302,8 @@ export function DealsRoute() {
         status: form.status,
         valueAmount: form.valueAmount,
         valueCurrency: form.valueCurrency,
-        expectedCloseDate: form.expectedCloseDate
+        expectedCloseDate: form.expectedCloseDate,
+        ownerUserId: Number.parseInt(form.ownerUserId, 10) || 0
       })
       setDeals((current) => [...current, data.deal])
       setNotes(data.notes || [])
@@ -370,7 +381,7 @@ export function DealsRoute() {
         valueAmount: detailForm.valueAmount,
         valueCurrency: detailForm.valueCurrency,
         expectedCloseDate: detailForm.expectedCloseDate,
-        ownerUserId: selectedDeal?.ownerUserId || 0
+        ownerUserId: Number.parseInt(detailForm.ownerUserId, 10) || 0
       })
       setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
       setDetailForm(dealFormValues(data.deal))
@@ -455,6 +466,17 @@ export function DealsRoute() {
     }
   }
 
+  async function handleOwnerFilterChange(event) {
+    const value = event.target.value
+    setOwnerFilter(value)
+    try {
+      await loadDeals(search, value)
+      setError('')
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load deals.')
+    }
+  }
+
   return (
     <section className="dashboard-grid contacts-grid">
       <Card>
@@ -493,6 +515,14 @@ export function DealsRoute() {
           </div>
           <Field label={labels.searchLabel}>
             <input className="text-input" value={search} onChange={handleSearchChange} />
+          </Field>
+          <Field label="Owner filter">
+            <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
+              <option value="all">All owners</option>
+              {userOptions.map((user) => (
+                <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+              ))}
+            </select>
           </Field>
           {error ? <p className="form-error">{error}</p> : null}
           <div className="record-list" role="list" aria-label={labels.listAria}>
@@ -557,6 +587,13 @@ export function DealsRoute() {
             <Field label={labels.dateLabel}>
               <input className="text-input" type="date" value={form.expectedCloseDate} onChange={(event) => setForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
             </Field>
+            <Field label="Owner">
+              <select className="text-input" value={form.ownerUserId} onChange={(event) => setForm((current) => ({ ...current, ownerUserId: event.target.value }))}>
+                {userOptions.map((user) => (
+                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                ))}
+              </select>
+            </Field>
             <Button type="submit">{`Save ${labels.singular.toLowerCase()}`}</Button>
           </form>
         </div>
@@ -609,6 +646,13 @@ export function DealsRoute() {
               </Field>
               <Field label={labels.dateLabel}>
                 <input className="text-input" type="date" value={detailForm.expectedCloseDate} onChange={(event) => setDetailForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
+              </Field>
+              <Field label="Owner">
+                <select className="text-input" value={detailForm.ownerUserId} onChange={(event) => setDetailForm((current) => ({ ...current, ownerUserId: event.target.value }))}>
+                  {userOptions.map((user) => (
+                    <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                  ))}
+                </select>
               </Field>
               <Button type="submit">{`Update ${labels.singular.toLowerCase()}`}</Button>
             </form>

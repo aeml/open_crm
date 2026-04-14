@@ -179,7 +179,7 @@ describe('deals flow', () => {
         status: 201,
         json: async () => ({
           data: {
-            deal: { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 },
+            deal: { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 },
             activities: [],
             notes: [],
             tasks: []
@@ -190,7 +190,30 @@ describe('deals flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            deal: { id: 12, name: 'Bluebird Expansion', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'won', valueAmount: '72000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-14', ownerUserId: 1 },
+            deals: [
+              { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '48000.00' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deals: [
+              { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 },
+              { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2, openCount: 2, wonCount: 0, pipelineValue: '108000.00' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deal: { id: 12, name: 'Bluebird Expansion', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'won', valueAmount: '72000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-14', ownerUserId: 2 },
             activities: [
               { id: 98, action: 'deal.updated', summary: 'Deal updated' }
             ]
@@ -251,7 +274,7 @@ describe('deals flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            deal: { id: 12, name: 'Bluebird Rollout', stageId: 3, stageName: 'Proposal', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 },
+            deal: { id: 12, name: 'Bluebird Rollout', stageId: 3, stageName: 'Proposal', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 },
             activities: [
               { id: 99, action: 'deal.stage_changed', summary: 'Deal moved to Proposal' }
             ]
@@ -283,6 +306,7 @@ describe('deals flow', () => {
     fireEvent.change(screen.getByLabelText(/value amount/i), { target: { value: '60000.00' } })
     fireEvent.change(screen.getByLabelText(/value currency/i), { target: { value: 'USD' } })
     fireEvent.change(screen.getByLabelText(/expected close date/i), { target: { value: '2026-05-02' } })
+    fireEvent.change(screen.getByLabelText(/^owner$/i), { target: { value: '2' } })
     fireEvent.click(screen.getByRole('button', { name: /save deal/i }))
 
     expect((await screen.findAllByText(/bluebird rollout/i)).length).toBeGreaterThan(0)
@@ -290,12 +314,21 @@ describe('deals flow', () => {
       expect(window.location.pathname).toBe('/deals/12')
     })
 
-    const detailForm = screen.getByRole('form', { name: /deal details form/i })
+    fireEvent.change(screen.getByLabelText(/owner filter/i), { target: { value: '1' } })
+
+    expect(await screen.findByText(/showing 1 of 1 deals/i)).toBeInTheDocument()
+    expect(screen.queryByText(/bluebird rollout/i)).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/owner filter/i), { target: { value: 'all' } })
+
+    expect(await screen.findByText(/showing 2 of 2 deals/i)).toBeInTheDocument()
+    const detailForm = await screen.findByRole('form', { name: /deal details form/i })
 
     fireEvent.change(within(detailForm).getByLabelText(/deal name/i), { target: { value: 'Bluebird Expansion' } })
     fireEvent.change(within(detailForm).getByLabelText(/status/i), { target: { value: 'won' } })
     fireEvent.change(within(detailForm).getByLabelText(/value amount/i), { target: { value: '72000.00' } })
     fireEvent.change(within(detailForm).getByLabelText(/expected close date/i), { target: { value: '2026-05-14' } })
+    fireEvent.change(within(detailForm).getByLabelText(/^owner$/i), { target: { value: '2' } })
     fireEvent.click(within(detailForm).getByRole('button', { name: /update deal/i }))
 
     expect(await screen.findByText(/deal updated/i)).toBeInTheDocument()
@@ -305,6 +338,12 @@ describe('deals flow', () => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12$/), expect.objectContaining({
         method: 'PATCH',
         body: expect.stringContaining('"status":"won"')
+      }))
+    })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12$/), expect.objectContaining({
+        method: 'PATCH',
+        body: expect.stringContaining('"ownerUserId":2')
       }))
     })
 
