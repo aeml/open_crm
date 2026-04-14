@@ -100,8 +100,92 @@ describe('deals flow', () => {
     fireEvent.change(screen.getByLabelText(/search deals/i), { target: { value: 'bluebird' } })
 
     expect(await screen.findByText(/showing 1 of 1 deals/i)).toBeInTheDocument()
+    expect(window.location.search).toBe('?q=bluebird')
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?q=bluebird$/), expect.any(Object))
+    })
+  })
+
+  it('hydrates deal filters from the query string on first load', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            stages: [
+              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
+              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deals: [
+              { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '60000.00' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            companies: [
+              { id: 6, name: 'Bluebird Health', domain: 'bluebird.example', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
+          }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/deals?q=bluebird&stage=2&owner=2')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /deals/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/search deals/i)).toHaveValue('bluebird')
+    expect(screen.getByLabelText(/stage filter/i)).toHaveValue('2')
+    expect(screen.getByLabelText(/owner filter/i)).toHaveValue('2')
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?q=bluebird&stageId=2&ownerUserId=2$/), expect.any(Object))
     })
   })
 
@@ -337,11 +421,13 @@ describe('deals flow', () => {
     fireEvent.change(screen.getByLabelText(/stage filter/i), { target: { value: '2' } })
 
     expect(await screen.findByText(/showing 1 of 1 deals/i)).toBeInTheDocument()
+    expect(window.location.search).toBe('?stage=2')
     expect(screen.queryByText(/northstar expansion/i)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/owner filter/i), { target: { value: '1' } })
 
     expect(await screen.findByText(/showing 0 of 0 deals/i)).toBeInTheDocument()
+    expect(window.location.search).toBe('?stage=2&owner=1')
     expect(screen.getByText(/no deals match the current filters/i)).toBeInTheDocument()
     expect(screen.queryByText(/bluebird rollout/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/northstar expansion/i)).not.toBeInTheDocument()
@@ -349,11 +435,13 @@ describe('deals flow', () => {
     fireEvent.change(screen.getByLabelText(/stage filter/i), { target: { value: 'all' } })
 
     expect(await screen.findByText(/showing 1 of 1 deals/i)).toBeInTheDocument()
+    expect(window.location.search).toBe('?owner=1')
     expect(screen.getByText(/northstar expansion/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/owner filter/i), { target: { value: 'all' } })
 
     expect(await screen.findByText(/showing 2 of 2 deals/i)).toBeInTheDocument()
+    expect(window.location.search).toBe('')
     const detailForm = await screen.findByRole('form', { name: /deal details form/i })
 
     fireEvent.change(within(detailForm).getByLabelText(/deal name/i), { target: { value: 'Bluebird Expansion' } })

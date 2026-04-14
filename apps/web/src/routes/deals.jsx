@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -127,19 +127,23 @@ function emptyDealsMessage(stageFilter, ownerFilter, labels) {
 
 export function DealsRoute() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { dealId } = useParams()
   const { session, businessProfile } = useAuth()
   const routeDealId = Number.parseInt(dealId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const labels = pipelineLabels(businessType)
+  const initialSearch = searchParams.get('q') || ''
+  const initialStageFilter = searchParams.get('stage') || 'all'
+  const initialOwnerFilter = searchParams.get('owner') || 'all'
   const [stages, setStages] = useState([])
   const [deals, setDeals] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
   const [form, setForm] = useState(emptyForm)
   const [detailForm, setDetailForm] = useState(emptyForm)
-  const [search, setSearch] = useState('')
-  const [stageFilter, setStageFilter] = useState('all')
-  const [ownerFilter, setOwnerFilter] = useState('all')
+  const [search, setSearch] = useState(initialSearch)
+  const [stageFilter, setStageFilter] = useState(initialStageFilter)
+  const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
   const [companyOptions, setCompanyOptions] = useState([])
   const [contactOptions, setContactOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
@@ -152,6 +156,22 @@ export function DealsRoute() {
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
   const [pipelineReady, setPipelineReady] = useState(false)
+
+  function buildDealsPath(nextDealId = routeDealId, nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
+    const params = new URLSearchParams()
+    if (nextSearch) {
+      params.set('q', nextSearch)
+    }
+    if (nextStageFilter !== 'all') {
+      params.set('stage', nextStageFilter)
+    }
+    if (nextOwnerFilter !== 'all') {
+      params.set('owner', nextOwnerFilter)
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    const pathname = nextDealId ? `/deals/${nextDealId}` : '/deals'
+    return `${pathname}${suffix}`
+  }
 
   async function loadDeals(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
     const loadedDeals = await listDeals({
@@ -205,7 +225,7 @@ export function DealsRoute() {
 
     async function run() {
       try {
-        await loadPipeline()
+        await loadPipeline(initialSearch, initialStageFilter, initialOwnerFilter)
         if (!cancelled) {
           setError('')
         }
@@ -294,6 +314,7 @@ export function DealsRoute() {
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
+    navigate(buildDealsPath(selectedDealId, value, stageFilter, ownerFilter), { replace: true })
     try {
       await loadDeals(value, stageFilter, ownerFilter)
       setError('')
@@ -305,6 +326,7 @@ export function DealsRoute() {
   async function handleStageFilterChange(event) {
     const value = event.target.value
     setStageFilter(value)
+    navigate(buildDealsPath(selectedDealId, search, value, ownerFilter), { replace: true })
     try {
       await loadDeals(search, value, ownerFilter)
       setError('')
@@ -343,7 +365,7 @@ export function DealsRoute() {
         pipelineValue: String(Number.parseFloat(current.pipelineValue || '0') + Number.parseFloat(data.deal.valueAmount || '0'))
       }))
       setForm((current) => ({ ...emptyForm, stageId: current.stageId || form.stageId || (stages[0] ? String(stages[0].id) : '') }))
-      navigate(`/deals/${data.deal.id}`)
+      navigate(buildDealsPath(data.deal.id))
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to create deal.')
@@ -372,7 +394,7 @@ export function DealsRoute() {
     setActivities([])
     setNoteBody('')
     setTaskForm(emptyTaskForm)
-    navigate(`/deals/${deal.id}`)
+    navigate(buildDealsPath(deal.id))
     try {
       const [loadedNotes, taskData] = await Promise.all([
         listNotes('deal', deal.id),
@@ -435,7 +457,7 @@ export function DealsRoute() {
       setActivities([])
       setNoteBody('')
       setTaskForm(emptyTaskForm)
-      navigate('/deals')
+      navigate(buildDealsPath(null))
       setError('')
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive deal.')
@@ -491,6 +513,7 @@ export function DealsRoute() {
   async function handleOwnerFilterChange(event) {
     const value = event.target.value
     setOwnerFilter(value)
+    navigate(buildDealsPath(selectedDealId, search, stageFilter, value), { replace: true })
     try {
       await loadDeals(search, stageFilter, value)
       setError('')
