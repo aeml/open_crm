@@ -9,6 +9,9 @@ const AuthContext = createContext({
   login: async () => {
     throw new Error('Unable to sign in.')
   },
+  logout: async () => {
+    throw new Error('Unable to sign out.')
+  },
   bootstrap: async () => {
     throw new Error('Unable to create workspace.')
   },
@@ -98,6 +101,26 @@ export function AppProviders({ children }) {
     return payload.data
   }, [])
 
+  const logout = useCallback(async () => {
+    const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include'
+    })
+
+    const payload = await response.json().catch(() => ({}))
+
+    if (!response.ok && response.status !== 401) {
+      const message = getErrorMessage(payload, 'Unable to sign out.')
+      setError(message)
+      throw new Error(message)
+    }
+
+    setStatus('unauthenticated')
+    setSession(null)
+    setBusinessProfile(null)
+    setError('')
+  }, [])
+
   const bootstrap = useCallback(async (input) => {
     const response = await fetch(`${API_BASE_URL}/auth/bootstrap`, {
       method: 'POST',
@@ -133,11 +156,12 @@ export function AppProviders({ children }) {
       businessProfile,
       error,
       login,
+      logout,
       bootstrap,
       refreshSession,
       setBusinessProfile
     }),
-    [bootstrap, businessProfile, error, login, refreshSession, session, status]
+    [bootstrap, businessProfile, error, login, logout, refreshSession, session, status]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

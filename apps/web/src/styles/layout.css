@@ -61,6 +61,12 @@
   padding: var(--space-5) var(--space-5) 0;
 }
 
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .app-content {
   padding: var(--space-4) var(--space-5) var(--space-5);
   display: grid;
@@ -114,5 +120,15 @@
   .dashboard-grid,
   .hero-grid {
     grid-template-columns: 1fr;
+  }
+
+  .app-header,
+  .app-header-actions {
+    align-items: stretch;
+  }
+
+  .app-header-actions {
+    width: 100%;
+    flex-direction: column;
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AppRouter } from './router'
 
 afterEach(() => {
@@ -275,6 +275,68 @@ describe('AppRouter', () => {
     expect(await screen.findByRole('heading', { name: /sign in to open crm/i })).toBeInTheDocument()
     await waitFor(() => {
       expect(window.location.pathname).toBe('/login')
+    })
+  })
+
+  it('logs out from the app header and returns to login', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: {
+              id: 1,
+              email: 'owner@acme.test',
+              firstName: 'Demo',
+              lastName: 'Owner'
+            },
+            organization: {
+              id: 1,
+              name: 'Acme, Inc.',
+              slug: 'acme-inc',
+              businessType: 'general'
+            },
+            membership: {
+              role: 'owner'
+            }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            pipelineValue: '48000.00',
+            openDealsCount: 3,
+            wonDealsCount: 1,
+            openTasksCount: 8,
+            dueTodayCount: 2,
+            newContactsCount: 5,
+            recentActivities: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+        json: async () => ({})
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    window.history.pushState({}, '', '/dashboard')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText('$48,000.00')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /log out/i }))
+
+    expect(await screen.findByRole('heading', { name: /sign in to open crm/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/login')
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/auth\/logout$/), expect.objectContaining({ method: 'POST' }))
     })
   })
 })
