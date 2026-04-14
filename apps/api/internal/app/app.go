@@ -208,7 +208,6 @@ type companyRequest struct {
 	State            string  `json:"state"`
 	PostalCode       string  `json:"postalCode"`
 	Country          string  `json:"country"`
-	Domain           string  `json:"domain"`
 	Industry         string  `json:"industry"`
 	Phone            string  `json:"phone"`
 	Website          string  `json:"website"`
@@ -1466,7 +1465,6 @@ func decodeCompanyRequest(w http.ResponseWriter, r *http.Request) (modulecompani
 		State:            strings.TrimSpace(request.State),
 		PostalCode:       strings.TrimSpace(request.PostalCode),
 		Country:          strings.TrimSpace(request.Country),
-		Domain:           strings.TrimSpace(request.Domain),
 		Industry:         strings.TrimSpace(request.Industry),
 		Phone:            strings.TrimSpace(request.Phone),
 		Website:          strings.TrimSpace(request.Website),

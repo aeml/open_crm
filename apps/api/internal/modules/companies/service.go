@@ -24,7 +24,6 @@ type Summary struct {
 	State        string `json:"state"`
 	PostalCode   string `json:"postalCode"`
 	Country      string `json:"country"`
-	Domain       string `json:"domain"`
 	Industry     string `json:"industry"`
 	Phone        string `json:"phone"`
 	Website      string `json:"website"`
@@ -73,7 +72,6 @@ type CreateInput struct {
 	State            string  `json:"state"`
 	PostalCode       string  `json:"postalCode"`
 	Country          string  `json:"country"`
-	Domain           string  `json:"domain"`
 	Industry         string  `json:"industry"`
 	Phone            string  `json:"phone"`
 	Website          string  `json:"website"`
@@ -90,7 +88,6 @@ type UpdateInput struct {
 	State            string  `json:"state"`
 	PostalCode       string  `json:"postalCode"`
 	Country          string  `json:"country"`
-	Domain           string  `json:"domain"`
 	Industry         string  `json:"industry"`
 	Phone            string  `json:"phone"`
 	Website          string  `json:"website"`
@@ -132,7 +129,6 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	if query.Search != "" {
 		filter = ` AND (
 			name ILIKE $2 OR
-			domain ILIKE $2 OR
 			industry ILIKE $2 OR
 			phone ILIKE $2 OR
 			website ILIKE $2 OR
@@ -177,7 +173,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	limitArg := len(args) - 1
 	offsetArg := len(args)
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, client_type, COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(domain, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
+		SELECT id, name, client_type, COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
 		FROM companies
 		WHERE organization_id = $1 AND archived_at IS NULL`+filter+`
 		ORDER BY name ASC, id ASC
@@ -190,7 +186,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	companies := make([]Summary, 0)
 	for rows.Next() {
 		var company Summary
-		if err := rows.Scan(&company.ID, &company.Name, &company.ClientType, &company.AddressLine1, &company.AddressLine2, &company.City, &company.State, &company.PostalCode, &company.Country, &company.Domain, &company.Industry, &company.Phone, &company.Website, &company.Status); err != nil {
+		if err := rows.Scan(&company.ID, &company.Name, &company.ClientType, &company.AddressLine1, &company.AddressLine2, &company.City, &company.State, &company.PostalCode, &company.Country, &company.Industry, &company.Phone, &company.Website, &company.Status); err != nil {
 			return ListResult{}, fmt.Errorf("scan company: %w", err)
 		}
 		companies = append(companies, company)
@@ -219,10 +215,10 @@ func (s *Service) GetByID(ctx context.Context, organizationID, companyID int64) 
 		Activities:     []ActivityEntry{},
 	}
 	if err := s.pool.QueryRow(ctx, `
-		SELECT id, name, client_type, COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(domain, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
+		SELECT id, name, client_type, COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
 		FROM companies
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, companyID).Scan(&detail.Summary.ID, &detail.Summary.Name, &detail.Summary.ClientType, &detail.Summary.AddressLine1, &detail.Summary.AddressLine2, &detail.Summary.City, &detail.Summary.State, &detail.Summary.PostalCode, &detail.Summary.Country, &detail.Summary.Domain, &detail.Summary.Industry, &detail.Summary.Phone, &detail.Summary.Website, &detail.Summary.Status); err != nil {
+	`, organizationID, companyID).Scan(&detail.Summary.ID, &detail.Summary.Name, &detail.Summary.ClientType, &detail.Summary.AddressLine1, &detail.Summary.AddressLine2, &detail.Summary.City, &detail.Summary.State, &detail.Summary.PostalCode, &detail.Summary.Country, &detail.Summary.Industry, &detail.Summary.Phone, &detail.Summary.Website, &detail.Summary.Status); err != nil {
 		return Detail{}, fmt.Errorf("get company: %w", err)
 	}
 
@@ -295,10 +291,10 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 
 	var companyID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO companies (organization_id, name, client_type, address_line1, address_line2, city, state, postal_code, country, domain, industry, phone, website, status, owner_user_id)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''), NULLIF($14, ''), $15)
+		INSERT INTO companies (organization_id, name, client_type, address_line1, address_line2, city, state, postal_code, country, industry, phone, website, status, owner_user_id)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''), $14)
 		RETURNING id
-	`, organizationID, input.Name, input.ClientType, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.Domain, input.Industry, input.Phone, input.Website, input.Status, actorUserID).Scan(&companyID); err != nil {
+	`, organizationID, input.Name, input.ClientType, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.Industry, input.Phone, input.Website, input.Status, actorUserID).Scan(&companyID); err != nil {
 		return Detail{}, fmt.Errorf("insert company: %w", err)
 	}
 
@@ -345,15 +341,14 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 		    state = NULLIF($8, ''),
 		    postal_code = NULLIF($9, ''),
 		    country = NULLIF($10, ''),
-		    domain = NULLIF($11, ''),
-		    industry = NULLIF($12, ''),
-		    phone = NULLIF($13, ''),
-		    website = NULLIF($14, ''),
-		    status = NULLIF($15, ''),
+		    industry = NULLIF($11, ''),
+		    phone = NULLIF($12, ''),
+		    website = NULLIF($13, ''),
+		    status = NULLIF($14, ''),
 		    updated_at = NOW(),
-		    owner_user_id = COALESCE(owner_user_id, $16)
+		    owner_user_id = COALESCE(owner_user_id, $15)
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, companyID, input.Name, input.ClientType, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.Domain, input.Industry, input.Phone, input.Website, input.Status, actorUserID); err != nil {
+	`, organizationID, companyID, input.Name, input.ClientType, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.Industry, input.Phone, input.Website, input.Status, actorUserID); err != nil {
 		return Detail{}, fmt.Errorf("update company: %w", err)
 	}
 
@@ -443,13 +438,9 @@ func normalizeCreateInput(input CreateInput) CreateInput {
 	input.State = strings.TrimSpace(input.State)
 	input.PostalCode = strings.TrimSpace(input.PostalCode)
 	input.Country = strings.TrimSpace(input.Country)
-	input.Domain = strings.TrimSpace(strings.ToLower(input.Domain))
 	input.Industry = strings.TrimSpace(input.Industry)
 	input.Phone = strings.TrimSpace(input.Phone)
 	input.Website = strings.TrimSpace(input.Website)
-	if input.Domain == "" && input.Website != "" {
-		input.Domain = domainFromWebsite(input.Website)
-	}
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	input.LinkedContactIDs = uniquePositiveIDs(input.LinkedContactIDs)
 	return input
@@ -464,13 +455,9 @@ func normalizeUpdateInput(input UpdateInput) UpdateInput {
 	input.State = strings.TrimSpace(input.State)
 	input.PostalCode = strings.TrimSpace(input.PostalCode)
 	input.Country = strings.TrimSpace(input.Country)
-	input.Domain = strings.TrimSpace(strings.ToLower(input.Domain))
 	input.Industry = strings.TrimSpace(input.Industry)
 	input.Phone = strings.TrimSpace(input.Phone)
 	input.Website = strings.TrimSpace(input.Website)
-	if input.Domain == "" && input.Website != "" {
-		input.Domain = domainFromWebsite(input.Website)
-	}
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	input.LinkedContactIDs = uniquePositiveIDs(input.LinkedContactIDs)
 	return input
@@ -510,17 +497,6 @@ func normalizePhoneDigits(value string) string {
 	return builder.String()
 }
 
-func domainFromWebsite(value string) string {
-	value = strings.TrimSpace(strings.ToLower(value))
-	value = strings.TrimPrefix(value, "https://")
-	value = strings.TrimPrefix(value, "http://")
-	value = strings.TrimPrefix(value, "www.")
-	if slash := strings.IndexByte(value, '/'); slash >= 0 {
-		value = value[:slash]
-	}
-	return strings.TrimSpace(value)
-}
-
 func ensureNoDuplicateCompany(ctx context.Context, pool *pgxpool.Pool, organizationID, companyID int64, input CreateInput) error {
 	if pool == nil {
 		return nil
@@ -536,11 +512,10 @@ func ensureNoDuplicateCompany(ctx context.Context, pool *pgxpool.Pool, organizat
 		  AND (
 			lower(name) = lower($3) OR
 			($4 <> '' AND regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') = $4) OR
-			($5 <> '' AND lower(domain) = lower($5)) OR
-			($6 <> '' AND lower(website) = lower($6))
+			($5 <> '' AND lower(website) = lower($5))
 		  )
 		LIMIT 1
-	`, organizationID, companyID, input.Name, phoneDigits, input.Domain, strings.ToLower(input.Website))
+	`, organizationID, companyID, input.Name, phoneDigits, strings.ToLower(input.Website))
 
 	var duplicateID int64
 	var name string

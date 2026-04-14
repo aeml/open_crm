@@ -183,7 +183,7 @@ describe('AppRouter', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 6, name: 'Bluebird Health', domain: 'bluebird.example', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
+              { id: 6, name: 'Bluebird Health', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -308,7 +308,7 @@ describe('AppRouter', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }

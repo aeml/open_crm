@@ -25,7 +25,7 @@ describe('entity task visibility', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -68,7 +68,7 @@ describe('entity task visibility', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
+            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [],
             activities: []
           }
@@ -158,7 +158,7 @@ describe('entity task visibility', () => {
           }
         })
       })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { companies: [{ id: 6, name: 'Bluebird Health', domain: 'bluebird.example', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }], meta: { page: 1, pageSize: 20, total: 1 } } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { companies: [{ id: 6, name: 'Bluebird Health', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }], meta: { page: 1, pageSize: 20, total: 1 } } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { contacts: [{ id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }], meta: { page: 1, pageSize: 20, total: 1 } } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [{ id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }, { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }] } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { notes: [] } }) })

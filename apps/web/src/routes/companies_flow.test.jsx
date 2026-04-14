@@ -25,7 +25,7 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -71,7 +71,7 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -90,7 +90,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
+            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],
@@ -346,7 +346,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
+            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],
@@ -382,7 +382,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'customer' },
+            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'customer' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true },
               { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', relationshipTitle: 'Evaluator', isPrimary: false }
@@ -645,7 +645,7 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -687,7 +687,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
+            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],

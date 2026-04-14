@@ -40,7 +40,6 @@ CREATE TABLE IF NOT EXISTS companies (
     id BIGSERIAL PRIMARY KEY,
     organization_id BIGINT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    domain TEXT,
     industry TEXT,
     phone TEXT,
     website TEXT,
@@ -141,7 +140,6 @@ CREATE TABLE IF NOT EXISTS activities (
 );
 
 CREATE INDEX IF NOT EXISTS idx_companies_org_name ON companies (organization_id, name);
-CREATE INDEX IF NOT EXISTS idx_companies_org_domain ON companies (organization_id, domain);
 CREATE INDEX IF NOT EXISTS idx_contacts_org_email ON contacts (organization_id, email);
 CREATE INDEX IF NOT EXISTS idx_contacts_org_name ON contacts (organization_id, last_name, first_name);
 CREATE INDEX IF NOT EXISTS idx_deals_org_stage ON deals (organization_id, stage_id);
