@@ -172,6 +172,7 @@ describe('companies flow', () => {
     })
     expect(screen.getByText('morgan@acme.test')).toBeInTheDocument()
     expect(screen.getByText(/company created/i)).toBeInTheDocument()
+    expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
     expect(await screen.findByText(/met procurement lead and validated timeline/i)).toBeInTheDocument()
     expect(screen.getByText(/collect warehouse onboarding contacts/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
@@ -333,6 +334,7 @@ describe('companies flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /update company/i }))
 
     expect(await screen.findByText(/company updated/i)).toBeInTheDocument()
+    expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
     expect(screen.getByText('ava@acme.test')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /archive company/i }))

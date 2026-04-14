@@ -39,6 +39,19 @@ function contactFormValues(contact) {
   }
 }
 
+function formatActivityTimestamp(createdAt) {
+  if (!createdAt) {
+    return 'Time unavailable'
+  }
+
+  const parsed = new Date(createdAt)
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Time unavailable'
+  }
+
+  return parsed.toLocaleString()
+}
+
 export function ContactsRoute() {
   const navigate = useNavigate()
   const { contactId } = useParams()
@@ -534,10 +547,17 @@ export function ContactsRoute() {
               <div className="card-stack">
                 <h3>Activity</h3>
                 <div className="record-list" role="list" aria-label="Activity list">
-                  {selectedActivities.map((activity) => (
+                  {selectedActivities.length === 0 ? (
+                    <article className="record-row" role="listitem">
+                      <div>
+                        <p>No activity yet.</p>
+                      </div>
+                    </article>
+                  ) : selectedActivities.map((activity) => (
                     <article className="record-row" key={activity.id} role="listitem">
                       <div>
                         <p>{activity.summary}</p>
+                        <p className="field-hint">{formatActivityTimestamp(activity.createdAt)}</p>
                       </div>
                     </article>
                   ))}

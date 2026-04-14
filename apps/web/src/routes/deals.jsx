@@ -50,6 +50,19 @@ function dealFormValues(deal) {
   }
 }
 
+function formatActivityTimestamp(createdAt) {
+  if (!createdAt) {
+    return 'Time unavailable'
+  }
+
+  const parsed = new Date(createdAt)
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Time unavailable'
+  }
+
+  return parsed.toLocaleString()
+}
+
 function pipelineLabels(businessType) {
   if (businessType === 'services' || businessType === 'construction-services') {
     return {
@@ -666,10 +679,17 @@ export function DealsRoute() {
               <div className="card-stack">
                 <h3>Activity</h3>
                 <div className="record-list" role="list" aria-label={labels.activityAria}>
-                  {activities.map((activity) => (
+                  {activities.length === 0 ? (
+                    <article className="record-row" role="listitem">
+                      <div>
+                        <p>No activity yet.</p>
+                      </div>
+                    </article>
+                  ) : activities.map((activity) => (
                     <article className="record-row" key={activity.id} role="listitem">
                       <div>
                         <p>{activity.summary}</p>
+                        <p className="field-hint">{formatActivityTimestamp(activity.createdAt)}</p>
                       </div>
                     </article>
                   ))}

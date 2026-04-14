@@ -139,6 +139,7 @@ describe('contacts flow', () => {
       expect(window.location.pathname).toBe('/contacts/7')
     })
     expect(screen.getByText(/contact created/i)).toBeInTheDocument()
+    expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
     await waitFor(() => {
@@ -241,6 +242,7 @@ describe('contacts flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /update contact/i }))
 
     expect(await screen.findByText(/contact updated/i)).toBeInTheDocument()
+    expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /archive contact/i }))
 

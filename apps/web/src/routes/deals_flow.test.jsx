@@ -299,6 +299,7 @@ describe('deals flow', () => {
     fireEvent.click(within(detailForm).getByRole('button', { name: /update deal/i }))
 
     expect(await screen.findByText(/deal updated/i)).toBeInTheDocument()
+    expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
     expect(screen.getAllByText(/bluebird expansion/i).length).toBeGreaterThan(0)
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12$/), expect.objectContaining({
@@ -319,6 +320,7 @@ describe('deals flow', () => {
 
     expect(await screen.findByText(/draft rollout kickoff agenda/i)).toBeInTheDocument()
     expect(screen.getByText(/task created/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/time unavailable/i).length).toBeGreaterThan(0)
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks$/), expect.objectContaining({
         method: 'POST',
