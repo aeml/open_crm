@@ -732,6 +732,14 @@ func handleCreateContact(auth authService, contacts contactsService, w http.Resp
 	}
 	result, err := contacts.Create(r.Context(), state.Organization.ID, state.User.ID, input)
 	if err != nil {
+		if errors.Is(err, modulecontacts.ErrDuplicateContact) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			return
+		}
+		if err.Error() == "first name and last name are required" {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create contact")
 		return
 	}
@@ -760,6 +768,14 @@ func handleUpdateContact(auth authService, contacts contactsService, w http.Resp
 	}
 	result, err := contacts.Update(r.Context(), state.Organization.ID, contactID, state.User.ID, modulecontacts.UpdateInput(input))
 	if err != nil {
+		if errors.Is(err, modulecontacts.ErrDuplicateContact) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			return
+		}
+		if err.Error() == "first name and last name are required" {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update contact")
 		return
 	}
@@ -860,6 +876,14 @@ func handleCreateCompany(auth authService, companies companiesService, w http.Re
 	}
 	result, err := companies.Create(r.Context(), state.Organization.ID, state.User.ID, input)
 	if err != nil {
+		if errors.Is(err, modulecompanies.ErrDuplicateCompany) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "must") {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create company")
 		return
 	}
@@ -888,6 +912,14 @@ func handleUpdateCompany(auth authService, companies companiesService, w http.Re
 	}
 	result, err := companies.Update(r.Context(), state.Organization.ID, companyID, state.User.ID, modulecompanies.UpdateInput(input))
 	if err != nil {
+		if errors.Is(err, modulecompanies.ErrDuplicateCompany) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "must") {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update company")
 		return
 	}

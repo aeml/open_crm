@@ -20,6 +20,7 @@ const emptyForm = {
   country: '',
   domain: '',
   industry: '',
+  email: '',
   phone: '',
   website: '',
   status: 'prospect',
@@ -124,8 +125,9 @@ function buildCompanyPayload(form) {
     state: form.state,
     postalCode: form.postalCode,
     country: form.country,
-    domain: individual ? '' : form.domain,
+    domain: '',
     industry: individual ? '' : form.industry,
+    email: individual ? form.email : '',
     phone: form.phone,
     website: individual ? '' : form.website,
     status: form.status,
@@ -166,9 +168,9 @@ function detailSubtitle(company, linkedContacts = []) {
     return ''
   }
   if (isIndividualClient(company.clientType)) {
-    return (linkedContacts?.[0]?.email) || company.phone || company.status || 'Individual client'
+    return company.email || (linkedContacts?.[0]?.email) || company.phone || company.status || 'Individual client'
   }
-  return formatAddress(company) || company.domain || company.status || ''
+  return company.website || formatAddress(company) || company.status || ''
 }
 
 function applyLinkedContactSelection(currentForm, contactOptions, value) {
@@ -184,6 +186,7 @@ function applyLinkedContactSelection(currentForm, contactOptions, value) {
     ...currentForm,
     linkedContactIDs: nextLinkedContactIDs,
     name: currentForm.name || `${selectedContact?.firstName || ''} ${selectedContact?.lastName || ''}`.trim(),
+    email: currentForm.email || selectedContact?.email || '',
     phone: currentForm.phone || selectedContact?.phone || '',
     addressLine1: currentForm.addressLine1 || selectedContact?.addressLine1 || '',
     addressLine2: currentForm.addressLine2 || selectedContact?.addressLine2 || '',
@@ -281,8 +284,9 @@ export function CompaniesRoute() {
       state: data.company.state || '',
       postalCode: data.company.postalCode || '',
       country: data.company.country || '',
-      domain: data.company.domain || '',
+      domain: '',
       industry: data.company.industry || '',
+      email: data.company.email || '',
       phone: data.company.phone || '',
       website: data.company.website || '',
       status: data.company.status || 'prospect',
@@ -434,7 +438,7 @@ export function CompaniesRoute() {
         const data = await createContact({
           firstName: fullName.firstName,
           lastName: fullName.lastName,
-          email: '',
+          email: form.email,
           phone: form.phone,
           addressLine1: form.addressLine1,
           addressLine2: form.addressLine2,
@@ -636,7 +640,7 @@ export function CompaniesRoute() {
                   <p>{company.industry || `${clientTypeLabel(company.clientType)} client`}</p>
                 </div>
                 <div>
-                  <p>{formatAddress(company) || company.domain || company.email || clientTypeLabel(company.clientType)}</p>
+                  <p>{company.email || company.website || formatAddress(company) || clientTypeLabel(company.clientType)}</p>
                   <p>{company.status}</p>
                 </div>
               </article>
@@ -674,6 +678,11 @@ export function CompaniesRoute() {
               <Field label={phoneFieldLabel(form.clientType)}>
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
               </Field>
+              {isIndividualClient(form.clientType) ? (
+                <Field label="Email">
+                  <input className="text-input" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+                </Field>
+              ) : null}
               <Field label="Address line 1">
                 <input className="text-input" value={form.addressLine1} onChange={(event) => setForm((current) => ({ ...current, addressLine1: event.target.value }))} />
               </Field>
@@ -702,13 +711,10 @@ export function CompaniesRoute() {
               </Field>
               {!isIndividualClient(form.clientType) ? (
                 <>
-                  <Field label="Domain" hint="Company website or email domain, like acme.com.">
-                    <input className="text-input" value={form.domain} onChange={(event) => setForm((current) => ({ ...current, domain: event.target.value }))} />
-                  </Field>
                   <Field label="Industry">
                     <input className="text-input" value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} />
                   </Field>
-                  <Field label="Website">
+                  <Field label="Website" hint="Company site, like https://acme.com.">
                     <input className="text-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} />
                   </Field>
                 </>
@@ -752,6 +758,11 @@ export function CompaniesRoute() {
               <Field label={phoneFieldLabel(form.clientType)}>
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
               </Field>
+              {isIndividualClient(form.clientType) ? (
+                <Field label="Email">
+                  <input className="text-input" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+                </Field>
+              ) : null}
               <Field label="Address line 1">
                 <input className="text-input" value={form.addressLine1} onChange={(event) => setForm((current) => ({ ...current, addressLine1: event.target.value }))} />
               </Field>
@@ -787,13 +798,10 @@ export function CompaniesRoute() {
               </Field>
               {!isIndividualClient(form.clientType) ? (
                 <>
-                  <Field label="Domain" hint="Company website or email domain, like acme.com.">
-                    <input className="text-input" value={form.domain} onChange={(event) => setForm((current) => ({ ...current, domain: event.target.value }))} />
-                  </Field>
                   <Field label="Industry">
                     <input className="text-input" value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} />
                   </Field>
-                  <Field label="Website">
+                  <Field label="Website" hint="Company site, like https://acme.com.">
                     <input className="text-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} />
                   </Field>
                 </>

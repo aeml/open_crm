@@ -157,7 +157,7 @@ describe('contacts flow', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }

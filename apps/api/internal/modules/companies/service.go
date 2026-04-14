@@ -2,13 +2,17 @@ package companies
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrDuplicateCompany = errors.New("duplicate company")
 
 type Summary struct {
 	ID           int64  `json:"id"`
@@ -114,6 +118,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	}
 
 	query.Search = strings.TrimSpace(query.Search)
+	phoneSearch := normalizePhoneDigits(query.Search)
 	if query.Page <= 0 {
 		query.Page = 1
 	}
@@ -136,7 +141,11 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			city ILIKE $2 OR
 			state ILIKE $2 OR
 			postal_code ILIKE $2 OR
-			country ILIKE $2 OR
+			country ILIKE $2`
+		if phoneSearch != "" {
+			filter += ` OR regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE $3`
+		}
+		filter += ` OR
 			EXISTS (
 				SELECT 1
 				FROM contact_company_links l
@@ -153,6 +162,9 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			)
 		)`
 		args = append(args, "%"+query.Search+"%")
+		if phoneSearch != "" {
+			args = append(args, "%"+phoneSearch+"%")
+		}
 	}
 
 	countSQL := `SELECT COUNT(*) FROM companies WHERE organization_id = $1 AND archived_at IS NULL` + filter
@@ -271,6 +283,9 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if err := validateInput(input.Name, input.ClientType, input.LinkedContactIDs); err != nil {
 		return Detail{}, err
 	}
+	if err := ensureNoDuplicateCompany(ctx, s.pool, organizationID, 0, input); err != nil {
+		return Detail{}, err
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -308,6 +323,9 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 
 	input = normalizeUpdateInput(input)
 	if err := validateInput(input.Name, input.ClientType, input.LinkedContactIDs); err != nil {
+		return Detail{}, err
+	}
+	if err := ensureNoDuplicateCompany(ctx, s.pool, organizationID, companyID, CreateInput(input)); err != nil {
 		return Detail{}, err
 	}
 
@@ -429,6 +447,9 @@ func normalizeCreateInput(input CreateInput) CreateInput {
 	input.Industry = strings.TrimSpace(input.Industry)
 	input.Phone = strings.TrimSpace(input.Phone)
 	input.Website = strings.TrimSpace(input.Website)
+	if input.Domain == "" && input.Website != "" {
+		input.Domain = domainFromWebsite(input.Website)
+	}
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	input.LinkedContactIDs = uniquePositiveIDs(input.LinkedContactIDs)
 	return input
@@ -447,6 +468,9 @@ func normalizeUpdateInput(input UpdateInput) UpdateInput {
 	input.Industry = strings.TrimSpace(input.Industry)
 	input.Phone = strings.TrimSpace(input.Phone)
 	input.Website = strings.TrimSpace(input.Website)
+	if input.Domain == "" && input.Website != "" {
+		input.Domain = domainFromWebsite(input.Website)
+	}
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	input.LinkedContactIDs = uniquePositiveIDs(input.LinkedContactIDs)
 	return input
@@ -471,6 +495,63 @@ func validateInput(name, clientType string, linkedContactIDs []int64) error {
 		return fmt.Errorf("individual clients must have exactly one linked contact")
 	}
 	return nil
+}
+
+func normalizePhoneDigits(value string) string {
+	if value == "" {
+		return ""
+	}
+	var builder strings.Builder
+	for _, r := range value {
+		if r >= '0' && r <= '9' {
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
+}
+
+func domainFromWebsite(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.TrimPrefix(value, "https://")
+	value = strings.TrimPrefix(value, "http://")
+	value = strings.TrimPrefix(value, "www.")
+	if slash := strings.IndexByte(value, '/'); slash >= 0 {
+		value = value[:slash]
+	}
+	return strings.TrimSpace(value)
+}
+
+func ensureNoDuplicateCompany(ctx context.Context, pool *pgxpool.Pool, organizationID, companyID int64, input CreateInput) error {
+	if pool == nil {
+		return nil
+	}
+
+	phoneDigits := normalizePhoneDigits(input.Phone)
+	row := pool.QueryRow(ctx, `
+		SELECT id, name
+		FROM companies
+		WHERE organization_id = $1
+		  AND archived_at IS NULL
+		  AND id <> $2
+		  AND (
+			lower(name) = lower($3) OR
+			($4 <> '' AND regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') = $4) OR
+			($5 <> '' AND lower(domain) = lower($5)) OR
+			($6 <> '' AND lower(website) = lower($6))
+		  )
+		LIMIT 1
+	`, organizationID, companyID, input.Name, phoneDigits, input.Domain, strings.ToLower(input.Website))
+
+	var duplicateID int64
+	var name string
+	if err := row.Scan(&duplicateID, &name); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("check duplicate company: %w", err)
+	}
+
+	return fmt.Errorf("%w: %s", ErrDuplicateCompany, strings.TrimSpace(name))
 }
 
 func companyActivitySummary(clientType, verb string) string {

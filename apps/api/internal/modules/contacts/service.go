@@ -2,13 +2,17 @@ package contacts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrDuplicateContact = errors.New("duplicate contact")
 
 type Summary struct {
 	ID           int64  `json:"id"`
@@ -108,6 +112,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	}
 
 	query.Search = strings.TrimSpace(query.Search)
+	phoneSearch := normalizePhoneDigits(query.Search)
 	if query.Page <= 0 {
 		query.Page = 1
 	}
@@ -131,9 +136,16 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			city ILIKE $2 OR
 			state ILIKE $2 OR
 			postal_code ILIKE $2 OR
-			country ILIKE $2
+			country ILIKE $2`
+		if phoneSearch != "" {
+			filter += ` OR regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE $3`
+		}
+		filter += `
 		)`
 		args = append(args, "%"+query.Search+"%")
+		if phoneSearch != "" {
+			args = append(args, "%"+phoneSearch+"%")
+		}
 	}
 
 	countSQL := `SELECT COUNT(*) FROM contacts WHERE organization_id = $1 AND archived_at IS NULL` + filter
@@ -230,6 +242,9 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if input.FirstName == "" || input.LastName == "" {
 		return Detail{}, fmt.Errorf("first name and last name are required")
 	}
+	if err := ensureNoDuplicateContact(ctx, s.pool, organizationID, 0, input); err != nil {
+		return Detail{}, err
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -265,6 +280,9 @@ func (s *Service) Update(ctx context.Context, organizationID, contactID, actorUs
 	input = normalizeUpdateInput(input)
 	if input.FirstName == "" || input.LastName == "" {
 		return Detail{}, fmt.Errorf("first name and last name are required")
+	}
+	if err := ensureNoDuplicateContact(ctx, s.pool, organizationID, contactID, CreateInput(input)); err != nil {
+		return Detail{}, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -363,4 +381,50 @@ func normalizeUpdateInput(input UpdateInput) UpdateInput {
 	input.JobTitle = strings.TrimSpace(input.JobTitle)
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	return input
+}
+
+func normalizePhoneDigits(value string) string {
+	if value == "" {
+		return ""
+	}
+	var builder strings.Builder
+	for _, r := range value {
+		if r >= '0' && r <= '9' {
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
+}
+
+func ensureNoDuplicateContact(ctx context.Context, pool *pgxpool.Pool, organizationID, contactID int64, input CreateInput) error {
+	if pool == nil {
+		return nil
+	}
+
+	phoneDigits := normalizePhoneDigits(input.Phone)
+	row := pool.QueryRow(ctx, `
+		SELECT id, first_name, last_name
+		FROM contacts
+		WHERE organization_id = $1
+		  AND archived_at IS NULL
+		  AND id <> $2
+		  AND (
+			(lower(first_name) = lower($3) AND lower(last_name) = lower($4) AND COALESCE(NULLIF(lower(email), ''), '__empty__') = COALESCE(NULLIF(lower($5), ''), '__empty__')) OR
+			($6 <> '' AND regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') = $6) OR
+			($5 <> '' AND lower(email) = lower($5))
+		  )
+		LIMIT 1
+	`, organizationID, contactID, input.FirstName, input.LastName, input.Email, phoneDigits)
+
+	var duplicateID int64
+	var firstName string
+	var lastName string
+	if err := row.Scan(&duplicateID, &firstName, &lastName); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("check duplicate contact: %w", err)
+	}
+
+	return fmt.Errorf("%w: %s %s", ErrDuplicateContact, strings.TrimSpace(firstName), strings.TrimSpace(lastName))
 }

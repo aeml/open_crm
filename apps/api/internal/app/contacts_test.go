@@ -238,6 +238,23 @@ func TestUpdateContactUsesCurrentOrganization(t *testing.T) {
 	}
 }
 
+func TestCreateContactReturnsConflictForDuplicate(t *testing.T) {
+	service := &fakeContactsService{createErr: modulecontacts.ErrDuplicateContact}
+	server := authenticatedContactsServer(service)
+
+	body := bytes.NewBufferString(`{"firstName":"Ava","lastName":"Stone"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/contacts", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, recorder.Code)
+	}
+}
+
 func TestArchiveContactUsesCurrentOrganization(t *testing.T) {
 	service := &fakeContactsService{}
 	server := authenticatedContactsServer(service)

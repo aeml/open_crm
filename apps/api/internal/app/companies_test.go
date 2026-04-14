@@ -183,7 +183,7 @@ func TestGetCompanyDetailUsesCurrentOrganization(t *testing.T) {
 func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 	service := &fakeCompaniesService{
 		createResult: modulecompanies.Detail{
-			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", ClientType: "organization", AddressLine1: "55 Foundry Way", City: "Detroit", State: "MI", PostalCode: "48201", Country: "US", Industry: "Industrial", Domain: "atlas.example", Status: "prospect"},
+			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", ClientType: "organization", AddressLine1: "55 Foundry Way", City: "Detroit", State: "MI", PostalCode: "48201", Country: "US", Industry: "Industrial", Domain: "atlas.example", Website: "https://atlas.example", Status: "prospect"},
 		},
 	}
 	server := authenticatedCompaniesServer(service)
@@ -202,7 +202,7 @@ func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 	if service.lastCreateOrgID != 42 || service.lastCreateActorID != 1 {
 		t.Fatalf("unexpected create routing: org=%d actor=%d", service.lastCreateOrgID, service.lastCreateActorID)
 	}
-	if service.lastCreateInput.Name != "Atlas Manufacturing" || service.lastCreateInput.ClientType != "organization" || service.lastCreateInput.AddressLine1 != "55 Foundry Way" || service.lastCreateInput.City != "Detroit" || service.lastCreateInput.State != "MI" || service.lastCreateInput.PostalCode != "48201" || service.lastCreateInput.Country != "US" || len(service.lastCreateInput.LinkedContactIDs) != 1 || service.lastCreateInput.LinkedContactIDs[0] != 7 {
+	if service.lastCreateInput.Name != "Atlas Manufacturing" || service.lastCreateInput.ClientType != "organization" || service.lastCreateInput.AddressLine1 != "55 Foundry Way" || service.lastCreateInput.City != "Detroit" || service.lastCreateInput.State != "MI" || service.lastCreateInput.PostalCode != "48201" || service.lastCreateInput.Country != "US" || service.lastCreateInput.Website != "https://atlas.example" || len(service.lastCreateInput.LinkedContactIDs) != 1 || service.lastCreateInput.LinkedContactIDs[0] != 7 {
 		t.Fatalf("unexpected create input: %#v", service.lastCreateInput)
 	}
 }
@@ -210,7 +210,7 @@ func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 func TestUpdateCompanyUsesCurrentOrganization(t *testing.T) {
 	service := &fakeCompaniesService{
 		updateResult: modulecompanies.Detail{
-			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", ClientType: "individual", AddressLine1: "55 Foundry Way", City: "Detroit", State: "MI", PostalCode: "48201", Country: "US", Industry: "Industrial", Domain: "atlas.example", Status: "customer"},
+			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", ClientType: "individual", AddressLine1: "55 Foundry Way", City: "Detroit", State: "MI", PostalCode: "48201", Country: "US", Industry: "Industrial", Domain: "atlas.example", Website: "https://atlas.example", Status: "customer"},
 		},
 	}
 	server := authenticatedCompaniesServer(service)
@@ -229,8 +229,25 @@ func TestUpdateCompanyUsesCurrentOrganization(t *testing.T) {
 	if service.lastUpdateOrgID != 42 || service.lastUpdateID != 6 || service.lastUpdateActorID != 1 {
 		t.Fatalf("unexpected update routing: org=%d id=%d actor=%d", service.lastUpdateOrgID, service.lastUpdateID, service.lastUpdateActorID)
 	}
-	if service.lastUpdateInput.Status != "customer" || service.lastUpdateInput.ClientType != "individual" || service.lastUpdateInput.AddressLine1 != "55 Foundry Way" || service.lastUpdateInput.City != "Detroit" || service.lastUpdateInput.State != "MI" || service.lastUpdateInput.PostalCode != "48201" || service.lastUpdateInput.Country != "US" || len(service.lastUpdateInput.LinkedContactIDs) != 1 {
+	if service.lastUpdateInput.Status != "customer" || service.lastUpdateInput.ClientType != "individual" || service.lastUpdateInput.AddressLine1 != "55 Foundry Way" || service.lastUpdateInput.City != "Detroit" || service.lastUpdateInput.State != "MI" || service.lastUpdateInput.PostalCode != "48201" || service.lastUpdateInput.Country != "US" || service.lastUpdateInput.Website != "https://atlas.example" || len(service.lastUpdateInput.LinkedContactIDs) != 1 {
 		t.Fatalf("unexpected update input: %#v", service.lastUpdateInput)
+	}
+}
+
+func TestCreateCompanyReturnsConflictForDuplicate(t *testing.T) {
+	service := &fakeCompaniesService{createErr: modulecompanies.ErrDuplicateCompany}
+	server := authenticatedCompaniesServer(service)
+
+	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","clientType":"organization"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/companies", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, recorder.Code)
 	}
 }
 

@@ -114,7 +114,7 @@ describe('entity task visibility', () => {
     render(<AppRouter />)
 
     expect(await screen.findByRole('heading', { name: /clients/i })).toBeInTheDocument()
-    expect(await screen.findByText('northstar.example')).toBeInTheDocument()
+    expect(await screen.findByText('https://northstar.example')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /northstar logistics/i }))
 
     expect(await screen.findByText(/collect warehouse onboarding contacts/i)).toBeInTheDocument()

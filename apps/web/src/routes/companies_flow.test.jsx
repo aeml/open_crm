@@ -210,7 +210,7 @@ describe('companies flow', () => {
     render(<AppRouter />)
 
     expect(await screen.findByText(/see client ownership, linked people, and live pipeline in one place/i)).toBeInTheDocument()
-    expect(await screen.findByText(/100 Dock St \| Detroit, MI, 48201 \| US/i)).toBeInTheDocument()
+    expect(await screen.findByText('https://northstar.example')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/search clients/i), { target: { value: 'northstar' } })
 
@@ -419,7 +419,6 @@ describe('companies flow', () => {
     fireEvent.change(screen.getByLabelText(/state/i), { target: { value: 'MI' } })
     fireEvent.change(screen.getByLabelText(/postal code/i), { target: { value: '48201' } })
     fireEvent.change(screen.getByLabelText(/country/i), { target: { value: 'US' } })
-    fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: 'atlas.example' } })
     fireEvent.change(screen.getByLabelText(/industry/i), { target: { value: 'Industrial' } })
     fireEvent.change(screen.getByLabelText(/phone/i), { target: { value: '555-0200' } })
     fireEvent.change(within(createForm).getAllByLabelText(/website/i)[0], { target: { value: 'https://atlas.example' } })
@@ -531,7 +530,7 @@ describe('companies flow', () => {
         status: 201,
         json: async () => ({
           data: {
-            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: '', status: 'prospect', isClient: true },
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: '', status: 'prospect', isClient: true },
             notes: [],
             activities: []
           }
@@ -543,7 +542,7 @@ describe('companies flow', () => {
           data: {
             contacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Consultant', status: 'lead', isClient: false },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: '', status: 'prospect', isClient: true }
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: '', status: 'prospect', isClient: true }
             ],
             meta: { page: 1, pageSize: 20, total: 2 }
           }
@@ -563,7 +562,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: '', status: 'prospect', isClient: true },
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: '', status: 'prospect', isClient: true },
             notes: [],
             activities: []
           }
@@ -594,6 +593,7 @@ describe('companies flow', () => {
     expect(screen.getByText(/individual clients need one linked person record/i)).toBeInTheDocument()
     expect(within(createForm).getByLabelText(/person record/i)).toBeInTheDocument()
     expect(within(createForm).getByLabelText(/full name/i)).toBeInTheDocument()
+    expect(within(createForm).getByLabelText(/email/i)).toBeInTheDocument()
     expect(within(createForm).getByLabelText(/phone number/i)).toBeInTheDocument()
     expect(within(createForm).getByLabelText(/address line 1/i)).toBeInTheDocument()
     expect(within(createForm).getByLabelText(/city/i)).toBeInTheDocument()
@@ -609,6 +609,7 @@ describe('companies flow', () => {
     expect(within(createForm).getByLabelText(/phone number/i)).toHaveValue('555-0100')
     fireEvent.change(within(createForm).getByLabelText(/person record/i), { target: { value: '8' } })
     fireEvent.change(within(createForm).getByLabelText(/full name/i), { target: { value: 'Ava Stone' } })
+    fireEvent.change(within(createForm).getByLabelText(/email/i), { target: { value: 'ava@acme.test' } })
     fireEvent.change(within(createForm).getByLabelText(/address line 1/i), { target: { value: '55 Foundry Way' } })
     fireEvent.change(within(createForm).getByLabelText(/city/i), { target: { value: 'Detroit' } })
     fireEvent.change(within(createForm).getByLabelText(/state/i), { target: { value: 'MI' } })
@@ -623,7 +624,7 @@ describe('companies flow', () => {
 
     const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/contacts$/) && options?.method === 'POST')
     expect(createCall).toBeTruthy()
-    expect(JSON.parse(createCall[1].body)).toMatchObject({ firstName: 'Ava', lastName: 'Stone', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', status: 'prospect', isClient: true })
+    expect(JSON.parse(createCall[1].body)).toMatchObject({ firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', status: 'prospect', isClient: true })
   })
 
   it('loads a company directly from the detail route', async () => {
