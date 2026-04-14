@@ -162,14 +162,19 @@ type userResponse struct {
 }
 
 type contactRequest struct {
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
-	Email     string `json:"email"`
-	Phone     string `json:"phone"`
-	Address   string `json:"address"`
-	JobTitle  string `json:"jobTitle"`
-	Status    string `json:"status"`
-	IsClient  bool   `json:"isClient"`
+	FirstName    string `json:"firstName"`
+	LastName     string `json:"lastName"`
+	Email        string `json:"email"`
+	Phone        string `json:"phone"`
+	AddressLine1 string `json:"addressLine1"`
+	AddressLine2 string `json:"addressLine2"`
+	City         string `json:"city"`
+	State        string `json:"state"`
+	PostalCode   string `json:"postalCode"`
+	Country      string `json:"country"`
+	JobTitle     string `json:"jobTitle"`
+	Status       string `json:"status"`
+	IsClient     bool   `json:"isClient"`
 }
 
 type contactsListResponse struct {
@@ -197,7 +202,12 @@ type contactDetailResponse struct {
 type companyRequest struct {
 	Name             string  `json:"name"`
 	ClientType       string  `json:"clientType"`
-	Address          string  `json:"address"`
+	AddressLine1     string  `json:"addressLine1"`
+	AddressLine2     string  `json:"addressLine2"`
+	City             string  `json:"city"`
+	State            string  `json:"state"`
+	PostalCode       string  `json:"postalCode"`
+	Country          string  `json:"country"`
 	Domain           string  `json:"domain"`
 	Industry         string  `json:"industry"`
 	Phone            string  `json:"phone"`
@@ -1387,14 +1397,19 @@ func decodeContactRequest(w http.ResponseWriter, r *http.Request) (modulecontact
 		return modulecontacts.CreateInput{}, false
 	}
 	input := modulecontacts.CreateInput{
-		FirstName: strings.TrimSpace(request.FirstName),
-		LastName:  strings.TrimSpace(request.LastName),
-		Email:     strings.TrimSpace(request.Email),
-		Phone:     strings.TrimSpace(request.Phone),
-		Address:   strings.TrimSpace(request.Address),
-		JobTitle:  strings.TrimSpace(request.JobTitle),
-		Status:    strings.TrimSpace(request.Status),
-		IsClient:  request.IsClient,
+		FirstName:    strings.TrimSpace(request.FirstName),
+		LastName:     strings.TrimSpace(request.LastName),
+		Email:        strings.TrimSpace(request.Email),
+		Phone:        strings.TrimSpace(request.Phone),
+		AddressLine1: strings.TrimSpace(request.AddressLine1),
+		AddressLine2: strings.TrimSpace(request.AddressLine2),
+		City:         strings.TrimSpace(request.City),
+		State:        strings.TrimSpace(request.State),
+		PostalCode:   strings.TrimSpace(request.PostalCode),
+		Country:      strings.TrimSpace(request.Country),
+		JobTitle:     strings.TrimSpace(request.JobTitle),
+		Status:       strings.TrimSpace(request.Status),
+		IsClient:     request.IsClient,
 	}
 	if input.FirstName == "" || input.LastName == "" {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "First name and last name are required")
@@ -1413,7 +1428,12 @@ func decodeCompanyRequest(w http.ResponseWriter, r *http.Request) (modulecompani
 	input := modulecompanies.CreateInput{
 		Name:             strings.TrimSpace(request.Name),
 		ClientType:       normalizeCompanyClientType(request.ClientType),
-		Address:          strings.TrimSpace(request.Address),
+		AddressLine1:     strings.TrimSpace(request.AddressLine1),
+		AddressLine2:     strings.TrimSpace(request.AddressLine2),
+		City:             strings.TrimSpace(request.City),
+		State:            strings.TrimSpace(request.State),
+		PostalCode:       strings.TrimSpace(request.PostalCode),
+		Country:          strings.TrimSpace(request.Country),
 		Domain:           strings.TrimSpace(request.Domain),
 		Industry:         strings.TrimSpace(request.Industry),
 		Phone:            strings.TrimSpace(request.Phone),

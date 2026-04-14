@@ -12,7 +12,12 @@ import { listOrganizationUsers } from '../lib/users'
 const emptyForm = {
   name: '',
   clientType: 'organization',
-  address: '',
+  addressLine1: '',
+  addressLine2: '',
+  city: '',
+  state: '',
+  postalCode: '',
+  country: '',
   domain: '',
   industry: '',
   phone: '',
@@ -49,6 +54,12 @@ function splitFullName(value) {
   }
 }
 
+function formatAddress(value = {}) {
+  const street = [value.addressLine1, value.addressLine2].filter(Boolean).join(', ')
+  const locality = [value.city, value.state, value.postalCode].filter(Boolean).join(', ')
+  return [street, locality, value.country].filter(Boolean).join(' | ')
+}
+
 function individualClientFromContact(contact) {
   return {
     id: `contact-${contact.id}`,
@@ -56,7 +67,12 @@ function individualClientFromContact(contact) {
     entityType: 'contact',
     clientType: 'individual',
     name: `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
-    address: contact.address || '',
+    addressLine1: contact.addressLine1 || '',
+    addressLine2: contact.addressLine2 || '',
+    city: contact.city || '',
+    state: contact.state || '',
+    postalCode: contact.postalCode || '',
+    country: contact.country || '',
     domain: '',
     industry: contact.jobTitle || '',
     phone: contact.phone || '',
@@ -102,7 +118,12 @@ function buildCompanyPayload(form) {
   return {
     name: form.name,
     clientType: normalizeClientType(form.clientType),
-    address: form.address,
+    addressLine1: form.addressLine1,
+    addressLine2: form.addressLine2,
+    city: form.city,
+    state: form.state,
+    postalCode: form.postalCode,
+    country: form.country,
     domain: individual ? '' : form.domain,
     industry: individual ? '' : form.industry,
     phone: form.phone,
@@ -147,7 +168,7 @@ function detailSubtitle(company, linkedContacts = []) {
   if (isIndividualClient(company.clientType)) {
     return (linkedContacts?.[0]?.email) || company.phone || company.status || 'Individual client'
   }
-  return company.address || company.domain || company.status || ''
+  return formatAddress(company) || company.domain || company.status || ''
 }
 
 function applyLinkedContactSelection(currentForm, contactOptions, value) {
@@ -163,7 +184,13 @@ function applyLinkedContactSelection(currentForm, contactOptions, value) {
     ...currentForm,
     linkedContactIDs: nextLinkedContactIDs,
     name: currentForm.name || `${selectedContact?.firstName || ''} ${selectedContact?.lastName || ''}`.trim(),
-    phone: currentForm.phone || selectedContact?.phone || ''
+    phone: currentForm.phone || selectedContact?.phone || '',
+    addressLine1: currentForm.addressLine1 || selectedContact?.addressLine1 || '',
+    addressLine2: currentForm.addressLine2 || selectedContact?.addressLine2 || '',
+    city: currentForm.city || selectedContact?.city || '',
+    state: currentForm.state || selectedContact?.state || '',
+    postalCode: currentForm.postalCode || selectedContact?.postalCode || '',
+    country: currentForm.country || selectedContact?.country || ''
   }
 }
 
@@ -248,7 +275,12 @@ export function CompaniesRoute() {
     setForm({
       name: data.company.name || '',
       clientType: normalizeClientType(data.company.clientType),
-      address: data.company.address || '',
+      addressLine1: data.company.addressLine1 || '',
+      addressLine2: data.company.addressLine2 || '',
+      city: data.company.city || '',
+      state: data.company.state || '',
+      postalCode: data.company.postalCode || '',
+      country: data.company.country || '',
       domain: data.company.domain || '',
       industry: data.company.industry || '',
       phone: data.company.phone || '',
@@ -404,7 +436,12 @@ export function CompaniesRoute() {
           lastName: fullName.lastName,
           email: '',
           phone: form.phone,
-          address: form.address,
+          addressLine1: form.addressLine1,
+          addressLine2: form.addressLine2,
+          city: form.city,
+          state: form.state,
+          postalCode: form.postalCode,
+          country: form.country,
           jobTitle: '',
           status: form.status,
           isClient: true
@@ -599,7 +636,7 @@ export function CompaniesRoute() {
                   <p>{company.industry || `${clientTypeLabel(company.clientType)} client`}</p>
                 </div>
                 <div>
-                  <p>{company.address || company.domain || company.email || clientTypeLabel(company.clientType)}</p>
+                  <p>{formatAddress(company) || company.domain || company.email || clientTypeLabel(company.clientType)}</p>
                   <p>{company.status}</p>
                 </div>
               </article>
@@ -637,8 +674,23 @@ export function CompaniesRoute() {
               <Field label={phoneFieldLabel(form.clientType)}>
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
               </Field>
-              <Field label="Address">
-                <textarea className="text-input" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} rows={3} />
+              <Field label="Address line 1">
+                <input className="text-input" value={form.addressLine1} onChange={(event) => setForm((current) => ({ ...current, addressLine1: event.target.value }))} />
+              </Field>
+              <Field label="Address line 2">
+                <input className="text-input" value={form.addressLine2} onChange={(event) => setForm((current) => ({ ...current, addressLine2: event.target.value }))} />
+              </Field>
+              <Field label="City">
+                <input className="text-input" value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} />
+              </Field>
+              <Field label="State">
+                <input className="text-input" value={form.state} onChange={(event) => setForm((current) => ({ ...current, state: event.target.value }))} />
+              </Field>
+              <Field label="Postal code">
+                <input className="text-input" value={form.postalCode} onChange={(event) => setForm((current) => ({ ...current, postalCode: event.target.value }))} />
+              </Field>
+              <Field label="Country">
+                <input className="text-input" value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} />
               </Field>
               <Field label={linkedContactFieldLabel(form.clientType)} hint={linkedContactFieldHint(form.clientType)}>
                 <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => applyLinkedContactSelection(current, contactOptions, event.target.value))}>
@@ -700,8 +752,23 @@ export function CompaniesRoute() {
               <Field label={phoneFieldLabel(form.clientType)}>
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
               </Field>
-              <Field label="Address">
-                <textarea className="text-input" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} rows={3} />
+              <Field label="Address line 1">
+                <input className="text-input" value={form.addressLine1} onChange={(event) => setForm((current) => ({ ...current, addressLine1: event.target.value }))} />
+              </Field>
+              <Field label="Address line 2">
+                <input className="text-input" value={form.addressLine2} onChange={(event) => setForm((current) => ({ ...current, addressLine2: event.target.value }))} />
+              </Field>
+              <Field label="City">
+                <input className="text-input" value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} />
+              </Field>
+              <Field label="State">
+                <input className="text-input" value={form.state} onChange={(event) => setForm((current) => ({ ...current, state: event.target.value }))} />
+              </Field>
+              <Field label="Postal code">
+                <input className="text-input" value={form.postalCode} onChange={(event) => setForm((current) => ({ ...current, postalCode: event.target.value }))} />
+              </Field>
+              <Field label="Country">
+                <input className="text-input" value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} />
               </Field>
               <Field label="Status">
                 <select className="text-input" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>

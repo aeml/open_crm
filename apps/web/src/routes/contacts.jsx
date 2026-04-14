@@ -13,9 +13,20 @@ const emptyForm = {
   lastName: '',
   email: '',
   phone: '',
-  address: '',
+  addressLine1: '',
+  addressLine2: '',
+  city: '',
+  state: '',
+  postalCode: '',
+  country: '',
   jobTitle: '',
   status: 'lead'
+}
+
+function formatAddress(contact = {}) {
+  const street = [contact.addressLine1, contact.addressLine2].filter(Boolean).join(', ')
+  const locality = [contact.city, contact.state, contact.postalCode].filter(Boolean).join(', ')
+  return [street, locality, contact.country].filter(Boolean).join(' | ')
 }
 
 const emptyTaskForm = {
@@ -35,7 +46,12 @@ function contactFormValues(contact) {
     lastName: contact.lastName || '',
     email: contact.email || '',
     phone: contact.phone || '',
-    address: contact.address || '',
+    addressLine1: contact.addressLine1 || '',
+    addressLine2: contact.addressLine2 || '',
+    city: contact.city || '',
+    state: contact.state || '',
+    postalCode: contact.postalCode || '',
+    country: contact.country || '',
     jobTitle: contact.jobTitle || '',
     status: contact.status || 'lead'
   }
@@ -414,7 +430,7 @@ export function ContactsRoute() {
                   <p>{contact.jobTitle || 'No title'}</p>
                 </div>
                 <div>
-                  <p>{contact.email || contact.address || 'No contact details'}</p>
+                  <p>{contact.email || formatAddress(contact) || 'No contact details'}</p>
                   <p>{contact.status}</p>
                 </div>
               </article>
@@ -444,8 +460,23 @@ export function ContactsRoute() {
               <Field label="Phone">
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
               </Field>
-              <Field label="Address">
-                <textarea className="text-input" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} rows={3} />
+              <Field label="Address line 1">
+                <input className="text-input" value={form.addressLine1} onChange={(event) => setForm((current) => ({ ...current, addressLine1: event.target.value }))} />
+              </Field>
+              <Field label="Address line 2">
+                <input className="text-input" value={form.addressLine2} onChange={(event) => setForm((current) => ({ ...current, addressLine2: event.target.value }))} />
+              </Field>
+              <Field label="City">
+                <input className="text-input" value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} />
+              </Field>
+              <Field label="State">
+                <input className="text-input" value={form.state} onChange={(event) => setForm((current) => ({ ...current, state: event.target.value }))} />
+              </Field>
+              <Field label="Postal code">
+                <input className="text-input" value={form.postalCode} onChange={(event) => setForm((current) => ({ ...current, postalCode: event.target.value }))} />
+              </Field>
+              <Field label="Country">
+                <input className="text-input" value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} />
               </Field>
               <Field label="Job title">
                 <input className="text-input" value={form.jobTitle} onChange={(event) => setForm((current) => ({ ...current, jobTitle: event.target.value }))} />
@@ -462,7 +493,7 @@ export function ContactsRoute() {
             <div className="section-header">
               <div>
                 <h2>{detailTitle}</h2>
-                <p>{selectedContact.email || selectedContact.address || selectedContact.phone}</p>
+                <p>{selectedContact.email || formatAddress(selectedContact) || selectedContact.phone}</p>
               </div>
               <Button className="button-danger" onClick={handleArchive}>
                 Archive contact
@@ -481,8 +512,23 @@ export function ContactsRoute() {
               <Field label="Phone">
                 <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
               </Field>
-              <Field label="Address">
-                <textarea className="text-input" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} rows={3} />
+              <Field label="Address line 1">
+                <input className="text-input" value={form.addressLine1} onChange={(event) => setForm((current) => ({ ...current, addressLine1: event.target.value }))} />
+              </Field>
+              <Field label="Address line 2">
+                <input className="text-input" value={form.addressLine2} onChange={(event) => setForm((current) => ({ ...current, addressLine2: event.target.value }))} />
+              </Field>
+              <Field label="City">
+                <input className="text-input" value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} />
+              </Field>
+              <Field label="State">
+                <input className="text-input" value={form.state} onChange={(event) => setForm((current) => ({ ...current, state: event.target.value }))} />
+              </Field>
+              <Field label="Postal code">
+                <input className="text-input" value={form.postalCode} onChange={(event) => setForm((current) => ({ ...current, postalCode: event.target.value }))} />
+              </Field>
+              <Field label="Country">
+                <input className="text-input" value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} />
               </Field>
               <Field label="Job title">
                 <input className="text-input" value={form.jobTitle} onChange={(event) => setForm((current) => ({ ...current, jobTitle: event.target.value }))} />

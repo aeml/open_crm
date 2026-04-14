@@ -90,7 +90,7 @@ func authenticatedCompaniesServer(service *fakeCompaniesService) http.Handler {
 func TestListCompaniesUsesCurrentOrganizationAndQuery(t *testing.T) {
 	service := &fakeCompaniesService{
 		listResult: modulecompanies.ListResult{
-			Companies: []modulecompanies.Summary{{ID: 5, Name: "Northstar Logistics", ClientType: "organization", Address: "100 Dock St", Industry: "Logistics", Domain: "northstar.example", Status: "prospect"}},
+			Companies: []modulecompanies.Summary{{ID: 5, Name: "Northstar Logistics", ClientType: "organization", AddressLine1: "100 Dock St", City: "Detroit", State: "MI", PostalCode: "48201", Country: "US", Industry: "Logistics", Domain: "northstar.example", Status: "prospect"}},
 			Meta:      modulecompanies.ListMeta{Page: 2, PageSize: 10, Total: 1},
 		},
 	}
@@ -116,7 +116,7 @@ func TestListCompaniesUsesCurrentOrganizationAndQuery(t *testing.T) {
 func TestGetCompanyDetailUsesCurrentOrganization(t *testing.T) {
 	service := &fakeCompaniesService{
 		getResult: modulecompanies.Detail{
-			Summary:        modulecompanies.Summary{ID: 5, Name: "Northstar Logistics", ClientType: "organization", Address: "100 Dock St", Industry: "Logistics", Domain: "northstar.example", Status: "prospect"},
+			Summary:        modulecompanies.Summary{ID: 5, Name: "Northstar Logistics", ClientType: "organization", AddressLine1: "100 Dock St", City: "Detroit", State: "MI", PostalCode: "48201", Country: "US", Industry: "Logistics", Domain: "northstar.example", Status: "prospect"},
 			LinkedContacts: []modulecompanies.LinkedContact{{ID: 7, FirstName: "Morgan", LastName: "Lee", Email: "morgan@acme.test", RelationshipTitle: "Champion", IsPrimary: true}},
 			Activities:     []modulecompanies.ActivityEntry{{ID: 21, Action: "company.created", Summary: "Company created", CreatedAt: time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)}},
 		},
@@ -152,12 +152,12 @@ func TestGetCompanyDetailUsesCurrentOrganization(t *testing.T) {
 func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 	service := &fakeCompaniesService{
 		createResult: modulecompanies.Detail{
-			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", ClientType: "organization", Address: "55 Foundry Way", Industry: "Industrial", Domain: "atlas.example", Status: "prospect"},
+			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", ClientType: "organization", AddressLine1: "55 Foundry Way", City: "Detroit", State: "MI", PostalCode: "48201", Country: "US", Industry: "Industrial", Domain: "atlas.example", Status: "prospect"},
 		},
 	}
 	server := authenticatedCompaniesServer(service)
 
-	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","clientType":"organization","address":"55 Foundry Way","domain":"atlas.example","industry":"Industrial","phone":"555-0200","website":"https://atlas.example","status":"prospect","linkedContactIDs":[7]}`)
+	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","clientType":"organization","addressLine1":"55 Foundry Way","city":"Detroit","state":"MI","postalCode":"48201","country":"US","domain":"atlas.example","industry":"Industrial","phone":"555-0200","website":"https://atlas.example","status":"prospect","linkedContactIDs":[7]}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/companies", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -171,7 +171,7 @@ func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 	if service.lastCreateOrgID != 42 || service.lastCreateActorID != 1 {
 		t.Fatalf("unexpected create routing: org=%d actor=%d", service.lastCreateOrgID, service.lastCreateActorID)
 	}
-	if service.lastCreateInput.Name != "Atlas Manufacturing" || service.lastCreateInput.ClientType != "organization" || service.lastCreateInput.Address != "55 Foundry Way" || len(service.lastCreateInput.LinkedContactIDs) != 1 || service.lastCreateInput.LinkedContactIDs[0] != 7 {
+	if service.lastCreateInput.Name != "Atlas Manufacturing" || service.lastCreateInput.ClientType != "organization" || service.lastCreateInput.AddressLine1 != "55 Foundry Way" || service.lastCreateInput.City != "Detroit" || service.lastCreateInput.State != "MI" || service.lastCreateInput.PostalCode != "48201" || service.lastCreateInput.Country != "US" || len(service.lastCreateInput.LinkedContactIDs) != 1 || service.lastCreateInput.LinkedContactIDs[0] != 7 {
 		t.Fatalf("unexpected create input: %#v", service.lastCreateInput)
 	}
 }
@@ -179,12 +179,12 @@ func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 func TestUpdateCompanyUsesCurrentOrganization(t *testing.T) {
 	service := &fakeCompaniesService{
 		updateResult: modulecompanies.Detail{
-			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", ClientType: "individual", Address: "55 Foundry Way", Industry: "Industrial", Domain: "atlas.example", Status: "customer"},
+			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", ClientType: "individual", AddressLine1: "55 Foundry Way", City: "Detroit", State: "MI", PostalCode: "48201", Country: "US", Industry: "Industrial", Domain: "atlas.example", Status: "customer"},
 		},
 	}
 	server := authenticatedCompaniesServer(service)
 
-	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","clientType":"individual","address":"55 Foundry Way","domain":"atlas.example","industry":"Industrial","phone":"555-0200","website":"https://atlas.example","status":"customer","linkedContactIDs":[7]}`)
+	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","clientType":"individual","addressLine1":"55 Foundry Way","city":"Detroit","state":"MI","postalCode":"48201","country":"US","domain":"atlas.example","industry":"Industrial","phone":"555-0200","website":"https://atlas.example","status":"customer","linkedContactIDs":[7]}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/companies/6", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -198,7 +198,7 @@ func TestUpdateCompanyUsesCurrentOrganization(t *testing.T) {
 	if service.lastUpdateOrgID != 42 || service.lastUpdateID != 6 || service.lastUpdateActorID != 1 {
 		t.Fatalf("unexpected update routing: org=%d id=%d actor=%d", service.lastUpdateOrgID, service.lastUpdateID, service.lastUpdateActorID)
 	}
-	if service.lastUpdateInput.Status != "customer" || service.lastUpdateInput.ClientType != "individual" || service.lastUpdateInput.Address != "55 Foundry Way" || len(service.lastUpdateInput.LinkedContactIDs) != 1 {
+	if service.lastUpdateInput.Status != "customer" || service.lastUpdateInput.ClientType != "individual" || service.lastUpdateInput.AddressLine1 != "55 Foundry Way" || service.lastUpdateInput.City != "Detroit" || service.lastUpdateInput.State != "MI" || service.lastUpdateInput.PostalCode != "48201" || service.lastUpdateInput.Country != "US" || len(service.lastUpdateInput.LinkedContactIDs) != 1 {
 		t.Fatalf("unexpected update input: %#v", service.lastUpdateInput)
 	}
 }

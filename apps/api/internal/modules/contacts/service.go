@@ -11,15 +11,20 @@ import (
 )
 
 type Summary struct {
-	ID        int64  `json:"id"`
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
-	Email     string `json:"email"`
-	Phone     string `json:"phone"`
-	Address   string `json:"address"`
-	JobTitle  string `json:"jobTitle"`
-	Status    string `json:"status"`
-	IsClient  bool   `json:"isClient"`
+	ID           int64  `json:"id"`
+	FirstName    string `json:"firstName"`
+	LastName     string `json:"lastName"`
+	Email        string `json:"email"`
+	Phone        string `json:"phone"`
+	AddressLine1 string `json:"addressLine1"`
+	AddressLine2 string `json:"addressLine2"`
+	City         string `json:"city"`
+	State        string `json:"state"`
+	PostalCode   string `json:"postalCode"`
+	Country      string `json:"country"`
+	JobTitle     string `json:"jobTitle"`
+	Status       string `json:"status"`
+	IsClient     bool   `json:"isClient"`
 }
 
 type ListQuery struct {
@@ -40,25 +45,35 @@ type ListResult struct {
 }
 
 type CreateInput struct {
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
-	Email     string `json:"email"`
-	Phone     string `json:"phone"`
-	Address   string `json:"address"`
-	JobTitle  string `json:"jobTitle"`
-	Status    string `json:"status"`
-	IsClient  bool   `json:"isClient"`
+	FirstName    string `json:"firstName"`
+	LastName     string `json:"lastName"`
+	Email        string `json:"email"`
+	Phone        string `json:"phone"`
+	AddressLine1 string `json:"addressLine1"`
+	AddressLine2 string `json:"addressLine2"`
+	City         string `json:"city"`
+	State        string `json:"state"`
+	PostalCode   string `json:"postalCode"`
+	Country      string `json:"country"`
+	JobTitle     string `json:"jobTitle"`
+	Status       string `json:"status"`
+	IsClient     bool   `json:"isClient"`
 }
 
 type UpdateInput struct {
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
-	Email     string `json:"email"`
-	Phone     string `json:"phone"`
-	Address   string `json:"address"`
-	JobTitle  string `json:"jobTitle"`
-	Status    string `json:"status"`
-	IsClient  bool   `json:"isClient"`
+	FirstName    string `json:"firstName"`
+	LastName     string `json:"lastName"`
+	Email        string `json:"email"`
+	Phone        string `json:"phone"`
+	AddressLine1 string `json:"addressLine1"`
+	AddressLine2 string `json:"addressLine2"`
+	City         string `json:"city"`
+	State        string `json:"state"`
+	PostalCode   string `json:"postalCode"`
+	Country      string `json:"country"`
+	JobTitle     string `json:"jobTitle"`
+	Status       string `json:"status"`
+	IsClient     bool   `json:"isClient"`
 }
 
 type NoteEntry struct{}
@@ -118,7 +133,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	limitArg := len(args) - 1
 	offsetArg := len(args)
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client
+		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client
 		FROM contacts
 		WHERE organization_id = $1 AND archived_at IS NULL`+filter+`
 		ORDER BY last_name ASC, first_name ASC, id ASC
@@ -131,7 +146,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	contacts := make([]Summary, 0)
 	for rows.Next() {
 		var contact Summary
-		if err := rows.Scan(&contact.ID, &contact.FirstName, &contact.LastName, &contact.Email, &contact.Phone, &contact.Address, &contact.JobTitle, &contact.Status, &contact.IsClient); err != nil {
+		if err := rows.Scan(&contact.ID, &contact.FirstName, &contact.LastName, &contact.Email, &contact.Phone, &contact.AddressLine1, &contact.AddressLine2, &contact.City, &contact.State, &contact.PostalCode, &contact.Country, &contact.JobTitle, &contact.Status, &contact.IsClient); err != nil {
 			return ListResult{}, fmt.Errorf("scan contact: %w", err)
 		}
 		contacts = append(contacts, contact)
@@ -161,10 +176,10 @@ func (s *Service) GetByID(ctx context.Context, organizationID, contactID int64) 
 		Activities: []ActivityEntry{},
 	}
 	if err := s.pool.QueryRow(ctx, `
-		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client
+		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client
 		FROM contacts
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, contactID).Scan(&detail.Summary.ID, &detail.Summary.FirstName, &detail.Summary.LastName, &detail.Summary.Email, &detail.Summary.Phone, &detail.Summary.Address, &detail.Summary.JobTitle, &detail.Summary.Status, &detail.Summary.IsClient); err != nil {
+	`, organizationID, contactID).Scan(&detail.Summary.ID, &detail.Summary.FirstName, &detail.Summary.LastName, &detail.Summary.Email, &detail.Summary.Phone, &detail.Summary.AddressLine1, &detail.Summary.AddressLine2, &detail.Summary.City, &detail.Summary.State, &detail.Summary.PostalCode, &detail.Summary.Country, &detail.Summary.JobTitle, &detail.Summary.Status, &detail.Summary.IsClient); err != nil {
 		return Detail{}, fmt.Errorf("get contact: %w", err)
 	}
 
@@ -211,10 +226,10 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 
 	var contactID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO contacts (organization_id, first_name, last_name, email, phone, address, job_title, status, is_client, owner_user_id)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10)
+		INSERT INTO contacts (organization_id, first_name, last_name, email, phone, address_line1, address_line2, city, state, postal_code, country, job_title, status, is_client, owner_user_id)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''), $14, $15)
 		RETURNING id
-	`, organizationID, input.FirstName, input.LastName, input.Email, input.Phone, input.Address, input.JobTitle, input.Status, input.IsClient, actorUserID).Scan(&contactID); err != nil {
+	`, organizationID, input.FirstName, input.LastName, input.Email, input.Phone, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.JobTitle, input.Status, input.IsClient, actorUserID).Scan(&contactID); err != nil {
 		return Detail{}, fmt.Errorf("insert contact: %w", err)
 	}
 
@@ -251,13 +266,18 @@ func (s *Service) Update(ctx context.Context, organizationID, contactID, actorUs
 		    last_name = $4,
 		    email = NULLIF($5, ''),
 		    phone = NULLIF($6, ''),
-		    address = NULLIF($7, ''),
-		    job_title = NULLIF($8, ''),
-		    status = NULLIF($9, ''),
-		    is_client = $10,
+		    address_line1 = NULLIF($7, ''),
+		    address_line2 = NULLIF($8, ''),
+		    city = NULLIF($9, ''),
+		    state = NULLIF($10, ''),
+		    postal_code = NULLIF($11, ''),
+		    country = NULLIF($12, ''),
+		    job_title = NULLIF($13, ''),
+		    status = NULLIF($14, ''),
+		    is_client = $15,
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, contactID, input.FirstName, input.LastName, input.Email, input.Phone, input.Address, input.JobTitle, input.Status, input.IsClient); err != nil {
+	`, organizationID, contactID, input.FirstName, input.LastName, input.Email, input.Phone, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.JobTitle, input.Status, input.IsClient); err != nil {
 		return Detail{}, fmt.Errorf("update contact: %w", err)
 	}
 
@@ -305,7 +325,12 @@ func normalizeCreateInput(input CreateInput) CreateInput {
 	input.LastName = strings.TrimSpace(input.LastName)
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	input.Phone = strings.TrimSpace(input.Phone)
-	input.Address = strings.TrimSpace(input.Address)
+	input.AddressLine1 = strings.TrimSpace(input.AddressLine1)
+	input.AddressLine2 = strings.TrimSpace(input.AddressLine2)
+	input.City = strings.TrimSpace(input.City)
+	input.State = strings.TrimSpace(input.State)
+	input.PostalCode = strings.TrimSpace(input.PostalCode)
+	input.Country = strings.TrimSpace(input.Country)
 	input.JobTitle = strings.TrimSpace(input.JobTitle)
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	return input
@@ -316,7 +341,12 @@ func normalizeUpdateInput(input UpdateInput) UpdateInput {
 	input.LastName = strings.TrimSpace(input.LastName)
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	input.Phone = strings.TrimSpace(input.Phone)
-	input.Address = strings.TrimSpace(input.Address)
+	input.AddressLine1 = strings.TrimSpace(input.AddressLine1)
+	input.AddressLine2 = strings.TrimSpace(input.AddressLine2)
+	input.City = strings.TrimSpace(input.City)
+	input.State = strings.TrimSpace(input.State)
+	input.PostalCode = strings.TrimSpace(input.PostalCode)
+	input.Country = strings.TrimSpace(input.Country)
 	input.JobTitle = strings.TrimSpace(input.JobTitle)
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	return input
