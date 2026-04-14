@@ -117,6 +117,14 @@ function pipelineLabels(businessType) {
   }
 }
 
+function emptyDealsMessage(stageFilter, ownerFilter, labels) {
+  if (stageFilter !== 'all' || ownerFilter !== 'all') {
+    return `No ${labels.showingLabel} match the current filters.`
+  }
+
+  return `No ${labels.showingLabel} yet.`
+}
+
 export function DealsRoute() {
   const navigate = useNavigate()
   const { dealId } = useParams()
@@ -548,7 +556,13 @@ export function DealsRoute() {
           </Field>
           {error ? <p className="form-error">{error}</p> : null}
           <div className="record-list" role="list" aria-label={labels.listAria}>
-            {deals.map((deal) => (
+            {deals.length === 0 ? (
+              <article className="record-row" role="listitem">
+                <div>
+                  <p>{emptyDealsMessage(stageFilter, ownerFilter, labels)}</p>
+                </div>
+              </article>
+            ) : deals.map((deal) => (
               <article className="record-row" key={deal.id} role="listitem">
                 <div>
                   <button className="button button-ghost contact-link" type="button" onClick={() => handleSelectDeal(deal)}>

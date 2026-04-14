@@ -342,6 +342,7 @@ describe('deals flow', () => {
     fireEvent.change(screen.getByLabelText(/owner filter/i), { target: { value: '1' } })
 
     expect(await screen.findByText(/showing 0 of 0 deals/i)).toBeInTheDocument()
+    expect(screen.getByText(/no deals match the current filters/i)).toBeInTheDocument()
     expect(screen.queryByText(/bluebird rollout/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/northstar expansion/i)).not.toBeInTheDocument()
 
