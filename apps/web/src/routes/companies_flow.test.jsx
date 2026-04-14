@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 
 afterEach(() => {
@@ -25,7 +25,7 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -59,7 +59,7 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -69,7 +69,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
+            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],
@@ -266,7 +266,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 6, name: 'Atlas Manufacturing', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
+            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],
@@ -303,7 +303,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 6, name: 'Atlas Manufacturing', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'customer' },
+            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', domain: 'atlas.example', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'customer' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true },
               { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', relationshipTitle: 'Evaluator', isPrimary: false }
@@ -324,15 +324,18 @@ describe('companies flow', () => {
     expect(await screen.findByText(/see client ownership, linked people, and live pipeline in one place/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /add client/i }))
+    const createForm = screen.getByRole('button', { name: /save client/i }).closest('form')
+    expect(createForm).not.toBeNull()
     expect(screen.queryByLabelText(/linked contact ids/i)).not.toBeInTheDocument()
-    expect(screen.getByLabelText(/^linked contact$/i)).toBeInTheDocument()
+    expect(within(createForm).getByLabelText(/linked contact/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/client type/i)).toHaveValue('organization')
 
     fireEvent.change(screen.getByLabelText(/client name/i), { target: { value: 'Atlas Manufacturing' } })
     fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: 'atlas.example' } })
     fireEvent.change(screen.getByLabelText(/industry/i), { target: { value: 'Industrial' } })
     fireEvent.change(screen.getByLabelText(/phone/i), { target: { value: '555-0200' } })
     fireEvent.change(screen.getByLabelText(/website/i), { target: { value: 'https://atlas.example' } })
-    fireEvent.change(screen.getByLabelText(/^linked contact$/i), { target: { value: '7' } })
+    fireEvent.change(within(createForm).getByLabelText(/linked contact/i), { target: { value: '7' } })
     fireEvent.click(screen.getByRole('button', { name: /save client/i }))
 
     expect(await screen.findByRole('heading', { name: /atlas manufacturing/i })).toBeInTheDocument()
@@ -346,11 +349,13 @@ describe('companies flow', () => {
     expect(await screen.findByText(/procurement asked for revised payment terms/i)).toBeInTheDocument()
     expect(screen.getByText(/note added/i)).toBeInTheDocument()
 
+    const detailForm = screen.getByRole('button', { name: /update client/i }).closest('form')
+    expect(detailForm).not.toBeNull()
     expect(screen.queryByLabelText(/linked contact ids/i)).not.toBeInTheDocument()
-    expect(screen.getByLabelText(/^linked contact$/i)).toBeInTheDocument()
+    expect(within(detailForm).getByLabelText(/linked contact/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'customer' } })
-    fireEvent.change(screen.getByLabelText(/^linked contact$/i), { target: { value: '8' } })
+    fireEvent.change(within(detailForm).getByLabelText(/linked contact/i), { target: { value: '8' } })
     fireEvent.click(screen.getByRole('button', { name: /update client/i }))
 
     expect(await screen.findByText(/company updated/i)).toBeInTheDocument()
@@ -365,6 +370,97 @@ describe('companies flow', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/companies')
     })
+
+    const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/companies$/) && options?.method === 'POST')
+    expect(createCall).toBeTruthy()
+    expect(JSON.parse(createCall[1].body)).toMatchObject({ clientType: 'organization', linkedContactIDs: [7] })
+
+    const updateCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/companies\/6$/) && options?.method === 'PATCH')
+    expect(updateCall).toBeTruthy()
+    expect(JSON.parse(updateCall[1].body)).toMatchObject({ clientType: 'organization', linkedContactIDs: [8] })
+  })
+
+  it('creates an individual client with one linked person record', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Consultant', status: 'lead' },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'Founder', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            company: { id: 11, name: 'Morgan Lee', clientType: 'individual', domain: '', industry: '', phone: '555-0100', website: '', status: 'prospect' },
+            linkedContacts: [
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', relationshipTitle: '', isPrimary: true }
+            ],
+            activities: [],
+            notes: []
+          }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/companies')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/see client ownership, linked people, and live pipeline in one place/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /add client/i }))
+    const createForm = screen.getByRole('button', { name: /save client/i }).closest('form')
+    expect(createForm).not.toBeNull()
+    fireEvent.change(screen.getByLabelText(/client type/i), { target: { value: 'individual' } })
+
+    expect(screen.getByText(/individual clients need one linked person record/i)).toBeInTheDocument()
+    expect(within(createForm).getByLabelText(/person record/i)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/client name/i), { target: { value: 'Morgan Lee' } })
+    fireEvent.change(within(createForm).getByLabelText(/person record/i), { target: { value: '7' } })
+    fireEvent.change(within(createForm).getByLabelText(/person record/i), { target: { value: '8' } })
+    fireEvent.click(screen.getByRole('button', { name: /save client/i }))
+
+    expect(await screen.findByRole('heading', { name: /morgan lee/i })).toBeInTheDocument()
+    expect(screen.getByText(/client record/i)).toBeInTheDocument()
+
+    const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/companies$/) && options?.method === 'POST')
+    expect(createCall).toBeTruthy()
+    expect(JSON.parse(createCall[1].body)).toMatchObject({ clientType: 'individual', linkedContactIDs: [8] })
   })
 
   it('loads a company directly from the detail route', async () => {
@@ -385,7 +481,7 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             companies: [
-              { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -416,7 +512,7 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 5, name: 'Northstar Logistics', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
+            company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
             ],

@@ -11,6 +11,7 @@ import { listOrganizationUsers } from '../lib/users'
 
 const emptyForm = {
   name: '',
+  clientType: 'organization',
   domain: '',
   industry: '',
   phone: '',
@@ -31,6 +32,61 @@ function parseLinkedContactIDs(value) {
     .split(',')
     .map((entry) => Number.parseInt(entry.trim(), 10))
     .filter((entry) => Number.isInteger(entry) && entry > 0)
+}
+
+function normalizeClientType(value) {
+  return value === 'individual' ? 'individual' : 'organization'
+}
+
+function limitLinkedContacts(clientType, value) {
+  const ids = parseLinkedContactIDs(value)
+  if (normalizeClientType(clientType) === 'individual') {
+    return ids.slice(0, 1).join(',')
+  }
+  return ids.join(',')
+}
+
+function buildCompanyPayload(form) {
+  return {
+    name: form.name,
+    clientType: normalizeClientType(form.clientType),
+    domain: form.domain,
+    industry: form.industry,
+    phone: form.phone,
+    website: form.website,
+    status: form.status,
+    linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs)
+  }
+}
+
+function clientTypeLabel(clientType) {
+  return normalizeClientType(clientType) === 'individual' ? 'Individual' : 'Organization'
+}
+
+function linkedContactFieldLabel(clientType) {
+  return normalizeClientType(clientType) === 'individual' ? 'Person record' : 'Linked contact'
+}
+
+function linkedContactFieldHint(clientType) {
+  return normalizeClientType(clientType) === 'individual'
+    ? 'Individual clients need one linked person record.'
+    : 'Link the main person for this organization client.'
+}
+
+function createDescription(clientType) {
+  return normalizeClientType(clientType) === 'individual'
+    ? 'Add an individual client and link the matching person record.'
+    : 'Add an organization client and tie the right contacts to it immediately.'
+}
+
+function detailSubtitle(company) {
+  if (!company) {
+    return ''
+  }
+  if (normalizeClientType(company.clientType) === 'individual') {
+    return company.phone || company.status || 'Individual client'
+  }
+  return company.domain || company.status || ''
 }
 
 function formatActivityTimestamp(createdAt) {
@@ -110,12 +166,13 @@ export function CompaniesRoute() {
   function fillFormFromDetail(data) {
     setForm({
       name: data.company.name || '',
+      clientType: normalizeClientType(data.company.clientType),
       domain: data.company.domain || '',
       industry: data.company.industry || '',
       phone: data.company.phone || '',
       website: data.company.website || '',
       status: data.company.status || 'prospect',
-      linkedContactIDs: (data.linkedContacts || []).map((contact) => contact.id).join(',')
+      linkedContactIDs: limitLinkedContacts(data.company.clientType, (data.linkedContacts || []).map((contact) => contact.id).join(','))
     })
   }
 
@@ -254,13 +311,7 @@ export function CompaniesRoute() {
     event.preventDefault()
     try {
       const data = await createCompany({
-        name: form.name,
-        domain: form.domain,
-        industry: form.industry,
-        phone: form.phone,
-        website: form.website,
-        status: form.status,
-        linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs)
+        ...buildCompanyPayload(form)
       })
       const detailData = { ...data, notes: data.notes || [], tasks: data.tasks || [] }
       setDetailCache((current) => ({ ...current, [data.company.id]: detailData }))
@@ -287,13 +338,7 @@ export function CompaniesRoute() {
 
     try {
       const data = await updateCompany(selectedCompanyId, {
-        name: form.name,
-        domain: form.domain,
-        industry: form.industry,
-        phone: form.phone,
-        website: form.website,
-        status: form.status,
-        linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs)
+        ...buildCompanyPayload(form)
       })
       const detailData = { ...data, notes: detail?.notes || [], tasks: detail?.tasks || [] }
       setDetailCache((current) => ({ ...current, [selectedCompanyId]: detailData }))
@@ -436,10 +481,10 @@ export function CompaniesRoute() {
                   <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenCompany(company)}>
                     {company.name}
                   </button>
-                  <p>{company.industry || 'No industry'}</p>
+                  <p>{company.industry || `${clientTypeLabel(company.clientType)} client`}</p>
                 </div>
                 <div>
-                  <p>{company.domain}</p>
+                  <p>{company.domain || clientTypeLabel(company.clientType)}</p>
                   <p>{company.status}</p>
                 </div>
               </article>
@@ -451,12 +496,26 @@ export function CompaniesRoute() {
 
       {mode === 'create' ? (
         <Card>
-          <div className="card-stack">
-            <div>
+            <div className="card-stack">
+              <div>
                 <h2>New client</h2>
-                <p>Add an organization client and tie the right contacts to it immediately.</p>
+                <p>{createDescription(form.clientType)}</p>
               </div>
             <form className="auth-form" onSubmit={handleCreate}>
+              <Field label="Client type">
+                <select
+                  className="text-input"
+                  value={form.clientType}
+                  onChange={(event) => setForm((current) => ({
+                    ...current,
+                    clientType: event.target.value,
+                    linkedContactIDs: limitLinkedContacts(event.target.value, current.linkedContactIDs)
+                  }))}
+                >
+                  <option value="organization">Organization</option>
+                  <option value="individual">Individual</option>
+                </select>
+              </Field>
               <Field label="Client name">
                 <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
               </Field>
@@ -472,9 +531,9 @@ export function CompaniesRoute() {
               <Field label="Website">
                 <input className="text-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} />
               </Field>
-              <Field label="Linked contact">
+              <Field label={linkedContactFieldLabel(form.clientType)} hint={linkedContactFieldHint(form.clientType)}>
                 <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => ({ ...current, linkedContactIDs: event.target.value }))}>
-                  <option value="">No linked contact</option>
+                  <option value="">{normalizeClientType(form.clientType) === 'individual' ? 'Select person record' : 'No linked contact'}</option>
                   {contactOptions.map((contact) => (
                     <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
                   ))}
@@ -492,13 +551,27 @@ export function CompaniesRoute() {
             <div className="section-header">
               <div>
                 <h2>{detailTitle}</h2>
-                <p>{selectedCompany.domain}</p>
+                <p>{detailSubtitle(selectedCompany)}</p>
               </div>
               <Button className="button-danger" onClick={handleArchive}>
                 Archive client
               </Button>
             </div>
             <form className="auth-form" onSubmit={handleUpdate}>
+              <Field label="Client type">
+                <select
+                  className="text-input"
+                  value={form.clientType}
+                  onChange={(event) => setForm((current) => ({
+                    ...current,
+                    clientType: event.target.value,
+                    linkedContactIDs: limitLinkedContacts(event.target.value, current.linkedContactIDs)
+                  }))}
+                >
+                  <option value="organization">Organization</option>
+                  <option value="individual">Individual</option>
+                </select>
+              </Field>
               <Field label="Client name">
                 <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
               </Field>
@@ -521,9 +594,9 @@ export function CompaniesRoute() {
                   <option value="lead">Lead</option>
                 </select>
               </Field>
-              <Field label="Linked contact">
+              <Field label={linkedContactFieldLabel(form.clientType)} hint={linkedContactFieldHint(form.clientType)}>
                 <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => ({ ...current, linkedContactIDs: event.target.value }))}>
-                  <option value="">No linked contact</option>
+                  <option value="">{normalizeClientType(form.clientType) === 'individual' ? 'Select person record' : 'No linked contact'}</option>
                   {contactOptions.map((contact) => (
                     <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
                   ))}
@@ -538,7 +611,7 @@ export function CompaniesRoute() {
                   {linkedContacts.length === 0 ? (
                     <article className="record-row" role="listitem">
                       <div>
-                        <p>No linked people yet.</p>
+                        <p>{normalizeClientType(selectedCompany.clientType) === 'individual' ? 'No linked person yet.' : 'No linked people yet.'}</p>
                       </div>
                     </article>
                   ) : linkedContacts.map((contact) => (
@@ -547,7 +620,7 @@ export function CompaniesRoute() {
                         <button className="button button-ghost contact-link" type="button" onClick={() => navigate(`/contacts/${contact.id}`)}>
                           {contact.firstName} {contact.lastName}
                         </button>
-                        <p>{contact.relationshipTitle || 'Linked contact'}</p>
+                        <p>{contact.relationshipTitle || (normalizeClientType(selectedCompany.clientType) === 'individual' ? 'Client record' : 'Linked contact')}</p>
                       </div>
                       <div>
                         <p>{contact.email}</p>

@@ -194,6 +194,7 @@ type contactDetailResponse struct {
 
 type companyRequest struct {
 	Name             string  `json:"name"`
+	ClientType       string  `json:"clientType"`
 	Domain           string  `json:"domain"`
 	Industry         string  `json:"industry"`
 	Phone            string  `json:"phone"`
@@ -1406,6 +1407,7 @@ func decodeCompanyRequest(w http.ResponseWriter, r *http.Request) (modulecompani
 	}
 	input := modulecompanies.CreateInput{
 		Name:             strings.TrimSpace(request.Name),
+		ClientType:       normalizeCompanyClientType(request.ClientType),
 		Domain:           strings.TrimSpace(request.Domain),
 		Industry:         strings.TrimSpace(request.Industry),
 		Phone:            strings.TrimSpace(request.Phone),
@@ -1417,7 +1419,39 @@ func decodeCompanyRequest(w http.ResponseWriter, r *http.Request) (modulecompani
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Company name is required")
 		return modulecompanies.CreateInput{}, false
 	}
+	if input.ClientType != "organization" && input.ClientType != "individual" {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Client type must be organization or individual")
+		return modulecompanies.CreateInput{}, false
+	}
+	if input.ClientType == "individual" && len(uniquePositiveInt64s(input.LinkedContactIDs)) != 1 {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Individual clients must have exactly one linked contact")
+		return modulecompanies.CreateInput{}, false
+	}
 	return input, true
+}
+
+func normalizeCompanyClientType(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return "organization"
+	}
+	return value
+}
+
+func uniquePositiveInt64s(values []int64) []int64 {
+	result := make([]int64, 0, len(values))
+	seen := make(map[int64]struct{}, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func decodeTaskCreateRequest(w http.ResponseWriter, r *http.Request) (moduletasks.CreateInput, bool) {

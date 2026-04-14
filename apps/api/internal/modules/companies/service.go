@@ -11,13 +11,14 @@ import (
 )
 
 type Summary struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Domain   string `json:"domain"`
-	Industry string `json:"industry"`
-	Phone    string `json:"phone"`
-	Website  string `json:"website"`
-	Status   string `json:"status"`
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	ClientType string `json:"clientType"`
+	Domain     string `json:"domain"`
+	Industry   string `json:"industry"`
+	Phone      string `json:"phone"`
+	Website    string `json:"website"`
+	Status     string `json:"status"`
 }
 
 type LinkedContact struct {
@@ -55,6 +56,7 @@ type ListResult struct {
 
 type CreateInput struct {
 	Name             string  `json:"name"`
+	ClientType       string  `json:"clientType"`
 	Domain           string  `json:"domain"`
 	Industry         string  `json:"industry"`
 	Phone            string  `json:"phone"`
@@ -65,6 +67,7 @@ type CreateInput struct {
 
 type UpdateInput struct {
 	Name             string  `json:"name"`
+	ClientType       string  `json:"clientType"`
 	Domain           string  `json:"domain"`
 	Industry         string  `json:"industry"`
 	Phone            string  `json:"phone"`
@@ -118,7 +121,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	limitArg := len(args) - 1
 	offsetArg := len(args)
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, COALESCE(domain, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
+		SELECT id, name, client_type, COALESCE(domain, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
 		FROM companies
 		WHERE organization_id = $1 AND archived_at IS NULL`+filter+`
 		ORDER BY name ASC, id ASC
@@ -131,7 +134,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	companies := make([]Summary, 0)
 	for rows.Next() {
 		var company Summary
-		if err := rows.Scan(&company.ID, &company.Name, &company.Domain, &company.Industry, &company.Phone, &company.Website, &company.Status); err != nil {
+		if err := rows.Scan(&company.ID, &company.Name, &company.ClientType, &company.Domain, &company.Industry, &company.Phone, &company.Website, &company.Status); err != nil {
 			return ListResult{}, fmt.Errorf("scan company: %w", err)
 		}
 		companies = append(companies, company)
@@ -160,10 +163,10 @@ func (s *Service) GetByID(ctx context.Context, organizationID, companyID int64) 
 		Activities:     []ActivityEntry{},
 	}
 	if err := s.pool.QueryRow(ctx, `
-		SELECT id, name, COALESCE(domain, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
+		SELECT id, name, client_type, COALESCE(domain, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
 		FROM companies
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, companyID).Scan(&detail.Summary.ID, &detail.Summary.Name, &detail.Summary.Domain, &detail.Summary.Industry, &detail.Summary.Phone, &detail.Summary.Website, &detail.Summary.Status); err != nil {
+	`, organizationID, companyID).Scan(&detail.Summary.ID, &detail.Summary.Name, &detail.Summary.ClientType, &detail.Summary.Domain, &detail.Summary.Industry, &detail.Summary.Phone, &detail.Summary.Website, &detail.Summary.Status); err != nil {
 		return Detail{}, fmt.Errorf("get company: %w", err)
 	}
 
@@ -221,8 +224,8 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	}
 
 	input = normalizeCreateInput(input)
-	if input.Name == "" {
-		return Detail{}, fmt.Errorf("company name is required")
+	if err := validateInput(input.Name, input.ClientType, input.LinkedContactIDs); err != nil {
+		return Detail{}, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -233,17 +236,17 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 
 	var companyID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO companies (organization_id, name, domain, industry, phone, website, status, owner_user_id)
-		VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), $8)
+		INSERT INTO companies (organization_id, name, client_type, domain, industry, phone, website, status, owner_user_id)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9)
 		RETURNING id
-	`, organizationID, input.Name, input.Domain, input.Industry, input.Phone, input.Website, input.Status, actorUserID).Scan(&companyID); err != nil {
+	`, organizationID, input.Name, input.ClientType, input.Domain, input.Industry, input.Phone, input.Website, input.Status, actorUserID).Scan(&companyID); err != nil {
 		return Detail{}, fmt.Errorf("insert company: %w", err)
 	}
 
 	if err := replaceLinkedContacts(ctx, tx, organizationID, companyID, input.LinkedContactIDs); err != nil {
 		return Detail{}, fmt.Errorf("replace linked contacts: %w", err)
 	}
-	if err := insertActivity(ctx, tx, organizationID, companyID, actorUserID, "company.created", "Company created"); err != nil {
+	if err := insertActivity(ctx, tx, organizationID, companyID, actorUserID, "company.created", companyActivitySummary(input.ClientType, "created")); err != nil {
 		return Detail{}, fmt.Errorf("insert company activity: %w", err)
 	}
 
@@ -260,8 +263,8 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 	}
 
 	input = normalizeUpdateInput(input)
-	if input.Name == "" {
-		return Detail{}, fmt.Errorf("company name is required")
+	if err := validateInput(input.Name, input.ClientType, input.LinkedContactIDs); err != nil {
+		return Detail{}, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -273,22 +276,23 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 	if _, err := tx.Exec(ctx, `
 		UPDATE companies
 		SET name = $3,
-		    domain = NULLIF($4, ''),
-		    industry = NULLIF($5, ''),
-		    phone = NULLIF($6, ''),
-		    website = NULLIF($7, ''),
-		    status = NULLIF($8, ''),
+		    client_type = $4,
+		    domain = NULLIF($5, ''),
+		    industry = NULLIF($6, ''),
+		    phone = NULLIF($7, ''),
+		    website = NULLIF($8, ''),
+		    status = NULLIF($9, ''),
 		    updated_at = NOW(),
-		    owner_user_id = COALESCE(owner_user_id, $9)
+		    owner_user_id = COALESCE(owner_user_id, $10)
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, companyID, input.Name, input.Domain, input.Industry, input.Phone, input.Website, input.Status, actorUserID); err != nil {
+	`, organizationID, companyID, input.Name, input.ClientType, input.Domain, input.Industry, input.Phone, input.Website, input.Status, actorUserID); err != nil {
 		return Detail{}, fmt.Errorf("update company: %w", err)
 	}
 
 	if err := replaceLinkedContacts(ctx, tx, organizationID, companyID, input.LinkedContactIDs); err != nil {
 		return Detail{}, fmt.Errorf("replace linked contacts: %w", err)
 	}
-	if err := insertActivity(ctx, tx, organizationID, companyID, actorUserID, "company.updated", "Company updated"); err != nil {
+	if err := insertActivity(ctx, tx, organizationID, companyID, actorUserID, "company.updated", companyActivitySummary(input.ClientType, "updated")); err != nil {
 		return Detail{}, fmt.Errorf("insert company activity: %w", err)
 	}
 
@@ -364,6 +368,7 @@ func uniquePositiveIDs(values []int64) []int64 {
 
 func normalizeCreateInput(input CreateInput) CreateInput {
 	input.Name = strings.TrimSpace(input.Name)
+	input.ClientType = normalizeClientType(input.ClientType)
 	input.Domain = strings.TrimSpace(strings.ToLower(input.Domain))
 	input.Industry = strings.TrimSpace(input.Industry)
 	input.Phone = strings.TrimSpace(input.Phone)
@@ -375,6 +380,7 @@ func normalizeCreateInput(input CreateInput) CreateInput {
 
 func normalizeUpdateInput(input UpdateInput) UpdateInput {
 	input.Name = strings.TrimSpace(input.Name)
+	input.ClientType = normalizeClientType(input.ClientType)
 	input.Domain = strings.TrimSpace(strings.ToLower(input.Domain))
 	input.Industry = strings.TrimSpace(input.Industry)
 	input.Phone = strings.TrimSpace(input.Phone)
@@ -382,4 +388,32 @@ func normalizeUpdateInput(input UpdateInput) UpdateInput {
 	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	input.LinkedContactIDs = uniquePositiveIDs(input.LinkedContactIDs)
 	return input
+}
+
+func normalizeClientType(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return "organization"
+	}
+	return value
+}
+
+func validateInput(name, clientType string, linkedContactIDs []int64) error {
+	if name == "" {
+		return fmt.Errorf("company name is required")
+	}
+	if clientType != "organization" && clientType != "individual" {
+		return fmt.Errorf("client type must be organization or individual")
+	}
+	if clientType == "individual" && len(linkedContactIDs) != 1 {
+		return fmt.Errorf("individual clients must have exactly one linked contact")
+	}
+	return nil
+}
+
+func companyActivitySummary(clientType, verb string) string {
+	if normalizeClientType(clientType) == "individual" {
+		return "Individual client " + verb
+	}
+	return "Company " + verb
 }

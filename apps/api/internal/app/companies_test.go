@@ -90,7 +90,7 @@ func authenticatedCompaniesServer(service *fakeCompaniesService) http.Handler {
 func TestListCompaniesUsesCurrentOrganizationAndQuery(t *testing.T) {
 	service := &fakeCompaniesService{
 		listResult: modulecompanies.ListResult{
-			Companies: []modulecompanies.Summary{{ID: 5, Name: "Northstar Logistics", Industry: "Logistics", Domain: "northstar.example", Status: "prospect"}},
+			Companies: []modulecompanies.Summary{{ID: 5, Name: "Northstar Logistics", ClientType: "organization", Industry: "Logistics", Domain: "northstar.example", Status: "prospect"}},
 			Meta:      modulecompanies.ListMeta{Page: 2, PageSize: 10, Total: 1},
 		},
 	}
@@ -116,7 +116,7 @@ func TestListCompaniesUsesCurrentOrganizationAndQuery(t *testing.T) {
 func TestGetCompanyDetailUsesCurrentOrganization(t *testing.T) {
 	service := &fakeCompaniesService{
 		getResult: modulecompanies.Detail{
-			Summary:        modulecompanies.Summary{ID: 5, Name: "Northstar Logistics", Industry: "Logistics", Domain: "northstar.example", Status: "prospect"},
+			Summary:        modulecompanies.Summary{ID: 5, Name: "Northstar Logistics", ClientType: "organization", Industry: "Logistics", Domain: "northstar.example", Status: "prospect"},
 			LinkedContacts: []modulecompanies.LinkedContact{{ID: 7, FirstName: "Morgan", LastName: "Lee", Email: "morgan@acme.test", RelationshipTitle: "Champion", IsPrimary: true}},
 			Activities:     []modulecompanies.ActivityEntry{{ID: 21, Action: "company.created", Summary: "Company created", CreatedAt: time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)}},
 		},
@@ -152,12 +152,12 @@ func TestGetCompanyDetailUsesCurrentOrganization(t *testing.T) {
 func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 	service := &fakeCompaniesService{
 		createResult: modulecompanies.Detail{
-			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", Industry: "Industrial", Domain: "atlas.example", Status: "prospect"},
+			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", ClientType: "organization", Industry: "Industrial", Domain: "atlas.example", Status: "prospect"},
 		},
 	}
 	server := authenticatedCompaniesServer(service)
 
-	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","domain":"atlas.example","industry":"Industrial","phone":"555-0200","website":"https://atlas.example","status":"prospect","linkedContactIDs":[7]}`)
+	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","clientType":"organization","domain":"atlas.example","industry":"Industrial","phone":"555-0200","website":"https://atlas.example","status":"prospect","linkedContactIDs":[7]}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/companies", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -171,7 +171,7 @@ func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 	if service.lastCreateOrgID != 42 || service.lastCreateActorID != 1 {
 		t.Fatalf("unexpected create routing: org=%d actor=%d", service.lastCreateOrgID, service.lastCreateActorID)
 	}
-	if service.lastCreateInput.Name != "Atlas Manufacturing" || len(service.lastCreateInput.LinkedContactIDs) != 1 || service.lastCreateInput.LinkedContactIDs[0] != 7 {
+	if service.lastCreateInput.Name != "Atlas Manufacturing" || service.lastCreateInput.ClientType != "organization" || len(service.lastCreateInput.LinkedContactIDs) != 1 || service.lastCreateInput.LinkedContactIDs[0] != 7 {
 		t.Fatalf("unexpected create input: %#v", service.lastCreateInput)
 	}
 }
@@ -179,12 +179,12 @@ func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 func TestUpdateCompanyUsesCurrentOrganization(t *testing.T) {
 	service := &fakeCompaniesService{
 		updateResult: modulecompanies.Detail{
-			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", Industry: "Industrial", Domain: "atlas.example", Status: "customer"},
+			Summary: modulecompanies.Summary{ID: 6, Name: "Atlas Manufacturing", ClientType: "individual", Industry: "Industrial", Domain: "atlas.example", Status: "customer"},
 		},
 	}
 	server := authenticatedCompaniesServer(service)
 
-	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","domain":"atlas.example","industry":"Industrial","phone":"555-0200","website":"https://atlas.example","status":"customer","linkedContactIDs":[7,8]}`)
+	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","clientType":"individual","domain":"atlas.example","industry":"Industrial","phone":"555-0200","website":"https://atlas.example","status":"customer","linkedContactIDs":[7]}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/companies/6", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -198,8 +198,25 @@ func TestUpdateCompanyUsesCurrentOrganization(t *testing.T) {
 	if service.lastUpdateOrgID != 42 || service.lastUpdateID != 6 || service.lastUpdateActorID != 1 {
 		t.Fatalf("unexpected update routing: org=%d id=%d actor=%d", service.lastUpdateOrgID, service.lastUpdateID, service.lastUpdateActorID)
 	}
-	if service.lastUpdateInput.Status != "customer" || len(service.lastUpdateInput.LinkedContactIDs) != 2 {
+	if service.lastUpdateInput.Status != "customer" || service.lastUpdateInput.ClientType != "individual" || len(service.lastUpdateInput.LinkedContactIDs) != 1 {
 		t.Fatalf("unexpected update input: %#v", service.lastUpdateInput)
+	}
+}
+
+func TestCreateCompanyRequiresName(t *testing.T) {
+	service := &fakeCompaniesService{}
+	server := authenticatedCompaniesServer(service)
+
+	body := bytes.NewBufferString(`{"clientType":"organization"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/companies", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
 	}
 }
 
