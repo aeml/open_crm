@@ -168,6 +168,7 @@ type contactRequest struct {
 	Phone     string `json:"phone"`
 	JobTitle  string `json:"jobTitle"`
 	Status    string `json:"status"`
+	IsClient  bool   `json:"isClient"`
 }
 
 type contactsListResponse struct {
@@ -1390,6 +1391,7 @@ func decodeContactRequest(w http.ResponseWriter, r *http.Request) (modulecontact
 		Phone:     strings.TrimSpace(request.Phone),
 		JobTitle:  strings.TrimSpace(request.JobTitle),
 		Status:    strings.TrimSpace(request.Status),
+		IsClient:  request.IsClient,
 	}
 	if input.FirstName == "" || input.LastName == "" {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "First name and last name are required")

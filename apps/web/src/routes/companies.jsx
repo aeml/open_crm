@@ -4,9 +4,9 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
+import { createContact, listContacts } from '../lib/contacts'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
-import { listContacts } from '../lib/contacts'
 import { listOrganizationUsers } from '../lib/users'
 
 const emptyForm = {
@@ -32,6 +32,51 @@ function parseLinkedContactIDs(value) {
     .split(',')
     .map((entry) => Number.parseInt(entry.trim(), 10))
     .filter((entry) => Number.isInteger(entry) && entry > 0)
+}
+
+function splitFullName(value) {
+  const parts = String(value || '').trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) {
+    return { firstName: '', lastName: '' }
+  }
+  if (parts.length === 1) {
+    return { firstName: parts[0], lastName: parts[0] }
+  }
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(' ')
+  }
+}
+
+function individualClientFromContact(contact) {
+  return {
+    id: `contact-${contact.id}`,
+    entityId: contact.id,
+    entityType: 'contact',
+    clientType: 'individual',
+    name: `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
+    domain: '',
+    industry: contact.jobTitle || '',
+    phone: contact.phone || '',
+    website: '',
+    status: contact.status || 'lead',
+    email: contact.email || ''
+  }
+}
+
+function organizationClientFromCompany(company) {
+  return {
+    ...company,
+    entityId: company.id,
+    entityType: 'company'
+  }
+}
+
+function buildClientRecords(companies, contacts) {
+  return [
+    ...(companies || []).map(organizationClientFromCompany),
+    ...(contacts || []).filter((contact) => contact.isClient).map(individualClientFromContact)
+  ].sort((left, right) => left.name.localeCompare(right.name) || left.entityId - right.entityId)
 }
 
 function normalizeClientType(value) {
@@ -92,7 +137,7 @@ function phoneFieldLabel(clientType) {
   return isIndividualClient(clientType) ? 'Phone number' : 'Phone'
 }
 
-function detailSubtitle(company, linkedContacts) {
+function detailSubtitle(company, linkedContacts = []) {
   if (!company) {
     return ''
   }
@@ -157,24 +202,27 @@ export function CompaniesRoute() {
   const selectedActivities = detail?.activities || []
 
   async function loadCompanies(nextSearch = '') {
-    const data = await listCompanies(nextSearch)
+    const [companyData, contactData] = await Promise.all([listCompanies(nextSearch), listContacts(nextSearch)])
 
-    if (Array.isArray(data?.companies)) {
-      setCompanies(data.companies)
-      setMeta(data.meta || { page: 1, pageSize: 20, total: data.companies.length })
-      return
-    }
+    if (Array.isArray(companyData?.companies)) {
+      const nextCompanies = companyData.companies
+      const nextContacts = (contactData?.contacts || []).filter((contact) => contact.isClient)
+      const clients = buildClientRecords(nextCompanies, nextContacts)
+      setCompanies(clients)
+        setMeta({ page: 1, pageSize: 20, total: clients.length })
+        return
+      }
 
-    if (data?.company) {
-      const entry = data.company
+    if (companyData?.company) {
+      const entry = organizationClientFromCompany(companyData.company)
       setCompanies([entry])
-      setMeta({ page: 1, pageSize: 20, total: 1 })
-      setDetailCache((current) => ({ ...current, [entry.id]: data }))
-      return
-    }
+       setMeta({ page: 1, pageSize: 20, total: 1 })
+       setDetailCache((current) => ({ ...current, [entry.id]: companyData }))
+       return
+     }
 
-    setCompanies([])
-    setMeta({ page: 1, pageSize: 20, total: 0 })
+     setCompanies([])
+     setMeta({ page: 1, pageSize: 20, total: 0 })
   }
 
   async function loadContactOptions() {
@@ -240,6 +288,11 @@ export function CompaniesRoute() {
   }
 
   async function handleOpenCompany(company) {
+    if (company.entityType === 'contact') {
+      navigate(`/contacts/${company.entityId}`)
+      return
+    }
+
     const companyID = company.id
     const cached = detailCache[companyID]
     if (cached) {
@@ -340,12 +393,36 @@ export function CompaniesRoute() {
   async function handleCreate(event) {
     event.preventDefault()
     try {
+      if (isIndividualClient(form.clientType)) {
+        const fullName = splitFullName(form.name)
+        const data = await createContact({
+          firstName: fullName.firstName,
+          lastName: fullName.lastName,
+          email: '',
+          phone: form.phone,
+          jobTitle: '',
+          status: form.status,
+          isClient: true
+        })
+        const nextClient = individualClientFromContact(data.contact)
+        setCompanies((current) => [...current, nextClient].sort((left, right) => left.name.localeCompare(right.name) || left.entityId - right.entityId))
+        setMeta((current) => ({ ...current, total: current.total + 1 }))
+        setForm(emptyForm)
+        setMode('list')
+        navigate(`/contacts/${data.contact.id}`)
+        setError('')
+        return
+      }
+
       const data = await createCompany({
         ...buildCompanyPayload(form)
       })
+      if (!data?.company?.id) {
+        throw new Error('Unable to create company.')
+      }
       const detailData = { ...data, notes: data.notes || [], tasks: data.tasks || [] }
       setDetailCache((current) => ({ ...current, [data.company.id]: detailData }))
-      setCompanies((current) => [...current, data.company])
+      setCompanies((current) => [...current, organizationClientFromCompany(data.company)].sort((left, right) => left.name.localeCompare(right.name) || left.entityId - right.entityId))
       setMeta((current) => ({ ...current, total: current.total + 1 }))
       setSelectedCompanyId(data.company.id)
       setDetail(detailData)
@@ -370,9 +447,12 @@ export function CompaniesRoute() {
       const data = await updateCompany(selectedCompanyId, {
         ...buildCompanyPayload(form)
       })
+      if (!data?.company?.id) {
+        throw new Error('Unable to update company.')
+      }
       const detailData = { ...data, notes: detail?.notes || [], tasks: detail?.tasks || [] }
       setDetailCache((current) => ({ ...current, [selectedCompanyId]: detailData }))
-      setCompanies((current) => current.map((entry) => (entry.id === selectedCompanyId ? data.company : entry)))
+      setCompanies((current) => current.map((entry) => (entry.id === selectedCompanyId ? organizationClientFromCompany(data.company) : entry)))
       setDetail(detailData)
       fillFormFromDetail(detailData)
       setError('')
@@ -485,7 +565,7 @@ export function CompaniesRoute() {
         <div className="card-stack">
           <div className="section-header">
             <div>
-              <h2>Companies</h2>
+                <h2>Clients</h2>
               <p>See client ownership, linked people, and live pipeline in one place.</p>
             </div>
             <Button
@@ -514,7 +594,7 @@ export function CompaniesRoute() {
                   <p>{company.industry || `${clientTypeLabel(company.clientType)} client`}</p>
                 </div>
                 <div>
-                  <p>{company.domain || clientTypeLabel(company.clientType)}</p>
+                  <p>{company.domain || company.email || clientTypeLabel(company.clientType)}</p>
                   <p>{company.status}</p>
                 </div>
               </article>
@@ -585,7 +665,7 @@ export function CompaniesRoute() {
             <div className="section-header">
               <div>
                 <h2>{detailTitle}</h2>
-                <p>{detailSubtitle(selectedCompany)}</p>
+                <p>{detailSubtitle(selectedCompany, linkedContacts)}</p>
               </div>
               <Button className="button-danger" onClick={handleArchive}>
                 Archive client

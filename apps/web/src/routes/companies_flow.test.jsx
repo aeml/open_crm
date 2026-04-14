@@ -36,8 +36,20 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead' }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead', isClient: false }
             ],
             meta: { page: 1, pageSize: 20, total: 2 }
           }
@@ -62,6 +74,15 @@ describe('companies flow', () => {
               { id: 5, name: 'Northstar Logistics', clientType: 'organization', domain: 'northstar.example', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [],
+            meta: { page: 1, pageSize: 20, total: 0 }
           }
         })
       })
@@ -128,7 +149,7 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
@@ -195,6 +216,7 @@ describe('companies flow', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/companies\?q=northstar/), expect.any(Object))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/contacts\?q=northstar/), expect.any(Object))
     })
 
     fireEvent.click(screen.getByRole('button', { name: /northstar logistics/i }))
@@ -244,8 +266,20 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead' }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead', isClient: false }
             ],
             meta: { page: 1, pageSize: 20, total: 2 }
           }
@@ -277,7 +311,6 @@ describe('companies flow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        status: 201,
         json: async () => ({
           data: {
             note: {
@@ -314,7 +347,11 @@ describe('companies flow', () => {
           }
         })
       })
-      .mockResolvedValueOnce({ ok: true, status: 204, json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+        json: async () => ({})
+      })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/companies')
@@ -404,8 +441,53 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Consultant', status: 'lead' },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'Founder', status: 'lead' }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Consultant', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'Founder', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Consultant', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'Founder', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          data: {
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', jobTitle: '', status: 'prospect', isClient: true },
+            notes: [],
+            activities: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Consultant', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', jobTitle: '', status: 'prospect', isClient: true }
             ],
             meta: { page: 1, pageSize: 20, total: 2 }
           }
@@ -425,12 +507,18 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            company: { id: 11, name: 'Morgan Lee', clientType: 'individual', domain: '', industry: '', phone: '555-0100', website: '', status: 'prospect' },
-            linkedContacts: [
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', relationshipTitle: '', isPrimary: true }
-            ],
-            activities: [],
-            notes: []
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: '', phone: '555-0100', jobTitle: '', status: 'prospect', isClient: true },
+            notes: [],
+            activities: []
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
           }
         })
       })
@@ -462,15 +550,14 @@ describe('companies flow', () => {
     fireEvent.change(within(createForm).getByLabelText(/full name/i), { target: { value: 'Ava Stone' } })
     fireEvent.click(screen.getByRole('button', { name: /save client/i }))
 
-    expect(await screen.findByRole('heading', { name: /morgan lee/i })).toBeInTheDocument()
-    expect(screen.getByText(/client record/i)).toBeInTheDocument()
-    expect(screen.queryByLabelText(/^domain/i)).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/industry/i)).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/website/i)).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /ava stone/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/contacts/8')
+    })
 
-    const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/companies$/) && options?.method === 'POST')
+    const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/contacts$/) && options?.method === 'POST')
     expect(createCall).toBeTruthy()
-    expect(JSON.parse(createCall[1].body)).toMatchObject({ clientType: 'individual', name: 'Ava Stone', phone: '555-0100', linkedContactIDs: [8], domain: '', industry: '', website: '' })
+    expect(JSON.parse(createCall[1].body)).toMatchObject({ firstName: 'Ava', lastName: 'Stone', phone: '555-0100', status: 'prospect', isClient: true })
   })
 
   it('loads a company directly from the detail route', async () => {
@@ -502,7 +589,18 @@ describe('companies flow', () => {
         json: async () => ({
           data: {
             contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
             ],
             meta: { page: 1, pageSize: 20, total: 1 }
           }
