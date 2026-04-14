@@ -113,6 +113,37 @@ func TestListCompaniesUsesCurrentOrganizationAndQuery(t *testing.T) {
 	}
 }
 
+func TestListCompaniesAcceptsBroadClientSearchTerms(t *testing.T) {
+	service := &fakeCompaniesService{}
+	server := authenticatedCompaniesServer(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/companies?q=detroit&page=1&pageSize=20", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastListQuery.Search != "detroit" {
+		t.Fatalf("expected search term to pass through, got %#v", service.lastListQuery)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/companies?q=555-0200&page=1&pageSize=20", nil)
+	addSessionCookie(request)
+	recorder = httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastListQuery.Search != "555-0200" {
+		t.Fatalf("expected phone search term to pass through, got %#v", service.lastListQuery)
+	}
+}
+
 func TestGetCompanyDetailUsesCurrentOrganization(t *testing.T) {
 	service := &fakeCompaniesService{
 		getResult: modulecompanies.Detail{

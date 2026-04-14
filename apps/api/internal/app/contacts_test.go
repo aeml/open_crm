@@ -130,6 +130,37 @@ func TestListContactsUsesCurrentOrganizationAndQuery(t *testing.T) {
 	}
 }
 
+func TestListContactsAcceptsAddressAndFullNameSearchTerms(t *testing.T) {
+	service := &fakeContactsService{}
+	server := authenticatedContactsServer(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/contacts?q=morgan+lee&page=1&pageSize=20", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastListQuery.Search != "morgan lee" {
+		t.Fatalf("expected full name search term to pass through, got %#v", service.lastListQuery)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/contacts?q=48201&page=1&pageSize=20", nil)
+	addSessionCookie(request)
+	recorder = httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastListQuery.Search != "48201" {
+		t.Fatalf("expected postal code search term to pass through, got %#v", service.lastListQuery)
+	}
+}
+
 func TestGetContactDetailUsesCurrentOrganization(t *testing.T) {
 	service := &fakeContactsService{
 		getResult: modulecontacts.Detail{

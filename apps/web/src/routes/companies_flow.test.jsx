@@ -242,6 +242,52 @@ describe('companies flow', () => {
     })
   })
 
+  it('searches clients by linked contact name, phone, and address details', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: { companies: [], contacts: [], users: [], meta: { page: 1, pageSize: 20, total: 0 } }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/companies')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/see client ownership, linked people, and live pipeline in one place/i)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/search clients/i), { target: { value: 'morgan' } })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/companies\?q=morgan/), expect.any(Object))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/contacts\?q=morgan/), expect.any(Object))
+    })
+
+    fireEvent.change(screen.getByLabelText(/search clients/i), { target: { value: '555-0200' } })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/companies\?q=555-0200/), expect.any(Object))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/contacts\?q=555-0200/), expect.any(Object))
+    })
+
+    fireEvent.change(screen.getByLabelText(/search clients/i), { target: { value: 'detroit' } })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/companies\?q=detroit/), expect.any(Object))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/contacts\?q=detroit/), expect.any(Object))
+    })
+  })
+
   it('creates, updates, and archives a client', async () => {
     const fetchMock = vi
       .fn()

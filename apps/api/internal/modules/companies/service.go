@@ -125,7 +125,33 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	filter := ""
 	args := []any{organizationID}
 	if query.Search != "" {
-		filter = " AND (name ILIKE $2 OR domain ILIKE $2 OR industry ILIKE $2 OR phone ILIKE $2 OR website ILIKE $2)"
+		filter = ` AND (
+			name ILIKE $2 OR
+			domain ILIKE $2 OR
+			industry ILIKE $2 OR
+			phone ILIKE $2 OR
+			website ILIKE $2 OR
+			address_line1 ILIKE $2 OR
+			address_line2 ILIKE $2 OR
+			city ILIKE $2 OR
+			state ILIKE $2 OR
+			postal_code ILIKE $2 OR
+			country ILIKE $2 OR
+			EXISTS (
+				SELECT 1
+				FROM contact_company_links l
+				JOIN contacts ct ON ct.id = l.contact_id
+				WHERE l.company_id = companies.id
+				  AND l.organization_id = companies.organization_id
+				  AND ct.organization_id = companies.organization_id
+				  AND ct.archived_at IS NULL
+				  AND (
+					ct.first_name ILIKE $2 OR
+					ct.last_name ILIKE $2 OR
+					(ct.first_name || ' ' || ct.last_name) ILIKE $2
+				  )
+			)
+		)`
 		args = append(args, "%"+query.Search+"%")
 	}
 

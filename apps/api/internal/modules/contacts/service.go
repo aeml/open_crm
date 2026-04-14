@@ -119,7 +119,20 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	filter := ""
 	args := []any{organizationID}
 	if query.Search != "" {
-		filter = " AND (first_name ILIKE $2 OR last_name ILIKE $2 OR email ILIKE $2 OR phone ILIKE $2 OR job_title ILIKE $2)"
+		filter = ` AND (
+			first_name ILIKE $2 OR
+			last_name ILIKE $2 OR
+			(first_name || ' ' || last_name) ILIKE $2 OR
+			email ILIKE $2 OR
+			phone ILIKE $2 OR
+			job_title ILIKE $2 OR
+			address_line1 ILIKE $2 OR
+			address_line2 ILIKE $2 OR
+			city ILIKE $2 OR
+			state ILIKE $2 OR
+			postal_code ILIKE $2 OR
+			country ILIKE $2
+		)`
 		args = append(args, "%"+query.Search+"%")
 	}
 
