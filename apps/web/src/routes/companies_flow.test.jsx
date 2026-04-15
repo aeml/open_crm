@@ -456,6 +456,162 @@ describe('companies flow', () => {
     expect(JSON.parse(updateCall[1].body)).toMatchObject({ clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', linkedContactIDs: [8] })
   })
 
+  it('adds a new linked person from company detail', async () => {
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
+            membership: { role: 'owner' }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies') && method === 'GET') {
+        return jsonResponse({
+          data: {
+            companies: [
+              { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts') && method === 'GET') {
+        return jsonResponse({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies/6') && method === 'GET') {
+        return jsonResponse({
+          data: {
+            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
+            linkedContacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true }
+            ],
+            activities: [
+              { id: 22, action: 'company.created', summary: 'Company created' }
+            ]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/notes') && requestURL.searchParams.get('entityType') === 'company' && requestURL.searchParams.get('entityId') === '6') {
+        return jsonResponse({ data: { notes: [] } })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('entityType') === 'company' && requestURL.searchParams.get('entityId') === '6') {
+        return jsonResponse({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals') && requestURL.searchParams.get('companyId') === '6') {
+        return jsonResponse({
+          data: {
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts') && method === 'POST') {
+        return jsonResponse({
+          data: {
+            contact: { id: 9, firstName: 'Riley', lastName: 'Chen', email: 'riley@atlas.test', phone: '555-0110', addressLine1: '', addressLine2: '', city: '', state: '', postalCode: '', country: '', jobTitle: 'Procurement Lead', status: 'prospect', isClient: false },
+            notes: [],
+            activities: []
+          }
+        }, { status: 201 })
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies/6') && method === 'PATCH') {
+        return jsonResponse({
+          data: {
+            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
+            linkedContacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true },
+              { id: 9, firstName: 'Riley', lastName: 'Chen', email: 'riley@atlas.test', relationshipTitle: '', isPrimary: false }
+            ],
+            activities: [
+              { id: 23, action: 'company.updated', summary: 'Company updated' }
+            ]
+          }
+        })
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/companies/6')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /atlas manufacturing/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
+
+    const createPersonForm = screen.getByRole('button', { name: /save person/i }).closest('form')
+    expect(createPersonForm).not.toBeNull()
+
+    fireEvent.change(within(createPersonForm).getByLabelText(/first name/i), { target: { value: 'Riley' } })
+    fireEvent.change(within(createPersonForm).getByLabelText(/last name/i), { target: { value: 'Chen' } })
+    fireEvent.change(within(createPersonForm).getByLabelText(/^email$/i), { target: { value: 'riley@atlas.test' } })
+    fireEvent.change(within(createPersonForm).getByLabelText(/^phone$/i), { target: { value: '555-0110' } })
+    fireEvent.change(within(createPersonForm).getByLabelText(/job title/i), { target: { value: 'Procurement Lead' } })
+    fireEvent.click(screen.getByRole('button', { name: /save person/i }))
+
+    expect(await screen.findByRole('button', { name: /riley chen/i })).toBeInTheDocument()
+    expect(screen.getByText('riley@atlas.test')).toBeInTheDocument()
+    expect(screen.getByText(/company updated/i)).toBeInTheDocument()
+
+    const createCall = fetchMock.mock.calls.find(([requestURL, requestOptions]) => String(requestURL).match(/\/api\/contacts$/) && requestOptions?.method === 'POST')
+    expect(createCall).toBeTruthy()
+    expect(JSON.parse(createCall[1].body)).toMatchObject({
+      firstName: 'Riley',
+      lastName: 'Chen',
+      email: 'riley@atlas.test',
+      phone: '555-0110',
+      jobTitle: 'Procurement Lead',
+      status: 'prospect'
+    })
+
+    const updateCall = fetchMock.mock.calls.find(([requestURL, requestOptions]) => String(requestURL).match(/\/api\/companies\/6$/) && requestOptions?.method === 'PATCH')
+    expect(updateCall).toBeTruthy()
+    expect(JSON.parse(updateCall[1].body)).toMatchObject({ linkedContactIDs: [7, 9] })
+  })
+
   it('creates an individual client with one linked person record', async () => {
     const jsonResponse = (payload, init = {}) => ({
       ok: init.ok ?? true,

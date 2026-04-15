@@ -35,6 +35,15 @@ const emptyTaskForm = {
   assignedToUserId: ''
 }
 
+const emptyLinkedPersonForm = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  jobTitle: '',
+  status: 'lead'
+}
+
 function parseLinkedContactIDs(value) {
   return String(value || '')
     .split(',')
@@ -134,6 +143,25 @@ function buildCompanyPayload(form) {
   }
 }
 
+function companyFormValues(company, linkedContacts = []) {
+  return {
+    name: company.name || '',
+    clientType: normalizeClientType(company.clientType),
+    addressLine1: company.addressLine1 || '',
+    addressLine2: company.addressLine2 || '',
+    city: company.city || '',
+    state: company.state || '',
+    postalCode: company.postalCode || '',
+    country: company.country || '',
+    industry: company.industry || '',
+    email: company.email || '',
+    phone: company.phone || '',
+    website: company.website || '',
+    status: company.status || 'prospect',
+    linkedContactIDs: limitLinkedContacts(company.clientType, (linkedContacts || []).map((contact) => contact.id).join(','))
+  }
+}
+
 function clientTypeLabel(clientType) {
   return isIndividualClient(clientType) ? 'Individual' : 'Organization'
 }
@@ -194,6 +222,42 @@ function applyLinkedContactSelection(currentForm, contactOptions, value) {
     postalCode: currentForm.postalCode || selectedContact?.postalCode || '',
     country: currentForm.country || selectedContact?.country || ''
   }
+}
+
+function linkedPersonFormValues(company) {
+  const status = ['prospect', 'customer', 'lead'].includes(company?.status) ? company.status : 'lead'
+  return {
+    ...emptyLinkedPersonForm,
+    status
+  }
+}
+
+function sortContactOptions(contacts) {
+  return [...contacts].sort((left, right) => {
+    const leftName = `${left.firstName || ''} ${left.lastName || ''}`.trim()
+    const rightName = `${right.firstName || ''} ${right.lastName || ''}`.trim()
+    return leftName.localeCompare(rightName) || left.id - right.id
+  })
+}
+
+function mergeLinkedContactIDs(linkedContacts, nextContactID) {
+  const result = []
+  const seen = new Set()
+
+  for (const contact of linkedContacts || []) {
+    const contactID = Number.parseInt(String(contact?.id || ''), 10)
+    if (!Number.isInteger(contactID) || contactID <= 0 || seen.has(contactID)) {
+      continue
+    }
+    seen.add(contactID)
+    result.push(contactID)
+  }
+
+  if (Number.isInteger(nextContactID) && nextContactID > 0 && !seen.has(nextContactID)) {
+    result.push(nextContactID)
+  }
+
+  return result
 }
 
 function formatActivityTimestamp(createdAt) {
@@ -263,6 +327,8 @@ export function CompaniesRoute() {
   const [form, setForm] = useState(emptyForm)
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
+  const [linkedPersonForm, setLinkedPersonForm] = useState(emptyLinkedPersonForm)
+  const [showLinkedPersonForm, setShowLinkedPersonForm] = useState(false)
   const [error, setError] = useState('')
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateCandidate, setDuplicateCandidate] = useState(null)
@@ -300,7 +366,7 @@ export function CompaniesRoute() {
 
   async function loadContactOptions() {
     const data = await listContacts()
-    setContactOptions(data.contacts || [])
+    setContactOptions(sortContactOptions(data.contacts || []))
   }
 
   async function loadUserOptions() {
@@ -315,22 +381,9 @@ export function CompaniesRoute() {
   }
 
   function fillFormFromDetail(data) {
-    setForm({
-      name: data.company.name || '',
-      clientType: normalizeClientType(data.company.clientType),
-      addressLine1: data.company.addressLine1 || '',
-      addressLine2: data.company.addressLine2 || '',
-      city: data.company.city || '',
-      state: data.company.state || '',
-      postalCode: data.company.postalCode || '',
-      country: data.company.country || '',
-      industry: data.company.industry || '',
-      email: data.company.email || '',
-      phone: data.company.phone || '',
-      website: data.company.website || '',
-      status: data.company.status || 'prospect',
-      linkedContactIDs: limitLinkedContacts(data.company.clientType, (data.linkedContacts || []).map((contact) => contact.id).join(','))
-    })
+    setForm(companyFormValues(data.company, data.linkedContacts || []))
+    setLinkedPersonForm(linkedPersonFormValues(data.company))
+    setShowLinkedPersonForm(false)
   }
 
   useEffect(() => {
@@ -607,6 +660,57 @@ export function CompaniesRoute() {
     }
   }
 
+  async function handleCreateLinkedPerson(event) {
+    event.preventDefault()
+    if (!selectedCompanyId || !selectedCompany || isIndividualClient(selectedCompany.clientType)) {
+      return
+    }
+
+    try {
+      const contactData = await createContact({
+        firstName: linkedPersonForm.firstName,
+        lastName: linkedPersonForm.lastName,
+        email: linkedPersonForm.email,
+        phone: linkedPersonForm.phone,
+        addressLine1: '',
+        addressLine2: '',
+        city: '',
+        state: '',
+        postalCode: '',
+        country: '',
+        jobTitle: linkedPersonForm.jobTitle,
+        status: linkedPersonForm.status
+      })
+      if (!contactData?.contact?.id) {
+        throw new Error('Unable to create contact.')
+      }
+
+      setContactOptions((current) => sortContactOptions([...current.filter((entry) => entry.id !== contactData.contact.id), contactData.contact]))
+
+      const linkedContactIDs = mergeLinkedContactIDs(linkedContacts, contactData.contact.id)
+      const companyData = await updateCompany(selectedCompanyId, buildCompanyPayload({
+        ...form,
+        linkedContactIDs: linkedContactIDs.join(',')
+      }))
+      if (!companyData?.company?.id) {
+        throw new Error('Unable to update company.')
+      }
+
+      const detailData = { ...companyData, notes: detail?.notes || [], tasks: detail?.tasks || [], deals: detail?.deals || [] }
+      setDetailCache((current) => ({ ...current, [selectedCompanyId]: detailData }))
+      setCompanies((current) => current.map((entry) => (entry.id === selectedCompanyId ? organizationClientFromCompany(companyData.company) : entry)))
+      setDetail(detailData)
+      fillFormFromDetail(detailData)
+      setError('')
+      setDuplicateSearch('')
+      setDuplicateCandidate(null)
+    } catch (saveError) {
+      setError(saveError.message || 'Unable to add linked person.')
+      setDuplicateSearch(duplicateSearchTerm(saveError.message, linkedPersonForm.email || `${linkedPersonForm.firstName} ${linkedPersonForm.lastName}`))
+      setDuplicateCandidate(saveError.duplicate || null)
+    }
+  }
+
   async function handleArchive() {
     if (!selectedCompanyId) {
       return
@@ -721,6 +825,8 @@ export function CompaniesRoute() {
                 navigate('/companies')
                 setMode('create')
                 setForm(emptyForm)
+                setLinkedPersonForm(emptyLinkedPersonForm)
+                setShowLinkedPersonForm(false)
                 setDetail(null)
                 setSelectedCompanyId(null)
               }}
@@ -930,7 +1036,40 @@ export function CompaniesRoute() {
             </form>
             <Card>
               <div className="card-stack">
-                <h3>People</h3>
+                <div className="section-header">
+                  <div>
+                    <h3>People</h3>
+                    <p>{normalizeClientType(selectedCompany.clientType) === 'individual' ? 'Manage the linked person for this client.' : 'Add and manage the people tied to this client.'}</p>
+                  </div>
+                  {!isIndividualClient(selectedCompany.clientType) ? (
+                    <Button className="button-secondary" onClick={() => {
+                      setLinkedPersonForm(linkedPersonFormValues(selectedCompany))
+                      setShowLinkedPersonForm((current) => !current)
+                    }}>
+                      {showLinkedPersonForm ? 'Cancel' : 'Add person'}
+                    </Button>
+                  ) : null}
+                </div>
+                {showLinkedPersonForm && !isIndividualClient(selectedCompany.clientType) ? (
+                  <form className="auth-form" onSubmit={handleCreateLinkedPerson}>
+                    <Field label="First name">
+                      <input className="text-input" value={linkedPersonForm.firstName} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, firstName: event.target.value }))} required />
+                    </Field>
+                    <Field label="Last name">
+                      <input className="text-input" value={linkedPersonForm.lastName} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, lastName: event.target.value }))} required />
+                    </Field>
+                    <Field label="Email">
+                      <input className="text-input" type="email" value={linkedPersonForm.email} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, email: event.target.value }))} />
+                    </Field>
+                    <Field label="Phone">
+                      <input className="text-input" value={linkedPersonForm.phone} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, phone: event.target.value }))} />
+                    </Field>
+                    <Field label="Job title">
+                      <input className="text-input" value={linkedPersonForm.jobTitle} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, jobTitle: event.target.value }))} />
+                    </Field>
+                    <Button type="submit">Save person</Button>
+                  </form>
+                ) : null}
                 <div className="record-list" role="list" aria-label="Linked contacts list">
                   {linkedContacts.length === 0 ? (
                     <article className="record-row" role="listitem">
