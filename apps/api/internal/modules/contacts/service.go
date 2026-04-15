@@ -14,6 +14,34 @@ import (
 
 var ErrDuplicateContact = errors.New("duplicate contact")
 
+type DuplicateError struct {
+	ID     int64
+	Label  string
+	Reason string
+}
+
+func (e *DuplicateError) Error() string {
+	if e == nil {
+		return ErrDuplicateContact.Error()
+	}
+	label := strings.TrimSpace(e.Label)
+	if label == "" {
+		return ErrDuplicateContact.Error()
+	}
+	return fmt.Sprintf("%s: %s (%s)", ErrDuplicateContact, label, e.ReasonText())
+}
+
+func (e *DuplicateError) Unwrap() error {
+	return ErrDuplicateContact
+}
+
+func (e *DuplicateError) ReasonText() string {
+	if e == nil {
+		return duplicateContactReason("")
+	}
+	return duplicateContactReason(e.Reason)
+}
+
 type Summary struct {
 	ID           int64  `json:"id"`
 	FirstName    string `json:"firstName"`
@@ -434,7 +462,7 @@ func ensureNoDuplicateContact(ctx context.Context, pool *pgxpool.Pool, organizat
 		return fmt.Errorf("check duplicate contact: %w", err)
 	}
 
-	return fmt.Errorf("%w: %s %s (%s)", ErrDuplicateContact, strings.TrimSpace(firstName), strings.TrimSpace(lastName), duplicateContactReason(reason))
+	return &DuplicateError{ID: duplicateID, Label: strings.TrimSpace(firstName + " " + lastName), Reason: reason}
 }
 
 func duplicateContactReason(reason string) string {

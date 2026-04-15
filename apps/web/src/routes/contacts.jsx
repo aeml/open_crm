@@ -99,6 +99,7 @@ export function ContactsRoute() {
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [error, setError] = useState('')
   const [duplicateSearch, setDuplicateSearch] = useState('')
+  const [duplicateCandidate, setDuplicateCandidate] = useState(null)
 
   const selectedContact = detail?.contact || null
   const selectedNotes = detail?.notes || []
@@ -146,6 +147,7 @@ export function ContactsRoute() {
         if (!cancelled) {
           setError('')
           setDuplicateSearch('')
+          setDuplicateCandidate(null)
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -167,6 +169,7 @@ export function ContactsRoute() {
       await loadContacts(value)
       setError('')
       setDuplicateSearch('')
+      setDuplicateCandidate(null)
     } catch (loadError) {
       setError(loadError.message || 'Unable to load contacts.')
     }
@@ -184,6 +187,13 @@ export function ContactsRoute() {
     } catch (loadError) {
       setError(loadError.message || 'Unable to load contacts.')
     }
+  }
+
+  function handleOpenDuplicate() {
+    if (!duplicateCandidate?.id) {
+      return
+    }
+    navigate(`/contacts/${duplicateCandidate.id}`)
   }
 
   async function handleOpenContact(contact) {
@@ -299,9 +309,11 @@ export function ContactsRoute() {
       navigate(`/contacts/${data.contact.id}`)
       setError('')
       setDuplicateSearch('')
+      setDuplicateCandidate(null)
     } catch (saveError) {
       setError(saveError.message || 'Unable to create contact.')
       setDuplicateSearch(duplicateSearchTerm(saveError.message, form.email || `${form.firstName} ${form.lastName}`))
+      setDuplicateCandidate(saveError.duplicate || null)
     }
   }
 
@@ -324,9 +336,11 @@ export function ContactsRoute() {
       setForm(contactFormValues(data.contact))
       setError('')
       setDuplicateSearch('')
+      setDuplicateCandidate(null)
     } catch (saveError) {
       setError(saveError.message || 'Unable to update contact.')
       setDuplicateSearch(duplicateSearchTerm(saveError.message, form.email || `${form.firstName} ${form.lastName}`))
+      setDuplicateCandidate(saveError.duplicate || null)
     }
   }
 
@@ -356,6 +370,7 @@ export function ContactsRoute() {
       navigate('/companies')
       setError('')
       setDuplicateSearch('')
+      setDuplicateCandidate(null)
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive contact.')
     }
@@ -456,6 +471,13 @@ export function ContactsRoute() {
           {error ? (
             <div className="card-stack">
               <p className="form-error">{error}</p>
+              {duplicateCandidate ? (
+                <div>
+                  <Button className="button-secondary" onClick={handleOpenDuplicate}>
+                    Open matching contact
+                  </Button>
+                </div>
+              ) : null}
               {duplicateSearch ? (
                 <div>
                   <Button className="button-secondary" onClick={handleDuplicateSearch}>

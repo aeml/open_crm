@@ -196,7 +196,12 @@ describe('contacts flow', () => {
         ok: false,
         status: 409,
         json: async () => ({
-          error: { message: 'duplicate contact: Ava Stone (matching email)' }
+          error: {
+            message: 'duplicate contact: Ava Stone (matching email)',
+            details: {
+              duplicate: { id: 8, entityType: 'contact', label: 'Ava Stone', reason: 'matching email' }
+            }
+          }
         })
       })
       .mockResolvedValueOnce({
@@ -224,6 +229,12 @@ describe('contacts flow', () => {
 
     expect(await screen.findByText(/possible duplicate contact: matching email\. review the existing record before saving again\./i)).toBeInTheDocument()
     expect(screen.getByText(/duplicate contact: ava stone/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /open matching contact/i }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/contacts/8')
+    })
+
     fireEvent.click(screen.getByRole('button', { name: /search existing contacts for ava stone/i }))
 
     await waitFor(() => {

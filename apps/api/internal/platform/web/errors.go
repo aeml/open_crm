@@ -6,6 +6,7 @@ type ErrorResponse struct {
 	Error struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
+		Details any    `json:"details,omitempty"`
 	} `json:"error"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -13,9 +14,14 @@ type ErrorResponse struct {
 }
 
 func WriteError(w http.ResponseWriter, status int, requestID string, code, message string) {
+	WriteErrorWithDetails(w, status, requestID, code, message, nil)
+}
+
+func WriteErrorWithDetails(w http.ResponseWriter, status int, requestID string, code, message string, details any) {
 	response := ErrorResponse{}
 	response.Error.Code = code
 	response.Error.Message = message
+	response.Error.Details = details
 	response.Meta.RequestID = requestID
 	WriteJSON(w, status, response)
 }

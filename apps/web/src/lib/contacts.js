@@ -4,6 +4,19 @@ function getErrorMessage(payload, fallbackMessage) {
   return payload?.error?.message || fallbackMessage
 }
 
+function duplicateCandidate(payload) {
+  const candidate = payload?.error?.details?.duplicate
+  if (!candidate?.id || !candidate?.entityType) {
+    return null
+  }
+  return {
+    id: candidate.id,
+    entityType: candidate.entityType,
+    label: candidate.label || '',
+    reason: candidate.reason || ''
+  }
+}
+
 function duplicateReasonLabel(message) {
   const match = String(message || '').match(/\(([^()]+)\)\s*$/)
   if (!match?.[1]) {
@@ -15,9 +28,11 @@ function duplicateReasonLabel(message) {
 function getContactSaveError(response, payload, fallbackMessage) {
   const message = getErrorMessage(payload, fallbackMessage)
   if (response.status === 409) {
-    return `Possible duplicate contact: ${duplicateReasonLabel(message)}. Review the existing record before saving again. ${message}`
+    const error = new Error(`Possible duplicate contact: ${duplicateReasonLabel(message)}. Review the existing record before saving again. ${message}`)
+    error.duplicate = duplicateCandidate(payload)
+    throw error
   }
-  return message
+  return new Error(message)
 }
 
 async function readJSON(response) {
@@ -66,7 +81,7 @@ export async function createContact(input) {
   const payload = await readJSON(response)
 
   if (!response.ok) {
-    throw new Error(getContactSaveError(response, payload, 'Unable to create contact.'))
+    throw getContactSaveError(response, payload, 'Unable to create contact.')
   }
 
   return payload?.data
@@ -84,7 +99,7 @@ export async function updateContact(contactID, input) {
   const payload = await readJSON(response)
 
   if (!response.ok) {
-    throw new Error(getContactSaveError(response, payload, 'Unable to update contact.'))
+    throw getContactSaveError(response, payload, 'Unable to update contact.')
   }
 
   return payload?.data

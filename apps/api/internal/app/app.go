@@ -236,6 +236,15 @@ type companyDetailResponse struct {
 	} `json:"meta"`
 }
 
+type duplicateDetailsResponse struct {
+	Duplicate struct {
+		ID         int64  `json:"id"`
+		EntityType string `json:"entityType"`
+		Label      string `json:"label"`
+		Reason     string `json:"reason"`
+	} `json:"duplicate"`
+}
+
 type dealRequest struct {
 	Name              string `json:"name"`
 	StageID           int64  `json:"stageId"`
@@ -732,7 +741,7 @@ func handleCreateContact(auth authService, contacts contactsService, w http.Resp
 	result, err := contacts.Create(r.Context(), state.Organization.ID, state.User.ID, input)
 	if err != nil {
 		if errors.Is(err, modulecontacts.ErrDuplicateContact) {
-			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			platformweb.WriteErrorWithDetails(w, http.StatusConflict, requestID, "CONFLICT", err.Error(), duplicateErrorDetails(err))
 			return
 		}
 		if err.Error() == "first name and last name are required" {
@@ -768,7 +777,7 @@ func handleUpdateContact(auth authService, contacts contactsService, w http.Resp
 	result, err := contacts.Update(r.Context(), state.Organization.ID, contactID, state.User.ID, modulecontacts.UpdateInput(input))
 	if err != nil {
 		if errors.Is(err, modulecontacts.ErrDuplicateContact) {
-			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			platformweb.WriteErrorWithDetails(w, http.StatusConflict, requestID, "CONFLICT", err.Error(), duplicateErrorDetails(err))
 			return
 		}
 		if err.Error() == "first name and last name are required" {
@@ -876,7 +885,7 @@ func handleCreateCompany(auth authService, companies companiesService, w http.Re
 	result, err := companies.Create(r.Context(), state.Organization.ID, state.User.ID, input)
 	if err != nil {
 		if errors.Is(err, modulecompanies.ErrDuplicateCompany) {
-			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			platformweb.WriteErrorWithDetails(w, http.StatusConflict, requestID, "CONFLICT", err.Error(), duplicateErrorDetails(err))
 			return
 		}
 		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "must") {
@@ -912,7 +921,7 @@ func handleUpdateCompany(auth authService, companies companiesService, w http.Re
 	result, err := companies.Update(r.Context(), state.Organization.ID, companyID, state.User.ID, modulecompanies.UpdateInput(input))
 	if err != nil {
 		if errors.Is(err, modulecompanies.ErrDuplicateCompany) {
-			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			platformweb.WriteErrorWithDetails(w, http.StatusConflict, requestID, "CONFLICT", err.Error(), duplicateErrorDetails(err))
 			return
 		}
 		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "must") {
@@ -947,6 +956,30 @@ func handleArchiveCompany(auth authService, companies companiesService, w http.R
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func duplicateErrorDetails(err error) any {
+	var contactErr *modulecontacts.DuplicateError
+	if errors.As(err, &contactErr) {
+		response := duplicateDetailsResponse{}
+		response.Duplicate.ID = contactErr.ID
+		response.Duplicate.EntityType = "contact"
+		response.Duplicate.Label = contactErr.Label
+		response.Duplicate.Reason = contactErr.ReasonText()
+		return response
+	}
+
+	var companyErr *modulecompanies.DuplicateError
+	if errors.As(err, &companyErr) {
+		response := duplicateDetailsResponse{}
+		response.Duplicate.ID = companyErr.ID
+		response.Duplicate.EntityType = "company"
+		response.Duplicate.Label = companyErr.Label
+		response.Duplicate.Reason = companyErr.ReasonText()
+		return response
+	}
+
+	return nil
 }
 
 func handleListDealStages(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {

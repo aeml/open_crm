@@ -1,6 +1,9 @@
 package contacts
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestNormalizeCreateInputNormalizesEmail(t *testing.T) {
 	input := normalizeCreateInput(CreateInput{Email: "  Ava@Acme.Test  "})
@@ -35,5 +38,15 @@ func TestDuplicateContactReason(t *testing.T) {
 				t.Fatalf("duplicateContactReason(%q) = %q, want %q", test.reason, got, test.want)
 			}
 		})
+	}
+}
+
+func TestDuplicateErrorMatchesSentinel(t *testing.T) {
+	err := &DuplicateError{ID: 9, Label: "Ava Stone", Reason: "email"}
+	if !errors.Is(err, ErrDuplicateContact) {
+		t.Fatal("expected duplicate contact error to match sentinel")
+	}
+	if err.Error() != "duplicate contact: Ava Stone (matching email)" {
+		t.Fatalf("unexpected error string: %q", err.Error())
 	}
 }

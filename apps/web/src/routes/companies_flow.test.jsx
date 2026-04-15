@@ -628,27 +628,46 @@ describe('companies flow', () => {
   })
 
   it('shows a clearer duplicate warning when creating a company client fails with conflict', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const duplicatePayload = {
+      error: {
+        message: 'duplicate company: Atlas Manufacturing (matching website)',
+        details: {
+          duplicate: { id: 9, entityType: 'company', label: 'Atlas Manufacturing', reason: 'matching website' }
+        }
+      }
+    }
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = String(url)
+      const method = options.method || 'GET'
+
+      if (requestURL.endsWith('/auth/me')) {
+        return jsonResponse({
           data: {
             user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
             organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
             membership: { role: 'owner' }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } }
+      }
+
+      if (requestURL.endsWith('/api/companies') && method === 'GET') {
+        return jsonResponse({
+          data: {
+            companies: [],
+            meta: { page: 1, pageSize: 20, total: 0 }
+          }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.endsWith('/api/contacts')) {
+        return jsonResponse({
           data: {
             contacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
@@ -656,55 +675,51 @@ describe('companies flow', () => {
             meta: { page: 1, pageSize: 20, total: 1 }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.endsWith('/api/users')) {
+        return jsonResponse({
           data: {
             users: [
               { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 409,
-        json: async () => ({
-          error: { message: 'duplicate company: Atlas Manufacturing (matching website)' }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.endsWith('/api/companies') && method === 'POST') {
+        return jsonResponse(duplicatePayload, { ok: false, status: 409 })
+      }
+
+      if (requestURL.endsWith('/api/companies/9')) {
+        return jsonResponse({
           data: {
-            companies: [
-              { id: 9, name: 'Atlas Manufacturing', clientType: 'organization', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
+            company: { id: 9, name: 'Atlas Manufacturing', clientType: 'organization', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
+            linkedContacts: [],
+            activities: []
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.includes('/api/notes?entityType=company&entityId=9')) {
+        return jsonResponse({
           data: {
-            contacts: [],
-            meta: { page: 1, pageSize: 20, total: 0 }
+            notes: []
           }
         })
-      })
+      }
+
+      if (requestURL.includes('/api/tasks?status=open&entityType=company&entityId=9')) {
+        return jsonResponse({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL}`)
+    })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/companies')
@@ -723,12 +738,14 @@ describe('companies flow', () => {
 
     expect(await screen.findByText(/possible duplicate company: matching website\. review the existing record before saving again\./i)).toBeInTheDocument()
     expect(screen.getByText(/duplicate company: atlas manufacturing/i)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /search existing clients for atlas manufacturing/i }))
+    expect(screen.getByRole('button', { name: /search existing clients for atlas manufacturing/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /open matching client/i }))
 
     await waitFor(() => {
-      expect(screen.getByLabelText(/search clients/i)).toHaveValue('Atlas Manufacturing')
+      expect(window.location.pathname).toBe('/companies/9')
     })
-    expect(await screen.findByRole('button', { name: /^atlas manufacturing$/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /atlas manufacturing/i })).toBeInTheDocument()
   })
 
   it('loads a company directly from the detail route', async () => {

@@ -1,6 +1,9 @@
 package companies
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestNormalizeWebsite(t *testing.T) {
 	tests := []struct {
@@ -56,5 +59,15 @@ func TestDuplicateCompanyReason(t *testing.T) {
 				t.Fatalf("duplicateCompanyReason(%q) = %q, want %q", test.reason, got, test.want)
 			}
 		})
+	}
+}
+
+func TestDuplicateErrorMatchesSentinel(t *testing.T) {
+	err := &DuplicateError{ID: 9, Label: "Atlas Manufacturing", Reason: "website"}
+	if !errors.Is(err, ErrDuplicateCompany) {
+		t.Fatal("expected duplicate company error to match sentinel")
+	}
+	if err.Error() != "duplicate company: Atlas Manufacturing (matching website)" {
+		t.Fatalf("unexpected error string: %q", err.Error())
 	}
 }

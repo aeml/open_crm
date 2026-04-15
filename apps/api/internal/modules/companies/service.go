@@ -15,6 +15,34 @@ import (
 
 var ErrDuplicateCompany = errors.New("duplicate company")
 
+type DuplicateError struct {
+	ID     int64
+	Label  string
+	Reason string
+}
+
+func (e *DuplicateError) Error() string {
+	if e == nil {
+		return ErrDuplicateCompany.Error()
+	}
+	label := strings.TrimSpace(e.Label)
+	if label == "" {
+		return ErrDuplicateCompany.Error()
+	}
+	return fmt.Sprintf("%s: %s (%s)", ErrDuplicateCompany, label, e.ReasonText())
+}
+
+func (e *DuplicateError) Unwrap() error {
+	return ErrDuplicateCompany
+}
+
+func (e *DuplicateError) ReasonText() string {
+	if e == nil {
+		return duplicateCompanyReason("")
+	}
+	return duplicateCompanyReason(e.Reason)
+}
+
 type Summary struct {
 	ID           int64  `json:"id"`
 	Name         string `json:"name"`
@@ -565,7 +593,7 @@ func ensureNoDuplicateCompany(ctx context.Context, pool *pgxpool.Pool, organizat
 		return fmt.Errorf("check duplicate company: %w", err)
 	}
 
-	return fmt.Errorf("%w: %s (%s)", ErrDuplicateCompany, strings.TrimSpace(name), duplicateCompanyReason(reason))
+	return &DuplicateError{ID: duplicateID, Label: strings.TrimSpace(name), Reason: reason}
 }
 
 func duplicateCompanyReason(reason string) string {

@@ -237,6 +237,7 @@ export function CompaniesRoute() {
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [error, setError] = useState('')
   const [duplicateSearch, setDuplicateSearch] = useState('')
+  const [duplicateCandidate, setDuplicateCandidate] = useState(null)
 
   const selectedCompany = detail?.company || null
   const linkedContacts = detail?.linkedContacts || []
@@ -312,6 +313,7 @@ export function CompaniesRoute() {
         if (!cancelled) {
           setError('')
           setDuplicateSearch('')
+          setDuplicateCandidate(null)
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -333,6 +335,7 @@ export function CompaniesRoute() {
       await loadCompanies(value)
       setError('')
       setDuplicateSearch('')
+      setDuplicateCandidate(null)
     } catch (loadError) {
       setError(loadError.message || 'Unable to load companies.')
     }
@@ -354,6 +357,17 @@ export function CompaniesRoute() {
     } catch (loadError) {
       setError(loadError.message || 'Unable to load companies.')
     }
+  }
+
+  function handleOpenDuplicate() {
+    if (!duplicateCandidate?.id || !duplicateCandidate?.entityType) {
+      return
+    }
+    if (duplicateCandidate.entityType === 'contact') {
+      navigate(`/contacts/${duplicateCandidate.id}`)
+      return
+    }
+    navigate(`/companies/${duplicateCandidate.id}`)
   }
 
   async function handleOpenCompany(company) {
@@ -487,6 +501,7 @@ export function CompaniesRoute() {
         navigate(`/contacts/${data.contact.id}`)
         setError('')
         setDuplicateSearch('')
+        setDuplicateCandidate(null)
         return
       }
 
@@ -509,9 +524,11 @@ export function CompaniesRoute() {
       navigate(`/companies/${data.company.id}`)
       setError('')
       setDuplicateSearch('')
+      setDuplicateCandidate(null)
     } catch (saveError) {
       setError(saveError.message || 'Unable to create company.')
       setDuplicateSearch(duplicateSearchTerm(saveError.message, form.website || form.email || form.phone || form.name))
+      setDuplicateCandidate(saveError.duplicate || null)
     }
   }
 
@@ -535,9 +552,11 @@ export function CompaniesRoute() {
       fillFormFromDetail(detailData)
       setError('')
       setDuplicateSearch('')
+      setDuplicateCandidate(null)
     } catch (saveError) {
       setError(saveError.message || 'Unable to update company.')
       setDuplicateSearch(duplicateSearchTerm(saveError.message, form.website || form.email || form.phone || form.name))
+      setDuplicateCandidate(saveError.duplicate || null)
     }
   }
 
@@ -567,6 +586,7 @@ export function CompaniesRoute() {
       navigate('/companies')
       setError('')
       setDuplicateSearch('')
+      setDuplicateCandidate(null)
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive company.')
     }
@@ -667,6 +687,13 @@ export function CompaniesRoute() {
           {error ? (
             <div className="card-stack">
               <p className="form-error">{error}</p>
+              {duplicateCandidate ? (
+                <div>
+                  <Button className="button-secondary" onClick={handleOpenDuplicate}>
+                    Open matching {duplicateCandidate.entityType === 'contact' ? 'contact' : 'client'}
+                  </Button>
+                </div>
+              ) : null}
               {duplicateSearch ? (
                 <div>
                   <Button className="button-secondary" onClick={handleDuplicateSearch}>
