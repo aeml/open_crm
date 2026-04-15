@@ -8,87 +8,27 @@ afterEach(() => {
 
 describe('companies flow', () => {
   it('loads searchable clients list and opens client detail with linked contacts', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({
           data: {
             user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
             organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
             membership: { role: 'owner' }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            companies: [
-              { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead', isClient: false }
-            ],
-            meta: { page: 1, pageSize: 20, total: 2 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead', isClient: false }
-            ],
-            meta: { page: 1, pageSize: 20, total: 2 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            users: [
-              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
-              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            companies: [
-              { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [],
-            meta: { page: 1, pageSize: 20, total: 0 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies/5')) {
+        return jsonResponse({
           data: {
             company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [
@@ -99,10 +39,56 @@ describe('companies flow', () => {
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts/7')) {
+        return jsonResponse({
+          data: {
+            contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
+            notes: [],
+            activities: [
+              { id: 100, action: 'contact.created', summary: 'Contact created' }
+            ]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies')) {
+        return jsonResponse({
+          data: {
+            companies: [
+              { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts')) {
+        return jsonResponse({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/notes') && requestURL.searchParams.get('entityType') === 'company' && requestURL.searchParams.get('entityId') === '5') {
+        return jsonResponse({
           data: {
             notes: [
               {
@@ -118,10 +104,10 @@ describe('companies flow', () => {
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('entityType') === 'company' && requestURL.searchParams.get('entityId') === '5') {
+        return jsonResponse({
           data: {
             tasks: [
               {
@@ -143,44 +129,10 @@ describe('companies flow', () => {
             meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            users: [
-              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
-              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
-            notes: [],
-            activities: [
-              { id: 100, action: 'contact.created', summary: 'Contact created' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('entityType') === 'contact' && requestURL.searchParams.get('entityId') === '7') {
+        return jsonResponse({
           data: {
             tasks: [
               {
@@ -202,7 +154,32 @@ describe('companies flow', () => {
             meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
           }
         })
-      })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals') && requestURL.searchParams.get('companyId') === '5') {
+        return jsonResponse({
+          data: {
+            deals: [
+              { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '48000.00' }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals') && requestURL.searchParams.get('primaryContactId') === '7') {
+        return jsonResponse({
+          data: {
+            deals: [
+              { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '48000.00' }
+          }
+        })
+      }
+
+      throw new Error(`Unexpected fetch: ${requestURL.pathname}${requestURL.search}`)
+    })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/companies')
@@ -229,16 +206,23 @@ describe('companies flow', () => {
     expect(screen.getByText(/company created/i)).toBeInTheDocument()
     expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
     expect(await screen.findByText(/met procurement lead and validated timeline/i)).toBeInTheDocument()
+    expect(screen.getByText(/northstar expansion/i)).toBeInTheDocument()
+    expect(screen.getByText('$48,000.00')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create deal/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /morgan lee/i }))
     await waitFor(() => {
       expect(window.location.pathname).toBe('/contacts/7')
     })
     expect(await screen.findByText(/contact created/i)).toBeInTheDocument()
     expect(screen.getByText(/collect warehouse onboarding contacts/i)).toBeInTheDocument()
+    expect(screen.getByText(/northstar expansion/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&entityType=contact&entityId=7$/), expect.any(Object))
+    })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?primaryContactId=7$/), expect.any(Object))
     })
   })
 
@@ -473,27 +457,34 @@ describe('companies flow', () => {
   })
 
   it('creates an individual client with one linked person record', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({
           data: {
             user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
             organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
             membership: { role: 'owner' }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies') && method === 'GET') {
+        return jsonResponse({
           data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts') && method === 'GET') {
+        return jsonResponse({
           data: {
             contacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Consultant', status: 'lead', isClient: false },
@@ -502,81 +493,58 @@ describe('companies flow', () => {
             meta: { page: 1, pageSize: 20, total: 2 }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Consultant', status: 'lead', isClient: false },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Founder', status: 'lead', isClient: false }
-            ],
-            meta: { page: 1, pageSize: 20, total: 2 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({
           data: {
             users: [
               { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts') && method === 'POST') {
+        return jsonResponse({
+          data: {
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: '', status: 'prospect', isClient: true },
+            notes: [],
+            activities: []
+          }
+        }, { status: 201 })
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts/8')) {
+        return jsonResponse({
           data: {
             contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: '', status: 'prospect', isClient: true },
             notes: [],
             activities: []
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Consultant', status: 'lead', isClient: false },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: '', status: 'prospect', isClient: true }
-            ],
-            meta: { page: 1, pageSize: 20, total: 2 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            users: [
-              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: '', status: 'prospect', isClient: true },
-            notes: [],
-            activities: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('entityType') === 'contact' && requestURL.searchParams.get('entityId') === '8') {
+        return jsonResponse({
           data: {
             tasks: [],
             meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
           }
         })
-      })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals') && requestURL.searchParams.get('primaryContactId') === '8') {
+        return jsonResponse({
+          data: {
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
+          }
+        })
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
+    })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/companies')
@@ -617,10 +585,11 @@ describe('companies flow', () => {
     fireEvent.change(within(createForm).getByLabelText(/country/i), { target: { value: 'US' } })
     fireEvent.click(screen.getByRole('button', { name: /save client/i }))
 
-    expect(await screen.findByRole('heading', { name: /ava stone/i })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /ava stone/i })).toBeInTheDocument()
     await waitFor(() => {
       expect(window.location.pathname).toBe('/contacts/8')
     })
+    expect(await screen.findByRole('heading', { name: /ava stone/i })).toBeInTheDocument()
 
     const createCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/contacts$/) && options?.method === 'POST')
     expect(createCall).toBeTruthy()
@@ -687,6 +656,15 @@ describe('companies flow', () => {
           data: {
             tasks: [],
             meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      }
+
+      if (requestURL.includes('/api/deals?primaryContactId=8')) {
+        return jsonResponse({
+          data: {
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
           }
         })
       }
@@ -834,6 +812,15 @@ describe('companies flow', () => {
         })
       }
 
+      if (requestURL.includes('/api/deals?companyId=9')) {
+        return jsonResponse({
+          data: {
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
+          }
+        })
+      }
+
       throw new Error(`Unexpected fetch: ${method} ${requestURL}`)
     })
 
@@ -865,21 +852,28 @@ describe('companies flow', () => {
   })
 
   it('loads a company directly from the detail route', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({
           data: {
             user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
             organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
             membership: { role: 'owner' }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies') && method === 'GET') {
+        return jsonResponse({
           data: {
             companies: [
               { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
@@ -887,10 +881,10 @@ describe('companies flow', () => {
             meta: { page: 1, pageSize: 20, total: 1 }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts') && method === 'GET') {
+        return jsonResponse({
           data: {
             contacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
@@ -898,31 +892,20 @@ describe('companies flow', () => {
             meta: { page: 1, pageSize: 20, total: 1 }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({
           data: {
             users: [
               { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies/5')) {
+        return jsonResponse({
           data: {
             company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
             linkedContacts: [
@@ -933,10 +916,10 @@ describe('companies flow', () => {
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/notes') && requestURL.searchParams.get('entityType') === 'company' && requestURL.searchParams.get('entityId') === '5') {
+        return jsonResponse({
           data: {
             notes: [
               {
@@ -952,26 +935,45 @@ describe('companies flow', () => {
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('entityType') === 'company' && requestURL.searchParams.get('entityId') === '5') {
+        return jsonResponse({
           data: {
             tasks: [],
             meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
           }
         })
-      })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals') && requestURL.searchParams.get('companyId') === '5') {
+        return jsonResponse({
+          data: {
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
+          }
+        })
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
+    })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/companies/5')
 
     render(<AppRouter />)
 
+    expect(await screen.findByRole('button', { name: /northstar logistics/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/companies/5')
+    })
     expect(await screen.findByRole('heading', { name: /northstar logistics/i })).toBeInTheDocument()
     expect(screen.getByText(/met procurement lead and validated timeline/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/companies\/5$/), expect.any(Object))
+    })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?companyId=5$/), expect.any(Object))
     })
   })
 })

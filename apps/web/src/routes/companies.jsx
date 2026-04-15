@@ -3,8 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
+import { useAuth } from '../app/providers'
 import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
 import { createContact, listContacts } from '../lib/contacts'
+import { listDeals } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
@@ -207,6 +209,29 @@ function formatActivityTimestamp(createdAt) {
   return parsed.toLocaleString()
 }
 
+function formatMoney(value, currency = 'USD') {
+  const amount = Number.parseFloat(value || '0')
+  if (!Number.isFinite(amount)) {
+    return '$0.00'
+  }
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(amount)
+}
+
+function relatedPipelineLabels(businessType) {
+  if (businessType === 'services' || businessType === 'construction-services') {
+    return { plural: 'Jobs', singular: 'job' }
+  }
+  if (businessType === 'product-sales') {
+    return { plural: 'Opportunities', singular: 'opportunity' }
+  }
+  return { plural: 'Deals', singular: 'deal' }
+}
+
+function primaryLinkedContactID(linkedContacts = []) {
+  const primaryContact = linkedContacts.find((contact) => contact.isPrimary) || linkedContacts[0]
+  return primaryContact?.id || 0
+}
+
 function duplicateSearchTerm(message, fallback = '') {
   const text = String(message || '')
   const marker = text.toLowerCase().lastIndexOf('duplicate company:')
@@ -222,7 +247,10 @@ function duplicateSearchTerm(message, fallback = '') {
 export function CompaniesRoute() {
   const navigate = useNavigate()
   const { companyId } = useParams()
+  const { session, businessProfile } = useAuth()
   const routeCompanyId = Number.parseInt(companyId || '', 10)
+  const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
+  const pipelineLabels = relatedPipelineLabels(businessType)
   const [mode, setMode] = useState('list')
   const [companies, setCompanies] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
@@ -243,6 +271,7 @@ export function CompaniesRoute() {
   const linkedContacts = detail?.linkedContacts || []
   const selectedNotes = detail?.notes || []
   const selectedTasks = detail?.tasks || []
+  const selectedDeals = detail?.deals || []
   const selectedActivities = detail?.activities || []
 
   async function loadCompanies(nextSearch = '') {
@@ -370,6 +399,22 @@ export function CompaniesRoute() {
     navigate(`/companies/${duplicateCandidate.id}`)
   }
 
+  function handleOpenDeal(dealID) {
+    navigate(`/deals/${dealID}`)
+  }
+
+  function handleCreateRelatedDeal() {
+    if (!selectedCompanyId) {
+      return
+    }
+    const params = new URLSearchParams({ companyId: String(selectedCompanyId) })
+    const contactID = primaryLinkedContactID(linkedContacts)
+    if (contactID > 0) {
+      params.set('primaryContactId', String(contactID))
+    }
+    navigate(`/deals?${params.toString()}`)
+  }
+
   async function handleOpenCompany(company) {
     if (company.entityType === 'contact') {
       navigate(`/contacts/${company.entityId}`)
@@ -390,12 +435,13 @@ export function CompaniesRoute() {
     }
 
     try {
-      const [data, notes, taskData] = await Promise.all([
-        getCompany(companyID),
-        listNotes('company', companyID),
-        listTasks({ status: 'open', entityType: 'company', entityId: companyID })
-      ])
-      const detailData = { ...data, notes, tasks: taskData.tasks || [] }
+        const [data, notes, taskData, dealData] = await Promise.all([
+          getCompany(companyID),
+          listNotes('company', companyID),
+          listTasks({ status: 'open', entityType: 'company', entityId: companyID }),
+          listDeals({ companyId: companyID })
+        ])
+        const detailData = { ...data, notes, tasks: taskData.tasks || [], deals: dealData.deals || [] }
       setDetailCache((current) => ({ ...current, [companyID]: detailData }))
       setSelectedCompanyId(companyID)
       setDetail(detailData)
@@ -443,15 +489,16 @@ export function CompaniesRoute() {
       }
 
       try {
-        const [data, notes, taskData] = await Promise.all([
+        const [data, notes, taskData, dealData] = await Promise.all([
           getCompany(routeCompanyId),
           listNotes('company', routeCompanyId),
-          listTasks({ status: 'open', entityType: 'company', entityId: routeCompanyId })
+          listTasks({ status: 'open', entityType: 'company', entityId: routeCompanyId }),
+          listDeals({ companyId: routeCompanyId })
         ])
         if (cancelled) {
           return
         }
-        const detailData = { ...data, notes, tasks: taskData.tasks || [] }
+        const detailData = { ...data, notes, tasks: taskData.tasks || [], deals: dealData.deals || [] }
         setDetailCache((current) => ({ ...current, [routeCompanyId]: detailData }))
         setSelectedCompanyId(routeCompanyId)
         setDetail(detailData)
@@ -511,7 +558,7 @@ export function CompaniesRoute() {
       if (!data?.company?.id) {
         throw new Error('Unable to create company.')
       }
-      const detailData = { ...data, notes: data.notes || [], tasks: data.tasks || [] }
+      const detailData = { ...data, notes: data.notes || [], tasks: data.tasks || [], deals: [] }
       setDetailCache((current) => ({ ...current, [data.company.id]: detailData }))
       setCompanies((current) => [...current, organizationClientFromCompany(data.company)].sort((left, right) => left.name.localeCompare(right.name) || left.entityId - right.entityId))
       setMeta((current) => ({ ...current, total: current.total + 1 }))
@@ -545,7 +592,7 @@ export function CompaniesRoute() {
       if (!data?.company?.id) {
         throw new Error('Unable to update company.')
       }
-      const detailData = { ...data, notes: detail?.notes || [], tasks: detail?.tasks || [] }
+      const detailData = { ...data, notes: detail?.notes || [], tasks: detail?.tasks || [], deals: detail?.deals || [] }
       setDetailCache((current) => ({ ...current, [selectedCompanyId]: detailData }))
       setCompanies((current) => current.map((entry) => (entry.id === selectedCompanyId ? organizationClientFromCompany(data.company) : entry)))
       setDetail(detailData)
@@ -902,6 +949,41 @@ export function CompaniesRoute() {
                       <div>
                         <p>{contact.email}</p>
                         <p>{contact.isPrimary ? 'Primary' : 'Linked'}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </Card>
+            <Card>
+              <div className="card-stack">
+                <div className="section-header">
+                  <div>
+                    <h3>{`Related ${pipelineLabels.plural.toLowerCase()}`}</h3>
+                    <p>{`See active ${pipelineLabels.plural.toLowerCase()} tied to this client.`}</p>
+                  </div>
+                  <Button className="button-secondary" onClick={handleCreateRelatedDeal}>
+                    {`Create ${pipelineLabels.singular}`}
+                  </Button>
+                </div>
+                <div className="record-list" role="list" aria-label="Related deals list">
+                  {selectedDeals.length === 0 ? (
+                    <article className="record-row" role="listitem">
+                      <div>
+                        <p>{`No related ${pipelineLabels.plural.toLowerCase()} yet.`}</p>
+                      </div>
+                    </article>
+                  ) : selectedDeals.map((deal) => (
+                    <article className="record-row" key={deal.id} role="listitem">
+                      <div>
+                        <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenDeal(deal.id)}>
+                          {deal.name}
+                        </button>
+                        <p>{deal.stageName || deal.status || 'Unstaged'}</p>
+                      </div>
+                      <div>
+                        <p>{formatMoney(deal.valueAmount, deal.valueCurrency)}</p>
+                        <p>{deal.primaryContactName || (deal.expectedCloseDate ? `Target ${deal.expectedCloseDate}` : 'No primary contact')}</p>
                       </div>
                     </article>
                   ))}

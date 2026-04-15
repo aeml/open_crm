@@ -8,43 +8,28 @@ afterEach(() => {
 
 describe('contacts flow', () => {
   it('loads a contact directly from a person detail route', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({
           data: {
             user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
             organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
             membership: { role: 'owner' }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Head of RevOps', status: 'lead' }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            users: [
-              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
-              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts/7')) {
+        return jsonResponse({
           data: {
             contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Head of RevOps', status: 'lead' },
             notes: [],
@@ -53,10 +38,32 @@ describe('contacts flow', () => {
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts') && method === 'GET') {
+        return jsonResponse({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Head of RevOps', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('entityType') === 'contact' && requestURL.searchParams.get('entityId') === '7') {
+        return jsonResponse({
           data: {
             tasks: [
               {
@@ -78,11 +85,21 @@ describe('contacts flow', () => {
             meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals') && requestURL.searchParams.get('primaryContactId') === '7') {
+        return jsonResponse({
+          data: {
+            deals: [
+              { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '48000.00' }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'POST') {
+        return jsonResponse({
           data: {
             task: {
               id: 73,
@@ -103,25 +120,35 @@ describe('contacts flow', () => {
               { id: 111, action: 'task.created', summary: 'Task created' }
             ]
           }
-        })
-      })
+        }, { status: 201 })
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
+    })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/contacts/7')
 
     render(<AppRouter />)
 
-    expect(await screen.findByRole('heading', { name: /morgan lee/i })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /morgan lee/i })).toBeInTheDocument()
     await waitFor(() => {
       expect(window.location.pathname).toBe('/contacts/7')
     })
+    expect(await screen.findByRole('heading', { name: /morgan lee/i })).toBeInTheDocument()
     expect(screen.getByText(/contact created/i)).toBeInTheDocument()
     expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
+    expect(screen.getByText(/northstar expansion/i)).toBeInTheDocument()
+    expect(screen.getByText('$48,000.00')).toBeInTheDocument()
     expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
     expect(screen.getByLabelText(/^assigned to$/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&entityType=contact&entityId=7$/), expect.any(Object))
     })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?primaryContactId=7$/), expect.any(Object))
+    })
+    expect(screen.getByRole('button', { name: /create deal/i })).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Book follow-up demo' } })
     fireEvent.change(screen.getByLabelText(/task description/i), { target: { value: 'Lock demo slot with ops team.' } })
@@ -189,6 +216,15 @@ describe('contacts flow', () => {
           data: {
             tasks: [],
             meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
           }
         })
       })
@@ -344,6 +380,15 @@ describe('contacts flow', () => {
         ok: true,
         json: async () => ({
           data: {
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
             tasks: [],
             meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
           }
@@ -401,21 +446,40 @@ describe('contacts flow', () => {
   })
 
   it('loads a contact directly from the detail route', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({
           data: {
             user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
             organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
             membership: { role: 'owner' }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts/7')) {
+        return jsonResponse({
+          data: {
+            contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Head of RevOps', status: 'lead' },
+            notes: [],
+            activities: [
+              { id: 100, action: 'contact.created', summary: 'Contact created' }
+            ]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts') && method === 'GET') {
+        return jsonResponse({
           data: {
             contacts: [
               { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Head of RevOps', status: 'lead' }
@@ -423,49 +487,55 @@ describe('contacts flow', () => {
             meta: { page: 1, pageSize: 20, total: 1 }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({
           data: {
             users: [
               { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Head of RevOps', status: 'lead' },
-            notes: [],
-            tasks: [],
-            activities: [
-              { id: 100, action: 'contact.created', summary: 'Contact created' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('entityType') === 'contact' && requestURL.searchParams.get('entityId') === '7') {
+        return jsonResponse({
           data: {
             tasks: [],
             meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
           }
         })
-      })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals') && requestURL.searchParams.get('primaryContactId') === '7') {
+        return jsonResponse({
+          data: {
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
+          }
+        })
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
+    })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/contacts/7')
 
     render(<AppRouter />)
 
+    expect(await screen.findByRole('button', { name: /morgan lee/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/contacts/7')
+    })
     expect(await screen.findByRole('heading', { name: /morgan lee/i })).toBeInTheDocument()
     expect(screen.getByText(/contact created/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/contacts\/7$/), expect.any(Object))
+    })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?primaryContactId=7$/), expect.any(Object))
     })
   })
 })

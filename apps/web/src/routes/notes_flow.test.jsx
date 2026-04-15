@@ -77,6 +77,15 @@ describe('notes workflow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({
+          data: {
+            deals: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         status: 201,
         json: async () => ({
           data: {

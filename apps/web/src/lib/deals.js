@@ -29,6 +29,8 @@ export async function listDeals(query = {}) {
   if (query.search) params.set('q', query.search)
   if (query.stageId) params.set('stageId', String(query.stageId))
   if (query.ownerUserId) params.set('ownerUserId', String(query.ownerUserId))
+  if (query.companyId) params.set('companyId', String(query.companyId))
+  if (query.primaryContactId) params.set('primaryContactId', String(query.primaryContactId))
   const suffix = params.toString() ? `?${params.toString()}` : ''
 
   const response = await fetch(`${API_BASE_URL}/api/deals${suffix}`, {

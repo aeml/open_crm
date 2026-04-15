@@ -48,11 +48,13 @@ type Detail struct {
 }
 
 type ListQuery struct {
-	Search      string
-	StageID     int64
-	OwnerUserID int64
-	Page        int
-	PageSize    int
+	Search           string
+	StageID          int64
+	OwnerUserID      int64
+	CompanyID        int64
+	PrimaryContactID int64
+	Page             int
+	PageSize         int
 }
 
 type ListMeta struct {
@@ -494,6 +496,14 @@ func buildDealFilters(organizationID int64, query ListQuery) (string, []any) {
 	if query.OwnerUserID > 0 {
 		parts = append(parts, fmt.Sprintf(" AND d.owner_user_id = $%d", len(args)+1))
 		args = append(args, query.OwnerUserID)
+	}
+	if query.CompanyID > 0 {
+		parts = append(parts, fmt.Sprintf(" AND d.company_id = $%d", len(args)+1))
+		args = append(args, query.CompanyID)
+	}
+	if query.PrimaryContactID > 0 {
+		parts = append(parts, fmt.Sprintf(" AND d.primary_contact_id = $%d", len(args)+1))
+		args = append(args, query.PrimaryContactID)
 	}
 	return strings.Join(parts, ""), args
 }

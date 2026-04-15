@@ -3,7 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
+import { useAuth } from '../app/providers'
 import { archiveContact, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
+import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
@@ -82,10 +84,31 @@ function duplicateSearchTerm(message, fallback = '') {
   return String(fallback || '').trim()
 }
 
+function formatMoney(value, currency = 'USD') {
+  const amount = Number.parseFloat(value || '0')
+  if (!Number.isFinite(amount)) {
+    return '$0.00'
+  }
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(amount)
+}
+
+function relatedPipelineLabels(businessType) {
+  if (businessType === 'services' || businessType === 'construction-services') {
+    return { plural: 'Jobs', singular: 'job' }
+  }
+  if (businessType === 'product-sales') {
+    return { plural: 'Opportunities', singular: 'opportunity' }
+  }
+  return { plural: 'Deals', singular: 'deal' }
+}
+
 export function ContactsRoute() {
   const navigate = useNavigate()
   const { contactId } = useParams()
+  const { session, businessProfile } = useAuth()
   const routeContactId = Number.parseInt(contactId || '', 10)
+  const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
+  const pipelineLabels = relatedPipelineLabels(businessType)
   const [mode, setMode] = useState('list')
   const [contacts, setContacts] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
@@ -104,6 +127,7 @@ export function ContactsRoute() {
   const selectedContact = detail?.contact || null
   const selectedNotes = detail?.notes || []
   const selectedTasks = detail?.tasks || []
+  const selectedDeals = detail?.deals || []
   const selectedActivities = detail?.activities || []
 
   async function loadContacts(nextSearch = '') {
@@ -196,6 +220,18 @@ export function ContactsRoute() {
     navigate(`/contacts/${duplicateCandidate.id}`)
   }
 
+  function handleOpenDeal(dealID) {
+    navigate(`/deals/${dealID}`)
+  }
+
+  function handleCreateRelatedDeal() {
+    if (!selectedContactId) {
+      return
+    }
+    const params = new URLSearchParams({ primaryContactId: String(selectedContactId) })
+    navigate(`/deals?${params.toString()}`)
+  }
+
   async function handleOpenContact(contact) {
     const contactID = contact.id
     const cached = detailCache[contactID]
@@ -211,11 +247,12 @@ export function ContactsRoute() {
     }
 
     try {
-      const [data, taskData] = await Promise.all([
+      const [data, taskData, dealData] = await Promise.all([
         getContact(contactID),
-        listTasks({ status: 'open', entityType: 'contact', entityId: contactID })
+        listTasks({ status: 'open', entityType: 'contact', entityId: contactID }),
+        listDeals({ primaryContactId: contactID })
       ])
-      const detailData = { ...data, tasks: taskData.tasks || [] }
+      const detailData = { ...data, tasks: taskData.tasks || [], deals: dealData.deals || [] }
       setDetailCache((current) => ({ ...current, [contactID]: detailData }))
       setSelectedContactId(contactID)
       setDetail(detailData)
@@ -263,14 +300,15 @@ export function ContactsRoute() {
       }
 
       try {
-        const [data, taskData] = await Promise.all([
+        const [data, taskData, dealData] = await Promise.all([
           getContact(routeContactId),
-          listTasks({ status: 'open', entityType: 'contact', entityId: routeContactId })
+          listTasks({ status: 'open', entityType: 'contact', entityId: routeContactId }),
+          listDeals({ primaryContactId: routeContactId })
         ])
         if (cancelled) {
           return
         }
-        const detailData = { ...data, tasks: taskData.tasks || [] }
+        const detailData = { ...data, tasks: taskData.tasks || [], deals: dealData.deals || [] }
         setDetailCache((current) => ({ ...current, [routeContactId]: detailData }))
         setSelectedContactId(routeContactId)
         setDetail(detailData)
@@ -296,7 +334,7 @@ export function ContactsRoute() {
     event.preventDefault()
     try {
       const data = await createContact(form)
-      const detailData = { ...data, notes: data.notes || [], tasks: data.tasks || [] }
+      const detailData = { ...data, notes: data.notes || [], tasks: data.tasks || [], deals: [] }
       setDetailCache((current) => ({ ...current, [data.contact.id]: detailData }))
       setContacts((current) => [...current, data.contact])
       setMeta((current) => ({ ...current, total: current.total + 1 }))
@@ -328,7 +366,8 @@ export function ContactsRoute() {
       const detailData = {
         ...data,
         notes: detail?.notes || data.notes || [],
-        tasks: detail?.tasks || data.tasks || []
+        tasks: detail?.tasks || data.tasks || [],
+        deals: detail?.deals || []
       }
       setDetailCache((current) => ({ ...current, [selectedContactId]: detailData }))
       setContacts((current) => current.map((entry) => (entry.id === selectedContactId ? data.contact : entry)))
@@ -609,6 +648,41 @@ export function ContactsRoute() {
               </Field>
               <Button type="submit">Update contact</Button>
             </form>
+            <Card>
+              <div className="card-stack">
+                <div className="section-header">
+                  <div>
+                    <h3>{`Related ${pipelineLabels.plural.toLowerCase()}`}</h3>
+                    <p>{`See active ${pipelineLabels.plural.toLowerCase()} tied to this contact.`}</p>
+                  </div>
+                  <Button className="button-secondary" onClick={handleCreateRelatedDeal}>
+                    {`Create ${pipelineLabels.singular}`}
+                  </Button>
+                </div>
+                <div className="record-list" role="list" aria-label="Related deals list">
+                  {selectedDeals.length === 0 ? (
+                    <article className="record-row" role="listitem">
+                      <div>
+                        <p>{`No related ${pipelineLabels.plural.toLowerCase()} yet.`}</p>
+                      </div>
+                    </article>
+                  ) : selectedDeals.map((deal) => (
+                    <article className="record-row" key={deal.id} role="listitem">
+                      <div>
+                        <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenDeal(deal.id)}>
+                          {deal.name}
+                        </button>
+                        <p>{deal.stageName || deal.status || 'Unstaged'}</p>
+                      </div>
+                      <div>
+                        <p>{formatMoney(deal.valueAmount, deal.valueCurrency)}</p>
+                        <p>{deal.companyName || (deal.expectedCloseDate ? `Target ${deal.expectedCloseDate}` : 'No client linked')}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </Card>
             <Card>
               <div className="card-stack">
                 <h3>Notes</h3>

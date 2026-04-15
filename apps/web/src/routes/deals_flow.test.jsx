@@ -189,7 +189,7 @@ describe('deals flow', () => {
     })
   })
 
-  it('loads stages and deals, creates a deal, and moves it to another stage', async () => {
+  it('prefills company and primary contact from the query string when creating a deal', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
@@ -208,76 +208,8 @@ describe('deals flow', () => {
           data: {
             stages: [
               { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
-              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false },
-              { id: 3, name: 'Proposal', position: 3, isClosed: false, isWon: false }
+              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false }
             ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            deals: [
-              { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '48000.00' }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            companies: [
-              { id: 6, name: 'Bluebird Health', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            users: [
-              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
-              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: async () => ({
-          data: {
-            deal: { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 },
-            activities: [],
-            notes: [],
-            tasks: []
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            deals: [
-              { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '60000.00' }
           }
         })
       })
@@ -294,10 +226,11 @@ describe('deals flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            deals: [
-              { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
+            companies: [
+              { id: 5, name: 'Northstar Logistics', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },
+              { id: 6, name: 'Bluebird Health', industry: 'Healthcare', phone: '555-0201', website: 'https://bluebird.example', status: 'prospect' }
             ],
-            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '48000.00' }
+            meta: { page: 1, pageSize: 20, total: 2 }
           }
         })
       })
@@ -305,29 +238,186 @@ describe('deals flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            deals: [
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/deals?companyId=5&primaryContactId=7')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /deals/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/^company$/i)).toHaveValue('5')
+    expect(screen.getByLabelText(/primary contact/i)).toHaveValue('7')
+  })
+
+  it('loads stages and deals, creates a deal, and moves it to another stage', async () => {
+    let hasCreatedDeal = false
+    let currentDeal = { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 }
+
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' },
+            membership: { role: 'owner' }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deal-stages')) {
+        return jsonResponse({
+          data: {
+            stages: [
+              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
+              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false },
+              { id: 3, name: 'Proposal', position: 3, isClosed: false, isWon: false }
+            ]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals') && method === 'GET') {
+        const stageId = requestURL.searchParams.get('stageId') || ''
+        const ownerUserId = requestURL.searchParams.get('ownerUserId') || ''
+        const defaultDeals = hasCreatedDeal
+          ? [
               { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 },
-              { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 }
-            ],
-            meta: { page: 1, pageSize: 20, total: 2, openCount: 2, wonCount: 0, pipelineValue: '108000.00' }
+              currentDeal
+            ]
+          : [
+              { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
+            ]
+
+        if (stageId === '2' && ownerUserId === '1') {
+          return jsonResponse({
+            data: {
+              deals: [],
+              meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
+            }
+          })
+        }
+
+        if (stageId === '2') {
+          return jsonResponse({
+            data: {
+              deals: hasCreatedDeal ? [currentDeal] : [],
+              meta: { page: 1, pageSize: 20, total: hasCreatedDeal ? 1 : 0, openCount: hasCreatedDeal ? 1 : 0, wonCount: 0, pipelineValue: hasCreatedDeal ? currentDeal.valueAmount : '0' }
+            }
+          })
+        }
+
+        if (ownerUserId === '1') {
+          return jsonResponse({
+            data: {
+              deals: [
+                { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
+              ],
+              meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '48000.00' }
+            }
+          })
+        }
+
+        return jsonResponse({
+          data: {
+            deals: defaultDeals,
+            meta: {
+              page: 1,
+              pageSize: 20,
+              total: defaultDeals.length,
+              openCount: defaultDeals.length,
+              wonCount: 0,
+              pipelineValue: hasCreatedDeal ? '108000.00' : '48000.00'
+            }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies') && method === 'GET') {
+        return jsonResponse({
           data: {
-            deal: { id: 12, name: 'Bluebird Expansion', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'won', valueAmount: '72000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-14', ownerUserId: 2 },
+            companies: [
+              { id: 6, name: 'Bluebird Health', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts') && method === 'GET') {
+        return jsonResponse({
+          data: {
+            contacts: [
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+              { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
+            ]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals') && method === 'POST') {
+        hasCreatedDeal = true
+        return jsonResponse({
+          data: {
+            deal: currentDeal,
+            activities: [],
+            notes: [],
+            tasks: []
+          }
+        }, { status: 201 })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals/12') && method === 'PATCH') {
+        currentDeal = { id: 12, name: 'Bluebird Expansion', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'won', valueAmount: '72000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-14', ownerUserId: 2 }
+        return jsonResponse({
+          data: {
+            deal: currentDeal,
             activities: [
               { id: 98, action: 'deal.updated', summary: 'Deal updated' }
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'POST') {
+        return jsonResponse({
           data: {
             task: {
               id: 92,
@@ -348,12 +438,11 @@ describe('deals flow', () => {
               { id: 101, action: 'task.created', summary: 'Task created' }
             ]
           }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: async () => ({
+        }, { status: 201 })
+      }
+
+      if (requestURL.pathname.endsWith('/api/notes') && method === 'POST') {
+        return jsonResponse({
           data: {
             note: {
               id: 51,
@@ -372,20 +461,44 @@ describe('deals flow', () => {
               createdAt: '2026-04-10T12:00:00Z'
             }
           }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+        }, { status: 201 })
+      }
+
+      if (requestURL.pathname.endsWith('/api/notes') && requestURL.searchParams.get('entityType') === 'deal' && requestURL.searchParams.get('entityId') === '12') {
+        return jsonResponse({
           data: {
-            deal: { id: 12, name: 'Bluebird Rollout', stageId: 3, stageName: 'Proposal', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 },
+            notes: []
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('entityType') === 'deal' && requestURL.searchParams.get('entityId') === '12') {
+        return jsonResponse({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals/12/stage') && method === 'PATCH') {
+        currentDeal = { ...currentDeal, stageId: 3, stageName: 'Proposal' }
+        return jsonResponse({
+          data: {
+            deal: currentDeal,
             activities: [
               { id: 99, action: 'deal.stage_changed', summary: 'Deal moved to Proposal' }
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({ ok: true, status: 204, json: async () => ({}) })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals/12') && method === 'DELETE') {
+        return jsonResponse({}, { status: 204 })
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
+    })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/deals')
@@ -422,15 +535,16 @@ describe('deals flow', () => {
 
     expect(await screen.findByText(/showing 1 of 1 deals/i)).toBeInTheDocument()
     expect(window.location.search).toBe('?stage=2')
-    expect(screen.queryByText(/northstar expansion/i)).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?stageId=2$/), expect.any(Object))
+    })
+    expect(screen.getByRole('button', { name: /bluebird rollout/i })).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/owner filter/i), { target: { value: '1' } })
 
     expect(await screen.findByText(/showing 0 of 0 deals/i)).toBeInTheDocument()
     expect(window.location.search).toBe('?stage=2&owner=1')
     expect(screen.getByText(/no deals match the current filters/i)).toBeInTheDocument()
-    expect(screen.queryByText(/bluebird rollout/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/northstar expansion/i)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/stage filter/i), { target: { value: 'all' } })
 

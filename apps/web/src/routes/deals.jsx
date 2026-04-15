@@ -136,10 +136,16 @@ export function DealsRoute() {
   const initialSearch = searchParams.get('q') || ''
   const initialStageFilter = searchParams.get('stage') || 'all'
   const initialOwnerFilter = searchParams.get('owner') || 'all'
+  const initialCompanyId = searchParams.get('companyId') || ''
+  const initialPrimaryContactId = searchParams.get('primaryContactId') || ''
   const [stages, setStages] = useState([])
   const [deals, setDeals] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
-  const [form, setForm] = useState(emptyForm)
+  const [form, setForm] = useState({
+    ...emptyForm,
+    companyId: initialCompanyId,
+    primaryContactId: initialPrimaryContactId
+  })
   const [detailForm, setDetailForm] = useState(emptyForm)
   const [search, setSearch] = useState(initialSearch)
   const [stageFilter, setStageFilter] = useState(initialStageFilter)
@@ -207,8 +213,8 @@ export function DealsRoute() {
     setForm((current) => ({
       ...current,
       stageId: current.stageId || (loadedStages[0] ? String(loadedStages[0].id) : ''),
-      companyId: current.companyId || (loadedCompanies.companies?.[0] ? String(loadedCompanies.companies[0].id) : ''),
-      primaryContactId: current.primaryContactId || (loadedContacts.contacts?.[0] ? String(loadedContacts.contacts[0].id) : ''),
+      companyId: current.companyId || initialCompanyId || (loadedCompanies.companies?.[0] ? String(loadedCompanies.companies[0].id) : ''),
+      primaryContactId: current.primaryContactId || initialPrimaryContactId || (loadedContacts.contacts?.[0] ? String(loadedContacts.contacts[0].id) : ''),
       ownerUserId: current.ownerUserId || (loadedUsers[0] ? String(loadedUsers[0].id) : '')
     }))
     setTaskForm((current) => {
@@ -241,7 +247,7 @@ export function DealsRoute() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [initialCompanyId, initialOwnerFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
 
   const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
 

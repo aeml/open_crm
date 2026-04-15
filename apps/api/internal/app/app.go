@@ -1017,11 +1017,13 @@ func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter
 	}
 
 	result, err := deals.ListByOrganization(r.Context(), state.Organization.ID, moduledeals.ListQuery{
-		Search:      strings.TrimSpace(r.URL.Query().Get("q")),
-		StageID:     moduledeals.ParseInt64(r.URL.Query().Get("stageId")),
-		OwnerUserID: moduledeals.ParseInt64(r.URL.Query().Get("ownerUserId")),
-		Page:        parsePositiveInt(r.URL.Query().Get("page"), 1),
-		PageSize:    parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+		Search:           strings.TrimSpace(r.URL.Query().Get("q")),
+		StageID:          moduledeals.ParseInt64(r.URL.Query().Get("stageId")),
+		OwnerUserID:      moduledeals.ParseInt64(r.URL.Query().Get("ownerUserId")),
+		CompanyID:        moduledeals.ParseInt64(r.URL.Query().Get("companyId")),
+		PrimaryContactID: moduledeals.ParseInt64(r.URL.Query().Get("primaryContactId")),
+		Page:             parsePositiveInt(r.URL.Query().Get("page"), 1),
+		PageSize:         parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
 	})
 	if err != nil {
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load deals")

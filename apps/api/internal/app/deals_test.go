@@ -150,7 +150,7 @@ func TestListDealsUsesCurrentOrganizationAndFilters(t *testing.T) {
 	}
 	server := authenticatedDealsServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/deals?q=northstar&stageId=3&ownerUserId=1&page=1&pageSize=20", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/deals?q=northstar&stageId=3&ownerUserId=1&companyId=5&primaryContactId=7&page=1&pageSize=20", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -162,7 +162,7 @@ func TestListDealsUsesCurrentOrganizationAndFilters(t *testing.T) {
 	if service.lastListOrgID != 42 {
 		t.Fatalf("expected org id 42, got %d", service.lastListOrgID)
 	}
-	if service.lastListQuery.Search != "northstar" || service.lastListQuery.StageID != 3 || service.lastListQuery.OwnerUserID != 1 {
+	if service.lastListQuery.Search != "northstar" || service.lastListQuery.StageID != 3 || service.lastListQuery.OwnerUserID != 1 || service.lastListQuery.CompanyID != 5 || service.lastListQuery.PrimaryContactID != 7 {
 		t.Fatalf("unexpected list query: %#v", service.lastListQuery)
 	}
 }
