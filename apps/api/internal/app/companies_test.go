@@ -274,6 +274,46 @@ func TestCreateCompanyReturnsConflictForDuplicate(t *testing.T) {
 	}
 }
 
+func TestUpdateCompanyReturnsConflictForDuplicate(t *testing.T) {
+	service := &fakeCompaniesService{updateErr: &modulecompanies.DuplicateError{ID: 9, Label: "Atlas Manufacturing", Reason: "website"}}
+	server := authenticatedCompaniesServer(service)
+
+	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","clientType":"organization"}`)
+	request := httptest.NewRequest(http.MethodPatch, "/api/companies/6", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, recorder.Code)
+	}
+
+	var response struct {
+		Error struct {
+			Message string `json:"message"`
+			Details struct {
+				Duplicate struct {
+					ID         int64  `json:"id"`
+					EntityType string `json:"entityType"`
+					Label      string `json:"label"`
+					Reason     string `json:"reason"`
+				} `json:"duplicate"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error.Message != "duplicate company: Atlas Manufacturing (matching website)" {
+		t.Fatalf("unexpected error message: %q", response.Error.Message)
+	}
+	if response.Error.Details.Duplicate.ID != 9 || response.Error.Details.Duplicate.EntityType != "company" || response.Error.Details.Duplicate.Label != "Atlas Manufacturing" || response.Error.Details.Duplicate.Reason != "matching website" {
+		t.Fatalf("unexpected duplicate details: %#v", response.Error.Details.Duplicate)
+	}
+}
+
 func TestCreateCompanyRequiresName(t *testing.T) {
 	service := &fakeCompaniesService{}
 	server := authenticatedCompaniesServer(service)
