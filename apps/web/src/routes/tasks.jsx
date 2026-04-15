@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -22,6 +22,26 @@ const emptyForm = {
 }
 
 const unassignedAssigneeFilter = 'unassigned'
+
+function normalizeTaskStatusFilter(value) {
+  return value === 'completed' ? 'completed' : 'open'
+}
+
+function normalizeDueView(value) {
+  return ['all', 'overdue', 'dueToday', 'upcoming', 'noDueDate'].includes(value) ? value : 'all'
+}
+
+function normalizeAssigneeFilter(value) {
+  if (value === unassignedAssigneeFilter) {
+    return value
+  }
+
+  return /^\d+$/.test(String(value || '')) ? String(value) : 'all'
+}
+
+function normalizeEntityTypeFilter(value) {
+  return ['all', 'deal', 'company', 'contact'].includes(value) ? value : 'all'
+}
 
 function formatDueLabel(task) {
   if (task.completedAt) {
@@ -284,19 +304,25 @@ function formatActivityTimestamp(createdAt) {
 
 export function TasksRoute() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { taskId } = useParams()
   const routeTaskId = Number.parseInt(taskId || '', 10)
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
   const labels = taskLabels(businessType)
+  const initialSearch = searchParams.get('q') || ''
+  const initialStatusFilter = normalizeTaskStatusFilter(searchParams.get('status'))
+  const initialDueView = initialStatusFilter === 'open' ? normalizeDueView(searchParams.get('due')) : 'all'
+  const initialAssigneeFilter = normalizeAssigneeFilter(searchParams.get('assignee'))
+  const initialEntityTypeFilter = normalizeEntityTypeFilter(searchParams.get('entityType'))
   const [tasks, setTasks] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('open')
-  const [dueView, setDueView] = useState('all')
-  const [assigneeFilter, setAssigneeFilter] = useState('all')
-  const [entityTypeFilter, setEntityTypeFilter] = useState('all')
+  const [search, setSearch] = useState(initialSearch)
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter)
+  const [dueView, setDueView] = useState(initialDueView)
+  const [assigneeFilter, setAssigneeFilter] = useState(initialAssigneeFilter)
+  const [entityTypeFilter, setEntityTypeFilter] = useState(initialEntityTypeFilter)
   const [selectedTaskId, setSelectedTaskId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
@@ -320,6 +346,29 @@ export function TasksRoute() {
 
     return sortOpenTasks(filteredTasks.filter((task) => matchesDueView(task, dueView)))
   }, [assigneeFilter, dueView, entityTypeFilter, statusFilter, statusTasks])
+
+  function buildTasksPath(nextTaskId = routeTaskId, nextSearch = search, nextStatusFilter = statusFilter, nextDueView = dueView, nextAssigneeFilter = assigneeFilter, nextEntityTypeFilter = entityTypeFilter) {
+    const params = new URLSearchParams()
+    if (nextSearch) {
+      params.set('q', nextSearch)
+    }
+    if (nextStatusFilter !== 'open') {
+      params.set('status', nextStatusFilter)
+    }
+    if (nextDueView !== 'all') {
+      params.set('due', nextDueView)
+    }
+    if (nextAssigneeFilter !== 'all') {
+      params.set('assignee', nextAssigneeFilter)
+    }
+    if (nextEntityTypeFilter !== 'all') {
+      params.set('entityType', nextEntityTypeFilter)
+    }
+
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    const pathname = nextTaskId ? `/tasks/${nextTaskId}` : '/tasks'
+    return `${pathname}${suffix}`
+  }
 
   async function loadTasks(nextSearch = search, nextStatus = statusFilter) {
     const data = await listTasks({ search: nextSearch, status: nextStatus })
@@ -379,7 +428,7 @@ export function TasksRoute() {
 
     async function run() {
       try {
-        await Promise.all([loadTasks('', 'open'), loadDealOptions(), loadCompanyOptions(), loadContactOptions(), loadUserOptions()])
+        await Promise.all([loadTasks(initialSearch, initialStatusFilter), loadDealOptions(), loadCompanyOptions(), loadContactOptions(), loadUserOptions()])
         if (!cancelled) {
           setError('')
         }
@@ -452,11 +501,9 @@ export function TasksRoute() {
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
+    navigate(buildTasksPath(selectedTaskId, value, statusFilter, dueView, assigneeFilter, entityTypeFilter), { replace: true })
     try {
       await loadTasks(value, statusFilter)
-      if (statusFilter === 'open') {
-        setDueView('all')
-      }
       setError('')
     } catch (loadError) {
       setError(loadError.message || 'Unable to load tasks.')
@@ -464,13 +511,31 @@ export function TasksRoute() {
   }
 
   async function handleToggleStatus(nextStatus) {
+    const nextDueView = nextStatus === 'open' ? dueView : 'all'
     setStatusFilter(nextStatus)
+    setDueView(nextDueView)
+    navigate(buildTasksPath(selectedTaskId, search, nextStatus, nextDueView, assigneeFilter, entityTypeFilter), { replace: true })
     try {
       await loadTasks(search, nextStatus)
       setError('')
     } catch (loadError) {
       setError(loadError.message || 'Unable to load tasks.')
     }
+  }
+
+  function handleAssigneeFilterChange(nextAssigneeFilter) {
+    setAssigneeFilter(nextAssigneeFilter)
+    navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, nextAssigneeFilter, entityTypeFilter), { replace: true })
+  }
+
+  function handleEntityTypeFilterChange(nextEntityTypeFilter) {
+    setEntityTypeFilter(nextEntityTypeFilter)
+    navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, assigneeFilter, nextEntityTypeFilter), { replace: true })
+  }
+
+  function handleDueViewChange(nextDueView) {
+    setDueView(nextDueView)
+    navigate(buildTasksPath(selectedTaskId, search, statusFilter, nextDueView, assigneeFilter, entityTypeFilter), { replace: true })
   }
 
   function getDefaultEntityId(nextEntityType) {
@@ -524,7 +589,7 @@ export function TasksRoute() {
       setTasks(nextTasks)
       setMeta((current) => ({ ...current, total: current.total + 1, openCount: current.openCount + (data.task.status === 'completed' ? 0 : 1), completedCount: current.completedCount + (data.task.status === 'completed' ? 1 : 0) }))
       syncTaskIntoState(data.task, data.activities || [])
-      navigate(`/tasks/${data.task.id}`)
+      navigate(buildTasksPath(data.task.id))
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to create task.')
@@ -548,7 +613,7 @@ export function TasksRoute() {
       })
       setTasks((current) => current.map((task) => (task.id === selectedTaskId ? data.task : task)))
       syncTaskIntoState(data.task, data.activities || [])
-      navigate(`/tasks/${data.task.id}`)
+      navigate(buildTasksPath(data.task.id))
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to update task.')
@@ -559,12 +624,12 @@ export function TasksRoute() {
     const cached = detailCache[task.id]
     if (cached) {
       syncTaskIntoState(cached.task, cached.activities || [])
-      navigate(`/tasks/${task.id}`)
+      navigate(buildTasksPath(task.id))
       return
     }
 
     syncTaskIntoState(task, [])
-    navigate(`/tasks/${task.id}`)
+    navigate(buildTasksPath(task.id))
   }
 
   async function handleQuickStatus(task, nextStatus) {
@@ -650,7 +715,7 @@ export function TasksRoute() {
         return next
       })
       clearSelectedTask()
-      navigate('/tasks')
+      navigate(buildTasksPath(null))
       setError('')
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive task.')
@@ -696,7 +761,7 @@ export function TasksRoute() {
           </Field>
           <Field label="Assignee">
             <div className="button-row">
-              <select className="text-input" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
+              <select className="text-input" value={assigneeFilter} onChange={(event) => handleAssigneeFilterChange(event.target.value)}>
                 <option value="all">All assignees</option>
                 <option value={unassignedAssigneeFilter}>Unassigned</option>
                 {userOptions.map((user) => (
@@ -704,17 +769,17 @@ export function TasksRoute() {
                 ))}
               </select>
               {currentUserId ? (
-                <Button className={assigneeFilter === currentUserId ? '' : 'button-secondary'} type="button" onClick={() => setAssigneeFilter(currentUserId)}>
+                <Button className={assigneeFilter === currentUserId ? '' : 'button-secondary'} type="button" onClick={() => handleAssigneeFilterChange(currentUserId)}>
                   My tasks
                 </Button>
               ) : null}
-              <Button className={assigneeFilter === unassignedAssigneeFilter ? '' : 'button-secondary'} type="button" onClick={() => setAssigneeFilter(unassignedAssigneeFilter)}>
+              <Button className={assigneeFilter === unassignedAssigneeFilter ? '' : 'button-secondary'} type="button" onClick={() => handleAssigneeFilterChange(unassignedAssigneeFilter)}>
                 Unassigned
               </Button>
             </div>
           </Field>
           <Field label={labels.entityTypeFilterLabel}>
-            <select className="text-input" value={entityTypeFilter} onChange={(event) => setEntityTypeFilter(event.target.value)}>
+            <select className="text-input" value={entityTypeFilter} onChange={(event) => handleEntityTypeFilterChange(event.target.value)}>
               <option value="all">All record types</option>
               <option value="deal">{labels.dealOption}</option>
               <option value="company">{labels.companyLabel}</option>
@@ -723,7 +788,7 @@ export function TasksRoute() {
           </Field>
           {statusFilter === 'open' ? (
             <Field label={labels.viewLabel}>
-              <select className="text-input" value={dueView} onChange={(event) => setDueView(event.target.value)}>
+              <select className="text-input" value={dueView} onChange={(event) => handleDueViewChange(event.target.value)}>
                 <option value="all">All open</option>
                 <option value="overdue">Overdue</option>
                 <option value="dueToday">Due today</option>

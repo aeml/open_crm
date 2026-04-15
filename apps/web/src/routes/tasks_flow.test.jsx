@@ -567,4 +567,127 @@ describe('tasks flow', () => {
     expect(screen.getAllByRole('option', { name: /^job$/i }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('option', { name: /^client$/i }).length).toBeGreaterThan(0)
   })
+
+  it('hydrates task filters from the url and keeps them in sync', async () => {
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const fetchMock = vi.fn(async (url) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' },
+            membership: { role: 'owner' }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('status') === 'open' && requestURL.searchParams.get('q') === 'morgan') {
+        return jsonResponse({
+          data: {
+            tasks: [
+              {
+                id: 52,
+                entityType: 'contact',
+                entityId: 8,
+                entityLabel: 'Morgan Lee',
+                title: 'Call Morgan about renewal timing',
+                description: 'Confirm next review window.',
+                status: 'open',
+                dueAt: '2099-04-18T11:00:00Z',
+                completedAt: '',
+                assignedToUserId: 1,
+                assignedToUserName: 'Demo Owner',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner'
+              }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('status') === 'completed' && requestURL.searchParams.get('q') === 'morgan') {
+        return jsonResponse({
+          data: {
+            tasks: [
+              {
+                id: 61,
+                entityType: 'contact',
+                entityId: 8,
+                entityLabel: 'Morgan Lee',
+                title: 'Call Morgan about renewal timing',
+                description: 'Completed follow-up.',
+                status: 'completed',
+                dueAt: '2099-04-18T11:00:00Z',
+                completedAt: '2099-04-18T12:30:00Z',
+                assignedToUserId: 1,
+                assignedToUserName: 'Demo Owner',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner'
+              }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 0, completedCount: 1 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals')) {
+        return jsonResponse({ data: { deals: [], meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' } } })
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies')) {
+        return jsonResponse({ data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts')) {
+        return jsonResponse({ data: { contacts: [{ id: 8, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'RevOps Lead', status: 'lead' }], meta: { page: 1, pageSize: 20, total: 1 } } })
+      }
+
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({ data: { users: [{ id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }] } })
+      }
+
+      throw new Error(`Unexpected fetch: ${requestURL.pathname}${requestURL.search}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/tasks?q=morgan&entityType=contact&assignee=1&due=upcoming')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /^tasks$/i })).toBeInTheDocument()
+    expect(await screen.findByText(/call morgan about renewal timing/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/search tasks/i)).toHaveValue('morgan')
+    expect(screen.getByLabelText(/^assignee$/i)).toHaveValue('1')
+    expect(screen.getByLabelText(/record type filter/i)).toHaveValue('contact')
+    expect(screen.getByLabelText(/task view/i)).toHaveValue('upcoming')
+    const initialParams = new URLSearchParams(window.location.search)
+    expect(initialParams.get('q')).toBe('morgan')
+    expect(initialParams.get('due')).toBe('upcoming')
+    expect(initialParams.get('assignee')).toBe('1')
+    expect(initialParams.get('entityType')).toBe('contact')
+    expect(initialParams.get('status')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /show completed/i }))
+
+    expect(await screen.findByRole('heading', { name: /^completed tasks$/i })).toBeInTheDocument()
+    expect(screen.getByText(/completed 4\/18\/2099/i)).toBeInTheDocument()
+    const completedParams = new URLSearchParams(window.location.search)
+    expect(completedParams.get('q')).toBe('morgan')
+    expect(completedParams.get('status')).toBe('completed')
+    expect(completedParams.get('assignee')).toBe('1')
+    expect(completedParams.get('entityType')).toBe('contact')
+    expect(completedParams.get('due')).toBeNull()
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=completed&q=morgan$/), expect.any(Object))
+    })
+  })
 })

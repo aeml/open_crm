@@ -133,6 +133,102 @@ describe('AppRouter', () => {
     expect(screen.getByText(/jobs, contacts, clients, and service tasks/i)).toBeInTheDocument()
   })
 
+  it('links dashboard task actions into filtered task views', async () => {
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const fetchMock = vi.fn(async (url) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' },
+            membership: { role: 'owner' }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/dashboard/summary')) {
+        return jsonResponse({
+          data: {
+            pipelineValue: '48000.00',
+            openDealsCount: 3,
+            wonDealsCount: 1,
+            openTasksCount: 8,
+            dueTodayCount: 2,
+            newContactsCount: 5,
+            recentActivities: []
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('status') === 'open') {
+        return jsonResponse({
+          data: {
+            tasks: [
+              {
+                id: 51,
+                entityType: 'company',
+                entityId: 6,
+                entityLabel: 'Bluebird Health',
+                title: 'Verify site access window',
+                description: 'Need lockbox confirmation.',
+                status: 'open',
+                dueAt: '2099-04-18T15:00:00Z',
+                completedAt: '',
+                assignedToUserId: 0,
+                assignedToUserName: '',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner'
+              }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals')) {
+        return jsonResponse({ data: { deals: [], meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' } } })
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies')) {
+        return jsonResponse({ data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts')) {
+        return jsonResponse({ data: { contacts: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      }
+
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({ data: { users: [{ id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }] } })
+      }
+
+      throw new Error(`Unexpected fetch: ${requestURL.pathname}${requestURL.search}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    window.history.pushState({}, '', '/dashboard')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText('$48,000.00')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /review due today/i }))
+
+    expect(await screen.findByRole('heading', { name: /^tasks due today$/i })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/tasks')
+    expect(window.location.search).toBe('?due=dueToday')
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open$/), expect.any(Object))
+    })
+  })
+
   it('loads task detail routes directly', async () => {
     const fetchMock = vi
       .fn()

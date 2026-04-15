@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card } from '../components/ui/card'
+import { Button } from '../components/ui/button'
 import { getDashboardSummary } from '../lib/dashboard'
 import { useAuth } from '../app/providers'
 
@@ -47,6 +49,7 @@ function dashboardLabels(businessType) {
 }
 
 export function DashboardRoute() {
+  const navigate = useNavigate()
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const labels = dashboardLabels(businessType)
@@ -139,6 +142,14 @@ export function DashboardRoute() {
                   <p>{summary.openTasksCount}</p>
                 </div>
               </article>
+            </div>
+            <div className="button-row">
+              <Button type="button" onClick={() => navigate('/tasks?due=dueToday')}>
+                Review due today
+              </Button>
+              <Button className="button-secondary" type="button" onClick={() => navigate('/tasks')}>
+                Open tasks
+              </Button>
             </div>
           </div>
         </Card>
