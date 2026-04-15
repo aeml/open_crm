@@ -43,6 +43,10 @@ function normalizeEntityTypeFilter(value) {
   return ['all', 'deal', 'company', 'contact'].includes(value) ? value : 'all'
 }
 
+function normalizeEntityIdFilter(value) {
+  return /^\d+$/.test(String(value || '')) ? String(value) : ''
+}
+
 function formatDueLabel(task) {
   if (task.completedAt) {
     return `Completed ${new Date(task.completedAt).toLocaleString()}`
@@ -316,6 +320,7 @@ export function TasksRoute() {
   const initialDueView = initialStatusFilter === 'open' ? normalizeDueView(searchParams.get('due')) : 'all'
   const initialAssigneeFilter = normalizeAssigneeFilter(searchParams.get('assignee'))
   const initialEntityTypeFilter = normalizeEntityTypeFilter(searchParams.get('entityType'))
+  const initialEntityIdFilter = initialEntityTypeFilter === 'all' ? '' : normalizeEntityIdFilter(searchParams.get('entityId'))
   const [tasks, setTasks] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
   const [search, setSearch] = useState(initialSearch)
@@ -323,6 +328,7 @@ export function TasksRoute() {
   const [dueView, setDueView] = useState(initialDueView)
   const [assigneeFilter, setAssigneeFilter] = useState(initialAssigneeFilter)
   const [entityTypeFilter, setEntityTypeFilter] = useState(initialEntityTypeFilter)
+  const [entityIdFilter, setEntityIdFilter] = useState(initialEntityIdFilter)
   const [selectedTaskId, setSelectedTaskId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
@@ -338,16 +344,26 @@ export function TasksRoute() {
   const emptyMessage = useMemo(() => emptyTaskListMessage(statusFilter, dueView, labels), [dueView, labels, statusFilter])
   const statusTasks = useMemo(() => tasks.filter((task) => matchesStatus(task, statusFilter)), [statusFilter, tasks])
   const visibleTasks = useMemo(() => {
-    const filteredTasks = statusTasks.filter((task) => matchesAssignee(task, assigneeFilter) && matchesEntityType(task, entityTypeFilter))
+    const filteredTasks = statusTasks.filter((task) => {
+      if (!matchesAssignee(task, assigneeFilter) || !matchesEntityType(task, entityTypeFilter)) {
+        return false
+      }
+
+      if (!entityIdFilter) {
+        return true
+      }
+
+      return String(task.entityId || '') === entityIdFilter
+    })
 
     if (statusFilter !== 'open') {
       return sortCompletedTasks(filteredTasks)
     }
 
     return sortOpenTasks(filteredTasks.filter((task) => matchesDueView(task, dueView)))
-  }, [assigneeFilter, dueView, entityTypeFilter, statusFilter, statusTasks])
+  }, [assigneeFilter, dueView, entityIdFilter, entityTypeFilter, statusFilter, statusTasks])
 
-  function buildTasksPath(nextTaskId = routeTaskId, nextSearch = search, nextStatusFilter = statusFilter, nextDueView = dueView, nextAssigneeFilter = assigneeFilter, nextEntityTypeFilter = entityTypeFilter) {
+  function buildTasksPath(nextTaskId = routeTaskId, nextSearch = search, nextStatusFilter = statusFilter, nextDueView = dueView, nextAssigneeFilter = assigneeFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter) {
     const params = new URLSearchParams()
     if (nextSearch) {
       params.set('q', nextSearch)
@@ -364,14 +380,22 @@ export function TasksRoute() {
     if (nextEntityTypeFilter !== 'all') {
       params.set('entityType', nextEntityTypeFilter)
     }
+    if (nextEntityTypeFilter !== 'all' && nextEntityIdFilter) {
+      params.set('entityId', nextEntityIdFilter)
+    }
 
     const suffix = params.toString() ? `?${params.toString()}` : ''
     const pathname = nextTaskId ? `/tasks/${nextTaskId}` : '/tasks'
     return `${pathname}${suffix}`
   }
 
-  async function loadTasks(nextSearch = search, nextStatus = statusFilter) {
-    const data = await listTasks({ search: nextSearch, status: nextStatus })
+  async function loadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter) {
+    const data = await listTasks({
+      search: nextSearch,
+      status: nextStatus,
+      entityType: nextEntityTypeFilter === 'all' ? '' : nextEntityTypeFilter,
+      entityId: nextEntityTypeFilter === 'all' ? 0 : Number.parseInt(nextEntityIdFilter, 10) || 0
+    })
     setTasks(data.tasks || [])
     setMeta(data.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
   }
@@ -428,7 +452,7 @@ export function TasksRoute() {
 
     async function run() {
       try {
-        await Promise.all([loadTasks(initialSearch, initialStatusFilter), loadDealOptions(), loadCompanyOptions(), loadContactOptions(), loadUserOptions()])
+        await Promise.all([loadTasks(initialSearch, initialStatusFilter, initialEntityTypeFilter, initialEntityIdFilter), loadDealOptions(), loadCompanyOptions(), loadContactOptions(), loadUserOptions()])
         if (!cancelled) {
           setError('')
         }
@@ -501,7 +525,7 @@ export function TasksRoute() {
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
-    navigate(buildTasksPath(selectedTaskId, value, statusFilter, dueView, assigneeFilter, entityTypeFilter), { replace: true })
+    navigate(buildTasksPath(selectedTaskId, value, statusFilter, dueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
     try {
       await loadTasks(value, statusFilter)
       setError('')
@@ -514,7 +538,7 @@ export function TasksRoute() {
     const nextDueView = nextStatus === 'open' ? dueView : 'all'
     setStatusFilter(nextStatus)
     setDueView(nextDueView)
-    navigate(buildTasksPath(selectedTaskId, search, nextStatus, nextDueView, assigneeFilter, entityTypeFilter), { replace: true })
+    navigate(buildTasksPath(selectedTaskId, search, nextStatus, nextDueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
     try {
       await loadTasks(search, nextStatus)
       setError('')
@@ -525,17 +549,36 @@ export function TasksRoute() {
 
   function handleAssigneeFilterChange(nextAssigneeFilter) {
     setAssigneeFilter(nextAssigneeFilter)
-    navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, nextAssigneeFilter, entityTypeFilter), { replace: true })
+    navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, nextAssigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
   }
 
-  function handleEntityTypeFilterChange(nextEntityTypeFilter) {
+  async function handleEntityTypeFilterChange(nextEntityTypeFilter) {
+    const nextEntityIdFilter = nextEntityTypeFilter === entityTypeFilter ? entityIdFilter : ''
     setEntityTypeFilter(nextEntityTypeFilter)
-    navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, assigneeFilter, nextEntityTypeFilter), { replace: true })
+    setEntityIdFilter(nextEntityIdFilter)
+    navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, assigneeFilter, nextEntityTypeFilter, nextEntityIdFilter), { replace: true })
+    try {
+      await loadTasks(search, statusFilter, nextEntityTypeFilter, nextEntityIdFilter)
+      setError('')
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load tasks.')
+    }
   }
 
   function handleDueViewChange(nextDueView) {
     setDueView(nextDueView)
-    navigate(buildTasksPath(selectedTaskId, search, statusFilter, nextDueView, assigneeFilter, entityTypeFilter), { replace: true })
+    navigate(buildTasksPath(selectedTaskId, search, statusFilter, nextDueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
+  }
+
+  async function handleEntityIdFilterChange(nextEntityIdFilter) {
+    setEntityIdFilter(nextEntityIdFilter)
+    navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, assigneeFilter, entityTypeFilter, nextEntityIdFilter), { replace: true })
+    try {
+      await loadTasks(search, statusFilter, entityTypeFilter, nextEntityIdFilter)
+      setError('')
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load tasks.')
+    }
   }
 
   function getDefaultEntityId(nextEntityType) {
@@ -786,6 +829,18 @@ export function TasksRoute() {
               <option value="contact">Contact</option>
             </select>
           </Field>
+          {entityTypeFilter !== 'all' ? (
+            <Field label="Record">
+              <select className="text-input" value={entityIdFilter} onChange={(event) => handleEntityIdFilterChange(event.target.value)}>
+                <option value="">All {entityTypeFilter === 'deal' ? `${labels.dealOption.toLowerCase()}s` : entityTypeFilter === 'company' ? `${labels.companyLabel.toLowerCase()}s` : 'contacts'}</option>
+                {(entityTypeFilter === 'deal' ? dealOptions : entityTypeFilter === 'company' ? companyOptions : contactOptions).map((entity) => (
+                  <option key={entity.id} value={entity.id}>
+                    {entityTypeFilter === 'contact' ? `${entity.firstName || ''} ${entity.lastName || ''}`.trim() : entity.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : null}
           {statusFilter === 'open' ? (
             <Field label={labels.viewLabel}>
               <select className="text-input" value={dueView} onChange={(event) => handleDueViewChange(event.target.value)}>

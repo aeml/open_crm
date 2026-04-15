@@ -150,11 +150,12 @@ describe('contacts flow', () => {
     })
     expect(screen.getByRole('button', { name: /create deal/i })).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText(/task title/i), { target: { value: 'Book follow-up demo' } })
-    fireEvent.change(screen.getByLabelText(/task description/i), { target: { value: 'Lock demo slot with ops team.' } })
-    fireEvent.change(screen.getByLabelText(/^assigned to$/i), { target: { value: '2' } })
-    fireEvent.change(screen.getByLabelText(/due at/i), { target: { value: '2026-04-19T14:00' } })
-    fireEvent.click(screen.getByRole('button', { name: /^save task$/i }))
+    const taskCard = screen.getByRole('button', { name: /^save task$/i }).closest('.card')
+    fireEvent.change(within(taskCard).getByLabelText(/task title/i), { target: { value: 'Book follow-up demo' } })
+    fireEvent.change(within(taskCard).getByLabelText(/task description/i), { target: { value: 'Lock demo slot with ops team.' } })
+    fireEvent.change(within(taskCard).getByLabelText(/^assigned to$/i), { target: { value: '2' } })
+    fireEvent.change(within(taskCard).getByLabelText(/due at/i), { target: { value: '2026-04-19T14:00' } })
+    fireEvent.click(within(taskCard).getByRole('button', { name: /^save task$/i }))
 
     expect(await screen.findByText(/book follow-up demo/i)).toBeInTheDocument()
     expect(screen.getByText(/task created/i)).toBeInTheDocument()
@@ -164,6 +165,13 @@ describe('contacts flow', () => {
         body: expect.stringContaining('"entityType":"contact"')
       }))
     })
+
+    fireEvent.click(screen.getByRole('button', { name: /open in tasks/i }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/tasks')
+    })
+    expect(window.location.search).toBe('?entityType=contact&entityId=7')
   })
 
   it('shows a clearer duplicate warning when updating a contact fails with conflict', async () => {

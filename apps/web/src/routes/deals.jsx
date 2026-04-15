@@ -528,6 +528,13 @@ export function DealsRoute() {
     }
   }
 
+  function handleOpenDealTasks() {
+    if (!selectedDealId) {
+      return
+    }
+    navigate(`/tasks?entityType=deal&entityId=${selectedDealId}`)
+  }
+
   return (
     <section className="dashboard-grid contacts-grid">
       <Card>
@@ -752,7 +759,12 @@ export function DealsRoute() {
             </Card>
             <Card>
               <div className="card-stack">
-                <h3>Tasks</h3>
+                <div className="section-header">
+                  <h3>Tasks</h3>
+                  <Button className="button-secondary" type="button" onClick={handleOpenDealTasks}>
+                    Open in tasks
+                  </Button>
+                </div>
                 <form className="auth-form" onSubmit={handleCreateTask}>
                   <Field label="Task title">
                     <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />

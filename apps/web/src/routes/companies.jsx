@@ -468,6 +468,13 @@ export function CompaniesRoute() {
     navigate(`/deals?${params.toString()}`)
   }
 
+  function handleOpenCompanyTasks() {
+    if (!selectedCompanyId) {
+      return
+    }
+    navigate(`/tasks?entityType=company&entityId=${selectedCompanyId}`)
+  }
+
   async function handleOpenCompany(company) {
     if (company.entityType === 'contact') {
       navigate(`/contacts/${company.entityId}`)
@@ -1152,7 +1159,12 @@ export function CompaniesRoute() {
             </Card>
             <Card>
               <div className="card-stack">
-                <h3>Tasks</h3>
+                <div className="section-header">
+                  <h3>Tasks</h3>
+                  <Button className="button-secondary" type="button" onClick={handleOpenCompanyTasks}>
+                    Open in tasks
+                  </Button>
+                </div>
                 <form className="auth-form" onSubmit={handleCreateTask}>
                   <Field label="Task title">
                     <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />

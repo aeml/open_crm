@@ -8,91 +8,133 @@ afterEach(() => {
 
 describe('tasks flow', () => {
   it('loads tasks, creates a task, and completes it', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+      const requestBody = options.body ? JSON.parse(String(options.body)) : null
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({
           data: {
             user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
             organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' },
             membership: { role: 'owner' }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'GET' && requestURL.search === '?status=open') {
+        return jsonResponse({
           data: {
             tasks: [
-              {
-                id: 51,
-                entityType: 'deal',
-                entityId: 12,
-                entityLabel: 'Bluebird Rollout',
-                title: 'Confirm installer arrival window',
-                description: 'Need final arrival confirmation.',
-                status: 'open',
-                dueAt: '2099-04-16T09:00:00Z',
-                completedAt: '',
-                assignedToUserId: 1,
-                assignedToUserName: 'Demo Owner',
-                createdByUserId: 1,
-                createdByUserName: 'Demo Owner'
-              },
-              {
-                id: 52,
-                entityType: 'deal',
-                entityId: 12,
-                entityLabel: 'Bluebird Rollout',
-                title: 'Call Morgan about rollout timing',
-                description: 'Confirm launch window.',
-                status: 'open',
-                dueAt: '2026-04-10T11:00:00Z',
-                completedAt: '',
-                assignedToUserId: 2,
-                assignedToUserName: 'Alex Admin',
-                createdByUserId: 1,
-                createdByUserName: 'Demo Owner'
-              },
-              {
-                id: 53,
-                entityType: 'contact',
-                entityId: 8,
-                entityLabel: 'Ava Stone',
-                title: 'Send onboarding packet',
-                description: 'Share intake forms.',
-                status: 'open',
-                dueAt: '',
-                completedAt: '',
-                assignedToUserId: 2,
-                assignedToUserName: 'Alex Admin',
-                createdByUserId: 1,
-                createdByUserName: 'Demo Owner'
-              },
-              {
-                id: 54,
-                entityType: 'company',
-                entityId: 6,
-                entityLabel: 'Bluebird Health',
-                title: 'Verify site access window',
-                description: 'Need lockbox confirmation.',
-                status: 'open',
-                dueAt: '2026-04-18T15:00:00Z',
-                completedAt: '',
-                assignedToUserId: 0,
-                assignedToUserName: '',
-                createdByUserId: 1,
-                createdByUserName: 'Demo Owner'
-              }
+              { id: 51, entityType: 'deal', entityId: 12, entityLabel: 'Bluebird Rollout', title: 'Confirm installer arrival window', description: 'Need final arrival confirmation.', status: 'open', dueAt: '2099-04-16T09:00:00Z', completedAt: '', assignedToUserId: 1, assignedToUserName: 'Demo Owner', createdByUserId: 1, createdByUserName: 'Demo Owner' },
+              { id: 52, entityType: 'deal', entityId: 12, entityLabel: 'Bluebird Rollout', title: 'Call Morgan about rollout timing', description: 'Confirm launch window.', status: 'open', dueAt: '2026-04-10T11:00:00Z', completedAt: '', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' },
+              { id: 53, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'Send onboarding packet', description: 'Share intake forms.', status: 'open', dueAt: '', completedAt: '', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' },
+              { id: 54, entityType: 'company', entityId: 6, entityLabel: 'Bluebird Health', title: 'Verify site access window', description: 'Need lockbox confirmation.', status: 'open', dueAt: '2099-04-18T15:00:00Z', completedAt: '', assignedToUserId: 0, assignedToUserName: '', createdByUserId: 1, createdByUserName: 'Demo Owner' }
             ],
             meta: { page: 1, pageSize: 20, total: 4, openCount: 4, completedCount: 0 }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'GET' && requestURL.search === '?status=open&entityType=contact') {
+        return jsonResponse({
+          data: {
+            tasks: [
+              { id: 53, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'Send onboarding packet', description: 'Share intake forms.', status: 'open', dueAt: '', completedAt: '', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'GET' && requestURL.search === '?status=open&q=morgan') {
+        return jsonResponse({
+          data: {
+            tasks: [
+              { id: 52, entityType: 'deal', entityId: 12, entityLabel: 'Bluebird Rollout', title: 'Call Morgan about rollout timing', description: 'Confirm launch window.', status: 'open', dueAt: '2026-04-10T11:00:00Z', completedAt: '', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'GET' && requestURL.search === '?status=completed&q=morgan') {
+        return jsonResponse({
+          data: {
+            tasks: [
+              { id: 61, entityType: 'contact', entityId: 8, entityLabel: 'Morgan Lee', title: 'Call Morgan about renewal timing', description: 'Completed follow-up.', status: 'completed', dueAt: '2099-04-18T11:00:00Z', completedAt: '2099-04-18T12:30:00Z', assignedToUserId: 1, assignedToUserName: 'Demo Owner', createdByUserId: 1, createdByUserName: 'Demo Owner' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1, openCount: 0, completedCount: 1 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'GET' && requestURL.search === '?status=completed') {
+        return jsonResponse({
+          data: {
+            tasks: [
+              { id: 78, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'Collect signed agreement', description: 'Received yesterday.', status: 'completed', dueAt: '2026-04-09T10:00:00Z', completedAt: '2026-04-09T16:30:00Z', assignedToUserId: 1, assignedToUserName: 'Demo Owner', createdByUserId: 1, createdByUserName: 'Demo Owner' },
+              { id: 77, entityType: 'deal', entityId: 12, entityLabel: 'Bluebird Rollout', title: 'Prepare rollout checklist', description: 'Completed and handed off.', status: 'completed', dueAt: '2026-04-16T09:00:00Z', completedAt: '2026-04-10T14:15:00Z', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2, openCount: 0, completedCount: 2 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'POST') {
+        return jsonResponse({
+          data: {
+            task: { id: 77, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'Prepare rollout checklist', description: 'Lock owners before kickoff.', status: 'open', dueAt: '2026-04-16T09:00:00Z', completedAt: '', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' },
+            activities: [{ id: 201, action: 'task.created', summary: 'Task created' }]
+          }
+        }, { status: 201 })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks/52') && method === 'PATCH') {
+        return jsonResponse({
+          data: {
+            task: { id: 52, entityType: 'deal', entityId: 12, entityLabel: 'Bluebird Rollout', title: 'Call Morgan about rollout timing', description: 'Confirm launch window.', status: 'completed', dueAt: '2026-04-10T11:00:00Z', completedAt: '2026-04-11T09:30:00Z', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' },
+            activities: [{ id: 203, action: 'task.completed', summary: 'Task completed' }]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks/77') && method === 'PATCH') {
+        const nextStatus = requestBody?.status === 'open' ? 'open' : 'completed'
+        const nextAssignedToUserId = Number.parseInt(String(requestBody?.assignedToUserId || 0), 10) || 0
+        const nextAssignedToUserName = nextAssignedToUserId === 1 ? 'Demo Owner' : nextAssignedToUserId === 2 ? 'Alex Admin' : ''
+        const nextCompletedAt = nextStatus === 'completed' ? (requestBody?.completedAt || '2026-04-10T14:15:00Z') : ''
+        const nextDescription = requestBody?.description || 'Completed and handed off.'
+        return jsonResponse({
+          data: {
+            task: { id: 77, entityType: 'deal', entityId: 12, entityLabel: 'Bluebird Rollout', title: 'Prepare rollout checklist', description: nextDescription, status: nextStatus, dueAt: '2026-04-16T09:00:00Z', completedAt: nextCompletedAt, assignedToUserId: nextAssignedToUserId, assignedToUserName: nextAssignedToUserName, createdByUserId: 1, createdByUserName: 'Demo Owner' },
+            activities: [{ id: 202, action: nextStatus === 'completed' ? 'task.completed' : 'task.reopened', summary: nextStatus === 'completed' ? 'Task completed' : 'Task reopened' }]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks/78') && method === 'PATCH') {
+        return jsonResponse({
+          data: {
+            task: { id: 78, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'Collect signed agreement', description: 'Received yesterday.', status: 'completed', dueAt: '2026-04-09T10:00:00Z', completedAt: '2026-04-09T16:30:00Z', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' },
+            activities: [{ id: 205, action: 'task.reassigned', summary: 'Task reassigned' }]
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks/77') && method === 'DELETE') {
+        return { ok: true, status: 204, json: async () => ({}) }
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals')) {
+        return jsonResponse({
           data: {
             deals: [
               { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 }
@@ -100,10 +142,10 @@ describe('tasks flow', () => {
             meta: { page: 1, pageSize: 20, total: 1, openCount: 1, wonCount: 0, pipelineValue: '60000.00' }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/companies')) {
+        return jsonResponse({
           data: {
             companies: [
               { id: 6, name: 'Bluebird Health', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }
@@ -111,10 +153,10 @@ describe('tasks flow', () => {
             meta: { page: 1, pageSize: 20, total: 1 }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/contacts')) {
+        return jsonResponse({
           data: {
             contacts: [
               { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }
@@ -122,10 +164,10 @@ describe('tasks flow', () => {
             meta: { page: 1, pageSize: 20, total: 1 }
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
+      }
+
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({
           data: {
             users: [
               { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
@@ -133,203 +175,10 @@ describe('tasks flow', () => {
             ]
           }
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            task: {
-              id: 52,
-              entityType: 'deal',
-              entityId: 12,
-              entityLabel: 'Bluebird Rollout',
-              title: 'Call Morgan about rollout timing',
-              description: 'Confirm launch window.',
-              status: 'completed',
-              dueAt: '2026-04-10T11:00:00Z',
-              completedAt: '2026-04-11T09:30:00Z',
-              assignedToUserId: 2,
-              assignedToUserName: 'Alex Admin',
-              createdByUserId: 1,
-              createdByUserName: 'Demo Owner'
-            },
-            activities: [
-              { id: 203, action: 'task.completed', summary: 'Task completed' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            tasks: [
-              {
-                id: 51,
-                entityType: 'deal',
-                entityId: 12,
-                entityLabel: 'Bluebird Rollout',
-                title: 'Call Morgan about rollout timing',
-                description: 'Confirm launch window.',
-                status: 'open',
-                dueAt: '2026-04-10T11:00:00Z',
-                completedAt: '',
-                assignedToUserId: 2,
-                assignedToUserName: 'Alex Admin',
-                createdByUserId: 1,
-                createdByUserName: 'Demo Owner'
-              }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: async () => ({
-          data: {
-            task: {
-              id: 77,
-              entityType: 'contact',
-              entityId: 8,
-              entityLabel: 'Ava Stone',
-              title: 'Prepare rollout checklist',
-              description: 'Lock owners before kickoff.',
-              status: 'open',
-              dueAt: '2026-04-16T09:00:00Z',
-              completedAt: '',
-              assignedToUserId: 2,
-              assignedToUserName: 'Alex Admin',
-              createdByUserId: 1,
-              createdByUserName: 'Demo Owner'
-            },
-            activities: [
-              { id: 201, action: 'task.created', summary: 'Task created' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            task: {
-              id: 77,
-              entityType: 'deal',
-              entityId: 12,
-              entityLabel: 'Bluebird Rollout',
-              title: 'Prepare rollout checklist',
-              description: 'Completed and handed off.',
-              status: 'completed',
-              dueAt: '2026-04-16T09:00:00Z',
-              completedAt: '2026-04-10T14:15:00Z',
-              assignedToUserId: 2,
-              assignedToUserName: 'Alex Admin',
-              createdByUserId: 1,
-              createdByUserName: 'Demo Owner'
-            },
-            activities: [
-              { id: 202, action: 'task.completed', summary: 'Task completed' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            tasks: [
-              {
-                id: 78,
-                entityType: 'contact',
-                entityId: 8,
-                entityLabel: 'Ava Stone',
-                title: 'Collect signed agreement',
-                description: 'Received yesterday.',
-                status: 'completed',
-                dueAt: '2026-04-09T10:00:00Z',
-                completedAt: '2026-04-09T16:30:00Z',
-                assignedToUserId: 1,
-                assignedToUserName: 'Demo Owner',
-                createdByUserId: 1,
-                createdByUserName: 'Demo Owner'
-              },
-              {
-                id: 77,
-                entityType: 'deal',
-                entityId: 12,
-                entityLabel: 'Bluebird Rollout',
-                title: 'Prepare rollout checklist',
-                description: 'Completed and handed off.',
-                status: 'completed',
-                dueAt: '2026-04-16T09:00:00Z',
-                completedAt: '2026-04-10T14:15:00Z',
-                assignedToUserId: 2,
-                assignedToUserName: 'Alex Admin',
-                createdByUserId: 1,
-                createdByUserName: 'Demo Owner'
-              }
-            ],
-            meta: { page: 1, pageSize: 20, total: 2, openCount: 0, completedCount: 2 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            task: {
-              id: 77,
-              entityType: 'deal',
-              entityId: 12,
-              entityLabel: 'Bluebird Rollout',
-              title: 'Prepare rollout checklist',
-              description: 'Completed and handed off.',
-              status: 'open',
-              dueAt: '2026-04-16T09:00:00Z',
-              completedAt: '',
-              assignedToUserId: 2,
-              assignedToUserName: 'Alex Admin',
-              createdByUserId: 1,
-              createdByUserName: 'Demo Owner'
-            },
-            activities: [
-              { id: 204, action: 'task.reopened', summary: 'Task reopened' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            task: {
-              id: 78,
-              entityType: 'contact',
-              entityId: 8,
-              entityLabel: 'Ava Stone',
-              title: 'Collect signed agreement',
-              description: 'Received yesterday.',
-              status: 'completed',
-              dueAt: '2026-04-09T10:00:00Z',
-              completedAt: '2026-04-09T16:30:00Z',
-              assignedToUserId: 2,
-              assignedToUserName: 'Alex Admin',
-              createdByUserId: 1,
-              createdByUserName: 'Demo Owner'
-            },
-            activities: [
-              { id: 205, action: 'task.reassigned', summary: 'Task reassigned' }
-            ]
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 204,
-        json: async () => ({})
-      })
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
+    })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/tasks')
@@ -345,9 +194,9 @@ describe('tasks flow', () => {
     expect(within(initialTaskList).getAllByRole('button').map((button) => button.textContent)).toEqual([
       'Call Morgan about rollout timing',
       'Complete',
-      'Verify site access window',
-      'Complete',
       'Confirm installer arrival window',
+      'Complete',
+      'Verify site access window',
       'Complete',
       'Send onboarding packet',
       'Complete'
@@ -417,7 +266,7 @@ describe('tasks flow', () => {
     expect(within(taskList).getByText(/confirm installer arrival window/i)).toBeInTheDocument()
     expect(within(taskList).getByText(/verify site access window/i)).toBeInTheDocument()
     expect(within(taskList).queryByText(/call morgan about rollout timing/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/showing 2 of 3 upcoming tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing 2 of 4 upcoming tasks/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/task view/i), { target: { value: 'all' } })
 
@@ -428,6 +277,10 @@ describe('tasks flow', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&q=morgan/), expect.any(Object))
     })
+
+    fireEvent.change(screen.getByLabelText(/search tasks/i), { target: { value: '' } })
+
+    expect(await screen.findByText(/showing 4 of 4 open tasks/i)).toBeInTheDocument()
 
     expect(screen.queryByLabelText(/entity id/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
@@ -588,7 +441,7 @@ describe('tasks flow', () => {
         })
       }
 
-      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('status') === 'open' && requestURL.searchParams.get('q') === 'morgan') {
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('status') === 'open' && requestURL.searchParams.get('q') === 'morgan' && requestURL.searchParams.get('entityType') === 'contact' && requestURL.searchParams.get('entityId') === '8') {
         return jsonResponse({
           data: {
             tasks: [
@@ -613,7 +466,7 @@ describe('tasks flow', () => {
         })
       }
 
-      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('status') === 'completed' && requestURL.searchParams.get('q') === 'morgan') {
+      if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('status') === 'completed' && requestURL.searchParams.get('q') === 'morgan' && requestURL.searchParams.get('entityType') === 'contact' && requestURL.searchParams.get('entityId') === '8') {
         return jsonResponse({
           data: {
             tasks: [
@@ -658,7 +511,7 @@ describe('tasks flow', () => {
     })
 
     vi.stubGlobal('fetch', fetchMock)
-    window.history.pushState({}, '', '/tasks?q=morgan&entityType=contact&assignee=1&due=upcoming')
+    window.history.pushState({}, '', '/tasks?q=morgan&entityType=contact&entityId=8&assignee=1&due=upcoming')
 
     render(<AppRouter />)
 
@@ -667,12 +520,14 @@ describe('tasks flow', () => {
     expect(screen.getByLabelText(/search tasks/i)).toHaveValue('morgan')
     expect(screen.getByLabelText(/^assignee$/i)).toHaveValue('1')
     expect(screen.getByLabelText(/record type filter/i)).toHaveValue('contact')
+    expect(screen.getByLabelText(/^record$/i)).toHaveValue('8')
     expect(screen.getByLabelText(/task view/i)).toHaveValue('upcoming')
     const initialParams = new URLSearchParams(window.location.search)
     expect(initialParams.get('q')).toBe('morgan')
     expect(initialParams.get('due')).toBe('upcoming')
     expect(initialParams.get('assignee')).toBe('1')
     expect(initialParams.get('entityType')).toBe('contact')
+    expect(initialParams.get('entityId')).toBe('8')
     expect(initialParams.get('status')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /show completed/i }))
@@ -684,10 +539,11 @@ describe('tasks flow', () => {
     expect(completedParams.get('status')).toBe('completed')
     expect(completedParams.get('assignee')).toBe('1')
     expect(completedParams.get('entityType')).toBe('contact')
+    expect(completedParams.get('entityId')).toBe('8')
     expect(completedParams.get('due')).toBeNull()
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=completed&q=morgan$/), expect.any(Object))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=completed&entityType=contact&entityId=8&q=morgan$/), expect.any(Object))
     })
   })
 })

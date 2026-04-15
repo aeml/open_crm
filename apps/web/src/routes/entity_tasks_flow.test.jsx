@@ -130,6 +130,13 @@ describe('entity task visibility', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&entityType=company&entityId=5$/), expect.any(Object))
     })
+
+    fireEvent.click(screen.getByRole('button', { name: /open in tasks/i }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/tasks')
+    })
+    expect(window.location.search).toBe('?entityType=company&entityId=5')
   })
 
   it('shows deal tasks on deal detail and loads them with entity filters', async () => {
@@ -210,5 +217,12 @@ describe('entity task visibility', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&entityType=deal&entityId=12$/), expect.any(Object))
     })
+
+    fireEvent.click(screen.getByRole('button', { name: /open in tasks/i }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/tasks')
+    })
+    expect(window.location.search).toBe('?entityType=deal&entityId=12')
   })
 })

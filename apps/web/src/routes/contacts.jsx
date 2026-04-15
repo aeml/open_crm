@@ -232,6 +232,13 @@ export function ContactsRoute() {
     navigate(`/deals?${params.toString()}`)
   }
 
+  function handleOpenContactTasks() {
+    if (!selectedContactId) {
+      return
+    }
+    navigate(`/tasks?entityType=contact&entityId=${selectedContactId}`)
+  }
+
   async function handleOpenContact(contact) {
     const contactID = contact.id
     const cached = detailCache[contactID]
@@ -706,7 +713,12 @@ export function ContactsRoute() {
             </Card>
             <Card>
               <div className="card-stack">
-                <h3>Tasks</h3>
+                <div className="section-header">
+                  <h3>Tasks</h3>
+                  <Button className="button-secondary" type="button" onClick={handleOpenContactTasks}>
+                    Open in tasks
+                  </Button>
+                </div>
                 <form className="auth-form" onSubmit={handleCreateTask}>
                   <Field label="Task title">
                     <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
