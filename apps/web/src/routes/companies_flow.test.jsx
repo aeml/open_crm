@@ -627,6 +627,122 @@ describe('companies flow', () => {
     expect(JSON.parse(createCall[1].body)).toMatchObject({ firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', status: 'prospect', isClient: true })
   })
 
+  it('opens the matching contact when an individual client hits a duplicate contact conflict', async () => {
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+
+    const duplicatePayload = {
+      error: {
+        message: 'duplicate contact: Ava Stone (matching email)',
+        details: {
+          duplicate: { id: 8, entityType: 'contact', label: 'Ava Stone', reason: 'matching email' }
+        }
+      }
+    }
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = String(url)
+      const method = options.method || 'GET'
+
+      if (requestURL.endsWith('/auth/me')) {
+        return jsonResponse({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
+            membership: { role: 'owner' }
+          }
+        })
+      }
+
+      if (requestURL.endsWith('/api/companies') && method === 'GET') {
+        return jsonResponse({
+          data: {
+            companies: [],
+            meta: { page: 1, pageSize: 20, total: 0 }
+          }
+        })
+      }
+
+      if (requestURL.endsWith('/api/contacts') && method === 'POST') {
+        return jsonResponse(duplicatePayload, { ok: false, status: 409 })
+      }
+
+      if (requestURL.endsWith('/api/contacts/8')) {
+        return jsonResponse({
+          data: {
+            contact: { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0100', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Founder', status: 'lead' },
+            notes: [],
+            activities: [
+              { id: 100, action: 'contact.created', summary: 'Contact created' }
+            ]
+          }
+        })
+      }
+
+      if (requestURL.includes('/api/tasks?status=open&entityType=contact&entityId=8')) {
+        return jsonResponse({
+          data: {
+            tasks: [],
+            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+          }
+        })
+      }
+
+      if (requestURL.endsWith('/api/contacts')) {
+        return jsonResponse({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Consultant', status: 'lead', isClient: false },
+              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'Founder', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2 }
+          }
+        })
+      }
+
+      if (requestURL.endsWith('/api/users')) {
+        return jsonResponse({
+          data: {
+            users: [
+              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
+            ]
+          }
+        })
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/companies')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/see client ownership, linked people, and live pipeline in one place/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /add client/i }))
+    const createForm = screen.getByRole('button', { name: /save client/i }).closest('form')
+    fireEvent.change(screen.getByLabelText(/client type/i), { target: { value: 'individual' } })
+    fireEvent.change(within(createForm).getByLabelText(/full name/i), { target: { value: 'Ava Stone' } })
+    fireEvent.change(within(createForm).getByLabelText(/email/i), { target: { value: 'ava@acme.test' } })
+    fireEvent.click(screen.getByRole('button', { name: /save client/i }))
+
+    expect(await screen.findByText(/possible duplicate contact: matching email\. review the existing record before saving again\./i)).toBeInTheDocument()
+    expect(screen.getByText(/duplicate contact: ava stone/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open matching contact/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /open matching contact/i }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/contacts/8')
+    })
+    expect(await screen.findByRole('heading', { name: /ava stone/i })).toBeInTheDocument()
+    expect(screen.getByText(/contact created/i)).toBeInTheDocument()
+  })
+
   it('shows a clearer duplicate warning when creating a company client fails with conflict', async () => {
     const jsonResponse = (payload, init = {}) => ({
       ok: init.ok ?? true,
