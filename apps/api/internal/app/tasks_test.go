@@ -186,6 +186,21 @@ func TestGetTaskUsesCurrentOrganization(t *testing.T) {
 	}
 }
 
+func TestGetTaskReturnsNotFound(t *testing.T) {
+	service := &fakeTasksService{getErr: moduletasks.ErrNotFound}
+	server := authenticatedTasksServer(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/tasks/404", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, recorder.Code)
+	}
+}
+
 func TestUpdateTaskUsesCurrentOrganization(t *testing.T) {
 	service := &fakeTasksService{
 		updateResult: moduletasks.Detail{

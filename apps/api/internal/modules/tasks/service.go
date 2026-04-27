@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrNotFound = errors.New("task not found")
 
 type Summary struct {
 	ID                 int64  `json:"id"`
@@ -249,7 +252,7 @@ func (s *Service) Update(ctx context.Context, organizationID, taskID, actorUserI
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(ctx, `
+	updated, err := tx.Exec(ctx, `
 		UPDATE tasks
 		SET title = $3,
 		    description = NULLIF($4, ''),
@@ -259,8 +262,12 @@ func (s *Service) Update(ctx context.Context, organizationID, taskID, actorUserI
 		    assigned_to_user_id = NULLIF($8, 0),
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2
-	`, organizationID, taskID, normalized.Title, normalized.Description, normalized.Status, normalized.DueAt, normalized.CompletedAt, normalized.AssignedToUserID); err != nil {
+	`, organizationID, taskID, normalized.Title, normalized.Description, normalized.Status, normalized.DueAt, normalized.CompletedAt, normalized.AssignedToUserID)
+	if err != nil {
 		return Detail{}, fmt.Errorf("update task: %w", err)
+	}
+	if updated.RowsAffected() == 0 {
+		return Detail{}, ErrNotFound
 	}
 
 	if err := insertActivity(ctx, tx, organizationID, taskID, actorUserID, action, summaryForAction(action)); err != nil {
@@ -279,13 +286,16 @@ func (s *Service) Archive(ctx context.Context, organizationID, taskID, actorUser
 		return fmt.Errorf("tasks service not configured")
 	}
 
-	_, err := s.pool.Exec(ctx, `
+	archived, err := s.pool.Exec(ctx, `
 		UPDATE tasks
 		SET archived_at = NOW(), updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
 	`, organizationID, taskID)
 	if err != nil {
 		return fmt.Errorf("archive task: %w", err)
+	}
+	if archived.RowsAffected() == 0 {
+		return ErrNotFound
 	}
 
 	return nil
@@ -339,6 +349,9 @@ func (s *Service) GetByID(ctx context.Context, organizationID, taskID int64) (De
 		&detail.Task.CreatedByUserID,
 		&detail.Task.CreatedByUserName,
 	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
 		return Detail{}, fmt.Errorf("get task: %w", err)
 	}
 
@@ -394,6 +407,9 @@ func ensureEntityExists(ctx context.Context, executor activityExecutor, organiza
 	}
 	var id int64
 	if err := executor.QueryRow(ctx, query, organizationID, entityID).Scan(&id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
 		return fmt.Errorf("linked %s not found", entityType)
 	}
 	return nil

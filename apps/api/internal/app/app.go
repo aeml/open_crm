@@ -713,6 +713,9 @@ func handleGetContact(auth authService, contacts contactsService, w http.Respons
 	}
 	result, err := contacts.GetByID(r.Context(), state.Organization.ID, contactID)
 	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load contact")
 		return
 	}
@@ -773,6 +776,9 @@ func handleUpdateContact(auth authService, contacts contactsService, w http.Resp
 	}
 	result, err := contacts.Update(r.Context(), state.Organization.ID, contactID, state.User.ID, modulecontacts.UpdateInput(input))
 	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		if errors.Is(err, modulecontacts.ErrDuplicateContact) {
 			platformweb.WriteErrorWithDetails(w, http.StatusConflict, requestID, "CONFLICT", err.Error(), duplicateErrorDetails(err))
 			return
@@ -804,6 +810,9 @@ func handleArchiveContact(auth authService, contacts contactsService, w http.Res
 		return
 	}
 	if err := contacts.Archive(r.Context(), state.Organization.ID, contactID, state.User.ID); err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to archive contact")
 		return
 	}
@@ -857,6 +866,9 @@ func handleGetCompany(auth authService, companies companiesService, w http.Respo
 	}
 	result, err := companies.GetByID(r.Context(), state.Organization.ID, companyID)
 	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load company")
 		return
 	}
@@ -917,6 +929,9 @@ func handleUpdateCompany(auth authService, companies companiesService, w http.Re
 	}
 	result, err := companies.Update(r.Context(), state.Organization.ID, companyID, state.User.ID, modulecompanies.UpdateInput(input))
 	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		if errors.Is(err, modulecompanies.ErrDuplicateCompany) {
 			platformweb.WriteErrorWithDetails(w, http.StatusConflict, requestID, "CONFLICT", err.Error(), duplicateErrorDetails(err))
 			return
@@ -948,6 +963,9 @@ func handleArchiveCompany(auth authService, companies companiesService, w http.R
 		return
 	}
 	if err := companies.Archive(r.Context(), state.Organization.ID, companyID, state.User.ID); err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to archive company")
 		return
 	}
@@ -1087,6 +1105,9 @@ func handleGetDeal(auth authService, deals dealsService, w http.ResponseWriter, 
 
 	result, err := deals.GetByID(r.Context(), state.Organization.ID, dealID)
 	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load deal")
 		return
 	}
@@ -1126,6 +1147,9 @@ func handleUpdateDeal(auth authService, deals dealsService, w http.ResponseWrite
 		OwnerUserID:       request.OwnerUserID,
 	})
 	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update deal")
 		return
 	}
@@ -1150,6 +1174,9 @@ func handleArchiveDeal(auth authService, deals dealsService, w http.ResponseWrit
 	}
 
 	if err := deals.Archive(r.Context(), state.Organization.ID, dealID, state.User.ID); err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to archive deal")
 		return
 	}
@@ -1184,6 +1211,9 @@ func handleUpdateDealStage(auth authService, deals dealsService, w http.Response
 
 	result, err := deals.UpdateStage(r.Context(), state.Organization.ID, dealID, state.User.ID, moduledeals.UpdateStageInput{StageID: request.StageID})
 	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update deal stage")
 		return
 	}
@@ -1316,6 +1346,9 @@ func handleGetTask(auth authService, tasks tasksService, w http.ResponseWriter, 
 
 	result, err := tasks.GetByID(r.Context(), state.Organization.ID, taskID)
 	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load task")
 		return
 	}
@@ -1344,6 +1377,9 @@ func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWrite
 	}
 	result, err := tasks.Update(r.Context(), state.Organization.ID, taskID, state.User.ID, input)
 	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update task")
 		return
 	}
@@ -1367,6 +1403,9 @@ func handleArchiveTask(auth authService, tasks tasksService, w http.ResponseWrit
 		return
 	}
 	if err := tasks.Archive(r.Context(), state.Organization.ID, taskID, state.User.ID); err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to archive task")
 		return
 	}
@@ -1685,6 +1724,21 @@ func decodeJSONRequest(w http.ResponseWriter, r *http.Request, requestID string,
 		return false
 	}
 	return true
+}
+
+func writeResourceNotFound(w http.ResponseWriter, requestID string, err error) bool {
+	if !isResourceNotFound(err) {
+		return false
+	}
+	platformweb.WriteNotFound(w, requestID)
+	return true
+}
+
+func isResourceNotFound(err error) bool {
+	return errors.Is(err, modulecontacts.ErrNotFound) ||
+		errors.Is(err, modulecompanies.ErrNotFound) ||
+		errors.Is(err, moduledeals.ErrNotFound) ||
+		errors.Is(err, moduletasks.ErrNotFound)
 }
 
 func requireOrgAdmin(auth authService, w http.ResponseWriter, r *http.Request) (moduleauth.SessionState, bool) {

@@ -230,6 +230,21 @@ func TestGetDealUsesCurrentOrganization(t *testing.T) {
 	}
 }
 
+func TestGetDealReturnsNotFound(t *testing.T) {
+	service := &fakeDealsService{getErr: moduledeals.ErrNotFound}
+	server := authenticatedDealsServer(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/deals/404", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, recorder.Code)
+	}
+}
+
 func TestUpdateDealUsesCurrentOrganization(t *testing.T) {
 	service := &fakeDealsService{
 		updateResult: moduledeals.Detail{

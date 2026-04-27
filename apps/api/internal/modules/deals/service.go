@@ -2,14 +2,18 @@ package deals
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrNotFound = errors.New("deal not found")
 
 type Stage struct {
 	ID       int64  `json:"id"`
@@ -286,17 +290,24 @@ func (s *Service) UpdateStage(ctx context.Context, organizationID, dealID, actor
 		FROM deal_stages
 		WHERE organization_id = $1 AND id = $2
 	`, organizationID, input.StageID).Scan(&stageName); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
 		return Detail{}, fmt.Errorf("lookup stage: %w", err)
 	}
 
-	if _, err := tx.Exec(ctx, `
+	updated, err := tx.Exec(ctx, `
 		UPDATE deals
 		SET stage_id = $3,
 		    updated_at = NOW(),
 		    owner_user_id = COALESCE(owner_user_id, $4)
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, dealID, input.StageID, actorUserID); err != nil {
+	`, organizationID, dealID, input.StageID, actorUserID)
+	if err != nil {
 		return Detail{}, fmt.Errorf("update deal stage: %w", err)
+	}
+	if updated.RowsAffected() == 0 {
+		return Detail{}, ErrNotFound
 	}
 
 	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.stage_changed", fmt.Sprintf("Deal moved to %s", stageName)); err != nil {
@@ -326,7 +337,7 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(ctx, `
+	updated, err := tx.Exec(ctx, `
 		UPDATE deals
 		SET name = $3,
 		    company_id = NULLIF($4, 0),
@@ -338,8 +349,12 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 		    owner_user_id = COALESCE(NULLIF($10, 0), owner_user_id, $11),
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, dealID, input.Name, input.CompanyID, input.PrimaryContactID, input.Status, input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, input.OwnerUserID, actorUserID); err != nil {
+	`, organizationID, dealID, input.Name, input.CompanyID, input.PrimaryContactID, input.Status, input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, input.OwnerUserID, actorUserID)
+	if err != nil {
 		return Detail{}, fmt.Errorf("update deal: %w", err)
+	}
+	if updated.RowsAffected() == 0 {
+		return Detail{}, ErrNotFound
 	}
 
 	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.updated", "Deal updated"); err != nil {
@@ -358,13 +373,16 @@ func (s *Service) Archive(ctx context.Context, organizationID, dealID, actorUser
 		return fmt.Errorf("deals service not configured")
 	}
 
-	_, err := s.pool.Exec(ctx, `
+	archived, err := s.pool.Exec(ctx, `
 		UPDATE deals
 		SET archived_at = NOW(), updated_at = NOW(), owner_user_id = COALESCE(owner_user_id, $3)
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
 	`, organizationID, dealID, actorUserID)
 	if err != nil {
 		return fmt.Errorf("archive deal: %w", err)
+	}
+	if archived.RowsAffected() == 0 {
+		return ErrNotFound
 	}
 	return nil
 }
@@ -410,6 +428,9 @@ func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (De
 		&detail.Summary.ExpectedCloseDate,
 		&detail.Summary.OwnerUserID,
 	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
 		return Detail{}, fmt.Errorf("get deal: %w", err)
 	}
 

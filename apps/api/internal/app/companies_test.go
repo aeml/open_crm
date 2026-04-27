@@ -180,6 +180,21 @@ func TestGetCompanyDetailUsesCurrentOrganization(t *testing.T) {
 	}
 }
 
+func TestGetCompanyDetailReturnsNotFound(t *testing.T) {
+	service := &fakeCompaniesService{getErr: modulecompanies.ErrNotFound}
+	server := authenticatedCompaniesServer(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/companies/404", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, recorder.Code)
+	}
+}
+
 func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 	service := &fakeCompaniesService{
 		createResult: modulecompanies.Detail{

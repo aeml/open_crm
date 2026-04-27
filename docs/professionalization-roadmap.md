@@ -12,6 +12,7 @@ Each version is a shippable slice. The goal is to improve safety, reliability, m
 - `0.1.4` Tooling Reproducibility: complete.
 - `0.1.5` Frontend API Client Consolidation: complete.
 - `0.1.6` Request Validation And Body Limits: complete.
+- `0.1.7` Error Semantics: complete.
 
 ## Version 0.1.1 - Migration Safety
 
@@ -112,6 +113,8 @@ Exit criteria:
 - JSON decode behavior is consistent across handlers.
 
 ## Version 0.1.7 - Error Semantics
+
+Status: complete.
 
 Goal: make API behavior more professional and predictable.
 

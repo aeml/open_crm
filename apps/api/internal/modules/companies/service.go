@@ -13,7 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrDuplicateCompany = errors.New("duplicate company")
+var (
+	ErrDuplicateCompany = errors.New("duplicate company")
+	ErrNotFound         = errors.New("company not found")
+)
 
 type DuplicateError struct {
 	ID     int64
@@ -248,6 +251,9 @@ func (s *Service) GetByID(ctx context.Context, organizationID, companyID int64) 
 		FROM companies
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
 	`, organizationID, companyID).Scan(&detail.Summary.ID, &detail.Summary.Name, &detail.Summary.ClientType, &detail.Summary.AddressLine1, &detail.Summary.AddressLine2, &detail.Summary.City, &detail.Summary.State, &detail.Summary.PostalCode, &detail.Summary.Country, &detail.Summary.Industry, &detail.Summary.Phone, &detail.Summary.Website, &detail.Summary.Status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
 		return Detail{}, fmt.Errorf("get company: %w", err)
 	}
 
@@ -360,7 +366,7 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(ctx, `
+	updated, err := tx.Exec(ctx, `
 		UPDATE companies
 		SET name = $3,
 		    client_type = $4,
@@ -377,8 +383,12 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 		    updated_at = NOW(),
 		    owner_user_id = COALESCE(owner_user_id, $15)
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, companyID, input.Name, input.ClientType, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.Industry, input.Phone, input.Website, input.Status, actorUserID); err != nil {
+	`, organizationID, companyID, input.Name, input.ClientType, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.Industry, input.Phone, input.Website, input.Status, actorUserID)
+	if err != nil {
 		return Detail{}, fmt.Errorf("update company: %w", err)
+	}
+	if updated.RowsAffected() == 0 {
+		return Detail{}, ErrNotFound
 	}
 
 	if err := replaceLinkedContacts(ctx, tx, organizationID, companyID, input.LinkedContactIDs); err != nil {
@@ -400,13 +410,16 @@ func (s *Service) Archive(ctx context.Context, organizationID, companyID, actorU
 		return fmt.Errorf("companies service not configured")
 	}
 
-	_, err := s.pool.Exec(ctx, `
+	archived, err := s.pool.Exec(ctx, `
 		UPDATE companies
 		SET archived_at = NOW(), updated_at = NOW(), owner_user_id = COALESCE(owner_user_id, $3)
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
 	`, organizationID, companyID, actorUserID)
 	if err != nil {
 		return fmt.Errorf("archive company: %w", err)
+	}
+	if archived.RowsAffected() == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

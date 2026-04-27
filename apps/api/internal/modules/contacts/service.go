@@ -12,7 +12,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrDuplicateContact = errors.New("duplicate contact")
+var (
+	ErrDuplicateContact = errors.New("duplicate contact")
+	ErrNotFound         = errors.New("contact not found")
+)
 
 type DuplicateError struct {
 	ID     int64
@@ -233,6 +236,9 @@ func (s *Service) GetByID(ctx context.Context, organizationID, contactID int64) 
 		FROM contacts
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
 	`, organizationID, contactID).Scan(&detail.Summary.ID, &detail.Summary.FirstName, &detail.Summary.LastName, &detail.Summary.Email, &detail.Summary.Phone, &detail.Summary.AddressLine1, &detail.Summary.AddressLine2, &detail.Summary.City, &detail.Summary.State, &detail.Summary.PostalCode, &detail.Summary.Country, &detail.Summary.JobTitle, &detail.Summary.Status, &detail.Summary.IsClient); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
 		return Detail{}, fmt.Errorf("get contact: %w", err)
 	}
 
@@ -319,7 +325,7 @@ func (s *Service) Update(ctx context.Context, organizationID, contactID, actorUs
 	}
 	defer tx.Rollback(ctx)
 
-	if _, err := tx.Exec(ctx, `
+	updated, err := tx.Exec(ctx, `
 		UPDATE contacts
 		SET first_name = $3,
 		    last_name = $4,
@@ -336,8 +342,12 @@ func (s *Service) Update(ctx context.Context, organizationID, contactID, actorUs
 		    is_client = $15,
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, contactID, input.FirstName, input.LastName, input.Email, input.Phone, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.JobTitle, input.Status, input.IsClient); err != nil {
+	`, organizationID, contactID, input.FirstName, input.LastName, input.Email, input.Phone, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.JobTitle, input.Status, input.IsClient)
+	if err != nil {
 		return Detail{}, fmt.Errorf("update contact: %w", err)
+	}
+	if updated.RowsAffected() == 0 {
+		return Detail{}, ErrNotFound
 	}
 
 	if err := insertActivity(ctx, tx, organizationID, contactID, actorUserID, "contact.updated", "Contact updated"); err != nil {
@@ -356,13 +366,16 @@ func (s *Service) Archive(ctx context.Context, organizationID, contactID, actorU
 		return fmt.Errorf("contacts service not configured")
 	}
 
-	_, err := s.pool.Exec(ctx, `
+	archived, err := s.pool.Exec(ctx, `
 		UPDATE contacts
 		SET archived_at = NOW(), updated_at = NOW(), owner_user_id = COALESCE(owner_user_id, $3)
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
 	`, organizationID, contactID, actorUserID)
 	if err != nil {
 		return fmt.Errorf("archive contact: %w", err)
+	}
+	if archived.RowsAffected() == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

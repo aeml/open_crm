@@ -184,6 +184,21 @@ func TestGetContactDetailUsesCurrentOrganization(t *testing.T) {
 	}
 }
 
+func TestGetContactDetailReturnsNotFound(t *testing.T) {
+	service := &fakeContactsService{getErr: modulecontacts.ErrNotFound}
+	server := authenticatedContactsServer(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/contacts/404", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, recorder.Code)
+	}
+}
+
 func TestCreateContactValidatesAndReturnsCreatedDetail(t *testing.T) {
 	service := &fakeContactsService{
 		createResult: modulecontacts.Detail{
