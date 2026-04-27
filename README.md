@@ -74,8 +74,10 @@ graph LR
 
 Prerequisites:
 - Go 1.23+
-- Node.js 18+
+- Node.js 18.x and npm 9 or 10
 - Docker with Compose plugin
+
+Node is pinned with `.nvmrc` and `.node-version`. Use `nvm use`, `fnm use`, Volta, or your preferred version manager before installing frontend dependencies.
 
 Quick start:
 

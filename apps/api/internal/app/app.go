@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
@@ -27,6 +26,7 @@ import (
 const (
 	sessionCookieName = "open_crm_session"
 	sessionCookieTTL  = 30 * 24 * time.Hour
+	maxJSONBodyBytes  = 1 << 20
 )
 
 type authService interface {
@@ -509,8 +509,7 @@ func handleLogin(env config.Env, service authService, w http.ResponseWriter, r *
 	}
 
 	var request loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
 
@@ -544,8 +543,7 @@ func handleBootstrap(env config.Env, service onboardingService, w http.ResponseW
 	}
 
 	var request bootstrapRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
 
@@ -642,8 +640,7 @@ func handleCreateUser(auth authService, users usersService, w http.ResponseWrite
 	}
 
 	var request createUserRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
 
@@ -1049,8 +1046,7 @@ func handleCreateDeal(auth authService, deals dealsService, w http.ResponseWrite
 	}
 
 	var request dealRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
 
@@ -1115,8 +1111,7 @@ func handleUpdateDeal(auth authService, deals dealsService, w http.ResponseWrite
 	}
 
 	var request dealRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
 
@@ -1179,8 +1174,7 @@ func handleUpdateDealStage(auth authService, deals dealsService, w http.Response
 	}
 
 	var request dealStageUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
 	if request.StageID <= 0 {
@@ -1441,8 +1435,7 @@ func handleUpdateOrganizationProfile(auth authService, profiles orgProfileServic
 	}
 
 	var request organizationProfileRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
 
@@ -1458,8 +1451,7 @@ func handleUpdateOrganizationProfile(auth authService, profiles orgProfileServic
 func decodeContactRequest(w http.ResponseWriter, r *http.Request) (modulecontacts.CreateInput, bool) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	var request contactRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return modulecontacts.CreateInput{}, false
 	}
 	input := modulecontacts.CreateInput{
@@ -1487,8 +1479,7 @@ func decodeContactRequest(w http.ResponseWriter, r *http.Request) (modulecontact
 func decodeCompanyRequest(w http.ResponseWriter, r *http.Request) (modulecompanies.CreateInput, bool) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	var request companyRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return modulecompanies.CreateInput{}, false
 	}
 	input := modulecompanies.CreateInput{
@@ -1548,8 +1539,7 @@ func uniquePositiveInt64s(values []int64) []int64 {
 func decodeTaskCreateRequest(w http.ResponseWriter, r *http.Request) (moduletasks.CreateInput, bool) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	var request taskCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return moduletasks.CreateInput{}, false
 	}
 	input := moduletasks.CreateInput{
@@ -1571,8 +1561,7 @@ func decodeTaskCreateRequest(w http.ResponseWriter, r *http.Request) (moduletask
 func decodeNoteRequest(w http.ResponseWriter, r *http.Request) (modulenotes.CreateInput, bool) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	var request noteRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return modulenotes.CreateInput{}, false
 	}
 	input := modulenotes.CreateInput{
@@ -1590,8 +1579,7 @@ func decodeNoteRequest(w http.ResponseWriter, r *http.Request) (modulenotes.Crea
 func decodeTaskUpdateRequest(w http.ResponseWriter, r *http.Request) (moduletasks.UpdateInput, bool) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	var request taskUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+	if !decodeJSONRequest(w, r, requestID, &request) {
 		return moduletasks.UpdateInput{}, false
 	}
 	input := moduletasks.UpdateInput{
@@ -1685,6 +1673,18 @@ func parsePositiveInt(value string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func decodeJSONRequest(w http.ResponseWriter, r *http.Request, requestID string, dst any) bool {
+	if err := platformweb.DecodeJSONBody(w, r, dst, maxJSONBodyBytes); err != nil {
+		if errors.Is(err, platformweb.ErrRequestBodyTooLarge) {
+			platformweb.WriteError(w, http.StatusRequestEntityTooLarge, requestID, "REQUEST_BODY_TOO_LARGE", "Request body is too large")
+			return false
+		}
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return false
+	}
+	return true
 }
 
 func requireOrgAdmin(auth authService, w http.ResponseWriter, r *http.Request) (moduleauth.SessionState, bool) {

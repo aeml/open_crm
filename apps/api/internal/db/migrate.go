@@ -5,35 +5,106 @@ import (
 	"fmt"
 )
 
-type migrationExecutor interface {
-	Exec(context.Context, string) error
+type MigrationResult struct {
+	Applied []string
+	Skipped []string
 }
 
-type poolMigrationExecutor struct {
+func (r MigrationResult) AppliedCount() int {
+	return len(r.Applied)
+}
+
+func (r MigrationResult) SkippedCount() int {
+	return len(r.Skipped)
+}
+
+type migrationStore interface {
+	EnsureTracking(context.Context) error
+	IsApplied(context.Context, string) (bool, error)
+	Apply(context.Context, string, string) error
+}
+
+type poolMigrationStore struct {
 	pool *Pool
 }
 
-func (e poolMigrationExecutor) Exec(ctx context.Context, sql string) error {
-	_, err := e.pool.Exec(ctx, sql)
+func (s poolMigrationStore) EnsureTracking(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			name TEXT PRIMARY KEY,
+			applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)
+	`)
 	return err
 }
 
-func RunMigrations(ctx context.Context, cfg Config) error {
-	pool, err := NewPool(ctx, cfg)
-	if err != nil {
-		return err
+func (s poolMigrationStore) IsApplied(ctx context.Context, name string) (bool, error) {
+	var applied bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE name = $1)`, name).Scan(&applied); err != nil {
+		return false, err
 	}
-	defer pool.Close()
-
-	return runMigrations(ctx, poolMigrationExecutor{pool: pool})
+	return applied, nil
 }
 
-func runMigrations(ctx context.Context, executor migrationExecutor) error {
-	for _, name := range MigrationFiles() {
-		if err := executor.Exec(ctx, MigrationSQL(name)); err != nil {
-			return fmt.Errorf("apply %s: %w", name, err)
-		}
+func (s poolMigrationStore) Apply(ctx context.Context, name, sql string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin migration transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, sql); err != nil {
+		return fmt.Errorf("execute migration sql: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`, name); err != nil {
+		return fmt.Errorf("record migration: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit migration transaction: %w", err)
 	}
 
 	return nil
+}
+
+func RunMigrations(ctx context.Context, cfg Config) (MigrationResult, error) {
+	pool, err := NewPool(ctx, cfg)
+	if err != nil {
+		return MigrationResult{}, err
+	}
+	defer pool.Close()
+
+	return runMigrations(ctx, poolMigrationStore{pool: pool})
+}
+
+func runMigrations(ctx context.Context, store migrationStore) (MigrationResult, error) {
+	if err := store.EnsureTracking(ctx); err != nil {
+		return MigrationResult{}, fmt.Errorf("ensure migration tracking: %w", err)
+	}
+
+	result := MigrationResult{
+		Applied: []string{},
+		Skipped: []string{},
+	}
+	for _, name := range MigrationFiles() {
+		migrationSQL := MigrationSQL(name)
+		if migrationSQL == "" {
+			return result, fmt.Errorf("missing SQL for migration %s", name)
+		}
+
+		applied, err := store.IsApplied(ctx, name)
+		if err != nil {
+			return result, fmt.Errorf("check %s: %w", name, err)
+		}
+		if applied {
+			result.Skipped = append(result.Skipped, name)
+			continue
+		}
+
+		if err := store.Apply(ctx, name, migrationSQL); err != nil {
+			return result, fmt.Errorf("apply %s: %w", name, err)
+		}
+		result.Applied = append(result.Applied, name)
+	}
+
+	return result, nil
 }

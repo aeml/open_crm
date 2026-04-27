@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
@@ -208,6 +209,59 @@ func TestLoginRejectsInvalidCredentials(t *testing.T) {
 
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+}
+
+func TestLoginRejectsInvalidJSONBody(t *testing.T) {
+	server := NewServer(config.Env{}, Dependencies{AuthService: &fakeAuthService{}})
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{"email":`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+
+	var response struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected valid JSON response, got error: %v", err)
+	}
+	if response.Error.Code != "BAD_REQUEST" {
+		t.Fatalf("expected BAD_REQUEST, got %q", response.Error.Code)
+	}
+}
+
+func TestLoginRejectsOversizedJSONBody(t *testing.T) {
+	server := NewServer(config.Env{}, Dependencies{AuthService: &fakeAuthService{}})
+
+	body := strings.NewReader(`{"email":"owner@example.test","password":"` + strings.Repeat("x", maxJSONBodyBytes) + `"}`)
+	request := httptest.NewRequest(http.MethodPost, "/auth/login", body)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected status %d, got %d", http.StatusRequestEntityTooLarge, recorder.Code)
+	}
+
+	var response struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected valid JSON response, got error: %v", err)
+	}
+	if response.Error.Code != "REQUEST_BODY_TOO_LARGE" {
+		t.Fatalf("expected REQUEST_BODY_TOO_LARGE, got %q", response.Error.Code)
 	}
 }
 

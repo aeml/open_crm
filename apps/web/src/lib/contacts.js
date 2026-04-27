@@ -1,8 +1,4 @@
-import { API_BASE_URL } from './config'
-
-function getErrorMessage(payload, fallbackMessage) {
-  return payload?.error?.message || fallbackMessage
-}
+import { apiRequest, getErrorMessage } from './api'
 
 function duplicateCandidate(payload) {
   const candidate = payload?.error?.details?.duplicate
@@ -25,96 +21,48 @@ function duplicateReasonLabel(message) {
   return match[1].trim().toLowerCase()
 }
 
-function getContactSaveError(response, payload, fallbackMessage) {
+function getContactSaveError(error, fallbackMessage) {
+  const payload = error.payload
   const message = getErrorMessage(payload, fallbackMessage)
-  if (response.status === 409) {
-    const error = new Error(`Possible duplicate contact: ${duplicateReasonLabel(message)}. Review the existing record before saving again. ${message}`)
-    error.duplicate = duplicateCandidate(payload)
-    throw error
+  if (error.status === 409) {
+    const duplicateError = new Error(`Possible duplicate contact: ${duplicateReasonLabel(message)}. Review the existing record before saving again. ${message}`)
+    duplicateError.duplicate = duplicateCandidate(payload)
+    throw duplicateError
   }
   return new Error(message)
 }
 
-async function readJSON(response) {
-  if (response.status === 204) {
-    return {}
-  }
-  return response.json()
-}
-
 export async function listContacts(search = '') {
   const suffix = search ? `?q=${encodeURIComponent(search)}` : ''
-  const response = await fetch(`${API_BASE_URL}/api/contacts${suffix}`, {
-    credentials: 'include'
-  })
-  const payload = await readJSON(response)
-
-  if (!response.ok) {
-    throw new Error(getErrorMessage(payload, 'Unable to load contacts.'))
-  }
+  const payload = await apiRequest(`/api/contacts${suffix}`, { fallbackMessage: 'Unable to load contacts.' })
 
   return payload?.data || { contacts: [], meta: { page: 1, pageSize: 20, total: 0 } }
 }
 
 export async function getContact(contactID) {
-  const response = await fetch(`${API_BASE_URL}/api/contacts/${contactID}`, {
-    credentials: 'include'
-  })
-  const payload = await readJSON(response)
-
-  if (!response.ok) {
-    throw new Error(getErrorMessage(payload, 'Unable to load contact.'))
-  }
+  const payload = await apiRequest(`/api/contacts/${contactID}`, { fallbackMessage: 'Unable to load contact.' })
 
   return payload?.data
 }
 
 export async function createContact(input) {
-  const response = await fetch(`${API_BASE_URL}/api/contacts`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(input)
-  })
-  const payload = await readJSON(response)
-
-  if (!response.ok) {
-    throw getContactSaveError(response, payload, 'Unable to create contact.')
+  try {
+    const payload = await apiRequest('/api/contacts', { method: 'POST', body: input, fallbackMessage: 'Unable to create contact.' })
+    return payload?.data
+  } catch (error) {
+    throw getContactSaveError(error, 'Unable to create contact.')
   }
-
-  return payload?.data
 }
 
 export async function updateContact(contactID, input) {
-  const response = await fetch(`${API_BASE_URL}/api/contacts/${contactID}`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(input)
-  })
-  const payload = await readJSON(response)
-
-  if (!response.ok) {
-    throw getContactSaveError(response, payload, 'Unable to update contact.')
+  try {
+    const payload = await apiRequest(`/api/contacts/${contactID}`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update contact.' })
+    return payload?.data
+  } catch (error) {
+    throw getContactSaveError(error, 'Unable to update contact.')
   }
-
-  return payload?.data
 }
 
 export async function archiveContact(contactID) {
-  const response = await fetch(`${API_BASE_URL}/api/contacts/${contactID}`, {
-    method: 'DELETE',
-    credentials: 'include'
-  })
-  const payload = await readJSON(response)
-
-  if (!response.ok) {
-    throw new Error(getErrorMessage(payload, 'Unable to archive contact.'))
-  }
-
-  return payload
+  return apiRequest(`/api/contacts/${contactID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive contact.' })
 }

@@ -16,9 +16,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := db.RunMigrations(context.Background(), cfg); err != nil {
+	result, err := db.RunMigrations(context.Background(), cfg)
+	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("applied %d migration(s)\n", len(db.MigrationFiles()))
+	fmt.Printf("applied %d migration(s), skipped %d already-applied migration(s)\n", result.AppliedCount(), result.SkippedCount())
 }

@@ -1,0 +1,48 @@
+import { API_BASE_URL } from './config'
+
+export class APIError extends Error {
+  constructor(message, { status = 0, payload = null } = {}) {
+    super(message)
+    this.name = 'APIError'
+    this.status = status
+    this.payload = payload
+  }
+}
+
+export function getErrorMessage(payload, fallbackMessage) {
+  return payload?.error?.message || fallbackMessage
+}
+
+export async function readJSON(response) {
+  if (!response || typeof response.json !== 'function' || response.status === 204) {
+    return {}
+  }
+
+  return response.json()
+}
+
+export async function apiRequest(path, { method = 'GET', body, headers = {}, fallbackMessage = 'Request failed.' } = {}) {
+  const requestHeaders = { ...headers }
+  const request = {
+    method,
+    credentials: 'include',
+    headers: requestHeaders
+  }
+
+  if (body !== undefined) {
+    requestHeaders['Content-Type'] = requestHeaders['Content-Type'] || 'application/json'
+    request.body = JSON.stringify(body)
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, request)
+  const payload = await readJSON(response)
+
+  if (!response.ok) {
+    throw new APIError(getErrorMessage(payload, fallbackMessage), {
+      status: response.status,
+      payload
+    })
+  }
+
+  return payload
+}

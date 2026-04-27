@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/aeml/open_crm/apps/api/internal/app"
 	"github.com/aeml/open_crm/apps/api/internal/config"
@@ -18,6 +23,14 @@ import (
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
+)
+
+const (
+	serverReadHeaderTimeout = 5 * time.Second
+	serverReadTimeout       = 15 * time.Second
+	serverWriteTimeout      = 30 * time.Second
+	serverIdleTimeout       = 60 * time.Second
+	serverShutdownTimeout   = 10 * time.Second
 )
 
 func main() {
@@ -56,30 +69,66 @@ func main() {
 		}
 	}
 
-	server := &http.Server{
-		Addr: env.APIAddress(),
-		Handler: app.NewServer(env, app.Dependencies{
-			CheckReadiness: func(ctx context.Context) error {
-				if dbConfigErr != nil {
-					return dbConfigErr
-				}
-				return db.CheckReadiness(ctx, dbConfig)
-			},
-			AuthService:       authService,
-			UsersService:      usersService,
-			ContactsService:   contactsService,
-			CompaniesService:  companiesService,
-			DealsService:      dealsService,
-			TasksService:      tasksService,
-			DashboardService:  dashboardService,
-			NotesService:      notesService,
-			OnboardingService: onboardingService,
-			OrgProfileService: orgProfileService,
-		}),
-	}
+	server := newHTTPServer(env, app.NewServer(env, app.Dependencies{
+		CheckReadiness: func(ctx context.Context) error {
+			if dbConfigErr != nil {
+				return dbConfigErr
+			}
+			return db.CheckReadiness(ctx, dbConfig)
+		},
+		AuthService:       authService,
+		UsersService:      usersService,
+		ContactsService:   contactsService,
+		CompaniesService:  companiesService,
+		DealsService:      dealsService,
+		TasksService:      tasksService,
+		DashboardService:  dashboardService,
+		NotesService:      notesService,
+		OnboardingService: onboardingService,
+		OrgProfileService: orgProfileService,
+	}))
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	log.Printf("open_crm api listening on %s", env.APIAddress())
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := serveWithShutdown(ctx, server); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func newHTTPServer(env config.Env, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              env.APIAddress(),
+		Handler:           handler,
+		ReadHeaderTimeout: serverReadHeaderTimeout,
+		ReadTimeout:       serverReadTimeout,
+		WriteTimeout:      serverWriteTimeout,
+		IdleTimeout:       serverIdleTimeout,
+	}
+}
+
+func serveWithShutdown(ctx context.Context, server *http.Server) error {
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErr <- err
+			return
+		}
+		serverErr <- nil
+	}()
+
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown server: %w", err)
+	}
+
+	return <-serverErr
 }

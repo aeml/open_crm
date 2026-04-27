@@ -1,8 +1,4 @@
-import { API_BASE_URL } from './config'
-
-function getErrorMessage(payload, fallbackMessage) {
-  return payload?.error?.message || fallbackMessage
-}
+import { apiRequest, getErrorMessage } from './api'
 
 function duplicateCandidate(payload) {
   const candidate = payload?.error?.details?.duplicate
@@ -25,96 +21,48 @@ function duplicateReasonLabel(message) {
   return match[1].trim().toLowerCase()
 }
 
-function getCompanySaveError(response, payload, fallbackMessage) {
+function getCompanySaveError(error, fallbackMessage) {
+  const payload = error.payload
   const message = getErrorMessage(payload, fallbackMessage)
-  if (response.status === 409) {
-    const error = new Error(`Possible duplicate company: ${duplicateReasonLabel(message)}. Review the existing record before saving again. ${message}`)
-    error.duplicate = duplicateCandidate(payload)
-    throw error
+  if (error.status === 409) {
+    const duplicateError = new Error(`Possible duplicate company: ${duplicateReasonLabel(message)}. Review the existing record before saving again. ${message}`)
+    duplicateError.duplicate = duplicateCandidate(payload)
+    throw duplicateError
   }
   return new Error(message)
 }
 
-async function readJSON(response) {
-  if (response.status === 204) {
-    return {}
-  }
-  return response.json()
-}
-
 export async function listCompanies(search = '') {
   const suffix = search ? `?q=${encodeURIComponent(search)}` : ''
-  const response = await fetch(`${API_BASE_URL}/api/companies${suffix}`, {
-    credentials: 'include'
-  })
-  const payload = await readJSON(response)
-
-  if (!response.ok) {
-    throw new Error(getErrorMessage(payload, 'Unable to load companies.'))
-  }
+  const payload = await apiRequest(`/api/companies${suffix}`, { fallbackMessage: 'Unable to load companies.' })
 
   return payload?.data || { companies: [], meta: { page: 1, pageSize: 20, total: 0 } }
 }
 
 export async function getCompany(companyID) {
-  const response = await fetch(`${API_BASE_URL}/api/companies/${companyID}`, {
-    credentials: 'include'
-  })
-  const payload = await readJSON(response)
-
-  if (!response.ok) {
-    throw new Error(getErrorMessage(payload, 'Unable to load company.'))
-  }
+  const payload = await apiRequest(`/api/companies/${companyID}`, { fallbackMessage: 'Unable to load company.' })
 
   return payload?.data
 }
 
 export async function createCompany(input) {
-  const response = await fetch(`${API_BASE_URL}/api/companies`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(input)
-  })
-  const payload = await readJSON(response)
-
-  if (!response.ok) {
-    throw getCompanySaveError(response, payload, 'Unable to create company.')
+  try {
+    const payload = await apiRequest('/api/companies', { method: 'POST', body: input, fallbackMessage: 'Unable to create company.' })
+    return payload?.data
+  } catch (error) {
+    throw getCompanySaveError(error, 'Unable to create company.')
   }
-
-  return payload?.data
 }
 
 export async function updateCompany(companyID, input) {
-  const response = await fetch(`${API_BASE_URL}/api/companies/${companyID}`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(input)
-  })
-  const payload = await readJSON(response)
-
-  if (!response.ok) {
-    throw getCompanySaveError(response, payload, 'Unable to update company.')
+  try {
+    const payload = await apiRequest(`/api/companies/${companyID}`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update company.' })
+    return payload?.data
+  } catch (error) {
+    throw getCompanySaveError(error, 'Unable to update company.')
   }
-
-  return payload?.data
 }
 
 export async function archiveCompany(companyID) {
-  const response = await fetch(`${API_BASE_URL}/api/companies/${companyID}`, {
-    method: 'DELETE',
-    credentials: 'include'
-  })
-  const payload = await readJSON(response)
-
-  if (!response.ok) {
-    throw new Error(getErrorMessage(payload, 'Unable to archive company.'))
-  }
-
-  return payload
+  return apiRequest(`/api/companies/${companyID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive company.' })
 }
