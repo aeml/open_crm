@@ -80,3 +80,32 @@ func TestBootstrapOrganizationCreatesOwnerSession(t *testing.T) {
 		t.Fatalf("unexpected bootstrap response: %#v", response.Data)
 	}
 }
+
+func TestBootstrapOrganizationRateLimitsRepeatedAttempts(t *testing.T) {
+	service := &fakeOnboardingService{bootstrapErr: moduleauth.ErrUnauthorized}
+	server := NewServer(config.Env{}, Dependencies{OnboardingService: service})
+
+	for i := 0; i < authRateLimit; i++ {
+		request := httptest.NewRequest(http.MethodPost, "/auth/bootstrap", bytes.NewBufferString(`{"organizationName":"Acme","firstName":"Demo","lastName":"Owner","email":"owner@acme.test","password":"secret"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.RemoteAddr = "198.51.100.20:12345"
+		recorder := httptest.NewRecorder()
+
+		server.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("attempt %d: expected status %d, got %d", i+1, http.StatusBadRequest, recorder.Code)
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/bootstrap", bytes.NewBufferString(`{"organizationName":"Acme","firstName":"Demo","lastName":"Owner","email":"owner@acme.test","password":"secret"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "198.51.100.20:12345"
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected status %d, got %d", http.StatusTooManyRequests, recorder.Code)
+	}
+}

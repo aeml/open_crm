@@ -13,6 +13,7 @@ Each version is a shippable slice. The goal is to improve safety, reliability, m
 - `0.1.5` Frontend API Client Consolidation: complete.
 - `0.1.6` Request Validation And Body Limits: complete.
 - `0.1.7` Error Semantics: complete.
+- `0.1.8` Security Baseline: complete.
 
 ## Version 0.1.1 - Migration Safety
 
@@ -129,6 +130,8 @@ Exit criteria:
 - Client behavior can rely on stable error codes.
 
 ## Version 0.1.8 - Security Baseline
+
+Status: complete.
 
 Goal: address the highest-value security gaps for cookie-auth CRM usage.
 

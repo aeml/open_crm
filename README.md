@@ -143,7 +143,6 @@ POSTGRES_DB=open_crm
 POSTGRES_USER=open_crm
 POSTGRES_PASSWORD=***
 API_PORT=18089
-SESSION_COOKIE_SECRET=***
 ALLOWED_ORIGINS=https://crm.mendola.tech
 GO_ENV=production
 ```

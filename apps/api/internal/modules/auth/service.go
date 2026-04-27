@@ -32,6 +32,8 @@ const sessionStateByUserSQL = `
 	LIMIT 1
 `
 
+const expiredSessionsCleanupSQL = `DELETE FROM sessions WHERE expires_at <= NOW()`
+
 type User struct {
 	ID        int64  `json:"id"`
 	Email     string `json:"email"`
@@ -125,6 +127,8 @@ func (s *Service) CurrentSession(ctx context.Context, sessionToken string) (Sess
 		return SessionState{}, ErrUnauthorized
 	}
 
+	s.pruneExpiredSessions(ctx)
+
 	tokenHash := hashToken(sessionToken)
 	var state SessionState
 	err := s.pool.QueryRow(ctx, `
@@ -205,4 +209,8 @@ func (s *Service) loadSessionStateByUserID(ctx context.Context, userID int64) (S
 		return SessionState{}, ErrUnauthorized
 	}
 	return state, nil
+}
+
+func (s *Service) pruneExpiredSessions(ctx context.Context) {
+	_, _ = s.pool.Exec(ctx, expiredSessionsCleanupSQL)
 }

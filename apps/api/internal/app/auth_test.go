@@ -212,6 +212,35 @@ func TestLoginRejectsInvalidCredentials(t *testing.T) {
 	}
 }
 
+func TestLoginRateLimitsRepeatedAttempts(t *testing.T) {
+	service := &fakeAuthService{loginErr: moduleauth.ErrUnauthorized}
+	server := NewServer(config.Env{}, Dependencies{AuthService: service})
+
+	for i := 0; i < authRateLimit; i++ {
+		request := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(`{"email":"owner@acme.test","password":"wrong"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.RemoteAddr = "198.51.100.10:12345"
+		recorder := httptest.NewRecorder()
+
+		server.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: expected status %d, got %d", i+1, http.StatusUnauthorized, recorder.Code)
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(`{"email":"owner@acme.test","password":"wrong"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "198.51.100.10:12345"
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected status %d, got %d", http.StatusTooManyRequests, recorder.Code)
+	}
+}
+
 func TestLoginRejectsInvalidJSONBody(t *testing.T) {
 	server := NewServer(config.Env{}, Dependencies{AuthService: &fakeAuthService{}})
 

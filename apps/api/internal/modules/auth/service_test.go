@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -39,4 +40,23 @@ func TestSessionStateLookupSQLLoadsContextAfterPasswordValidation(t *testing.T) 
 	if !strings.Contains(sql, "WHERE om.user_id = $1") {
 		t.Fatalf("expected session state lookup to filter by user id, got %q", sql)
 	}
+}
+
+func TestCurrentSessionPrunesExpiredSessions(t *testing.T) {
+	serviceSource := readSourceFile(t, "service.go")
+	if !strings.Contains(serviceSource, "s.pruneExpiredSessions(ctx)") {
+		t.Fatal("expected CurrentSession to prune expired sessions before session lookup")
+	}
+	if expiredSessionsCleanupSQL != "DELETE FROM sessions WHERE expires_at <= NOW()" {
+		t.Fatal("expected expired session cleanup query")
+	}
+}
+
+func readSourceFile(t *testing.T, path string) string {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(contents)
 }

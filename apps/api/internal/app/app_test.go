@@ -91,8 +91,57 @@ func TestNewServerDoesNotAllowUnknownOrigin(t *testing.T) {
 	}
 }
 
+func TestNewServerSetsSecurityHeaders(t *testing.T) {
+	server := NewServer(config.Env{})
+
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if got := recorder.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("expected X-Content-Type-Options nosniff, got %q", got)
+	}
+	if got := recorder.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("expected X-Frame-Options DENY, got %q", got)
+	}
+	if got := recorder.Header().Get("Referrer-Policy"); got != "same-origin" {
+		t.Fatalf("expected Referrer-Policy same-origin, got %q", got)
+	}
+}
+
+func TestNewServerBlocksCrossSiteCookieWrites(t *testing.T) {
+	server := NewServer(config.Env{GOEnv: "production", AllowedOrigins: []string{"https://crm.mendola.tech"}})
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	request.Header.Set("Origin", "https://evil.example")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
+	}
+}
+
+func TestNewServerAllowsConfiguredOriginCookieWrites(t *testing.T) {
+	server := NewServer(config.Env{GOEnv: "production", AllowedOrigins: []string{"https://crm.mendola.tech"}}, Dependencies{AuthService: &fakeAuthService{}})
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	request.Header.Set("Origin", "https://crm.mendola.tech")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+}
+
 func TestNewServerAuthMeRequiresSession(t *testing.T) {
-	server := NewServer(config.Env{SessionCookieSecret: "test-secret"})
+	server := NewServer(config.Env{})
 
 	request := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	recorder := httptest.NewRecorder()
