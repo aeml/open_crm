@@ -20,6 +20,7 @@ export function SettingsUsersRoute() {
   const [error, setError] = useState('')
   const [form, setForm] = useState(emptyForm)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [latestSetupLink, setLatestSetupLink] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -59,6 +60,7 @@ export function SettingsUsersRoute() {
     try {
       const created = await createOrganizationUser(form)
       setUsers((current) => [...current, created])
+      setLatestSetupLink(created?.setupLink || '')
       setForm(emptyForm)
     } catch (submitError) {
       setError(submitError.message || 'Unable to create user.')
@@ -101,8 +103,13 @@ export function SettingsUsersRoute() {
           <div className="card-stack">
             <div>
               <h2>Invite user</h2>
-              <p>Add another user to this organization with the right level of access.</p>
+              <p>Add another user to this organization, then send them the setup link so they can choose their own password.</p>
             </div>
+            {latestSetupLink ? (
+              <div className="inline-note" role="status">
+                <strong>Setup link created:</strong> <code>{latestSetupLink}</code>
+              </div>
+            ) : null}
             <form className="auth-form" onSubmit={handleSubmit}>
               <Field label="First name">
                 <input

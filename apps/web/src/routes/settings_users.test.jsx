@@ -46,7 +46,7 @@ describe('settings users route', () => {
         ok: true,
         json: async () => ({
           data: {
-            user: { id: 3, email: 'ops@acme.test', firstName: 'Ops', lastName: 'Lead', role: 'member' }
+            user: { id: 3, email: 'ops@acme.test', firstName: 'Ops', lastName: 'Lead', role: 'member', setupLink: '/setup-password?token=setup-token-123' }
           }
         })
       })
@@ -77,6 +77,7 @@ describe('settings users route', () => {
     })
 
     expect(await screen.findByText('ops@acme.test')).toBeInTheDocument()
+    expect(await screen.findByText('/setup-password?token=setup-token-123')).toBeInTheDocument()
   })
 
   it('hides create form for non-admin members', async () => {

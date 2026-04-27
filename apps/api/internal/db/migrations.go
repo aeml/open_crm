@@ -23,8 +23,11 @@ var removeCompanyDomainSQL string
 //go:embed migrations/007_task_archive.sql
 var taskArchiveSQL string
 
+//go:embed migrations/008_user_setup_tokens.sql
+var userSetupTokensSQL string
+
 func MigrationFiles() []string {
-	return []string{"001_initial_schema.sql", "002_company_client_type.sql", "003_contact_client_flag.sql", "004_client_address.sql", "005_client_structured_address.sql", "006_remove_company_domain.sql", "007_task_archive.sql"}
+	return []string{"001_initial_schema.sql", "002_company_client_type.sql", "003_contact_client_flag.sql", "004_client_address.sql", "005_client_structured_address.sql", "006_remove_company_domain.sql", "007_task_archive.sql", "008_user_setup_tokens.sql"}
 }
 
 func MigrationSQL(name string) string {
@@ -48,6 +51,9 @@ func MigrationSQL(name string) string {
 	}
 	if name == "007_task_archive.sql" {
 		return taskArchiveSQL
+	}
+	if name == "008_user_setup_tokens.sql" {
+		return userSetupTokensSQL
 	}
 	return ""
 }

@@ -43,6 +43,7 @@ type authService interface {
 type usersService interface {
 	ListByOrganization(context.Context, int64) ([]moduleusers.UserSummary, error)
 	CreateForOrganization(context.Context, int64, moduleusers.CreateUserInput) (moduleusers.UserSummary, error)
+	CompleteSetup(context.Context, moduleusers.CompleteSetupInput) error
 }
 
 type contactsService interface {
@@ -146,6 +147,11 @@ type createUserRequest struct {
 	FirstName string `json:"firstName"`
 	LastName  string `json:"lastName"`
 	Role      string `json:"role"`
+}
+
+type completeUserSetupRequest struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
 }
 
 type usersListResponse struct {
@@ -423,6 +429,13 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateUser(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
+	mux.HandleFunc("POST /auth/setup-password", func(w http.ResponseWriter, r *http.Request) {
+		if !rateLimiter.allow(authRateLimitKey(r)) {
+			platformweb.WriteError(w, http.StatusTooManyRequests, platformweb.RequestIDFromContext(r.Context()), "RATE_LIMITED", "Too many authentication attempts")
+			return
+		}
+		handleCompleteUserSetup(dependencies.UsersService, w, r)
+	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
@@ -691,6 +704,39 @@ func handleCreateUser(auth authService, users usersService, w http.ResponseWrite
 	response.Data.User = created
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusCreated, response)
+}
+
+func handleCompleteUserSetup(users usersService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	if users == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Users service unavailable")
+		return
+	}
+
+	var request completeUserSetupRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+
+	input := moduleusers.CompleteSetupInput{
+		Token:    strings.TrimSpace(request.Token),
+		Password: strings.TrimSpace(request.Password),
+	}
+	if input.Token == "" || input.Password == "" {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Setup token and password are required")
+		return
+	}
+
+	if err := users.CompleteSetup(r.Context(), input); err != nil {
+		if errors.Is(err, moduleusers.ErrInvalidSetupToken) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Setup token is invalid or expired")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to complete password setup")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleListContacts(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {

@@ -42,3 +42,23 @@ func TestMigrationFilesIncludeTaskArchiveMigration(t *testing.T) {
 		t.Fatal("expected task archive migration SQL to be embedded")
 	}
 }
+
+func TestMigrationFilesIncludeUserSetupTokensMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "008_user_setup_tokens.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected user setup tokens migration to be registered")
+	}
+
+	if MigrationSQL("008_user_setup_tokens.sql") == "" {
+		t.Fatal("expected user setup tokens migration SQL to be embedded")
+	}
+}

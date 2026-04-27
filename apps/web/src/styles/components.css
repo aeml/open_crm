@@ -133,3 +133,16 @@
   color: #b42318;
   font-weight: 600;
 }
+
+.inline-note {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid rgba(39, 94, 254, 0.16);
+  border-radius: var(--radius-md);
+  background: rgba(39, 94, 254, 0.06);
+  color: var(--text-strong);
+}
+
+.inline-note code {
+  word-break: break-all;
+}

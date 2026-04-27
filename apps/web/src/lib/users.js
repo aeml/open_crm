@@ -11,3 +11,7 @@ export async function createOrganizationUser(input) {
 
   return payload?.data?.user
 }
+
+export async function completeUserSetup(input) {
+  await apiRequest('/auth/setup-password', { method: 'POST', body: input, fallbackMessage: 'Unable to complete password setup.' })
+}

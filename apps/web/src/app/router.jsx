@@ -8,6 +8,7 @@ import { DealsRoute } from '../routes/deals'
 import { TasksRoute } from '../routes/tasks'
 import { LoginRoute } from '../routes/login'
 import { BootstrapRoute } from '../routes/bootstrap'
+import { SetupPasswordRoute } from '../routes/setup_password'
 import { SettingsUsersRoute } from '../routes/settings_users'
 import { BusinessProfileRoute } from '../routes/business_profile'
 
@@ -18,6 +19,7 @@ export function AppRouter() {
         <Routes>
           <Route path="/login" element={<LoginRoute />} />
           <Route path="/bootstrap" element={<BootstrapRoute />} />
+          <Route path="/setup-password" element={<SetupPasswordRoute />} />
           <Route path="/" element={<RootRoute />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardRoute />} />

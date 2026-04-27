@@ -2,19 +2,29 @@ package users
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	platformauth "github.com/aeml/open_crm/apps/api/internal/platform/auth"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+var ErrInvalidSetupToken = errors.New("invalid setup token")
+
+const setupTokenTTL = 7 * 24 * time.Hour
+
 type UserSummary struct {
-	ID        int64  `json:"id"`
-	Email     string `json:"email"`
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
-	Role      string `json:"role"`
+	ID         int64  `json:"id"`
+	Email      string `json:"email"`
+	FirstName  string `json:"firstName"`
+	LastName   string `json:"lastName"`
+	Role       string `json:"role"`
+	SetupToken string `json:"setupToken,omitempty"`
+	SetupLink  string `json:"setupLink,omitempty"`
 }
 
 type CreateUserInput struct {
@@ -22,6 +32,11 @@ type CreateUserInput struct {
 	FirstName string `json:"firstName"`
 	LastName  string `json:"lastName"`
 	Role      string `json:"role"`
+}
+
+type CompleteSetupInput struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
 }
 
 type Service struct {
@@ -84,17 +99,26 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 	}
 	defer tx.Rollback(ctx)
 
-	passwordHash, err := platformauth.HashPassword("opencrm-temp-password")
+	randomPassword, err := platformauth.NewSessionToken()
 	if err != nil {
-		return UserSummary{}, fmt.Errorf("hash temp password: %w", err)
+		return UserSummary{}, fmt.Errorf("generate inactive password: %w", err)
 	}
+	passwordHash, err := platformauth.HashPassword(randomPassword)
+	if err != nil {
+		return UserSummary{}, fmt.Errorf("hash inactive password: %w", err)
+	}
+	setupToken, err := platformauth.NewSessionToken()
+	if err != nil {
+		return UserSummary{}, fmt.Errorf("generate setup token: %w", err)
+	}
+	setupExpiresAt := time.Now().Add(setupTokenTTL)
 
 	var userID int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, first_name, last_name)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO users (email, password_hash, first_name, last_name, password_setup_token_hash, password_setup_expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
-	`, input.Email, passwordHash, input.FirstName, input.LastName).Scan(&userID)
+	`, input.Email, passwordHash, input.FirstName, input.LastName, hashSetupToken(setupToken), setupExpiresAt).Scan(&userID)
 	if err != nil {
 		return UserSummary{}, fmt.Errorf("insert user: %w", err)
 	}
@@ -111,10 +135,53 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 	}
 
 	return UserSummary{
-		ID:        userID,
-		Email:     input.Email,
-		FirstName: input.FirstName,
-		LastName:  input.LastName,
-		Role:      input.Role,
+		ID:         userID,
+		Email:      input.Email,
+		FirstName:  input.FirstName,
+		LastName:   input.LastName,
+		Role:       input.Role,
+		SetupToken: setupToken,
+		SetupLink:  "/setup-password?token=" + setupToken,
 	}, nil
+}
+
+func (s *Service) CompleteSetup(ctx context.Context, input CompleteSetupInput) error {
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("users service not configured")
+	}
+
+	input.Token = strings.TrimSpace(input.Token)
+	input.Password = strings.TrimSpace(input.Password)
+	if input.Token == "" || input.Password == "" {
+		return ErrInvalidSetupToken
+	}
+
+	passwordHash, err := platformauth.HashPassword(input.Password)
+	if err != nil {
+		return fmt.Errorf("hash setup password: %w", err)
+	}
+
+	updated, err := s.pool.Exec(ctx, `
+		UPDATE users
+		SET password_hash = $2,
+		    password_setup_token_hash = NULL,
+		    password_setup_expires_at = NULL,
+		    password_setup_consumed_at = NOW(),
+		    updated_at = NOW()
+		WHERE password_setup_token_hash = $1
+		  AND password_setup_expires_at > NOW()
+		  AND password_setup_consumed_at IS NULL
+	`, hashSetupToken(input.Token), passwordHash)
+	if err != nil {
+		return fmt.Errorf("complete password setup: %w", err)
+	}
+	if updated.RowsAffected() == 0 {
+		return ErrInvalidSetupToken
+	}
+	return nil
+}
+
+func hashSetupToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }

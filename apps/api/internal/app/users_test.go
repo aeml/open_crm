@@ -18,9 +18,11 @@ type fakeUsersService struct {
 	listErr         error
 	createResult    moduleusers.UserSummary
 	createErr       error
+	setupErr        error
 	lastListOrgID   int64
 	lastCreateOrgID int64
 	lastCreateInput moduleusers.CreateUserInput
+	lastSetupInput  moduleusers.CompleteSetupInput
 }
 
 func (f *fakeUsersService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleusers.UserSummary, error) {
@@ -32,6 +34,11 @@ func (f *fakeUsersService) CreateForOrganization(_ context.Context, organization
 	f.lastCreateOrgID = organizationID
 	f.lastCreateInput = input
 	return f.createResult, f.createErr
+}
+
+func (f *fakeUsersService) CompleteSetup(_ context.Context, input moduleusers.CompleteSetupInput) error {
+	f.lastSetupInput = input
+	return f.setupErr
 }
 
 func TestListUsersUsesCurrentSessionOrganization(t *testing.T) {
@@ -102,7 +109,7 @@ func TestListUsersRejectsNonAdminRoles(t *testing.T) {
 
 func TestCreateUserCreatesUserInCurrentOrganization(t *testing.T) {
 	usersService := &fakeUsersService{
-		createResult: moduleusers.UserSummary{ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin"},
+		createResult: moduleusers.UserSummary{ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin", SetupLink: "/setup-password?token=setup-token-123"},
 	}
 	server := NewServer(config.Env{}, Dependencies{
 		AuthService: &fakeAuthService{
@@ -144,7 +151,71 @@ func TestCreateUserCreatesUserInCurrentOrganization(t *testing.T) {
 		t.Fatalf("expected valid JSON response, got error: %v", err)
 	}
 
-	if response.Data.User.Email != "new.admin@acme.test" {
+	if response.Data.User.Email != "new.admin@acme.test" || response.Data.User.SetupLink == "" {
 		t.Fatalf("expected created user in response, got %#v", response.Data.User)
+	}
+}
+
+func TestCompleteUserSetupConsumesSetupToken(t *testing.T) {
+	usersService := &fakeUsersService{}
+	server := NewServer(config.Env{}, Dependencies{UsersService: usersService})
+
+	body := bytes.NewBufferString(`{"token":"setup-token-123","password":"new-password"}`)
+	request := httptest.NewRequest(http.MethodPost, "/auth/setup-password", body)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+	if usersService.lastSetupInput.Token != "setup-token-123" || usersService.lastSetupInput.Password != "new-password" {
+		t.Fatalf("unexpected setup input: %#v", usersService.lastSetupInput)
+	}
+}
+
+func TestCompleteUserSetupRejectsInvalidToken(t *testing.T) {
+	usersService := &fakeUsersService{setupErr: moduleusers.ErrInvalidSetupToken}
+	server := NewServer(config.Env{}, Dependencies{UsersService: usersService})
+
+	body := bytes.NewBufferString(`{"token":"bad-token","password":"new-password"}`)
+	request := httptest.NewRequest(http.MethodPost, "/auth/setup-password", body)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+}
+
+func TestCompleteUserSetupRateLimitsRepeatedAttempts(t *testing.T) {
+	usersService := &fakeUsersService{setupErr: moduleusers.ErrInvalidSetupToken}
+	server := NewServer(config.Env{}, Dependencies{UsersService: usersService})
+
+	for i := 0; i < authRateLimit; i++ {
+		request := httptest.NewRequest(http.MethodPost, "/auth/setup-password", bytes.NewBufferString(`{"token":"bad-token","password":"new-password"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.RemoteAddr = "198.51.100.30:12345"
+		recorder := httptest.NewRecorder()
+
+		server.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("attempt %d: expected status %d, got %d", i+1, http.StatusBadRequest, recorder.Code)
+		}
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/setup-password", bytes.NewBufferString(`{"token":"bad-token","password":"new-password"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.RemoteAddr = "198.51.100.30:12345"
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected status %d, got %d", http.StatusTooManyRequests, recorder.Code)
 	}
 }

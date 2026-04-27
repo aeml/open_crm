@@ -14,6 +14,7 @@ Each version is a shippable slice. The goal is to improve safety, reliability, m
 - `0.1.6` Request Validation And Body Limits: complete.
 - `0.1.7` Error Semantics: complete.
 - `0.1.8` Security Baseline: complete.
+- `0.1.9` User Lifecycle: complete.
 
 ## Version 0.1.1 - Migration Safety
 
@@ -148,6 +149,8 @@ Exit criteria:
 - Configuration no longer contains unused security settings.
 
 ## Version 0.1.9 - User Lifecycle
+
+Status: complete.
 
 Goal: replace temporary-password behavior with a safer onboarding workflow.
 
