@@ -39,11 +39,11 @@ func authenticatedDashboardServer(service *fakeDashboardService) http.Handler {
 func TestDashboardSummaryUsesCurrentOrganization(t *testing.T) {
 	service := &fakeDashboardService{
 		summaryResult: moduledashboard.Summary{
-			PipelineValue:   "48000.00",
-			OpenDealsCount:  3,
-			WonDealsCount:   1,
-			OpenTasksCount:  8,
-			DueTodayCount:   2,
+			PipelineValue:    "48000.00",
+			OpenDealsCount:   3,
+			WonDealsCount:    1,
+			OpenTasksCount:   8,
+			DueTodayCount:    2,
 			NewContactsCount: 5,
 			RecentActivities: []moduledashboard.Activity{{
 				ID:         91,
