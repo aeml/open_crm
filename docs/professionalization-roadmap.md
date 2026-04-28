@@ -18,6 +18,7 @@ Each version is a shippable slice. The goal is to improve safety, reliability, m
 - `0.2.0` Observability And Operations: complete.
 - `0.2.1` Backend Maintainability: complete.
 - `0.2.2` Frontend Maintainability: complete.
+- `0.2.3` Database Integrity: complete.
 
 ## Version 0.1.1 - Migration Safety
 
@@ -216,6 +217,8 @@ Exit criteria:
 - Search and detail loading no longer leave unnecessary in-flight requests.
 
 ## Version 0.2.3 - Database Integrity
+
+Status: complete.
 
 Goal: move important invariants closer to the data.
 

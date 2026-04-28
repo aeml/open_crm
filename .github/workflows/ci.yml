@@ -21,6 +21,20 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: open_crm_test
+          POSTGRES_USER: open_crm
+          POSTGRES_PASSWORD: open_crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U open_crm -d open_crm_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +61,8 @@ jobs:
 
       - name: Run backend tests
         working-directory: apps/api
+        env:
+          OPEN_CRM_TEST_DATABASE_URL: postgres://open_crm:open_crm@localhost:5432/open_crm_test?sslmode=disable
         run: go test ./...
 
   frontend:

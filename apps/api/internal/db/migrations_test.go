@@ -1,6 +1,7 @@
 package db
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -60,5 +61,31 @@ func TestMigrationFilesIncludeUserSetupTokensMigration(t *testing.T) {
 
 	if MigrationSQL("008_user_setup_tokens.sql") == "" {
 		t.Fatal("expected user setup tokens migration SQL to be embedded")
+	}
+}
+
+func TestMigrationFilesIncludeDatabaseIntegrityMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "009_database_integrity.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected database integrity migration to be registered")
+	}
+
+	sql := MigrationSQL("009_database_integrity.sql")
+	if sql == "" {
+		t.Fatal("expected database integrity migration SQL to be embedded")
+	}
+	for _, expected := range []string{"organizations_business_type_check", "organization_memberships_role_check", "deals_value_amount_nonnegative_check", "tasks_entity_type_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected database integrity migration to include %s", expected)
+		}
 	}
 }
