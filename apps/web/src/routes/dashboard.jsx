@@ -100,6 +100,15 @@ export function DashboardRoute() {
     ],
     [labels.contactsLabel, labels.dueTodayLabel, labels.pipelineLabel, summary.dueTodayCount, summary.newContactsCount, summary.pipelineValue]
   )
+  const hasWorkspaceData = Number.parseFloat(summary.pipelineValue || '0') > 0 || summary.openDealsCount > 0 || summary.wonDealsCount > 0 || summary.openTasksCount > 0 || summary.dueTodayCount > 0 || summary.newContactsCount > 0 || summary.recentActivities.length > 0
+  const setupSteps = useMemo(() => {
+    const pipelineLabel = businessType === 'services' || businessType === 'construction-services' ? 'Create your first job' : 'Create your first deal'
+    return [
+      { label: 'Add a contact', description: 'Start with the person you need to follow up with.', action: 'Add contact', path: '/contacts' },
+      { label: 'Add a client', description: 'Create the company or individual client behind the work.', action: 'Add client', path: '/companies' },
+      { label: pipelineLabel, description: 'Track the opportunity, job, or active revenue conversation.', action: pipelineLabel, path: '/deals' }
+    ]
+  }, [businessType])
 
   return (
     <>
@@ -113,6 +122,32 @@ export function DashboardRoute() {
           ))}
         </div>
       </section>
+
+      {!isLoading && !error && !hasWorkspaceData ? (
+        <Card>
+          <div className="card-stack">
+            <div>
+              <p className="eyebrow">Start your workspace</p>
+              <h2>Build the first useful CRM loop.</h2>
+              <p>Add one person, connect the client, then track the deal or job. Once those records exist, dashboard activity and follow-up work will appear here automatically.</p>
+            </div>
+            <div className="step-list" aria-label="First setup steps">
+              {setupSteps.map((step, index) => (
+                <article className="step-row" key={step.label}>
+                  <span className="step-number">{index + 1}</span>
+                  <div>
+                    <p>{step.label}</p>
+                    <p className="field-hint">{step.description}</p>
+                  </div>
+                  <div>
+                    <Button className="button-secondary" type="button" onClick={() => navigate(step.path)}>{step.action}</Button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       <section className="dashboard-grid">
         <Card>

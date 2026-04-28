@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
+import { EmptyState } from '../components/ui/empty_state'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { archiveContact, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
@@ -132,6 +133,7 @@ export function ContactsRoute() {
   const selectedNotes = detail?.notes || []
   const selectedTasks = detail?.tasks || []
   const selectedDeals = detail?.deals || []
+  const hasSearch = search.trim() !== ''
   const selectedActivities = detail?.activities || []
 
   async function loadContacts(nextSearch = '', { signal } = {}) {
@@ -570,11 +572,22 @@ export function ContactsRoute() {
           ) : null}
           <div className="record-list" role="list" aria-label="Contacts list">
             {!isListLoading && contacts.length === 0 ? (
-              <article className="record-row" role="listitem">
-                <div>
-                  <p>No contacts match the current search.</p>
-                </div>
-              </article>
+              <EmptyState
+                title={hasSearch ? 'No contacts match the current search.' : 'No contacts yet.'}
+                description={hasSearch ? 'Try a different name, email, or phone number.' : 'Add the first person you need to follow up with. You can link contacts to clients, deals, notes, and tasks later.'}
+                actionLabel={hasSearch ? 'Clear search' : 'Create first contact'}
+                onAction={() => {
+                  if (hasSearch) {
+                    handleSearchChange({ target: { value: '' } })
+                    return
+                  }
+                  navigate('/contacts')
+                  setMode('create')
+                  setForm(emptyForm)
+                  setDetail(null)
+                  setSelectedContactId(null)
+                }}
+              />
             ) : contacts.map((contact) => (
               <article className="record-row" key={contact.id} role="listitem">
                 <div>

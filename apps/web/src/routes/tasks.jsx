@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
+import { EmptyState } from '../components/ui/empty_state'
 import { archiveTask, createTask, getTask, listTasks, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
@@ -273,7 +274,7 @@ function matchesStatus(task, statusFilter) {
   return task.status !== 'completed'
 }
 
-function emptyTaskListMessage(statusFilter, dueView, labels) {
+function emptyTaskListMessage(statusFilter, dueView, labels, hasFilteredTasks = false) {
   if (statusFilter !== 'open') {
     return `No ${labels.summaryCompleted.toLowerCase()} match the current filters.`
   }
@@ -291,7 +292,17 @@ function emptyTaskListMessage(statusFilter, dueView, labels) {
     return `No ${labels.noDueDateHeading.toLowerCase()} match the current filters.`
   }
 
-  return `No ${labels.summaryOpen.toLowerCase()} match the current filters.`
+  return hasFilteredTasks ? `No ${labels.summaryOpen.toLowerCase()} match the current filters.` : `No ${labels.summaryOpen.toLowerCase()} yet.`
+}
+
+function emptyTaskListDescription(statusFilter, dueView, labels, hasFilteredTasks = false) {
+  if (statusFilter !== 'open') {
+    return `Completed ${labels.showingSuffix} will appear here after work is closed.`
+  }
+  if (dueView !== 'all' || hasFilteredTasks) {
+    return 'Change the task view or clear filters to see more work.'
+  }
+  return `Create the first ${labels.showingSuffix.slice(0, -1)} once there is a real follow-up to track.`
 }
 
 function formatActivityTimestamp(createdAt) {
@@ -345,7 +356,6 @@ export function TasksRoute() {
 
   const selectedTask = detail?.task || null
   const selectedActivities = detail?.activities || []
-  const emptyMessage = useMemo(() => emptyTaskListMessage(statusFilter, dueView, labels), [dueView, labels, statusFilter])
   const statusTasks = useMemo(() => tasks.filter((task) => matchesStatus(task, statusFilter)), [statusFilter, tasks])
   const visibleTasks = useMemo(() => {
     const filteredTasks = statusTasks.filter((task) => {
@@ -366,6 +376,9 @@ export function TasksRoute() {
 
     return sortOpenTasks(filteredTasks.filter((task) => matchesDueView(task, dueView)))
   }, [assigneeFilter, dueView, entityIdFilter, entityTypeFilter, statusFilter, statusTasks])
+  const hasFilteredTasks = statusTasks.length > 0
+  const emptyMessage = useMemo(() => emptyTaskListMessage(statusFilter, dueView, labels, hasFilteredTasks), [dueView, hasFilteredTasks, labels, statusFilter])
+  const emptyDescription = useMemo(() => emptyTaskListDescription(statusFilter, dueView, labels, hasFilteredTasks), [dueView, hasFilteredTasks, labels, statusFilter])
 
   function buildTasksPath(nextTaskId = routeTaskId, nextSearch = search, nextStatusFilter = statusFilter, nextDueView = dueView, nextAssigneeFilter = assigneeFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter) {
     const params = new URLSearchParams()
@@ -887,11 +900,21 @@ export function TasksRoute() {
           <p className="field-hint">Showing {visibleTasks.length} of {statusTasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>
           <div className="record-list" role="list" aria-label="Tasks list">
             {visibleTasks.length === 0 && (!isListLoading || statusTasks.length > 0) ? (
-              <article className="record-row" role="listitem">
-                <div>
-                  <p>{emptyMessage}</p>
-                </div>
-              </article>
+              <EmptyState
+                title={emptyMessage}
+                description={emptyDescription}
+                actionLabel={search.trim() || assigneeFilter !== 'all' || entityTypeFilter !== 'all' || entityIdFilter || dueView !== 'all' || statusFilter !== 'open' ? 'Reset task view' : ''}
+                onAction={() => {
+                  setSearch('')
+                  setStatusFilter('open')
+                  setDueView('all')
+                  setAssigneeFilter('all')
+                  setEntityTypeFilter('all')
+                  setEntityIdFilter('')
+                  navigate(buildTasksPath(null, '', 'open', 'all', 'all', 'all', ''), { replace: true })
+                  reloadTasks('', 'open', 'all', '')
+                }}
+              />
             ) : visibleTasks.map((task) => (
               <article className="record-row" key={task.id} role="listitem">
                 <div>

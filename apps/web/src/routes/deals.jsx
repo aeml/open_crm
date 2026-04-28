@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
+import { EmptyState } from '../components/ui/empty_state'
 import { archiveDeal, createDeal, getDeal, listDeals, listDealStages, updateDeal, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
@@ -118,12 +119,20 @@ function pipelineLabels(businessType) {
   }
 }
 
-function emptyDealsMessage(stageFilter, ownerFilter, labels) {
-  if (stageFilter !== 'all' || ownerFilter !== 'all') {
+function emptyDealsMessage(search, stageFilter, ownerFilter, labels) {
+  if (search.trim() || stageFilter !== 'all' || ownerFilter !== 'all') {
     return `No ${labels.showingLabel} match the current filters.`
   }
 
   return `No ${labels.showingLabel} yet.`
+}
+
+function emptyDealsDescription(search, stageFilter, ownerFilter, labels) {
+  if (search.trim() || stageFilter !== 'all' || ownerFilter !== 'all') {
+    return 'Clear a filter or try a broader search to see more pipeline records.'
+  }
+
+  return `Create the first ${labels.singular.toLowerCase()} once you have a real opportunity, job, or follow-up conversation to track.`
 }
 
 export function DealsRoute() {
@@ -166,6 +175,7 @@ export function DealsRoute() {
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [pipelineReady, setPipelineReady] = useState(false)
   const listControllerRef = useRef(null)
+  const hasDealFilters = search.trim() !== '' || stageFilter !== 'all' || ownerFilter !== 'all'
 
   function buildDealsPath(nextDealId = routeDealId, nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
     const params = new URLSearchParams()
@@ -634,11 +644,20 @@ export function DealsRoute() {
           ) : null}
           <div className="record-list" role="list" aria-label={labels.listAria}>
             {!isListLoading && deals.length === 0 ? (
-              <article className="record-row" role="listitem">
-                <div>
-                  <p>{emptyDealsMessage(stageFilter, ownerFilter, labels)}</p>
-                </div>
-              </article>
+              <EmptyState
+                title={emptyDealsMessage(search, stageFilter, ownerFilter, labels)}
+                description={emptyDealsDescription(search, stageFilter, ownerFilter, labels)}
+                actionLabel={hasDealFilters ? 'Clear filters' : ''}
+                onAction={() => {
+                  if (hasDealFilters) {
+                    setSearch('')
+                    setStageFilter('all')
+                    setOwnerFilter('all')
+                    navigate(buildDealsPath(null, '', 'all', 'all'), { replace: true })
+                    reloadDeals('', 'all', 'all')
+                  }
+                }}
+              />
             ) : deals.map((deal) => (
               <article className="record-row" key={deal.id} role="listitem">
                 <div>

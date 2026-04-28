@@ -146,3 +146,53 @@
 .inline-note code {
   word-break: break-all;
 }
+
+.empty-state {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+.empty-state p:first-child {
+  font-weight: 700;
+}
+
+.step-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.step-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+.step-number {
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(39, 94, 254, 0.1);
+  color: var(--accent);
+  font-weight: 800;
+}
+
+@media (max-width: 720px) {
+  .step-row {
+    grid-template-columns: auto 1fr;
+  }
+
+  .step-row > div:last-child {
+    grid-column: 1 / -1;
+  }
+}

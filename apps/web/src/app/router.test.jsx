@@ -71,6 +71,47 @@ describe('AppRouter', () => {
     })
   })
 
+  it('shows first-use setup guidance on an empty dashboard', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' },
+            membership: { role: 'owner' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            pipelineValue: '0',
+            openDealsCount: 0,
+            wonDealsCount: 0,
+            openTasksCount: 0,
+            dueTodayCount: 0,
+            newContactsCount: 0,
+            recentActivities: []
+          }
+        })
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    window.history.pushState({}, '', '/dashboard')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/start your workspace/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /build the first useful crm loop/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /add contact/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /add client/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create your first deal/i })).toBeInTheDocument()
+  })
+
   it('adapts dashboard metric copy for service businesses', async () => {
     const fetchMock = vi
       .fn()

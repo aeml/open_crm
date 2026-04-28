@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
+import { EmptyState } from '../components/ui/empty_state'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
@@ -342,6 +343,7 @@ export function CompaniesRoute() {
   const selectedNotes = detail?.notes || []
   const selectedTasks = detail?.tasks || []
   const selectedDeals = detail?.deals || []
+  const hasSearch = search.trim() !== ''
   const selectedActivities = detail?.activities || []
 
   async function loadCompanies(nextSearch = '', { signal } = {}) {
@@ -900,11 +902,24 @@ export function CompaniesRoute() {
           ) : null}
           <div className="record-list" role="list" aria-label="Clients list">
             {!isListLoading && companies.length === 0 ? (
-              <article className="record-row" role="listitem">
-                <div>
-                  <p>No clients match the current search.</p>
-                </div>
-              </article>
+              <EmptyState
+                title={hasSearch ? 'No clients match the current search.' : 'No clients yet.'}
+                description={hasSearch ? 'Try a different client, website, or contact name.' : 'Create an organization or individual client so your contacts, deals, jobs, notes, and tasks have a home.'}
+                actionLabel={hasSearch ? 'Clear search' : 'Create first client'}
+                onAction={() => {
+                  if (hasSearch) {
+                    handleSearchChange({ target: { value: '' } })
+                    return
+                  }
+                  navigate('/companies')
+                  setMode('create')
+                  setForm(emptyForm)
+                  setLinkedPersonForm(emptyLinkedPersonForm)
+                  setShowLinkedPersonForm(false)
+                  setDetail(null)
+                  setSelectedCompanyId(null)
+                }}
+              />
             ) : companies.map((company) => (
               <article className="record-row" key={company.id} role="listitem">
                 <div>
