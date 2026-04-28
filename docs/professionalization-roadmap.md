@@ -15,6 +15,7 @@ Each version is a shippable slice. The goal is to improve safety, reliability, m
 - `0.1.7` Error Semantics: complete.
 - `0.1.8` Security Baseline: complete.
 - `0.1.9` User Lifecycle: complete.
+- `0.2.0` Observability And Operations: complete.
 
 ## Version 0.1.1 - Migration Safety
 
@@ -165,6 +166,8 @@ Exit criteria:
 - Admin-created users can securely activate accounts.
 
 ## Version 0.2.0 - Observability And Operations
+
+Status: complete.
 
 Goal: make production behavior easier to understand and support.
 

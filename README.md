@@ -131,6 +131,7 @@ Backend deploy:
 - Writes `.env.production` from the `DEPLOY_ENV` GitHub secret
 - Runs `scripts/remote-deploy.sh` on the remote host
 - Rebuilds the API, runs migrations, and preserves the existing Postgres volume
+- Operational recovery, health checks, and database backup/restore are documented in `docs/operations-runbook.md`
 
 Required GitHub secrets:
 - `SSH_PRIVATE_KEY`

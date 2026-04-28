@@ -23,6 +23,7 @@ import (
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
+	platformlogger "github.com/aeml/open_crm/apps/api/internal/platform/logger"
 )
 
 const (
@@ -35,6 +36,7 @@ const (
 
 func main() {
 	env := config.Load()
+	logger := platformlogger.New(env.GOEnv)
 	dbConfig, dbConfigErr := db.LoadConfigFromEnv()
 	if dbConfigErr != nil {
 		log.Printf("database config warning: %v", dbConfigErr)
@@ -76,6 +78,7 @@ func main() {
 			}
 			return db.CheckReadiness(ctx, dbConfig)
 		},
+		Logger:            logger,
 		AuthService:       authService,
 		UsersService:      usersService,
 		ContactsService:   contactsService,

@@ -11,7 +11,7 @@ RUN cd apps/api && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/open_crm_seed ./cmd/seed
 
 FROM alpine:3.20
-RUN adduser -D -u 10001 appuser
+RUN apk add --no-cache wget && adduser -D -u 10001 appuser
 WORKDIR /app
 COPY --from=builder /out/open_crm_api /app/open_crm_api
 COPY --from=builder /out/open_crm_migrate /app/open_crm_migrate

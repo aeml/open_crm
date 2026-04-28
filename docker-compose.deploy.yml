@@ -49,6 +49,12 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${API_PORT:-18089}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   postgres_data:

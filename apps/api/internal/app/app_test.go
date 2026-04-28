@@ -1,9 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
@@ -49,6 +52,24 @@ func TestNewServerHealthz(t *testing.T) {
 
 	if response.Meta.RequestID == "" {
 		t.Fatal("expected response meta.requestId to be populated")
+	}
+}
+
+func TestNewServerLogsRequestsWithRequestID(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	server := NewServer(config.Env{}, Dependencies{Logger: logger})
+
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	logLine := output.String()
+	for _, expected := range []string{`"msg":"http_request"`, `"method":"GET"`, `"path":"/healthz"`, `"status":200`, `"request_id":"req_`} {
+		if !strings.Contains(logLine, expected) {
+			t.Fatalf("expected log to contain %s, got %s", expected, logLine)
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -100,6 +101,7 @@ type onboardingService interface {
 
 type Dependencies struct {
 	CheckReadiness    func(context.Context) error
+	Logger            *slog.Logger
 	AuthService       authService
 	UsersService      usersService
 	ContactsService   contactsService
@@ -535,9 +537,11 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 
 	handler := withCSRFProtection(env, mux)
+	handler = withCORS(env, handler)
 	handler = withSecurityHeaders(handler)
+	handler = platformweb.RequestLogger(dependencies.Logger, handler)
 	handler = platformweb.RequestID(handler)
-	return withCORS(env, handler)
+	return handler
 }
 
 func handleLogin(env config.Env, service authService, w http.ResponseWriter, r *http.Request) {
