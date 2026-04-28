@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { APIError, apiRequest, getErrorMessage, readJSON } from './api'
+import { APIError, apiRequest, getErrorMessage, isAbortError, readJSON } from './api'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -15,15 +15,21 @@ describe('api client', () => {
     expect(getErrorMessage({}, 'Fallback')).toBe('Fallback')
   })
 
+  it('detects abort errors', () => {
+    expect(isAbortError(new DOMException('Cancelled', 'AbortError'))).toBe(true)
+    expect(isAbortError(new Error('Failed'))).toBe(false)
+  })
+
   it('sends credentialed JSON requests', async () => {
     const payload = { data: { ok: true } }
+    const controller = new AbortController()
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => payload
     })
 
-    await expect(apiRequest('/api/example', { method: 'POST', body: { name: 'Demo' } })).resolves.toEqual(payload)
+    await expect(apiRequest('/api/example', { method: 'POST', body: { name: 'Demo' }, signal: controller.signal })).resolves.toEqual(payload)
 
     expect(fetchMock).toHaveBeenCalledWith(
       'https://crmserver.mendola.tech/api/example',
@@ -31,6 +37,7 @@ describe('api client', () => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({ name: 'Demo' })
       })
     )

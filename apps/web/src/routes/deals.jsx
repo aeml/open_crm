@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -9,6 +9,7 @@ import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
 import { listOrganizationUsers } from '../lib/users'
+import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 
 const emptyForm = {
@@ -161,7 +162,10 @@ export function DealsRoute() {
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
+  const [isListLoading, setIsListLoading] = useState(true)
+  const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [pipelineReady, setPipelineReady] = useState(false)
+  const listControllerRef = useRef(null)
 
   function buildDealsPath(nextDealId = routeDealId, nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
     const params = new URLSearchParams()
@@ -179,27 +183,27 @@ export function DealsRoute() {
     return `${pathname}${suffix}`
   }
 
-  async function loadDeals(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
+  async function loadDeals(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
     const loadedDeals = await listDeals({
       search: nextSearch,
       stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
       ownerUserId: nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
-    })
+    }, { signal })
     setDeals(loadedDeals.deals || [])
     setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
   }
 
-  async function loadPipeline(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
+  async function loadPipeline(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
     const [loadedStages, loadedDeals, loadedCompanies, loadedContacts, loadedUsers] = await Promise.all([
-      listDealStages(),
+      listDealStages({ signal }),
       listDeals({
         search: nextSearch,
         stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
         ownerUserId: nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
-      }),
-      listCompanies(),
-      listContacts(),
-      listOrganizationUsers()
+      }, { signal }),
+      listCompanies('', { signal }),
+      listContacts('', { signal }),
+      listOrganizationUsers({ signal })
     ])
     setStages(loadedStages)
     setDeals(loadedDeals.deals || [])
@@ -227,32 +231,35 @@ export function DealsRoute() {
   }
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
 
     async function run() {
+      setIsListLoading(true)
       try {
-        await loadPipeline(initialSearch, initialStageFilter, initialOwnerFilter)
-        if (!cancelled) {
-          setError('')
-        }
+        await loadPipeline(initialSearch, initialStageFilter, initialOwnerFilter, { signal: controller.signal })
+        setError('')
       } catch (loadError) {
-        if (!cancelled) {
+        if (!isAbortError(loadError)) {
           setPipelineReady(true)
           setError(loadError.message || 'Unable to load deals.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsListLoading(false)
         }
       }
     }
 
     run()
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [initialCompanyId, initialOwnerFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
 
   const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
 
     async function syncRouteDeal() {
       if (!pipelineReady) {
@@ -278,17 +285,25 @@ export function DealsRoute() {
 
       const routeDeal = deals.find((entry) => entry.id === routeDealId)
       if (routeDeal) {
-        await handleSelectDeal(routeDeal)
+        setIsDetailLoading(true)
+        try {
+          await handleSelectDeal(routeDeal, { signal: controller.signal })
+        } finally {
+          if (!controller.signal.aborted) {
+            setIsDetailLoading(false)
+          }
+        }
         return
       }
 
       try {
+        setIsDetailLoading(true)
         const [dealData, loadedNotes, taskData] = await Promise.all([
-          getDeal(routeDealId),
-          listNotes('deal', routeDealId),
-          listTasks({ status: 'open', entityType: 'deal', entityId: routeDealId })
+          getDeal(routeDealId, { signal: controller.signal }),
+          listNotes('deal', routeDealId, { signal: controller.signal }),
+          listTasks({ status: 'open', entityType: 'deal', entityId: routeDealId }, { signal: controller.signal })
         ])
-        if (cancelled) {
+        if (controller.signal.aborted) {
           return
         }
         setDeals((current) => {
@@ -305,40 +320,56 @@ export function DealsRoute() {
         setTaskForm(emptyTaskForm)
         setError('')
       } catch (loadError) {
-        if (!cancelled) {
+        if (!isAbortError(loadError)) {
           setError(loadError.message || 'Unable to load deal.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsDetailLoading(false)
         }
       }
     }
 
     syncRouteDeal()
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [deals, pipelineReady, routeDealId, selectedDealId])
+
+  async function reloadDeals(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
+    listControllerRef.current?.abort()
+    const controller = new AbortController()
+    listControllerRef.current = controller
+    setIsListLoading(true)
+    try {
+      await loadDeals(nextSearch, nextStageFilter, nextOwnerFilter, { signal: controller.signal })
+      setError('')
+    } catch (loadError) {
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load deals.')
+      }
+    } finally {
+      if (listControllerRef.current === controller) {
+        listControllerRef.current = null
+      }
+      if (!controller.signal.aborted) {
+        setIsListLoading(false)
+      }
+    }
+  }
 
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
     navigate(buildDealsPath(selectedDealId, value, stageFilter, ownerFilter), { replace: true })
-    try {
-      await loadDeals(value, stageFilter, ownerFilter)
-      setError('')
-    } catch (loadError) {
-      setError(loadError.message || 'Unable to load deals.')
-    }
+    await reloadDeals(value, stageFilter, ownerFilter)
   }
 
   async function handleStageFilterChange(event) {
     const value = event.target.value
     setStageFilter(value)
     navigate(buildDealsPath(selectedDealId, search, value, ownerFilter), { replace: true })
-    try {
-      await loadDeals(search, value, ownerFilter)
-      setError('')
-    } catch (loadError) {
-      setError(loadError.message || 'Unable to load deals.')
-    }
+    await reloadDeals(search, value, ownerFilter)
   }
 
   async function handleCreate(event) {
@@ -393,7 +424,7 @@ export function DealsRoute() {
     }
   }
 
-  async function handleSelectDeal(deal) {
+  async function handleSelectDeal(deal, { signal } = {}) {
     setSelectedDealId(deal.id)
     setSelectedStageId(String(deal.stageId))
     setDetailForm(dealFormValues(deal))
@@ -403,16 +434,21 @@ export function DealsRoute() {
     navigate(buildDealsPath(deal.id))
     try {
       const [loadedNotes, taskData] = await Promise.all([
-        listNotes('deal', deal.id),
-        listTasks({ status: 'open', entityType: 'deal', entityId: deal.id })
+        listNotes('deal', deal.id, { signal }),
+        listTasks({ status: 'open', entityType: 'deal', entityId: deal.id }, { signal })
       ])
+      if (signal?.aborted) {
+        return
+      }
       setNotes(loadedNotes)
       setTasks(taskData.tasks || [])
       setError('')
     } catch (loadError) {
-      setNotes([])
-      setTasks([])
-      setError(loadError.message || 'Unable to load notes.')
+      if (!isAbortError(loadError)) {
+        setNotes([])
+        setTasks([])
+        setError(loadError.message || 'Unable to load notes.')
+      }
     }
   }
 
@@ -520,12 +556,7 @@ export function DealsRoute() {
     const value = event.target.value
     setOwnerFilter(value)
     navigate(buildDealsPath(selectedDealId, search, stageFilter, value), { replace: true })
-    try {
-      await loadDeals(search, stageFilter, value)
-      setError('')
-    } catch (loadError) {
-      setError(loadError.message || 'Unable to load deals.')
-    }
+    await reloadDeals(search, stageFilter, value)
   }
 
   function handleOpenDealTasks() {
@@ -590,9 +621,19 @@ export function DealsRoute() {
               ))}
             </select>
           </Field>
-          {error ? <p className="form-error">{error}</p> : null}
+          {isListLoading ? <p className="field-hint">Loading {labels.showingLabel}...</p> : null}
+          {error ? (
+            <div className="card-stack">
+              <p className="form-error">{error}</p>
+              <div>
+                <Button className="button-secondary" type="button" onClick={() => reloadDeals(search, stageFilter, ownerFilter)}>
+                  Retry {labels.showingLabel}
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <div className="record-list" role="list" aria-label={labels.listAria}>
-            {deals.length === 0 ? (
+            {!isListLoading && deals.length === 0 ? (
               <article className="record-row" role="listitem">
                 <div>
                   <p>{emptyDealsMessage(stageFilter, ownerFilter, labels)}</p>
@@ -674,6 +715,7 @@ export function DealsRoute() {
       {selectedDeal ? (
         <Card>
           <div className="card-stack">
+            {isDetailLoading ? <p className="field-hint">Loading {labels.singular.toLowerCase()} detail...</p> : null}
             <div className="section-header">
               <div>
                 <h2>{selectedDeal.name}</h2>

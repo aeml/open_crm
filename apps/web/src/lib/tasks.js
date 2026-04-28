@@ -1,6 +1,6 @@
 import { apiRequest } from './api'
 
-export async function listTasks(query = {}) {
+export async function listTasks(query = {}, { signal } = {}) {
   const params = new URLSearchParams()
   if (query.status) params.set('status', query.status)
   if (query.entityType) params.set('entityType', query.entityType)
@@ -8,29 +8,29 @@ export async function listTasks(query = {}) {
   if (query.search) params.set('q', query.search)
   const suffix = params.toString() ? `?${params.toString()}` : ''
 
-  const payload = await apiRequest(`/api/tasks${suffix}`, { fallbackMessage: 'Unable to load tasks.' })
+  const payload = await apiRequest(`/api/tasks${suffix}`, { fallbackMessage: 'Unable to load tasks.', signal })
 
   return payload?.data || { tasks: [], meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 } }
 }
 
-export async function createTask(input) {
-  const payload = await apiRequest('/api/tasks', { method: 'POST', body: input, fallbackMessage: 'Unable to create task.' })
+export async function createTask(input, { signal } = {}) {
+  const payload = await apiRequest('/api/tasks', { method: 'POST', body: input, fallbackMessage: 'Unable to create task.', signal })
 
   return payload?.data
 }
 
-export async function getTask(taskID) {
-  const payload = await apiRequest(`/api/tasks/${taskID}`, { fallbackMessage: 'Unable to load task.' })
+export async function getTask(taskID, { signal } = {}) {
+  const payload = await apiRequest(`/api/tasks/${taskID}`, { fallbackMessage: 'Unable to load task.', signal })
 
   return payload?.data
 }
 
-export async function updateTask(taskID, input) {
-  const payload = await apiRequest(`/api/tasks/${taskID}`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update task.' })
+export async function updateTask(taskID, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/tasks/${taskID}`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update task.', signal })
 
   return payload?.data
 }
 
-export async function archiveTask(taskID) {
-  await apiRequest(`/api/tasks/${taskID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive task.' })
+export async function archiveTask(taskID, { signal } = {}) {
+  await apiRequest(`/api/tasks/${taskID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive task.', signal })
 }

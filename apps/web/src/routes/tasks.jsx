@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -8,6 +8,7 @@ import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
 import { listOrganizationUsers } from '../lib/users'
+import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 
 const emptyForm = {
@@ -338,6 +339,9 @@ export function TasksRoute() {
   const [userOptions, setUserOptions] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [error, setError] = useState('')
+  const [isListLoading, setIsListLoading] = useState(true)
+  const [isDetailLoading, setIsDetailLoading] = useState(false)
+  const listControllerRef = useRef(null)
 
   const selectedTask = detail?.task || null
   const selectedActivities = detail?.activities || []
@@ -389,19 +393,19 @@ export function TasksRoute() {
     return `${pathname}${suffix}`
   }
 
-  async function loadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter) {
+  async function loadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, { signal } = {}) {
     const data = await listTasks({
       search: nextSearch,
       status: nextStatus,
       entityType: nextEntityTypeFilter === 'all' ? '' : nextEntityTypeFilter,
       entityId: nextEntityTypeFilter === 'all' ? 0 : Number.parseInt(nextEntityIdFilter, 10) || 0
-    })
+    }, { signal })
     setTasks(data.tasks || [])
     setMeta(data.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
   }
 
-  async function loadDealOptions() {
-    const data = await listDeals()
+  async function loadDealOptions({ signal } = {}) {
+    const data = await listDeals({}, { signal })
     const nextDeals = data.deals || []
     setDealOptions(nextDeals)
     setForm((current) => {
@@ -412,8 +416,8 @@ export function TasksRoute() {
     })
   }
 
-  async function loadCompanyOptions() {
-    const data = await listCompanies()
+  async function loadCompanyOptions({ signal } = {}) {
+    const data = await listCompanies('', { signal })
     const nextCompanies = data.companies || []
     setCompanyOptions(nextCompanies)
     setForm((current) => {
@@ -424,8 +428,8 @@ export function TasksRoute() {
     })
   }
 
-  async function loadContactOptions() {
-    const data = await listContacts()
+  async function loadContactOptions({ signal } = {}) {
+    const data = await listContacts('', { signal })
     const nextContacts = data.contacts || []
     setContactOptions(nextContacts)
     setForm((current) => {
@@ -436,8 +440,8 @@ export function TasksRoute() {
     })
   }
 
-  async function loadUserOptions() {
-    const nextUsers = await listOrganizationUsers()
+  async function loadUserOptions({ signal } = {}) {
+    const nextUsers = await listOrganizationUsers({ signal })
     setUserOptions(nextUsers)
     setForm((current) => {
       if (current.assignedToUserId || nextUsers.length === 0) {
@@ -448,29 +452,38 @@ export function TasksRoute() {
   }
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
 
     async function run() {
+      setIsListLoading(true)
       try {
-        await Promise.all([loadTasks(initialSearch, initialStatusFilter, initialEntityTypeFilter, initialEntityIdFilter), loadDealOptions(), loadCompanyOptions(), loadContactOptions(), loadUserOptions()])
-        if (!cancelled) {
-          setError('')
-        }
+        await Promise.all([
+          loadTasks(initialSearch, initialStatusFilter, initialEntityTypeFilter, initialEntityIdFilter, { signal: controller.signal }),
+          loadDealOptions({ signal: controller.signal }),
+          loadCompanyOptions({ signal: controller.signal }),
+          loadContactOptions({ signal: controller.signal }),
+          loadUserOptions({ signal: controller.signal })
+        ])
+        setError('')
       } catch (loadError) {
-        if (!cancelled) {
+        if (!isAbortError(loadError)) {
           setError(loadError.message || 'Unable to load tasks.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsListLoading(false)
         }
       }
     }
 
     run()
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [])
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
 
     async function syncRouteTask() {
       if (!Number.isInteger(routeTaskId) || routeTaskId <= 0) {
@@ -499,8 +512,9 @@ export function TasksRoute() {
       }
 
       try {
-        const data = await getTask(routeTaskId)
-        if (cancelled) {
+        setIsDetailLoading(true)
+        const data = await getTask(routeTaskId, { signal: controller.signal })
+        if (controller.signal.aborted) {
           return
         }
         setTasks((current) => {
@@ -510,28 +524,49 @@ export function TasksRoute() {
         syncTaskIntoState(data.task, data.activities || [])
         setError('')
       } catch (loadError) {
-        if (!cancelled) {
+        if (!isAbortError(loadError)) {
           setError(loadError.message || 'Unable to load task.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsDetailLoading(false)
         }
       }
     }
 
     syncRouteTask()
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [detail, detailCache, routeTaskId, selectedTaskId, tasks])
+
+  async function reloadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter) {
+    listControllerRef.current?.abort()
+    const controller = new AbortController()
+    listControllerRef.current = controller
+    setIsListLoading(true)
+    try {
+      await loadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, { signal: controller.signal })
+      setError('')
+    } catch (loadError) {
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load tasks.')
+      }
+    } finally {
+      if (listControllerRef.current === controller) {
+        listControllerRef.current = null
+      }
+      if (!controller.signal.aborted) {
+        setIsListLoading(false)
+      }
+    }
+  }
 
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
     navigate(buildTasksPath(selectedTaskId, value, statusFilter, dueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
-    try {
-      await loadTasks(value, statusFilter)
-      setError('')
-    } catch (loadError) {
-      setError(loadError.message || 'Unable to load tasks.')
-    }
+    await reloadTasks(value, statusFilter, entityTypeFilter, entityIdFilter)
   }
 
   async function handleToggleStatus(nextStatus) {
@@ -539,12 +574,7 @@ export function TasksRoute() {
     setStatusFilter(nextStatus)
     setDueView(nextDueView)
     navigate(buildTasksPath(selectedTaskId, search, nextStatus, nextDueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
-    try {
-      await loadTasks(search, nextStatus)
-      setError('')
-    } catch (loadError) {
-      setError(loadError.message || 'Unable to load tasks.')
-    }
+    await reloadTasks(search, nextStatus, entityTypeFilter, entityIdFilter)
   }
 
   function handleAssigneeFilterChange(nextAssigneeFilter) {
@@ -557,12 +587,7 @@ export function TasksRoute() {
     setEntityTypeFilter(nextEntityTypeFilter)
     setEntityIdFilter(nextEntityIdFilter)
     navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, assigneeFilter, nextEntityTypeFilter, nextEntityIdFilter), { replace: true })
-    try {
-      await loadTasks(search, statusFilter, nextEntityTypeFilter, nextEntityIdFilter)
-      setError('')
-    } catch (loadError) {
-      setError(loadError.message || 'Unable to load tasks.')
-    }
+    await reloadTasks(search, statusFilter, nextEntityTypeFilter, nextEntityIdFilter)
   }
 
   function handleDueViewChange(nextDueView) {
@@ -573,12 +598,7 @@ export function TasksRoute() {
   async function handleEntityIdFilterChange(nextEntityIdFilter) {
     setEntityIdFilter(nextEntityIdFilter)
     navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, assigneeFilter, entityTypeFilter, nextEntityIdFilter), { replace: true })
-    try {
-      await loadTasks(search, statusFilter, entityTypeFilter, nextEntityIdFilter)
-      setError('')
-    } catch (loadError) {
-      setError(loadError.message || 'Unable to load tasks.')
-    }
+    await reloadTasks(search, statusFilter, entityTypeFilter, nextEntityIdFilter)
   }
 
   function getDefaultEntityId(nextEntityType) {
@@ -852,11 +872,21 @@ export function TasksRoute() {
               </select>
             </Field>
           ) : null}
-          {error ? <p className="form-error">{error}</p> : null}
+          {isListLoading ? <p className="field-hint">Loading {labels.showingSuffix}...</p> : null}
+          {error ? (
+            <div className="card-stack">
+              <p className="form-error">{error}</p>
+              <div>
+                <Button className="button-secondary" type="button" onClick={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter)}>
+                  Retry {labels.showingSuffix}
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <h3>{summaryLabel}</h3>
           <p className="field-hint">Showing {visibleTasks.length} of {statusTasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>
           <div className="record-list" role="list" aria-label="Tasks list">
-            {visibleTasks.length === 0 ? (
+            {visibleTasks.length === 0 && (!isListLoading || statusTasks.length > 0) ? (
               <article className="record-row" role="listitem">
                 <div>
                   <p>{emptyMessage}</p>
@@ -959,6 +989,7 @@ export function TasksRoute() {
       {selectedTask ? (
         <Card>
           <div className="card-stack">
+            {isDetailLoading ? <p className="field-hint">Loading task detail...</p> : null}
             <div className="section-header">
               <div>
                 <h2>{selectedTask.title}</h2>

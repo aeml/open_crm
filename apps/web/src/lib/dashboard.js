@@ -1,7 +1,7 @@
 import { apiRequest } from './api'
 
-export async function getDashboardSummary() {
-  const payload = await apiRequest('/api/dashboard/summary', { fallbackMessage: 'Unable to load dashboard summary.' })
+export async function getDashboardSummary({ signal } = {}) {
+  const payload = await apiRequest('/api/dashboard/summary', { fallbackMessage: 'Unable to load dashboard summary.', signal })
 
   return payload?.data || {
     pipelineValue: '0',

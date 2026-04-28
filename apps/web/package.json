@@ -12,6 +12,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:pages": "vite build",
+    "lint": "eslint src --ext .js,.jsx",
     "test": "vitest run"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
     "@testing-library/jest-dom": "6.6.3",
     "@testing-library/react": "16.0.1",
     "@vitejs/plugin-react": "4.3.3",
+    "eslint": "^8.57.1",
     "jsdom": "25.0.1",
     "vite": "5.4.11",
     "vitest": "2.1.5"

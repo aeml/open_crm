@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { useAuth } from '../app/providers'
+import { isAbortError } from '../lib/api'
 import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
 import { createContact, listContacts } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
@@ -330,8 +331,11 @@ export function CompaniesRoute() {
   const [linkedPersonForm, setLinkedPersonForm] = useState(emptyLinkedPersonForm)
   const [showLinkedPersonForm, setShowLinkedPersonForm] = useState(false)
   const [error, setError] = useState('')
+  const [isListLoading, setIsListLoading] = useState(true)
+  const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateCandidate, setDuplicateCandidate] = useState(null)
+  const searchControllerRef = useRef(null)
 
   const selectedCompany = detail?.company || null
   const linkedContacts = detail?.linkedContacts || []
@@ -340,8 +344,8 @@ export function CompaniesRoute() {
   const selectedDeals = detail?.deals || []
   const selectedActivities = detail?.activities || []
 
-  async function loadCompanies(nextSearch = '') {
-    const [companyData, contactData] = await Promise.all([listCompanies(nextSearch), listContacts(nextSearch)])
+  async function loadCompanies(nextSearch = '', { signal } = {}) {
+    const [companyData, contactData] = await Promise.all([listCompanies(nextSearch, { signal }), listContacts(nextSearch, { signal })])
 
     if (Array.isArray(companyData?.companies)) {
       const nextCompanies = companyData.companies
@@ -364,13 +368,13 @@ export function CompaniesRoute() {
      setMeta({ page: 1, pageSize: 20, total: 0 })
   }
 
-  async function loadContactOptions() {
-    const data = await listContacts()
+  async function loadContactOptions({ signal } = {}) {
+    const data = await listContacts('', { signal })
     setContactOptions(sortContactOptions(data.contacts || []))
   }
 
-  async function loadUserOptions() {
-    const nextUsers = await listOrganizationUsers()
+  async function loadUserOptions({ signal } = {}) {
+    const nextUsers = await listOrganizationUsers({ signal })
     setUserOptions(nextUsers)
     setTaskForm((current) => {
       if (current.assignedToUserId || nextUsers.length === 0) {
@@ -387,39 +391,59 @@ export function CompaniesRoute() {
   }
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
 
     async function run() {
+      setIsListLoading(true)
       try {
-        await Promise.all([loadCompanies(''), loadContactOptions(), loadUserOptions()])
-        if (!cancelled) {
-          setError('')
-          setDuplicateSearch('')
-          setDuplicateCandidate(null)
-        }
+        await Promise.all([loadCompanies('', { signal: controller.signal }), loadContactOptions({ signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
+        setError('')
+        setDuplicateSearch('')
+        setDuplicateCandidate(null)
       } catch (loadError) {
-        if (!cancelled) {
+        if (!isAbortError(loadError)) {
           setError(loadError.message || 'Unable to load companies.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsListLoading(false)
         }
       }
     }
 
     run()
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [])
 
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
+    await reloadCompanies(value)
+  }
+
+  async function reloadCompanies(nextSearch = search) {
+    searchControllerRef.current?.abort()
+    const controller = new AbortController()
+    searchControllerRef.current = controller
+    setIsListLoading(true)
     try {
-      await loadCompanies(value)
+      await loadCompanies(nextSearch, { signal: controller.signal })
       setError('')
       setDuplicateSearch('')
       setDuplicateCandidate(null)
     } catch (loadError) {
-      setError(loadError.message || 'Unable to load companies.')
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load companies.')
+      }
+    } finally {
+      if (searchControllerRef.current === controller) {
+        searchControllerRef.current = null
+      }
+      if (!controller.signal.aborted) {
+        setIsListLoading(false)
+      }
     }
   }
 
@@ -517,7 +541,7 @@ export function CompaniesRoute() {
   }
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
 
     async function openRouteCompany() {
       if (!Number.isInteger(routeCompanyId) || routeCompanyId <= 0) {
@@ -549,13 +573,14 @@ export function CompaniesRoute() {
       }
 
       try {
+        setIsDetailLoading(true)
         const [data, notes, taskData, dealData] = await Promise.all([
-          getCompany(routeCompanyId),
-          listNotes('company', routeCompanyId),
-          listTasks({ status: 'open', entityType: 'company', entityId: routeCompanyId }),
-          listDeals({ companyId: routeCompanyId })
+          getCompany(routeCompanyId, { signal: controller.signal }),
+          listNotes('company', routeCompanyId, { signal: controller.signal }),
+          listTasks({ status: 'open', entityType: 'company', entityId: routeCompanyId }, { signal: controller.signal }),
+          listDeals({ companyId: routeCompanyId }, { signal: controller.signal })
         ])
-        if (cancelled) {
+        if (controller.signal.aborted) {
           return
         }
         const detailData = { ...data, notes, tasks: taskData.tasks || [], deals: dealData.deals || [] }
@@ -568,15 +593,19 @@ export function CompaniesRoute() {
         setMode('detail')
         setError('')
       } catch (loadError) {
-        if (!cancelled) {
+        if (!isAbortError(loadError)) {
           setError(loadError.message || 'Unable to load company.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsDetailLoading(false)
         }
       }
     }
 
     openRouteCompany()
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [detail, detailCache, mode, routeCompanyId, selectedCompanyId])
 
@@ -844,9 +873,15 @@ export function CompaniesRoute() {
           <Field label="Search clients">
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
+          {isListLoading ? <p className="field-hint">Loading clients...</p> : null}
           {error ? (
             <div className="card-stack">
               <p className="form-error">{error}</p>
+              <div>
+                <Button className="button-secondary" type="button" onClick={() => reloadCompanies(search)}>
+                  Retry clients
+                </Button>
+              </div>
               {duplicateCandidate ? (
                 <div>
                   <Button className="button-secondary" onClick={handleOpenDuplicate}>
@@ -864,7 +899,13 @@ export function CompaniesRoute() {
             </div>
           ) : null}
           <div className="record-list" role="list" aria-label="Clients list">
-            {companies.map((company) => (
+            {!isListLoading && companies.length === 0 ? (
+              <article className="record-row" role="listitem">
+                <div>
+                  <p>No clients match the current search.</p>
+                </div>
+              </article>
+            ) : companies.map((company) => (
               <article className="record-row" key={company.id} role="listitem">
                 <div>
                   <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenCompany(company)}>
@@ -961,6 +1002,7 @@ export function CompaniesRoute() {
       {mode === 'detail' && selectedCompany ? (
         <Card>
           <div className="card-stack">
+            {isDetailLoading ? <p className="field-hint">Loading client detail...</p> : null}
             <div className="section-header">
               <div>
                 <h2>{detailTitle}</h2>

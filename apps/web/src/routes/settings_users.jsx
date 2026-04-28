@@ -3,6 +3,7 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { createOrganizationUser, listOrganizationUsers } from '../lib/users'
+import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 
 const emptyForm = {
@@ -20,35 +21,39 @@ export function SettingsUsersRoute() {
   const [error, setError] = useState('')
   const [form, setForm] = useState(emptyForm)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const [latestSetupLink, setLatestSetupLink] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadUsers() {
-      if (!canManageUsers) {
-        setError('Admin access required')
-        setUsers([])
-        return
-      }
-
-      try {
-        const entries = await listOrganizationUsers()
-        if (!cancelled) {
-          setUsers(entries)
-          setError('')
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError.message || 'Unable to load users.')
-          setUsers([])
-        }
-      }
+  async function loadUsers({ signal } = {}) {
+    if (!canManageUsers) {
+      setError('Admin access required')
+      setUsers([])
+      return
     }
 
-    loadUsers()
+    setIsLoading(true)
+    try {
+      const entries = await listOrganizationUsers({ signal })
+      setUsers(entries)
+      setError('')
+    } catch (loadError) {
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load users.')
+        setUsers([])
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoading(false)
+      }
+    }
+  }
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    loadUsers({ signal: controller.signal })
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [canManageUsers])
 
@@ -79,9 +84,27 @@ export function SettingsUsersRoute() {
               <p>Manage who can work inside {session?.organization?.name || 'your workspace'}.</p>
             </div>
           </div>
-          {error ? <p className="form-error">{error}</p> : null}
+          {isLoading ? <p className="field-hint">Loading team access...</p> : null}
+          {error ? (
+            <div className="card-stack">
+              <p className="form-error">{error}</p>
+              {canManageUsers ? (
+                <div>
+                  <Button className="button-secondary" type="button" onClick={() => loadUsers()}>
+                    Retry users
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="record-list" role="list" aria-label="Organization users">
-            {users.map((user) => (
+            {!isLoading && users.length === 0 ? (
+              <article className="record-row" role="listitem">
+                <div>
+                  <p>No users found.</p>
+                </div>
+              </article>
+            ) : users.map((user) => (
               <article className="record-row" key={user.email} role="listitem">
                 <div>
                   <h3>

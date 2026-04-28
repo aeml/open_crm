@@ -13,6 +13,10 @@ export function getErrorMessage(payload, fallbackMessage) {
   return payload?.error?.message || fallbackMessage
 }
 
+export function isAbortError(error) {
+  return error?.name === 'AbortError'
+}
+
 export async function readJSON(response) {
   if (!response || typeof response.json !== 'function' || response.status === 204) {
     return {}
@@ -21,12 +25,13 @@ export async function readJSON(response) {
   return response.json()
 }
 
-export async function apiRequest(path, { method = 'GET', body, headers = {}, fallbackMessage = 'Request failed.' } = {}) {
+export async function apiRequest(path, { method = 'GET', body, headers = {}, fallbackMessage = 'Request failed.', signal } = {}) {
   const requestHeaders = { ...headers }
   const request = {
     method,
     credentials: 'include',
-    headers: requestHeaders
+    headers: requestHeaders,
+    signal
   }
 
   if (body !== undefined) {

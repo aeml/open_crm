@@ -1,4 +1,4 @@
-import { apiRequest, getErrorMessage } from './api'
+import { apiRequest, getErrorMessage, isAbortError } from './api'
 
 function duplicateCandidate(payload) {
   const candidate = payload?.error?.details?.duplicate
@@ -22,6 +22,10 @@ function duplicateReasonLabel(message) {
 }
 
 function getCompanySaveError(error, fallbackMessage) {
+  if (isAbortError(error)) {
+    throw error
+  }
+
   const payload = error.payload
   const message = getErrorMessage(payload, fallbackMessage)
   if (error.status === 409) {
@@ -32,37 +36,37 @@ function getCompanySaveError(error, fallbackMessage) {
   return new Error(message)
 }
 
-export async function listCompanies(search = '') {
+export async function listCompanies(search = '', { signal } = {}) {
   const suffix = search ? `?q=${encodeURIComponent(search)}` : ''
-  const payload = await apiRequest(`/api/companies${suffix}`, { fallbackMessage: 'Unable to load companies.' })
+  const payload = await apiRequest(`/api/companies${suffix}`, { fallbackMessage: 'Unable to load companies.', signal })
 
   return payload?.data || { companies: [], meta: { page: 1, pageSize: 20, total: 0 } }
 }
 
-export async function getCompany(companyID) {
-  const payload = await apiRequest(`/api/companies/${companyID}`, { fallbackMessage: 'Unable to load company.' })
+export async function getCompany(companyID, { signal } = {}) {
+  const payload = await apiRequest(`/api/companies/${companyID}`, { fallbackMessage: 'Unable to load company.', signal })
 
   return payload?.data
 }
 
-export async function createCompany(input) {
+export async function createCompany(input, { signal } = {}) {
   try {
-    const payload = await apiRequest('/api/companies', { method: 'POST', body: input, fallbackMessage: 'Unable to create company.' })
+    const payload = await apiRequest('/api/companies', { method: 'POST', body: input, fallbackMessage: 'Unable to create company.', signal })
     return payload?.data
   } catch (error) {
     throw getCompanySaveError(error, 'Unable to create company.')
   }
 }
 
-export async function updateCompany(companyID, input) {
+export async function updateCompany(companyID, input, { signal } = {}) {
   try {
-    const payload = await apiRequest(`/api/companies/${companyID}`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update company.' })
+    const payload = await apiRequest(`/api/companies/${companyID}`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update company.', signal })
     return payload?.data
   } catch (error) {
     throw getCompanySaveError(error, 'Unable to update company.')
   }
 }
 
-export async function archiveCompany(companyID) {
-  return apiRequest(`/api/companies/${companyID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive company.' })
+export async function archiveCompany(companyID, { signal } = {}) {
+  return apiRequest(`/api/companies/${companyID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive company.', signal })
 }

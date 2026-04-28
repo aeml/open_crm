@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { getDashboardSummary } from '../lib/dashboard'
+import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 
 function formatMoney(value) {
@@ -63,27 +64,31 @@ export function DashboardRoute() {
     recentActivities: []
   })
   const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadSummary() {
-      try {
-        const nextSummary = await getDashboardSummary()
-        if (!cancelled) {
-          setSummary(nextSummary)
-          setError('')
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError.message || 'Unable to load dashboard summary.')
-        }
+  async function loadSummary({ signal } = {}) {
+    setIsLoading(true)
+    try {
+      const nextSummary = await getDashboardSummary({ signal })
+      setSummary(nextSummary)
+      setError('')
+    } catch (loadError) {
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load dashboard summary.')
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoading(false)
       }
     }
+  }
 
-    loadSummary()
+  useEffect(() => {
+    const controller = new AbortController()
+
+    loadSummary({ signal: controller.signal })
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [])
 
@@ -116,7 +121,17 @@ export function DashboardRoute() {
               <h2>Today</h2>
               <p>See what is live in the pipeline instead of guessing from stale numbers.</p>
             </div>
-            {error ? <p className="form-error">{error}</p> : null}
+            {isLoading ? <p className="field-hint">Loading dashboard summary...</p> : null}
+            {error ? (
+              <div className="card-stack">
+                <p className="form-error">{error}</p>
+                <div>
+                  <Button className="button-secondary" type="button" onClick={() => loadSummary()}>
+                    Retry summary
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <div className="record-list" role="list" aria-label="Dashboard summary metrics">
               <article className="record-row" role="listitem">
                 <div>

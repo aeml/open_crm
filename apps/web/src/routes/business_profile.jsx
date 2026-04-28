@@ -3,6 +3,7 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { useAuth } from '../app/providers'
+import { isAbortError } from '../lib/api'
 import { getBusinessProfile, updateBusinessProfile } from '../lib/business_profile'
 
 const businessTypeOptions = [
@@ -19,30 +20,34 @@ export function BusinessProfileRoute() {
   const [profile, setProfile] = useState(null)
   const [businessType, setBusinessType] = useState('general')
   const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadProfile() {
-      try {
-        const nextProfile = await getBusinessProfile()
-        if (!cancelled) {
-          setProfile(nextProfile)
-          setBusinessType(nextProfile?.businessType || 'general')
-          setBusinessProfile(nextProfile)
-          setError('')
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError.message || 'Unable to load business profile.')
-        }
+  async function loadProfile({ signal } = {}) {
+    setIsLoading(true)
+    try {
+      const nextProfile = await getBusinessProfile({ signal })
+      setProfile(nextProfile)
+      setBusinessType(nextProfile?.businessType || 'general')
+      setBusinessProfile(nextProfile)
+      setError('')
+    } catch (loadError) {
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load business profile.')
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoading(false)
       }
     }
+  }
 
-    loadProfile()
+  useEffect(() => {
+    const controller = new AbortController()
+
+    loadProfile({ signal: controller.signal })
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [setBusinessProfile])
 
@@ -75,7 +80,17 @@ export function BusinessProfileRoute() {
               <p>Shape the CRM around how {session?.organization?.name || 'your company'} actually works.</p>
             </div>
           </div>
-          {error ? <p className="form-error">{error}</p> : null}
+          {isLoading ? <p className="field-hint">Loading business profile...</p> : null}
+          {error ? (
+            <div className="card-stack">
+              <p className="form-error">{error}</p>
+              <div>
+                <Button className="button-secondary" type="button" onClick={() => loadProfile()}>
+                  Retry profile
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <div className="record-list" role="list" aria-label="Adaptive labels preview">
             <article className="record-row" role="listitem">
               <div>

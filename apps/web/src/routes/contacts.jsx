@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { useAuth } from '../app/providers'
+import { isAbortError } from '../lib/api'
 import { archiveContact, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
@@ -121,8 +122,11 @@ export function ContactsRoute() {
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [error, setError] = useState('')
+  const [isListLoading, setIsListLoading] = useState(true)
+  const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateCandidate, setDuplicateCandidate] = useState(null)
+  const searchControllerRef = useRef(null)
 
   const selectedContact = detail?.contact || null
   const selectedNotes = detail?.notes || []
@@ -130,8 +134,8 @@ export function ContactsRoute() {
   const selectedDeals = detail?.deals || []
   const selectedActivities = detail?.activities || []
 
-  async function loadContacts(nextSearch = '') {
-    const data = await listContacts(nextSearch)
+  async function loadContacts(nextSearch = '', { signal } = {}) {
+    const data = await listContacts(nextSearch, { signal })
 
     if (Array.isArray(data?.contacts)) {
       setContacts(data.contacts)
@@ -151,8 +155,8 @@ export function ContactsRoute() {
     setMeta({ page: 1, pageSize: 20, total: 0 })
   }
 
-  async function loadUserOptions() {
-    const nextUsers = await listOrganizationUsers()
+  async function loadUserOptions({ signal } = {}) {
+    const nextUsers = await listOrganizationUsers({ signal })
     setUserOptions(nextUsers)
     setTaskForm((current) => {
       if (current.assignedToUserId || nextUsers.length === 0) {
@@ -163,39 +167,59 @@ export function ContactsRoute() {
   }
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
 
     async function run() {
+      setIsListLoading(true)
       try {
-        await Promise.all([loadContacts(''), loadUserOptions()])
-        if (!cancelled) {
-          setError('')
-          setDuplicateSearch('')
-          setDuplicateCandidate(null)
-        }
+        await Promise.all([loadContacts('', { signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
+        setError('')
+        setDuplicateSearch('')
+        setDuplicateCandidate(null)
       } catch (loadError) {
-        if (!cancelled) {
+        if (!isAbortError(loadError)) {
           setError(loadError.message || 'Unable to load contacts.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsListLoading(false)
         }
       }
     }
 
     run()
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [])
 
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
+    await reloadContacts(value)
+  }
+
+  async function reloadContacts(nextSearch = search) {
+    searchControllerRef.current?.abort()
+    const controller = new AbortController()
+    searchControllerRef.current = controller
+    setIsListLoading(true)
     try {
-      await loadContacts(value)
+      await loadContacts(nextSearch, { signal: controller.signal })
       setError('')
       setDuplicateSearch('')
       setDuplicateCandidate(null)
     } catch (loadError) {
-      setError(loadError.message || 'Unable to load contacts.')
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load contacts.')
+      }
+    } finally {
+      if (searchControllerRef.current === controller) {
+        searchControllerRef.current = null
+      }
+      if (!controller.signal.aborted) {
+        setIsListLoading(false)
+      }
     }
   }
 
@@ -275,7 +299,7 @@ export function ContactsRoute() {
   }
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
 
     async function openRouteContact() {
       if (!Number.isInteger(routeContactId) || routeContactId <= 0) {
@@ -307,12 +331,13 @@ export function ContactsRoute() {
       }
 
       try {
+        setIsDetailLoading(true)
         const [data, taskData, dealData] = await Promise.all([
-          getContact(routeContactId),
-          listTasks({ status: 'open', entityType: 'contact', entityId: routeContactId }),
-          listDeals({ primaryContactId: routeContactId })
+          getContact(routeContactId, { signal: controller.signal }),
+          listTasks({ status: 'open', entityType: 'contact', entityId: routeContactId }, { signal: controller.signal }),
+          listDeals({ primaryContactId: routeContactId }, { signal: controller.signal })
         ])
-        if (cancelled) {
+        if (controller.signal.aborted) {
           return
         }
         const detailData = { ...data, tasks: taskData.tasks || [], deals: dealData.deals || [] }
@@ -325,15 +350,19 @@ export function ContactsRoute() {
         setMode('detail')
         setError('')
       } catch (loadError) {
-        if (!cancelled) {
+        if (!isAbortError(loadError)) {
           setError(loadError.message || 'Unable to load contact.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsDetailLoading(false)
         }
       }
     }
 
     openRouteContact()
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [detail, detailCache, mode, routeContactId, selectedContactId])
 
@@ -514,9 +543,15 @@ export function ContactsRoute() {
           <Field label="Search contacts">
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
+          {isListLoading ? <p className="field-hint">Loading contacts...</p> : null}
           {error ? (
             <div className="card-stack">
               <p className="form-error">{error}</p>
+              <div>
+                <Button className="button-secondary" type="button" onClick={() => reloadContacts(search)}>
+                  Retry contacts
+                </Button>
+              </div>
               {duplicateCandidate ? (
                 <div>
                   <Button className="button-secondary" onClick={handleOpenDuplicate}>
@@ -534,7 +569,13 @@ export function ContactsRoute() {
             </div>
           ) : null}
           <div className="record-list" role="list" aria-label="Contacts list">
-            {contacts.map((contact) => (
+            {!isListLoading && contacts.length === 0 ? (
+              <article className="record-row" role="listitem">
+                <div>
+                  <p>No contacts match the current search.</p>
+                </div>
+              </article>
+            ) : contacts.map((contact) => (
               <article className="record-row" key={contact.id} role="listitem">
                 <div>
                   <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenContact(contact)}>
@@ -603,6 +644,7 @@ export function ContactsRoute() {
       {mode === 'detail' && selectedContact ? (
         <Card>
           <div className="card-stack">
+            {isDetailLoading ? <p className="field-hint">Loading contact detail...</p> : null}
             <div className="section-header">
               <div>
                 <h2>{detailTitle}</h2>

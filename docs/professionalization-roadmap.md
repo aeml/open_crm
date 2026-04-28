@@ -17,6 +17,7 @@ Each version is a shippable slice. The goal is to improve safety, reliability, m
 - `0.1.9` User Lifecycle: complete.
 - `0.2.0` Observability And Operations: complete.
 - `0.2.1` Backend Maintainability: complete.
+- `0.2.2` Frontend Maintainability: complete.
 
 ## Version 0.1.1 - Migration Safety
 
@@ -199,6 +200,8 @@ Exit criteria:
 - No behavior changes beyond tested refactors.
 
 ## Version 0.2.2 - Frontend Maintainability
+
+Status: complete.
 
 Goal: make route components easier to evolve without changing the visual language.
 
