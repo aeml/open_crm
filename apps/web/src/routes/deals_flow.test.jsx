@@ -392,6 +392,16 @@ describe('deals flow', () => {
         })
       }
 
+      if (requestURL.pathname.endsWith('/api/saved-views') && method === 'GET' && requestURL.searchParams.get('entityType') === 'deals') {
+        return jsonResponse({
+          data: {
+            views: [
+              { id: 71, entityType: 'deals', name: 'Proposal work', filters: { stage: '3', owner: '1' }, isDefault: false }
+            ]
+          }
+        })
+      }
+
       if (requestURL.pathname.endsWith('/api/deals') && method === 'POST') {
         hasCreatedDeal = true
         return jsonResponse({
@@ -556,6 +566,23 @@ describe('deals flow', () => {
 
     expect(await screen.findByText(/showing 2 of 2 deals/i)).toBeInTheDocument()
     expect(window.location.search).toBe('')
+
+    fireEvent.click(screen.getByRole('button', { name: /load views/i }))
+    expect(await screen.findByText(/saved views loaded/i)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/saved views/i), { target: { value: '71' } })
+    fireEvent.click(screen.getByRole('button', { name: /^apply$/i }))
+
+    expect(await screen.findByText(/applied proposal work/i)).toBeInTheDocument()
+    expect(window.location.search).toBe('?stage=3&owner=1')
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?stageId=3&ownerUserId=1$/), expect.any(Object))
+    })
+
+    fireEvent.change(screen.getByLabelText(/stage filter/i), { target: { value: 'all' } })
+    fireEvent.change(screen.getByLabelText(/owner filter/i), { target: { value: 'all' } })
+
+    expect(await screen.findByText(/showing 2 of 2 deals/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /bluebird rollout/i }))
     const detailForm = await screen.findByRole('form', { name: /deal details form/i })
 
     fireEvent.change(within(detailForm).getByLabelText(/deal name/i), { target: { value: 'Bluebird Expansion' } })

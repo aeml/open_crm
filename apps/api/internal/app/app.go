@@ -16,6 +16,7 @@ import (
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
+	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
@@ -89,6 +90,13 @@ type notesService interface {
 	Create(context.Context, int64, int64, modulenotes.CreateInput) (modulenotes.CreateResult, error)
 }
 
+type savedViewsService interface {
+	ListByEntity(context.Context, int64, int64, string) ([]modulesavedviews.View, error)
+	Create(context.Context, int64, int64, modulesavedviews.Input) (modulesavedviews.View, error)
+	Update(context.Context, int64, int64, int64, modulesavedviews.Input) (modulesavedviews.View, error)
+	Delete(context.Context, int64, int64, int64) error
+}
+
 type onboardingService interface {
 	BootstrapOrganization(context.Context, moduleonboarding.BootstrapInput) (moduleauth.LoginResult, error)
 }
@@ -105,6 +113,7 @@ type Dependencies struct {
 	OrgProfileService orgProfileService
 	DashboardService  dashboardService
 	NotesService      notesService
+	SavedViewsService savedViewsService
 	OnboardingService onboardingService
 }
 
@@ -331,6 +340,31 @@ type notesListResponse struct {
 	} `json:"meta"`
 }
 
+type savedViewRequest struct {
+	EntityType string            `json:"entityType"`
+	Name       string            `json:"name"`
+	Filters    map[string]string `json:"filters"`
+	IsDefault  bool              `json:"isDefault"`
+}
+
+type savedViewsListResponse struct {
+	Data struct {
+		Views []modulesavedviews.View `json:"views"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type savedViewResponse struct {
+	Data struct {
+		View modulesavedviews.View `json:"view"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type noteDetailResponse struct {
 	Data struct {
 		Note     modulenotes.Entry         `json:"note"`
@@ -488,6 +522,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/notes", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateNote(dependencies.AuthService, dependencies.NotesService, w, r)
+	})
+	mux.HandleFunc("GET /api/saved-views", func(w http.ResponseWriter, r *http.Request) {
+		handleListSavedViews(dependencies.AuthService, dependencies.SavedViewsService, w, r)
+	})
+	mux.HandleFunc("POST /api/saved-views", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateSavedView(dependencies.AuthService, dependencies.SavedViewsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/saved-views/{viewID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateSavedView(dependencies.AuthService, dependencies.SavedViewsService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/saved-views/{viewID}", func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteSavedView(dependencies.AuthService, dependencies.SavedViewsService, w, r)
 	})
 	mux.HandleFunc("GET /api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		handleListTasks(dependencies.AuthService, dependencies.TasksService, w, r)

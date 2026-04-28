@@ -4,6 +4,7 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
+import { SavedViews } from '../components/ui/saved_views'
 import { archiveTask, createTask, getTask, listTasks, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
@@ -614,6 +615,25 @@ export function TasksRoute() {
     await reloadTasks(search, statusFilter, entityTypeFilter, nextEntityIdFilter)
   }
 
+  async function handleApplySavedView(filters) {
+    const nextSearch = filters.q || ''
+    const nextStatus = normalizeTaskStatusFilter(filters.status)
+    const nextDueView = nextStatus === 'open' ? normalizeDueView(filters.due) : 'all'
+    const nextAssigneeFilter = normalizeAssigneeFilter(filters.assignee)
+    const nextEntityTypeFilter = normalizeEntityTypeFilter(filters.entityType)
+    const nextEntityIdFilter = nextEntityTypeFilter === 'all' ? '' : normalizeEntityIdFilter(filters.entityId)
+
+    setSearch(nextSearch)
+    setStatusFilter(nextStatus)
+    setDueView(nextDueView)
+    setAssigneeFilter(nextAssigneeFilter)
+    setEntityTypeFilter(nextEntityTypeFilter)
+    setEntityIdFilter(nextEntityIdFilter)
+    clearSelectedTask()
+    navigate(buildTasksPath(null, nextSearch, nextStatus, nextDueView, nextAssigneeFilter, nextEntityTypeFilter, nextEntityIdFilter), { replace: true })
+    await reloadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter)
+  }
+
   function getDefaultEntityId(nextEntityType) {
     if (nextEntityType === 'deal') {
       return dealOptions[0] ? String(dealOptions[0].id) : ''
@@ -835,6 +855,12 @@ export function TasksRoute() {
           <Field label={labels.searchLabel}>
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
+          <SavedViews
+            entityType="tasks"
+            currentFilters={{ q: search, status: statusFilter, due: dueView, assignee: assigneeFilter, entityType: entityTypeFilter, entityId: entityIdFilter }}
+            onApply={handleApplySavedView}
+            defaultName={`${labels.collection} view`}
+          />
           <Field label="Assignee">
             <div className="button-row">
               <select className="text-input" value={assigneeFilter} onChange={(event) => handleAssigneeFilterChange(event.target.value)}>

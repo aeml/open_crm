@@ -23,7 +23,7 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.2.3` Database Integrity: complete.
 - `0.3.0` Professional Release Candidate: complete.
 - `0.3.1` First-Use Product Polish: complete.
-- `0.3.2` Saved Views And Filters: planned.
+- `0.3.2` Saved Views And Filters: complete.
 - `0.3.3` Import Foundation: planned.
 - `0.3.4` Activity Timeline Improvements: planned.
 - `0.3.5` Dashboard Decision Support: planned.
@@ -352,7 +352,7 @@ Completion notes:
 
 ## Version 0.3.2 - Saved Views And Filters
 
-Status: planned.
+Status: complete.
 
 Goal: let operators quickly return to the slices of CRM data they use repeatedly.
 
@@ -365,6 +365,12 @@ Exit criteria:
 
 - Users can save and reuse common filtered lists.
 - Existing search/filter URLs keep working.
+
+Completion notes:
+
+- Added organization/user-scoped saved views for contacts, clients, deals/jobs, and tasks.
+- Added save, load, apply, update, default, and delete controls without replacing shareable URL filters.
+- Added backend route tests and frontend coverage for applying a saved pipeline view.
 
 ## Version 0.3.3 - Import Foundation
 

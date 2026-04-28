@@ -4,6 +4,7 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
+import { SavedViews } from '../components/ui/saved_views'
 import { archiveDeal, createDeal, getDeal, listDeals, listDealStages, updateDeal, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
@@ -569,6 +570,18 @@ export function DealsRoute() {
     await reloadDeals(search, stageFilter, value)
   }
 
+  async function handleApplySavedView(filters) {
+    const nextSearch = filters.q || ''
+    const nextStageFilter = filters.stage || 'all'
+    const nextOwnerFilter = filters.owner || 'all'
+    setSearch(nextSearch)
+    setStageFilter(nextStageFilter)
+    setOwnerFilter(nextOwnerFilter)
+    setSelectedDealId(null)
+    navigate(buildDealsPath(null, nextSearch, nextStageFilter, nextOwnerFilter), { replace: true })
+    await reloadDeals(nextSearch, nextStageFilter, nextOwnerFilter)
+  }
+
   function handleOpenDealTasks() {
     if (!selectedDealId) {
       return
@@ -615,6 +628,7 @@ export function DealsRoute() {
           <Field label={labels.searchLabel}>
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
+          <SavedViews entityType="deals" currentFilters={{ q: search, stage: stageFilter, owner: ownerFilter }} onApply={handleApplySavedView} defaultName={`${labels.singular} view`} />
           <Field label="Stage filter">
             <select className="text-input" value={stageFilter} onChange={handleStageFilterChange}>
               <option value="all">All stages</option>

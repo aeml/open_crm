@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
+import { SavedViews } from '../components/ui/saved_views'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
@@ -312,15 +313,17 @@ function duplicateSearchTerm(message, fallback = '') {
 
 export function CompaniesRoute() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { companyId } = useParams()
   const { session, businessProfile } = useAuth()
   const routeCompanyId = Number.parseInt(companyId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const pipelineLabels = relatedPipelineLabels(businessType)
+  const initialSearch = searchParams.get('q') || ''
   const [mode, setMode] = useState('list')
   const [companies, setCompanies] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialSearch)
   const [selectedCompanyId, setSelectedCompanyId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
@@ -345,6 +348,15 @@ export function CompaniesRoute() {
   const selectedDeals = detail?.deals || []
   const hasSearch = search.trim() !== ''
   const selectedActivities = detail?.activities || []
+
+  function buildCompaniesPath(nextSearch = search) {
+    const params = new URLSearchParams()
+    if (nextSearch) {
+      params.set('q', nextSearch)
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    return `/companies${suffix}`
+  }
 
   async function loadCompanies(nextSearch = '', { signal } = {}) {
     const [companyData, contactData] = await Promise.all([listCompanies(nextSearch, { signal }), listContacts(nextSearch, { signal })])
@@ -398,7 +410,7 @@ export function CompaniesRoute() {
     async function run() {
       setIsListLoading(true)
       try {
-        await Promise.all([loadCompanies('', { signal: controller.signal }), loadContactOptions({ signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
+        await Promise.all([loadCompanies(initialSearch, { signal: controller.signal }), loadContactOptions({ signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
         setError('')
         setDuplicateSearch('')
         setDuplicateCandidate(null)
@@ -422,7 +434,18 @@ export function CompaniesRoute() {
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
+    navigate(buildCompaniesPath(value), { replace: true })
     await reloadCompanies(value)
+  }
+
+  async function handleApplySavedView(filters) {
+    const nextSearch = filters.q || ''
+    setSearch(nextSearch)
+    setMode('list')
+    setDetail(null)
+    setSelectedCompanyId(null)
+    navigate(buildCompaniesPath(nextSearch), { replace: true })
+    await reloadCompanies(nextSearch)
   }
 
   async function reloadCompanies(nextSearch = search) {
@@ -875,6 +898,7 @@ export function CompaniesRoute() {
           <Field label="Search clients">
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
+          <SavedViews entityType="companies" currentFilters={{ q: search }} onApply={handleApplySavedView} defaultName="Client view" />
           {isListLoading ? <p className="field-hint">Loading clients...</p> : null}
           {error ? (
             <div className="card-stack">

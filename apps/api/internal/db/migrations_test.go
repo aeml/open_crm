@@ -89,3 +89,29 @@ func TestMigrationFilesIncludeDatabaseIntegrityMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeSavedViewsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "010_saved_views.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected saved views migration to be registered")
+	}
+
+	sql := MigrationSQL("010_saved_views.sql")
+	if sql == "" {
+		t.Fatal("expected saved views migration SQL to be embedded")
+	}
+	for _, expected := range []string{"saved_views", "idx_saved_views_org_user_entity_name", "idx_saved_views_default_per_entity"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected saved views migration to include %s", expected)
+		}
+	}
+}

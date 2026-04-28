@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
+import { SavedViews } from '../components/ui/saved_views'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { archiveContact, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
@@ -106,15 +107,17 @@ function relatedPipelineLabels(businessType) {
 
 export function ContactsRoute() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { contactId } = useParams()
   const { session, businessProfile } = useAuth()
   const routeContactId = Number.parseInt(contactId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const pipelineLabels = relatedPipelineLabels(businessType)
+  const initialSearch = searchParams.get('q') || ''
   const [mode, setMode] = useState('list')
   const [contacts, setContacts] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialSearch)
   const [selectedContactId, setSelectedContactId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
@@ -135,6 +138,15 @@ export function ContactsRoute() {
   const selectedDeals = detail?.deals || []
   const hasSearch = search.trim() !== ''
   const selectedActivities = detail?.activities || []
+
+  function buildContactsPath(nextSearch = search) {
+    const params = new URLSearchParams()
+    if (nextSearch) {
+      params.set('q', nextSearch)
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    return `/contacts${suffix}`
+  }
 
   async function loadContacts(nextSearch = '', { signal } = {}) {
     const data = await listContacts(nextSearch, { signal })
@@ -174,7 +186,7 @@ export function ContactsRoute() {
     async function run() {
       setIsListLoading(true)
       try {
-        await Promise.all([loadContacts('', { signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
+        await Promise.all([loadContacts(initialSearch, { signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
         setError('')
         setDuplicateSearch('')
         setDuplicateCandidate(null)
@@ -198,7 +210,18 @@ export function ContactsRoute() {
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
+    navigate(buildContactsPath(value), { replace: true })
     await reloadContacts(value)
+  }
+
+  async function handleApplySavedView(filters) {
+    const nextSearch = filters.q || ''
+    setSearch(nextSearch)
+    setMode('list')
+    setDetail(null)
+    setSelectedContactId(null)
+    navigate(buildContactsPath(nextSearch), { replace: true })
+    await reloadContacts(nextSearch)
   }
 
   async function reloadContacts(nextSearch = search) {
@@ -545,6 +568,7 @@ export function ContactsRoute() {
           <Field label="Search contacts">
             <input className="text-input" value={search} onChange={handleSearchChange} />
           </Field>
+          <SavedViews entityType="contacts" currentFilters={{ q: search }} onApply={handleApplySavedView} defaultName="Contact view" />
           {isListLoading ? <p className="field-hint">Loading contacts...</p> : null}
           {error ? (
             <div className="card-stack">
