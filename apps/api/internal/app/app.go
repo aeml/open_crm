@@ -13,6 +13,7 @@ import (
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
@@ -23,11 +24,12 @@ import (
 )
 
 const (
-	sessionCookieName = "open_crm_session"
-	sessionCookieTTL  = 30 * 24 * time.Hour
-	maxJSONBodyBytes  = 1 << 20
-	authRateLimit     = 10
-	authRateWindow    = time.Minute
+	sessionCookieName  = "open_crm_session"
+	sessionCookieTTL   = 30 * 24 * time.Hour
+	maxJSONBodyBytes   = 1 << 20
+	maxImportBodyBytes = 2 << 20
+	authRateLimit      = 10
+	authRateWindow     = time.Minute
 )
 
 type authService interface {
@@ -90,6 +92,10 @@ type notesService interface {
 	Create(context.Context, int64, int64, modulenotes.CreateInput) (modulenotes.CreateResult, error)
 }
 
+type importsService interface {
+	Preview(context.Context, moduleimports.PreviewInput) (moduleimports.PreviewResult, error)
+}
+
 type savedViewsService interface {
 	ListByEntity(context.Context, int64, int64, string) ([]modulesavedviews.View, error)
 	Create(context.Context, int64, int64, modulesavedviews.Input) (modulesavedviews.View, error)
@@ -113,6 +119,7 @@ type Dependencies struct {
 	OrgProfileService orgProfileService
 	DashboardService  dashboardService
 	NotesService      notesService
+	ImportsService    importsService
 	SavedViewsService savedViewsService
 	OnboardingService onboardingService
 }
@@ -347,6 +354,13 @@ type savedViewRequest struct {
 	IsDefault  bool              `json:"isDefault"`
 }
 
+type importPreviewResponse struct {
+	Data moduleimports.PreviewResult `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type savedViewsListResponse struct {
 	Data struct {
 		Views []modulesavedviews.View `json:"views"`
@@ -522,6 +536,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/notes", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateNote(dependencies.AuthService, dependencies.NotesService, w, r)
+	})
+	mux.HandleFunc("POST /api/imports/preview", func(w http.ResponseWriter, r *http.Request) {
+		handlePreviewImport(dependencies.AuthService, dependencies.ImportsService, w, r)
 	})
 	mux.HandleFunc("GET /api/saved-views", func(w http.ResponseWriter, r *http.Request) {
 		handleListSavedViews(dependencies.AuthService, dependencies.SavedViewsService, w, r)

@@ -24,7 +24,7 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.3.0` Professional Release Candidate: complete.
 - `0.3.1` First-Use Product Polish: complete.
 - `0.3.2` Saved Views And Filters: complete.
-- `0.3.3` Import Foundation: planned.
+- `0.3.3` Import Foundation: complete.
 - `0.3.4` Activity Timeline Improvements: planned.
 - `0.3.5` Dashboard Decision Support: planned.
 - `0.3.6` Admin Audit Trail: planned.
@@ -374,7 +374,7 @@ Completion notes:
 
 ## Version 0.3.3 - Import Foundation
 
-Status: planned.
+Status: complete.
 
 Goal: make it possible to bring real CRM data into the system safely.
 
@@ -387,6 +387,13 @@ Exit criteria:
 
 - Users can validate contact/company CSV files before import.
 - Bad files produce actionable row-level feedback.
+
+Completion notes:
+
+- Added authenticated CSV import preview support for contacts and companies.
+- Contact template columns: `first_name,last_name,email,phone,address_line1,address_line2,city,state,postal_code,country,job_title,status,is_client`.
+- Company template columns: `name,client_type,address_line1,address_line2,city,state,postal_code,country,industry,phone,website,status`.
+- Preview validates required columns and row-level requirements without committing imported rows.
 
 ## Version 0.3.4 - Activity Timeline Improvements
 

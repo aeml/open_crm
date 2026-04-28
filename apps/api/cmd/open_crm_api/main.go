@@ -18,6 +18,7 @@ import (
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
@@ -50,6 +51,7 @@ func main() {
 	var dealsService *moduledeals.Service
 	var tasksService *moduletasks.Service
 	var dashboardService *moduledashboard.Service
+	importsService := moduleimports.NewService()
 	var notesService *modulenotes.Service
 	var savedViewsService *modulesavedviews.Service
 	var onboardingService *moduleonboarding.Service
@@ -90,6 +92,7 @@ func main() {
 		TasksService:      tasksService,
 		DashboardService:  dashboardService,
 		NotesService:      notesService,
+		ImportsService:    importsService,
 		SavedViewsService: savedViewsService,
 		OnboardingService: onboardingService,
 		OrgProfileService: orgProfileService,
