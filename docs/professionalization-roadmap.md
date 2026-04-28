@@ -19,6 +19,7 @@ Each version is a shippable slice. The goal is to improve safety, reliability, m
 - `0.2.1` Backend Maintainability: complete.
 - `0.2.2` Frontend Maintainability: complete.
 - `0.2.3` Database Integrity: complete.
+- `0.3.0` Professional Release Candidate: complete.
 
 ## Version 0.1.1 - Migration Safety
 
@@ -234,6 +235,8 @@ Exit criteria:
 
 ## Version 0.3.0 - Professional Release Candidate
 
+Status: complete.
+
 Goal: complete the professional-grade baseline and prepare for real usage feedback.
 
 - Re-run security and reliability review.
@@ -245,3 +248,10 @@ Exit criteria:
 
 - The project is ready to present as a professional, production-conscious CRM foundation.
 - Remaining work is product-driven rather than infrastructure cleanup.
+
+Completion notes:
+
+- CI verifies Go formatting, `go vet`, backend tests, frontend tests, frontend lint, and frontend build.
+- CI runs the migration suite against disposable PostgreSQL and verifies core constraints/indexes.
+- Deploy workflows have passed after the frontend, backend, and database-integrity hardening slices.
+- README now reflects the current production posture, local verification commands, operational runbook, and release-candidate status.

@@ -2,6 +2,7 @@
 
 [![Frontend Deploy](https://github.com/aeml/open_crm/actions/workflows/frontend-pages.yml/badge.svg)](https://github.com/aeml/open_crm/actions/workflows/frontend-pages.yml)
 [![Backend Deploy](https://github.com/aeml/open_crm/actions/workflows/backend-deploy.yml/badge.svg)](https://github.com/aeml/open_crm/actions/workflows/backend-deploy.yml)
+[![CI](https://github.com/aeml/open_crm/actions/workflows/ci.yml/badge.svg)](https://github.com/aeml/open_crm/actions/workflows/ci.yml)
 
 > Built by [Robert Mendola](https://mendola.tech)
 
@@ -32,14 +33,16 @@ Open CRM is a production-capable CRM MVP built as a boring, explicit full-stack 
 - Activity history for write operations
 - Dashboard summary with live counts and recent activity
 - Business-profile adaptation for different CRM operating modes
-- Production deploys for both frontend and backend
+- Production deploys for both frontend and backend with documented recovery paths
 
 ## Technical highlights
-- Go 1.23 API using `net/http`, `ServeMux`, `pgx/v5`, explicit SQL, and server-side sessions
+- Go 1.23 API using `net/http`, `ServeMux`, `pgx/v5`, explicit SQL, and Postgres-backed sessions
 - React 18 + Vite + React Router frontend with plain CSS and small reusable UI primitives
 - PostgreSQL 16 as the source of truth for auth, CRM records, tasks, notes, and dashboard data
 - Thin fetch-based API clients instead of a heavy frontend state framework
-- Vitest + Testing Library on the frontend, Go `testing` + `httptest` on the backend
+- Tracked SQL migrations with database-level constraints for core roles, statuses, entity types, monetary values, stage uniqueness, and contact-company links
+- Vitest + Testing Library on the frontend, Go `testing` + `httptest` on the backend, and a Postgres-backed migration integrity test in CI
+- CI gates for Go formatting, `go vet`, backend tests, frontend tests, frontend lint, and frontend production build
 - GitHub Actions deployment split cleanly between static frontend hosting and SSH-based backend rollout
 
 ## What it demonstrates
@@ -65,7 +68,7 @@ graph LR
 |-------|------------|
 | Frontend | React 18, Vite, React Router, plain CSS |
 | Backend | Go 1.23, stdlib `net/http`, `pgx/v5` |
-| Auth | Argon2id password hashing, signed opaque session cookie, Postgres-backed sessions |
+| Auth | Argon2id password hashing, HttpOnly opaque session cookie, Postgres-backed sessions |
 | Database | PostgreSQL 16 via Docker Compose |
 | Testing | Vitest, Testing Library, Go `testing`, `httptest` |
 | Deploy | GitHub Pages for frontend, GitHub Actions + SSH + Docker Compose for backend |
@@ -101,6 +104,15 @@ make web-dev     # run the Vite frontend
 make test        # backend + frontend tests
 ```
 
+Full release-candidate verification uses the same quality gates as CI:
+
+```bash
+cd apps/api && gofmt -l . && go vet ./... && go test ./...
+cd apps/web && npm test && npm run lint && npm run build
+```
+
+When Postgres is available, the migration integrity test can be run locally by setting `OPEN_CRM_TEST_DATABASE_URL` before `go test ./...`. CI provides this automatically with a disposable PostgreSQL service.
+
 ## Repo layout
 
 ```text
@@ -111,6 +123,7 @@ open_crm/
 ├── scripts/     # deploy helpers
 ├── .github/workflows/
 │   ├── frontend-pages.yml
+│   ├── ci.yml
 │   └── backend-deploy.yml
 ├── docker-compose.deploy.yml
 ├── Makefile
@@ -118,6 +131,8 @@ open_crm/
 ```
 
 ## Deployment
+
+Every push to `main` that changes application code runs CI before or alongside deployment. Backend CI includes a disposable Postgres service so migrations are applied against a real database and key constraints/indexes are verified.
 
 Frontend deploy:
 - `.github/workflows/frontend-pages.yml`
@@ -132,6 +147,15 @@ Backend deploy:
 - Runs `scripts/remote-deploy.sh` on the remote host
 - Rebuilds the API, runs migrations, and preserves the existing Postgres volume
 - Operational recovery, health checks, and database backup/restore are documented in `docs/operations-runbook.md`
+
+Production safety baseline:
+- SQL migrations are tracked in `schema_migrations` and reruns skip already-applied files.
+- API runtime has request timeouts and graceful shutdown for deploy restarts.
+- State-changing cookie-auth requests are protected by same-site CSRF checks.
+- Auth/bootstrap endpoints are rate limited.
+- API responses include `X-Request-Id`; production request logs are structured JSON.
+- `/healthz` checks process health and `/readyz` checks dependencies.
+- Backup, restore, migration recovery, and health-check procedures live in `docs/operations-runbook.md`.
 
 Required GitHub secrets:
 - `SSH_PRIVATE_KEY`
@@ -167,5 +191,6 @@ Explicit non-goals for MVP:
 
 ## Status
 
-This is an MVP-complete foundation for a clean, operator-focused CRM.
-The next work should come from real usage friction, not invented architecture projects.
+This is a professional release-candidate foundation for a clean, operator-focused CRM. The core infrastructure baseline is complete: quality gates, reproducible tooling, migration safety, runtime hardening, security controls, operational runbooks, and database integrity are in place.
+
+The next work should come from real usage friction and product feedback, not invented architecture projects.
