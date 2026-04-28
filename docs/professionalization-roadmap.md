@@ -16,6 +16,7 @@ Each version is a shippable slice. The goal is to improve safety, reliability, m
 - `0.1.8` Security Baseline: complete.
 - `0.1.9` User Lifecycle: complete.
 - `0.2.0` Observability And Operations: complete.
+- `0.2.1` Backend Maintainability: complete.
 
 ## Version 0.1.1 - Migration Safety
 
@@ -182,6 +183,8 @@ Exit criteria:
 - Operators have documented backup, restore, and deploy recovery steps.
 
 ## Version 0.2.1 - Backend Maintainability
+
+Status: complete.
 
 Goal: keep the modular monolith explicit while reducing oversized files.
 

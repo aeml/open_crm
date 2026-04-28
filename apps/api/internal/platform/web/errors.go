@@ -1,6 +1,20 @@
 package web
 
-import "net/http"
+import (
+	"net/http"
+	"strconv"
+	"strings"
+)
+
+func ParsePathInt64(w http.ResponseWriter, r *http.Request, requestID string, name string) (int64, bool) {
+	value := strings.TrimSpace(r.PathValue(name))
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid resource id")
+		return 0, false
+	}
+	return parsed, true
+}
 
 type ErrorResponse struct {
 	Error struct {

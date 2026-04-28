@@ -24,6 +24,18 @@ func DecodeJSONBody(w http.ResponseWriter, r *http.Request, dst any, maxBytes in
 	return nil
 }
 
+func DecodeJSONRequest(w http.ResponseWriter, r *http.Request, requestID string, dst any, maxBytes int64) bool {
+	if err := DecodeJSONBody(w, r, dst, maxBytes); err != nil {
+		if errors.Is(err, ErrRequestBodyTooLarge) {
+			WriteError(w, http.StatusRequestEntityTooLarge, requestID, "REQUEST_BODY_TOO_LARGE", "Request body is too large")
+			return false
+		}
+		WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid JSON body")
+		return false
+	}
+	return true
+}
+
 func WriteJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
