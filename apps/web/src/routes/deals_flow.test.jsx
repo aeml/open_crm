@@ -619,8 +619,8 @@ describe('deals flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /^save task$/i }))
 
     expect(await screen.findByText(/draft rollout kickoff agenda/i)).toBeInTheDocument()
-    expect(screen.getByText(/task created/i)).toBeInTheDocument()
-    expect(screen.getAllByText(/time unavailable/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/^task created$/i, { selector: '.activity-summary' })).toBeInTheDocument()
+    expect(screen.getAllByText(/date unavailable/i).length).toBeGreaterThan(0)
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks$/), expect.objectContaining({
         method: 'POST',
@@ -632,7 +632,7 @@ describe('deals flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /add note/i }))
 
     expect(await screen.findByText(/legal requested updated indemnity language/i)).toBeInTheDocument()
-    expect(screen.getByText(/note added/i)).toBeInTheDocument()
+    expect(screen.getByText(/^note added$/i, { selector: '.activity-summary' })).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/move stage/i), { target: { value: '3' } })
     fireEvent.click(screen.getByRole('button', { name: /move to stage/i }))

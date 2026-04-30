@@ -209,6 +209,54 @@
   font-weight: 800;
 }
 
+.activity-timeline {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.activity-filter {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 18rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.activity-timeline-list {
+  gap: var(--space-4);
+}
+
+.activity-day {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.activity-day-heading {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.activity-row {
+  align-items: center;
+}
+
+.activity-summary {
+  font-weight: 650;
+}
+
+.activity-badge {
+  justify-self: end;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(39, 94, 254, 0.08);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 @media (max-width: 720px) {
   .step-row {
     grid-template-columns: auto 1fr;

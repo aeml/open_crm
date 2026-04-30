@@ -92,7 +92,7 @@ describe('tasks flow', () => {
         return jsonResponse({
           data: {
             task: { id: 77, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'Prepare rollout checklist', description: 'Lock owners before kickoff.', status: 'open', dueAt: '2026-04-16T09:00:00Z', completedAt: '', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' },
-            activities: [{ id: 201, action: 'task.created', summary: 'Task created' }]
+            activities: [{ id: 201, action: 'task.created', summary: 'Task created', createdAt: '2026-04-10T09:00:00Z' }]
           }
         }, { status: 201 })
       }
@@ -101,7 +101,7 @@ describe('tasks flow', () => {
         return jsonResponse({
           data: {
             task: { id: 52, entityType: 'deal', entityId: 12, entityLabel: 'Bluebird Rollout', title: 'Call Morgan about rollout timing', description: 'Confirm launch window.', status: 'completed', dueAt: '2026-04-10T11:00:00Z', completedAt: '2026-04-11T09:30:00Z', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' },
-            activities: [{ id: 203, action: 'task.completed', summary: 'Task completed' }]
+            activities: [{ id: 203, action: 'task.completed', summary: 'Task completed', createdAt: '2026-04-11T09:30:00Z' }]
           }
         })
       }
@@ -115,7 +115,7 @@ describe('tasks flow', () => {
         return jsonResponse({
           data: {
             task: { id: 77, entityType: 'deal', entityId: 12, entityLabel: 'Bluebird Rollout', title: 'Prepare rollout checklist', description: nextDescription, status: nextStatus, dueAt: '2026-04-16T09:00:00Z', completedAt: nextCompletedAt, assignedToUserId: nextAssignedToUserId, assignedToUserName: nextAssignedToUserName, createdByUserId: 1, createdByUserName: 'Demo Owner' },
-            activities: [{ id: 202, action: nextStatus === 'completed' ? 'task.completed' : 'task.reopened', summary: nextStatus === 'completed' ? 'Task completed' : 'Task reopened' }]
+            activities: [{ id: 202, action: nextStatus === 'completed' ? 'task.completed' : 'task.reopened', summary: nextStatus === 'completed' ? 'Task completed' : 'Task reopened', createdAt: '2026-04-10T14:15:00Z' }]
           }
         })
       }
@@ -124,7 +124,7 @@ describe('tasks flow', () => {
         return jsonResponse({
           data: {
             task: { id: 78, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'Collect signed agreement', description: 'Received yesterday.', status: 'completed', dueAt: '2026-04-09T10:00:00Z', completedAt: '2026-04-09T16:30:00Z', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' },
-            activities: [{ id: 205, action: 'task.reassigned', summary: 'Task reassigned' }]
+            activities: [{ id: 205, action: 'task.reassigned', summary: 'Task reassigned', createdAt: '2026-04-09T16:30:00Z' }]
           }
         })
       }
@@ -304,7 +304,7 @@ describe('tasks flow', () => {
 
     expect(await screen.findByRole('heading', { name: /prepare rollout checklist/i })).toBeInTheDocument()
     expect(screen.getByText(/task created/i)).toBeInTheDocument()
-    expect(screen.getByText(/4\/10\/2026/i)).toBeInTheDocument()
+    expect(screen.getByText(/apr 10, 2026/i)).toBeInTheDocument()
     expect(window.location.pathname).toBe('/tasks/77')
     expect(screen.queryAllByLabelText(/assigned to user id/i)).toHaveLength(0)
     expect(screen.getAllByLabelText(/^assigned to$/i).length).toBeGreaterThan(0)
@@ -342,7 +342,6 @@ describe('tasks flow', () => {
     await waitFor(() => {
       expect(screen.getByLabelText(/assign collect signed agreement/i)).toHaveValue('2')
     })
-    expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\/77$/), expect.objectContaining({ method: 'PATCH' }))

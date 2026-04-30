@@ -25,7 +25,7 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.3.1` First-Use Product Polish: complete.
 - `0.3.2` Saved Views And Filters: complete.
 - `0.3.3` Import Foundation: complete.
-- `0.3.4` Activity Timeline Improvements: planned.
+- `0.3.4` Activity Timeline Improvements: complete.
 - `0.3.5` Dashboard Decision Support: planned.
 - `0.3.6` Admin Audit Trail: planned.
 - `0.3.7` Data Export: planned.
@@ -397,7 +397,7 @@ Completion notes:
 
 ## Version 0.3.4 - Activity Timeline Improvements
 
-Status: planned.
+Status: complete.
 
 Goal: make record history easier to scan and trust.
 
@@ -410,6 +410,12 @@ Exit criteria:
 
 - A user can understand what changed on a record without reading raw data.
 - Activity timelines remain usable as record history grows.
+
+Completion notes:
+
+- Added a shared activity timeline for contacts, clients, deals/jobs, and tasks.
+- Activity entries are grouped by date with clearer type labels and time-only row metadata.
+- Records with multiple activity types expose an activity-type filter to reduce noisy histories.
 
 ## Version 0.3.5 - Dashboard Decision Support
 

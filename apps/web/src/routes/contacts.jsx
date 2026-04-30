@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
+import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { archiveContact, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
@@ -60,19 +61,6 @@ function contactFormValues(contact) {
     jobTitle: contact.jobTitle || '',
     status: contact.status || 'lead'
   }
-}
-
-function formatActivityTimestamp(createdAt) {
-  if (!createdAt) {
-    return 'Time unavailable'
-  }
-
-  const parsed = new Date(createdAt)
-  if (Number.isNaN(parsed.getTime())) {
-    return 'Time unavailable'
-  }
-
-  return parsed.toLocaleString()
 }
 
 function duplicateSearchTerm(message, fallback = '') {
@@ -832,22 +820,7 @@ export function ContactsRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Activity</h3>
-                <div className="record-list" role="list" aria-label="Activity list">
-                  {selectedActivities.length === 0 ? (
-                    <article className="record-row" role="listitem">
-                      <div>
-                        <p>No activity yet.</p>
-                      </div>
-                    </article>
-                  ) : selectedActivities.map((activity) => (
-                    <article className="record-row" key={activity.id} role="listitem">
-                      <div>
-                        <p>{activity.summary}</p>
-                        <p className="field-hint">{formatActivityTimestamp(activity.createdAt)}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
+                <ActivityTimeline activities={selectedActivities} ariaLabel="Activity list" />
               </div>
             </Card>
           </div>

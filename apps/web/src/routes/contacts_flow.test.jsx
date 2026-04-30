@@ -34,7 +34,8 @@ describe('contacts flow', () => {
             contact: { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', addressLine1: '100 Dock St', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', jobTitle: 'Head of RevOps', status: 'lead' },
             notes: [],
             activities: [
-              { id: 100, action: 'contact.created', summary: 'Contact created' }
+              { id: 101, action: 'note.created', summary: 'Note added', createdAt: '2026-04-11T09:30:00Z' },
+              { id: 100, action: 'contact.created', summary: 'Contact created', createdAt: '2026-04-10T12:00:00Z' }
             ]
           }
         })
@@ -136,8 +137,14 @@ describe('contacts flow', () => {
       expect(window.location.pathname).toBe('/contacts/7')
     })
     expect(await screen.findByRole('heading', { name: /morgan lee/i })).toBeInTheDocument()
-    expect(screen.getByText(/contact created/i)).toBeInTheDocument()
-    expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/contact created/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/note added/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/apr 10, 2026/i)).toBeInTheDocument()
+    expect(screen.getByText(/apr 11, 2026/i)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/activity type filter/i), { target: { value: 'note.created' } })
+    expect(screen.getByText(/^note added$/i, { selector: '.activity-summary' })).toBeInTheDocument()
+    expect(screen.queryByText(/^contact created$/i, { selector: '.activity-summary' })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/activity type filter/i), { target: { value: 'all' } })
     expect(screen.getByText(/northstar expansion/i)).toBeInTheDocument()
     expect(screen.getByText('$48,000.00')).toBeInTheDocument()
     expect(screen.queryByLabelText(/assigned to user id/i)).not.toBeInTheDocument()
@@ -158,7 +165,7 @@ describe('contacts flow', () => {
     fireEvent.click(within(taskCard).getByRole('button', { name: /^save task$/i }))
 
     expect(await screen.findByText(/book follow-up demo/i)).toBeInTheDocument()
-    expect(screen.getByText(/task created/i)).toBeInTheDocument()
+    expect(screen.getByText(/^task created$/i, { selector: '.activity-summary' })).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks$/), expect.objectContaining({
         method: 'POST',

@@ -120,7 +120,7 @@ describe('notes workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: /add note/i }))
 
     expect(await screen.findByText(/sent follow-up recap with pricing ranges/i)).toBeInTheDocument()
-    expect(await screen.findByText(/note added/i)).toBeInTheDocument()
+    expect(await screen.findByText(/^note added$/i, { selector: '.activity-summary' })).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/notes$/), expect.objectContaining({ method: 'POST' }))
     })

@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
+import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { archiveTask, createTask, getTask, listTasks, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
@@ -304,19 +305,6 @@ function emptyTaskListDescription(statusFilter, dueView, labels, hasFilteredTask
     return 'Change the task view or clear filters to see more work.'
   }
   return `Create the first ${labels.showingSuffix.slice(0, -1)} once there is a real follow-up to track.`
-}
-
-function formatActivityTimestamp(createdAt) {
-  if (!createdAt) {
-    return 'Time unavailable'
-  }
-
-  const parsed = new Date(createdAt)
-  if (Number.isNaN(parsed.getTime())) {
-    return 'Time unavailable'
-  }
-
-  return parsed.toLocaleString()
 }
 
 export function TasksRoute() {
@@ -1077,22 +1065,7 @@ export function TasksRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Activity</h3>
-                <div className="record-list" role="list" aria-label={labels.activityAria}>
-                  {selectedActivities.length === 0 ? (
-                    <article className="record-row" role="listitem">
-                      <div>
-                        <p>No task activity yet.</p>
-                      </div>
-                    </article>
-                  ) : selectedActivities.map((activity) => (
-                    <article className="record-row" key={activity.id} role="listitem">
-                      <div>
-                        <p>{activity.summary}</p>
-                        <p className="field-hint">{formatActivityTimestamp(activity.createdAt)}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
+                <ActivityTimeline activities={selectedActivities} emptyMessage="No task activity yet." ariaLabel={labels.activityAria} />
               </div>
             </Card>
           </div>
