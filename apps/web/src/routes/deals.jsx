@@ -6,7 +6,7 @@ import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
-import { archiveDeal, createDeal, getDeal, listDeals, listDealStages, updateDeal, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, dealsExportURL, getDeal, listDeals, listDealStages, updateDeal, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -586,6 +586,9 @@ export function DealsRoute() {
                 <h2>{labels.collection}</h2>
                 <p>Real pipeline, real stages, no fake dashboard filler.</p>
               </div>
+              <Button className="button-secondary" type="button" onClick={() => { window.location.href = dealsExportURL({ search, stageId: stageFilter === 'all' ? 0 : Number.parseInt(stageFilter, 10) || 0, ownerUserId: ownerFilter === 'all' ? 0 : Number.parseInt(ownerFilter, 10) || 0 }) }}>
+                Export CSV
+              </Button>
             </div>
           <div className="record-list" role="list" aria-label="Pipeline summary">
             <article className="record-row" role="listitem">

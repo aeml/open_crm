@@ -1,4 +1,4 @@
-import { apiRequest } from './api'
+import { apiRequest, apiURL } from './api'
 
 export async function listTasks(query = {}, { signal } = {}) {
   const params = new URLSearchParams()
@@ -33,4 +33,16 @@ export async function updateTask(taskID, input, { signal } = {}) {
 
 export async function archiveTask(taskID, { signal } = {}) {
   await apiRequest(`/api/tasks/${taskID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive task.', signal })
+}
+
+export function tasksExportURL(query = {}) {
+  const params = new URLSearchParams()
+  if (query.status) params.set('status', query.status)
+  if (query.due) params.set('due', query.due)
+  if (query.assignee) params.set('assignee', query.assignee)
+  if (query.entityType) params.set('entityType', query.entityType)
+  if (query.entityId) params.set('entityId', String(query.entityId))
+  if (query.search) params.set('q', query.search)
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  return apiURL(`/api/export/tasks${suffix}`)
 }

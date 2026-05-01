@@ -26,9 +26,9 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.3.2` Saved Views And Filters: complete.
 - `0.3.3` Import Foundation: complete.
 - `0.3.4` Activity Timeline Improvements: complete.
-- `0.3.5` Dashboard Decision Support: planned.
-- `0.3.6` Admin Audit Trail: planned.
-- `0.3.7` Data Export: planned.
+- `0.3.5` Dashboard Decision Support: complete.
+- `0.3.6` Admin Audit Trail: complete.
+- `0.3.7` Data Export: complete.
 - `0.3.8` Accessibility And Keyboard Pass: planned.
 - `0.3.9` Release Readiness Review: planned.
 - `0.4.0` Multi-User Team CRM: planned.
@@ -465,7 +465,7 @@ Completion notes:
 
 ## Version 0.3.7 - Data Export
 
-Status: planned.
+Status: completed in `0.3.7`.
 
 Goal: give operators confidence that their CRM data is portable.
 
@@ -478,6 +478,13 @@ Exit criteria:
 
 - Core CRM lists can be exported from the UI.
 - Exports are scoped to the current organization and easy to open in spreadsheets.
+
+Completion notes:
+
+- Added organization-scoped CSV export endpoints for contacts, clients, deals, and tasks.
+- Matched existing list filters, excluded archived records, and added task export support for due-view and assignee filters used in the UI.
+- Added stable CSV headers, UTC task timestamps, spreadsheet-friendly UTF-8 output, and browser download actions on core list pages.
+- Covered export routing, CSV generation, filter construction, and frontend export URL behavior with tests.
 
 ## Version 0.3.8 - Accessibility And Keyboard Pass
 

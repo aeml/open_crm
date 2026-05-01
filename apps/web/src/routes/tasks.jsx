@@ -6,7 +6,7 @@ import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
-import { archiveTask, createTask, getTask, listTasks, updateTask } from '../lib/tasks'
+import { archiveTask, createTask, getTask, listTasks, tasksExportURL, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
@@ -818,6 +818,9 @@ export function TasksRoute() {
                 <p>Keep the next real action visible and close it cleanly.</p>
               </div>
             <div className="button-row">
+              <Button className="button-secondary" type="button" onClick={() => { window.location.href = tasksExportURL({ search, status: statusFilter, due: statusFilter === 'open' ? dueView : '', assignee: assigneeFilter === 'all' ? '' : assigneeFilter, entityType: entityTypeFilter === 'all' ? '' : entityTypeFilter, entityId: entityIdFilter }) }}>
+                Export CSV
+              </Button>
               <Button className={statusFilter === 'open' ? '' : 'button-secondary'} onClick={() => handleToggleStatus('open')}>Show open</Button>
               <Button className={statusFilter === 'completed' ? '' : 'button-secondary'} onClick={() => handleToggleStatus('completed')}>Show completed</Button>
             </div>

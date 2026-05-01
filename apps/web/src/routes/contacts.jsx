@@ -8,7 +8,7 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { archiveContact, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
+import { archiveContact, contactsExportURL, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
@@ -541,17 +541,22 @@ export function ContactsRoute() {
               <h2>Contacts</h2>
               <p>Keep the right people moving without a bloated CRM mess.</p>
             </div>
-            <Button
-              onClick={() => {
-                navigate('/contacts')
-                setMode('create')
-                setForm(emptyForm)
-                setDetail(null)
-                setSelectedContactId(null)
-              }}
-            >
-              Add contact
-            </Button>
+            <div className="button-row">
+              <Button className="button-secondary" type="button" onClick={() => { window.location.href = contactsExportURL(search) }}>
+                Export CSV
+              </Button>
+              <Button
+                onClick={() => {
+                  navigate('/contacts')
+                  setMode('create')
+                  setForm(emptyForm)
+                  setDetail(null)
+                  setSelectedContactId(null)
+                }}
+              >
+                Add contact
+              </Button>
+            </div>
           </div>
           <Field label="Search contacts">
             <input className="text-input" value={search} onChange={handleSearchChange} />

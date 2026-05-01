@@ -1,4 +1,4 @@
-import { apiRequest, getErrorMessage, isAbortError } from './api'
+import { apiRequest, apiURL, getErrorMessage, isAbortError } from './api'
 
 function duplicateCandidate(payload) {
   const candidate = payload?.error?.details?.duplicate
@@ -69,4 +69,11 @@ export async function updateCompany(companyID, input, { signal } = {}) {
 
 export async function archiveCompany(companyID, { signal } = {}) {
   return apiRequest(`/api/companies/${companyID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive company.', signal })
+}
+
+export function companiesExportURL(search = '') {
+  const params = new URLSearchParams()
+  if (search) params.set('q', search)
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  return apiURL(`/api/export/companies${suffix}`)
 }

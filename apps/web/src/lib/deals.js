@@ -1,4 +1,4 @@
-import { apiRequest } from './api'
+import { apiRequest, apiURL } from './api'
 
 export async function listDealStages({ signal } = {}) {
   const payload = await apiRequest('/api/deal-stages', { fallbackMessage: 'Unable to load deal stages.', signal })
@@ -46,4 +46,15 @@ export async function updateDealStage(dealID, stageId, { signal } = {}) {
   const payload = await apiRequest(`/api/deals/${dealID}/stage`, { method: 'PATCH', body: { stageId }, fallbackMessage: 'Unable to move deal.', signal })
 
   return payload?.data
+}
+
+export function dealsExportURL(query = {}) {
+  const params = new URLSearchParams()
+  if (query.search) params.set('q', query.search)
+  if (query.stageId) params.set('stageId', String(query.stageId))
+  if (query.ownerUserId) params.set('ownerUserId', String(query.ownerUserId))
+  if (query.companyId) params.set('companyId', String(query.companyId))
+  if (query.primaryContactId) params.set('primaryContactId', String(query.primaryContactId))
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  return apiURL(`/api/export/deals${suffix}`)
 }

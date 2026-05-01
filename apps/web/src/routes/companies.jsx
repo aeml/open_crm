@@ -8,7 +8,7 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
+import { archiveCompany, companiesExportURL, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
 import { createContact, listContacts } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
@@ -869,19 +869,24 @@ export function CompaniesRoute() {
                 <h2>Clients</h2>
               <p>See client ownership, linked people, and live pipeline in one place.</p>
             </div>
-            <Button
-              onClick={() => {
-                navigate('/companies')
-                setMode('create')
-                setForm(emptyForm)
-                setLinkedPersonForm(emptyLinkedPersonForm)
-                setShowLinkedPersonForm(false)
-                setDetail(null)
-                setSelectedCompanyId(null)
-              }}
-            >
-              Add client
-            </Button>
+            <div className="button-row">
+              <Button className="button-secondary" type="button" onClick={() => { window.location.href = companiesExportURL(search) }}>
+                Export CSV
+              </Button>
+              <Button
+                onClick={() => {
+                  navigate('/companies')
+                  setMode('create')
+                  setForm(emptyForm)
+                  setLinkedPersonForm(emptyLinkedPersonForm)
+                  setShowLinkedPersonForm(false)
+                  setDetail(null)
+                  setSelectedCompanyId(null)
+                }}
+              >
+                Add client
+              </Button>
+            </div>
           </div>
           <Field label="Search clients">
             <input className="text-input" value={search} onChange={handleSearchChange} />

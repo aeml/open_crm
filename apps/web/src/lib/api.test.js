@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { APIError, apiRequest, getErrorMessage, isAbortError, readJSON } from './api'
+import { APIError, apiRequest, apiURL, getErrorMessage, isAbortError, readJSON } from './api'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -18,6 +18,10 @@ describe('api client', () => {
   it('detects abort errors', () => {
     expect(isAbortError(new DOMException('Cancelled', 'AbortError'))).toBe(true)
     expect(isAbortError(new Error('Failed'))).toBe(false)
+  })
+
+  it('builds absolute API URLs for browser navigations', () => {
+    expect(apiURL('/api/export/contacts')).toBe('https://crmserver.mendola.tech/api/export/contacts')
   })
 
   it('sends credentialed JSON requests', async () => {

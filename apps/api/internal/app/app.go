@@ -14,6 +14,7 @@ import (
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
@@ -85,6 +86,13 @@ type tasksService interface {
 	Update(context.Context, int64, int64, int64, moduletasks.UpdateInput) (moduletasks.Detail, error)
 }
 
+type dataExportsService interface {
+	ContactsCSV(context.Context, int64, moduleexports.ContactsQuery) (moduleexports.File, error)
+	CompaniesCSV(context.Context, int64, moduleexports.CompaniesQuery) (moduleexports.File, error)
+	DealsCSV(context.Context, int64, moduleexports.DealsQuery) (moduleexports.File, error)
+	TasksCSV(context.Context, int64, moduleexports.TasksQuery) (moduleexports.File, error)
+}
+
 type orgProfileService interface {
 	GetByOrganizationID(context.Context, int64) (moduleorgprofile.Detail, error)
 	UpdateByOrganizationID(context.Context, int64, int64, moduleorgprofile.UpdateInput) (moduleorgprofile.Detail, error)
@@ -124,6 +132,7 @@ type Dependencies struct {
 	CompaniesService  companiesService
 	DealsService      dealsService
 	TasksService      tasksService
+	ExportsService    dataExportsService
 	OrgProfileService orgProfileService
 	DashboardService  dashboardService
 	NotesService      notesService
@@ -510,6 +519,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
+	mux.HandleFunc("GET /api/export/contacts", func(w http.ResponseWriter, r *http.Request) {
+		handleExportContacts(dependencies.AuthService, dependencies.ExportsService, w, r)
+	})
 	mux.HandleFunc("POST /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateContact(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
@@ -524,6 +536,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/companies", func(w http.ResponseWriter, r *http.Request) {
 		handleListCompanies(dependencies.AuthService, dependencies.CompaniesService, w, r)
+	})
+	mux.HandleFunc("GET /api/export/companies", func(w http.ResponseWriter, r *http.Request) {
+		handleExportCompanies(dependencies.AuthService, dependencies.ExportsService, w, r)
 	})
 	mux.HandleFunc("POST /api/companies", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateCompany(dependencies.AuthService, dependencies.CompaniesService, w, r)
@@ -542,6 +557,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/deals", func(w http.ResponseWriter, r *http.Request) {
 		handleListDeals(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("GET /api/export/deals", func(w http.ResponseWriter, r *http.Request) {
+		handleExportDeals(dependencies.AuthService, dependencies.ExportsService, w, r)
 	})
 	mux.HandleFunc("GET /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
 		handleGetDeal(dependencies.AuthService, dependencies.DealsService, w, r)
@@ -581,6 +599,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		handleListTasks(dependencies.AuthService, dependencies.TasksService, w, r)
+	})
+	mux.HandleFunc("GET /api/export/tasks", func(w http.ResponseWriter, r *http.Request) {
+		handleExportTasks(dependencies.AuthService, dependencies.ExportsService, w, r)
 	})
 	mux.HandleFunc("GET /api/tasks/{taskID}", func(w http.ResponseWriter, r *http.Request) {
 		handleGetTask(dependencies.AuthService, dependencies.TasksService, w, r)

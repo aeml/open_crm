@@ -1,4 +1,4 @@
-import { apiRequest, getErrorMessage, isAbortError } from './api'
+import { apiRequest, apiURL, getErrorMessage, isAbortError } from './api'
 
 function duplicateCandidate(payload) {
   const candidate = payload?.error?.details?.duplicate
@@ -69,4 +69,11 @@ export async function updateContact(contactID, input, { signal } = {}) {
 
 export async function archiveContact(contactID, { signal } = {}) {
   return apiRequest(`/api/contacts/${contactID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive contact.', signal })
+}
+
+export function contactsExportURL(search = '') {
+  const params = new URLSearchParams()
+  if (search) params.set('q', search)
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  return apiURL(`/api/export/contacts${suffix}`)
 }

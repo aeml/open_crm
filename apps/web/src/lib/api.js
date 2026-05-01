@@ -51,3 +51,7 @@ export async function apiRequest(path, { method = 'GET', body, headers = {}, fal
 
   return payload
 }
+
+export function apiURL(path) {
+  return `${API_BASE_URL}${path}`
+}
