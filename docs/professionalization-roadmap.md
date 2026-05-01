@@ -419,7 +419,7 @@ Completion notes:
 
 ## Version 0.3.5 - Dashboard Decision Support
 
-Status: planned.
+Status: completed in `0.3.5`.
 
 Goal: make the dashboard guide action instead of only showing counts.
 
@@ -432,6 +432,13 @@ Exit criteria:
 
 - The dashboard tells an operator what needs attention today.
 - Dashboard performance remains predictable on larger demo datasets.
+
+Completion notes:
+
+- Added a task focus card that separates overdue, due-today, and upcoming task decisions.
+- Added a pipeline signal card that highlights clear, untouched, stale, or recently touched pipeline states from the existing dashboard activity feed.
+- Added recently touched contacts/clients from recent activity without introducing new dashboard queries.
+- Covered the new dashboard decision-support UI with router tests.
 
 ## Version 0.3.6 - Admin Audit Trail
 

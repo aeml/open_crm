@@ -27,6 +27,45 @@ function formatRelativeTimestamp(value) {
   return date.toLocaleString()
 }
 
+function parseTimestamp(value) {
+  if (!value) {
+    return null
+  }
+
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function daysSince(value) {
+  const parsed = parseTimestamp(value)
+  if (!parsed) {
+    return null
+  }
+
+  const elapsed = Date.now() - parsed.getTime()
+  return Math.max(0, Math.floor(elapsed / (24 * 60 * 60 * 1000)))
+}
+
+function latestActivityFor(activities, entityType) {
+  return (activities || []).find((activity) => activity.entityType === entityType) || null
+}
+
+function recentlyTouchedRecords(activities) {
+  const seen = new Set()
+  return (activities || []).filter((activity) => {
+    if (activity.entityType !== 'contact' && activity.entityType !== 'company') {
+      return false
+    }
+
+    const key = `${activity.entityType}:${activity.entityId}`
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  }).slice(0, 3)
+}
+
 function dashboardLabels(businessType) {
   if (businessType === 'services' || businessType === 'construction-services') {
     return {
@@ -35,6 +74,7 @@ function dashboardLabels(businessType) {
       contactsLabel: 'New contacts',
       openRecordsLabel: 'Open jobs',
       wonRecordsLabel: 'Won jobs',
+      recordsLower: 'jobs',
       activityDescription: 'The last real changes across jobs, contacts, clients, and service tasks.'
     }
   }
@@ -45,6 +85,7 @@ function dashboardLabels(businessType) {
     contactsLabel: 'New contacts',
     openRecordsLabel: 'Open deals',
     wonRecordsLabel: 'Won deals',
+    recordsLower: 'deals',
     activityDescription: 'The last real changes across deals, contacts, companies, and tasks.'
   }
 }
@@ -100,6 +141,45 @@ export function DashboardRoute() {
     ],
     [labels.contactsLabel, labels.dueTodayLabel, labels.pipelineLabel, summary.dueTodayCount, summary.newContactsCount, summary.pipelineValue]
   )
+  const upcomingTasksCount = Math.max(0, Number(summary.openTasksCount || 0) - Number(summary.dueTodayCount || 0))
+  const latestPipelineActivity = latestActivityFor(summary.recentActivities, 'deal')
+  const latestPipelineDays = daysSince(latestPipelineActivity?.createdAt)
+  const touchedRecords = useMemo(() => recentlyTouchedRecords(summary.recentActivities), [summary.recentActivities])
+  const pipelineAttention = useMemo(() => {
+    if (summary.openDealsCount <= 0) {
+      return {
+        title: `No open ${labels.recordsLower}`,
+        description: 'The active pipeline is clear. Review recent activity or create the next opportunity when work appears.',
+        action: 'Review activity',
+        path: '/deals'
+      }
+    }
+
+    if (!latestPipelineActivity) {
+      return {
+        title: `${summary.openDealsCount} open ${labels.recordsLower} need a touch`,
+        description: `No recent ${labels.recordsLower} activity appears in the dashboard feed. Check stage age and next steps before work stalls.`,
+        action: `Review ${labels.recordsLower}`,
+        path: '/deals'
+      }
+    }
+
+    if (latestPipelineDays !== null && latestPipelineDays >= 7) {
+      return {
+        title: `Pipeline has been quiet for ${latestPipelineDays} days`,
+        description: `The latest ${labels.recordsLower.slice(0, -1)} activity was ${latestPipelineActivity.summary.toLowerCase()}. Confirm the next move.`,
+        action: `Review ${labels.recordsLower}`,
+        path: '/deals'
+      }
+    }
+
+    return {
+      title: 'Pipeline touched recently',
+      description: `${latestPipelineActivity.summary} is the latest pipeline signal. Keep the next task tied to the record.`,
+      action: `Open ${labels.recordsLower}`,
+      path: '/deals'
+    }
+  }, [labels.recordsLower, latestPipelineActivity, latestPipelineDays, summary.openDealsCount])
   const hasWorkspaceData = Number.parseFloat(summary.pipelineValue || '0') > 0 || summary.openDealsCount > 0 || summary.wonDealsCount > 0 || summary.openTasksCount > 0 || summary.dueTodayCount > 0 || summary.newContactsCount > 0 || summary.recentActivities.length > 0
   const setupSteps = useMemo(() => {
     const pipelineLabel = businessType === 'services' || businessType === 'construction-services' ? 'Create your first job' : 'Create your first deal'
@@ -153,6 +233,52 @@ export function DashboardRoute() {
         <Card>
           <div className="card-stack">
             <div>
+              <p className="eyebrow">Needs attention</p>
+              <h2>Task focus</h2>
+              <p>Start with time-sensitive work, then use the upcoming queue to keep follow-ups from drifting.</p>
+            </div>
+            <div className="decision-list" role="list" aria-label="Task decision list">
+              <article className="decision-row" role="listitem">
+                <div>
+                  <p>Overdue check</p>
+                  <p className="field-hint">Review anything that slipped before scheduling new work.</p>
+                </div>
+                <Button className="button-secondary" type="button" onClick={() => navigate('/tasks?due=overdue')}>Review overdue</Button>
+              </article>
+              <article className="decision-row" role="listitem">
+                <div>
+                  <p>{summary.dueTodayCount === 1 ? '1 task due today' : `${summary.dueTodayCount} tasks due today`}</p>
+                  <p className="field-hint">Close or reschedule work that needs attention today.</p>
+                </div>
+                <Button type="button" onClick={() => navigate('/tasks?due=dueToday')}>Review due today</Button>
+              </article>
+              <article className="decision-row" role="listitem">
+                <div>
+                  <p>{upcomingTasksCount === 1 ? '1 upcoming task' : `${upcomingTasksCount} upcoming tasks`}</p>
+                  <p className="field-hint">Protect the next few follow-ups before they become urgent.</p>
+                </div>
+                <Button className="button-secondary" type="button" onClick={() => navigate('/tasks?due=upcoming')}>Review upcoming</Button>
+              </article>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="card-stack">
+            <div>
+              <p className="eyebrow">Pipeline signal</p>
+              <h2>{pipelineAttention.title}</h2>
+              <p>{pipelineAttention.description}</p>
+            </div>
+            <div>
+              <Button className="button-secondary" type="button" onClick={() => navigate(pipelineAttention.path)}>{pipelineAttention.action}</Button>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="card-stack">
+            <div>
               <h2>Today</h2>
               <p>See what is live in the pipeline instead of guessing from stale numbers.</p>
             </div>
@@ -194,9 +320,6 @@ export function DashboardRoute() {
               </article>
             </div>
             <div className="button-row">
-              <Button type="button" onClick={() => navigate('/tasks?due=dueToday')}>
-                Review due today
-              </Button>
               <Button className="button-secondary" type="button" onClick={() => navigate('/tasks')}>
                 Open tasks
               </Button>
@@ -223,6 +346,30 @@ export function DashboardRoute() {
                     <div>
                       <p>{formatRelativeTimestamp(activity.createdAt)}</p>
                     </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <div className="card-stack">
+            <div>
+              <h2>Recently touched contacts and clients</h2>
+              <p>Use recent people and account activity to decide who needs the next follow-up.</p>
+            </div>
+            {touchedRecords.length === 0 ? (
+              <p className="field-hint">No recent contact or client touches yet.</p>
+            ) : (
+              <div className="record-list" role="list" aria-label="Recently touched records">
+                {touchedRecords.map((activity) => (
+                  <article className="record-row" key={`${activity.entityType}-${activity.entityId}`} role="listitem">
+                    <div>
+                      <p>{activity.entityType === 'company' ? 'Client' : 'Contact'} #{activity.entityId}</p>
+                      <p className="field-hint">{activity.summary}</p>
+                    </div>
+                    <Button className="button-secondary" type="button" onClick={() => navigate(`/${activity.entityType === 'company' ? 'companies' : 'contacts'}/${activity.entityId}`)}>Open</Button>
                   </article>
                 ))}
               </div>

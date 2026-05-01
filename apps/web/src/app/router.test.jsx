@@ -50,7 +50,25 @@ describe('AppRouter', () => {
                 entityType: 'deal',
                 entityId: 12,
                 actorName: 'Alex Admin',
-                createdAt: '2026-04-10T12:00:00Z'
+                createdAt: '2099-04-10T12:00:00Z'
+              },
+              {
+                id: 92,
+                action: 'contact.updated',
+                summary: 'Contact phone updated',
+                entityType: 'contact',
+                entityId: 8,
+                actorName: 'Alex Admin',
+                createdAt: '2099-04-10T11:00:00Z'
+              },
+              {
+                id: 93,
+                action: 'company.updated',
+                summary: 'Client status changed',
+                entityType: 'company',
+                entityId: 6,
+                actorName: 'Alex Admin',
+                createdAt: '2099-04-10T10:00:00Z'
               }
             ]
           }
@@ -64,8 +82,15 @@ describe('AppRouter', () => {
     render(<AppRouter />)
 
     expect(await screen.findByText('$48,000.00')).toBeInTheDocument()
-    expect(await screen.findByText(/deal moved to negotiation/i)).toBeInTheDocument()
+    expect(await screen.findAllByText(/deal moved to negotiation/i)).toHaveLength(2)
     expect(screen.getByText('5 this week')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /task focus/i })).toBeInTheDocument()
+    expect(screen.getByText(/2 tasks due today/i)).toBeInTheDocument()
+    expect(screen.getByText(/6 upcoming tasks/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /pipeline touched recently/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /recently touched contacts and clients/i })).toBeInTheDocument()
+    expect(screen.getByText(/^Contact #8$/i)).toBeInTheDocument()
+    expect(screen.getByText(/^Client #6$/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/dashboard\/summary$/), expect.any(Object))
     })
