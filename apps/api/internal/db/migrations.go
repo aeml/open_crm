@@ -32,8 +32,11 @@ var databaseIntegritySQL string
 //go:embed migrations/010_saved_views.sql
 var savedViewsSQL string
 
+//go:embed migrations/011_audit_events.sql
+var auditEventsSQL string
+
 func MigrationFiles() []string {
-	return []string{"001_initial_schema.sql", "002_company_client_type.sql", "003_contact_client_flag.sql", "004_client_address.sql", "005_client_structured_address.sql", "006_remove_company_domain.sql", "007_task_archive.sql", "008_user_setup_tokens.sql", "009_database_integrity.sql", "010_saved_views.sql"}
+	return []string{"001_initial_schema.sql", "002_company_client_type.sql", "003_contact_client_flag.sql", "004_client_address.sql", "005_client_structured_address.sql", "006_remove_company_domain.sql", "007_task_archive.sql", "008_user_setup_tokens.sql", "009_database_integrity.sql", "010_saved_views.sql", "011_audit_events.sql"}
 }
 
 func MigrationSQL(name string) string {
@@ -66,6 +69,9 @@ func MigrationSQL(name string) string {
 	}
 	if name == "010_saved_views.sql" {
 		return savedViewsSQL
+	}
+	if name == "011_audit_events.sql" {
+		return auditEventsSQL
 	}
 	return ""
 }

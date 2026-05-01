@@ -11,6 +11,7 @@ import { BootstrapRoute } from '../routes/bootstrap'
 import { SetupPasswordRoute } from '../routes/setup_password'
 import { SettingsUsersRoute } from '../routes/settings_users'
 import { BusinessProfileRoute } from '../routes/business_profile'
+import { SettingsAuditRoute } from '../routes/settings_audit'
 
 export function AppRouter() {
   return (
@@ -33,6 +34,7 @@ export function AppRouter() {
             <Route path="tasks/:taskId" element={<TasksRoute />} />
             <Route path="settings/users" element={<SettingsUsersRoute />} />
             <Route path="settings/business-profile" element={<BusinessProfileRoute />} />
+            <Route path="settings/audit" element={<SettingsAuditRoute />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

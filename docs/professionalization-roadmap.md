@@ -442,7 +442,7 @@ Completion notes:
 
 ## Version 0.3.6 - Admin Audit Trail
 
-Status: planned.
+Status: completed in `0.3.6`.
 
 Goal: make administrative changes visible and reviewable.
 
@@ -455,6 +455,13 @@ Exit criteria:
 
 - Admins can review high-impact administrative events.
 - Audit data avoids sensitive secret leakage.
+
+Completion notes:
+
+- Added organization-scoped audit events with indexed reads by organization, event type, and creation time.
+- Recorded user invites, role changes, password setup completions, and organization profile changes without storing setup tokens or password material.
+- Added an admin-only audit API and Settings audit view with event filtering and retention guidance.
+- Covered audit event access, metadata sanitization, role updates, and audit UI behavior with tests.
 
 ## Version 0.3.7 - Data Export
 

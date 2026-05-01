@@ -2,10 +2,12 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
+	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
@@ -139,7 +141,7 @@ func handleListUsers(auth authService, users usersService, w http.ResponseWriter
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-func handleCreateUser(auth authService, users usersService, w http.ResponseWriter, r *http.Request) {
+func handleCreateUser(auth authService, users usersService, audit auditService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgAdmin(auth, w, r)
 	if !ok {
@@ -171,6 +173,17 @@ func handleCreateUser(auth authService, users usersService, w http.ResponseWrite
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create user")
 		return
 	}
+	recordAuditEvent(r, audit, state.Organization.ID, moduleaudit.RecordInput{
+		ActorUserID: state.User.ID,
+		EventType:   "user.invited",
+		EntityType:  "user",
+		EntityID:    created.ID,
+		Summary:     fmt.Sprintf("Invited %s as %s", created.Email, created.Role),
+		Metadata: map[string]string{
+			"email": created.Email,
+			"role":  created.Role,
+		},
+	})
 
 	response := userResponse{}
 	response.Data.User = created
@@ -178,7 +191,59 @@ func handleCreateUser(auth authService, users usersService, w http.ResponseWrite
 	platformweb.WriteJSON(w, http.StatusCreated, response)
 }
 
-func handleCompleteUserSetup(users usersService, w http.ResponseWriter, r *http.Request) {
+func handleUpdateUserRole(auth authService, users usersService, audit auditService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if users == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Users service unavailable")
+		return
+	}
+	userID, ok := parsePathInt64(w, r, "userID")
+	if !ok {
+		return
+	}
+
+	var request updateUserRoleRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	role := strings.TrimSpace(request.Role)
+	if role == "" {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Role is required")
+		return
+	}
+
+	updated, err := users.UpdateRole(r.Context(), state.Organization.ID, userID, state.User.ID, role)
+	if err != nil {
+		if errors.Is(err, moduleusers.ErrNotFound) {
+			platformweb.WriteNotFound(w, requestID)
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update user role")
+		return
+	}
+	recordAuditEvent(r, audit, state.Organization.ID, moduleaudit.RecordInput{
+		ActorUserID: state.User.ID,
+		EventType:   "user.role_changed",
+		EntityType:  "user",
+		EntityID:    updated.ID,
+		Summary:     fmt.Sprintf("Changed %s role to %s", updated.Email, updated.Role),
+		Metadata: map[string]string{
+			"email": updated.Email,
+			"role":  updated.Role,
+		},
+	})
+
+	response := userResponse{}
+	response.Data.User = updated
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleCompleteUserSetup(users usersService, audit auditService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	if users == nil {
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Users service unavailable")
@@ -199,7 +264,8 @@ func handleCompleteUserSetup(users usersService, w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := users.CompleteSetup(r.Context(), input); err != nil {
+	completed, err := users.CompleteSetup(r.Context(), input)
+	if err != nil {
 		if errors.Is(err, moduleusers.ErrInvalidSetupToken) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Setup token is invalid or expired")
 			return
@@ -207,6 +273,16 @@ func handleCompleteUserSetup(users usersService, w http.ResponseWriter, r *http.
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to complete password setup")
 		return
 	}
+	recordAuditEvent(r, audit, completed.OrganizationID, moduleaudit.RecordInput{
+		ActorUserID: completed.UserID,
+		EventType:   "user.password_setup_completed",
+		EntityType:  "user",
+		EntityID:    completed.UserID,
+		Summary:     fmt.Sprintf("Password setup completed for %s", completed.Email),
+		Metadata: map[string]string{
+			"email": completed.Email,
+		},
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }

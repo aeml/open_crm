@@ -13,6 +13,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/app"
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	"github.com/aeml/open_crm/apps/api/internal/db"
+	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
@@ -45,6 +46,7 @@ func main() {
 	}
 
 	var authService *moduleauth.Service
+	var auditService *moduleaudit.Service
 	var usersService *moduleusers.Service
 	var contactsService *modulecontacts.Service
 	var companiesService *modulecompanies.Service
@@ -63,6 +65,7 @@ func main() {
 		} else {
 			defer pool.Close()
 			authService = moduleauth.NewService(pool)
+			auditService = moduleaudit.NewService(pool)
 			usersService = moduleusers.NewService(pool)
 			contactsService = modulecontacts.NewService(pool)
 			companiesService = modulecompanies.NewService(pool)
@@ -85,6 +88,7 @@ func main() {
 		},
 		Logger:            logger,
 		AuthService:       authService,
+		AuditService:      auditService,
 		UsersService:      usersService,
 		ContactsService:   contactsService,
 		CompaniesService:  companiesService,

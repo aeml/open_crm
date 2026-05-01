@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
+	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
@@ -263,7 +265,33 @@ func handleGetOrganizationProfile(auth authService, profiles orgProfileService, 
 	respondOrganizationProfile(w, r, http.StatusOK, result)
 }
 
-func handleUpdateOrganizationProfile(auth authService, profiles orgProfileService, w http.ResponseWriter, r *http.Request) {
+func handleListAuditEvents(auth authService, audit auditService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if audit == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Audit service unavailable")
+		return
+	}
+
+	events, err := audit.ListByOrganization(r.Context(), state.Organization.ID, moduleaudit.ListQuery{
+		EventType: strings.TrimSpace(r.URL.Query().Get("eventType")),
+		Limit:     parsePositiveInt(r.URL.Query().Get("limit"), 50),
+	})
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load audit events")
+		return
+	}
+
+	response := auditEventsResponse{}
+	response.Data.Events = events
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleUpdateOrganizationProfile(auth authService, profiles orgProfileService, audit auditService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgAdmin(auth, w, r)
 	if !ok {
@@ -284,6 +312,16 @@ func handleUpdateOrganizationProfile(auth authService, profiles orgProfileServic
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update organization profile")
 		return
 	}
+	recordAuditEvent(r, audit, state.Organization.ID, moduleaudit.RecordInput{
+		ActorUserID: state.User.ID,
+		EventType:   "organization.profile_updated",
+		EntityType:  "organization",
+		EntityID:    state.Organization.ID,
+		Summary:     fmt.Sprintf("Changed business profile to %s", result.BusinessType),
+		Metadata: map[string]string{
+			"businessType": result.BusinessType,
+		},
+	})
 
 	respondOrganizationProfile(w, r, http.StatusOK, result)
 }
@@ -510,6 +548,13 @@ func requireCurrentSession(service authService, r *http.Request) (moduleauth.Ses
 		return moduleauth.SessionState{}, moduleauth.ErrUnauthorized
 	}
 	return service.CurrentSession(r.Context(), sessionToken)
+}
+
+func recordAuditEvent(r *http.Request, audit auditService, organizationID int64, input moduleaudit.RecordInput) {
+	if audit == nil {
+		return
+	}
+	_ = audit.Record(r.Context(), organizationID, input)
 }
 
 func isOrgAdminRole(role string) bool {

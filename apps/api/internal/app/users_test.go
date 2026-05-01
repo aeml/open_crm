@@ -21,6 +21,10 @@ type fakeUsersService struct {
 	setupErr        error
 	lastListOrgID   int64
 	lastCreateOrgID int64
+	lastRoleOrgID   int64
+	lastRoleUserID  int64
+	lastRoleActorID int64
+	lastRole        string
 	lastCreateInput moduleusers.CreateUserInput
 	lastSetupInput  moduleusers.CompleteSetupInput
 }
@@ -36,9 +40,17 @@ func (f *fakeUsersService) CreateForOrganization(_ context.Context, organization
 	return f.createResult, f.createErr
 }
 
-func (f *fakeUsersService) CompleteSetup(_ context.Context, input moduleusers.CompleteSetupInput) error {
+func (f *fakeUsersService) UpdateRole(_ context.Context, organizationID, userID, actorUserID int64, role string) (moduleusers.UserSummary, error) {
+	f.lastRoleOrgID = organizationID
+	f.lastRoleUserID = userID
+	f.lastRoleActorID = actorUserID
+	f.lastRole = role
+	return moduleusers.UserSummary{ID: userID, Email: "admin@acme.test", FirstName: "Demo", LastName: "Admin", Role: role}, nil
+}
+
+func (f *fakeUsersService) CompleteSetup(_ context.Context, input moduleusers.CompleteSetupInput) (moduleusers.SetupCompletion, error) {
 	f.lastSetupInput = input
-	return f.setupErr
+	return moduleusers.SetupCompletion{UserID: 9, OrganizationID: 42, Email: "new.admin@acme.test"}, f.setupErr
 }
 
 func TestListUsersUsesCurrentSessionOrganization(t *testing.T) {
@@ -153,6 +165,35 @@ func TestCreateUserCreatesUserInCurrentOrganization(t *testing.T) {
 
 	if response.Data.User.Email != "new.admin@acme.test" || response.Data.User.SetupLink == "" {
 		t.Fatalf("expected created user in response, got %#v", response.Data.User)
+	}
+}
+
+func TestUpdateUserRoleRecordsCurrentOrganizationAndActor(t *testing.T) {
+	usersService := &fakeUsersService{}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{
+			currentSessionResult: moduleauth.SessionState{
+				User:         moduleauth.User{ID: 1, Email: "owner@acme.test", FirstName: "Demo", LastName: "Owner"},
+				Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc.", Slug: "acme-inc"},
+				Membership:   moduleauth.Membership{Role: "owner"},
+			},
+		},
+		UsersService: usersService,
+	})
+
+	body := bytes.NewBufferString(`{"role":"admin"}`)
+	request := httptest.NewRequest(http.MethodPatch, "/api/users/9/role", body)
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if usersService.lastRoleOrgID != 42 || usersService.lastRoleUserID != 9 || usersService.lastRoleActorID != 1 || usersService.lastRole != "admin" {
+		t.Fatalf("unexpected role update routing: org=%d user=%d actor=%d role=%q", usersService.lastRoleOrgID, usersService.lastRoleUserID, usersService.lastRoleActorID, usersService.lastRole)
 	}
 }
 

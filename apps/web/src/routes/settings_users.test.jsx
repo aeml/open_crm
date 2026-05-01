@@ -50,6 +50,14 @@ describe('settings users route', () => {
           }
         })
       })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 3, email: 'ops@acme.test', firstName: 'Ops', lastName: 'Lead', role: 'admin' }
+          }
+        })
+      })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/settings/users')
@@ -63,7 +71,7 @@ describe('settings users route', () => {
     fireEvent.change(screen.getByLabelText(/first name/i), { target: { value: 'Ops' } })
     fireEvent.change(screen.getByLabelText(/last name/i), { target: { value: 'Lead' } })
     fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'ops@acme.test' } })
-    fireEvent.change(screen.getByLabelText(/role/i), { target: { value: 'member' } })
+    fireEvent.change(screen.getByLabelText(/^role$/i), { target: { value: 'member' } })
     fireEvent.click(screen.getByRole('button', { name: /invite user/i }))
 
     await waitFor(() => {
@@ -78,6 +86,18 @@ describe('settings users route', () => {
 
     expect(await screen.findByText('ops@acme.test')).toBeInTheDocument()
     expect(await screen.findByText('/setup-password?token=setup-token-123')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/role for ops@acme.test/i), { target: { value: 'admin' } })
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/api\/users\/3\/role$/),
+        expect.objectContaining({
+          method: 'PATCH',
+          credentials: 'include'
+        })
+      )
+    })
   })
 
   it('hides create form for non-admin members', async () => {

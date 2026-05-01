@@ -10,10 +10,14 @@ import (
 	"time"
 
 	platformauth "github.com/aeml/open_crm/apps/api/internal/platform/auth"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrInvalidSetupToken = errors.New("invalid setup token")
+var (
+	ErrInvalidSetupToken = errors.New("invalid setup token")
+	ErrNotFound          = errors.New("user not found")
+)
 
 const setupTokenTTL = 7 * 24 * time.Hour
 
@@ -37,6 +41,12 @@ type CreateUserInput struct {
 type CompleteSetupInput struct {
 	Token    string `json:"token"`
 	Password string `json:"password"`
+}
+
+type SetupCompletion struct {
+	UserID         int64
+	OrganizationID int64
+	Email          string
 }
 
 type Service struct {
@@ -145,40 +155,79 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 	}, nil
 }
 
-func (s *Service) CompleteSetup(ctx context.Context, input CompleteSetupInput) error {
+func (s *Service) UpdateRole(ctx context.Context, organizationID, userID, _ int64, role string) (UserSummary, error) {
 	if s == nil || s.pool == nil {
-		return fmt.Errorf("users service not configured")
+		return UserSummary{}, fmt.Errorf("users service not configured")
+	}
+
+	role = strings.TrimSpace(strings.ToLower(role))
+	if role == "" {
+		return UserSummary{}, fmt.Errorf("role is required")
+	}
+
+	var updated UserSummary
+	err := s.pool.QueryRow(ctx, `
+		UPDATE organization_memberships om
+		SET role = $3
+		FROM users u
+		WHERE om.organization_id = $1 AND om.user_id = $2 AND u.id = om.user_id
+		RETURNING u.id, u.email, u.first_name, u.last_name, om.role
+	`, organizationID, userID, role).Scan(&updated.ID, &updated.Email, &updated.FirstName, &updated.LastName, &updated.Role)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return UserSummary{}, ErrNotFound
+		}
+		return UserSummary{}, fmt.Errorf("update user role: %w", err)
+	}
+	return updated, nil
+}
+
+func (s *Service) CompleteSetup(ctx context.Context, input CompleteSetupInput) (SetupCompletion, error) {
+	if s == nil || s.pool == nil {
+		return SetupCompletion{}, fmt.Errorf("users service not configured")
 	}
 
 	input.Token = strings.TrimSpace(input.Token)
 	input.Password = strings.TrimSpace(input.Password)
 	if input.Token == "" || input.Password == "" {
-		return ErrInvalidSetupToken
+		return SetupCompletion{}, ErrInvalidSetupToken
 	}
 
 	passwordHash, err := platformauth.HashPassword(input.Password)
 	if err != nil {
-		return fmt.Errorf("hash setup password: %w", err)
+		return SetupCompletion{}, fmt.Errorf("hash setup password: %w", err)
 	}
 
-	updated, err := s.pool.Exec(ctx, `
-		UPDATE users
-		SET password_hash = $2,
-		    password_setup_token_hash = NULL,
-		    password_setup_expires_at = NULL,
-		    password_setup_consumed_at = NOW(),
-		    updated_at = NOW()
-		WHERE password_setup_token_hash = $1
-		  AND password_setup_expires_at > NOW()
-		  AND password_setup_consumed_at IS NULL
-	`, hashSetupToken(input.Token), passwordHash)
+	var completed SetupCompletion
+	err = s.pool.QueryRow(ctx, `
+		WITH updated_user AS (
+			UPDATE users
+			SET password_hash = $2,
+			    password_setup_token_hash = NULL,
+			    password_setup_expires_at = NULL,
+			    password_setup_consumed_at = NOW(),
+			    updated_at = NOW()
+			WHERE password_setup_token_hash = $1
+			  AND password_setup_expires_at > NOW()
+			  AND password_setup_consumed_at IS NULL
+			RETURNING id, email
+		)
+		SELECT u.id, om.organization_id, u.email
+		FROM updated_user u
+		JOIN organization_memberships om ON om.user_id = u.id
+		ORDER BY om.id ASC
+		LIMIT 1
+	`, hashSetupToken(input.Token), passwordHash).Scan(&completed.UserID, &completed.OrganizationID, &completed.Email)
 	if err != nil {
-		return fmt.Errorf("complete password setup: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SetupCompletion{}, ErrInvalidSetupToken
+		}
+		return SetupCompletion{}, fmt.Errorf("complete password setup: %w", err)
 	}
-	if updated.RowsAffected() == 0 {
-		return ErrInvalidSetupToken
+	if completed.OrganizationID <= 0 {
+		return SetupCompletion{}, ErrInvalidSetupToken
 	}
-	return nil
+	return completed, nil
 }
 
 func hashSetupToken(token string) string {

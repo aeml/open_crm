@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
-import { createOrganizationUser, listOrganizationUsers } from '../lib/users'
+import { createOrganizationUser, listOrganizationUsers, updateOrganizationUserRole } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 
@@ -22,6 +22,7 @@ export function SettingsUsersRoute() {
   const [form, setForm] = useState(emptyForm)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [savingRoleUserId, setSavingRoleUserId] = useState(0)
   const [latestSetupLink, setLatestSetupLink] = useState('')
 
   async function loadUsers({ signal } = {}) {
@@ -74,6 +75,19 @@ export function SettingsUsersRoute() {
     }
   }
 
+  async function handleRoleChange(userId, role) {
+    setSavingRoleUserId(userId)
+    setError('')
+    try {
+      const updated = await updateOrganizationUserRole(userId, role)
+      setUsers((current) => current.map((user) => (user.id === userId ? updated : user)))
+    } catch (submitError) {
+      setError(submitError.message || 'Unable to update user role.')
+    } finally {
+      setSavingRoleUserId(0)
+    }
+  }
+
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
@@ -113,7 +127,14 @@ export function SettingsUsersRoute() {
                   <p>{user.email}</p>
                 </div>
                 <div>
-                  <p>{user.role}</p>
+                  {canManageUsers ? (
+                    <select className="text-input" aria-label={`Role for ${user.email}`} value={user.role} onChange={(event) => handleRoleChange(user.id, event.target.value)} disabled={savingRoleUserId === user.id}>
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                      <option value="viewer">Viewer</option>
+                      <option value="owner">Owner</option>
+                    </select>
+                  ) : <p>{user.role}</p>}
                 </div>
               </article>
             ))}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
+	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
@@ -41,7 +42,13 @@ type authService interface {
 type usersService interface {
 	ListByOrganization(context.Context, int64) ([]moduleusers.UserSummary, error)
 	CreateForOrganization(context.Context, int64, moduleusers.CreateUserInput) (moduleusers.UserSummary, error)
-	CompleteSetup(context.Context, moduleusers.CompleteSetupInput) error
+	UpdateRole(context.Context, int64, int64, int64, string) (moduleusers.UserSummary, error)
+	CompleteSetup(context.Context, moduleusers.CompleteSetupInput) (moduleusers.SetupCompletion, error)
+}
+
+type auditService interface {
+	ListByOrganization(context.Context, int64, moduleaudit.ListQuery) ([]moduleaudit.Event, error)
+	Record(context.Context, int64, moduleaudit.RecordInput) error
 }
 
 type contactsService interface {
@@ -112,6 +119,7 @@ type Dependencies struct {
 	Logger            *slog.Logger
 	AuthService       authService
 	UsersService      usersService
+	AuditService      auditService
 	ContactsService   contactsService
 	CompaniesService  companiesService
 	DealsService      dealsService
@@ -161,6 +169,10 @@ type createUserRequest struct {
 	Role      string `json:"role"`
 }
 
+type updateUserRoleRequest struct {
+	Role string `json:"role"`
+}
+
 type completeUserSetupRequest struct {
 	Token    string `json:"token"`
 	Password string `json:"password"`
@@ -178,6 +190,15 @@ type usersListResponse struct {
 type userResponse struct {
 	Data struct {
 		User moduleusers.UserSummary `json:"user"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type auditEventsResponse struct {
+	Data struct {
+		Events []moduleaudit.Event `json:"events"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -471,14 +492,20 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleListUsers(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateUser(dependencies.AuthService, dependencies.UsersService, w, r)
+		handleCreateUser(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/users/{userID}/role", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateUserRole(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)
 	})
 	mux.HandleFunc("POST /auth/setup-password", func(w http.ResponseWriter, r *http.Request) {
 		if !rateLimiter.allow(authRateLimitKey(r)) {
 			platformweb.WriteError(w, http.StatusTooManyRequests, platformweb.RequestIDFromContext(r.Context()), "RATE_LIMITED", "Too many authentication attempts")
 			return
 		}
-		handleCompleteUserSetup(dependencies.UsersService, w, r)
+		handleCompleteUserSetup(dependencies.UsersService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("GET /api/audit-events", func(w http.ResponseWriter, r *http.Request) {
+		handleListAuditEvents(dependencies.AuthService, dependencies.AuditService, w, r)
 	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)
@@ -574,7 +601,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleGetOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/organization/profile", func(w http.ResponseWriter, r *http.Request) {
-		handleUpdateOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, w, r)
+		handleUpdateOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, dependencies.AuditService, w, r)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		respondStatus(w, r, http.StatusOK, "ok")
