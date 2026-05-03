@@ -12,7 +12,7 @@ import (
 
 func handleListContacts(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -48,7 +48,7 @@ func handleListContacts(auth authService, contacts contactsService, w http.Respo
 
 func handleGetContact(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -75,7 +75,7 @@ func handleGetContact(auth authService, contacts contactsService, w http.Respons
 
 func handleCreateContact(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -107,7 +107,7 @@ func handleCreateContact(auth authService, contacts contactsService, w http.Resp
 
 func handleUpdateContact(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -146,7 +146,7 @@ func handleUpdateContact(auth authService, contacts contactsService, w http.Resp
 
 func handleArchiveContact(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -172,7 +172,7 @@ func handleArchiveContact(auth authService, contacts contactsService, w http.Res
 
 func handleListCompanies(auth authService, companies companiesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -208,7 +208,7 @@ func handleListCompanies(auth authService, companies companiesService, w http.Re
 
 func handleGetCompany(auth authService, companies companiesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -235,7 +235,7 @@ func handleGetCompany(auth authService, companies companiesService, w http.Respo
 
 func handleCreateCompany(auth authService, companies companiesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -267,7 +267,7 @@ func handleCreateCompany(auth authService, companies companiesService, w http.Re
 
 func handleUpdateCompany(auth authService, companies companiesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -306,7 +306,7 @@ func handleUpdateCompany(auth authService, companies companiesService, w http.Re
 
 func handleArchiveCompany(auth authService, companies companiesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}

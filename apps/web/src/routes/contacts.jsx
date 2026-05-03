@@ -102,6 +102,7 @@ export function ContactsRoute() {
   const routeContactId = Number.parseInt(contactId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
+  const canWrite = ['owner', 'admin', 'member'].includes(session?.membership?.role)
   const pipelineLabels = relatedPipelineLabels(businessType)
   usePageTitle('Contacts')
   const initialSearch = searchParams.get('q') || ''
@@ -567,17 +568,19 @@ export function ContactsRoute() {
               <a className="button button-secondary" href={contactsExportURL(search)}>
                 Export CSV
               </a>
-              <Button
-                onClick={() => {
-                  navigate('/contacts')
-                  setMode('create')
-                  setForm(emptyForm)
-                  setDetail(null)
-                  setSelectedContactId(null)
-                }}
-              >
-                Add contact
-              </Button>
+              {canWrite ? (
+                <Button
+                  onClick={() => {
+                    navigate('/contacts')
+                    setMode('create')
+                    setForm(emptyForm)
+                    setDetail(null)
+                    setSelectedContactId(null)
+                  }}
+                >
+                  Add contact
+                </Button>
+              ) : null}
             </div>
           </div>
           <Field label="Search contacts">
@@ -633,7 +636,7 @@ export function ContactsRoute() {
               <EmptyState
                 title={hasFilter ? 'No contacts match the current filters.' : 'No contacts yet.'}
                 description={hasFilter ? 'Try a different name, email, phone number, or change the owner filter.' : 'Add the first person you need to follow up with. You can link contacts to clients, deals, notes, and tasks later.'}
-                actionLabel={hasFilter ? 'Clear filters' : 'Create first contact'}
+                actionLabel={hasFilter ? 'Clear filters' : (canWrite ? 'Create first contact' : '')}
                 onAction={() => {
                   if (hasFilter) {
                     setSearch('')
@@ -669,7 +672,7 @@ export function ContactsRoute() {
         </div>
       </Card>
 
-      {mode === 'create' ? (
+      {canWrite && mode === 'create' ? (
         <Card>
           <div className="card-stack">
             <div>
@@ -725,9 +728,11 @@ export function ContactsRoute() {
                 <h2>{detailTitle}</h2>
                 <p>{selectedContact.email || formatAddress(selectedContact) || selectedContact.phone}</p>
               </div>
-              <Button className="button-danger" onClick={handleArchive}>
-                Archive contact
-              </Button>
+              {canWrite ? (
+                <Button className="button-danger" onClick={handleArchive}>
+                  Archive contact
+                </Button>
+              ) : null}
             </div>
             <form className="auth-form" onSubmit={handleUpdate}>
               <Field label="First name">
@@ -770,7 +775,7 @@ export function ContactsRoute() {
                   <option value="prospect">Prospect</option>
                 </select>
               </Field>
-              <Button type="submit">Update contact</Button>
+              {canWrite ? <Button type="submit">Update contact</Button> : null}
             </form>
             <Card>
               <div className="card-stack">
@@ -779,9 +784,11 @@ export function ContactsRoute() {
                     <h3>{`Related ${pipelineLabels.plural.toLowerCase()}`}</h3>
                     <p>{`See active ${pipelineLabels.plural.toLowerCase()} tied to this contact.`}</p>
                   </div>
-                  <Button className="button-secondary" onClick={handleCreateRelatedDeal}>
-                    {`Create ${pipelineLabels.singular}`}
-                  </Button>
+                  {canWrite ? (
+                    <Button className="button-secondary" onClick={handleCreateRelatedDeal}>
+                      {`Create ${pipelineLabels.singular}`}
+                    </Button>
+                  ) : null}
                 </div>
                 <div className="record-list" role="list" aria-label="Related deals list">
                   {selectedDeals.length === 0 ? (
@@ -810,12 +817,14 @@ export function ContactsRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Notes</h3>
-                <form className="auth-form" onSubmit={handleCreateNote}>
-                  <Field label="New note">
-                    <textarea className="text-input" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={4} />
-                  </Field>
-                  <Button type="submit">Add note</Button>
-                </form>
+                {canWrite ? (
+                  <form className="auth-form" onSubmit={handleCreateNote}>
+                    <Field label="New note">
+                      <textarea className="text-input" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={4} />
+                    </Field>
+                    <Button type="submit">Add note</Button>
+                  </form>
+                ) : null}
                 <div className="record-list" role="list" aria-label="Notes list">
                   {selectedNotes.map((note) => (
                     <article className="record-row" key={note.id} role="listitem">
@@ -836,25 +845,27 @@ export function ContactsRoute() {
                     Open in tasks
                   </Button>
                 </div>
-                <form className="auth-form" onSubmit={handleCreateTask}>
-                  <Field label="Task title">
-                    <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
-                  </Field>
-                  <Field label="Task description">
-                    <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
-                  </Field>
-                  <Field label="Assigned to">
-                    <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
-                      {userOptions.map((user) => (
-                        <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Due at">
-                    <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
-                  </Field>
-                  <Button type="submit">Save task</Button>
-                </form>
+                {canWrite ? (
+                  <form className="auth-form" onSubmit={handleCreateTask}>
+                    <Field label="Task title">
+                      <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
+                    </Field>
+                    <Field label="Task description">
+                      <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
+                    </Field>
+                    <Field label="Assigned to">
+                      <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
+                        {userOptions.map((user) => (
+                          <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Due at">
+                      <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
+                    </Field>
+                    <Button type="submit">Save task</Button>
+                  </form>
+                ) : null}
                 <div className="record-list" role="list" aria-label="Contact tasks list">
                   {selectedTasks.map((task) => (
                     <article className="record-row" key={task.id} role="listitem">

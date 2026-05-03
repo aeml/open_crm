@@ -38,8 +38,8 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.3.9` Release Readiness Review: complete.
 - `0.4.0` Multi-User Team CRM: complete.
 - `0.4.1` User Profile And Preferences: complete.
-- `0.4.2` Team Assignment Views: planned.
-- `0.4.3` Role Permissions Pass: planned.
+- `0.4.2` Team Assignment Views: complete.
+- `0.4.3` Role Permissions Pass: complete.
 - `0.4.4` Notification Preferences: planned.
 - `0.4.5` Mention And Follow Model: planned.
 - `0.4.6` Team Activity Digest: planned.
@@ -695,7 +695,7 @@ Completion notes:
 
 ## Version 0.4.2 - Team Assignment Views
 
-Status: planned.
+Status: complete.
 
 Goal: make assigned work and owned records easier to review.
 
@@ -708,6 +708,15 @@ Exit criteria:
 
 - Users can quickly find their work and unowned work.
 - Team leads can see assignment gaps.
+
+Completion notes:
+
+- Added `UnassignedOnly bool` to all four `ListQuery` structs (tasks, deals, contacts, companies); SQL filter builders emit `AND <col> IS NULL` when set.
+- API handlers parse `?unassigned=true` and `?assignedToUserId=` / `?ownerUserId=` parameters.
+- Frontend libs (`tasks.js`, `deals.js`, `contacts.js`, `companies.js`) pass `unassigned=true` or owner/assignee user ID to the server.
+- All four list routes updated: server-side "Mine" button (sets `currentUserId`), "Unassigned" button, and teammate dropdown; assignee/owner state persisted in URL.
+- `matchesAssignee` also applied client-side for immediate UI feedback while server reload settles, consistent with entity-type filter pattern.
+- 65/65 frontend tests pass; Go compiles clean.
 
 ## Version 0.4.3 - Role Permissions Pass
 

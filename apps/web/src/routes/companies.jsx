@@ -309,6 +309,7 @@ export function CompaniesRoute() {
   const routeCompanyId = Number.parseInt(companyId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
+  const canWrite = ['owner', 'admin', 'member'].includes(session?.membership?.role)
   const pipelineLabels = relatedPipelineLabels(businessType)
   usePageTitle('Companies')
   const initialSearch = searchParams.get('q') || ''
@@ -899,19 +900,21 @@ export function CompaniesRoute() {
               <a className="button button-secondary" href={companiesExportURL(search)}>
                 Export CSV
               </a>
-              <Button
-                onClick={() => {
-                  navigate('/companies')
-                  setMode('create')
-                  setForm(emptyForm)
-                  setLinkedPersonForm(emptyLinkedPersonForm)
-                  setShowLinkedPersonForm(false)
-                  setDetail(null)
-                  setSelectedCompanyId(null)
-                }}
-              >
-                Add client
-              </Button>
+              {canWrite ? (
+                <Button
+                  onClick={() => {
+                    navigate('/companies')
+                    setMode('create')
+                    setForm(emptyForm)
+                    setLinkedPersonForm(emptyLinkedPersonForm)
+                    setShowLinkedPersonForm(false)
+                    setDetail(null)
+                    setSelectedCompanyId(null)
+                  }}
+                >
+                  Add client
+                </Button>
+              ) : null}
             </div>
           </div>
           <Field label="Search clients">
@@ -967,7 +970,7 @@ export function CompaniesRoute() {
               <EmptyState
                 title={hasFilter ? 'No clients match the current filters.' : 'No clients yet.'}
                 description={hasFilter ? 'Try a different client, website, or contact name, or change the owner filter.' : 'Create an organization or individual client so your contacts, deals, jobs, notes, and tasks have a home.'}
-                actionLabel={hasFilter ? 'Clear filters' : 'Create first client'}
+                actionLabel={hasFilter ? 'Clear filters' : (canWrite ? 'Create first client' : '')}
                 onAction={() => {
                   if (hasFilter) {
                     setSearch('')
@@ -1005,7 +1008,7 @@ export function CompaniesRoute() {
         </div>
       </Card>
 
-      {mode === 'create' ? (
+      {canWrite && mode === 'create' ? (
         <Card>
             <div className="card-stack">
               <div>
@@ -1089,9 +1092,11 @@ export function CompaniesRoute() {
                 <h2>{detailTitle}</h2>
                 <p>{detailSubtitle(selectedCompany, linkedContacts)}</p>
               </div>
-              <Button className="button-danger" onClick={handleArchive}>
-                Archive client
-              </Button>
+              {canWrite ? (
+                <Button className="button-danger" onClick={handleArchive}>
+                  Archive client
+                </Button>
+              ) : null}
             </div>
             <form className="auth-form" onSubmit={handleUpdate}>
               <Field label="Client type">
@@ -1162,7 +1167,7 @@ export function CompaniesRoute() {
                   </Field>
                 </>
               ) : null}
-              <Button type="submit">Update client</Button>
+              {canWrite ? <Button type="submit">Update client</Button> : null}
             </form>
             <Card>
               <div className="card-stack">
@@ -1171,7 +1176,7 @@ export function CompaniesRoute() {
                     <h3>People</h3>
                     <p>{normalizeClientType(selectedCompany.clientType) === 'individual' ? 'Manage the linked person for this client.' : 'Add and manage the people tied to this client.'}</p>
                   </div>
-                  {!isIndividualClient(selectedCompany.clientType) ? (
+                  {!isIndividualClient(selectedCompany.clientType) && canWrite ? (
                     <Button className="button-secondary" onClick={() => {
                       setLinkedPersonForm(linkedPersonFormValues(selectedCompany))
                       setShowLinkedPersonForm((current) => !current)
@@ -1180,7 +1185,7 @@ export function CompaniesRoute() {
                     </Button>
                   ) : null}
                 </div>
-                {showLinkedPersonForm && !isIndividualClient(selectedCompany.clientType) ? (
+                {showLinkedPersonForm && !isIndividualClient(selectedCompany.clientType) && canWrite ? (
                   <form className="auth-form" onSubmit={handleCreateLinkedPerson}>
                     <Field label="First name">
                       <input className="text-input" value={linkedPersonForm.firstName} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, firstName: event.target.value }))} required />
@@ -1231,9 +1236,11 @@ export function CompaniesRoute() {
                     <h3>{`Related ${pipelineLabels.plural.toLowerCase()}`}</h3>
                     <p>{`See active ${pipelineLabels.plural.toLowerCase()} tied to this client.`}</p>
                   </div>
-                  <Button className="button-secondary" onClick={handleCreateRelatedDeal}>
-                    {`Create ${pipelineLabels.singular}`}
-                  </Button>
+                  {canWrite ? (
+                    <Button className="button-secondary" onClick={handleCreateRelatedDeal}>
+                      {`Create ${pipelineLabels.singular}`}
+                    </Button>
+                  ) : null}
                 </div>
                 <div className="record-list" role="list" aria-label="Related deals list">
                   {selectedDeals.length === 0 ? (
@@ -1262,12 +1269,14 @@ export function CompaniesRoute() {
             <Card>
               <div className="card-stack">
                 <h3>Notes</h3>
-                <form className="auth-form" onSubmit={handleCreateNote}>
-                  <Field label="New note">
-                    <textarea className="text-input" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={4} />
-                  </Field>
-                  <Button type="submit">Add note</Button>
-                </form>
+                {canWrite ? (
+                  <form className="auth-form" onSubmit={handleCreateNote}>
+                    <Field label="New note">
+                      <textarea className="text-input" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={4} />
+                    </Field>
+                    <Button type="submit">Add note</Button>
+                  </form>
+                ) : null}
                 <div className="record-list" role="list" aria-label="Client notes list">
                   {selectedNotes.map((note) => (
                     <article className="record-row" key={note.id} role="listitem">
@@ -1288,25 +1297,27 @@ export function CompaniesRoute() {
                     Open in tasks
                   </Button>
                 </div>
-                <form className="auth-form" onSubmit={handleCreateTask}>
-                  <Field label="Task title">
-                    <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
-                  </Field>
-                  <Field label="Task description">
-                    <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
-                  </Field>
-                  <Field label="Assigned to">
-                    <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
-                      {userOptions.map((user) => (
-                        <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Due at">
-                    <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
-                  </Field>
-                  <Button type="submit">Save task</Button>
-                </form>
+                {canWrite ? (
+                  <form className="auth-form" onSubmit={handleCreateTask}>
+                    <Field label="Task title">
+                      <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
+                    </Field>
+                    <Field label="Task description">
+                      <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
+                    </Field>
+                    <Field label="Assigned to">
+                      <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
+                        {userOptions.map((user) => (
+                          <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Due at">
+                      <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
+                    </Field>
+                    <Button type="submit">Save task</Button>
+                  </form>
+                ) : null}
                 <div className="record-list" role="list" aria-label="Client tasks list">
                   {selectedTasks.map((task) => (
                     <article className="record-row" key={task.id} role="listitem">

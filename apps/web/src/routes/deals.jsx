@@ -134,6 +134,7 @@ export function DealsRoute() {
   const routeDealId = Number.parseInt(dealId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
+  const canWrite = ['owner', 'admin', 'member'].includes(session?.membership?.role)
   const labels = pipelineLabels(businessType)
   usePageTitle(labels.collection)
   const initialSearch = searchParams.get('q') || ''
@@ -698,59 +699,61 @@ export function DealsRoute() {
         </div>
       </Card>
 
-      <Card>
-        <div className="card-stack">
-          <div>
-            <h2>{labels.createHeading}</h2>
-            <p>{labels.createDescription}</p>
+      {canWrite ? (
+        <Card>
+          <div className="card-stack">
+            <div>
+              <h2>{labels.createHeading}</h2>
+              <p>{labels.createDescription}</p>
+            </div>
+            <form className="auth-form" onSubmit={handleCreate}>
+              <Field label={`${labels.singular} name`}>
+                <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
+              </Field>
+              <Field label="Stage">
+                <select className="text-input" value={form.stageId} onChange={(event) => setForm((current) => ({ ...current, stageId: event.target.value }))}>
+                  {stages.map((stage) => (
+                    <option key={stage.id} value={stage.id}>{stage.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={labels.companyLabel}>
+                <select className="text-input" value={form.companyId} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}>
+                  <option value="">{labels.companyEmpty}</option>
+                  {companyOptions.map((company) => (
+                    <option key={company.id} value={company.id}>{company.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={labels.contactLabel}>
+                <select className="text-input" value={form.primaryContactId} onChange={(event) => setForm((current) => ({ ...current, primaryContactId: event.target.value }))}>
+                  <option value="">{labels.contactEmpty}</option>
+                  {contactOptions.map((contact) => (
+                    <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={labels.valueLabel}>
+                <input className="text-input" value={form.valueAmount} onChange={(event) => setForm((current) => ({ ...current, valueAmount: event.target.value }))} />
+              </Field>
+              <Field label="Value currency">
+                <input className="text-input" value={form.valueCurrency} onChange={(event) => setForm((current) => ({ ...current, valueCurrency: event.target.value }))} />
+              </Field>
+              <Field label={labels.dateLabel}>
+                <input className="text-input" type="date" value={form.expectedCloseDate} onChange={(event) => setForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
+              </Field>
+              <Field label="Owner">
+                <select className="text-input" value={form.ownerUserId} onChange={(event) => setForm((current) => ({ ...current, ownerUserId: event.target.value }))}>
+                  {userOptions.map((user) => (
+                    <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                  ))}
+                </select>
+              </Field>
+              <Button type="submit">{`Save ${labels.singular.toLowerCase()}`}</Button>
+            </form>
           </div>
-          <form className="auth-form" onSubmit={handleCreate}>
-            <Field label={`${labels.singular} name`}>
-              <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
-            </Field>
-            <Field label="Stage">
-              <select className="text-input" value={form.stageId} onChange={(event) => setForm((current) => ({ ...current, stageId: event.target.value }))}>
-                {stages.map((stage) => (
-                  <option key={stage.id} value={stage.id}>{stage.name}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label={labels.companyLabel}>
-              <select className="text-input" value={form.companyId} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}>
-                <option value="">{labels.companyEmpty}</option>
-                {companyOptions.map((company) => (
-                  <option key={company.id} value={company.id}>{company.name}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label={labels.contactLabel}>
-              <select className="text-input" value={form.primaryContactId} onChange={(event) => setForm((current) => ({ ...current, primaryContactId: event.target.value }))}>
-                <option value="">{labels.contactEmpty}</option>
-                {contactOptions.map((contact) => (
-                  <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label={labels.valueLabel}>
-              <input className="text-input" value={form.valueAmount} onChange={(event) => setForm((current) => ({ ...current, valueAmount: event.target.value }))} />
-            </Field>
-            <Field label="Value currency">
-              <input className="text-input" value={form.valueCurrency} onChange={(event) => setForm((current) => ({ ...current, valueCurrency: event.target.value }))} />
-            </Field>
-            <Field label={labels.dateLabel}>
-              <input className="text-input" type="date" value={form.expectedCloseDate} onChange={(event) => setForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
-            </Field>
-            <Field label="Owner">
-              <select className="text-input" value={form.ownerUserId} onChange={(event) => setForm((current) => ({ ...current, ownerUserId: event.target.value }))}>
-                {userOptions.map((user) => (
-                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                ))}
-              </select>
-            </Field>
-            <Button type="submit">{`Save ${labels.singular.toLowerCase()}`}</Button>
-          </form>
-        </div>
-      </Card>
+        </Card>
+      ) : null}
 
       {selectedDeal ? (
         <Card>
@@ -761,9 +764,11 @@ export function DealsRoute() {
                 <h2>{selectedDeal.name}</h2>
                 <p>{selectedDeal.companyName || labels.companyEmpty}</p>
               </div>
-              <Button className="button-danger" onClick={handleArchive}>
-                {labels.archiveAction}
-              </Button>
+              {canWrite ? (
+                <Button className="button-danger" onClick={handleArchive}>
+                  {labels.archiveAction}
+                </Button>
+              ) : null}
             </div>
             <form className="auth-form" aria-label="Deal details form" onSubmit={handleUpdate}>
               <Field label={`${labels.singular} name`}>
@@ -808,25 +813,31 @@ export function DealsRoute() {
                   ))}
                 </select>
               </Field>
-              <Button type="submit">{`Update ${labels.singular.toLowerCase()}`}</Button>
+              {canWrite ? <Button type="submit">{`Update ${labels.singular.toLowerCase()}`}</Button> : null}
             </form>
-            <Field label={labels.moveLabel}>
-              <select className="text-input" value={selectedStageId} onChange={(event) => setSelectedStageId(event.target.value)}>
-                {stages.map((stage) => (
-                  <option key={stage.id} value={stage.id}>{stage.name}</option>
-                ))}
-              </select>
-            </Field>
-            <Button onClick={handleMoveStage}>{labels.moveAction}</Button>
+            {canWrite ? (
+              <>
+                <Field label={labels.moveLabel}>
+                  <select className="text-input" value={selectedStageId} onChange={(event) => setSelectedStageId(event.target.value)}>
+                    {stages.map((stage) => (
+                      <option key={stage.id} value={stage.id}>{stage.name}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Button onClick={handleMoveStage}>{labels.moveAction}</Button>
+              </>
+            ) : null}
             <Card>
               <div className="card-stack">
                 <h3>Notes</h3>
-                <form className="auth-form" onSubmit={handleCreateNote}>
-                  <Field label="New note">
-                    <textarea className="text-input" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={4} />
-                  </Field>
-                  <Button type="submit">Add note</Button>
-                </form>
+                {canWrite ? (
+                  <form className="auth-form" onSubmit={handleCreateNote}>
+                    <Field label="New note">
+                      <textarea className="text-input" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={4} />
+                    </Field>
+                    <Button type="submit">Add note</Button>
+                  </form>
+                ) : null}
                 <div className="record-list" role="list" aria-label={labels.notesAria}>
                   {notes.map((note) => (
                     <article className="record-row" key={note.id} role="listitem">
@@ -847,25 +858,27 @@ export function DealsRoute() {
                     Open in tasks
                   </Button>
                 </div>
-                <form className="auth-form" onSubmit={handleCreateTask}>
-                  <Field label="Task title">
-                    <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
-                  </Field>
-                  <Field label="Task description">
-                    <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
-                  </Field>
-                  <Field label="Assigned to">
-                    <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
-                      {userOptions.map((user) => (
-                        <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Due at">
-                    <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
-                  </Field>
-                  <Button type="submit">Save task</Button>
-                </form>
+                {canWrite ? (
+                  <form className="auth-form" onSubmit={handleCreateTask}>
+                    <Field label="Task title">
+                      <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
+                    </Field>
+                    <Field label="Task description">
+                      <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
+                    </Field>
+                    <Field label="Assigned to">
+                      <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
+                        {userOptions.map((user) => (
+                          <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Due at">
+                      <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
+                    </Field>
+                    <Button type="submit">Save task</Button>
+                  </form>
+                ) : null}
                 <div className="record-list" role="list" aria-label={labels.tasksAria}>
                   {tasks.map((task) => (
                     <article className="record-row" key={task.id} role="listitem">

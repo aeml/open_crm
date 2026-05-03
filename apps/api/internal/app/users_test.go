@@ -53,6 +53,18 @@ func (f *fakeUsersService) CompleteSetup(_ context.Context, input moduleusers.Co
 	return moduleusers.SetupCompletion{UserID: 9, OrganizationID: 42, Email: "new.admin@acme.test"}, f.setupErr
 }
 
+func (f *fakeUsersService) UpdateProfile(_ context.Context, _ int64, _ moduleusers.UpdateProfileInput) (moduleusers.UserProfile, error) {
+	return moduleusers.UserProfile{}, nil
+}
+
+func (f *fakeUsersService) GetPreferences(_ context.Context, _ int64) (moduleusers.UserPreferences, error) {
+	return moduleusers.UserPreferences{}, nil
+}
+
+func (f *fakeUsersService) UpdatePreferences(_ context.Context, _ int64, _ moduleusers.UserPreferences) (moduleusers.UserPreferences, error) {
+	return moduleusers.UserPreferences{}, nil
+}
+
 func TestListUsersUsesCurrentSessionOrganization(t *testing.T) {
 	usersService := &fakeUsersService{
 		listResult: []moduleusers.UserSummary{{ID: 1, Email: "owner@acme.test", FirstName: "Demo", LastName: "Owner", Role: "owner"}},
@@ -96,7 +108,10 @@ func TestListUsersUsesCurrentSessionOrganization(t *testing.T) {
 	}
 }
 
-func TestListUsersRejectsNonAdminRoles(t *testing.T) {
+func TestListUsersAllowsAllAuthenticatedRoles(t *testing.T) {
+	// Any org member (including viewer) may list users so that they can see
+	// who to assign tasks, notes, etc. to. Only admin/owner may create or
+	// modify user accounts.
 	server := NewServer(config.Env{}, Dependencies{
 		AuthService: &fakeAuthService{
 			currentSessionResult: moduleauth.SessionState{
@@ -114,8 +129,8 @@ func TestListUsersRejectsNonAdminRoles(t *testing.T) {
 
 	server.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusForbidden {
-		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
 	}
 }
 

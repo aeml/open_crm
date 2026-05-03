@@ -26,7 +26,7 @@ import (
 
 func handleListNotes(auth authService, notes notesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -53,7 +53,7 @@ func handleListNotes(auth authService, notes notesService, w http.ResponseWriter
 
 func handleCreateNote(auth authService, notes notesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -78,7 +78,7 @@ func handleCreateNote(auth authService, notes notesService, w http.ResponseWrite
 
 func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -116,7 +116,7 @@ func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter
 
 func handleCreateTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -140,7 +140,7 @@ func handleCreateTask(auth authService, tasks tasksService, w http.ResponseWrite
 
 func handleGetTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -168,7 +168,7 @@ func handleGetTask(auth authService, tasks tasksService, w http.ResponseWriter, 
 
 func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -199,7 +199,7 @@ func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWrite
 
 func handleArchiveTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -225,7 +225,7 @@ func handleArchiveTask(auth authService, tasks tasksService, w http.ResponseWrit
 
 func handleDashboardSummary(auth authService, dashboard dashboardService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -590,6 +590,33 @@ func recordAuditEvent(r *http.Request, audit auditService, organizationID int64,
 func isOrgAdminRole(role string) bool {
 	role = strings.TrimSpace(strings.ToLower(role))
 	return role == "owner" || role == "admin"
+}
+
+func isOrgWriterRole(role string) bool {
+	role = strings.TrimSpace(strings.ToLower(role))
+	return role == "owner" || role == "admin" || role == "member"
+}
+
+func requireOrgWriter(auth authService, w http.ResponseWriter, r *http.Request) (moduleauth.SessionState, bool) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, err := requireCurrentSession(auth, r)
+	if err != nil {
+		if errors.Is(err, moduleauth.ErrUnauthorized) {
+			platformweb.WriteError(w, http.StatusUnauthorized, requestID, "UNAUTHORIZED", "Authentication required")
+			return moduleauth.SessionState{}, false
+		}
+		if errors.Is(err, errServiceUnavailable) {
+			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Authentication service unavailable")
+			return moduleauth.SessionState{}, false
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load current session")
+		return moduleauth.SessionState{}, false
+	}
+	if !isOrgWriterRole(state.Membership.Role) {
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Member access required")
+		return moduleauth.SessionState{}, false
+	}
+	return state, true
 }
 
 func respondStatus(w http.ResponseWriter, r *http.Request, statusCode int, status string) {

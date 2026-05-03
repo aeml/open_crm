@@ -11,7 +11,7 @@ import (
 
 func handleListSavedViews(auth authService, savedViews savedViewsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -38,7 +38,7 @@ func handleListSavedViews(auth authService, savedViews savedViewsService, w http
 
 func handleCreateSavedView(auth authService, savedViews savedViewsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -61,7 +61,7 @@ func handleCreateSavedView(auth authService, savedViews savedViewsService, w htt
 
 func handleUpdateSavedView(auth authService, savedViews savedViewsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -88,7 +88,7 @@ func handleUpdateSavedView(auth authService, savedViews savedViewsService, w htt
 
 func handleDeleteSavedView(auth authService, savedViews savedViewsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}

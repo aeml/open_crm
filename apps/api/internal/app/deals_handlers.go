@@ -10,7 +10,7 @@ import (
 
 func handleListDealStages(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -33,7 +33,7 @@ func handleListDealStages(auth authService, deals dealsService, w http.ResponseW
 
 func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -71,7 +71,7 @@ func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter
 
 func handleCreateDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -106,7 +106,7 @@ func handleCreateDeal(auth authService, deals dealsService, w http.ResponseWrite
 
 func handleGetDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}
@@ -134,7 +134,7 @@ func handleGetDeal(auth authService, deals dealsService, w http.ResponseWriter, 
 
 func handleUpdateDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -176,7 +176,7 @@ func handleUpdateDeal(auth authService, deals dealsService, w http.ResponseWrite
 
 func handleArchiveDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -203,7 +203,7 @@ func handleArchiveDeal(auth authService, deals dealsService, w http.ResponseWrit
 
 func handleUpdateDealStage(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
