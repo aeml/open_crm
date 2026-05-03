@@ -18,10 +18,10 @@ export function AppHeader() {
   }
 
   return (
-    <header className="app-header">
+    <header className="app-header" aria-label="Site header">
       <div>
         <p className="eyebrow">Workspace</p>
-        <h1>{organizationName}</h1>
+        <p className="org-name">{organizationName}</p>
       </div>
       <div className="app-header-actions">
         <div className="user-pill">{userRole}</div>

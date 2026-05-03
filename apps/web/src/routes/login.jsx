@@ -4,10 +4,12 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
 import { useAuth } from '../app/providers'
+import { usePageTitle } from '../lib/use_page_title'
 
 export function LoginRoute() {
   const { status, login, error: authError } = useAuth()
   const navigate = useNavigate()
+  usePageTitle('Sign in')
   const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -68,7 +70,7 @@ export function LoginRoute() {
                 required
               />
             </Field>
-            {error || authError ? <p className="form-error">{error || authError}</p> : null}
+            {error || authError ? <p className="form-error" role="alert">{error || authError}</p> : null}
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Signing in…' : 'Sign in'}
             </Button>

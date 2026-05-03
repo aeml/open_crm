@@ -4,6 +4,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
 import { useAuth } from '../app/providers'
+import { usePageTitle } from '../lib/use_page_title'
 
 const businessTypeOptions = [
   { value: 'general', label: 'General CRM' },
@@ -15,6 +16,7 @@ const businessTypeOptions = [
 export function BootstrapRoute() {
   const { status, bootstrap, error: authError } = useAuth()
   const navigate = useNavigate()
+  usePageTitle('Create workspace')
   const [organizationName, setOrganizationName] = useState('')
   const [businessType, setBusinessType] = useState('general')
   const [firstName, setFirstName] = useState('')
@@ -78,7 +80,7 @@ export function BootstrapRoute() {
             <Field label="Password">
               <input className="text-input" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
             </Field>
-            {error || authError ? <p className="form-error">{error || authError}</p> : null}
+            {error || authError ? <p className="form-error" role="alert">{error || authError}</p> : null}
             <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Creating…' : 'Create workspace'}</Button>
           </form>
         </div>

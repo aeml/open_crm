@@ -11,7 +11,7 @@ describe('AppShell', () => {
       </MemoryRouter>
     )
 
-    expect(screen.getByRole('heading', { name: /open crm/i })).toBeInTheDocument()
+    expect(screen.getByText(/open crm/i, { selector: '.org-name' })).toBeInTheDocument()
     expect(screen.getByText(/pipeline at a glance/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /clients/i })).toBeInTheDocument()

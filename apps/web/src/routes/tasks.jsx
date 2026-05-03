@@ -14,6 +14,7 @@ import { listContacts } from '../lib/contacts'
 import { listOrganizationUsers } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
+import { usePageTitle } from '../lib/use_page_title'
 
 const emptyForm = {
   title: '',
@@ -317,6 +318,7 @@ export function TasksRoute() {
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
   const labels = taskLabels(businessType)
+  usePageTitle(labels.collection)
   const initialSearch = searchParams.get('q') || ''
   const initialStatusFilter = normalizeTaskStatusFilter(searchParams.get('status'))
   const initialDueView = initialStatusFilter === 'open' ? normalizeDueView(searchParams.get('due')) : 'all'
@@ -819,9 +821,9 @@ export function TasksRoute() {
                 <p>Keep the next real action visible and close it cleanly.</p>
               </div>
             <div className="button-row">
-              <Button className="button-secondary" type="button" onClick={() => { window.location.href = tasksExportURL({ search, status: statusFilter, due: statusFilter === 'open' ? dueView : '', assignee: assigneeFilter === 'all' ? '' : assigneeFilter, entityType: entityTypeFilter === 'all' ? '' : entityTypeFilter, entityId: entityIdFilter }) }}>
+              <a className="button button-secondary" href={tasksExportURL({ search, status: statusFilter, due: statusFilter === 'open' ? dueView : '', assignee: assigneeFilter === 'all' ? '' : assigneeFilter, entityType: entityTypeFilter === 'all' ? '' : entityTypeFilter, entityId: entityIdFilter })}>
                 Export CSV
-              </Button>
+              </a>
               <Button className={statusFilter === 'open' ? '' : 'button-secondary'} onClick={() => handleToggleStatus('open')}>Show open</Button>
               <Button className={statusFilter === 'completed' ? '' : 'button-secondary'} onClick={() => handleToggleStatus('completed')}>Show completed</Button>
             </div>
@@ -845,7 +847,7 @@ export function TasksRoute() {
             </article>
           </div>
           <Field label={labels.searchLabel}>
-            <input className="text-input" value={search} onChange={handleSearchChange} />
+            <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
           <SavedViews
             entityType="tasks"

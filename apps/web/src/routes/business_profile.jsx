@@ -6,6 +6,7 @@ import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { getBusinessProfile, updateBusinessProfile } from '../lib/business_profile'
+import { usePageTitle } from '../lib/use_page_title'
 
 const businessTypeOptions = [
   { value: 'general', label: 'General CRM' },
@@ -16,6 +17,7 @@ const businessTypeOptions = [
 
 export function BusinessProfileRoute() {
   const { session, setBusinessProfile } = useAuth()
+  usePageTitle('Business Profile')
   const role = session?.membership?.role || ''
   const canManageProfile = useMemo(() => ['owner', 'admin'].includes(role), [role])
   const [profile, setProfile] = useState(null)

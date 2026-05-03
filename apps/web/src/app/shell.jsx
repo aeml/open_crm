@@ -33,10 +33,11 @@ export function AppShell({ children }) {
 
   return (
     <div className="app-shell">
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <SideNav />
       <div className="app-main">
         <AppHeader />
-        <main className="app-content">
+        <main className="app-content" id="main-content">
           <PageHeader
             eyebrow={copy.eyebrow}
             title={copy.title}

@@ -21,3 +21,20 @@ a {
 button, input, textarea, select {
   font: inherit;
 }
+
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: var(--space-3);
+  background: var(--accent);
+  color: #fff;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  z-index: 100;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: var(--space-3);
+}

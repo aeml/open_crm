@@ -6,6 +6,7 @@ import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { listAuditEvents } from '../lib/audit'
+import { usePageTitle } from '../lib/use_page_title'
 
 const eventTypeOptions = [
   { value: '', label: 'All administrative events' },
@@ -25,6 +26,7 @@ function formatAuditTimestamp(value) {
 
 export function SettingsAuditRoute() {
   const { session } = useAuth()
+  usePageTitle('Audit Trail')
   const role = session?.membership?.role || ''
   const canReviewAudit = useMemo(() => ['owner', 'admin'].includes(role), [role])
   const [events, setEvents] = useState([])

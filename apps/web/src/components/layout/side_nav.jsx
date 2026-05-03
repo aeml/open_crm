@@ -61,8 +61,8 @@ export function SideNav() {
   const fallbacks = defaultFallbacksForBusinessType(businessType)
 
   return (
-    <aside className="side-nav">
-      <div className="brand-mark">OC</div>
+    <aside className="side-nav" aria-label="Main navigation">
+      <div className="brand-mark" aria-hidden="true">OC</div>
       <nav aria-label="Primary">
         <ul>
           {baseLinks.map((link) => (

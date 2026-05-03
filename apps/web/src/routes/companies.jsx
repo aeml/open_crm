@@ -14,6 +14,7 @@ import { listDeals } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
+import { usePageTitle } from '../lib/use_page_title'
 
 const emptyForm = {
   name: '',
@@ -307,6 +308,7 @@ export function CompaniesRoute() {
   const routeCompanyId = Number.parseInt(companyId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const pipelineLabels = relatedPipelineLabels(businessType)
+  usePageTitle('Companies')
   const initialSearch = searchParams.get('q') || ''
   const [mode, setMode] = useState('list')
   const [companies, setCompanies] = useState([])
@@ -870,9 +872,9 @@ export function CompaniesRoute() {
               <p>See client ownership, linked people, and live pipeline in one place.</p>
             </div>
             <div className="button-row">
-              <Button className="button-secondary" type="button" onClick={() => { window.location.href = companiesExportURL(search) }}>
+              <a className="button button-secondary" href={companiesExportURL(search)}>
                 Export CSV
-              </Button>
+              </a>
               <Button
                 onClick={() => {
                   navigate('/companies')
@@ -889,7 +891,7 @@ export function CompaniesRoute() {
             </div>
           </div>
           <Field label="Search clients">
-            <input className="text-input" value={search} onChange={handleSearchChange} />
+            <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
           <SavedViews entityType="companies" currentFilters={{ q: search }} onApply={handleApplySavedView} defaultName="Client view" />
           {isListLoading ? <p className="field-hint">Loading clients...</p> : null}

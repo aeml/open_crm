@@ -15,6 +15,7 @@ import { listContacts } from '../lib/contacts'
 import { listOrganizationUsers } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
+import { usePageTitle } from '../lib/use_page_title'
 
 const emptyForm = {
   name: '',
@@ -133,6 +134,7 @@ export function DealsRoute() {
   const routeDealId = Number.parseInt(dealId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const labels = pipelineLabels(businessType)
+  usePageTitle(labels.collection)
   const initialSearch = searchParams.get('q') || ''
   const initialStageFilter = searchParams.get('stage') || 'all'
   const initialOwnerFilter = searchParams.get('owner') || 'all'
@@ -587,9 +589,9 @@ export function DealsRoute() {
                 <h2>{labels.collection}</h2>
                 <p>Real pipeline, real stages, no fake dashboard filler.</p>
               </div>
-              <Button className="button-secondary" type="button" onClick={() => { window.location.href = dealsExportURL({ search, stageId: stageFilter === 'all' ? 0 : Number.parseInt(stageFilter, 10) || 0, ownerUserId: ownerFilter === 'all' ? 0 : Number.parseInt(ownerFilter, 10) || 0 }) }}>
+              <a className="button button-secondary" href={dealsExportURL({ search, stageId: stageFilter === 'all' ? 0 : Number.parseInt(stageFilter, 10) || 0, ownerUserId: ownerFilter === 'all' ? 0 : Number.parseInt(ownerFilter, 10) || 0 })}>
                 Export CSV
-              </Button>
+              </a>
             </div>
           <div className="record-list" role="list" aria-label="Pipeline summary">
             <article className="record-row" role="listitem">
@@ -618,7 +620,7 @@ export function DealsRoute() {
             </article>
           </div>
           <Field label={labels.searchLabel}>
-            <input className="text-input" value={search} onChange={handleSearchChange} />
+            <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
           <SavedViews entityType="deals" currentFilters={{ q: search, stage: stageFilter, owner: ownerFilter }} onApply={handleApplySavedView} defaultName={`${labels.singular} view`} />
           <Field label="Stage filter">

@@ -6,6 +6,7 @@ import { InlineError } from '../components/ui/inline_error'
 import { getDashboardSummary } from '../lib/dashboard'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
+import { usePageTitle } from '../lib/use_page_title'
 
 function formatMoney(value) {
   const amount = Number.parseFloat(value || '0')
@@ -96,6 +97,7 @@ export function DashboardRoute() {
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const labels = dashboardLabels(businessType)
+  usePageTitle('Dashboard')
   const [summary, setSummary] = useState({
     pipelineValue: '0',
     openDealsCount: 0,

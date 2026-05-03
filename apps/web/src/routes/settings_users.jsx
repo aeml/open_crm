@@ -6,6 +6,7 @@ import { InlineError } from '../components/ui/inline_error'
 import { createOrganizationUser, listOrganizationUsers, updateOrganizationUserRole } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
+import { usePageTitle } from '../lib/use_page_title'
 
 const emptyForm = {
   firstName: '',
@@ -16,6 +17,7 @@ const emptyForm = {
 
 export function SettingsUsersRoute() {
   const { session } = useAuth()
+  usePageTitle('Users')
   const role = session?.membership?.role || ''
   const canManageUsers = useMemo(() => ['owner', 'admin'].includes(role), [role])
   const [users, setUsers] = useState([])

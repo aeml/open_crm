@@ -13,6 +13,7 @@ import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
+import { usePageTitle } from '../lib/use_page_title'
 
 const emptyForm = {
   firstName: '',
@@ -101,6 +102,7 @@ export function ContactsRoute() {
   const routeContactId = Number.parseInt(contactId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const pipelineLabels = relatedPipelineLabels(businessType)
+  usePageTitle('Contacts')
   const initialSearch = searchParams.get('q') || ''
   const [mode, setMode] = useState('list')
   const [contacts, setContacts] = useState([])
@@ -542,9 +544,9 @@ export function ContactsRoute() {
               <p>Keep the right people moving without a bloated CRM mess.</p>
             </div>
             <div className="button-row">
-              <Button className="button-secondary" type="button" onClick={() => { window.location.href = contactsExportURL(search) }}>
+              <a className="button button-secondary" href={contactsExportURL(search)}>
                 Export CSV
-              </Button>
+              </a>
               <Button
                 onClick={() => {
                   navigate('/contacts')
@@ -559,7 +561,7 @@ export function ContactsRoute() {
             </div>
           </div>
           <Field label="Search contacts">
-            <input className="text-input" value={search} onChange={handleSearchChange} />
+            <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
           <SavedViews entityType="contacts" currentFilters={{ q: search }} onApply={handleApplySavedView} defaultName="Contact view" />
           {isListLoading ? <p className="field-hint">Loading contacts...</p> : null}
