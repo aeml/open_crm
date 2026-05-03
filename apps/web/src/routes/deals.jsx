@@ -133,6 +133,7 @@ export function DealsRoute() {
   const { session, businessProfile } = useAuth()
   const routeDealId = Number.parseInt(dealId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
+  const currentUserId = session?.user?.id ? String(session.user.id) : ''
   const labels = pipelineLabels(businessType)
   usePageTitle(labels.collection)
   const initialSearch = searchParams.get('q') || ''
@@ -186,22 +187,26 @@ export function DealsRoute() {
   }
 
   async function loadDeals(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
+    const isUnassigned = nextOwnerFilter === 'unassigned'
     const loadedDeals = await listDeals({
       search: nextSearch,
       stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
-      ownerUserId: nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
+      unassigned: isUnassigned,
+      ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
     }, { signal })
     setDeals(loadedDeals.deals || [])
     setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
   }
 
   async function loadPipeline(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
+    const isUnassigned = nextOwnerFilter === 'unassigned'
     const [loadedStages, loadedDeals, loadedCompanies, loadedContacts, loadedUsers] = await Promise.all([
       listDealStages({ signal }),
       listDeals({
         search: nextSearch,
         stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
-        ownerUserId: nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
+        unassigned: isUnassigned,
+        ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
       }, { signal }),
       listCompanies('', { signal }),
       listContacts('', { signal }),
@@ -554,11 +559,14 @@ export function DealsRoute() {
     }
   }
 
-  async function handleOwnerFilterChange(event) {
-    const value = event.target.value
+  async function applyOwnerFilter(value) {
     setOwnerFilter(value)
     navigate(buildDealsPath(selectedDealId, search, stageFilter, value), { replace: true })
     await reloadDeals(search, stageFilter, value)
+  }
+
+  async function handleOwnerFilterChange(event) {
+    await applyOwnerFilter(event.target.value)
   }
 
   async function handleApplySavedView(filters) {
@@ -632,12 +640,23 @@ export function DealsRoute() {
             </select>
           </Field>
           <Field label="Owner filter">
-            <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
-              <option value="all">All owners</option>
-              {userOptions.map((user) => (
-                <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-              ))}
-            </select>
+            <div className="button-row">
+              <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
+                <option value="all">All owners</option>
+                <option value="unassigned">Unassigned</option>
+                {userOptions.map((user) => (
+                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                ))}
+              </select>
+              {currentUserId ? (
+                <Button className={ownerFilter === currentUserId ? '' : 'button-secondary'} type="button" onClick={() => applyOwnerFilter(currentUserId)}>
+                  Mine
+                </Button>
+              ) : null}
+              <Button className={ownerFilter === 'unassigned' ? '' : 'button-secondary'} type="button" onClick={() => applyOwnerFilter('unassigned')}>
+                Unassigned
+              </Button>
+            </div>
           </Field>
           {isListLoading ? <p className="field-hint">Loading {labels.showingLabel}...</p> : null}
           {error ? (

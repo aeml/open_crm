@@ -351,7 +351,11 @@ export function TasksRoute() {
   const statusTasks = useMemo(() => tasks.filter((task) => matchesStatus(task, statusFilter)), [statusFilter, tasks])
   const visibleTasks = useMemo(() => {
     const filteredTasks = statusTasks.filter((task) => {
-      if (!matchesAssignee(task, assigneeFilter) || !matchesEntityType(task, entityTypeFilter)) {
+      if (!matchesAssignee(task, assigneeFilter)) {
+        return false
+      }
+
+      if (!matchesEntityType(task, entityTypeFilter)) {
         return false
       }
 
@@ -368,7 +372,7 @@ export function TasksRoute() {
 
     return sortOpenTasks(filteredTasks.filter((task) => matchesDueView(task, dueView)))
   }, [assigneeFilter, dueView, entityIdFilter, entityTypeFilter, statusFilter, statusTasks])
-  const hasFilteredTasks = statusTasks.length > 0
+  const hasFilteredTasks = statusTasks.length > 0 || assigneeFilter !== 'all'
   const emptyMessage = useMemo(() => emptyTaskListMessage(statusFilter, dueView, labels, hasFilteredTasks), [dueView, hasFilteredTasks, labels, statusFilter])
   const emptyDescription = useMemo(() => emptyTaskListDescription(statusFilter, dueView, labels, hasFilteredTasks), [dueView, hasFilteredTasks, labels, statusFilter])
 
@@ -398,12 +402,16 @@ export function TasksRoute() {
     return `${pathname}${suffix}`
   }
 
-  async function loadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, { signal } = {}) {
+  async function loadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, nextAssigneeFilter = assigneeFilter, { signal } = {}) {
+    const isUnassigned = nextAssigneeFilter === unassignedAssigneeFilter
+    const assignedToUserId = isUnassigned ? 0 : (Number.parseInt(nextAssigneeFilter, 10) || 0)
     const data = await listTasks({
       search: nextSearch,
       status: nextStatus,
       entityType: nextEntityTypeFilter === 'all' ? '' : nextEntityTypeFilter,
-      entityId: nextEntityTypeFilter === 'all' ? 0 : Number.parseInt(nextEntityIdFilter, 10) || 0
+      entityId: nextEntityTypeFilter === 'all' ? 0 : Number.parseInt(nextEntityIdFilter, 10) || 0,
+      unassigned: isUnassigned,
+      assignedToUserId
     }, { signal })
     setTasks(data.tasks || [])
     setMeta(data.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
@@ -463,7 +471,7 @@ export function TasksRoute() {
       setIsListLoading(true)
       try {
         await Promise.all([
-          loadTasks(initialSearch, initialStatusFilter, initialEntityTypeFilter, initialEntityIdFilter, { signal: controller.signal }),
+          loadTasks(initialSearch, initialStatusFilter, initialEntityTypeFilter, initialEntityIdFilter, initialAssigneeFilter, { signal: controller.signal }),
           loadDealOptions({ signal: controller.signal }),
           loadCompanyOptions({ signal: controller.signal }),
           loadContactOptions({ signal: controller.signal }),
@@ -545,13 +553,13 @@ export function TasksRoute() {
     }
   }, [detail, detailCache, routeTaskId, selectedTaskId, tasks])
 
-  async function reloadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter) {
+  async function reloadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, nextAssigneeFilter = assigneeFilter) {
     listControllerRef.current?.abort()
     const controller = new AbortController()
     listControllerRef.current = controller
     setIsListLoading(true)
     try {
-      await loadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, { signal: controller.signal })
+      await loadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, nextAssigneeFilter, { signal: controller.signal })
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -571,7 +579,7 @@ export function TasksRoute() {
     const value = event.target.value
     setSearch(value)
     navigate(buildTasksPath(selectedTaskId, value, statusFilter, dueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
-    await reloadTasks(value, statusFilter, entityTypeFilter, entityIdFilter)
+    await reloadTasks(value, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter)
   }
 
   async function handleToggleStatus(nextStatus) {
@@ -579,12 +587,13 @@ export function TasksRoute() {
     setStatusFilter(nextStatus)
     setDueView(nextDueView)
     navigate(buildTasksPath(selectedTaskId, search, nextStatus, nextDueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
-    await reloadTasks(search, nextStatus, entityTypeFilter, entityIdFilter)
+    await reloadTasks(search, nextStatus, entityTypeFilter, entityIdFilter, assigneeFilter)
   }
 
-  function handleAssigneeFilterChange(nextAssigneeFilter) {
+  async function handleAssigneeFilterChange(nextAssigneeFilter) {
     setAssigneeFilter(nextAssigneeFilter)
     navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, nextAssigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
+    await reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, nextAssigneeFilter)
   }
 
   async function handleEntityTypeFilterChange(nextEntityTypeFilter) {
@@ -622,7 +631,7 @@ export function TasksRoute() {
     setEntityIdFilter(nextEntityIdFilter)
     clearSelectedTask()
     navigate(buildTasksPath(null, nextSearch, nextStatus, nextDueView, nextAssigneeFilter, nextEntityTypeFilter, nextEntityIdFilter), { replace: true })
-    await reloadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter)
+    await reloadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, nextAssigneeFilter)
   }
 
   function getDefaultEntityId(nextEntityType) {
@@ -907,7 +916,7 @@ export function TasksRoute() {
           ) : null}
           {isListLoading ? <p className="field-hint">Loading {labels.showingSuffix}...</p> : null}
           {error ? (
-            <InlineError message={error} onRetry={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter)} retryLabel={`Retry ${labels.showingSuffix}`} />
+            <InlineError message={error} onRetry={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter)} retryLabel={`Retry ${labels.showingSuffix}`} />
           ) : null}
           <h3>{summaryLabel}</h3>
           <p className="field-hint">Showing {visibleTasks.length} of {statusTasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>
@@ -925,7 +934,7 @@ export function TasksRoute() {
                   setEntityTypeFilter('all')
                   setEntityIdFilter('')
                   navigate(buildTasksPath(null, '', 'open', 'all', 'all', 'all', ''), { replace: true })
-                  reloadTasks('', 'open', 'all', '')
+                  reloadTasks('', 'open', 'all', '', 'all')
                 }}
               />
             ) : visibleTasks.map((task) => (

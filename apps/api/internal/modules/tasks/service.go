@@ -49,6 +49,7 @@ type ListQuery struct {
 	EntityType       string
 	EntityID         int64
 	AssignedToUserID int64
+	UnassignedOnly   bool
 	Page             int
 	PageSize         int
 }
@@ -573,7 +574,9 @@ func buildTaskFilters(organizationID int64, query ListQuery) (string, []any) {
 		parts = append(parts, fmt.Sprintf(" AND t.entity_id = $%d", len(args)+1))
 		args = append(args, query.EntityID)
 	}
-	if query.AssignedToUserID > 0 {
+	if query.UnassignedOnly {
+		parts = append(parts, " AND t.assigned_to_user_id IS NULL")
+	} else if query.AssignedToUserID > 0 {
 		parts = append(parts, fmt.Sprintf(" AND t.assigned_to_user_id = $%d", len(args)+1))
 		args = append(args, query.AssignedToUserID)
 	}

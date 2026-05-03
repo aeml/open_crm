@@ -87,12 +87,18 @@ func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter
 		return
 	}
 
+	unassignedTasks := r.URL.Query().Get("unassigned") == "true"
+	assignedToUserID := int64(0)
+	if !unassignedTasks {
+		assignedToUserID = moduletasks.ParseInt64(r.URL.Query().Get("assignedToUserId"))
+	}
 	result, err := tasks.ListByOrganization(r.Context(), state.Organization.ID, moduletasks.ListQuery{
 		Search:           strings.TrimSpace(r.URL.Query().Get("q")),
 		Status:           strings.TrimSpace(r.URL.Query().Get("status")),
 		EntityType:       strings.TrimSpace(r.URL.Query().Get("entityType")),
 		EntityID:         moduletasks.ParseInt64(r.URL.Query().Get("entityId")),
-		AssignedToUserID: moduletasks.ParseInt64(r.URL.Query().Get("assignedToUserId")),
+		AssignedToUserID: assignedToUserID,
+		UnassignedOnly:   unassignedTasks,
 		Page:             parsePositiveInt(r.URL.Query().Get("page"), 1),
 		PageSize:         parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
 	})

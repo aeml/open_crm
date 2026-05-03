@@ -542,7 +542,7 @@ describe('tasks flow', () => {
     expect(completedParams.get('due')).toBeNull()
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=completed&entityType=contact&entityId=8&q=morgan$/), expect.any(Object))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=completed&entityType=contact&entityId=8&assignedToUserId=1&q=morgan$/), expect.any(Object))
     })
   })
 })

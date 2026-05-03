@@ -308,6 +308,7 @@ export function CompaniesRoute() {
   const { session, businessProfile } = useAuth()
   const routeCompanyId = Number.parseInt(companyId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
+  const currentUserId = session?.user?.id ? String(session.user.id) : ''
   const pipelineLabels = relatedPipelineLabels(businessType)
   usePageTitle('Companies')
   const initialSearch = searchParams.get('q') || ''
@@ -355,10 +356,11 @@ export function CompaniesRoute() {
   }
 
   async function loadCompanies(nextSearch = '', nextOwner = 'all', { signal } = {}) {
-    const ownerUserId = nextOwner === 'all' ? 0 : Number.parseInt(nextOwner, 10) || 0
+    const isUnassigned = nextOwner === 'unassigned'
+    const ownerUserId = isUnassigned || nextOwner === 'all' ? 0 : Number.parseInt(nextOwner, 10) || 0
     const [companyData, contactData] = await Promise.all([
-      listCompanies({ search: nextSearch, ownerUserId }, { signal }),
-      listContacts({ search: nextSearch, ownerUserId }, { signal })
+      listCompanies({ search: nextSearch, unassigned: isUnassigned, ownerUserId }, { signal }),
+      listContacts({ search: nextSearch, unassigned: isUnassigned, ownerUserId }, { signal })
     ])
 
     if (Array.isArray(companyData?.companies)) {
@@ -474,11 +476,14 @@ export function CompaniesRoute() {
     }
   }
 
-  async function handleOwnerFilterChange(event) {
-    const value = event.target.value
+  async function applyOwnerFilter(value) {
     setOwnerFilter(value)
     navigate(buildCompaniesPath(search, value), { replace: true })
     await reloadCompanies(search, value)
+  }
+
+  async function handleOwnerFilterChange(event) {
+    await applyOwnerFilter(event.target.value)
   }
 
   async function handleDuplicateSearch() {
@@ -914,12 +919,23 @@ export function CompaniesRoute() {
           </Field>
           <SavedViews entityType="companies" currentFilters={{ q: search, owner: ownerFilter }} onApply={handleApplySavedView} defaultName="Client view" />
           <Field label="Owner filter">
-            <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
-              <option value="all">All owners</option>
-              {userOptions.map((user) => (
-                <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-              ))}
-            </select>
+            <div className="button-row">
+              <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
+                <option value="all">All owners</option>
+                <option value="unassigned">Unassigned</option>
+                {userOptions.map((user) => (
+                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                ))}
+              </select>
+              {currentUserId ? (
+                <Button className={ownerFilter === currentUserId ? '' : 'button-secondary'} type="button" onClick={() => applyOwnerFilter(currentUserId)}>
+                  Mine
+                </Button>
+              ) : null}
+              <Button className={ownerFilter === 'unassigned' ? '' : 'button-secondary'} type="button" onClick={() => applyOwnerFilter('unassigned')}>
+                Unassigned
+              </Button>
+            </div>
           </Field>
           {isListLoading ? <p className="field-hint">Loading clients...</p> : null}
           {error ? (

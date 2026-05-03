@@ -56,6 +56,7 @@ type ListQuery struct {
 	Search           string
 	StageID          int64
 	OwnerUserID      int64
+	UnassignedOnly   bool
 	CompanyID        int64
 	PrimaryContactID int64
 	Page             int
@@ -518,7 +519,9 @@ func buildDealFilters(organizationID int64, query ListQuery) (string, []any) {
 		parts = append(parts, fmt.Sprintf(" AND d.stage_id = $%d", len(args)+1))
 		args = append(args, query.StageID)
 	}
-	if query.OwnerUserID > 0 {
+	if query.UnassignedOnly {
+		parts = append(parts, " AND d.owner_user_id IS NULL")
+	} else if query.OwnerUserID > 0 {
 		parts = append(parts, fmt.Sprintf(" AND d.owner_user_id = $%d", len(args)+1))
 		args = append(args, query.OwnerUserID)
 	}

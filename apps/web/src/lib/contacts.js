@@ -40,8 +40,10 @@ export async function listContacts(query = {}, { signal } = {}) {
   const params = new URLSearchParams()
   const search = typeof query === 'string' ? query : (query.search || '')
   const ownerUserId = typeof query === 'object' ? (query.ownerUserId || 0) : 0
+  const unassigned = typeof query === 'object' ? !!query.unassigned : false
   if (search) params.set('q', search)
-  if (ownerUserId) params.set('ownerUserId', String(ownerUserId))
+  if (unassigned) params.set('unassigned', 'true')
+  else if (ownerUserId) params.set('ownerUserId', String(ownerUserId))
   const suffix = params.toString() ? `?${params.toString()}` : ''
   const payload = await apiRequest(`/api/contacts${suffix}`, { fallbackMessage: 'Unable to load contacts.', signal })
 

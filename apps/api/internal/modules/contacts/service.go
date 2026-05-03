@@ -65,10 +65,11 @@ type Summary struct {
 }
 
 type ListQuery struct {
-	Search      string
-	Page        int
-	PageSize    int
-	OwnerUserID int64
+	Search         string
+	Page           int
+	PageSize       int
+	OwnerUserID    int64
+	UnassignedOnly bool
 }
 
 type ListMeta struct {
@@ -181,7 +182,9 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			co.country ILIKE $%[1]d%[2]s
 		)`, searchArg, phoneFilter)
 	}
-	if query.OwnerUserID > 0 {
+	if query.UnassignedOnly {
+		filter += ` AND co.owner_user_id IS NULL`
+	} else if query.OwnerUserID > 0 {
 		filter += fmt.Sprintf(` AND co.owner_user_id = $%d`, len(args)+1)
 		args = append(args, query.OwnerUserID)
 	}

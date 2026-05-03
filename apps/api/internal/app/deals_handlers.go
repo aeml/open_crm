@@ -42,10 +42,16 @@ func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter
 		return
 	}
 
+	unassignedDeals := r.URL.Query().Get("unassigned") == "true"
+	dealOwnerUserID := int64(0)
+	if !unassignedDeals {
+		dealOwnerUserID = moduledeals.ParseInt64(r.URL.Query().Get("ownerUserId"))
+	}
 	result, err := deals.ListByOrganization(r.Context(), state.Organization.ID, moduledeals.ListQuery{
 		Search:           strings.TrimSpace(r.URL.Query().Get("q")),
 		StageID:          moduledeals.ParseInt64(r.URL.Query().Get("stageId")),
-		OwnerUserID:      moduledeals.ParseInt64(r.URL.Query().Get("ownerUserId")),
+		OwnerUserID:      dealOwnerUserID,
+		UnassignedOnly:   unassignedDeals,
 		CompanyID:        moduledeals.ParseInt64(r.URL.Query().Get("companyId")),
 		PrimaryContactID: moduledeals.ParseInt64(r.URL.Query().Get("primaryContactId")),
 		Page:             parsePositiveInt(r.URL.Query().Get("page"), 1),

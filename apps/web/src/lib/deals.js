@@ -10,7 +10,8 @@ export async function listDeals(query = {}, { signal } = {}) {
   const params = new URLSearchParams()
   if (query.search) params.set('q', query.search)
   if (query.stageId) params.set('stageId', String(query.stageId))
-  if (query.ownerUserId) params.set('ownerUserId', String(query.ownerUserId))
+  if (query.unassigned) params.set('unassigned', 'true')
+  else if (query.ownerUserId) params.set('ownerUserId', String(query.ownerUserId))
   if (query.companyId) params.set('companyId', String(query.companyId))
   if (query.primaryContactId) params.set('primaryContactId', String(query.primaryContactId))
   const suffix = params.toString() ? `?${params.toString()}` : ''
