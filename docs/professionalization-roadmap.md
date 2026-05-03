@@ -29,7 +29,12 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.3.5` Dashboard Decision Support: complete.
 - `0.3.6` Admin Audit Trail: complete.
 - `0.3.7` Data Export: complete.
+- `0.3.7a` Architecture Decision Records Seeding: complete.
+- `0.3.7b` Responsive And Mobile Pass: planned.
+- `0.3.7c` Error Boundaries And Session UX: planned.
 - `0.3.8` Accessibility And Keyboard Pass: planned.
+- `0.3.8a` Tenant Isolation Hardening: planned.
+- `0.3.8b` Dependency Hygiene: planned.
 - `0.3.9` Release Readiness Review: planned.
 - `0.4.0` Multi-User Team CRM: planned.
 - `0.4.1` User Profile And Preferences: planned.
@@ -486,6 +491,60 @@ Completion notes:
 - Added stable CSV headers, UTC task timestamps, spreadsheet-friendly UTF-8 output, and browser download actions on core list pages.
 - Covered export routing, CSV generation, filter construction, and frontend export URL behavior with tests.
 
+## Version 0.3.7a - Architecture Decision Records Seeding
+
+Status: complete.
+
+Goal: capture the sticky architectural decisions that already shape the codebase so future contributors understand the boundaries.
+
+- Create `docs/adr/` with a small numbered template.
+- Record: server-side sessions over JWT, stdlib `net/http` over framework, plain SQL over ORM, JavaScript over TypeScript on the frontend, modular monolith over services.
+- Add a short `docs/ui-guidelines.md` capturing existing visual primitives, spacing scale, and copy stance.
+- Link ADRs from README and `mvp.md` where relevant.
+
+Exit criteria:
+
+- New contributors can understand the why of the stack without inferring it from code.
+- Future deviations from these decisions go through an ADR update, not a silent commit.
+
+Completion notes:
+
+- Added `docs/adr/` with five ADRs: stdlib HTTP, server-side sessions, plain SQL, JavaScript over TypeScript, modular monolith.
+- Added `docs/ui-guidelines.md` covering tokens, spacing scale, components, layout primitives, form patterns, table patterns, copy tone, and CSS organization.
+- Updated README repo layout to reference `docs/adr/` and `docs/ui-guidelines.md`.
+
+## Version 0.3.7b - Responsive And Mobile Pass
+
+Status: planned.
+
+Goal: make core CRM workflows usable on smaller viewports without committing to a separate mobile app.
+
+- Audit list, detail, settings, and dashboard views at common breakpoints.
+- Fix overflow, table reflow, and side-nav behavior on narrow widths.
+- Verify touch target sizing for primary actions.
+- Add a small set of layout tokens or utilities only if they reduce duplication.
+
+Exit criteria:
+
+- Operators can use the CRM from a phone or tablet for read-heavy workflows.
+- Layout regressions are visible in tests where practical.
+
+## Version 0.3.7c - Error Boundaries And Session UX
+
+Status: planned.
+
+Goal: make unexpected client failures and session expiry feel intentional instead of broken.
+
+- Add a top-level React error boundary with a recoverable fallback UI.
+- Detect 401 responses centrally and route through a clear "session ended" path.
+- Add inline reconnect/retry behavior for transient API errors where it does not hide real problems.
+- Avoid silent reload loops and double-submit edge cases on auth failure.
+
+Exit criteria:
+
+- A client crash shows a recoverable surface, not a blank page.
+- Expired sessions return users to login with context preserved where safe.
+
 ## Version 0.3.8 - Accessibility And Keyboard Pass
 
 Status: planned.
@@ -501,6 +560,39 @@ Exit criteria:
 
 - Core navigation and record workflows are keyboard usable.
 - Form controls and status messages are understandable to assistive technology.
+
+## Version 0.3.8a - Tenant Isolation Hardening
+
+Status: planned.
+
+Goal: lock down the highest-value invariant in a multi-tenant CRM before the team-CRM milestone widens the write surface.
+
+- Add an integration test suite that walks every authenticated route with a foreign-org actor.
+- Verify cross-org reads return `404`, not `403`, so record existence is not leaked.
+- Verify cross-org writes, updates, archives, exports, and saved-view operations all reject.
+- Add a small helper or convention for organization scoping in repositories so future modules cannot forget it.
+- Document the isolation contract in an ADR.
+
+Exit criteria:
+
+- Every existing module has a tested cross-org negative path.
+- Adding a new module requires extending the isolation suite, not opting out of it.
+
+## Version 0.3.8b - Dependency Hygiene
+
+Status: planned.
+
+Goal: keep dependencies small, current, and auditable as the project ages.
+
+- Enable Dependabot or Renovate for Go modules, npm, and GitHub Actions.
+- Add `go mod tidy` and `npm audit --omit=dev` checks to CI as advisory or required gates.
+- Document the dependency budget rules from `mvp.md` in a short policy doc.
+- Track third-party version skew in the roadmap rather than chasing every minor bump.
+
+Exit criteria:
+
+- Security-relevant updates surface as PRs without manual checking.
+- The dependency surface stays explicit and small.
 
 ## Version 0.3.9 - Release Readiness Review
 
@@ -669,6 +761,7 @@ Status: planned.
 Goal: close the team workflow milestone before data operations work.
 
 - Re-run role, permissions, and user lifecycle tests.
+- Re-run the tenant isolation suite against the new write surfaces.
 - Smoke test multi-user workflows in a seeded environment.
 - Update documentation for team operation.
 - Identify remaining team workflow gaps from usage.
@@ -829,6 +922,7 @@ Status: planned.
 Goal: close the data operations milestone safely.
 
 - Test import, export, duplicate, bulk, custom field, and archive flows together.
+- Re-run the tenant isolation suite against new bulk and custom-field write paths.
 - Review data integrity constraints after new features.
 - Update documentation for data operations.
 - Identify scale risks before sales workflow expansion.
@@ -989,6 +1083,7 @@ Status: planned.
 Goal: close the sales workflow milestone before expanding customer operations.
 
 - Test pipeline configuration, automation, reminders, and reports together.
+- Re-run the tenant isolation suite against automation and reporting paths.
 - Review query plans for sales reports.
 - Update docs for sales workflows.
 - Identify product feedback from real sales usage.
@@ -1149,6 +1244,7 @@ Status: planned.
 Goal: close the customer operations milestone before integration work.
 
 - Smoke test end-to-end sales-to-customer lifecycle.
+- Re-run the tenant isolation suite against post-sale and job/service paths.
 - Review customer workflow feedback.
 - Update docs and roadmap for integration priorities.
 - Confirm product boundaries remain clear.
@@ -1183,6 +1279,7 @@ Goal: define a stable-enough API surface for controlled external usage.
 - Review current internal API paths and payloads.
 - Decide which endpoints are public versus frontend-private.
 - Add API versioning strategy if needed.
+- Document a deprecation policy for breaking changes (notice period, sunset headers, changelog entries).
 - Document request/response/error conventions.
 
 Exit criteria:
@@ -1405,6 +1502,7 @@ Status: planned.
 Goal: make backups less dependent on manual operator discipline.
 
 - Add documented scheduled backup approach for the current host.
+- Review configuration and secrets handling: `.env.example` drift, rotation procedure, secret scope, and inventory.
 - Add backup verification metadata.
 - Add alerts or logs for failed backups if monitoring exists.
 - Keep backup artifacts secure and off-host where possible.
@@ -1486,6 +1584,7 @@ Goal: reach a beta-quality product suitable for real small-team CRM usage.
 
 - Freeze the core beta scope around proven workflows.
 - Review security, reliability, data portability, and support readiness.
+- Generate or refresh `THIRD_PARTY_NOTICES` and verify license obligations across Go modules and npm dependencies.
 - Prepare beta onboarding, feedback capture, and known limitations.
 - Decide the post-beta roadmap based on real customer usage.
 

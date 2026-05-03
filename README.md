@@ -125,6 +125,10 @@ open_crm/
 │   ├── frontend-pages.yml
 │   ├── ci.yml
 │   └── backend-deploy.yml
+├── docs/
+│   ├── adr/             # Architecture decision records
+│   ├── ui-guidelines.md # Frontend visual and interaction conventions
+│   └── operations-runbook.md
 ├── docker-compose.deploy.yml
 ├── Makefile
 └── mvp.md
