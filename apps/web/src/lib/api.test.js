@@ -63,6 +63,30 @@ describe('api client', () => {
     })
   })
 
+  it('dispatches auth:unauthorized event for 401 responses', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { message: 'Unauthorized' } })
+    })
+
+    await expect(apiRequest('/api/private')).rejects.toMatchObject({ status: 401 })
+    expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'auth:unauthorized' }))
+  })
+
+  it('does not dispatch auth:unauthorized for non-401 failures', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { message: 'Forbidden' } })
+    })
+
+    await expect(apiRequest('/api/private')).rejects.toMatchObject({ status: 403 })
+    expect(dispatchSpy).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'auth:unauthorized' }))
+  })
+
   it('exposes APIError for direct callers', () => {
     const error = new APIError('Failed', { status: 500, payload: { error: { code: 'INTERNAL' } } })
 

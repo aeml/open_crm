@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { API_BASE_URL } from '../lib/config'
 
 const AuthContext = createContext({
@@ -28,6 +28,23 @@ export function AppProviders({ children }) {
   const [session, setSession] = useState(null)
   const [businessProfile, setBusinessProfile] = useState(null)
   const [error, setError] = useState('')
+  const statusRef = useRef(status)
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  useEffect(() => {
+    function handleUnauthorized() {
+      if (statusRef.current === 'authenticated') {
+        setStatus('unauthenticated')
+        setSession(null)
+        setBusinessProfile(null)
+      }
+    }
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized)
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized)
+  }, [])
 
   const refreshSession = useCallback(async () => {
     if (typeof fetch !== 'function') {

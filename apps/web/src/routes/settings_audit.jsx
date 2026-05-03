@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
+import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { listAuditEvents } from '../lib/audit'
@@ -85,7 +86,7 @@ export function SettingsAuditRoute() {
             </select>
           </Field>
           {isLoading ? <p className="field-hint">Loading audit events...</p> : null}
-          {error ? <p className="form-error">{error}</p> : null}
+          {error ? <InlineError message={error} /> : null}
           <div className="record-list" role="list" aria-label="Admin audit events">
             {!isLoading && events.length === 0 ? (
               <article className="record-row" role="listitem">

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
+import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { getBusinessProfile, updateBusinessProfile } from '../lib/business_profile'
@@ -82,14 +83,7 @@ export function BusinessProfileRoute() {
           </div>
           {isLoading ? <p className="field-hint">Loading business profile...</p> : null}
           {error ? (
-            <div className="card-stack">
-              <p className="form-error">{error}</p>
-              <div>
-                <Button className="button-secondary" type="button" onClick={() => loadProfile()}>
-                  Retry profile
-                </Button>
-              </div>
-            </div>
+            <InlineError message={error} onRetry={() => loadProfile()} retryLabel="Retry profile" />
           ) : null}
           <div className="record-list" role="list" aria-label="Adaptive labels preview">
             <article className="record-row" role="listitem">

@@ -6,6 +6,7 @@ import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
+import { InlineError } from '../components/ui/inline_error'
 import { archiveDeal, createDeal, dealsExportURL, getDeal, listDeals, listDealStages, updateDeal, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
@@ -638,14 +639,7 @@ export function DealsRoute() {
           </Field>
           {isListLoading ? <p className="field-hint">Loading {labels.showingLabel}...</p> : null}
           {error ? (
-            <div className="card-stack">
-              <p className="form-error">{error}</p>
-              <div>
-                <Button className="button-secondary" type="button" onClick={() => reloadDeals(search, stageFilter, ownerFilter)}>
-                  Retry {labels.showingLabel}
-                </Button>
-              </div>
-            </div>
+            <InlineError message={error} onRetry={() => reloadDeals(search, stageFilter, ownerFilter)} retryLabel={`Retry ${labels.showingLabel}`} />
           ) : null}
           <div className="record-list" role="list" aria-label={labels.listAria}>
             {!isListLoading && deals.length === 0 ? (

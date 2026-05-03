@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
+import { InlineError } from '../components/ui/inline_error'
 import { getDashboardSummary } from '../lib/dashboard'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
@@ -284,14 +285,7 @@ export function DashboardRoute() {
             </div>
             {isLoading ? <p className="field-hint">Loading dashboard summary...</p> : null}
             {error ? (
-              <div className="card-stack">
-                <p className="form-error">{error}</p>
-                <div>
-                  <Button className="button-secondary" type="button" onClick={() => loadSummary()}>
-                    Retry summary
-                  </Button>
-                </div>
-              </div>
+              <InlineError message={error} onRetry={() => loadSummary()} retryLabel="Retry summary" />
             ) : null}
             <div className="record-list" role="list" aria-label="Dashboard summary metrics">
               <article className="record-row" role="listitem">

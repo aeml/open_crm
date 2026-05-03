@@ -43,6 +43,10 @@ export async function apiRequest(path, { method = 'GET', body, headers = {}, fal
   const payload = await readJSON(response)
 
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'))
+    }
+
     throw new APIError(getErrorMessage(payload, fallbackMessage), {
       status: response.status,
       payload

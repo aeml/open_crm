@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
+import { InlineError } from '../components/ui/inline_error'
 import { createOrganizationUser, listOrganizationUsers, updateOrganizationUserRole } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
@@ -100,16 +101,7 @@ export function SettingsUsersRoute() {
           </div>
           {isLoading ? <p className="field-hint">Loading team access...</p> : null}
           {error ? (
-            <div className="card-stack">
-              <p className="form-error">{error}</p>
-              {canManageUsers ? (
-                <div>
-                  <Button className="button-secondary" type="button" onClick={() => loadUsers()}>
-                    Retry users
-                  </Button>
-                </div>
-              ) : null}
-            </div>
+            <InlineError message={error} onRetry={canManageUsers ? () => loadUsers() : undefined} retryLabel="Retry users" />
           ) : null}
           <div className="record-list" role="list" aria-label="Organization users">
             {!isLoading && users.length === 0 ? (

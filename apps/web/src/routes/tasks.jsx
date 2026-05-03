@@ -6,6 +6,7 @@ import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
+import { InlineError } from '../components/ui/inline_error'
 import { archiveTask, createTask, getTask, listTasks, tasksExportURL, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
@@ -904,14 +905,7 @@ export function TasksRoute() {
           ) : null}
           {isListLoading ? <p className="field-hint">Loading {labels.showingSuffix}...</p> : null}
           {error ? (
-            <div className="card-stack">
-              <p className="form-error">{error}</p>
-              <div>
-                <Button className="button-secondary" type="button" onClick={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter)}>
-                  Retry {labels.showingSuffix}
-                </Button>
-              </div>
-            </div>
+            <InlineError message={error} onRetry={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter)} retryLabel={`Retry ${labels.showingSuffix}`} />
           ) : null}
           <h3>{summaryLabel}</h3>
           <p className="field-hint">Showing {visibleTasks.length} of {statusTasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>
