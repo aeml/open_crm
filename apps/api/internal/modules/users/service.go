@@ -59,7 +59,9 @@ type UserProfile struct {
 }
 
 type UserPreferences struct {
-	DefaultLandingView string `json:"defaultLandingView"`
+	DefaultLandingView    string `json:"defaultLandingView"`
+	NotifyOnTaskAssigned  bool   `json:"notifyOnTaskAssigned"`
+	NotifyOnDealAssigned  bool   `json:"notifyOnDealAssigned"`
 }
 
 type UpdateProfileInput struct {

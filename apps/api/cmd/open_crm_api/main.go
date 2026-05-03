@@ -22,6 +22,7 @@ import (
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
+	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
@@ -57,6 +58,7 @@ func main() {
 	var dashboardService *moduledashboard.Service
 	importsService := moduleimports.NewService()
 	var notesService *modulenotes.Service
+	var notificationsService *modulenotifications.Service
 	var savedViewsService *modulesavedviews.Service
 	var onboardingService *moduleonboarding.Service
 	var orgProfileService *moduleorgprofile.Service
@@ -76,6 +78,7 @@ func main() {
 			exportsService = moduleexports.NewService(pool)
 			dashboardService = moduledashboard.NewService(pool)
 			notesService = modulenotes.NewService(pool)
+			notificationsService = modulenotifications.NewService(pool)
 			savedViewsService = modulesavedviews.NewService(pool)
 			onboardingService = moduleonboarding.NewService(pool)
 			orgProfileService = moduleorgprofile.NewService(pool)
@@ -99,11 +102,12 @@ func main() {
 		TasksService:      tasksService,
 		ExportsService:    exportsService,
 		DashboardService:  dashboardService,
-		NotesService:      notesService,
-		ImportsService:    importsService,
-		SavedViewsService: savedViewsService,
-		OnboardingService: onboardingService,
-		OrgProfileService: orgProfileService,
+		NotesService:         notesService,
+		ImportsService:       importsService,
+		SavedViewsService:    savedViewsService,
+		OnboardingService:    onboardingService,
+		OrgProfileService:    orgProfileService,
+		NotificationsService: notificationsService,
 	}))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

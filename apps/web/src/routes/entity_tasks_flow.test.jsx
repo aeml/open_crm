@@ -22,6 +22,10 @@ describe('entity task visibility', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             companies: [
@@ -151,6 +155,10 @@ describe('entity task visibility', () => {
             membership: { role: 'owner' }
           }
         })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
       })
       .mockResolvedValueOnce({
         ok: true,

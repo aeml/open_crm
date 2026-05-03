@@ -19,6 +19,7 @@ import (
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
+	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
@@ -114,7 +115,7 @@ func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-func handleCreateTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
+func handleCreateTask(auth authService, tasks tasksService, notifs notificationsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -133,6 +134,16 @@ func handleCreateTask(auth authService, tasks tasksService, w http.ResponseWrite
 	if err != nil {
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create task")
 		return
+	}
+
+	if notifs != nil && result.Task.AssignedToUserID > 0 && result.Task.AssignedToUserID != state.User.ID {
+		_ = notifs.Create(r.Context(), state.Organization.ID, modulenotifications.CreateInput{
+			UserID:     result.Task.AssignedToUserID,
+			EventType:  "task.assigned",
+			EntityType: "task",
+			EntityID:   result.Task.ID,
+			Summary:    fmt.Sprintf("You were assigned a task: %s", result.Task.Title),
+		})
 	}
 
 	respondTaskDetail(w, r, http.StatusCreated, result)
@@ -166,7 +177,7 @@ func handleGetTask(auth authService, tasks tasksService, w http.ResponseWriter, 
 	respondTaskDetail(w, r, http.StatusOK, result)
 }
 
-func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
+func handleUpdateTask(auth authService, tasks tasksService, notifs notificationsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -192,6 +203,16 @@ func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWrite
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update task")
 		return
+	}
+
+	if notifs != nil && input.AssignedToUserID > 0 && input.AssignedToUserID != state.User.ID {
+		_ = notifs.Create(r.Context(), state.Organization.ID, modulenotifications.CreateInput{
+			UserID:     result.Task.AssignedToUserID,
+			EventType:  "task.assigned",
+			EntityType: "task",
+			EntityID:   result.Task.ID,
+			Summary:    fmt.Sprintf("You were assigned a task: %s", result.Task.Title),
+		})
 	}
 
 	respondTaskDetail(w, r, http.StatusOK, result)

@@ -17,6 +17,7 @@ import (
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
+	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
@@ -125,6 +126,14 @@ type onboardingService interface {
 	BootstrapOrganization(context.Context, moduleonboarding.BootstrapInput) (moduleauth.LoginResult, error)
 }
 
+type notificationsService interface {
+	Create(context.Context, int64, modulenotifications.CreateInput) error
+	ListForUser(context.Context, int64, int64) ([]modulenotifications.Notification, error)
+	MarkRead(context.Context, int64, int64, int64) error
+	MarkAllRead(context.Context, int64, int64) error
+	UnreadCount(context.Context, int64, int64) (int, error)
+}
+
 type Dependencies struct {
 	CheckReadiness    func(context.Context) error
 	Logger            *slog.Logger
@@ -140,8 +149,9 @@ type Dependencies struct {
 	DashboardService  dashboardService
 	NotesService      notesService
 	ImportsService    importsService
-	SavedViewsService savedViewsService
-	OnboardingService onboardingService
+	SavedViewsService    savedViewsService
+	OnboardingService    onboardingService
+	NotificationsService notificationsService
 }
 
 type statusResponse struct {
@@ -223,7 +233,9 @@ type userProfileResponse struct {
 }
 
 type updatePreferencesRequest struct {
-	DefaultLandingView string `json:"defaultLandingView"`
+	DefaultLandingView   string `json:"defaultLandingView"`
+	NotifyOnTaskAssigned *bool  `json:"notifyOnTaskAssigned"`
+	NotifyOnDealAssigned *bool  `json:"notifyOnDealAssigned"`
 }
 
 type userPreferencesResponse struct {
@@ -604,10 +616,10 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleGetDeal(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("POST /api/deals", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, w, r)
+		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, dependencies.NotificationsService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
-		handleUpdateDeal(dependencies.AuthService, dependencies.DealsService, w, r)
+		handleUpdateDeal(dependencies.AuthService, dependencies.DealsService, dependencies.NotificationsService, w, r)
 	})
 	mux.HandleFunc("DELETE /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
 		handleArchiveDeal(dependencies.AuthService, dependencies.DealsService, w, r)
@@ -646,10 +658,10 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleGetTask(dependencies.AuthService, dependencies.TasksService, w, r)
 	})
 	mux.HandleFunc("POST /api/tasks", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateTask(dependencies.AuthService, dependencies.TasksService, w, r)
+		handleCreateTask(dependencies.AuthService, dependencies.TasksService, dependencies.NotificationsService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/tasks/{taskID}", func(w http.ResponseWriter, r *http.Request) {
-		handleUpdateTask(dependencies.AuthService, dependencies.TasksService, w, r)
+		handleUpdateTask(dependencies.AuthService, dependencies.TasksService, dependencies.NotificationsService, w, r)
 	})
 	mux.HandleFunc("DELETE /api/tasks/{taskID}", func(w http.ResponseWriter, r *http.Request) {
 		handleArchiveTask(dependencies.AuthService, dependencies.TasksService, w, r)
@@ -662,6 +674,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/organization/profile", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("GET /api/notifications", func(w http.ResponseWriter, r *http.Request) {
+		handleListNotifications(dependencies.AuthService, dependencies.NotificationsService, w, r)
+	})
+	mux.HandleFunc("GET /api/notifications/unread-count", func(w http.ResponseWriter, r *http.Request) {
+		handleGetNotificationUnreadCount(dependencies.AuthService, dependencies.NotificationsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/notifications/{notificationID}/read", func(w http.ResponseWriter, r *http.Request) {
+		handleMarkNotificationRead(dependencies.AuthService, dependencies.NotificationsService, w, r)
+	})
+	mux.HandleFunc("POST /api/notifications/read-all", func(w http.ResponseWriter, r *http.Request) {
+		handleMarkAllNotificationsRead(dependencies.AuthService, dependencies.NotificationsService, w, r)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		respondStatus(w, r, http.StatusOK, "ok")

@@ -22,6 +22,10 @@ describe('settings audit route', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             events: [

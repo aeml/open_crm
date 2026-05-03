@@ -22,6 +22,10 @@ describe('business profile flow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             profile: {
@@ -65,6 +69,10 @@ describe('business profile flow', () => {
             membership: { role: 'owner' }
           }
         })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
       })
       .mockResolvedValueOnce({
         ok: true,

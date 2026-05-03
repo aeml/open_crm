@@ -40,7 +40,7 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.4.1` User Profile And Preferences: complete.
 - `0.4.2` Team Assignment Views: complete.
 - `0.4.3` Role Permissions Pass: complete.
-- `0.4.4` Notification Preferences: planned.
+- `0.4.4` Notification Preferences: complete.
 - `0.4.5` Mention And Follow Model: planned.
 - `0.4.6` Team Activity Digest: planned.
 - `0.4.7` Admin User Lifecycle Hardening: planned.
@@ -736,7 +736,7 @@ Exit criteria:
 
 ## Version 0.4.4 - Notification Preferences
 
-Status: planned.
+Status: complete.
 
 Goal: prepare for useful notifications without adding noisy channels too early.
 

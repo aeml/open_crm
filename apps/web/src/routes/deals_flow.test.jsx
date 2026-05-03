@@ -22,6 +22,10 @@ describe('deals flow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             stages: [
@@ -121,6 +125,10 @@ describe('deals flow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             stages: [
@@ -201,6 +209,10 @@ describe('deals flow', () => {
             membership: { role: 'owner' }
           }
         })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -289,6 +301,10 @@ describe('deals flow', () => {
             membership: { role: 'owner' }
           }
         })
+      }
+
+      if (requestURL.pathname.endsWith('/api/notifications/unread-count')) {
+        return jsonResponse({ data: { unreadCount: 0 } })
       }
 
       if (requestURL.pathname.endsWith('/api/deal-stages')) {
@@ -667,6 +683,10 @@ describe('deals flow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             stages: [
@@ -802,6 +822,10 @@ describe('deals flow', () => {
             membership: { role: 'owner' }
           }
         })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
       })
       .mockResolvedValueOnce({
         ok: true,

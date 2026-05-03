@@ -116,9 +116,25 @@ func handleUpdatePreferences(auth authService, users usersService, w http.Respon
 		return
 	}
 
-	updated, err := users.UpdatePreferences(r.Context(), state.User.ID, moduleusers.UserPreferences{
-		DefaultLandingView: request.DefaultLandingView,
-	})
+	existing, err := users.GetPreferences(r.Context(), state.User.ID)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load preferences")
+		return
+	}
+
+	merged := moduleusers.UserPreferences{
+		DefaultLandingView:   request.DefaultLandingView,
+		NotifyOnTaskAssigned: existing.NotifyOnTaskAssigned,
+		NotifyOnDealAssigned: existing.NotifyOnDealAssigned,
+	}
+	if request.NotifyOnTaskAssigned != nil {
+		merged.NotifyOnTaskAssigned = *request.NotifyOnTaskAssigned
+	}
+	if request.NotifyOnDealAssigned != nil {
+		merged.NotifyOnDealAssigned = *request.NotifyOnDealAssigned
+	}
+
+	updated, err := users.UpdatePreferences(r.Context(), state.User.ID, merged)
 	if err != nil {
 		if errors.Is(err, moduleusers.ErrNotFound) {
 			platformweb.WriteNotFound(w, requestID)

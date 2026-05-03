@@ -34,6 +34,10 @@ describe('AppRouter', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             pipelineValue: '48000.00',
@@ -111,6 +115,10 @@ describe('AppRouter', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             pipelineValue: '0',
@@ -161,6 +169,10 @@ describe('AppRouter', () => {
             }
           }
         })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -217,6 +229,10 @@ describe('AppRouter', () => {
             membership: { role: 'owner' }
           }
         })
+      }
+
+      if (requestURL.pathname.endsWith('/api/notifications/unread-count')) {
+        return jsonResponse({ data: { unreadCount: 0 } })
       }
 
       if (requestURL.pathname.endsWith('/api/dashboard/summary')) {
@@ -319,6 +335,10 @@ describe('AppRouter', () => {
             }
           }
         })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -467,6 +487,10 @@ describe('AppRouter', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             companies: [
@@ -534,6 +558,10 @@ describe('AppRouter', () => {
             }
           }
         })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
       })
       .mockResolvedValueOnce({
         ok: true,

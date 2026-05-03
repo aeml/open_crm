@@ -27,6 +27,8 @@ export function SettingsProfileRoute() {
   const [isProfileSaving, setIsProfileSaving] = useState(false)
 
   const [defaultLandingView, setDefaultLandingView] = useState('')
+  const [notifyOnTaskAssigned, setNotifyOnTaskAssigned] = useState(true)
+  const [notifyOnDealAssigned, setNotifyOnDealAssigned] = useState(true)
   const [prefsError, setPrefsError] = useState('')
   const [prefsSaved, setPrefsSaved] = useState(false)
   const [isPrefsLoading, setIsPrefsLoading] = useState(true)
@@ -39,6 +41,8 @@ export function SettingsProfileRoute() {
     getPreferences({ signal: controller.signal })
       .then((prefs) => {
         setDefaultLandingView(prefs?.defaultLandingView || '')
+        setNotifyOnTaskAssigned(prefs?.notifyOnTaskAssigned !== false)
+        setNotifyOnDealAssigned(prefs?.notifyOnDealAssigned !== false)
         setIsPrefsLoading(false)
       })
       .catch((err) => {
@@ -75,7 +79,7 @@ export function SettingsProfileRoute() {
     setPrefsSaved(false)
 
     try {
-      await updatePreferences({ defaultLandingView })
+      await updatePreferences({ defaultLandingView, notifyOnTaskAssigned, notifyOnDealAssigned })
       setPrefsSaved(true)
     } catch (err) {
       setPrefsError(err.message || 'Unable to save preferences.')
@@ -165,6 +169,24 @@ export function SettingsProfileRoute() {
                     </option>
                   ))}
                 </select>
+              </Field>
+              <Field label="In-app notifications">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={notifyOnTaskAssigned}
+                    onChange={(event) => { setNotifyOnTaskAssigned(event.target.checked); setPrefsSaved(false) }}
+                  />
+                  Notify me when a task is assigned to me
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={notifyOnDealAssigned}
+                    onChange={(event) => { setNotifyOnDealAssigned(event.target.checked); setPrefsSaved(false) }}
+                  />
+                  Notify me when a deal is assigned to me
+                </label>
               </Field>
               <Button type="submit" disabled={isPrefsSaving}>
                 {isPrefsSaving ? 'Saving…' : 'Save preferences'}

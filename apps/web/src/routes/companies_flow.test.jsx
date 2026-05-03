@@ -287,6 +287,10 @@ describe('companies flow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { unreadCount: 0 } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } }
         })
