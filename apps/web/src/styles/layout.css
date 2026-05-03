@@ -22,8 +22,10 @@
 }
 
 .side-nav-link {
-  display: block;
+  display: flex;
+  align-items: center;
   padding: 0.9rem 1rem;
+  min-height: 44px;
   border-radius: var(--radius-sm);
   color: #c4d1ea;
 }
@@ -47,6 +49,7 @@
 .app-main {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .app-header,
@@ -114,7 +117,35 @@
   }
 
   .side-nav {
-    padding: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .side-nav nav {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .side-nav ul {
+    display: flex;
+    flex-direction: row;
+    gap: var(--space-1);
+    white-space: nowrap;
+  }
+
+  .side-nav-link {
+    padding: 0.55rem 0.85rem;
+    min-height: 44px;
+  }
+
+  .brand-mark {
+    flex-shrink: 0;
+    width: 2.25rem;
+    height: 2.25rem;
   }
 
   .dashboard-grid,
@@ -130,5 +161,15 @@
   .app-header-actions {
     width: 100%;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    padding: var(--space-3) var(--space-3) 0;
+  }
+
+  .app-content {
+    padding: var(--space-3);
   }
 }

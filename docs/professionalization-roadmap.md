@@ -30,7 +30,7 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.3.6` Admin Audit Trail: complete.
 - `0.3.7` Data Export: complete.
 - `0.3.7a` Architecture Decision Records Seeding: complete.
-- `0.3.7b` Responsive And Mobile Pass: planned.
+- `0.3.7b` Responsive And Mobile Pass: complete.
 - `0.3.7c` Error Boundaries And Session UX: planned.
 - `0.3.8` Accessibility And Keyboard Pass: planned.
 - `0.3.8a` Tenant Isolation Hardening: planned.

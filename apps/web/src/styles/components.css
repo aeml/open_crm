@@ -10,6 +10,7 @@
   border: 0;
   border-radius: 999px;
   padding: 0.85rem 1.2rem;
+  min-height: 44px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -101,6 +102,7 @@
 
 .text-input {
   width: 100%;
+  min-height: 44px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -288,5 +290,80 @@
 
   .step-row > div:last-child {
     grid-column: 1 / -1;
+  }
+}
+
+/* ── Record lists and rows ───────────────────────────────── */
+
+.record-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.record-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.record-row > div {
+  min-width: 0;
+}
+
+.record-row > div:last-child {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.record-row p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* ── Section header (title + action) ────────────────────── */
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.section-header > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.section-header h2,
+.section-header h3,
+.section-header p {
+  margin: 0;
+}
+
+/* ── Responsive: tablet and narrow ──────────────────────── */
+
+@media (max-width: 640px) {
+  .record-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .record-row > div:last-child {
+    text-align: left;
+    flex-shrink: 1;
+    width: 100%;
+  }
+
+  .section-header {
+    flex-direction: column;
+  }
+
+  .button-row {
+    flex-direction: column;
   }
 }
