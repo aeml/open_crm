@@ -47,19 +47,21 @@ func (e *DuplicateError) ReasonText() string {
 }
 
 type Summary struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	ClientType   string `json:"clientType"`
-	AddressLine1 string `json:"addressLine1"`
-	AddressLine2 string `json:"addressLine2"`
-	City         string `json:"city"`
-	State        string `json:"state"`
-	PostalCode   string `json:"postalCode"`
-	Country      string `json:"country"`
-	Industry     string `json:"industry"`
-	Phone        string `json:"phone"`
-	Website      string `json:"website"`
-	Status       string `json:"status"`
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	ClientType    string `json:"clientType"`
+	AddressLine1  string `json:"addressLine1"`
+	AddressLine2  string `json:"addressLine2"`
+	City          string `json:"city"`
+	State         string `json:"state"`
+	PostalCode    string `json:"postalCode"`
+	Country       string `json:"country"`
+	Industry      string `json:"industry"`
+	Phone         string `json:"phone"`
+	Website       string `json:"website"`
+	Status        string `json:"status"`
+	OwnerUserID   int64  `json:"ownerUserId"`
+	OwnerUserName string `json:"ownerUserName"`
 }
 
 type LinkedContact struct {
@@ -79,9 +81,10 @@ type ActivityEntry struct {
 }
 
 type ListQuery struct {
-	Search   string
-	Page     int
-	PageSize int
+	Search      string
+	Page        int
+	PageSize    int
+	OwnerUserID int64
 }
 
 type ListMeta struct {
@@ -159,43 +162,47 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	filter := ""
 	args := []any{organizationID}
 	if query.Search != "" {
-		filter = ` AND (
-			name ILIKE $2 OR
-			industry ILIKE $2 OR
-			phone ILIKE $2 OR
-			website ILIKE $2 OR
-			address_line1 ILIKE $2 OR
-			address_line2 ILIKE $2 OR
-			city ILIKE $2 OR
-			state ILIKE $2 OR
-			postal_code ILIKE $2 OR
-			country ILIKE $2`
+		searchArg := len(args) + 1
+		args = append(args, "%"+query.Search+"%")
+		phoneFilter := ""
 		if phoneSearch != "" {
-			filter += ` OR regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE $3`
+			phoneArg := len(args) + 1
+			args = append(args, "%"+phoneSearch+"%")
+			phoneFilter = fmt.Sprintf(` OR regexp_replace(COALESCE(co.phone, ''), '[^0-9]', '', 'g') LIKE $%d`, phoneArg)
 		}
-		filter += ` OR
+		filter = fmt.Sprintf(` AND (
+			co.name ILIKE $%[1]d OR
+			co.industry ILIKE $%[1]d OR
+			co.phone ILIKE $%[1]d OR
+			co.website ILIKE $%[1]d OR
+			co.address_line1 ILIKE $%[1]d OR
+			co.address_line2 ILIKE $%[1]d OR
+			co.city ILIKE $%[1]d OR
+			co.state ILIKE $%[1]d OR
+			co.postal_code ILIKE $%[1]d OR
+			co.country ILIKE $%[1]d%[2]s OR
 			EXISTS (
 				SELECT 1
 				FROM contact_company_links l
 				JOIN contacts ct ON ct.id = l.contact_id
-				WHERE l.company_id = companies.id
-				  AND l.organization_id = companies.organization_id
-				  AND ct.organization_id = companies.organization_id
+				WHERE l.company_id = co.id
+				  AND l.organization_id = co.organization_id
+				  AND ct.organization_id = co.organization_id
 				  AND ct.archived_at IS NULL
 				  AND (
-					ct.first_name ILIKE $2 OR
-					ct.last_name ILIKE $2 OR
-					(ct.first_name || ' ' || ct.last_name) ILIKE $2
+					ct.first_name ILIKE $%[1]d OR
+					ct.last_name ILIKE $%[1]d OR
+					(ct.first_name || ' ' || ct.last_name) ILIKE $%[1]d
 				  )
 			)
-		)`
-		args = append(args, "%"+query.Search+"%")
-		if phoneSearch != "" {
-			args = append(args, "%"+phoneSearch+"%")
-		}
+		)`, searchArg, phoneFilter)
+	}
+	if query.OwnerUserID > 0 {
+		filter += fmt.Sprintf(` AND co.owner_user_id = $%d`, len(args)+1)
+		args = append(args, query.OwnerUserID)
 	}
 
-	countSQL := `SELECT COUNT(*) FROM companies WHERE organization_id = $1 AND archived_at IS NULL` + filter
+	countSQL := `SELECT COUNT(*) FROM companies co WHERE co.organization_id = $1 AND co.archived_at IS NULL` + filter
 	var total int
 	if err := s.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
 		return ListResult{}, fmt.Errorf("count companies: %w", err)
@@ -205,10 +212,18 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	limitArg := len(args) - 1
 	offsetArg := len(args)
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, client_type, COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
-		FROM companies
-		WHERE organization_id = $1 AND archived_at IS NULL`+filter+`
-		ORDER BY name ASC, id ASC
+		SELECT co.id, co.name, co.client_type,
+			COALESCE(co.address_line1, ''), COALESCE(co.address_line2, ''),
+			COALESCE(co.city, ''), COALESCE(co.state, ''),
+			COALESCE(co.postal_code, ''), COALESCE(co.country, ''),
+			COALESCE(co.industry, ''), COALESCE(co.phone, ''),
+			COALESCE(co.website, ''), COALESCE(co.status, ''),
+			COALESCE(co.owner_user_id, 0),
+			TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, ''))
+		FROM companies co
+		LEFT JOIN users ou ON ou.id = co.owner_user_id
+		WHERE co.organization_id = $1 AND co.archived_at IS NULL`+filter+`
+		ORDER BY co.name ASC, co.id ASC
 		LIMIT $`+fmt.Sprint(limitArg)+` OFFSET $`+fmt.Sprint(offsetArg), args...)
 	if err != nil {
 		return ListResult{}, fmt.Errorf("list companies: %w", err)
@@ -218,7 +233,13 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	companies := make([]Summary, 0)
 	for rows.Next() {
 		var company Summary
-		if err := rows.Scan(&company.ID, &company.Name, &company.ClientType, &company.AddressLine1, &company.AddressLine2, &company.City, &company.State, &company.PostalCode, &company.Country, &company.Industry, &company.Phone, &company.Website, &company.Status); err != nil {
+		if err := rows.Scan(
+			&company.ID, &company.Name, &company.ClientType,
+			&company.AddressLine1, &company.AddressLine2,
+			&company.City, &company.State, &company.PostalCode, &company.Country,
+			&company.Industry, &company.Phone, &company.Website, &company.Status,
+			&company.OwnerUserID, &company.OwnerUserName,
+		); err != nil {
 			return ListResult{}, fmt.Errorf("scan company: %w", err)
 		}
 		companies = append(companies, company)

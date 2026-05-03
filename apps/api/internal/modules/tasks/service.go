@@ -44,12 +44,13 @@ type Detail struct {
 }
 
 type ListQuery struct {
-	Search     string
-	Status     string
-	EntityType string
-	EntityID   int64
-	Page       int
-	PageSize   int
+	Search           string
+	Status           string
+	EntityType       string
+	EntityID         int64
+	AssignedToUserID int64
+	Page             int
+	PageSize         int
 }
 
 type ListMeta struct {
@@ -571,6 +572,10 @@ func buildTaskFilters(organizationID int64, query ListQuery) (string, []any) {
 	if query.EntityID > 0 {
 		parts = append(parts, fmt.Sprintf(" AND t.entity_id = $%d", len(args)+1))
 		args = append(args, query.EntityID)
+	}
+	if query.AssignedToUserID > 0 {
+		parts = append(parts, fmt.Sprintf(" AND t.assigned_to_user_id = $%d", len(args)+1))
+		args = append(args, query.AssignedToUserID)
 	}
 	return strings.Join(parts, ""), args
 }

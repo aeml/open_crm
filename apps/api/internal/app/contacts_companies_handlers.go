@@ -22,9 +22,10 @@ func handleListContacts(auth authService, contacts contactsService, w http.Respo
 	}
 
 	query := modulecontacts.ListQuery{
-		Search:   strings.TrimSpace(r.URL.Query().Get("q")),
-		Page:     parsePositiveInt(r.URL.Query().Get("page"), 1),
-		PageSize: parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+		Search:      strings.TrimSpace(r.URL.Query().Get("q")),
+		Page:        parsePositiveInt(r.URL.Query().Get("page"), 1),
+		PageSize:    parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+		OwnerUserID: parseQueryInt64(r.URL.Query().Get("ownerUserId")),
 	}
 	result, err := contacts.ListByOrganization(r.Context(), state.Organization.ID, query)
 	if err != nil {
@@ -175,9 +176,10 @@ func handleListCompanies(auth authService, companies companiesService, w http.Re
 	}
 
 	query := modulecompanies.ListQuery{
-		Search:   strings.TrimSpace(r.URL.Query().Get("q")),
-		Page:     parsePositiveInt(r.URL.Query().Get("page"), 1),
-		PageSize: parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+		Search:      strings.TrimSpace(r.URL.Query().Get("q")),
+		Page:        parsePositiveInt(r.URL.Query().Get("page"), 1),
+		PageSize:    parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+		OwnerUserID: parseQueryInt64(r.URL.Query().Get("ownerUserId")),
 	}
 	result, err := companies.ListByOrganization(r.Context(), state.Organization.ID, query)
 	if err != nil {

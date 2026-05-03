@@ -46,26 +46,29 @@ func (e *DuplicateError) ReasonText() string {
 }
 
 type Summary struct {
-	ID           int64  `json:"id"`
-	FirstName    string `json:"firstName"`
-	LastName     string `json:"lastName"`
-	Email        string `json:"email"`
-	Phone        string `json:"phone"`
-	AddressLine1 string `json:"addressLine1"`
-	AddressLine2 string `json:"addressLine2"`
-	City         string `json:"city"`
-	State        string `json:"state"`
-	PostalCode   string `json:"postalCode"`
-	Country      string `json:"country"`
-	JobTitle     string `json:"jobTitle"`
-	Status       string `json:"status"`
-	IsClient     bool   `json:"isClient"`
+	ID            int64  `json:"id"`
+	FirstName     string `json:"firstName"`
+	LastName      string `json:"lastName"`
+	Email         string `json:"email"`
+	Phone         string `json:"phone"`
+	AddressLine1  string `json:"addressLine1"`
+	AddressLine2  string `json:"addressLine2"`
+	City          string `json:"city"`
+	State         string `json:"state"`
+	PostalCode    string `json:"postalCode"`
+	Country       string `json:"country"`
+	JobTitle      string `json:"jobTitle"`
+	Status        string `json:"status"`
+	IsClient      bool   `json:"isClient"`
+	OwnerUserID   int64  `json:"ownerUserId"`
+	OwnerUserName string `json:"ownerUserName"`
 }
 
 type ListQuery struct {
-	Search   string
-	Page     int
-	PageSize int
+	Search      string
+	Page        int
+	PageSize    int
+	OwnerUserID int64
 }
 
 type ListMeta struct {
@@ -155,31 +158,35 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	filter := ""
 	args := []any{organizationID}
 	if query.Search != "" {
-		filter = ` AND (
-			first_name ILIKE $2 OR
-			last_name ILIKE $2 OR
-			(first_name || ' ' || last_name) ILIKE $2 OR
-			email ILIKE $2 OR
-			phone ILIKE $2 OR
-			job_title ILIKE $2 OR
-			address_line1 ILIKE $2 OR
-			address_line2 ILIKE $2 OR
-			city ILIKE $2 OR
-			state ILIKE $2 OR
-			postal_code ILIKE $2 OR
-			country ILIKE $2`
-		if phoneSearch != "" {
-			filter += ` OR regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE $3`
-		}
-		filter += `
-		)`
+		searchArg := len(args) + 1
 		args = append(args, "%"+query.Search+"%")
+		phoneFilter := ""
 		if phoneSearch != "" {
+			phoneArg := len(args) + 1
 			args = append(args, "%"+phoneSearch+"%")
+			phoneFilter = fmt.Sprintf(` OR regexp_replace(COALESCE(co.phone, ''), '[^0-9]', '', 'g') LIKE $%d`, phoneArg)
 		}
+		filter = fmt.Sprintf(` AND (
+			co.first_name ILIKE $%[1]d OR
+			co.last_name ILIKE $%[1]d OR
+			(co.first_name || ' ' || co.last_name) ILIKE $%[1]d OR
+			co.email ILIKE $%[1]d OR
+			co.phone ILIKE $%[1]d OR
+			co.job_title ILIKE $%[1]d OR
+			co.address_line1 ILIKE $%[1]d OR
+			co.address_line2 ILIKE $%[1]d OR
+			co.city ILIKE $%[1]d OR
+			co.state ILIKE $%[1]d OR
+			co.postal_code ILIKE $%[1]d OR
+			co.country ILIKE $%[1]d%[2]s
+		)`, searchArg, phoneFilter)
+	}
+	if query.OwnerUserID > 0 {
+		filter += fmt.Sprintf(` AND co.owner_user_id = $%d`, len(args)+1)
+		args = append(args, query.OwnerUserID)
 	}
 
-	countSQL := `SELECT COUNT(*) FROM contacts WHERE organization_id = $1 AND archived_at IS NULL` + filter
+	countSQL := `SELECT COUNT(*) FROM contacts co WHERE co.organization_id = $1 AND co.archived_at IS NULL` + filter
 	var total int
 	if err := s.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
 		return ListResult{}, fmt.Errorf("count contacts: %w", err)
@@ -189,10 +196,18 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	limitArg := len(args) - 1
 	offsetArg := len(args)
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client
-		FROM contacts
-		WHERE organization_id = $1 AND archived_at IS NULL`+filter+`
-		ORDER BY last_name ASC, first_name ASC, id ASC
+		SELECT co.id, co.first_name, co.last_name,
+			COALESCE(co.email, ''), COALESCE(co.phone, ''),
+			COALESCE(co.address_line1, ''), COALESCE(co.address_line2, ''),
+			COALESCE(co.city, ''), COALESCE(co.state, ''),
+			COALESCE(co.postal_code, ''), COALESCE(co.country, ''),
+			COALESCE(co.job_title, ''), COALESCE(co.status, ''), co.is_client,
+			COALESCE(co.owner_user_id, 0),
+			TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, ''))
+		FROM contacts co
+		LEFT JOIN users ou ON ou.id = co.owner_user_id
+		WHERE co.organization_id = $1 AND co.archived_at IS NULL`+filter+`
+		ORDER BY co.last_name ASC, co.first_name ASC, co.id ASC
 		LIMIT $`+fmt.Sprint(limitArg)+` OFFSET $`+fmt.Sprint(offsetArg), args...)
 	if err != nil {
 		return ListResult{}, fmt.Errorf("list contacts: %w", err)
@@ -202,7 +217,14 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	contacts := make([]Summary, 0)
 	for rows.Next() {
 		var contact Summary
-		if err := rows.Scan(&contact.ID, &contact.FirstName, &contact.LastName, &contact.Email, &contact.Phone, &contact.AddressLine1, &contact.AddressLine2, &contact.City, &contact.State, &contact.PostalCode, &contact.Country, &contact.JobTitle, &contact.Status, &contact.IsClient); err != nil {
+		if err := rows.Scan(
+			&contact.ID, &contact.FirstName, &contact.LastName,
+			&contact.Email, &contact.Phone,
+			&contact.AddressLine1, &contact.AddressLine2,
+			&contact.City, &contact.State, &contact.PostalCode, &contact.Country,
+			&contact.JobTitle, &contact.Status, &contact.IsClient,
+			&contact.OwnerUserID, &contact.OwnerUserName,
+		); err != nil {
 			return ListResult{}, fmt.Errorf("scan contact: %w", err)
 		}
 		contacts = append(contacts, contact)

@@ -5,6 +5,7 @@ export async function listTasks(query = {}, { signal } = {}) {
   if (query.status) params.set('status', query.status)
   if (query.entityType) params.set('entityType', query.entityType)
   if (query.entityId) params.set('entityId', String(query.entityId))
+  if (query.assignedToUserId) params.set('assignedToUserId', String(query.assignedToUserId))
   if (query.search) params.set('q', query.search)
   const suffix = params.toString() ? `?${params.toString()}` : ''
 

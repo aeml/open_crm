@@ -120,7 +120,7 @@ func handleLogout(env config.Env, service authService, w http.ResponseWriter, r 
 
 func handleListUsers(auth authService, users usersService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
+	state, ok := requireOrgMember(auth, w, r)
 	if !ok {
 		return
 	}

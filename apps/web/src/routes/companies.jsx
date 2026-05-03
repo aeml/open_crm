@@ -93,7 +93,8 @@ function individualClientFromContact(contact) {
     phone: contact.phone || '',
     website: '',
     status: contact.status || 'lead',
-    email: contact.email || ''
+    email: contact.email || '',
+    ownerUserName: contact.ownerUserName || ''
   }
 }
 
@@ -310,10 +311,12 @@ export function CompaniesRoute() {
   const pipelineLabels = relatedPipelineLabels(businessType)
   usePageTitle('Companies')
   const initialSearch = searchParams.get('q') || ''
+  const initialOwnerFilter = searchParams.get('owner') || 'all'
   const [mode, setMode] = useState('list')
   const [companies, setCompanies] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
   const [search, setSearch] = useState(initialSearch)
+  const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
   const [selectedCompanyId, setSelectedCompanyId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
@@ -336,20 +339,27 @@ export function CompaniesRoute() {
   const selectedNotes = detail?.notes || []
   const selectedTasks = detail?.tasks || []
   const selectedDeals = detail?.deals || []
-  const hasSearch = search.trim() !== ''
+  const hasFilter = search.trim() !== '' || ownerFilter !== 'all'
   const selectedActivities = detail?.activities || []
 
-  function buildCompaniesPath(nextSearch = search) {
+  function buildCompaniesPath(nextSearch = search, nextOwner = ownerFilter) {
     const params = new URLSearchParams()
     if (nextSearch) {
       params.set('q', nextSearch)
+    }
+    if (nextOwner !== 'all') {
+      params.set('owner', nextOwner)
     }
     const suffix = params.toString() ? `?${params.toString()}` : ''
     return `/companies${suffix}`
   }
 
-  async function loadCompanies(nextSearch = '', { signal } = {}) {
-    const [companyData, contactData] = await Promise.all([listCompanies(nextSearch, { signal }), listContacts(nextSearch, { signal })])
+  async function loadCompanies(nextSearch = '', nextOwner = 'all', { signal } = {}) {
+    const ownerUserId = nextOwner === 'all' ? 0 : Number.parseInt(nextOwner, 10) || 0
+    const [companyData, contactData] = await Promise.all([
+      listCompanies({ search: nextSearch, ownerUserId }, { signal }),
+      listContacts({ search: nextSearch, ownerUserId }, { signal })
+    ])
 
     if (Array.isArray(companyData?.companies)) {
       const nextCompanies = companyData.companies
@@ -400,7 +410,7 @@ export function CompaniesRoute() {
     async function run() {
       setIsListLoading(true)
       try {
-        await Promise.all([loadCompanies(initialSearch, { signal: controller.signal }), loadContactOptions({ signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
+        await Promise.all([loadCompanies(initialSearch, initialOwnerFilter, { signal: controller.signal }), loadContactOptions({ signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
         setError('')
         setDuplicateSearch('')
         setDuplicateCandidate(null)
@@ -424,27 +434,29 @@ export function CompaniesRoute() {
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
-    navigate(buildCompaniesPath(value), { replace: true })
-    await reloadCompanies(value)
+    navigate(buildCompaniesPath(value, ownerFilter), { replace: true })
+    await reloadCompanies(value, ownerFilter)
   }
 
   async function handleApplySavedView(filters) {
     const nextSearch = filters.q || ''
+    const nextOwner = filters.owner || 'all'
     setSearch(nextSearch)
+    setOwnerFilter(nextOwner)
     setMode('list')
     setDetail(null)
     setSelectedCompanyId(null)
-    navigate(buildCompaniesPath(nextSearch), { replace: true })
-    await reloadCompanies(nextSearch)
+    navigate(buildCompaniesPath(nextSearch, nextOwner), { replace: true })
+    await reloadCompanies(nextSearch, nextOwner)
   }
 
-  async function reloadCompanies(nextSearch = search) {
+  async function reloadCompanies(nextSearch = search, nextOwner = ownerFilter) {
     searchControllerRef.current?.abort()
     const controller = new AbortController()
     searchControllerRef.current = controller
     setIsListLoading(true)
     try {
-      await loadCompanies(nextSearch, { signal: controller.signal })
+      await loadCompanies(nextSearch, nextOwner, { signal: controller.signal })
       setError('')
       setDuplicateSearch('')
       setDuplicateCandidate(null)
@@ -460,6 +472,13 @@ export function CompaniesRoute() {
         setIsListLoading(false)
       }
     }
+  }
+
+  async function handleOwnerFilterChange(event) {
+    const value = event.target.value
+    setOwnerFilter(value)
+    navigate(buildCompaniesPath(search, value), { replace: true })
+    await reloadCompanies(search, value)
   }
 
   async function handleDuplicateSearch() {
@@ -893,7 +912,15 @@ export function CompaniesRoute() {
           <Field label="Search clients">
             <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
-          <SavedViews entityType="companies" currentFilters={{ q: search }} onApply={handleApplySavedView} defaultName="Client view" />
+          <SavedViews entityType="companies" currentFilters={{ q: search, owner: ownerFilter }} onApply={handleApplySavedView} defaultName="Client view" />
+          <Field label="Owner filter">
+            <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
+              <option value="all">All owners</option>
+              {userOptions.map((user) => (
+                <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+              ))}
+            </select>
+          </Field>
           {isListLoading ? <p className="field-hint">Loading clients...</p> : null}
           {error ? (
             <div className="card-stack">
@@ -922,12 +949,15 @@ export function CompaniesRoute() {
           <div className="record-list" role="list" aria-label="Clients list">
             {!isListLoading && companies.length === 0 ? (
               <EmptyState
-                title={hasSearch ? 'No clients match the current search.' : 'No clients yet.'}
-                description={hasSearch ? 'Try a different client, website, or contact name.' : 'Create an organization or individual client so your contacts, deals, jobs, notes, and tasks have a home.'}
-                actionLabel={hasSearch ? 'Clear search' : 'Create first client'}
+                title={hasFilter ? 'No clients match the current filters.' : 'No clients yet.'}
+                description={hasFilter ? 'Try a different client, website, or contact name, or change the owner filter.' : 'Create an organization or individual client so your contacts, deals, jobs, notes, and tasks have a home.'}
+                actionLabel={hasFilter ? 'Clear filters' : 'Create first client'}
                 onAction={() => {
-                  if (hasSearch) {
-                    handleSearchChange({ target: { value: '' } })
+                  if (hasFilter) {
+                    setSearch('')
+                    setOwnerFilter('all')
+                    navigate(buildCompaniesPath('', 'all'), { replace: true })
+                    reloadCompanies('', 'all')
                     return
                   }
                   navigate('/companies')
@@ -950,6 +980,7 @@ export function CompaniesRoute() {
                 <div>
                   <p>{company.email || company.website || formatAddress(company) || clientTypeLabel(company.clientType)}</p>
                   <p>{company.status}</p>
+                  <p className="field-hint">{company.ownerUserName || 'Unassigned'}</p>
                 </div>
               </article>
             ))}

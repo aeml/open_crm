@@ -22,13 +22,14 @@ var (
 const setupTokenTTL = 7 * 24 * time.Hour
 
 type UserSummary struct {
-	ID         int64  `json:"id"`
-	Email      string `json:"email"`
-	FirstName  string `json:"firstName"`
-	LastName   string `json:"lastName"`
-	Role       string `json:"role"`
-	SetupToken string `json:"setupToken,omitempty"`
-	SetupLink  string `json:"setupLink,omitempty"`
+	ID           int64  `json:"id"`
+	Email        string `json:"email"`
+	FirstName    string `json:"firstName"`
+	LastName     string `json:"lastName"`
+	Role         string `json:"role"`
+	SetupPending bool   `json:"setupPending,omitempty"`
+	SetupToken   string `json:"setupToken,omitempty"`
+	SetupLink    string `json:"setupLink,omitempty"`
 }
 
 type CreateUserInput struct {
@@ -63,7 +64,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT u.id, u.email, u.first_name, u.last_name, om.role
+		SELECT u.id, u.email, u.first_name, u.last_name, om.role,
+			(u.password_setup_token_hash IS NOT NULL AND u.password_setup_consumed_at IS NULL) AS setup_pending
 		FROM organization_memberships om
 		JOIN users u ON u.id = om.user_id
 		WHERE om.organization_id = $1
@@ -77,7 +79,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 	users := make([]UserSummary, 0)
 	for rows.Next() {
 		var entry UserSummary
-		if err := rows.Scan(&entry.ID, &entry.Email, &entry.FirstName, &entry.LastName, &entry.Role); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.Email, &entry.FirstName, &entry.LastName, &entry.Role, &entry.SetupPending); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		users = append(users, entry)

@@ -88,12 +88,13 @@ func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter
 	}
 
 	result, err := tasks.ListByOrganization(r.Context(), state.Organization.ID, moduletasks.ListQuery{
-		Search:     strings.TrimSpace(r.URL.Query().Get("q")),
-		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
-		EntityType: strings.TrimSpace(r.URL.Query().Get("entityType")),
-		EntityID:   moduletasks.ParseInt64(r.URL.Query().Get("entityId")),
-		Page:       parsePositiveInt(r.URL.Query().Get("page"), 1),
-		PageSize:   parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+		Search:           strings.TrimSpace(r.URL.Query().Get("q")),
+		Status:           strings.TrimSpace(r.URL.Query().Get("status")),
+		EntityType:       strings.TrimSpace(r.URL.Query().Get("entityType")),
+		EntityID:         moduletasks.ParseInt64(r.URL.Query().Get("entityId")),
+		AssignedToUserID: moduletasks.ParseInt64(r.URL.Query().Get("assignedToUserId")),
+		Page:             parsePositiveInt(r.URL.Query().Get("page"), 1),
+		PageSize:         parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
 	})
 	if err != nil {
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load tasks")
@@ -499,6 +500,11 @@ func parsePositiveInt(value string, fallback int) int {
 	return parsed
 }
 
+func parseQueryInt64(value string) int64 {
+	parsed, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	return parsed
+}
+
 func decodeJSONRequest(w http.ResponseWriter, r *http.Request, requestID string, dst any) bool {
 	return platformweb.DecodeJSONRequest(w, r, requestID, dst, maxJSONBodyBytes)
 }
@@ -513,6 +519,24 @@ func writeResourceNotFound(w http.ResponseWriter, requestID string, err error) b
 
 func isResourceNotFound(err error) bool {
 	return errors.Is(err, modulecontacts.ErrNotFound) || errors.Is(err, modulecompanies.ErrNotFound) || errors.Is(err, moduledeals.ErrNotFound) || errors.Is(err, moduletasks.ErrNotFound)
+}
+
+func requireOrgMember(auth authService, w http.ResponseWriter, r *http.Request) (moduleauth.SessionState, bool) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, err := requireCurrentSession(auth, r)
+	if err != nil {
+		if errors.Is(err, moduleauth.ErrUnauthorized) {
+			platformweb.WriteError(w, http.StatusUnauthorized, requestID, "UNAUTHORIZED", "Authentication required")
+			return moduleauth.SessionState{}, false
+		}
+		if errors.Is(err, errServiceUnavailable) {
+			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Authentication service unavailable")
+			return moduleauth.SessionState{}, false
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load current session")
+		return moduleauth.SessionState{}, false
+	}
+	return state, true
 }
 
 func requireOrgAdmin(auth authService, w http.ResponseWriter, r *http.Request) (moduleauth.SessionState, bool) {

@@ -119,6 +119,7 @@ export function SettingsUsersRoute() {
                     {user.firstName} {user.lastName}
                   </h3>
                   <p>{user.email}</p>
+                  {user.setupPending ? <p className="field-hint">Pending setup</p> : null}
                 </div>
                 <div>
                   {canManageUsers ? (

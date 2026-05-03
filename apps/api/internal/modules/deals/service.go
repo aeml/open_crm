@@ -37,6 +37,7 @@ type Summary struct {
 	ValueCurrency      string `json:"valueCurrency"`
 	ExpectedCloseDate  string `json:"expectedCloseDate"`
 	OwnerUserID        int64  `json:"ownerUserId"`
+	OwnerUserName      string `json:"ownerUserName"`
 }
 
 type ActivityEntry struct {
@@ -182,11 +183,13 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			COALESCE(d.value_amount::text, ''),
 			COALESCE(d.value_currency, ''),
 			COALESCE(TO_CHAR(d.expected_close_date, 'YYYY-MM-DD'), ''),
-			COALESCE(d.owner_user_id, 0)
+			COALESCE(d.owner_user_id, 0),
+			TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, ''))
 		FROM deals d
 		JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
 		LEFT JOIN companies c ON c.id = d.company_id
 		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id
+		LEFT JOIN users ou ON ou.id = d.owner_user_id
 		WHERE d.organization_id = $1 AND d.archived_at IS NULL`+filterSQL+`
 		ORDER BY ds.position ASC, d.id DESC
 		LIMIT $`+fmt.Sprint(limitArg)+` OFFSET $`+fmt.Sprint(offsetArg), args...)
@@ -212,6 +215,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			&deal.ValueCurrency,
 			&deal.ExpectedCloseDate,
 			&deal.OwnerUserID,
+			&deal.OwnerUserName,
 		); err != nil {
 			return ListResult{}, fmt.Errorf("scan deal: %w", err)
 		}

@@ -36,8 +36,13 @@ function getContactSaveError(error, fallbackMessage) {
   return new Error(message)
 }
 
-export async function listContacts(search = '', { signal } = {}) {
-  const suffix = search ? `?q=${encodeURIComponent(search)}` : ''
+export async function listContacts(query = {}, { signal } = {}) {
+  const params = new URLSearchParams()
+  const search = typeof query === 'string' ? query : (query.search || '')
+  const ownerUserId = typeof query === 'object' ? (query.ownerUserId || 0) : 0
+  if (search) params.set('q', search)
+  if (ownerUserId) params.set('ownerUserId', String(ownerUserId))
+  const suffix = params.toString() ? `?${params.toString()}` : ''
   const payload = await apiRequest(`/api/contacts${suffix}`, { fallbackMessage: 'Unable to load contacts.', signal })
 
   return payload?.data || { contacts: [], meta: { page: 1, pageSize: 20, total: 0 } }

@@ -667,10 +667,11 @@ export function DealsRoute() {
                   </button>
                   <p>{deal.stageName}</p>
                 </div>
-                <div>
-                  <p>{formatMoney(deal.valueAmount, deal.valueCurrency)}</p>
-                  <p>{deal.companyName || labels.companyEmpty}</p>
-                </div>
+              <div>
+                <p>{formatMoney(deal.valueAmount, deal.valueCurrency)}</p>
+                <p>{deal.companyName || labels.companyEmpty}</p>
+                <p className="field-hint">{deal.ownerUserName || 'Unassigned'}</p>
+              </div>
               </article>
             ))}
           </div>

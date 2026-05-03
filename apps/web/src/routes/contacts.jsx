@@ -104,10 +104,12 @@ export function ContactsRoute() {
   const pipelineLabels = relatedPipelineLabels(businessType)
   usePageTitle('Contacts')
   const initialSearch = searchParams.get('q') || ''
+  const initialOwnerFilter = searchParams.get('owner') || 'all'
   const [mode, setMode] = useState('list')
   const [contacts, setContacts] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
   const [search, setSearch] = useState(initialSearch)
+  const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
   const [selectedContactId, setSelectedContactId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
@@ -126,20 +128,24 @@ export function ContactsRoute() {
   const selectedNotes = detail?.notes || []
   const selectedTasks = detail?.tasks || []
   const selectedDeals = detail?.deals || []
-  const hasSearch = search.trim() !== ''
+  const hasFilter = search.trim() !== '' || ownerFilter !== 'all'
   const selectedActivities = detail?.activities || []
 
-  function buildContactsPath(nextSearch = search) {
+  function buildContactsPath(nextSearch = search, nextOwner = ownerFilter) {
     const params = new URLSearchParams()
     if (nextSearch) {
       params.set('q', nextSearch)
+    }
+    if (nextOwner !== 'all') {
+      params.set('owner', nextOwner)
     }
     const suffix = params.toString() ? `?${params.toString()}` : ''
     return `/contacts${suffix}`
   }
 
-  async function loadContacts(nextSearch = '', { signal } = {}) {
-    const data = await listContacts(nextSearch, { signal })
+  async function loadContacts(nextSearch = '', nextOwner = 'all', { signal } = {}) {
+    const ownerUserId = nextOwner === 'all' ? 0 : Number.parseInt(nextOwner, 10) || 0
+    const data = await listContacts({ search: nextSearch, ownerUserId }, { signal })
 
     if (Array.isArray(data?.contacts)) {
       setContacts(data.contacts)
@@ -176,7 +182,7 @@ export function ContactsRoute() {
     async function run() {
       setIsListLoading(true)
       try {
-        await Promise.all([loadContacts(initialSearch, { signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
+        await Promise.all([loadContacts(initialSearch, initialOwnerFilter, { signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
         setError('')
         setDuplicateSearch('')
         setDuplicateCandidate(null)
@@ -200,27 +206,29 @@ export function ContactsRoute() {
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
-    navigate(buildContactsPath(value), { replace: true })
-    await reloadContacts(value)
+    navigate(buildContactsPath(value, ownerFilter), { replace: true })
+    await reloadContacts(value, ownerFilter)
   }
 
   async function handleApplySavedView(filters) {
     const nextSearch = filters.q || ''
+    const nextOwner = filters.owner || 'all'
     setSearch(nextSearch)
+    setOwnerFilter(nextOwner)
     setMode('list')
     setDetail(null)
     setSelectedContactId(null)
-    navigate(buildContactsPath(nextSearch), { replace: true })
-    await reloadContacts(nextSearch)
+    navigate(buildContactsPath(nextSearch, nextOwner), { replace: true })
+    await reloadContacts(nextSearch, nextOwner)
   }
 
-  async function reloadContacts(nextSearch = search) {
+  async function reloadContacts(nextSearch = search, nextOwner = ownerFilter) {
     searchControllerRef.current?.abort()
     const controller = new AbortController()
     searchControllerRef.current = controller
     setIsListLoading(true)
     try {
-      await loadContacts(nextSearch, { signal: controller.signal })
+      await loadContacts(nextSearch, nextOwner, { signal: controller.signal })
       setError('')
       setDuplicateSearch('')
       setDuplicateCandidate(null)
@@ -236,6 +244,13 @@ export function ContactsRoute() {
         setIsListLoading(false)
       }
     }
+  }
+
+  async function handleOwnerFilterChange(event) {
+    const value = event.target.value
+    setOwnerFilter(value)
+    navigate(buildContactsPath(search, value), { replace: true })
+    await reloadContacts(search, value)
   }
 
   async function handleDuplicateSearch() {
@@ -563,7 +578,15 @@ export function ContactsRoute() {
           <Field label="Search contacts">
             <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
-          <SavedViews entityType="contacts" currentFilters={{ q: search }} onApply={handleApplySavedView} defaultName="Contact view" />
+          <SavedViews entityType="contacts" currentFilters={{ q: search, owner: ownerFilter }} onApply={handleApplySavedView} defaultName="Contact view" />
+          <Field label="Owner filter">
+            <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
+              <option value="all">All owners</option>
+              {userOptions.map((user) => (
+                <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+              ))}
+            </select>
+          </Field>
           {isListLoading ? <p className="field-hint">Loading contacts...</p> : null}
           {error ? (
             <div className="card-stack">
@@ -592,12 +615,15 @@ export function ContactsRoute() {
           <div className="record-list" role="list" aria-label="Contacts list">
             {!isListLoading && contacts.length === 0 ? (
               <EmptyState
-                title={hasSearch ? 'No contacts match the current search.' : 'No contacts yet.'}
-                description={hasSearch ? 'Try a different name, email, or phone number.' : 'Add the first person you need to follow up with. You can link contacts to clients, deals, notes, and tasks later.'}
-                actionLabel={hasSearch ? 'Clear search' : 'Create first contact'}
+                title={hasFilter ? 'No contacts match the current filters.' : 'No contacts yet.'}
+                description={hasFilter ? 'Try a different name, email, phone number, or change the owner filter.' : 'Add the first person you need to follow up with. You can link contacts to clients, deals, notes, and tasks later.'}
+                actionLabel={hasFilter ? 'Clear filters' : 'Create first contact'}
                 onAction={() => {
-                  if (hasSearch) {
-                    handleSearchChange({ target: { value: '' } })
+                  if (hasFilter) {
+                    setSearch('')
+                    setOwnerFilter('all')
+                    navigate(buildContactsPath('', 'all'), { replace: true })
+                    reloadContacts('', 'all')
                     return
                   }
                   navigate('/contacts')
@@ -618,6 +644,7 @@ export function ContactsRoute() {
                 <div>
                   <p>{contact.email || formatAddress(contact) || 'No contact details'}</p>
                   <p>{contact.status}</p>
+                  <p className="field-hint">{contact.ownerUserName || 'Unassigned'}</p>
                 </div>
               </article>
             ))}
