@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -48,6 +49,22 @@ type SetupCompletion struct {
 	UserID         int64
 	OrganizationID int64
 	Email          string
+}
+
+type UserProfile struct {
+	ID        int64  `json:"id"`
+	Email     string `json:"email"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+}
+
+type UserPreferences struct {
+	DefaultLandingView string `json:"defaultLandingView"`
+}
+
+type UpdateProfileInput struct {
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
 }
 
 type Service struct {
@@ -235,4 +252,91 @@ func (s *Service) CompleteSetup(ctx context.Context, input CompleteSetupInput) (
 func hashSetupToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+func (s *Service) UpdateProfile(ctx context.Context, userID int64, input UpdateProfileInput) (UserProfile, error) {
+	if s == nil || s.pool == nil {
+		return UserProfile{}, fmt.Errorf("users service not configured")
+	}
+
+	input.FirstName = strings.TrimSpace(input.FirstName)
+	input.LastName = strings.TrimSpace(input.LastName)
+	if input.FirstName == "" || input.LastName == "" {
+		return UserProfile{}, fmt.Errorf("first name and last name are required")
+	}
+
+	var profile UserProfile
+	err := s.pool.QueryRow(ctx, `
+		UPDATE users
+		SET first_name = $2, last_name = $3, updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, email, first_name, last_name
+	`, userID, input.FirstName, input.LastName).Scan(
+		&profile.ID, &profile.Email, &profile.FirstName, &profile.LastName,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return UserProfile{}, ErrNotFound
+		}
+		return UserProfile{}, fmt.Errorf("update profile: %w", err)
+	}
+	return profile, nil
+}
+
+func (s *Service) GetPreferences(ctx context.Context, userID int64) (UserPreferences, error) {
+	if s == nil || s.pool == nil {
+		return UserPreferences{}, fmt.Errorf("users service not configured")
+	}
+
+	var prefsJSON []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT preferences FROM users WHERE id = $1
+	`, userID).Scan(&prefsJSON)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return UserPreferences{}, ErrNotFound
+		}
+		return UserPreferences{}, fmt.Errorf("get preferences: %w", err)
+	}
+
+	var prefs UserPreferences
+	if len(prefsJSON) > 0 {
+		if err := json.Unmarshal(prefsJSON, &prefs); err != nil {
+			return UserPreferences{}, fmt.Errorf("decode preferences: %w", err)
+		}
+	}
+	return prefs, nil
+}
+
+func (s *Service) UpdatePreferences(ctx context.Context, userID int64, prefs UserPreferences) (UserPreferences, error) {
+	if s == nil || s.pool == nil {
+		return UserPreferences{}, fmt.Errorf("users service not configured")
+	}
+
+	prefsJSON, err := json.Marshal(prefs)
+	if err != nil {
+		return UserPreferences{}, fmt.Errorf("encode preferences: %w", err)
+	}
+
+	var updatedJSON []byte
+	err = s.pool.QueryRow(ctx, `
+		UPDATE users
+		SET preferences = $2::jsonb, updated_at = NOW()
+		WHERE id = $1
+		RETURNING preferences
+	`, userID, string(prefsJSON)).Scan(&updatedJSON)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return UserPreferences{}, ErrNotFound
+		}
+		return UserPreferences{}, fmt.Errorf("update preferences: %w", err)
+	}
+
+	var result UserPreferences
+	if len(updatedJSON) > 0 {
+		if err := json.Unmarshal(updatedJSON, &result); err != nil {
+			return UserPreferences{}, fmt.Errorf("decode updated preferences: %w", err)
+		}
+	}
+	return result, nil
 }

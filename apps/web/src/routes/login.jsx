@@ -5,6 +5,7 @@ import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
+import { getPreferences } from '../lib/profile'
 
 export function LoginRoute() {
   const { status, login, error: authError } = useAuth()
@@ -29,7 +30,17 @@ export function LoginRoute() {
 
     try {
       await login({ email, password })
-      navigate(redirectTo, { replace: true })
+
+      let destination = redirectTo
+      if (!location.state?.from?.pathname) {
+        try {
+          const prefs = await getPreferences()
+          destination = prefs?.defaultLandingView || destination
+        } catch {
+          // preferences unavailable, use default destination
+        }
+      }
+      navigate(destination, { replace: true })
     } catch (loginError) {
       setError(loginError.message || 'Unable to sign in.')
     } finally {

@@ -45,6 +45,9 @@ type usersService interface {
 	CreateForOrganization(context.Context, int64, moduleusers.CreateUserInput) (moduleusers.UserSummary, error)
 	UpdateRole(context.Context, int64, int64, int64, string) (moduleusers.UserSummary, error)
 	CompleteSetup(context.Context, moduleusers.CompleteSetupInput) (moduleusers.SetupCompletion, error)
+	UpdateProfile(context.Context, int64, moduleusers.UpdateProfileInput) (moduleusers.UserProfile, error)
+	GetPreferences(context.Context, int64) (moduleusers.UserPreferences, error)
+	UpdatePreferences(context.Context, int64, moduleusers.UserPreferences) (moduleusers.UserPreferences, error)
 }
 
 type auditService interface {
@@ -199,6 +202,33 @@ type usersListResponse struct {
 type userResponse struct {
 	Data struct {
 		User moduleusers.UserSummary `json:"user"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type updateProfileRequest struct {
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+}
+
+type userProfileResponse struct {
+	Data struct {
+		User moduleusers.UserProfile `json:"user"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type updatePreferencesRequest struct {
+	DefaultLandingView string `json:"defaultLandingView"`
+}
+
+type userPreferencesResponse struct {
+	Data struct {
+		Preferences moduleusers.UserPreferences `json:"preferences"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -505,6 +535,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/users/{userID}/role", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateUserRole(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/me/profile", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateProfile(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("GET /api/me/preferences", func(w http.ResponseWriter, r *http.Request) {
+		handleGetPreferences(dependencies.AuthService, dependencies.UsersService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/me/preferences", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdatePreferences(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
 	mux.HandleFunc("POST /auth/setup-password", func(w http.ResponseWriter, r *http.Request) {
 		if !rateLimiter.allow(authRateLimitKey(r)) {

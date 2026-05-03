@@ -36,8 +36,8 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.3.8a` Tenant Isolation Hardening: complete.
 - `0.3.8b` Dependency Hygiene: complete.
 - `0.3.9` Release Readiness Review: complete.
-- `0.4.0` Multi-User Team CRM: planned.
-- `0.4.1` User Profile And Preferences: planned.
+- `0.4.0` Multi-User Team CRM: complete.
+- `0.4.1` User Profile And Preferences: complete.
 - `0.4.2` Team Assignment Views: planned.
 - `0.4.3` Role Permissions Pass: planned.
 - `0.4.4` Notification Preferences: planned.
@@ -641,7 +641,7 @@ Completion notes:
 
 ## Version 0.4.0 - Multi-User Team CRM
 
-Status: planned.
+Status: complete.
 
 Goal: move from single-operator usage toward small-team CRM workflows.
 
@@ -655,9 +655,19 @@ Exit criteria:
 - A small team can use Open CRM without losing track of record ownership.
 - Admins can manage team access confidently.
 
+Completion notes:
+
+- Added `owner_user_id` and `owner_user_name` to contacts, companies, and deals list responses via LEFT JOIN on users.
+- Added `assigned_to_user_id` server-side filter for tasks.
+- Added `owner_user_id` server-side filter for contacts and companies.
+- Added owner/assignee chips in contacts, companies, and deals list rows.
+- Added owner filter dropdown with URL persistence (`?owner=`) on contacts and companies pages.
+- `GET /api/users` relaxed from admin-only to any org member so filter dropdowns can populate.
+- Users list shows "Pending setup" hint when `setupPending` is true.
+
 ## Version 0.4.1 - User Profile And Preferences
 
-Status: planned.
+Status: complete.
 
 Goal: let each user control basic identity and working preferences.
 
@@ -670,6 +680,18 @@ Exit criteria:
 
 - Users can keep their own profile information current.
 - Preferences improve workflow without creating broad settings complexity.
+
+Completion notes:
+
+- Added migration 012: `preferences JSONB NOT NULL DEFAULT '{}'` column on `users` table.
+- Added `PATCH /api/me/profile` to update first name and last name; records `user.profile_updated` audit event.
+- Added `GET /api/me/preferences` and `PATCH /api/me/preferences` backed by the JSONB preferences column.
+- Valid `defaultLandingView` values: `""`, `"/dashboard"`, `"/companies"`, `"/deals"`, `"/tasks"`.
+- Added `settings/profile` route with personal profile form and landing view preference form.
+- Added "My Profile" link to sidebar navigation.
+- After login, if no specific return path is set, the user is redirected to their preferred landing view.
+- `refreshSession()` called after profile save so the header name updates immediately.
+- 65/65 frontend tests pass; Go compiles clean.
 
 ## Version 0.4.2 - Team Assignment Views
 

@@ -6,6 +6,7 @@ const baseLinks = [
   { to: '/companies', labelKey: 'companies', fallback: 'Companies' },
   { to: '/deals', labelKey: 'deals', fallback: 'Deals' },
   { to: '/tasks', labelKey: 'tasks', fallback: 'Tasks' },
+  { to: '/settings/profile', labelKey: 'myProfile', fallback: 'My Profile' },
   { to: '/settings/users', labelKey: 'users', fallback: 'Users' },
   { to: '/settings/business-profile', labelKey: 'businessProfile', fallback: 'Business Profile' },
   { to: '/settings/audit', labelKey: 'audit', fallback: 'Audit Trail' }
