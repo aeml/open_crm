@@ -8,6 +8,7 @@ on:
       - 'apps/api/**'
       - 'apps/web/**'
       - '.github/workflows/ci.yml'
+      - '.github/dependabot.yml'
       - 'go.work'
       - 'Makefile'
 
@@ -44,6 +45,17 @@ jobs:
         with:
           go-version: '1.23.x'
           cache-dependency-path: apps/api/go.sum
+
+      - name: Check go mod tidy
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          go mod tidy
+          if ! git diff --quiet go.mod go.sum; then
+            echo "go.mod or go.sum is not tidy. Run 'go mod tidy' in apps/api and commit the result."
+            git diff go.mod go.sum
+            exit 1
+          fi
 
       - name: Check Go formatting
         working-directory: apps/api
@@ -82,6 +94,10 @@ jobs:
       - name: Install frontend dependencies
         working-directory: apps/web
         run: npm ci
+
+      - name: Audit frontend dependencies
+        working-directory: apps/web
+        run: npm audit --audit-level=high
 
       - name: Run frontend tests
         working-directory: apps/web
