@@ -32,10 +32,10 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.3.7a` Architecture Decision Records Seeding: complete.
 - `0.3.7b` Responsive And Mobile Pass: complete.
 - `0.3.7c` Error Boundaries And Session UX: complete.
-- `0.3.8` Accessibility And Keyboard Pass: planned.
-- `0.3.8a` Tenant Isolation Hardening: planned.
-- `0.3.8b` Dependency Hygiene: planned.
-- `0.3.9` Release Readiness Review: planned.
+- `0.3.8` Accessibility And Keyboard Pass: complete.
+- `0.3.8a` Tenant Isolation Hardening: complete.
+- `0.3.8b` Dependency Hygiene: complete.
+- `0.3.9` Release Readiness Review: complete.
 - `0.4.0` Multi-User Team CRM: planned.
 - `0.4.1` User Profile And Preferences: planned.
 - `0.4.2` Team Assignment Views: planned.
@@ -547,7 +547,7 @@ Exit criteria:
 
 ## Version 0.3.8 - Accessibility And Keyboard Pass
 
-Status: planned.
+Status: complete.
 
 Goal: make core workflows usable without relying on pointer-only interactions.
 
@@ -561,9 +561,18 @@ Exit criteria:
 - Core navigation and record workflows are keyboard usable.
 - Form controls and status messages are understandable to assistive technology.
 
+Completion notes:
+
+- Promoted `<h2>` page headings to `<h1 id="page-heading">` with `aria-labelledby` on `<main>`; demoted site header `<h1>` to `<p class="org-name">`.
+- Added skip link and `id="main-content"` on `<main>`; added `role="alert"` on auth error paragraphs.
+- Darkened `--text-muted` to `#546477` for WCAG AA contrast.
+- Converted export buttons to `<a href>` for semantic keyboard access; added `type="search"` on search inputs.
+- Added `usePageTitle` hook; all 11 routes set `document.title`.
+- `<Card>` changed from `<section>` to `<div>` to eliminate unnamed landmark noise.
+
 ## Version 0.3.8a - Tenant Isolation Hardening
 
-Status: planned.
+Status: complete.
 
 Goal: lock down the highest-value invariant in a multi-tenant CRM before the team-CRM milestone widens the write surface.
 
@@ -578,9 +587,15 @@ Exit criteria:
 - Every existing module has a tested cross-org negative path.
 - Adding a new module requires extending the isolation suite, not opting out of it.
 
+Completion notes:
+
+- Added `apps/api/internal/app/cross_org_test.go` with 11 negative-path tests covering PATCH/DELETE for contacts, companies, deals (incl. stage), tasks, and saved views.
+- All foreign-org operations return `404` (no existence leakage via `403`).
+- Uses existing `fakeXService` stubs and `authenticatedXServer` helpers; no new test infrastructure required.
+
 ## Version 0.3.8b - Dependency Hygiene
 
-Status: planned.
+Status: complete.
 
 Goal: keep dependencies small, current, and auditable as the project ages.
 
@@ -594,9 +609,16 @@ Exit criteria:
 - Security-relevant updates surface as PRs without manual checking.
 - The dependency surface stays explicit and small.
 
+Completion notes:
+
+- Added `.github/dependabot.yml` — weekly PRs for `gomod`, `npm`, and `github-actions`.
+- Added `go mod tidy` diff check and `npm audit --audit-level=high` gate to CI.
+- Promoted `golang.org/x/crypto` from indirect to direct in `go.mod`.
+- CI path triggers extended to include `.github/dependabot.yml`.
+
 ## Version 0.3.9 - Release Readiness Review
 
-Status: planned.
+Status: complete.
 
 Goal: close out the `0.3.x` polish cycle before moving into team CRM work.
 
@@ -609,6 +631,13 @@ Exit criteria:
 
 - `0.3.x` is stable enough to use for real pilot feedback.
 - The next milestone starts from product evidence rather than assumptions.
+
+Completion notes:
+
+- All Go packages pass; 57/57 frontend tests pass locally.
+- `0.3.8` through `0.3.8b` completion notes captured; progress table updated.
+- Next milestone: `0.4.0` Multi-User Team CRM — ownership, assignment, and admin lifecycle.
+- Remaining `0.3.x` product friction (role-aware UI, bulk actions, import mapping) deferred to their planned slices.
 
 ## Version 0.4.0 - Multi-User Team CRM
 

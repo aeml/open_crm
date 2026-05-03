@@ -30,8 +30,15 @@ Open CRM is a production-capable CRM MVP built as a boring, explicit full-stack 
 - Organization users and role-aware settings
 - Contacts, companies, and deals with searchable list + detail workflows
 - Notes and tasks attached directly to contacts, companies, and deals
-- Activity history for write operations
-- Dashboard summary with live counts and recent activity
+- Activity timeline grouped by date with per-record type filters
+- Dashboard decision support: overdue tasks, stale deals, recently touched records
+- Saved views and filters for contacts, companies, deals, and tasks
+- CSV import preview with row-level validation for contacts and companies
+- CSV export for contacts, companies, deals, and tasks
+- Admin audit trail for user and organization lifecycle events
+- Responsive layout usable on phone and tablet viewports
+- Keyboard-accessible navigation with skip link, landmarks, and page titles
+- Top-level error boundary and centralized 401/session-expired handling
 - Business-profile adaptation for different CRM operating modes
 - Production deploys for both frontend and backend with documented recovery paths
 
@@ -42,7 +49,11 @@ Open CRM is a production-capable CRM MVP built as a boring, explicit full-stack 
 - Thin fetch-based API clients instead of a heavy frontend state framework
 - Tracked SQL migrations with database-level constraints for core roles, statuses, entity types, monetary values, stage uniqueness, and contact-company links
 - Vitest + Testing Library on the frontend, Go `testing` + `httptest` on the backend, and a Postgres-backed migration integrity test in CI
-- CI gates for Go formatting, `go vet`, backend tests, frontend tests, frontend lint, and frontend production build
+- CI gates for Go formatting, `go vet`, `go mod tidy` diff, backend tests, frontend tests, `npm audit`, frontend lint, and frontend production build
+- Responsive layout with a 960px side-nav breakpoint and 44px minimum touch targets
+- Accessible navigation with skip link, ARIA landmarks, page-level `<h1>`, and `document.title` per route
+- Cross-org tenant isolation verified by a negative-path test suite on every authenticated write path
+- Dependabot weekly PRs for Go modules, npm, and GitHub Actions
 - GitHub Actions deployment split cleanly between static frontend hosting and SSH-based backend rollout
 
 ## What it demonstrates
@@ -195,6 +206,8 @@ Explicit non-goals for MVP:
 
 ## Status
 
-This is a professional release-candidate foundation for a clean, operator-focused CRM. The core infrastructure baseline is complete: quality gates, reproducible tooling, migration safety, runtime hardening, security controls, operational runbooks, and database integrity are in place.
+The `0.3.x` polish cycle is complete. The foundation covers the full operator workflow: contacts, companies, deals, tasks, notes, activity, imports, exports, saved views, audit trail, dashboard signals, responsive layout, accessibility, tenant isolation, and dependency hygiene.
 
-The next work should come from real usage friction and product feedback, not invented architecture projects.
+The next milestone is `0.4.0` — Multi-User Team CRM: ownership, assignment visibility, and admin user lifecycle across contacts, companies, deals, and tasks.
+
+Next work should be driven by real usage friction and pilot feedback, not invented architecture projects.
