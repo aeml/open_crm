@@ -6,92 +6,95 @@
 
 > Built by [Robert Mendola](https://mendola.tech)
 
-Open CRM is a production-capable CRM MVP built as a boring, explicit full-stack app: one Go API, one React web app, one Postgres database, and just enough product surface to be useful without turning into enterprise sludge.
+Open CRM is a full-stack CRM and business operations platform built to support the everyday workflow of a small team: managing customers, companies, deals, tasks, notes, team users, and operational visibility in one system. It is designed to look and behave like normal business software rather than a demo app, with a clear product surface, explicit backend APIs, durable data storage, and deployment automation.
 
-## Live links
+Live links:
 - App: https://crm.mendola.tech
 - API: https://crmserver.mendola.tech
 - Repo: https://github.com/aeml/open_crm
 
-## Preview
+Preview:
+
 ![Open CRM dashboard screenshot](docs/media/dashboard-summary.png)
 ![Open CRM record detail workflow screenshot](docs/media/record-detail-workflow.png)
 
-> README screenshots use disposable demo data captured from the live app so the product surface is visible without exposing real customer information.
+## Overview
 
-## Why this project exists
-- Ship a real CRM workflow surface without hiding behind fake architecture
-- Prove that a modular monolith can stay clean, fast to debug, and production-ready
-- Cover the day-to-day operator loop: contacts, companies, deals, tasks, notes, activity, and dashboard visibility
-- Keep the stack small enough that runtime behavior is obvious when something breaks
+Open CRM is a production-oriented modular monolith made up of:
+- a React frontend in `apps/web`
+- a Go API in `apps/api`
+- a PostgreSQL database
+- Docker-based local and deployment workflows
+- GitHub Actions CI/CD for testing and rollout
 
-## What ships today
-- Workspace bootstrap and owner sign-in flow
-- Organization users and role-aware settings
-- Contacts, companies, and deals with searchable list + detail workflows
-- Notes and tasks attached directly to contacts, companies, and deals
-- Activity timeline grouped by date with per-record type filters
-- Dashboard decision support: overdue tasks, stale deals, recently touched records
-- Saved views and filters for contacts, companies, deals, and tasks
-- CSV import preview with row-level validation for contacts and companies
+The application covers core CRM workflows: authentication, organization bootstrap, user management, contacts, companies, deals, tasks, notes, dashboard summaries, saved views, imports, exports, audit history, and notifications.
+
+## Why This Project Matters
+
+This repo is meant to demonstrate the kind of engineering used in practical business software:
+- full-stack delivery across frontend, backend, database, and deployment
+- authenticated CRUD workflows backed by real persistence and validation
+- REST APIs with explicit route handling and tested failure paths
+- Dockerized deployment and operational runbooks instead of hand-wavy infrastructure claims
+- CI/CD quality gates for tests, linting, builds, formatting, and dependency hygiene
+- a scalable architecture choice for a CRM product: a modular monolith that stays easy to debug and evolve
+
+## Features
+
+- Authentication with server-side sessions, secure cookie handling, setup-password onboarding, and rate-limited auth flows
+- Multi-user organization support with role-aware settings, user management, profile updates, and preferences
+- CRM records for contacts, companies, and deals
+- Task and note workflows attached to CRM records
+- Dashboard summaries for operational follow-up
+- Saved views and filtering for list workflows
+- CSV import preview for contacts and companies
 - CSV export for contacts, companies, deals, and tasks
-- Admin audit trail for user and organization lifecycle events
-- Responsive layout usable on phone and tablet viewports
-- Keyboard-accessible navigation with skip link, landmarks, and page titles
-- Top-level error boundary and centralized 401/session-expired handling
-- Business-profile adaptation for different CRM operating modes
-- Production deploys for both frontend and backend with documented recovery paths
+- Audit events for admin-facing lifecycle tracking
+- Notifications and unread-count workflows
+- Responsive React UI with route-based navigation and automated frontend tests
 
-## Technical highlights
-- Go 1.23 API using `net/http`, `ServeMux`, `pgx/v5`, explicit SQL, and Postgres-backed sessions
-- React 18 + Vite + React Router frontend with plain CSS and small reusable UI primitives
-- PostgreSQL 16 as the source of truth for auth, CRM records, tasks, notes, and dashboard data
-- Thin fetch-based API clients instead of a heavy frontend state framework
-- Tracked SQL migrations with database-level constraints for core roles, statuses, entity types, monetary values, stage uniqueness, and contact-company links
-- Vitest + Testing Library on the frontend, Go `testing` + `httptest` on the backend, and a Postgres-backed migration integrity test in CI
-- CI gates for Go formatting, `go vet`, `go mod tidy` diff, backend tests, frontend tests, `npm audit`, frontend lint, and frontend production build
-- Responsive layout with a 960px side-nav breakpoint and 44px minimum touch targets
-- Accessible navigation with skip link, ARIA landmarks, page-level `<h1>`, and `document.title` per route
-- Cross-org tenant isolation verified by a negative-path test suite on every authenticated write path
-- Dependabot weekly PRs for Go modules, npm, and GitHub Actions
-- GitHub Actions deployment split cleanly between static frontend hosting and SSH-based backend rollout
+## Architecture
 
-## What it demonstrates
-- Full-stack product execution instead of toy scaffolding
-- Clear runtime behavior over abstraction theater
-- Boring deployment primitives that are easy to reason about
-- Shipping useful operator workflows without dependency sprawl
-
-## Architecture at a glance
+The backend is a Go `net/http` application with explicit route registration, module-level services, plain SQL via `pgx/v5`, and PostgreSQL-backed session storage. The frontend is a React SPA built with Vite and React Router. Deployment uses Docker Compose for the API and database, while GitHub Actions handles CI and release workflows.
 
 ```mermaid
 graph LR
-    Browser[User Browser] --> Web[React + Vite Web App]
-    Web --> API[Go API]
-    API --> Auth[Session + Auth Layer]
-    API --> Modules[Contacts / Companies / Deals / Tasks / Notes / Dashboard]
-    Modules --> DB[(PostgreSQL)]
+    Browser[Browser] --> Frontend[React + Vite SPA]
+    Frontend --> API[Go REST API]
+    API --> Auth[Authentication + Session Layer]
+    API --> Modules[CRM Modules\nContacts, Companies, Deals, Tasks, Notes, Dashboard]
+    Auth --> DB[(PostgreSQL 16)]
+    Modules --> DB
+    CI[GitHub Actions CI/CD] --> Frontend
+    CI --> API
 ```
 
-## Stack
+Engineering notes:
+- Backend routes include auth, users, contacts, companies, deals, tasks, notes, saved views, imports, exports, notifications, audit events, `/healthz`, and `/readyz`.
+- Authentication uses Argon2id password hashing and an `HttpOnly` same-site session cookie backed by database session records.
+- The API applies CSRF protection for state-changing requests, structured request logging, request IDs, security headers, and readiness checks.
+- The codebase documents major architectural decisions in `docs/adr/`.
+
+## Tech Stack
 
 | Layer | Technology |
-|-------|------------|
-| Frontend | React 18, Vite, React Router, plain CSS |
-| Backend | Go 1.23, stdlib `net/http`, `pgx/v5` |
-| Auth | Argon2id password hashing, HttpOnly opaque session cookie, Postgres-backed sessions |
-| Database | PostgreSQL 16 via Docker Compose |
+|---|---|
+| Frontend | React 18, Vite, React Router, JavaScript, CSS |
+| Backend | Go 1.23, `net/http`, `ServeMux`, `pgx/v5` |
+| Database | PostgreSQL 16 |
+| Auth | Argon2id password hashing, server-side sessions, cookie authentication |
+| Local infra | Docker, Docker Compose, Make |
+| Deployment | Docker Compose, GitHub Actions, GitHub Pages, SSH-based backend rollout |
 | Testing | Vitest, Testing Library, Go `testing`, `httptest` |
-| Deploy | GitHub Pages for frontend, GitHub Actions + SSH + Docker Compose for backend |
 
-## Local development
+## Local Development
 
 Prerequisites:
 - Go 1.23+
 - Node.js 18.x and npm 9 or 10
 - Docker with Compose plugin
 
-Node is pinned with `.nvmrc` and `.node-version`. Use `nvm use`, `fnm use`, Volta, or your preferred version manager before installing frontend dependencies.
+The frontend runtime is pinned in `.nvmrc` and `.node-version`.
 
 Quick start:
 
@@ -103,111 +106,75 @@ make api-dev
 make web-dev
 ```
 
-Useful commands:
+Useful repo commands:
 
 ```bash
-make db-up       # start Postgres
-make db-down     # stop the compose stack
-make db-migrate  # run migrations
-make db-seed     # seed local data
-make api-dev     # run the Go API
-make web-dev     # run the Vite frontend
-make test        # backend + frontend tests
+make db-up
+make db-down
+make db-migrate
+make db-seed
+make api-dev
+make web-dev
+make test
 ```
 
-Full release-candidate verification uses the same quality gates as CI:
+Manual verification commands used by CI:
 
 ```bash
 cd apps/api && gofmt -l . && go vet ./... && go test ./...
 cd apps/web && npm test && npm run lint && npm run build
 ```
 
-When Postgres is available, the migration integrity test can be run locally by setting `OPEN_CRM_TEST_DATABASE_URL` before `go test ./...`. CI provides this automatically with a disposable PostgreSQL service.
-
-## Repo layout
-
-```text
-open_crm/
-├── apps/
-│   ├── api/     # Go API, migrations, seed/migrate commands
-│   └── web/     # React frontend
-├── scripts/     # deploy helpers
-├── .github/workflows/
-│   ├── frontend-pages.yml
-│   ├── ci.yml
-│   └── backend-deploy.yml
-├── docs/
-│   ├── adr/             # Architecture decision records
-│   ├── ui-guidelines.md # Frontend visual and interaction conventions
-│   └── operations-runbook.md
-├── docker-compose.deploy.yml
-├── Makefile
-└── mvp.md
-```
-
-## Deployment
-
-Every push to `main` that changes application code runs CI before or alongside deployment. Backend CI includes a disposable Postgres service so migrations are applied against a real database and key constraints/indexes are verified.
-
-Frontend deploy:
-- `.github/workflows/frontend-pages.yml`
-- Runs frontend tests, builds `apps/web`, and deploys to GitHub Pages
-- Injects `VITE_API_BASE_URL=https://crmserver.mendola.tech`
-- Copies `index.html` to `404.html` so client-side routing still works on Pages
-
-Backend deploy:
-- `.github/workflows/backend-deploy.yml`
-- Syncs the repo to `aeml@ssh.mendola.tech:~/open_crm`
-- Writes `.env.production` from the `DEPLOY_ENV` GitHub secret
-- Runs `scripts/remote-deploy.sh` on the remote host
-- Rebuilds the API, runs migrations, and preserves the existing Postgres volume
-- Operational recovery, health checks, and database backup/restore are documented in `docs/operations-runbook.md`
-
-Production safety baseline:
-- SQL migrations are tracked in `schema_migrations` and reruns skip already-applied files.
-- API runtime has request timeouts and graceful shutdown for deploy restarts.
-- State-changing cookie-auth requests are protected by same-site CSRF checks.
-- Auth/bootstrap endpoints are rate limited.
-- API responses include `X-Request-Id`; production request logs are structured JSON.
-- `/healthz` checks process health and `/readyz` checks dependencies.
-- Backup, restore, migration recovery, and health-check procedures live in `docs/operations-runbook.md`.
-
-Required GitHub secrets:
-- `SSH_PRIVATE_KEY`
-- `DEPLOY_ENV`
-
-Example `DEPLOY_ENV`:
+Local environment defaults come from `.env.example`:
 
 ```env
-POSTGRES_DB=open_crm
-POSTGRES_USER=open_crm
-POSTGRES_PASSWORD=***
-API_PORT=18089
-ALLOWED_ORIGINS=https://crm.mendola.tech
-GO_ENV=production
+DATABASE_URL=postgres://open_crm:open_crm@localhost:5432/open_crm?sslmode=disable
+API_PORT=8080
+WEB_PORT=5173
+API_BASE_URL=http://localhost:8080
+WEB_BASE_URL=http://localhost:5173
 ```
 
-## Product scope
+## Deployment Notes
 
-This repo intentionally stays focused on the core CRM loop:
-- organizations and users
-- contacts and companies
-- deals and pipeline tracking
-- notes, tasks, and activity history
-- dashboard visibility and basic filtering/search
+Frontend:
+- `.github/workflows/frontend-pages.yml`
+- Runs `npm test` and `npm run build:pages` from `apps/web`
+- Deploys the built frontend to GitHub Pages
 
-Explicit non-goals for MVP:
-- marketing automation
-- email sync
-- calendar sync
-- workflow-engine nonsense
-- microservices
-- public API/platform ambitions before the core product earns them
+Backend:
+- `.github/workflows/backend-deploy.yml`
+- Syncs the repo to a remote host over SSH
+- Writes `.env.production` from the `DEPLOY_ENV` secret
+- Runs `scripts/remote-deploy.sh`, which builds the API image, starts PostgreSQL, runs migrations, and brings the API up with `docker-compose.deploy.yml`
 
-## Status
+Operational details already documented in the repo:
+- health and readiness endpoints: `/healthz`, `/readyz`
+- deploy recovery commands: `docs/operations-runbook.md`
+- backup and restore procedures for PostgreSQL: `docs/operations-runbook.md`
 
-The `0.3.x` polish cycle is complete. The foundation covers the full operator workflow: contacts, companies, deals, tasks, notes, activity, imports, exports, saved views, audit trail, dashboard signals, responsive layout, accessibility, tenant isolation, and dependency hygiene.
+## Testing
 
-The next milestone is `0.4.0` — Multi-User Team CRM: ownership, assignment visibility, and admin user lifecycle across contacts, companies, deals, and tasks.
+Current automated checks in `.github/workflows/ci.yml`:
+- backend `go mod tidy` verification
+- `gofmt -l .`
+- `go vet ./...`
+- backend `go test ./...`
+- frontend `npm audit --audit-level=high`
+- frontend `npm test`
+- frontend `npm run lint`
+- frontend `npm run build`
 
-Next work should be driven by real usage friction and pilot feedback, not invented architecture projects.
+The backend CI job also runs against a disposable PostgreSQL service so migration and database-integrity behavior is exercised with a real database.
+
+## Project Status
+
+Open CRM is an actively developed portfolio project with a substantial implemented feature set across frontend, backend, data model, and deployment workflows.
+
+Current state reflected in the repo:
+- completed CRM foundation for contacts, companies, deals, tasks, notes, dashboard workflows, imports, exports, saved views, audit events, and notifications
+- documented architectural decisions in `docs/adr/`
+- documented operations and recovery steps in `docs/operations-runbook.md`
+- version roadmap maintained in `docs/professionalization-roadmap.md`
+
+This repo is intended to show the ability to build and operate business software end to end: React frontend, Go backend, PostgreSQL persistence, authentication, REST APIs, Dockerized deployment, and CI/CD.
