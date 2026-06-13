@@ -1742,6 +1742,7 @@ Candidate slices:
 
 Progress:
 
+- `1.0.1` (invite email via fake provider): partial. Added an `email` module with a `Provider` seam, an in-memory `FakeProvider` outbox (default), and an unconfigured stub; `EMAIL_PROVIDER`/`EMAIL_FROM_*`/`WEB_BASE_URL` env wiring; and a templated `SendUserInvite` that emails new users an account-activation link. User invites now send this email best-effort (failures never block the invite). This also establishes the email foundation reused by `1.1`. Remaining: self-serve signup email verification, real delivery provider.
 - `1.0.4` (limit enforcement): complete. Added `EnforceCanCreate` to the billing service and a `CanCreateMore` decision helper; create handlers for contacts, deals, and user invites now reject over-limit writes with `402 PLAN_LIMIT_REACHED` and an upgrade message. Enforcement fails open on transient billing-read errors and is skipped when billing is unconfigured. Frontend surfaces the message through existing create-error handling. Backend tests cover the decision logic and the contact-create block/allow paths.
 - `1.0.2` (provider seam + fake default): complete. Added a `billing.Provider` interface with a `FakeProvider` (no external calls; default for tests and unconfigured deployments) and an unconfigured stub for real providers. `BILLING_PROVIDER` env selects the provider. Added `POST /api/billing/change-plan` (owner/admin only, audited) and a plan-switch UI on the billing settings page. A comprehensive `example.env` documents all provider configuration (billing, email, telephony, SSO, AI, storage), each defaulting to a fake/disabled provider. Remaining: real Stripe integration (checkout, webhooks, proration).
 - `1.0.3`/`1.0.4` (foundation): complete. Added migration `014_billing_plans.sql` (`plan` column on `organizations` with a CHECK constraint); a `billing` module with an in-code plan catalog (Free/Starter/Pro/Enterprise: seat/contact/deal limits + feature keys) and an entitlements service computing live usage; `GET /api/billing/plans` and `GET /api/billing/entitlements`; and a "Plan & Billing" settings page showing usage-against-limits and a plan comparison. Backend + frontend tests added. Remaining: Stripe integration (`1.0.2`), self-serve signup hardening (`1.0.1`), enforcement of limits on write paths, and SSO (`1.0.7`).
@@ -1757,6 +1758,10 @@ Exit criteria:
 Status: planned.
 
 Goal: make Open CRM the place revenue teams live by bringing email into the CRM. This is the single highest-impact competitive gap.
+
+Progress:
+
+- Email provider seam established in `1.0.1`: `email.Provider` interface, in-process `FakeProvider` outbox (default), unconfigured stub for real providers, and `EMAIL_PROVIDER` selection. The transactional/outbound foundation (`1.1.1`) builds directly on this.
 
 Candidate slices:
 

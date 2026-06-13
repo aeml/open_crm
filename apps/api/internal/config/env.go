@@ -6,10 +6,14 @@ import (
 )
 
 type Env struct {
-	Port            string
-	AllowedOrigins  []string
-	GOEnv           string
-	BillingProvider string
+	Port             string
+	AllowedOrigins   []string
+	GOEnv            string
+	BillingProvider  string
+	EmailProvider    string
+	EmailFromAddress string
+	EmailFromName    string
+	WebBaseURL       string
 }
 
 func Load() Env {
@@ -23,11 +27,25 @@ func Load() Env {
 		billingProvider = "fake"
 	}
 
+	emailProvider := os.Getenv("EMAIL_PROVIDER")
+	if emailProvider == "" {
+		emailProvider = "fake"
+	}
+
+	webBaseURL := os.Getenv("WEB_BASE_URL")
+	if webBaseURL == "" {
+		webBaseURL = "http://localhost:5173"
+	}
+
 	return Env{
-		Port:            port,
-		AllowedOrigins:  parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
-		GOEnv:           os.Getenv("GO_ENV"),
-		BillingProvider: billingProvider,
+		Port:             port,
+		AllowedOrigins:   parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
+		GOEnv:            os.Getenv("GO_ENV"),
+		BillingProvider:  billingProvider,
+		EmailProvider:    emailProvider,
+		EmailFromAddress: os.Getenv("EMAIL_FROM_ADDRESS"),
+		EmailFromName:    os.Getenv("EMAIL_FROM_NAME"),
+		WebBaseURL:       webBaseURL,
 	}
 }
 

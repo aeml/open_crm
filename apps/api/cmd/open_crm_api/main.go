@@ -20,6 +20,7 @@ import (
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
@@ -58,6 +59,8 @@ func main() {
 	var exportsService *moduleexports.Service
 	var dashboardService *moduledashboard.Service
 	importsService := moduleimports.NewService()
+	emailProvider := moduleemail.NewProvider(env.EmailProvider, logger)
+	emailService := moduleemail.NewService(emailProvider, env.EmailFromName, env.EmailFromAddress, env.WebBaseURL)
 	var notesService *modulenotes.Service
 	var notificationsService *modulenotifications.Service
 	var savedViewsService *modulesavedviews.Service
@@ -112,6 +115,7 @@ func main() {
 		OrgProfileService:    orgProfileService,
 		NotificationsService: notificationsService,
 		BillingService:       billingService,
+		EmailService:         emailService,
 	}))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

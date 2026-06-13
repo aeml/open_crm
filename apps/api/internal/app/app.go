@@ -134,6 +134,10 @@ type notificationsService interface {
 	UnreadCount(context.Context, int64, int64) (int, error)
 }
 
+type emailService interface {
+	SendUserInvite(ctx context.Context, to, firstName, setupToken string) error
+}
+
 type Dependencies struct {
 	CheckReadiness       func(context.Context) error
 	Logger               *slog.Logger
@@ -153,6 +157,7 @@ type Dependencies struct {
 	OnboardingService    onboardingService
 	NotificationsService notificationsService
 	BillingService       billingService
+	EmailService         emailService
 }
 
 type statusResponse struct {
@@ -544,7 +549,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleListUsers(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateUser(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, dependencies.BillingService, w, r)
+		handleCreateUser(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, dependencies.BillingService, dependencies.EmailService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/users/{userID}/role", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateUserRole(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)

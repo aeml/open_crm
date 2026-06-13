@@ -141,7 +141,7 @@ func handleListUsers(auth authService, users usersService, w http.ResponseWriter
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-func handleCreateUser(auth authService, users usersService, audit auditService, billing billingService, w http.ResponseWriter, r *http.Request) {
+func handleCreateUser(auth authService, users usersService, audit auditService, billing billingService, mailer emailService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgAdmin(auth, w, r)
 	if !ok {
@@ -187,6 +187,8 @@ func handleCreateUser(auth authService, users usersService, audit auditService, 
 			"role":  created.Role,
 		},
 	})
+
+	sendUserInviteEmail(r, mailer, created.Email, created.FirstName, created.SetupToken)
 
 	response := userResponse{}
 	response.Data.User = created
