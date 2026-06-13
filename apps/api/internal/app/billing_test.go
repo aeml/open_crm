@@ -25,6 +25,8 @@ type fakeBillingService struct {
 	lastChangePlan  string
 	enforceErr      error
 	lastEnforce     string
+	writableErr     error
+	writableChecked bool
 }
 
 func (f *fakeBillingService) Entitlements(_ context.Context, organizationID int64) (modulebilling.Entitlements, error) {
@@ -41,6 +43,11 @@ func (f *fakeBillingService) ChangePlan(_ context.Context, organizationID int64,
 func (f *fakeBillingService) EnforceCanCreate(_ context.Context, _ int64, resource string) error {
 	f.lastEnforce = resource
 	return f.enforceErr
+}
+
+func (f *fakeBillingService) EnforceWritable(_ context.Context, _ int64) error {
+	f.writableChecked = true
+	return f.writableErr
 }
 
 func authenticatedBillingServer(service *fakeBillingService) http.Handler {
@@ -240,6 +247,39 @@ func TestCreateContactBlockedWhenPlanLimitReached(t *testing.T) {
 	}
 	if contacts.lastCreateOrgID != 0 {
 		t.Fatalf("contact should not be created when over limit")
+	}
+}
+
+func TestCreateContactBlockedWhenSubscriptionInactive(t *testing.T) {
+	contacts := &fakeContactsService{}
+	billing := &fakeBillingService{writableErr: modulebilling.ErrSubscriptionInactive}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{
+			currentSessionResult: moduleauth.SessionState{
+				User:         moduleauth.User{ID: 1, Email: "owner@acme.test", FirstName: "Demo", LastName: "Owner"},
+				Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc.", Slug: "acme-inc"},
+				Membership:   moduleauth.Membership{Role: "owner"},
+			},
+		},
+		ContactsService: contacts,
+		BillingService:  billing,
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/contacts", bytes.NewBufferString(`{"firstName":"Ada","lastName":"Lovelace"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected status %d, got %d", http.StatusPaymentRequired, recorder.Code)
+	}
+	if !billing.writableChecked {
+		t.Fatalf("expected subscription writability to be checked")
+	}
+	if contacts.lastCreateOrgID != 0 {
+		t.Fatalf("contact should not be created when subscription inactive")
 	}
 }
 

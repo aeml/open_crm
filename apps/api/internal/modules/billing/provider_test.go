@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -63,6 +64,34 @@ func TestBuildSubscriptionActiveHasNoTrial(t *testing.T) {
 	}
 	if sub.Status != "active" {
 		t.Errorf("expected status active, got %q", sub.Status)
+	}
+}
+
+func TestCheckWritable(t *testing.T) {
+	future := time.Now().Add(24 * time.Hour)
+	past := time.Now().Add(-24 * time.Hour)
+	cases := []struct {
+		name        string
+		status      string
+		trialEndsAt *time.Time
+		wantErr     bool
+	}{
+		{"active", "active", nil, false},
+		{"past_due grace", "past_due", nil, false},
+		{"trial in period", "trialing", &future, false},
+		{"trial expired", "trialing", &past, true},
+		{"trialing no end date", "trialing", nil, false},
+		{"canceled", "canceled", nil, true},
+	}
+	for _, c := range cases {
+		err := checkWritable(c.status, c.trialEndsAt)
+		gotErr := err != nil
+		if gotErr != c.wantErr {
+			t.Errorf("%s: checkWritable err=%v, wantErr=%v", c.name, err, c.wantErr)
+		}
+		if c.wantErr && !errors.Is(err, ErrSubscriptionInactive) {
+			t.Errorf("%s: expected ErrSubscriptionInactive, got %v", c.name, err)
+		}
 	}
 }
 

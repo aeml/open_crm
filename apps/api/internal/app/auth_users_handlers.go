@@ -151,6 +151,9 @@ func handleCreateUser(auth authService, users usersService, audit auditService, 
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Users service unavailable")
 		return
 	}
+	if !enforceActiveSubscription(billing, state.Organization.ID, w, r) {
+		return
+	}
 	if !enforcePlanLimit(billing, state.Organization.ID, "seats", w, r) {
 		return
 	}

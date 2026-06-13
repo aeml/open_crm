@@ -83,6 +83,9 @@ func handleCreateContact(auth authService, contacts contactsService, billing bil
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
 		return
 	}
+	if !enforceActiveSubscription(billing, state.Organization.ID, w, r) {
+		return
+	}
 	if !enforcePlanLimit(billing, state.Organization.ID, "contacts", w, r) {
 		return
 	}

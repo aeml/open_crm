@@ -17,6 +17,10 @@ var ErrInvalidPlan = errors.New("invalid plan")
 // organization's plan limit for that resource.
 var ErrLimitReached = errors.New("plan limit reached")
 
+// ErrSubscriptionInactive is returned when an organization's subscription does
+// not permit new writes (canceled, or an expired trial).
+var ErrSubscriptionInactive = errors.New("subscription inactive")
+
 // Metered resource keys for limit enforcement.
 const (
 	ResourceContacts = "contacts"
@@ -199,4 +203,38 @@ func (s *Service) EnforceCanCreate(ctx context.Context, organizationID int64, re
 		return ErrLimitReached
 	}
 	return nil
+}
+
+const subscriptionLookupSQL = `SELECT subscription_status, trial_ends_at FROM organizations WHERE id = $1`
+
+// EnforceWritable returns ErrSubscriptionInactive when the organization's
+// subscription does not permit new writes: a canceled subscription, or a trial
+// whose period has ended. Active, past-due (grace), and in-period trials pass.
+func (s *Service) EnforceWritable(ctx context.Context, organizationID int64) error {
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("billing service not configured")
+	}
+
+	var status string
+	var trialEndsAt *time.Time
+	if err := s.pool.QueryRow(ctx, subscriptionLookupSQL, organizationID).Scan(&status, &trialEndsAt); err != nil {
+		return fmt.Errorf("load subscription status: %w", err)
+	}
+	return checkWritable(status, trialEndsAt)
+}
+
+// checkWritable is the pure write-permission decision for a subscription state.
+func checkWritable(status string, trialEndsAt *time.Time) error {
+	switch status {
+	case "canceled":
+		return ErrSubscriptionInactive
+	case "trialing":
+		if trialEndsAt != nil && time.Now().After(*trialEndsAt) {
+			return ErrSubscriptionInactive
+		}
+		return nil
+	default:
+		// active, past_due (grace period), or unknown statuses remain writable.
+		return nil
+	}
 }

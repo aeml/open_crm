@@ -15,6 +15,27 @@ type billingService interface {
 	Entitlements(context.Context, int64) (modulebilling.Entitlements, error)
 	ChangePlan(context.Context, int64, string) (modulebilling.Entitlements, error)
 	EnforceCanCreate(context.Context, int64, string) error
+	EnforceWritable(context.Context, int64) error
+}
+
+// enforceActiveSubscription blocks writes for organizations whose subscription
+// is inactive (canceled or an expired trial). It returns true when the write
+// may proceed. A nil billing service skips the check; unexpected billing
+// errors fail open so a transient read does not lock an org out of its data.
+func enforceActiveSubscription(billing billingService, organizationID int64, w http.ResponseWriter, r *http.Request) bool {
+	if billing == nil {
+		return true
+	}
+	err := billing.EnforceWritable(r.Context(), organizationID)
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, modulebilling.ErrSubscriptionInactive) {
+		requestID := platformweb.RequestIDFromContext(r.Context())
+		platformweb.WriteError(w, http.StatusPaymentRequired, requestID, "SUBSCRIPTION_INACTIVE", "Your subscription is inactive. Renew or upgrade your plan to continue.")
+		return false
+	}
+	return true
 }
 
 // enforcePlanLimit checks a metered resource limit before a create write. It
