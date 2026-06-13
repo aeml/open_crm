@@ -14,6 +14,7 @@ import (
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
@@ -138,26 +139,34 @@ type emailService interface {
 	SendUserInvite(ctx context.Context, to, firstName, setupToken string) error
 }
 
+type emailTemplatesService interface {
+	ListByOrganization(context.Context, int64) ([]moduleemailtemplates.Template, error)
+	Create(context.Context, int64, moduleemailtemplates.Input) (moduleemailtemplates.Template, error)
+	Update(context.Context, int64, int64, moduleemailtemplates.Input) (moduleemailtemplates.Template, error)
+	Delete(context.Context, int64, int64) error
+}
+
 type Dependencies struct {
-	CheckReadiness       func(context.Context) error
-	Logger               *slog.Logger
-	AuthService          authService
-	UsersService         usersService
-	AuditService         auditService
-	ContactsService      contactsService
-	CompaniesService     companiesService
-	DealsService         dealsService
-	TasksService         tasksService
-	ExportsService       dataExportsService
-	OrgProfileService    orgProfileService
-	DashboardService     dashboardService
-	NotesService         notesService
-	ImportsService       importsService
-	SavedViewsService    savedViewsService
-	OnboardingService    onboardingService
-	NotificationsService notificationsService
-	BillingService       billingService
-	EmailService         emailService
+	CheckReadiness        func(context.Context) error
+	Logger                *slog.Logger
+	AuthService           authService
+	UsersService          usersService
+	AuditService          auditService
+	ContactsService       contactsService
+	CompaniesService      companiesService
+	DealsService          dealsService
+	TasksService          tasksService
+	ExportsService        dataExportsService
+	OrgProfileService     orgProfileService
+	DashboardService      dashboardService
+	NotesService          notesService
+	ImportsService        importsService
+	SavedViewsService     savedViewsService
+	OnboardingService     onboardingService
+	NotificationsService  notificationsService
+	BillingService        billingService
+	EmailService          emailService
+	EmailTemplatesService emailTemplatesService
 }
 
 type statusResponse struct {
@@ -581,6 +590,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/billing/change-plan", func(w http.ResponseWriter, r *http.Request) {
 		handleChangePlan(dependencies.AuthService, dependencies.BillingService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("GET /api/email-templates", func(w http.ResponseWriter, r *http.Request) {
+		handleListEmailTemplates(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
+	})
+	mux.HandleFunc("POST /api/email-templates", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateEmailTemplate(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/email-templates/{templateID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateEmailTemplate(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/email-templates/{templateID}", func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteEmailTemplate(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
 	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)

@@ -47,8 +47,11 @@ var billingPlansSQL string
 //go:embed migrations/015_subscription_lifecycle.sql
 var subscriptionLifecycleSQL string
 
+//go:embed migrations/016_email_templates.sql
+var emailTemplatesSQL string
+
 func MigrationFiles() []string {
-	return []string{"001_initial_schema.sql", "002_company_client_type.sql", "003_contact_client_flag.sql", "004_client_address.sql", "005_client_structured_address.sql", "006_remove_company_domain.sql", "007_task_archive.sql", "008_user_setup_tokens.sql", "009_database_integrity.sql", "010_saved_views.sql", "011_audit_events.sql", "012_user_preferences.sql", "013_notifications.sql", "014_billing_plans.sql", "015_subscription_lifecycle.sql"}
+	return []string{"001_initial_schema.sql", "002_company_client_type.sql", "003_contact_client_flag.sql", "004_client_address.sql", "005_client_structured_address.sql", "006_remove_company_domain.sql", "007_task_archive.sql", "008_user_setup_tokens.sql", "009_database_integrity.sql", "010_saved_views.sql", "011_audit_events.sql", "012_user_preferences.sql", "013_notifications.sql", "014_billing_plans.sql", "015_subscription_lifecycle.sql", "016_email_templates.sql"}
 }
 
 func MigrationSQL(name string) string {
@@ -96,6 +99,9 @@ func MigrationSQL(name string) string {
 	}
 	if name == "015_subscription_lifecycle.sql" {
 		return subscriptionLifecycleSQL
+	}
+	if name == "016_email_templates.sql" {
+		return emailTemplatesSQL
 	}
 	return ""
 }

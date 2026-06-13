@@ -1764,6 +1764,7 @@ Goal: make Open CRM the place revenue teams live by bringing email into the CRM.
 Progress:
 
 - Email provider seam established in `1.0.1`: `email.Provider` interface, in-process `FakeProvider` outbox (default), unconfigured stub for real providers, and `EMAIL_PROVIDER` selection. The transactional/outbound foundation (`1.1.1`) builds directly on this.
+- `1.1.5` (email templates): complete. Added migration `016_email_templates.sql` (org-scoped templates, unique name per org); an `emailtemplates` module with CRUD and a pure `Render` merge-field helper (`{{first_name}}`-style, case/space-insensitive, unknown fields left intact); `GET/POST/PATCH/DELETE /api/email-templates` (reads for any member, writes for org writers); and a "Email Templates" settings page to manage them. Backend (module + handler) and frontend tests added. Remaining: use templates in one-to-one send and sequences once sending lands.
 
 Candidate slices:
 

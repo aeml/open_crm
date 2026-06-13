@@ -14,6 +14,7 @@ import { SettingsUsersRoute } from '../routes/settings_users'
 import { BusinessProfileRoute } from '../routes/business_profile'
 import { SettingsAuditRoute } from '../routes/settings_audit'
 import { SettingsBillingRoute } from '../routes/settings_billing'
+import { SettingsEmailTemplatesRoute } from '../routes/settings_email_templates'
 import { NotificationsRoute } from '../routes/notifications'
 
 export function AppRouter() {
@@ -39,6 +40,7 @@ export function AppRouter() {
             <Route path="settings/users" element={<SettingsUsersRoute />} />
             <Route path="settings/business-profile" element={<BusinessProfileRoute />} />
             <Route path="settings/billing" element={<SettingsBillingRoute />} />
+            <Route path="settings/email-templates" element={<SettingsEmailTemplatesRoute />} />
             <Route path="settings/audit" element={<SettingsAuditRoute />} />
             <Route path="notifications" element={<NotificationsRoute />} />
           </Route>

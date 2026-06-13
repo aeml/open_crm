@@ -21,6 +21,7 @@ import (
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
+	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
@@ -67,6 +68,7 @@ func main() {
 	var onboardingService *moduleonboarding.Service
 	var orgProfileService *moduleorgprofile.Service
 	var billingService *modulebilling.Service
+	var emailTemplatesService *moduleemailtemplates.Service
 	if dbConfigErr == nil {
 		pool, err := db.NewPool(context.Background(), dbConfig)
 		if err != nil {
@@ -88,6 +90,7 @@ func main() {
 			onboardingService = moduleonboarding.NewService(pool)
 			orgProfileService = moduleorgprofile.NewService(pool)
 			billingService = modulebilling.NewService(pool, modulebilling.NewProvider(env.BillingProvider))
+			emailTemplatesService = moduleemailtemplates.NewService(pool)
 		}
 	}
 
@@ -98,24 +101,25 @@ func main() {
 			}
 			return db.CheckReadiness(ctx, dbConfig)
 		},
-		Logger:               logger,
-		AuthService:          authService,
-		AuditService:         auditService,
-		UsersService:         usersService,
-		ContactsService:      contactsService,
-		CompaniesService:     companiesService,
-		DealsService:         dealsService,
-		TasksService:         tasksService,
-		ExportsService:       exportsService,
-		DashboardService:     dashboardService,
-		NotesService:         notesService,
-		ImportsService:       importsService,
-		SavedViewsService:    savedViewsService,
-		OnboardingService:    onboardingService,
-		OrgProfileService:    orgProfileService,
-		NotificationsService: notificationsService,
-		BillingService:       billingService,
-		EmailService:         emailService,
+		Logger:                logger,
+		AuthService:           authService,
+		AuditService:          auditService,
+		UsersService:          usersService,
+		ContactsService:       contactsService,
+		CompaniesService:      companiesService,
+		DealsService:          dealsService,
+		TasksService:          tasksService,
+		ExportsService:        exportsService,
+		DashboardService:      dashboardService,
+		NotesService:          notesService,
+		ImportsService:        importsService,
+		SavedViewsService:     savedViewsService,
+		OnboardingService:     onboardingService,
+		OrgProfileService:     orgProfileService,
+		NotificationsService:  notificationsService,
+		BillingService:        billingService,
+		EmailService:          emailService,
+		EmailTemplatesService: emailTemplatesService,
 	}))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
