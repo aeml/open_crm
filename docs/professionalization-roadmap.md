@@ -1742,6 +1742,7 @@ Candidate slices:
 
 Progress:
 
+- `1.0.2` (provider seam + fake default): complete. Added a `billing.Provider` interface with a `FakeProvider` (no external calls; default for tests and unconfigured deployments) and an unconfigured stub for real providers. `BILLING_PROVIDER` env selects the provider. Added `POST /api/billing/change-plan` (owner/admin only, audited) and a plan-switch UI on the billing settings page. A comprehensive `example.env` documents all provider configuration (billing, email, telephony, SSO, AI, storage), each defaulting to a fake/disabled provider. Remaining: real Stripe integration (checkout, webhooks, proration).
 - `1.0.3`/`1.0.4` (foundation): complete. Added migration `014_billing_plans.sql` (`plan` column on `organizations` with a CHECK constraint); a `billing` module with an in-code plan catalog (Free/Starter/Pro/Enterprise: seat/contact/deal limits + feature keys) and an entitlements service computing live usage; `GET /api/billing/plans` and `GET /api/billing/entitlements`; and a "Plan & Billing" settings page showing usage-against-limits and a plan comparison. Backend + frontend tests added. Remaining: Stripe integration (`1.0.2`), self-serve signup hardening (`1.0.1`), enforcement of limits on write paths, and SSO (`1.0.7`).
 
 Exit criteria:
