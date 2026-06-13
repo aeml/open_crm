@@ -52,6 +52,14 @@ func WithinLimit(used, limit int) bool {
 	return used <= limit
 }
 
+// CanCreateMore reports whether one more unit fits within the usage's limit.
+func CanCreateMore(usage LimitUsage) bool {
+	if usage.Unlimited {
+		return true
+	}
+	return usage.Used < usage.Limit
+}
+
 // defaultPlanKey is assigned to organizations that have no recognized plan.
 const defaultPlanKey = "free"
 

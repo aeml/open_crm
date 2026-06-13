@@ -544,7 +544,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleListUsers(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateUser(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)
+		handleCreateUser(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, dependencies.BillingService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/users/{userID}/role", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateUserRole(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)
@@ -584,7 +584,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleExportContacts(dependencies.AuthService, dependencies.ExportsService, w, r)
 	})
 	mux.HandleFunc("POST /api/contacts", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateContact(dependencies.AuthService, dependencies.ContactsService, w, r)
+		handleCreateContact(dependencies.AuthService, dependencies.ContactsService, dependencies.BillingService, w, r)
 	})
 	mux.HandleFunc("GET /api/contacts/{contactID}", func(w http.ResponseWriter, r *http.Request) {
 		handleGetContact(dependencies.AuthService, dependencies.ContactsService, w, r)
@@ -626,7 +626,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleGetDeal(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("POST /api/deals", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, dependencies.NotificationsService, w, r)
+		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, dependencies.NotificationsService, dependencies.BillingService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateDeal(dependencies.AuthService, dependencies.DealsService, dependencies.NotificationsService, w, r)

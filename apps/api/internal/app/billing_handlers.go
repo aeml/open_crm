@@ -14,6 +14,28 @@ import (
 type billingService interface {
 	Entitlements(context.Context, int64) (modulebilling.Entitlements, error)
 	ChangePlan(context.Context, int64, string) (modulebilling.Entitlements, error)
+	EnforceCanCreate(context.Context, int64, string) error
+}
+
+// enforcePlanLimit checks a metered resource limit before a create write. It
+// returns true when the write may proceed. A nil billing service (e.g. in
+// tests or when billing is disabled) skips enforcement. Unexpected billing
+// errors fail open so a transient billing read does not block legitimate CRM
+// writes; only a definitive ErrLimitReached blocks the request.
+func enforcePlanLimit(billing billingService, organizationID int64, resource string, w http.ResponseWriter, r *http.Request) bool {
+	if billing == nil {
+		return true
+	}
+	err := billing.EnforceCanCreate(r.Context(), organizationID, resource)
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, modulebilling.ErrLimitReached) {
+		requestID := platformweb.RequestIDFromContext(r.Context())
+		platformweb.WriteError(w, http.StatusPaymentRequired, requestID, "PLAN_LIMIT_REACHED", "Your plan limit for "+resource+" has been reached. Upgrade your plan to add more.")
+		return false
+	}
+	return true
 }
 
 type changePlanRequest struct {

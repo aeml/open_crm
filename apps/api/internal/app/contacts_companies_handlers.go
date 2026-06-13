@@ -73,7 +73,7 @@ func handleGetContact(auth authService, contacts contactsService, w http.Respons
 	respondContactDetail(w, r, http.StatusOK, result)
 }
 
-func handleCreateContact(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
+func handleCreateContact(auth authService, contacts contactsService, billing billingService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -81,6 +81,9 @@ func handleCreateContact(auth authService, contacts contactsService, w http.Resp
 	}
 	if contacts == nil {
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
+		return
+	}
+	if !enforcePlanLimit(billing, state.Organization.ID, "contacts", w, r) {
 		return
 	}
 

@@ -71,7 +71,7 @@ func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-func handleCreateDeal(auth authService, deals dealsService, notifs notificationsService, w http.ResponseWriter, r *http.Request) {
+func handleCreateDeal(auth authService, deals dealsService, notifs notificationsService, billing billingService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -79,6 +79,9 @@ func handleCreateDeal(auth authService, deals dealsService, notifs notifications
 	}
 	if deals == nil {
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+	if !enforcePlanLimit(billing, state.Organization.ID, "deals", w, r) {
 		return
 	}
 

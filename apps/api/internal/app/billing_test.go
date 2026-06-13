@@ -12,6 +12,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
+	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 )
 
 type fakeBillingService struct {
@@ -22,6 +23,8 @@ type fakeBillingService struct {
 	changeErr       error
 	lastChangeOrgID int64
 	lastChangePlan  string
+	enforceErr      error
+	lastEnforce     string
 }
 
 func (f *fakeBillingService) Entitlements(_ context.Context, organizationID int64) (modulebilling.Entitlements, error) {
@@ -33,6 +36,11 @@ func (f *fakeBillingService) ChangePlan(_ context.Context, organizationID int64,
 	f.lastChangeOrgID = organizationID
 	f.lastChangePlan = planKey
 	return f.changeResult, f.changeErr
+}
+
+func (f *fakeBillingService) EnforceCanCreate(_ context.Context, _ int64, resource string) error {
+	f.lastEnforce = resource
+	return f.enforceErr
 }
 
 func authenticatedBillingServer(service *fakeBillingService) http.Handler {
@@ -199,5 +207,68 @@ func TestChangePlanInvalidPlanReturns400(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+}
+
+func TestCreateContactBlockedWhenPlanLimitReached(t *testing.T) {
+	contacts := &fakeContactsService{}
+	billing := &fakeBillingService{enforceErr: modulebilling.ErrLimitReached}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{
+			currentSessionResult: moduleauth.SessionState{
+				User:         moduleauth.User{ID: 1, Email: "owner@acme.test", FirstName: "Demo", LastName: "Owner"},
+				Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc.", Slug: "acme-inc"},
+				Membership:   moduleauth.Membership{Role: "owner"},
+			},
+		},
+		ContactsService: contacts,
+		BillingService:  billing,
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/contacts", bytes.NewBufferString(`{"firstName":"Ada","lastName":"Lovelace"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected status %d, got %d", http.StatusPaymentRequired, recorder.Code)
+	}
+	if billing.lastEnforce != "contacts" {
+		t.Fatalf("expected contacts enforcement, got %q", billing.lastEnforce)
+	}
+	if contacts.lastCreateOrgID != 0 {
+		t.Fatalf("contact should not be created when over limit")
+	}
+}
+
+func TestCreateContactProceedsWhenWithinPlanLimit(t *testing.T) {
+	contacts := &fakeContactsService{createResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 5, FirstName: "Ada", LastName: "Lovelace"}}}
+	billing := &fakeBillingService{}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{
+			currentSessionResult: moduleauth.SessionState{
+				User:         moduleauth.User{ID: 1, Email: "owner@acme.test", FirstName: "Demo", LastName: "Owner"},
+				Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc.", Slug: "acme-inc"},
+				Membership:   moduleauth.Membership{Role: "owner"},
+			},
+		},
+		ContactsService: contacts,
+		BillingService:  billing,
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/contacts", bytes.NewBufferString(`{"firstName":"Ada","lastName":"Lovelace"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
+	}
+	if contacts.lastCreateOrgID != 42 {
+		t.Fatalf("expected contact created for org 42, got %d", contacts.lastCreateOrgID)
 	}
 }

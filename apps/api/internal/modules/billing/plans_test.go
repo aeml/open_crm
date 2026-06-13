@@ -58,6 +58,24 @@ func TestEnterprisePlanUnlimitedAndSSO(t *testing.T) {
 	}
 }
 
+func TestCanCreateMore(t *testing.T) {
+	cases := []struct {
+		usage LimitUsage
+		want  bool
+	}{
+		{LimitUsage{Used: 0, Limit: 2}, true},
+		{LimitUsage{Used: 1, Limit: 2}, true},
+		{LimitUsage{Used: 2, Limit: 2}, false},
+		{LimitUsage{Used: 3, Limit: 2}, false},
+		{LimitUsage{Used: 9999, Unlimited: true}, true},
+	}
+	for _, c := range cases {
+		if got := CanCreateMore(c.usage); got != c.want {
+			t.Errorf("CanCreateMore(%+v) = %v, want %v", c.usage, got, c.want)
+		}
+	}
+}
+
 func TestWithinLimit(t *testing.T) {
 	cases := []struct {
 		used, limit int

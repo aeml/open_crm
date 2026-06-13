@@ -12,6 +12,17 @@ import (
 // ErrInvalidPlan is returned when a requested plan key is not in the catalog.
 var ErrInvalidPlan = errors.New("invalid plan")
 
+// ErrLimitReached is returned when creating a resource would exceed the
+// organization's plan limit for that resource.
+var ErrLimitReached = errors.New("plan limit reached")
+
+// Metered resource keys for limit enforcement.
+const (
+	ResourceContacts = "contacts"
+	ResourceDeals    = "deals"
+	ResourceSeats    = "seats"
+)
+
 // LimitUsage pairs a numeric limit with current usage for a metered resource.
 type LimitUsage struct {
 	Used      int  `json:"used"`
@@ -128,4 +139,35 @@ func (s *Service) ChangePlan(ctx context.Context, organizationID int64, planKey 
 	}
 
 	return s.Entitlements(ctx, organizationID)
+}
+
+// EnforceCanCreate returns ErrLimitReached if adding one more of the given
+// metered resource would exceed the organization's plan limit. Unlimited
+// plans and unmetered resources always pass.
+func (s *Service) EnforceCanCreate(ctx context.Context, organizationID int64, resource string) error {
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("billing service not configured")
+	}
+
+	entitlements, err := s.Entitlements(ctx, organizationID)
+	if err != nil {
+		return err
+	}
+
+	var usage LimitUsage
+	switch resource {
+	case ResourceContacts:
+		usage = entitlements.Contacts
+	case ResourceDeals:
+		usage = entitlements.Deals
+	case ResourceSeats:
+		usage = entitlements.Seats
+	default:
+		return nil
+	}
+
+	if !CanCreateMore(usage) {
+		return ErrLimitReached
+	}
+	return nil
 }

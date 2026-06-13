@@ -141,7 +141,7 @@ func handleListUsers(auth authService, users usersService, w http.ResponseWriter
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-func handleCreateUser(auth authService, users usersService, audit auditService, w http.ResponseWriter, r *http.Request) {
+func handleCreateUser(auth authService, users usersService, audit auditService, billing billingService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgAdmin(auth, w, r)
 	if !ok {
@@ -149,6 +149,9 @@ func handleCreateUser(auth authService, users usersService, audit auditService, 
 	}
 	if users == nil {
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Users service unavailable")
+		return
+	}
+	if !enforcePlanLimit(billing, state.Organization.ID, "seats", w, r) {
 		return
 	}
 
