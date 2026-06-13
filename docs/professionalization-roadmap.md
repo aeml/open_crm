@@ -1,12 +1,58 @@
-# Open CRM Professionalization Roadmap
+# Open CRM Roadmap
 
-This roadmap starts at version `0.1.1` and moves the project from MVP-complete to professional-grade without changing the core product direction: a small, explicit CRM built from a Go API, React web app, and Postgres.
+This roadmap has two parts.
 
-Each version is a shippable slice. The goal is to improve safety, reliability, maintainability, and operator trust without introducing unnecessary platform complexity.
+**Part I (`0.1.1` → `0.10.0`)** moves the project from MVP-complete to a professional-grade, production-ready CRM foundation: a small, explicit CRM built from a Go API, React web app, and Postgres. Each version is a shippable slice that improves safety, reliability, maintainability, and operator trust without introducing unnecessary platform complexity. This part is largely complete or well-specified and should be finished first — it is the load-bearing foundation everything else sits on.
 
-After `0.3.0`, the baseline infrastructure work is complete. Future versions should be driven by product usefulness, operator workflows, and measured reliability improvements rather than speculative architecture.
+**Part II (`1.0.0` → `2.0.0`)** is a deliberate strategic expansion: turn Open CRM into a **full-featured, multi-tenant SaaS product that competes with HubSpot, Pipedrive, Zoho, Salesforce, Close, and Copper.** This part intentionally reverses several "non-goals" declared in `mvp.md` (email sync, calendar sync, marketing automation, workflow engine, mobile, real-time). Competing in the CRM SaaS market requires those capabilities plus the platform machinery to sell, meter, and operate software as a service. See `## Strategic Direction Change` and `## Competitive Gap Analysis` below before starting Part II work.
+
+The "minimal dependencies, every dependency earns its existence" principle from `mvp.md` still holds in Part II — but the bar shifts from "do we need a library" to "do we need a capability to be competitive," and several capabilities (background workers, an email/comms layer, billing, AI providers) now clearly clear that bar.
+
+After `0.3.0`, the baseline infrastructure work is complete. Part I versions are driven by product usefulness, operator workflows, and measured reliability. Part II versions are driven by competitive parity and SaaS go-to-market requirements.
+
+## Strategic Direction Change
+
+`mvp.md` deliberately scoped Open CRM as a small, self-hosted, single-tenant-feeling CRM and listed these as explicit non-goals: marketing automation, email sync, calendar sync, custom workflow engine, mobile app, event bus/queue, microservices, public API versioning guarantees, multi-region, and real-time collaboration.
+
+Part II reclassifies these from "non-goals" to "competitive requirements," with the following stance:
+
+- **Still a modular monolith first.** We add background workers and an outbound integration layer, but we do not jump to microservices. We scale the monolith and extract only when a capability (email ingestion, AI processing) genuinely needs an independent runtime.
+- **Multi-tenant SaaS, not just multi-org.** Self-serve signup, billing, plan-gated features, usage metering, and tenant isolation at scale become first-class.
+- **Buy vs. build for commodity infrastructure.** Email/SMS delivery (e.g. Postmark/SendGrid/Twilio), payments (Stripe), and AI inference (hosted LLM APIs) are bought, not built. CRM workflow value is built.
+- **Open-core friendly.** Where practical, keep the core CRM open and gate advanced/enterprise capabilities behind plan tiers so the project can sustain a SaaS business and a self-hosted community edition.
+
+## Competitive Gap Analysis
+
+What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS products ship. "Built" = exists now; "Part I" = covered by the existing `0.5`–`0.10` plan; "Part II" = new competitive work below.
+
+| Capability area | Competitors (HubSpot/Pipedrive/Zoho/Salesforce) | Open CRM status |
+| --- | --- | --- |
+| Contacts, companies, deals, tasks, notes, activity | Yes | Built |
+| Multi-user, roles, ownership, assignment | Yes | Built |
+| Saved views, filters, import/export CSV | Yes | Built |
+| Audit trail, notifications (in-app) | Yes | Built |
+| Bulk actions, duplicate merge, custom fields | Yes | Part I (`0.5.x`) |
+| Configurable pipelines, forecasting, win/loss | Yes | Part I (`0.6.x`) |
+| Customer/account post-sale views | Yes | Part I (`0.7.x`) |
+| Public API, API tokens, webhooks | Yes | Part I (`0.8.x`) |
+| Background jobs, scale, pagination, backups | Yes | Part I (`0.9.x`) |
+| **Self-serve signup + billing + plan tiers** | Yes | **Part II (`1.0`)** |
+| **SSO / SAML / SCIM, granular RBAC, i18n, multi-currency** | Yes | **Part II (`1.0`, `2.0`)** |
+| **2-way email sync, tracking, templates, sequences** | Yes | **Part II (`1.1`)** |
+| **Telephony, SMS, call recording, meeting scheduler** | Yes | **Part II (`1.2`)** |
+| **Product catalog, quotes/CPQ, e-signature, quotas** | Yes | **Part II (`1.3`)** |
+| **Forms, landing pages, campaigns, lead scoring** | Yes | **Part II (`1.4`)** |
+| **Visual workflow/automation engine** | Yes | **Part II (`1.5`)** |
+| **Custom report builder + dashboards** | Yes | **Part II (`1.6`)** |
+| **AI: drafting, summarization, scoring, copilot, enrichment** | Yes (now a key battleground) | **Part II (`1.7`)** |
+| **Help desk / tickets / customer portal / knowledge base** | Yes | **Part II (`1.8`)** |
+| **Integration marketplace + custom objects** | Yes | **Part II (`1.9`)** |
+| **Mobile apps + real-time collaboration** | Yes | **Part II (`1.10`)** |
+| **Enterprise: SSO/SCIM, sandboxes, data residency, audit/compliance** | Yes | **Part II (`2.0`)** |
 
 ## Progress
+
+### Part I — Professional Foundation
 
 - `0.1.1` Migration Safety: complete.
 - `0.1.2` HTTP Runtime Hardening: complete.
@@ -97,6 +143,23 @@ After `0.3.0`, the baseline infrastructure work is complete. Future versions sho
 - `0.9.8` Load And Failure Testing: planned.
 - `0.9.9` Reliability Release Review: planned.
 - `0.10.0` Production Beta: planned.
+
+### Part II — Competitive SaaS Platform
+
+- `1.0.0` Multi-Tenant SaaS Platform (signup, billing, plan gating, SSO): in progress.
+- `1.1.0` Email And Communications (2-way sync, tracking, templates, sequences): planned.
+- `1.2.0` Telephony, SMS, And Meeting Scheduling: planned.
+- `1.3.0` Sales Acceleration And CPQ (catalog, quotes, e-sign, quotas): planned.
+- `1.4.0` Marketing And Lead Generation (forms, pages, campaigns, scoring): planned.
+- `1.5.0` Workflow Automation Engine (visual builder): planned.
+- `1.6.0` Reporting And Analytics (custom report builder, dashboards): planned.
+- `1.7.0` AI And Intelligence (copilot, drafting, summarization, scoring, enrichment): planned.
+- `1.8.0` Service, Support, And Customer Portal (tickets, SLAs, knowledge base): planned.
+- `1.9.0` Ecosystem And Extensibility (integration marketplace, custom objects): planned.
+- `1.10.0` Mobile And Real-Time Collaboration: planned.
+- `2.0.0` Enterprise And General Availability: planned.
+
+# Part I — Professional Foundation
 
 ## Version 0.1.1 - Migration Safety
 
@@ -1652,3 +1715,272 @@ Exit criteria:
 
 - Open CRM is ready for real beta users with documented limits.
 - Future work is primarily customer-driven product development.
+
+# Part II — Competitive SaaS Platform
+
+> Part II assumes Part I is substantially complete: a stable modular monolith, public API + webhooks (`0.8.x`), background job runner (`0.9.3`), pagination/scale hardening (`0.9.x`), and tenant isolation tests. Each Part II family below is a major version (`1.x`) that should be decomposed into `1.x.1`, `1.x.2`, … shippable slices using the same format as Part I. The bullets under each family are the candidate slices.
+>
+> Sequencing rationale: `1.0` makes Open CRM sellable as SaaS (without it, no SaaS business exists). `1.1`–`1.3` deliver the highest-ROI revenue-team features (email, calling, quoting) that drive day-to-day adoption. `1.4`–`1.6` add growth, automation, and analytics. `1.7` AI is competitive table stakes and can be pulled earlier if it becomes a deal-breaker. `1.8`–`2.0` broaden into service, ecosystem, mobile, and enterprise.
+
+## Version 1.0.0 - Multi-Tenant SaaS Platform
+
+Status: in progress.
+
+Goal: turn the multi-org CRM into a sellable, self-serve, metered SaaS product. This is the prerequisite for competing commercially; everything else is a feature on top of it.
+
+Candidate slices:
+
+- `1.0.1` Self-serve signup, email verification, and tenant provisioning (no admin bootstrap required).
+- `1.0.2` Stripe billing integration: customers, subscriptions, payment methods, invoices, webhooks.
+- `1.0.3` Plan tiers and seat-based pricing (Free/Starter/Pro/Enterprise) with a plan catalog.
+- `1.0.4` Feature gating and entitlement checks enforced in API and UI from plan definition.
+- `1.0.5` Usage metering and soft/hard limits (records, seats, emails, API calls, storage).
+- `1.0.6` Billing admin UI: plan changes, upgrades/downgrades, proration, trial handling, dunning.
+- `1.0.7` SSO via Google and Microsoft OAuth login (in addition to password auth).
+- `1.0.8` Granular role/permission model groundwork (custom roles, per-object permissions) extending `0.4.3`.
+- `1.0.9` Tenant lifecycle: trial expiry, suspension, cancellation, data retention, and self-serve export/delete (GDPR/CCPA).
+
+Progress:
+
+- `1.0.3`/`1.0.4` (foundation): complete. Added migration `014_billing_plans.sql` (`plan` column on `organizations` with a CHECK constraint); a `billing` module with an in-code plan catalog (Free/Starter/Pro/Enterprise: seat/contact/deal limits + feature keys) and an entitlements service computing live usage; `GET /api/billing/plans` and `GET /api/billing/entitlements`; and a "Plan & Billing" settings page showing usage-against-limits and a plan comparison. Backend + frontend tests added. Remaining: Stripe integration (`1.0.2`), self-serve signup hardening (`1.0.1`), enforcement of limits on write paths, and SSO (`1.0.7`).
+
+Exit criteria:
+
+- A prospect can sign up, start a trial, add a card, and be billed without operator involvement.
+- Features and limits are enforced by plan in both API and UI.
+- Tenants can be provisioned, suspended, and offboarded cleanly with data portability.
+
+## Version 1.1.0 - Email And Communications
+
+Status: planned.
+
+Goal: make Open CRM the place revenue teams live by bringing email into the CRM. This is the single highest-impact competitive gap.
+
+Candidate slices:
+
+- `1.1.1` Outbound transactional/CRM email infrastructure via a provider (Postmark/SendGrid) with domain auth (SPF/DKIM/DMARC) and bounce/complaint handling.
+- `1.1.2` Two-way mailbox sync via Gmail and Microsoft 365 OAuth (and generic IMAP/SMTP) with per-user connection.
+- `1.1.3` Automatic email logging to matching contacts/companies/deals with privacy controls (shared vs. private).
+- `1.1.4` Email open and link-click tracking with per-message and aggregate engagement.
+- `1.1.5` Email templates, snippets, and merge fields.
+- `1.1.6` One-to-one send from record pages and a connected-inbox view.
+- `1.1.7` Bulk/mass email with list selection, unsubscribe management, and CAN-SPAM/GDPR compliance footers.
+- `1.1.8` Email sequences / cadences: multi-step automated outreach with conditions and reply detection.
+- `1.1.9` Shared team inboxes and assignment for collaborative reply workflows.
+
+Exit criteria:
+
+- Users send and receive email inside the CRM with automatic activity logging.
+- Sequences and bulk email run reliably with compliance and deliverability safeguards.
+
+## Version 1.2.0 - Telephony, SMS, And Meeting Scheduling
+
+Status: planned.
+
+Goal: add real-time communication channels and remove scheduling friction.
+
+Candidate slices:
+
+- `1.2.1` Click-to-call and call logging via a provider (Twilio) with disposition and notes.
+- `1.2.2` Inbound call routing, voicemail, and call activity timeline entries.
+- `1.2.3` Call recording with consent controls and retention policy.
+- `1.2.4` SMS send/receive with templates and opt-out handling.
+- `1.2.5` Calendar two-way sync (Google/Microsoft) for meetings and availability.
+- `1.2.6` Meeting scheduler / booking links (Calendly-style) with round-robin and team availability.
+- `1.2.7` Meeting reminders and automatic activity logging.
+
+Exit criteria:
+
+- Users can call, text, and book meetings from the CRM with logged outcomes.
+- Communication compliance (consent, opt-out, retention) is enforced.
+
+## Version 1.3.0 - Sales Acceleration And CPQ
+
+Status: planned.
+
+Goal: support full sales execution from quote to close, extending the `0.6.x` sales workflow.
+
+Candidate slices:
+
+- `1.3.1` Product/service catalog with pricing, SKUs, and currency.
+- `1.3.2` Deal line items, discounts, taxes, and totals.
+- `1.3.3` Quote/proposal generation with branded PDF output.
+- `1.3.4` E-signature flow (native or DocuSign/Dropbox Sign integration) with status tracking.
+- `1.3.5` Multiple pipelines per team/business unit (extends `0.6.1`).
+- `1.3.6` Quotas, goals, and team forecasting dashboards (extends `0.6.2`).
+- `1.3.7` Multi-currency support with exchange-rate handling.
+
+Exit criteria:
+
+- A rep can build a quote from a catalog, send it for signature, and convert it to a closed deal.
+- Managers can set quotas and track weighted forecast against them.
+
+## Version 1.4.0 - Marketing And Lead Generation
+
+Status: planned.
+
+Goal: capture and nurture demand, not just manage existing relationships.
+
+Candidate slices:
+
+- `1.4.1` Embeddable web forms with field mapping to CRM records.
+- `1.4.2` Hosted landing pages with form capture and basic templates.
+- `1.4.3` Lead source and UTM/campaign attribution tracking.
+- `1.4.4` List segmentation and dynamic/saved audiences.
+- `1.4.5` Marketing email campaigns with scheduling and per-campaign analytics.
+- `1.4.6` Drip/nurture campaigns built on the sequence engine (`1.1.8`).
+- `1.4.7` Rule-based lead scoring and routing/assignment.
+- `1.4.8` Lead capture from chat/website widget (optional).
+
+Exit criteria:
+
+- New leads can be captured, attributed, scored, routed, and nurtured automatically.
+- Marketing activity ties cleanly into the sales pipeline.
+
+## Version 1.5.0 - Workflow Automation Engine
+
+Status: planned.
+
+Goal: let admins automate CRM work without code — a core differentiator across all SaaS CRMs.
+
+Candidate slices:
+
+- `1.5.1` Trigger model: record created/updated, stage changed, date reached, form submitted, inbound email, webhook.
+- `1.5.2` Condition/branching engine with AND/OR rules over record fields.
+- `1.5.3` Action library: update field, create task, send email/SMS, assign owner, add to sequence, call webhook, notify.
+- `1.5.4` Visual workflow builder UI.
+- `1.5.5` Scheduled and time-delay actions on the background job runner (`0.9.3`).
+- `1.5.6` Approval steps and human-in-the-loop actions.
+- `1.5.7` Automation run history, error handling, and safe retry/idempotency.
+
+Exit criteria:
+
+- Admins can build multi-step automations visually and audit their runs.
+- Automations execute reliably with guardrails against loops and duplicate actions.
+
+## Version 1.6.0 - Reporting And Analytics
+
+Status: planned.
+
+Goal: move from fixed reports to a self-service analytics layer.
+
+Candidate slices:
+
+- `1.6.1` Custom report builder (choose object, fields, filters, grouping, aggregation).
+- `1.6.2` Chart/visualization types (table, bar, line, funnel, pie, KPI).
+- `1.6.3` Configurable dashboards with draggable widgets, shared and personal.
+- `1.6.4` Pipeline/funnel conversion analytics and velocity metrics.
+- `1.6.5` Revenue, activity, and cohort analytics with date-range and owner filters.
+- `1.6.6` Scheduled report delivery (email export) and export to CSV/PDF.
+- `1.6.7` Query performance and read-model strategy for analytics at scale.
+
+Exit criteria:
+
+- Users build and share custom reports and dashboards without engineering help.
+- Analytics queries remain performant on large tenant datasets.
+
+## Version 1.7.0 - AI And Intelligence
+
+Status: planned.
+
+Goal: reach AI parity with modern CRMs, where AI assistance is now a primary buying criterion. Built on hosted LLM/inference providers with strict tenant data isolation.
+
+Candidate slices:
+
+- `1.7.1` AI email and message drafting/reply with tone and context from the record.
+- `1.7.2` Call and meeting transcription plus AI summaries and action items.
+- `1.7.3` Record and thread summarization (account/deal recaps).
+- `1.7.4` Predictive lead and deal scoring beyond rules (model-assisted).
+- `1.7.5` Next-best-action and at-risk-deal recommendations.
+- `1.7.6` Natural-language / semantic search across CRM data.
+- `1.7.7` CRM copilot: conversational assistant that can answer questions and take actions over tenant data.
+- `1.7.8` Data enrichment (company/contact firmographics) via providers.
+- `1.7.9` AI governance: per-tenant opt-in/out, no-train guarantees, prompt/data isolation, cost metering.
+
+Exit criteria:
+
+- Users get AI drafting, summarization, scoring, and a copilot grounded in their own data.
+- AI usage is metered, governed, and isolated per tenant.
+
+## Version 1.8.0 - Service, Support, And Customer Portal
+
+Status: planned.
+
+Goal: extend beyond sales into post-sale service, matching suites like HubSpot Service and Zoho Desk. Builds on the `0.7.x` customer operations work.
+
+Candidate slices:
+
+- `1.8.1` Ticket/case object with status, priority, and assignment.
+- `1.8.2` Email-to-ticket and form-to-ticket intake.
+- `1.8.3` SLA policies, escalations, and business hours.
+- `1.8.4` Knowledge base / help articles (internal and public).
+- `1.8.5` Customer portal for clients to submit and track requests.
+- `1.8.6` CSAT/feedback collection and reporting.
+
+Exit criteria:
+
+- Support teams can run a help desk against the same CRM records.
+- Customers have a self-service portal and knowledge base.
+
+## Version 1.9.0 - Ecosystem And Extensibility
+
+Status: planned.
+
+Goal: make Open CRM extensible and integrated, so it fits existing tool stacks. Builds on the `0.8.x` integration foundation.
+
+Candidate slices:
+
+- `1.9.1` Custom object builder (fully user-defined objects, not just custom fields from `0.5.5`).
+- `1.9.2` Mature public REST API + GraphQL (optional) with versioning and SDKs.
+- `1.9.3` Integration marketplace UI with OAuth app connections.
+- `1.9.4` First-party integrations: Slack, Google Workspace, Microsoft 365, Mailchimp, accounting (QuickBooks/Xero), Zapier/Make.
+- `1.9.5` App/extension framework for third-party UI cards and actions.
+- `1.9.6` Webhook management UI and event subscriptions for partners (extends `0.8.3`).
+
+Exit criteria:
+
+- Customers can model their own objects and connect their existing tools.
+- Third parties can build on a documented, versioned platform.
+
+## Version 1.10.0 - Mobile And Real-Time Collaboration
+
+Status: planned.
+
+Goal: meet users where they work and make the app feel live.
+
+Candidate slices:
+
+- `1.10.1` Responsive PWA with offline-capable core workflows (builds on `0.3.7b`).
+- `1.10.2` Native mobile apps (iOS/Android) or wrapped PWA with push notifications.
+- `1.10.3` Real-time record updates and presence via websockets/SSE.
+- `1.10.4` Collaborative comments, @mentions, and live activity (extends `0.4.5`).
+- `1.10.5` Mobile-optimized calling, email, and quick-logging.
+- `1.10.6` Unified notification delivery: in-app, email, push, mobile.
+
+Exit criteria:
+
+- Field and remote users can run core CRM workflows from mobile.
+- Multiple users see live updates without manual refresh.
+
+## Version 2.0.0 - Enterprise And General Availability
+
+Status: planned.
+
+Goal: clear enterprise procurement and reach general availability as a competitive CRM SaaS.
+
+Candidate slices:
+
+- `2.0.1` Enterprise SSO: SAML 2.0 and SCIM provisioning/deprovisioning.
+- `2.0.2` Advanced security: field-level permissions, IP allowlists, encryption at rest controls, session policies.
+- `2.0.3` Audit and compliance posture: SOC 2 controls, data processing records, configurable data residency.
+- `2.0.4` Sandbox/staging tenant environments and config migration.
+- `2.0.5` High-availability deployment, read replicas, and tenant-scaling strategy.
+- `2.0.6` Uptime SLA, status page, and tiered support operations.
+- `2.0.7` Internationalization (i18n) and localization across the product.
+- `2.0.8` Partner/marketplace program and certification.
+- `2.0.9` GA readiness review: security audit, load/failure testing at scale, pricing/packaging finalization.
+
+Exit criteria:
+
+- Open CRM passes enterprise security and procurement review.
+- The product is generally available with the breadth to compete head-to-head with established CRM SaaS vendors.

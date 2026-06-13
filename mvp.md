@@ -49,6 +49,8 @@ Explicit non-goals for MVP:
 - multi-region anything
 - real-time collaboration features
 
+> **Note (post-MVP strategic change):** These remain non-goals for the MVP, but several were deliberately reclassified as competitive requirements in Part II of the roadmap. Open CRM's direction has expanded toward a full-featured, multi-tenant SaaS product. See `docs/professionalization-roadmap.md` → "Strategic Direction Change" and "Part II — Competitive SaaS Platform" for how email sync, calendar sync, marketing automation, the workflow engine, mobile, and real-time collaboration are now planned. This document remains the record of the original MVP scope.
+
 ---
 
 ## 2. Core engineering stance
