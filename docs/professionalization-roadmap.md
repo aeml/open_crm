@@ -1765,6 +1765,7 @@ Progress:
 
 - Email provider seam established in `1.0.1`: `email.Provider` interface, in-process `FakeProvider` outbox (default), unconfigured stub for real providers, and `EMAIL_PROVIDER` selection. The transactional/outbound foundation (`1.1.1`) builds directly on this.
 - `1.1.5` (email templates): complete. Added migration `016_email_templates.sql` (org-scoped templates, unique name per org); an `emailtemplates` module with CRUD and a pure `Render` merge-field helper (`{{first_name}}`-style, case/space-insensitive, unknown fields left intact); `GET/POST/PATCH/DELETE /api/email-templates` (reads for any member, writes for org writers); and a "Email Templates" settings page to manage them. Backend (module + handler) and frontend tests added. Remaining: use templates in one-to-one send and sequences once sending lands.
+- `1.1.6` (send-from-record): complete. Added `email.Service.Send` and `POST /api/contacts/{id}/email`, which renders `{{merge_field}}` placeholders server-side from authoritative contact data, sends via the email provider (fake outbox by default), and logs a note on the contact's activity timeline. The contact detail page gained a lazy-loaded compose panel with template selection (templates fetched only on user interaction to avoid coupling to detail load). Backend handler tests cover merge rendering and missing-email/empty-body guards; a URL-routed frontend test covers the compose-and-send flow. Remaining: send from companies/deals, attachments, open/click tracking.
 
 Candidate slices:
 

@@ -34,6 +34,14 @@ func (s *Service) ProviderName() string {
 	return s.provider.Name()
 }
 
+// Send delivers a plain-text email through the configured provider.
+func (s *Service) Send(ctx context.Context, to, subject, body string) error {
+	if s == nil || s.provider == nil {
+		return fmt.Errorf("email service not configured")
+	}
+	return s.provider.Send(ctx, Message{To: to, Subject: subject, TextBody: body})
+}
+
 // SetupLink builds the password-setup URL a new user follows to activate their
 // account.
 func (s *Service) SetupLink(token string) string {

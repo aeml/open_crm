@@ -8,9 +8,10 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { archiveContact, contactsExportURL, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
+import { archiveContact, contactsExportURL, createContact, getContact, listContacts, sendContactEmail, updateContact } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
+import { listEmailTemplates } from '../lib/email_templates'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
 import { usePageTitle } from '../lib/use_page_title'
@@ -124,6 +125,11 @@ export function ContactsRoute() {
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateCandidate, setDuplicateCandidate] = useState(null)
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [emailTemplates, setEmailTemplates] = useState([])
+  const [emailForm, setEmailForm] = useState({ subject: '', body: '' })
+  const [emailStatus, setEmailStatus] = useState('')
+  const [isSendingEmail, setIsSendingEmail] = useState(false)
   const searchControllerRef = useRef(null)
 
   const selectedContact = detail?.contact || null
@@ -518,6 +524,48 @@ export function ContactsRoute() {
     }
   }
 
+  async function handleToggleEmail() {
+    const next = !emailOpen
+    setEmailOpen(next)
+    setEmailStatus('')
+    if (next && emailTemplates.length === 0) {
+      try {
+        const templates = await listEmailTemplates()
+        setEmailTemplates(templates)
+      } catch (templatesError) {
+        if (!isAbortError(templatesError)) {
+          setEmailTemplates([])
+        }
+      }
+    }
+  }
+
+  function applyEmailTemplate(templateId) {
+    const template = emailTemplates.find((item) => String(item.id) === String(templateId))
+    if (template) {
+      setEmailForm({ subject: template.subject, body: template.body })
+    }
+  }
+
+  async function handleSendEmail(event) {
+    event.preventDefault()
+    if (!selectedContactId) {
+      return
+    }
+    setIsSendingEmail(true)
+    setEmailStatus('')
+    try {
+      const result = await sendContactEmail(selectedContactId, emailForm)
+      setEmailStatus(`Email sent to ${result?.to || 'contact'}.`)
+      setEmailForm({ subject: '', body: '' })
+      setError('')
+    } catch (sendError) {
+      setError(sendError.message || 'Unable to send email.')
+    } finally {
+      setIsSendingEmail(false)
+    }
+  }
+
   async function handleCreateTask(event) {
     event.preventDefault()
     if (!selectedContactId || !taskForm.title.trim()) {
@@ -812,6 +860,41 @@ export function ContactsRoute() {
                     </article>
                   ))}
                 </div>
+              </div>
+            </Card>
+            <Card>
+              <div className="card-stack">
+                <div className="section-header">
+                  <h3>Email</h3>
+                  {canWrite ? (
+                    <Button className="button-secondary" type="button" onClick={handleToggleEmail}>
+                      {emailOpen ? 'Close' : 'Send email'}
+                    </Button>
+                  ) : null}
+                </div>
+                {emailStatus ? <p className="field-hint" role="status">{emailStatus}</p> : null}
+                {canWrite && emailOpen ? (
+                  <form className="auth-form" onSubmit={handleSendEmail}>
+                    {emailTemplates.length > 0 ? (
+                      <Field label="Template">
+                        <select className="text-input" defaultValue="" onChange={(event) => applyEmailTemplate(event.target.value)}>
+                          <option value="">Start from scratch</option>
+                          {emailTemplates.map((template) => (
+                            <option key={template.id} value={template.id}>{template.name}</option>
+                          ))}
+                        </select>
+                      </Field>
+                    ) : null}
+                    <Field label="Subject">
+                      <input className="text-input" value={emailForm.subject} onChange={(event) => setEmailForm({ ...emailForm, subject: event.target.value })} required />
+                    </Field>
+                    <Field label="Body">
+                      <textarea className="text-input" rows={6} value={emailForm.body} onChange={(event) => setEmailForm({ ...emailForm, body: event.target.value })} required />
+                    </Field>
+                    <p className="field-hint">Merge fields like {'{{first_name}}'} are filled in when the email is sent.</p>
+                    <Button type="submit" disabled={isSendingEmail}>{isSendingEmail ? 'Sending...' : 'Send email'}</Button>
+                  </form>
+                ) : null}
               </div>
             </Card>
             <Card>

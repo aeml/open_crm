@@ -137,6 +137,7 @@ type notificationsService interface {
 
 type emailService interface {
 	SendUserInvite(ctx context.Context, to, firstName, setupToken string) error
+	Send(ctx context.Context, to, subject, body string) error
 }
 
 type emailTemplatesService interface {
@@ -620,6 +621,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/contacts/{contactID}", func(w http.ResponseWriter, r *http.Request) {
 		handleArchiveContact(dependencies.AuthService, dependencies.ContactsService, w, r)
+	})
+	mux.HandleFunc("POST /api/contacts/{contactID}/email", func(w http.ResponseWriter, r *http.Request) {
+		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.EmailService, dependencies.NotesService, w, r)
 	})
 	mux.HandleFunc("GET /api/companies", func(w http.ResponseWriter, r *http.Request) {
 		handleListCompanies(dependencies.AuthService, dependencies.CompaniesService, w, r)

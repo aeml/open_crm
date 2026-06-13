@@ -78,6 +78,12 @@ export async function archiveContact(contactID, { signal } = {}) {
   return apiRequest(`/api/contacts/${contactID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive contact.', signal })
 }
 
+export async function sendContactEmail(contactID, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/contacts/${contactID}/email`, { method: 'POST', body: input, fallbackMessage: 'Unable to send email.', signal })
+
+  return payload?.data
+}
+
 export function contactsExportURL(search = '') {
   const params = new URLSearchParams()
   if (search) params.set('q', search)

@@ -18,6 +18,12 @@ type fakeEmailService struct {
 	lastFirstName string
 	lastToken     string
 	err           error
+
+	sendCalled  bool
+	sendTo      string
+	sendSubject string
+	sendBody    string
+	sendErr     error
 }
 
 func (f *fakeEmailService) SendUserInvite(_ context.Context, to, firstName, setupToken string) error {
@@ -26,6 +32,14 @@ func (f *fakeEmailService) SendUserInvite(_ context.Context, to, firstName, setu
 	f.lastFirstName = firstName
 	f.lastToken = setupToken
 	return f.err
+}
+
+func (f *fakeEmailService) Send(_ context.Context, to, subject, body string) error {
+	f.sendCalled = true
+	f.sendTo = to
+	f.sendSubject = subject
+	f.sendBody = body
+	return f.sendErr
 }
 
 func TestCreateUserSendsInviteEmail(t *testing.T) {
