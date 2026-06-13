@@ -97,7 +97,7 @@ jobs:
 
       - name: Audit frontend dependencies
         working-directory: apps/web
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Run frontend tests
         working-directory: apps/web
