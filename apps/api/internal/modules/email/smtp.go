@@ -1,0 +1,122 @@
+package email
+
+import (
+	"crypto/tls"
+	"fmt"
+	"net"
+	"net/smtp"
+	"strings"
+	"time"
+)
+
+// SMTPCredentials is a user's outbound mail server connection.
+type SMTPCredentials struct {
+	FromEmail string
+	FromName  string
+	Host      string
+	Port      int
+	Username  string
+	Password  string
+	UseTLS    bool
+}
+
+// SendSMTP delivers a plain-text message through a user's own SMTP server,
+// sending as that user. It supports implicit TLS (port 465), STARTTLS, and
+// plaintext fallback for local testing.
+func SendSMTP(creds SMTPCredentials, msg Message) error {
+	to := strings.TrimSpace(msg.To)
+	if to == "" || strings.TrimSpace(msg.Subject) == "" {
+		return fmt.Errorf("smtp: missing to/subject")
+	}
+	if creds.Host == "" || creds.Port == 0 || creds.FromEmail == "" {
+		return fmt.Errorf("smtp: incomplete credentials")
+	}
+
+	addr := net.JoinHostPort(creds.Host, fmt.Sprintf("%d", creds.Port))
+	auth := smtp.PlainAuth("", creds.Username, creds.Password, creds.Host)
+	from := formatFrom(creds.FromName, creds.FromEmail)
+	raw := buildMessage(from, to, msg.Subject, msg.TextBody)
+
+	// Implicit TLS (typically port 465).
+	if creds.Port == 465 {
+		return sendImplicitTLS(addr, creds.Host, auth, creds.FromEmail, to, raw)
+	}
+
+	// STARTTLS / plaintext (typically 587 or 25).
+	client, err := smtp.Dial(addr)
+	if err != nil {
+		return fmt.Errorf("smtp: dial: %w", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if creds.UseTLS {
+		if ok, _ := client.Extension("STARTTLS"); ok {
+			if err := client.StartTLS(&tls.Config{ServerName: creds.Host, MinVersion: tls.VersionTLS12}); err != nil {
+				return fmt.Errorf("smtp: starttls: %w", err)
+			}
+		}
+	}
+	if ok, _ := client.Extension("AUTH"); ok {
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("smtp: auth: %w", err)
+		}
+	}
+	return writeMessage(client, creds.FromEmail, to, raw)
+}
+
+func sendImplicitTLS(addr, host string, auth smtp.Auth, from, to string, raw []byte) error {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		return fmt.Errorf("smtp: tls dial: %w", err)
+	}
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return fmt.Errorf("smtp: new client: %w", err)
+	}
+	defer func() { _ = client.Close() }()
+	if err := client.Auth(auth); err != nil {
+		return fmt.Errorf("smtp: auth: %w", err)
+	}
+	return writeMessage(client, from, to, raw)
+}
+
+func writeMessage(client *smtp.Client, from, to string, raw []byte) error {
+	if err := client.Mail(from); err != nil {
+		return fmt.Errorf("smtp: mail from: %w", err)
+	}
+	if err := client.Rcpt(to); err != nil {
+		return fmt.Errorf("smtp: rcpt: %w", err)
+	}
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("smtp: data: %w", err)
+	}
+	if _, err := w.Write(raw); err != nil {
+		return fmt.Errorf("smtp: write: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("smtp: close data: %w", err)
+	}
+	return client.Quit()
+}
+
+func formatFrom(name, email string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return email
+	}
+	return fmt.Sprintf("%s <%s>", name, email)
+}
+
+func buildMessage(from, to, subject, body string) []byte {
+	var b strings.Builder
+	b.WriteString("From: " + from + "\r\n")
+	b.WriteString("To: " + to + "\r\n")
+	b.WriteString("Subject: " + subject + "\r\n")
+	b.WriteString("MIME-Version: 1.0\r\n")
+	b.WriteString("Content-Type: text/plain; charset=\"UTF-8\"\r\n")
+	b.WriteString("\r\n")
+	b.WriteString(body)
+	b.WriteString("\r\n")
+	return []byte(b.String())
+}

@@ -30,8 +30,10 @@ import (
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
+	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	platformlogger "github.com/aeml/open_crm/apps/api/internal/platform/logger"
+	platformsecrets "github.com/aeml/open_crm/apps/api/internal/platform/secrets"
 )
 
 const (
@@ -75,6 +77,11 @@ func main() {
 	var orgProfileService *moduleorgprofile.Service
 	var billingService *modulebilling.Service
 	var emailTemplatesService *moduleemailtemplates.Service
+	var userEmailService *moduleuseremail.Service
+	credentialCipher, cipherErr := platformsecrets.NewCipherFromBase64(env.CredentialEncryptionKey)
+	if cipherErr != nil {
+		log.Printf("credential encryption disabled: %v", cipherErr)
+	}
 	if dbConfigErr == nil {
 		pool, err := db.NewPool(context.Background(), dbConfig)
 		if err != nil {
@@ -97,6 +104,7 @@ func main() {
 			orgProfileService = moduleorgprofile.NewService(pool)
 			billingService = modulebilling.NewService(pool, modulebilling.NewProvider(env.BillingProvider))
 			emailTemplatesService = moduleemailtemplates.NewService(pool)
+			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
 		}
 	}
 
@@ -126,6 +134,7 @@ func main() {
 		BillingService:        billingService,
 		EmailService:          emailService,
 		EmailTemplatesService: emailTemplatesService,
+		UserEmailService:      userEmailService,
 	}))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -1,12 +1,14 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
+	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
@@ -25,11 +27,12 @@ type sendEmailResponse struct {
 	} `json:"meta"`
 }
 
-// handleSendContactEmail sends a one-to-one email to a contact. The subject and
-// body may contain {{merge_field}} placeholders, which are rendered server-side
-// from authoritative contact data before delivery. A note is logged on the
-// contact so the send appears in its activity timeline.
-func handleSendContactEmail(auth authService, contacts contactsService, mailer emailService, notes notesService, w http.ResponseWriter, r *http.Request) {
+// handleSendContactEmail sends a one-to-one email to a contact through the
+// sending user's own mailbox (their configured SMTP account), so the email
+// comes from the user, not the platform. The subject and body may contain
+// {{merge_field}} placeholders, rendered server-side from contact data. A note
+// is logged on the contact so the send appears in its activity timeline.
+func handleSendContactEmail(auth authService, contacts contactsService, accounts userEmailAccountService, notes notesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -39,8 +42,8 @@ func handleSendContactEmail(auth authService, contacts contactsService, mailer e
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
 		return
 	}
-	if mailer == nil {
-		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email service unavailable")
+	if accounts == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email account service unavailable")
 		return
 	}
 
@@ -76,8 +79,12 @@ func handleSendContactEmail(auth authService, contacts contactsService, mailer e
 		return
 	}
 
-	if err := mailer.Send(r.Context(), to, subject, body); err != nil {
-		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email")
+	if err := accounts.SendAs(r.Context(), state.Organization.ID, state.User.ID, to, subject, body); err != nil {
+		if errors.Is(err, moduleuseremail.ErrNotFound) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", "Connect your email account in Settings before sending email to contacts")
+			return
+		}
+		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email through your mail server")
 		return
 	}
 

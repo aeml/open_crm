@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,9 +10,43 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
 
-func authenticatedContactEmailServer(contacts *fakeContactsService, mailer *fakeEmailService) http.Handler {
+type fakeUserEmailService struct {
+	configured  bool
+	account     moduleuseremail.Account
+	getErr      error
+	upsertErr   error
+	deleteErr   error
+	sendErr     error
+	sendCalled  bool
+	sendTo      string
+	sendSubject string
+	sendBody    string
+}
+
+func (f *fakeUserEmailService) Configured() bool { return f.configured }
+
+func (f *fakeUserEmailService) GetForUser(_ context.Context, _, _ int64) (moduleuseremail.Account, error) {
+	return f.account, f.getErr
+}
+
+func (f *fakeUserEmailService) Upsert(_ context.Context, _, _ int64, _ moduleuseremail.UpsertInput) (moduleuseremail.Account, error) {
+	return f.account, f.upsertErr
+}
+
+func (f *fakeUserEmailService) Delete(_ context.Context, _, _ int64) error { return f.deleteErr }
+
+func (f *fakeUserEmailService) SendAs(_ context.Context, _, _ int64, to, subject, body string) error {
+	f.sendCalled = true
+	f.sendTo = to
+	f.sendSubject = subject
+	f.sendBody = body
+	return f.sendErr
+}
+
+func authenticatedContactEmailServer(contacts *fakeContactsService, accounts *fakeUserEmailService) http.Handler {
 	return NewServer(config.Env{}, Dependencies{
 		AuthService: &fakeAuthService{
 			currentSessionResult: moduleauth.SessionState{
@@ -20,8 +55,8 @@ func authenticatedContactEmailServer(contacts *fakeContactsService, mailer *fake
 				Membership:   moduleauth.Membership{Role: "owner"},
 			},
 		},
-		ContactsService: contacts,
-		EmailService:    mailer,
+		ContactsService:  contacts,
+		UserEmailService: accounts,
 	})
 }
 
@@ -31,8 +66,8 @@ func TestSendContactEmailRendersMergeFieldsAndSends(t *testing.T) {
 			Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", LastName: "Lovelace", Email: "ada@acme.test"},
 		},
 	}
-	mailer := &fakeEmailService{}
-	server := authenticatedContactEmailServer(contacts, mailer)
+	accounts := &fakeUserEmailService{configured: true}
+	server := authenticatedContactEmailServer(contacts, accounts)
 
 	body := bytes.NewBufferString(`{"subject":"Hello {{first_name}}","body":"Hi {{full_name}}, thanks!"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", body)
@@ -45,26 +80,26 @@ func TestSendContactEmailRendersMergeFieldsAndSends(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
 	}
-	if !mailer.sendCalled {
-		t.Fatalf("expected email to be sent")
+	if !accounts.sendCalled {
+		t.Fatalf("expected email to be sent through the user's account")
 	}
-	if mailer.sendTo != "ada@acme.test" {
-		t.Errorf("unexpected recipient: %q", mailer.sendTo)
+	if accounts.sendTo != "ada@acme.test" {
+		t.Errorf("unexpected recipient: %q", accounts.sendTo)
 	}
-	if mailer.sendSubject != "Hello Ada" {
-		t.Errorf("subject merge field not rendered: %q", mailer.sendSubject)
+	if accounts.sendSubject != "Hello Ada" {
+		t.Errorf("subject merge field not rendered: %q", accounts.sendSubject)
 	}
-	if mailer.sendBody != "Hi Ada Lovelace, thanks!" {
-		t.Errorf("body merge field not rendered: %q", mailer.sendBody)
+	if accounts.sendBody != "Hi Ada Lovelace, thanks!" {
+		t.Errorf("body merge field not rendered: %q", accounts.sendBody)
 	}
 }
 
-func TestSendContactEmailRejectsContactWithoutEmail(t *testing.T) {
+func TestSendContactEmailRequiresConnectedAccount(t *testing.T) {
 	contacts := &fakeContactsService{
-		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", LastName: "Lovelace"}},
+		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", Email: "ada@acme.test"}},
 	}
-	mailer := &fakeEmailService{}
-	server := authenticatedContactEmailServer(contacts, mailer)
+	accounts := &fakeUserEmailService{configured: true, sendErr: moduleuseremail.ErrNotFound}
+	server := authenticatedContactEmailServer(contacts, accounts)
 
 	body := bytes.NewBufferString(`{"subject":"Hi","body":"Body"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", body)
@@ -77,7 +112,27 @@ func TestSendContactEmailRejectsContactWithoutEmail(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
 	}
-	if mailer.sendCalled {
+}
+
+func TestSendContactEmailRejectsContactWithoutEmail(t *testing.T) {
+	contacts := &fakeContactsService{
+		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", LastName: "Lovelace"}},
+	}
+	accounts := &fakeUserEmailService{configured: true}
+	server := authenticatedContactEmailServer(contacts, accounts)
+
+	body := bytes.NewBufferString(`{"subject":"Hi","body":"Body"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+	if accounts.sendCalled {
 		t.Fatalf("email should not be sent to a contact without an address")
 	}
 }
@@ -86,8 +141,8 @@ func TestSendContactEmailRejectsEmptyBody(t *testing.T) {
 	contacts := &fakeContactsService{
 		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", Email: "ada@acme.test"}},
 	}
-	mailer := &fakeEmailService{}
-	server := authenticatedContactEmailServer(contacts, mailer)
+	accounts := &fakeUserEmailService{configured: true}
+	server := authenticatedContactEmailServer(contacts, accounts)
 
 	body := bytes.NewBufferString(`{"subject":"Hi","body":"   "}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", body)
@@ -100,7 +155,7 @@ func TestSendContactEmailRejectsEmptyBody(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
 	}
-	if mailer.sendCalled {
+	if accounts.sendCalled {
 		t.Fatalf("email should not be sent with empty body")
 	}
 }

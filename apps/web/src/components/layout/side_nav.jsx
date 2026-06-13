@@ -7,6 +7,7 @@ const baseLinks = [
   { to: '/deals', labelKey: 'deals', fallback: 'Deals' },
   { to: '/tasks', labelKey: 'tasks', fallback: 'Tasks' },
   { to: '/settings/profile', labelKey: 'myProfile', fallback: 'My Profile' },
+  { to: '/settings/email-account', labelKey: 'myEmail', fallback: 'My Email' },
   { to: '/settings/users', labelKey: 'users', fallback: 'Users' },
   { to: '/settings/business-profile', labelKey: 'businessProfile', fallback: 'Business Profile' },
   { to: '/settings/email-templates', labelKey: 'emailTemplates', fallback: 'Email Templates' },

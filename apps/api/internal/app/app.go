@@ -23,6 +23,7 @@ import (
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
+	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -147,6 +148,14 @@ type emailTemplatesService interface {
 	Delete(context.Context, int64, int64) error
 }
 
+type userEmailAccountService interface {
+	Configured() bool
+	GetForUser(context.Context, int64, int64) (moduleuseremail.Account, error)
+	Upsert(context.Context, int64, int64, moduleuseremail.UpsertInput) (moduleuseremail.Account, error)
+	Delete(context.Context, int64, int64) error
+	SendAs(ctx context.Context, organizationID, userID int64, to, subject, body string) error
+}
+
 type Dependencies struct {
 	CheckReadiness        func(context.Context) error
 	Logger                *slog.Logger
@@ -168,6 +177,7 @@ type Dependencies struct {
 	BillingService        billingService
 	EmailService          emailService
 	EmailTemplatesService emailTemplatesService
+	UserEmailService      userEmailAccountService
 }
 
 type statusResponse struct {
@@ -573,6 +583,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("PATCH /api/me/preferences", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdatePreferences(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
+	mux.HandleFunc("GET /api/me/email-account", func(w http.ResponseWriter, r *http.Request) {
+		handleGetMyEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
+	})
+	mux.HandleFunc("PUT /api/me/email-account", func(w http.ResponseWriter, r *http.Request) {
+		handleSaveMyEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/me/email-account", func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteMyEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
+	})
 	mux.HandleFunc("POST /auth/setup-password", func(w http.ResponseWriter, r *http.Request) {
 		if !rateLimiter.allow(authRateLimitKey(r)) {
 			platformweb.WriteError(w, http.StatusTooManyRequests, platformweb.RequestIDFromContext(r.Context()), "RATE_LIMITED", "Too many authentication attempts")
@@ -623,7 +642,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleArchiveContact(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
 	mux.HandleFunc("POST /api/contacts/{contactID}/email", func(w http.ResponseWriter, r *http.Request) {
-		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.EmailService, dependencies.NotesService, w, r)
+		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, w, r)
 	})
 	mux.HandleFunc("GET /api/companies", func(w http.ResponseWriter, r *http.Request) {
 		handleListCompanies(dependencies.AuthService, dependencies.CompaniesService, w, r)
