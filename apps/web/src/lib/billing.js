@@ -56,3 +56,23 @@ export function formatPrice(plan) {
   }
   return `$${plan.monthlyPriceUsd}/mo`
 }
+
+export function trialBanner(subscription) {
+  if (!subscription) {
+    return ''
+  }
+  if (subscription.inTrial) {
+    const days = subscription.trialDaysLeft
+    return `${days} day${days === 1 ? '' : 's'} left in your trial`
+  }
+  if (subscription.status === 'trialing') {
+    return 'Your trial has ended. Choose a plan to continue.'
+  }
+  if (subscription.status === 'past_due') {
+    return 'Your subscription is past due. Update billing to avoid interruption.'
+  }
+  if (subscription.status === 'canceled') {
+    return 'Your subscription is canceled.'
+  }
+  return ''
+}

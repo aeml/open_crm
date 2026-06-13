@@ -58,8 +58,8 @@ func (s *Service) BootstrapOrganization(ctx context.Context, input BootstrapInpu
 	slug := slugify(input.OrganizationName)
 	var organizationID int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO organizations (name, slug, business_type)
-		VALUES ($1, $2, $3)
+		INSERT INTO organizations (name, slug, business_type, subscription_status, trial_ends_at)
+		VALUES ($1, $2, $3, 'trialing', NOW() + INTERVAL '14 days')
 		RETURNING id
 	`, input.OrganizationName, slug, input.BusinessType).Scan(&organizationID)
 	if err != nil {

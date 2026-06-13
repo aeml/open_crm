@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { getEntitlements, listPlans, changePlan, featureLabel, formatLimit, formatPrice } from '../lib/billing'
+import { getEntitlements, listPlans, changePlan, featureLabel, formatLimit, formatPrice, trialBanner } from '../lib/billing'
 import { usePageTitle } from '../lib/use_page_title'
 
 function UsageRow({ label, usage }) {
@@ -100,6 +100,10 @@ export function SettingsBillingRoute() {
           </div>
           {isLoading ? <p className="field-hint">Loading plan details...</p> : null}
           {error ? <InlineError message={error} /> : null}
+          {!isLoading && entitlements?.subscription ? (() => {
+            const banner = trialBanner(entitlements.subscription)
+            return banner ? <div className="inline-note">{banner}</div> : null
+          })() : null}
           {!isLoading && entitlements ? (
             <div className="record-list" role="list" aria-label="Plan usage">
               <UsageRow label="Team seats" usage={entitlements.seats} />

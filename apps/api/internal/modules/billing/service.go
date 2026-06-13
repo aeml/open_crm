@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -40,14 +41,23 @@ func newLimitUsage(used, limit int) LimitUsage {
 	}
 }
 
+// Subscription describes an organization's billing lifecycle state.
+type Subscription struct {
+	Status        string     `json:"status"`
+	TrialEndsAt   *time.Time `json:"trialEndsAt,omitempty"`
+	TrialDaysLeft int        `json:"trialDaysLeft"`
+	InTrial       bool       `json:"inTrial"`
+}
+
 // Entitlements is the resolved billing state for an organization: its active
 // plan, the features it unlocks, and current usage against each metered limit.
 type Entitlements struct {
-	Plan     Plan       `json:"plan"`
-	Features []string   `json:"features"`
-	Seats    LimitUsage `json:"seats"`
-	Contacts LimitUsage `json:"contacts"`
-	Deals    LimitUsage `json:"deals"`
+	Plan         Plan         `json:"plan"`
+	Features     []string     `json:"features"`
+	Subscription Subscription `json:"subscription"`
+	Seats        LimitUsage   `json:"seats"`
+	Contacts     LimitUsage   `json:"contacts"`
+	Deals        LimitUsage   `json:"deals"`
 }
 
 // Service resolves plan entitlements and usage for organizations.
@@ -71,7 +81,7 @@ func (s *Service) ProviderName() string {
 	return s.provider.Name()
 }
 
-const planLookupSQL = `SELECT plan FROM organizations WHERE id = $1`
+const planLookupSQL = `SELECT plan, subscription_status, trial_ends_at FROM organizations WHERE id = $1`
 
 const usageCountsSQL = `
 	SELECT
@@ -88,7 +98,9 @@ func (s *Service) Entitlements(ctx context.Context, organizationID int64) (Entit
 	}
 
 	var planKey string
-	if err := s.pool.QueryRow(ctx, planLookupSQL, organizationID).Scan(&planKey); err != nil {
+	var subStatus string
+	var trialEndsAt *time.Time
+	if err := s.pool.QueryRow(ctx, planLookupSQL, organizationID).Scan(&planKey, &subStatus, &trialEndsAt); err != nil {
 		return Entitlements{}, fmt.Errorf("load organization plan: %w", err)
 	}
 
@@ -99,12 +111,27 @@ func (s *Service) Entitlements(ctx context.Context, organizationID int64) (Entit
 
 	plan := PlanByKey(planKey)
 	return Entitlements{
-		Plan:     plan,
-		Features: plan.Features,
-		Seats:    newLimitUsage(seats, plan.SeatLimit),
-		Contacts: newLimitUsage(contacts, plan.ContactLimit),
-		Deals:    newLimitUsage(deals, plan.DealLimit),
+		Plan:         plan,
+		Features:     plan.Features,
+		Subscription: buildSubscription(subStatus, trialEndsAt),
+		Seats:        newLimitUsage(seats, plan.SeatLimit),
+		Contacts:     newLimitUsage(contacts, plan.ContactLimit),
+		Deals:        newLimitUsage(deals, plan.DealLimit),
 	}, nil
+}
+
+// buildSubscription derives display-friendly trial state from the stored
+// status and trial end timestamp.
+func buildSubscription(status string, trialEndsAt *time.Time) Subscription {
+	sub := Subscription{Status: status, TrialEndsAt: trialEndsAt}
+	if status == "trialing" && trialEndsAt != nil {
+		remaining := time.Until(*trialEndsAt)
+		if remaining > 0 {
+			sub.InTrial = true
+			sub.TrialDaysLeft = int(remaining.Hours()/24) + 1
+		}
+	}
+	return sub
 }
 
 // ChangePlan transitions an organization to a new plan. It validates the
@@ -121,8 +148,9 @@ func (s *Service) ChangePlan(ctx context.Context, organizationID int64, planKey 
 		return Entitlements{}, ErrInvalidPlan
 	}
 
-	var currentPlan string
-	if err := s.pool.QueryRow(ctx, planLookupSQL, organizationID).Scan(&currentPlan); err != nil {
+	var currentPlan, currentStatus string
+	var trialEndsAt *time.Time
+	if err := s.pool.QueryRow(ctx, planLookupSQL, organizationID).Scan(&currentPlan, &currentStatus, &trialEndsAt); err != nil {
 		return Entitlements{}, fmt.Errorf("load organization plan: %w", err)
 	}
 
@@ -134,7 +162,8 @@ func (s *Service) ChangePlan(ctx context.Context, organizationID int64, planKey 
 		return Entitlements{}, fmt.Errorf("provider change subscription: %w", err)
 	}
 
-	if _, err := s.pool.Exec(ctx, `UPDATE organizations SET plan = $1 WHERE id = $2`, planKey, organizationID); err != nil {
+	// A successful plan change activates the subscription and ends any trial.
+	if _, err := s.pool.Exec(ctx, `UPDATE organizations SET plan = $1, subscription_status = 'active', trial_ends_at = NULL WHERE id = $2`, planKey, organizationID); err != nil {
 		return Entitlements{}, fmt.Errorf("persist organization plan: %w", err)
 	}
 

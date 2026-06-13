@@ -35,6 +35,7 @@ describe('settings billing route', () => {
             entitlements: {
               plan: { key: 'free', name: 'Free', description: 'Get started', monthlyPriceUsd: 0, features: ['saved_views', 'csv_export'] },
               features: ['saved_views', 'csv_export'],
+              subscription: { status: 'trialing', inTrial: true, trialDaysLeft: 7 },
               seats: { used: 2, limit: 2, unlimited: false, exceeded: false },
               contacts: { used: 600, limit: 500, unlimited: false, exceeded: true },
               deals: { used: 10, limit: 250, unlimited: false, exceeded: false }
@@ -65,6 +66,7 @@ describe('settings billing route', () => {
     expect(screen.getByText(/over plan limit/i)).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /pro/i })).toBeInTheDocument()
     expect(screen.getByText('$49/mo')).toBeInTheDocument()
+    expect(screen.getByText(/7 days left in your trial/i)).toBeInTheDocument()
   })
 
   it('lets an owner switch plans', async () => {

@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestNewProviderDefaultsToFake(t *testing.T) {
@@ -30,6 +31,38 @@ func TestFakeProviderApprovesAndReferences(t *testing.T) {
 	}
 	if result.Reference != "fake_sub_7_pro" {
 		t.Errorf("unexpected reference: %q", result.Reference)
+	}
+}
+
+func TestBuildSubscriptionTrialDaysLeft(t *testing.T) {
+	future := time.Now().Add(48 * time.Hour)
+	sub := buildSubscription("trialing", &future)
+	if !sub.InTrial {
+		t.Fatalf("expected in-trial for future trial end")
+	}
+	if sub.TrialDaysLeft < 2 || sub.TrialDaysLeft > 3 {
+		t.Errorf("expected ~2-3 trial days left, got %d", sub.TrialDaysLeft)
+	}
+}
+
+func TestBuildSubscriptionExpiredTrial(t *testing.T) {
+	past := time.Now().Add(-time.Hour)
+	sub := buildSubscription("trialing", &past)
+	if sub.InTrial {
+		t.Errorf("expired trial should not be in-trial")
+	}
+	if sub.TrialDaysLeft != 0 {
+		t.Errorf("expired trial should have 0 days left, got %d", sub.TrialDaysLeft)
+	}
+}
+
+func TestBuildSubscriptionActiveHasNoTrial(t *testing.T) {
+	sub := buildSubscription("active", nil)
+	if sub.InTrial || sub.TrialDaysLeft != 0 {
+		t.Errorf("active subscription should not be in trial: %+v", sub)
+	}
+	if sub.Status != "active" {
+		t.Errorf("expected status active, got %q", sub.Status)
 	}
 }
 
