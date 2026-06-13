@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,9 +15,13 @@ import (
 )
 
 type fakeBillingService struct {
-	result    modulebilling.Entitlements
-	err       error
-	lastOrgID int64
+	result          modulebilling.Entitlements
+	err             error
+	lastOrgID       int64
+	changeResult    modulebilling.Entitlements
+	changeErr       error
+	lastChangeOrgID int64
+	lastChangePlan  string
 }
 
 func (f *fakeBillingService) Entitlements(_ context.Context, organizationID int64) (modulebilling.Entitlements, error) {
@@ -24,13 +29,23 @@ func (f *fakeBillingService) Entitlements(_ context.Context, organizationID int6
 	return f.result, f.err
 }
 
+func (f *fakeBillingService) ChangePlan(_ context.Context, organizationID int64, planKey string) (modulebilling.Entitlements, error) {
+	f.lastChangeOrgID = organizationID
+	f.lastChangePlan = planKey
+	return f.changeResult, f.changeErr
+}
+
 func authenticatedBillingServer(service *fakeBillingService) http.Handler {
+	return authenticatedBillingServerWithRole(service, "owner")
+}
+
+func authenticatedBillingServerWithRole(service *fakeBillingService, role string) http.Handler {
 	return NewServer(config.Env{}, Dependencies{
 		AuthService: &fakeAuthService{
 			currentSessionResult: moduleauth.SessionState{
 				User:         moduleauth.User{ID: 1, Email: "owner@acme.test", FirstName: "Demo", LastName: "Owner"},
 				Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc.", Slug: "acme-inc"},
-				Membership:   moduleauth.Membership{Role: "owner"},
+				Membership:   moduleauth.Membership{Role: role},
 			},
 		},
 		BillingService: service,
@@ -129,5 +144,60 @@ func TestListPlansReturnsCatalog(t *testing.T) {
 	}
 	if len(response.Data.Plans) != 4 {
 		t.Fatalf("expected 4 plans in catalog, got %d", len(response.Data.Plans))
+	}
+}
+
+func TestChangePlanAsOwnerUpdatesPlan(t *testing.T) {
+	plan := modulebilling.PlanByKey("pro")
+	service := &fakeBillingService{changeResult: modulebilling.Entitlements{Plan: plan, Features: plan.Features}}
+	server := authenticatedBillingServer(service)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/billing/change-plan", bytes.NewBufferString(`{"plan":"pro"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastChangeOrgID != 42 || service.lastChangePlan != "pro" {
+		t.Fatalf("unexpected change-plan routing: org=%d plan=%q", service.lastChangeOrgID, service.lastChangePlan)
+	}
+}
+
+func TestChangePlanRejectsNonAdmin(t *testing.T) {
+	service := &fakeBillingService{}
+	server := authenticatedBillingServerWithRole(service, "member")
+
+	request := httptest.NewRequest(http.MethodPost, "/api/billing/change-plan", bytes.NewBufferString(`{"plan":"pro"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
+	}
+	if service.lastChangePlan != "" {
+		t.Fatalf("non-admin should not reach billing service, got plan %q", service.lastChangePlan)
+	}
+}
+
+func TestChangePlanInvalidPlanReturns400(t *testing.T) {
+	service := &fakeBillingService{changeErr: modulebilling.ErrInvalidPlan}
+	server := authenticatedBillingServer(service)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/billing/change-plan", bytes.NewBufferString(`{"plan":"platinum"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
 	}
 }

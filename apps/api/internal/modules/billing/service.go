@@ -2,10 +2,15 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ErrInvalidPlan is returned when a requested plan key is not in the catalog.
+var ErrInvalidPlan = errors.New("invalid plan")
 
 // LimitUsage pairs a numeric limit with current usage for a metered resource.
 type LimitUsage struct {
@@ -36,11 +41,23 @@ type Entitlements struct {
 
 // Service resolves plan entitlements and usage for organizations.
 type Service struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	provider Provider
 }
 
-func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+func NewService(pool *pgxpool.Pool, provider Provider) *Service {
+	if provider == nil {
+		provider = FakeProvider{}
+	}
+	return &Service{pool: pool, provider: provider}
+}
+
+// ProviderName reports the active billing provider for diagnostics.
+func (s *Service) ProviderName() string {
+	if s == nil || s.provider == nil {
+		return "none"
+	}
+	return s.provider.Name()
 }
 
 const planLookupSQL = `SELECT plan FROM organizations WHERE id = $1`
@@ -77,4 +94,38 @@ func (s *Service) Entitlements(ctx context.Context, organizationID int64) (Entit
 		Contacts: newLimitUsage(contacts, plan.ContactLimit),
 		Deals:    newLimitUsage(deals, plan.DealLimit),
 	}, nil
+}
+
+// ChangePlan transitions an organization to a new plan. It validates the
+// target plan, asks the billing provider to provision the subscription, then
+// persists the new plan and returns refreshed entitlements. The actual payment
+// processing is delegated to the configured Provider (fake by default).
+func (s *Service) ChangePlan(ctx context.Context, organizationID int64, planKey string) (Entitlements, error) {
+	if s == nil || s.pool == nil {
+		return Entitlements{}, fmt.Errorf("billing service not configured")
+	}
+
+	planKey = strings.TrimSpace(strings.ToLower(planKey))
+	if !ValidPlanKey(planKey) {
+		return Entitlements{}, ErrInvalidPlan
+	}
+
+	var currentPlan string
+	if err := s.pool.QueryRow(ctx, planLookupSQL, organizationID).Scan(&currentPlan); err != nil {
+		return Entitlements{}, fmt.Errorf("load organization plan: %w", err)
+	}
+
+	if _, err := s.provider.ChangeSubscription(ctx, ChangeRequest{
+		OrganizationID: organizationID,
+		FromPlan:       currentPlan,
+		ToPlan:         planKey,
+	}); err != nil {
+		return Entitlements{}, fmt.Errorf("provider change subscription: %w", err)
+	}
+
+	if _, err := s.pool.Exec(ctx, `UPDATE organizations SET plan = $1 WHERE id = $2`, planKey, organizationID); err != nil {
+		return Entitlements{}, fmt.Errorf("persist organization plan: %w", err)
+	}
+
+	return s.Entitlements(ctx, organizationID)
 }

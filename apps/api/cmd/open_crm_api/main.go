@@ -84,7 +84,7 @@ func main() {
 			savedViewsService = modulesavedviews.NewService(pool)
 			onboardingService = moduleonboarding.NewService(pool)
 			orgProfileService = moduleorgprofile.NewService(pool)
-			billingService = modulebilling.NewService(pool)
+			billingService = modulebilling.NewService(pool, modulebilling.NewProvider(env.BillingProvider))
 		}
 	}
 

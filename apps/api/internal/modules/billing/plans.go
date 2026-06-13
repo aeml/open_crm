@@ -132,6 +132,17 @@ func Catalog() []Plan {
 	return out
 }
 
+// ValidPlanKey reports whether the key names a real plan in the catalog.
+func ValidPlanKey(key string) bool {
+	key = strings.TrimSpace(strings.ToLower(key))
+	for _, p := range catalog {
+		if p.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
 // PlanByKey resolves a plan key to its definition. Unknown or empty keys
 // resolve to the default (free) plan so entitlement checks never panic.
 func PlanByKey(key string) Plan {

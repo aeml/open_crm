@@ -99,7 +99,7 @@ The frontend runtime is pinned in `.nvmrc` and `.node-version`.
 Quick start:
 
 ```bash
-cp .env.example .env
+cp example.env .env
 make db-up
 make db-migrate
 make api-dev
@@ -125,7 +125,7 @@ cd apps/api && gofmt -l . && go vet ./... && go test ./...
 cd apps/web && npm test && npm run lint && npm run build
 ```
 
-Local environment defaults come from `.env.example`:
+Local environment defaults come from `example.env`:
 
 ```env
 DATABASE_URL=postgres://open_crm:open_crm@localhost:5432/open_crm?sslmode=disable

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Card } from '../components/ui/card'
+import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { getEntitlements, listPlans, featureLabel, formatLimit, formatPrice } from '../lib/billing'
+import { getEntitlements, listPlans, changePlan, featureLabel, formatLimit, formatPrice } from '../lib/billing'
 import { usePageTitle } from '../lib/use_page_title'
 
 function UsageRow({ label, usage }) {
@@ -30,6 +31,9 @@ export function SettingsBillingRoute() {
   const [plans, setPlans] = useState([])
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [pendingPlan, setPendingPlan] = useState('')
+  const role = session?.membership?.role || ''
+  const canManageBilling = ['owner', 'admin'].includes(role)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -61,6 +65,23 @@ export function SettingsBillingRoute() {
 
   const currentPlan = entitlements?.plan
   const activeFeatures = new Set(entitlements?.features || [])
+
+  async function handleChangePlan(planKey) {
+    setPendingPlan(planKey)
+    setError('')
+    try {
+      const nextEntitlements = await changePlan(planKey)
+      if (nextEntitlements) {
+        setEntitlements(nextEntitlements)
+      }
+    } catch (changeError) {
+      if (!isAbortError(changeError)) {
+        setError(changeError.message || 'Unable to change plan.')
+      }
+    } finally {
+      setPendingPlan('')
+    }
+  }
 
   return (
     <section className="dashboard-grid settings-grid">
@@ -111,6 +132,16 @@ export function SettingsBillingRoute() {
                 </div>
                 <div>
                   <p>{formatPrice(plan)}</p>
+                  {canManageBilling && currentPlan && plan.key !== currentPlan.key ? (
+                    <Button
+                      className="button-secondary"
+                      type="button"
+                      onClick={() => handleChangePlan(plan.key)}
+                      disabled={pendingPlan !== ''}
+                    >
+                      {pendingPlan === plan.key ? 'Switching...' : 'Switch to this plan'}
+                    </Button>
+                  ) : null}
                 </div>
               </article>
             ))}

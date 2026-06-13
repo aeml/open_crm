@@ -12,6 +12,12 @@ export async function listPlans({ signal } = {}) {
   return payload?.data?.plans || []
 }
 
+export async function changePlan(plan, { signal } = {}) {
+  const payload = await apiRequest('/api/billing/change-plan', { method: 'POST', body: { plan }, fallbackMessage: 'Unable to change plan.', signal })
+
+  return payload?.data?.entitlements || null
+}
+
 const featureLabels = {
   saved_views: 'Saved views',
   csv_import: 'CSV import',

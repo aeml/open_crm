@@ -2,14 +2,22 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 
+	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
 type billingService interface {
 	Entitlements(context.Context, int64) (modulebilling.Entitlements, error)
+	ChangePlan(context.Context, int64, string) (modulebilling.Entitlements, error)
+}
+
+type changePlanRequest struct {
+	Plan string `json:"plan"`
 }
 
 type entitlementsResponse struct {
@@ -58,6 +66,48 @@ func handleGetEntitlements(auth authService, billing billingService, w http.Resp
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load billing entitlements")
 		return
 	}
+
+	response := entitlementsResponse{}
+	response.Data.Entitlements = entitlements
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleChangePlan(auth authService, billing billingService, audit auditService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if billing == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Billing service unavailable")
+		return
+	}
+
+	var request changePlanRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	planKey := strings.TrimSpace(strings.ToLower(request.Plan))
+
+	entitlements, err := billing.ChangePlan(r.Context(), state.Organization.ID, planKey)
+	if err != nil {
+		if errors.Is(err, modulebilling.ErrInvalidPlan) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Unknown plan")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to change plan")
+		return
+	}
+
+	recordAuditEvent(r, audit, state.Organization.ID, moduleaudit.RecordInput{
+		ActorUserID: state.User.ID,
+		EventType:   "organization.plan_changed",
+		EntityType:  "organization",
+		EntityID:    state.Organization.ID,
+		Summary:     "Changed plan to " + entitlements.Plan.Name,
+		Metadata:    map[string]string{"plan": entitlements.Plan.Key},
+	})
 
 	response := entitlementsResponse{}
 	response.Data.Entitlements = entitlements
