@@ -6,14 +6,17 @@ import (
 )
 
 type Env struct {
-	Port             string
-	AllowedOrigins   []string
-	GOEnv            string
-	BillingProvider  string
-	EmailProvider    string
-	EmailFromAddress string
-	EmailFromName    string
-	WebBaseURL       string
+	Port                  string
+	AllowedOrigins        []string
+	GOEnv                 string
+	BillingProvider       string
+	EmailProvider         string
+	EmailFromAddress      string
+	EmailFromName         string
+	PostmarkServerToken   string
+	PostmarkFromEmail     string
+	PostmarkMessageStream string
+	WebBaseURL            string
 }
 
 func Load() Env {
@@ -38,14 +41,17 @@ func Load() Env {
 	}
 
 	return Env{
-		Port:             port,
-		AllowedOrigins:   parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
-		GOEnv:            os.Getenv("GO_ENV"),
-		BillingProvider:  billingProvider,
-		EmailProvider:    emailProvider,
-		EmailFromAddress: os.Getenv("EMAIL_FROM_ADDRESS"),
-		EmailFromName:    os.Getenv("EMAIL_FROM_NAME"),
-		WebBaseURL:       webBaseURL,
+		Port:                  port,
+		AllowedOrigins:        parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
+		GOEnv:                 os.Getenv("GO_ENV"),
+		BillingProvider:       billingProvider,
+		EmailProvider:         emailProvider,
+		EmailFromAddress:      os.Getenv("EMAIL_FROM_ADDRESS"),
+		EmailFromName:         os.Getenv("EMAIL_FROM_NAME"),
+		PostmarkServerToken:   os.Getenv("POSTMARK_SERVER_TOKEN"),
+		PostmarkFromEmail:     os.Getenv("POSTMARK_FROM_EMAIL"),
+		PostmarkMessageStream: os.Getenv("POSTMARK_MESSAGE_STREAM"),
+		WebBaseURL:            webBaseURL,
 	}
 }
 

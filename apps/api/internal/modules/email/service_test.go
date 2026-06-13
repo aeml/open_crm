@@ -8,19 +8,33 @@ import (
 
 func TestNewProviderDefaultsToFake(t *testing.T) {
 	for _, name := range []string{"", "fake"} {
-		if got := NewProvider(name, nil).Name(); got != "fake" {
+		if got := NewProvider(ProviderConfig{Name: name}).Name(); got != "fake" {
 			t.Errorf("NewProvider(%q).Name() = %q, want fake", name, got)
 		}
 	}
 }
 
 func TestNewProviderUnknownIsUnconfigured(t *testing.T) {
-	provider := NewProvider("postmark", nil)
-	if provider.Name() != "postmark" {
-		t.Fatalf("expected provider name postmark, got %q", provider.Name())
+	provider := NewProvider(ProviderConfig{Name: "sendgrid"})
+	if provider.Name() != "sendgrid" {
+		t.Fatalf("expected provider name sendgrid, got %q", provider.Name())
 	}
 	if err := provider.Send(context.Background(), Message{To: "a@b.test"}); err == nil {
 		t.Errorf("unconfigured provider should reject sends")
+	}
+}
+
+func TestNewProviderPostmark(t *testing.T) {
+	configured := NewProvider(ProviderConfig{Name: "postmark", PostmarkServerToken: "tok", PostmarkFromEmail: "from@acme.test"})
+	if configured.Name() != "postmark" {
+		t.Fatalf("expected postmark provider, got %q", configured.Name())
+	}
+
+	// Without credentials, the postmark provider must refuse to send (fails
+	// loudly) rather than silently behaving like the fake provider.
+	unconfigured := NewProvider(ProviderConfig{Name: "postmark"})
+	if err := unconfigured.Send(context.Background(), Message{To: "a@b.test", Subject: "Hi"}); err == nil {
+		t.Errorf("unconfigured postmark provider should reject sends")
 	}
 }
 

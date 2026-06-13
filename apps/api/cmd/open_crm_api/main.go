@@ -60,7 +60,13 @@ func main() {
 	var exportsService *moduleexports.Service
 	var dashboardService *moduledashboard.Service
 	importsService := moduleimports.NewService()
-	emailProvider := moduleemail.NewProvider(env.EmailProvider, logger)
+	emailProvider := moduleemail.NewProvider(moduleemail.ProviderConfig{
+		Name:                  env.EmailProvider,
+		Logger:                logger,
+		PostmarkServerToken:   env.PostmarkServerToken,
+		PostmarkFromEmail:     env.PostmarkFromEmail,
+		PostmarkMessageStream: env.PostmarkMessageStream,
+	})
 	emailService := moduleemail.NewService(emailProvider, env.EmailFromName, env.EmailFromAddress, env.WebBaseURL)
 	var notesService *modulenotes.Service
 	var notificationsService *modulenotifications.Service

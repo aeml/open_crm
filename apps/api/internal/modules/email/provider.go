@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 )
 
@@ -73,14 +74,30 @@ func (p unconfiguredProvider) Send(_ context.Context, _ Message) error {
 	return fmt.Errorf("email provider %q is not configured", p.name)
 }
 
-// NewProvider selects an email provider by name. Empty or "fake" resolves to
-// the FakeProvider; any other name resolves to an unconfigured stub until its
-// integration is wired.
-func NewProvider(name string, logger *slog.Logger) Provider {
-	switch name {
+// ProviderConfig selects and configures an email provider.
+type ProviderConfig struct {
+	// Name is the provider key: "fake" (default), "postmark", or another name
+	// (which resolves to an unconfigured stub until wired).
+	Name   string
+	Logger *slog.Logger
+
+	// Postmark settings, used when Name is "postmark".
+	PostmarkServerToken   string
+	PostmarkFromEmail     string
+	PostmarkMessageStream string
+}
+
+// NewProvider selects an email provider from configuration. Empty or "fake"
+// resolves to the in-process FakeProvider (default for tests and unconfigured
+// deployments); "postmark" resolves to the Postmark transactional sender; any
+// other name resolves to an unconfigured stub until its integration is wired.
+func NewProvider(cfg ProviderConfig) Provider {
+	switch strings.ToLower(strings.TrimSpace(cfg.Name)) {
 	case "", "fake":
-		return NewFakeProvider(logger)
+		return NewFakeProvider(cfg.Logger)
+	case "postmark":
+		return NewPostmarkProvider(cfg.PostmarkServerToken, cfg.PostmarkFromEmail, cfg.PostmarkMessageStream, cfg.Logger)
 	default:
-		return unconfiguredProvider{name: name}
+		return unconfiguredProvider{name: cfg.Name}
 	}
 }
