@@ -325,6 +325,26 @@
   color: var(--text-muted);
 }
 
+.record-row-active {
+  border-color: var(--accent);
+  background: rgba(39, 94, 254, 0.06);
+}
+
+.record-row-alert {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.06);
+}
+
+.chip {
+  display: inline-block;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(39, 94, 254, 0.08);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 /* ── Section header (title + action) ────────────────────── */
 
 .section-header {

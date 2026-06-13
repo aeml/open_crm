@@ -135,23 +135,24 @@ type notificationsService interface {
 }
 
 type Dependencies struct {
-	CheckReadiness    func(context.Context) error
-	Logger            *slog.Logger
-	AuthService       authService
-	UsersService      usersService
-	AuditService      auditService
-	ContactsService   contactsService
-	CompaniesService  companiesService
-	DealsService      dealsService
-	TasksService      tasksService
-	ExportsService    dataExportsService
-	OrgProfileService orgProfileService
-	DashboardService  dashboardService
-	NotesService      notesService
-	ImportsService    importsService
+	CheckReadiness       func(context.Context) error
+	Logger               *slog.Logger
+	AuthService          authService
+	UsersService         usersService
+	AuditService         auditService
+	ContactsService      contactsService
+	CompaniesService     companiesService
+	DealsService         dealsService
+	TasksService         tasksService
+	ExportsService       dataExportsService
+	OrgProfileService    orgProfileService
+	DashboardService     dashboardService
+	NotesService         notesService
+	ImportsService       importsService
 	SavedViewsService    savedViewsService
 	OnboardingService    onboardingService
 	NotificationsService notificationsService
+	BillingService       billingService
 }
 
 type statusResponse struct {
@@ -566,6 +567,12 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/audit-events", func(w http.ResponseWriter, r *http.Request) {
 		handleListAuditEvents(dependencies.AuthService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("GET /api/billing/plans", func(w http.ResponseWriter, r *http.Request) {
+		handleListPlans(dependencies.AuthService, w, r)
+	})
+	mux.HandleFunc("GET /api/billing/entitlements", func(w http.ResponseWriter, r *http.Request) {
+		handleGetEntitlements(dependencies.AuthService, dependencies.BillingService, w, r)
 	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)

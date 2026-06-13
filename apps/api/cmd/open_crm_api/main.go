@@ -15,6 +15,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/db"
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
@@ -62,6 +63,7 @@ func main() {
 	var savedViewsService *modulesavedviews.Service
 	var onboardingService *moduleonboarding.Service
 	var orgProfileService *moduleorgprofile.Service
+	var billingService *modulebilling.Service
 	if dbConfigErr == nil {
 		pool, err := db.NewPool(context.Background(), dbConfig)
 		if err != nil {
@@ -82,6 +84,7 @@ func main() {
 			savedViewsService = modulesavedviews.NewService(pool)
 			onboardingService = moduleonboarding.NewService(pool)
 			orgProfileService = moduleorgprofile.NewService(pool)
+			billingService = modulebilling.NewService(pool)
 		}
 	}
 
@@ -92,22 +95,23 @@ func main() {
 			}
 			return db.CheckReadiness(ctx, dbConfig)
 		},
-		Logger:            logger,
-		AuthService:       authService,
-		AuditService:      auditService,
-		UsersService:      usersService,
-		ContactsService:   contactsService,
-		CompaniesService:  companiesService,
-		DealsService:      dealsService,
-		TasksService:      tasksService,
-		ExportsService:    exportsService,
-		DashboardService:  dashboardService,
+		Logger:               logger,
+		AuthService:          authService,
+		AuditService:         auditService,
+		UsersService:         usersService,
+		ContactsService:      contactsService,
+		CompaniesService:     companiesService,
+		DealsService:         dealsService,
+		TasksService:         tasksService,
+		ExportsService:       exportsService,
+		DashboardService:     dashboardService,
 		NotesService:         notesService,
 		ImportsService:       importsService,
 		SavedViewsService:    savedViewsService,
 		OnboardingService:    onboardingService,
 		OrgProfileService:    orgProfileService,
 		NotificationsService: notificationsService,
+		BillingService:       billingService,
 	}))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
