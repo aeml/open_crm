@@ -87,6 +87,79 @@ func TestGetMyEmailSyncStatusReturnsAccountAndOAuthMetadata(t *testing.T) {
 	}
 }
 
+func TestCheckMyEmailSyncMarksIMAPAccountReady(t *testing.T) {
+	accounts := &fakeUserEmailService{
+		configured: true,
+		account: moduleuseremail.Account{
+			FromEmail:       "rep@acme.test",
+			IMAPHost:        "imap.acme.test",
+			IMAPPort:        993,
+			IMAPUsername:    "rep",
+			HasIMAPPassword: true,
+			Provider:        "imap",
+			AuthMethod:      "password",
+			SyncEnabled:     true,
+			SyncStatus:      "pending",
+		},
+	}
+	server := testEmailSyncServer(testOAuthEnv(), accounts, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/me/email-sync/check", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response userEmailSyncCheckResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Status != "ready" || response.Data.Account == nil || response.Data.Account.SyncStatus != "ready" {
+		t.Fatalf("unexpected readiness response: %#v", response.Data)
+	}
+	if len(accounts.syncStateInputs) != 2 || accounts.syncStateInputs[0].Status != "syncing" || accounts.syncStateInputs[1].Status != "ready" {
+		t.Fatalf("expected syncing then ready state updates, got %#v", accounts.syncStateInputs)
+	}
+}
+
+func TestCheckMyEmailSyncRequiresOAuthConnection(t *testing.T) {
+	accounts := &fakeUserEmailService{
+		configured: true,
+		account: moduleuseremail.Account{
+			FromEmail:      "rep@acme.test",
+			Provider:       "google",
+			AuthMethod:     "oauth",
+			SyncEnabled:    true,
+			SyncStatus:     "pending",
+			OAuthConnected: false,
+		},
+	}
+	server := testEmailSyncServer(testOAuthEnv(), accounts, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/me/email-sync/check", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response userEmailSyncCheckResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Status != "error" || response.Data.Error != "Connect Google OAuth before syncing this mailbox." {
+		t.Fatalf("unexpected readiness error: %#v", response.Data)
+	}
+	if len(accounts.syncStateInputs) != 2 || accounts.syncStateInputs[0].Status != "syncing" || accounts.syncStateInputs[1].Status != "error" {
+		t.Fatalf("expected syncing then error state updates, got %#v", accounts.syncStateInputs)
+	}
+}
+
 func TestStartMyEmailOAuthReturnsProviderAuthorizationURL(t *testing.T) {
 	accounts := &fakeUserEmailService{
 		configured: true,

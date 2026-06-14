@@ -5,7 +5,7 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { getMyEmailAccount, getMyEmailSyncStatus, startMyEmailOAuth, saveMyEmailAccount, deleteMyEmailAccount } from '../lib/user_email'
+import { getMyEmailAccount, getMyEmailSyncStatus, startMyEmailOAuth, checkMyEmailSync, saveMyEmailAccount, deleteMyEmailAccount } from '../lib/user_email'
 import { usePageTitle } from '../lib/use_page_title'
 
 const emptyForm = {
@@ -77,6 +77,7 @@ export function SettingsEmailAccountRoute() {
   const [syncStatus, setSyncStatus] = useState({ account: null, oauthProviders: [] })
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isCheckingSync, setIsCheckingSync] = useState(false)
   const [startingOAuthProvider, setStartingOAuthProvider] = useState('')
 
   useEffect(() => {
@@ -164,6 +165,27 @@ export function SettingsEmailAccountRoute() {
     }
   }
 
+  async function handleCheckSync() {
+    setIsCheckingSync(true)
+    setStatus('')
+    setError('')
+    try {
+      const data = await checkMyEmailSync()
+      if (data.account) {
+        setSyncStatus({ account: data.account, oauthProviders: syncStatus.oauthProviders || [] })
+      }
+      if (data.status === 'ready') {
+        setStatus('Mailbox sync settings are ready. Message ingestion will run when the sync worker is enabled.')
+      } else {
+        setError(data.error || 'Mailbox sync is not ready yet.')
+      }
+    } catch (syncError) {
+      setError(syncError.message || 'Unable to check mailbox sync.')
+    } finally {
+      setIsCheckingSync(false)
+    }
+  }
+
   async function handleDelete() {
     try {
       await deleteMyEmailAccount()
@@ -228,6 +250,11 @@ export function SettingsEmailAccountRoute() {
                     <input type="checkbox" checked={form.syncEnabled} onChange={(event) => setForm({ ...form, syncEnabled: event.target.checked })} />
                     <span>Enable mailbox sync metadata</span>
                   </label>
+                  <div>
+                    <Button type="button" className="button-secondary" disabled={!hasAccount || !form.syncEnabled || isCheckingSync} onClick={handleCheckSync}>
+                      {isCheckingSync ? 'Checking...' : 'Check sync readiness'}
+                    </Button>
+                  </div>
                   {form.syncEnabled ? (
                     <div className="card-stack">
                       <Field label="Sync provider">

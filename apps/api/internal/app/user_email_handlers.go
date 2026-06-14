@@ -49,6 +49,17 @@ type userEmailSyncStatusResponse struct {
 	} `json:"meta"`
 }
 
+type userEmailSyncCheckResponse struct {
+	Data struct {
+		Status  string                   `json:"status"`
+		Error   string                   `json:"error,omitempty"`
+		Account *moduleuseremail.Account `json:"account"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type emailOAuthProviderStatus struct {
 	Provider   string   `json:"provider"`
 	Label      string   `json:"label"`
@@ -158,6 +169,81 @@ func handleGetMyEmailSyncStatus(env config.Env, auth authService, accounts userE
 	response.Data.Connected = true
 	response.Data.Account = &account
 	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleCheckMyEmailSync(auth authService, accounts userEmailAccountService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if accounts == nil || !accounts.Configured() {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email account storage is not configured on this server")
+		return
+	}
+
+	account, err := accounts.GetForUser(r.Context(), state.Organization.ID, state.User.ID)
+	if err != nil {
+		if errors.Is(err, moduleuseremail.ErrNotFound) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", "Save your email account before enabling mailbox sync")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load email sync status")
+		return
+	}
+	if !account.SyncEnabled {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Enable mailbox sync before checking readiness")
+		return
+	}
+
+	if _, err := accounts.UpdateSyncState(r.Context(), state.Organization.ID, state.User.ID, moduleuseremail.SyncStateInput{Status: "syncing"}); err != nil {
+		writeUserEmailSyncStateError(w, requestID, err)
+		return
+	}
+
+	response := userEmailSyncCheckResponse{}
+	response.Meta.RequestID = requestID
+	if readinessError := mailboxSyncReadinessError(account); readinessError != "" {
+		updated, err := accounts.UpdateSyncState(r.Context(), state.Organization.ID, state.User.ID, moduleuseremail.SyncStateInput{Status: "error", Error: readinessError})
+		if err != nil {
+			writeUserEmailSyncStateError(w, requestID, err)
+			return
+		}
+		response.Data.Status = "error"
+		response.Data.Error = readinessError
+		response.Data.Account = &updated
+		platformweb.WriteJSON(w, http.StatusOK, response)
+		return
+	}
+
+	updated, err := accounts.UpdateSyncState(r.Context(), state.Organization.ID, state.User.ID, moduleuseremail.SyncStateInput{Status: "ready"})
+	if err != nil {
+		writeUserEmailSyncStateError(w, requestID, err)
+		return
+	}
+	response.Data.Status = "ready"
+	response.Data.Account = &updated
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func mailboxSyncReadinessError(account moduleuseremail.Account) string {
+	switch account.Provider {
+	case "imap":
+		if account.AuthMethod != "password" || account.IMAPHost == "" || account.IMAPPort <= 0 || account.IMAPUsername == "" || !account.HasIMAPPassword {
+			return "Save complete IMAP host, port, username, and password settings before syncing this mailbox."
+		}
+	case "google":
+		if account.AuthMethod != "oauth" || !account.OAuthConnected {
+			return "Connect Google OAuth before syncing this mailbox."
+		}
+	case "microsoft":
+		if account.AuthMethod != "oauth" || !account.OAuthConnected {
+			return "Connect Microsoft OAuth before syncing this mailbox."
+		}
+	default:
+		return "Choose an IMAP, Google, or Microsoft sync provider before syncing this mailbox."
+	}
+	return ""
 }
 
 func handleDeleteMyEmailAccount(auth authService, accounts userEmailAccountService, w http.ResponseWriter, r *http.Request) {
@@ -326,5 +412,16 @@ func writeUserEmailAccountError(w http.ResponseWriter, requestID string, err err
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email account storage is not configured on this server")
 	default:
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to save email account")
+	}
+}
+
+func writeUserEmailSyncStateError(w http.ResponseWriter, requestID string, err error) {
+	switch {
+	case errors.Is(err, moduleuseremail.ErrInvalidInput):
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid mailbox sync state")
+	case errors.Is(err, moduleuseremail.ErrNotFound):
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", "Save your email account before enabling mailbox sync")
+	default:
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update email sync status")
 	}
 }

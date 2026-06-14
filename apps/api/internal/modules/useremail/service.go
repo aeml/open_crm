@@ -80,6 +80,15 @@ type OAuthConnectionInput struct {
 	ExpiresAt    *time.Time
 }
 
+// SyncStateInput records sync orchestration state. Cursor and LastSyncAt are
+// reserved for actual provider ingestion; readiness checks only set status/error.
+type SyncStateInput struct {
+	Status         string
+	Error          string
+	Cursor         string
+	UpdateLastSync bool
+}
+
 // Credentials is the decrypted connection used to send mail. It must never be
 // serialized to clients.
 type Credentials struct {
@@ -325,6 +334,40 @@ func (s *Service) SaveOAuthConnection(ctx context.Context, organizationID, userI
 	return s.GetForUser(ctx, organizationID, userID)
 }
 
+// UpdateSyncState updates mailbox sync orchestration metadata for a user's
+// account and returns the sanitized account state.
+func (s *Service) UpdateSyncState(ctx context.Context, organizationID, userID int64, input SyncStateInput) (Account, error) {
+	if s == nil || s.pool == nil {
+		return Account{}, fmt.Errorf("user email service not configured")
+	}
+	input.Status = strings.ToLower(strings.TrimSpace(input.Status))
+	input.Error = strings.TrimSpace(input.Error)
+	input.Cursor = strings.TrimSpace(input.Cursor)
+	if !validSyncStatus(input.Status) {
+		return Account{}, ErrInvalidInput
+	}
+	if len(input.Error) > 1000 {
+		input.Error = input.Error[:1000]
+	}
+
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE user_email_accounts
+		SET sync_status = $3,
+		    last_sync_error = $4,
+		    sync_cursor = CASE WHEN $5 <> '' THEN $5 ELSE sync_cursor END,
+		    last_sync_at = CASE WHEN $6 THEN NOW() ELSE last_sync_at END,
+		    updated_at = NOW()
+		WHERE organization_id = $1 AND user_id = $2
+	`, organizationID, userID, input.Status, input.Error, input.Cursor, input.UpdateLastSync)
+	if err != nil {
+		return Account{}, fmt.Errorf("update mailbox sync state: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return Account{}, ErrNotFound
+	}
+	return s.GetForUser(ctx, organizationID, userID)
+}
+
 // SendAs sends an email through the user's own SMTP mailbox, from the user's
 // configured address. htmlBody may be empty; textBody is always preserved for
 // clients that prefer plain text. Returns ErrNotFound when the user has not yet
@@ -429,4 +472,8 @@ func validProvider(value string) bool {
 
 func validAuthMethod(value string) bool {
 	return value == "password" || value == "oauth"
+}
+
+func validSyncStatus(value string) bool {
+	return value == "disabled" || value == "pending" || value == "ready" || value == "syncing" || value == "error"
 }

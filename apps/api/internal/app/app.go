@@ -168,6 +168,7 @@ type userEmailAccountService interface {
 	GetForUser(context.Context, int64, int64) (moduleuseremail.Account, error)
 	Upsert(context.Context, int64, int64, moduleuseremail.UpsertInput) (moduleuseremail.Account, error)
 	SaveOAuthConnection(context.Context, int64, int64, moduleuseremail.OAuthConnectionInput) (moduleuseremail.Account, error)
+	UpdateSyncState(context.Context, int64, int64, moduleuseremail.SyncStateInput) (moduleuseremail.Account, error)
 	Delete(context.Context, int64, int64) error
 	SendAs(ctx context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error
 	MemberExists(context.Context, int64, int64) (bool, error)
@@ -632,6 +633,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/me/email-sync/status", func(w http.ResponseWriter, r *http.Request) {
 		handleGetMyEmailSyncStatus(env, dependencies.AuthService, dependencies.UserEmailService, w, r)
+	})
+	mux.HandleFunc("POST /api/me/email-sync/check", func(w http.ResponseWriter, r *http.Request) {
+		handleCheckMyEmailSync(dependencies.AuthService, dependencies.UserEmailService, w, r)
 	})
 	mux.HandleFunc("POST /api/me/email-sync/oauth/{provider}/start", func(w http.ResponseWriter, r *http.Request) {
 		handleStartMyEmailOAuth(env, dependencies.AuthService, dependencies.UserEmailService, w, r)

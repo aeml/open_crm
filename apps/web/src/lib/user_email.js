@@ -18,6 +18,12 @@ export async function startMyEmailOAuth(provider, { signal } = {}) {
   return payload?.data || { authorizationUrl: '' }
 }
 
+export async function checkMyEmailSync({ signal } = {}) {
+  const payload = await apiRequest('/api/me/email-sync/check', { method: 'POST', fallbackMessage: 'Unable to check mailbox sync.', signal })
+
+  return payload?.data || { status: 'error', error: 'Unable to check mailbox sync.', account: null }
+}
+
 export async function saveMyEmailAccount(input, { signal } = {}) {
   const payload = await apiRequest('/api/me/email-account', { method: 'PUT', body: input, fallbackMessage: 'Unable to save email account.', signal })
 

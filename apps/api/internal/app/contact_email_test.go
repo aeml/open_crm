@@ -29,6 +29,7 @@ type fakeUserEmailService struct {
 	memberOK         bool
 	lastUpsertUserID int64
 	lastOAuthInput   moduleuseremail.OAuthConnectionInput
+	syncStateInputs  []moduleuseremail.SyncStateInput
 }
 
 func (f *fakeUserEmailService) Configured() bool { return f.configured }
@@ -49,6 +50,13 @@ func (f *fakeUserEmailService) SaveOAuthConnection(_ context.Context, _, _ int64
 	f.account.SyncEnabled = true
 	f.account.SyncStatus = "pending"
 	f.account.OAuthConnected = true
+	return f.account, f.upsertErr
+}
+
+func (f *fakeUserEmailService) UpdateSyncState(_ context.Context, _, _ int64, input moduleuseremail.SyncStateInput) (moduleuseremail.Account, error) {
+	f.syncStateInputs = append(f.syncStateInputs, input)
+	f.account.SyncStatus = input.Status
+	f.account.LastSyncError = input.Error
 	return f.account, f.upsertErr
 }
 

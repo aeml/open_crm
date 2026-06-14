@@ -139,4 +139,51 @@ describe('settings email account route', () => {
     expect(screen.getByRole('button', { name: /connect google/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /connect microsoft/i })).toBeDisabled()
   })
+
+  it('checks mailbox sync readiness for a saved account', async () => {
+    const account = {
+      fromEmail: 'rep@acme.test',
+      smtpHost: 'smtp.acme.test',
+      smtpPort: 587,
+      smtpUsername: 'rep',
+      smtpUseTls: true,
+      hasPassword: true,
+      provider: 'imap',
+      authMethod: 'password',
+      syncEnabled: true,
+      syncStatus: 'pending',
+      imapHost: 'imap.acme.test',
+      imapPort: 993,
+      imapUsername: 'rep',
+      imapUseTls: true,
+      hasImapPassword: true
+    }
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/me/email-account') && method === 'GET') {
+        return { ok: true, json: async () => ({ data: { account, configured: true } }) }
+      }
+      if (path.endsWith('/api/me/email-sync/status')) {
+        return { ok: true, json: async () => ({ data: { account, configured: true, connected: true, oauthProviders: [] } }) }
+      }
+      if (path.endsWith('/api/me/email-sync/check') && method === 'POST') {
+        return { ok: true, json: async () => ({ data: { status: 'ready', account: { ...account, syncStatus: 'ready' } } }) }
+      }
+      return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/email-account')
+
+    render(<AppRouter />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /check sync readiness/i }))
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/api/me/email-sync/check') && call[1]?.method === 'POST')).toBe(true)
+    })
+    expect(await screen.findByText(/mailbox sync settings are ready/i)).toBeInTheDocument()
+  })
 })
