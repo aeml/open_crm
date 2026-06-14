@@ -5,7 +5,7 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { getMyEmailAccount, saveMyEmailAccount, deleteMyEmailAccount } from '../lib/user_email'
+import { getMyEmailAccount, getMyEmailSyncStatus, saveMyEmailAccount, deleteMyEmailAccount } from '../lib/user_email'
 import { usePageTitle } from '../lib/use_page_title'
 
 const emptyForm = {
@@ -15,7 +15,28 @@ const emptyForm = {
   smtpPort: 587,
   smtpUsername: '',
   smtpPassword: '',
-  smtpUseTls: true
+  smtpUseTls: true,
+  syncEnabled: false,
+  provider: 'imap',
+  authMethod: 'password',
+  imapHost: '',
+  imapPort: 993,
+  imapUsername: '',
+  imapPassword: '',
+  imapUseTls: true
+}
+
+function syncStatusText(account) {
+  if (!account?.syncEnabled) {
+    return 'Sync disabled'
+  }
+  if (account.syncStatus === 'pending') {
+    return 'Pending first sync'
+  }
+  if (account.syncStatus === 'error') {
+    return 'Sync needs attention'
+  }
+  return account.syncStatus || 'Sync enabled'
 }
 
 export function SettingsEmailAccountRoute() {
@@ -26,6 +47,7 @@ export function SettingsEmailAccountRoute() {
   const [hasAccount, setHasAccount] = useState(false)
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
+  const [syncStatus, setSyncStatus] = useState({ account: null, oauthProviders: [] })
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -34,18 +56,31 @@ export function SettingsEmailAccountRoute() {
     async function load() {
       setIsLoading(true)
       try {
-        const data = await getMyEmailAccount({ signal: controller.signal })
+        const [data, nextSyncStatus] = await Promise.all([
+          getMyEmailAccount({ signal: controller.signal }),
+          getMyEmailSyncStatus({ signal: controller.signal })
+        ])
+        setSyncStatus({ account: nextSyncStatus.account || null, oauthProviders: nextSyncStatus.oauthProviders || [] })
         setConfigured(data.configured)
-        if (data.account) {
+        const account = data.account || nextSyncStatus.account
+        if (account) {
           setHasAccount(true)
           setForm({
-            fromEmail: data.account.fromEmail || '',
-            fromName: data.account.fromName || '',
-            smtpHost: data.account.smtpHost || '',
-            smtpPort: data.account.smtpPort || 587,
-            smtpUsername: data.account.smtpUsername || '',
+            fromEmail: account.fromEmail || '',
+            fromName: account.fromName || '',
+            smtpHost: account.smtpHost || '',
+            smtpPort: account.smtpPort || 587,
+            smtpUsername: account.smtpUsername || '',
             smtpPassword: '',
-            smtpUseTls: data.account.smtpUseTls !== false
+            smtpUseTls: account.smtpUseTls !== false,
+            syncEnabled: !!account.syncEnabled,
+            provider: account.provider && account.provider !== 'smtp' ? account.provider : 'imap',
+            authMethod: account.authMethod || 'password',
+            imapHost: account.imapHost || '',
+            imapPort: account.imapPort || 993,
+            imapUsername: account.imapUsername || '',
+            imapPassword: '',
+            imapUseTls: account.imapUseTls !== false
           })
         }
         setError('')
@@ -70,9 +105,9 @@ export function SettingsEmailAccountRoute() {
     setIsSaving(true)
     setStatus('')
     try {
-      await saveMyEmailAccount({ ...form, smtpPort: Number(form.smtpPort) })
+      await saveMyEmailAccount({ ...form, smtpPort: Number(form.smtpPort), imapPort: Number(form.imapPort) })
       setHasAccount(true)
-      setForm({ ...form, smtpPassword: '' })
+      setForm({ ...form, smtpPassword: '', imapPassword: '' })
       setStatus('Email account saved. Emails you send to contacts will come from your address.')
       setError('')
     } catch (saveError) {
@@ -87,6 +122,7 @@ export function SettingsEmailAccountRoute() {
       await deleteMyEmailAccount()
       setHasAccount(false)
       setForm(emptyForm)
+      setSyncStatus({ account: null, oauthProviders: syncStatus.oauthProviders || [] })
       setStatus('Email account removed.')
       setError('')
     } catch (deleteError) {
@@ -134,6 +170,64 @@ export function SettingsEmailAccountRoute() {
                 <input type="checkbox" checked={form.smtpUseTls} onChange={(event) => setForm({ ...form, smtpUseTls: event.target.checked })} />
                 <span>Use TLS / STARTTLS</span>
               </label>
+              <Card>
+                <div className="card-stack">
+                  <div>
+                    <h3>Mailbox sync</h3>
+                    <p className="field-hint">Store sync settings for two-way mailbox work. Message ingestion and OAuth callback handling ship in a later slice.</p>
+                    {syncStatus.account ? <p className="field-hint">Status: {syncStatusText(syncStatus.account)}</p> : null}
+                  </div>
+                  <label className="checkbox-row">
+                    <input type="checkbox" checked={form.syncEnabled} onChange={(event) => setForm({ ...form, syncEnabled: event.target.checked })} />
+                    <span>Enable mailbox sync metadata</span>
+                  </label>
+                  {form.syncEnabled ? (
+                    <div className="card-stack">
+                      <Field label="Sync provider">
+                        <select className="text-input" value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value, authMethod: event.target.value === 'imap' ? 'password' : 'oauth' })}>
+                          <option value="imap">Generic IMAP</option>
+                          <option value="google">Google Workspace / Gmail OAuth</option>
+                          <option value="microsoft">Microsoft 365 / Outlook OAuth</option>
+                        </select>
+                      </Field>
+                      {form.provider === 'imap' ? (
+                        <div className="card-stack">
+                          <Field label="IMAP host">
+                            <input className="text-input" value={form.imapHost} onChange={(event) => setForm({ ...form, imapHost: event.target.value })} placeholder="imap.gmail.com" required />
+                          </Field>
+                          <Field label="IMAP port">
+                            <input className="text-input" type="number" value={form.imapPort} onChange={(event) => setForm({ ...form, imapPort: event.target.value })} required />
+                          </Field>
+                          <Field label="IMAP username">
+                            <input className="text-input" value={form.imapUsername} onChange={(event) => setForm({ ...form, imapUsername: event.target.value })} required />
+                          </Field>
+                          <Field label={hasAccount ? 'IMAP password (leave blank to keep current)' : 'IMAP password'}>
+                            <input className="text-input" type="password" value={form.imapPassword} onChange={(event) => setForm({ ...form, imapPassword: event.target.value })} autoComplete="new-password" />
+                          </Field>
+                          <label className="checkbox-row">
+                            <input type="checkbox" checked={form.imapUseTls} onChange={(event) => setForm({ ...form, imapUseTls: event.target.checked })} />
+                            <span>Use IMAP TLS / SSL</span>
+                          </label>
+                        </div>
+                      ) : (
+                        <p className="field-hint">OAuth connection metadata is available below. Token exchange and mailbox ingestion are not active yet.</p>
+                      )}
+                    </div>
+                  ) : null}
+                  {syncStatus.oauthProviders?.length > 0 ? (
+                    <div className="record-list" role="list" aria-label="OAuth mailbox providers">
+                      {syncStatus.oauthProviders.map((provider) => (
+                        <article className="record-row" key={provider.provider} role="listitem">
+                          <div>
+                            <p>{provider.label}</p>
+                            <p className="field-hint">{provider.configured ? 'OAuth client configured' : 'OAuth client not configured'} · {provider.status}</p>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </Card>
               <div>
                 <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save connection'}</Button>
                 {hasAccount ? <Button className="button-secondary" type="button" onClick={handleDelete}>Remove</Button> : null}

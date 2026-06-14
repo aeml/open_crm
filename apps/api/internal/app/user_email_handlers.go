@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -26,6 +27,34 @@ type userEmailAccountRequest struct {
 	SMTPUsername string `json:"smtpUsername"`
 	SMTPPassword string `json:"smtpPassword"`
 	SMTPUseTLS   bool   `json:"smtpUseTls"`
+	IMAPHost     string `json:"imapHost"`
+	IMAPPort     int    `json:"imapPort"`
+	IMAPUsername string `json:"imapUsername"`
+	IMAPPassword string `json:"imapPassword"`
+	IMAPUseTLS   bool   `json:"imapUseTls"`
+	Provider     string `json:"provider"`
+	AuthMethod   string `json:"authMethod"`
+	SyncEnabled  bool   `json:"syncEnabled"`
+}
+
+type userEmailSyncStatusResponse struct {
+	Data struct {
+		Configured     bool                       `json:"configured"`
+		Connected      bool                       `json:"connected"`
+		Account        *moduleuseremail.Account   `json:"account"`
+		OAuthProviders []emailOAuthProviderStatus `json:"oauthProviders"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type emailOAuthProviderStatus struct {
+	Provider   string   `json:"provider"`
+	Label      string   `json:"label"`
+	Configured bool     `json:"configured"`
+	Scopes     []string `json:"scopes"`
+	Status     string   `json:"status"`
 }
 
 func handleGetMyEmailAccount(auth authService, accounts userEmailAccountService, w http.ResponseWriter, r *http.Request) {
@@ -80,6 +109,14 @@ func handleSaveMyEmailAccount(auth authService, accounts userEmailAccountService
 		SMTPUsername: request.SMTPUsername,
 		SMTPPassword: request.SMTPPassword,
 		SMTPUseTLS:   request.SMTPUseTLS,
+		IMAPHost:     request.IMAPHost,
+		IMAPPort:     request.IMAPPort,
+		IMAPUsername: request.IMAPUsername,
+		IMAPPassword: request.IMAPPassword,
+		IMAPUseTLS:   request.IMAPUseTLS,
+		Provider:     request.Provider,
+		AuthMethod:   request.AuthMethod,
+		SyncEnabled:  request.SyncEnabled,
 	})
 	if err != nil {
 		writeUserEmailAccountError(w, requestID, err)
@@ -90,6 +127,36 @@ func handleSaveMyEmailAccount(auth authService, accounts userEmailAccountService
 	response.Data.Account = &account
 	response.Data.Configured = accounts.Configured()
 	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleGetMyEmailSyncStatus(env config.Env, auth authService, accounts userEmailAccountService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if accounts == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email account service unavailable")
+		return
+	}
+
+	response := userEmailSyncStatusResponse{}
+	response.Data.Configured = accounts.Configured()
+	response.Data.OAuthProviders = emailOAuthProviders(env)
+	response.Meta.RequestID = requestID
+
+	account, err := accounts.GetForUser(r.Context(), state.Organization.ID, state.User.ID)
+	if err != nil {
+		if errors.Is(err, moduleuseremail.ErrNotFound) {
+			platformweb.WriteJSON(w, http.StatusOK, response)
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load email sync status")
+		return
+	}
+	response.Data.Connected = true
+	response.Data.Account = &account
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
@@ -185,6 +252,14 @@ func handleAdminSaveUserEmailAccount(auth authService, accounts userEmailAccount
 		SMTPUsername: request.SMTPUsername,
 		SMTPPassword: request.SMTPPassword,
 		SMTPUseTLS:   request.SMTPUseTLS,
+		IMAPHost:     request.IMAPHost,
+		IMAPPort:     request.IMAPPort,
+		IMAPUsername: request.IMAPUsername,
+		IMAPPassword: request.IMAPPassword,
+		IMAPUseTLS:   request.IMAPUseTLS,
+		Provider:     request.Provider,
+		AuthMethod:   request.AuthMethod,
+		SyncEnabled:  request.SyncEnabled,
 	})
 	if err != nil {
 		writeUserEmailAccountError(w, requestID, err)
@@ -222,6 +297,25 @@ func handleAdminDeleteUserEmailAccount(auth authService, accounts userEmailAccou
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func emailOAuthProviders(env config.Env) []emailOAuthProviderStatus {
+	return []emailOAuthProviderStatus{
+		{
+			Provider:   "google",
+			Label:      "Google Workspace / Gmail",
+			Configured: env.GoogleOAuthClientID != "",
+			Scopes:     []string{"openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly"},
+			Status:     "oauth_callback_pending",
+		},
+		{
+			Provider:   "microsoft",
+			Label:      "Microsoft 365 / Outlook",
+			Configured: env.MicrosoftOAuthClientID != "",
+			Scopes:     []string{"openid", "email", "profile", "offline_access", "https://graph.microsoft.com/Mail.Read"},
+			Status:     "oauth_callback_pending",
+		},
+	}
 }
 
 func writeUserEmailAccountError(w http.ResponseWriter, requestID string, err error) {

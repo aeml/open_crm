@@ -624,6 +624,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("GET /api/me/email-account", func(w http.ResponseWriter, r *http.Request) {
 		handleGetMyEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
 	})
+	mux.HandleFunc("GET /api/me/email-sync/status", func(w http.ResponseWriter, r *http.Request) {
+		handleGetMyEmailSyncStatus(env, dependencies.AuthService, dependencies.UserEmailService, w, r)
+	})
 	mux.HandleFunc("PUT /api/me/email-account", func(w http.ResponseWriter, r *http.Request) {
 		handleSaveMyEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
 	})

@@ -6,6 +6,12 @@ export async function getMyEmailAccount({ signal } = {}) {
   return payload?.data || { account: null, configured: false }
 }
 
+export async function getMyEmailSyncStatus({ signal } = {}) {
+  const payload = await apiRequest('/api/me/email-sync/status', { fallbackMessage: 'Unable to load email sync status.', signal })
+
+  return payload?.data || { account: null, configured: false, connected: false, oauthProviders: [] }
+}
+
 export async function saveMyEmailAccount(input, { signal } = {}) {
   const payload = await apiRequest('/api/me/email-account', { method: 'PUT', body: input, fallbackMessage: 'Unable to save email account.', signal })
 

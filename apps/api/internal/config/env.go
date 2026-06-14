@@ -18,6 +18,8 @@ type Env struct {
 	PostmarkMessageStream   string
 	CredentialEncryptionKey string
 	WebBaseURL              string
+	GoogleOAuthClientID     string
+	MicrosoftOAuthClientID  string
 }
 
 func Load() Env {
@@ -54,6 +56,8 @@ func Load() Env {
 		PostmarkMessageStream:   os.Getenv("POSTMARK_MESSAGE_STREAM"),
 		CredentialEncryptionKey: os.Getenv("CREDENTIAL_ENCRYPTION_KEY"),
 		WebBaseURL:              webBaseURL,
+		GoogleOAuthClientID:     os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
+		MicrosoftOAuthClientID:  os.Getenv("MICROSOFT_OAUTH_CLIENT_ID"),
 	}
 }
 

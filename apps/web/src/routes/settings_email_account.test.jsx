@@ -45,6 +45,10 @@ describe('settings email account route', () => {
     fireEvent.change(screen.getByLabelText(/smtp host/i), { target: { value: 'smtp.acme.test' } })
     fireEvent.change(screen.getByLabelText(/smtp username/i), { target: { value: 'rep' } })
     fireEvent.change(screen.getByLabelText(/^smtp password$/i), { target: { value: 'app-pass' } })
+    fireEvent.click(screen.getByLabelText(/enable mailbox sync metadata/i))
+    fireEvent.change(screen.getByLabelText(/imap host/i), { target: { value: 'imap.acme.test' } })
+    fireEvent.change(screen.getByLabelText(/imap username/i), { target: { value: 'rep' } })
+    fireEvent.change(screen.getByLabelText(/^imap password$/i), { target: { value: 'imap-pass' } })
     fireEvent.click(screen.getByRole('button', { name: /save connection/i }))
 
     await waitFor(() => {
@@ -57,6 +61,11 @@ describe('settings email account route', () => {
       expect(payload.smtpHost).toBe('smtp.acme.test')
       expect(payload.smtpPort).toBe(587)
       expect(payload.smtpPassword).toBe('app-pass')
+      expect(payload.syncEnabled).toBe(true)
+      expect(payload.provider).toBe('imap')
+      expect(payload.imapHost).toBe('imap.acme.test')
+      expect(payload.imapPort).toBe(993)
+      expect(payload.imapPassword).toBe('imap-pass')
     })
     expect(await screen.findByText(/email account saved/i)).toBeInTheDocument()
   })
