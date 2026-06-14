@@ -99,7 +99,6 @@ func TestSendContactEmailRequiresConnectedAccount(t *testing.T) {
 		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", Email: "ada@acme.test"}},
 	}
 	accounts := &fakeUserEmailService{configured: true, sendErr: moduleuseremail.ErrNotFound}
-	server := authenticatedContactEmailServer(contacts, accounts)
 
 	body := bytes.NewBufferString(`{"subject":"Hi","body":"Body"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", body)
@@ -107,7 +106,7 @@ func TestSendContactEmailRequiresConnectedAccount(t *testing.T) {
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
-	server.ServeHTTP(recorder, request)
+	authenticatedContactEmailServer(contacts, accounts).ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
@@ -157,5 +156,42 @@ func TestSendContactEmailRejectsEmptyBody(t *testing.T) {
 	}
 	if accounts.sendCalled {
 		t.Fatalf("email should not be sent with empty body")
+	}
+}
+
+func TestSendContactEmailRecordsToLog(t *testing.T) {
+	contacts := &fakeContactsService{
+		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", Email: "ada@acme.test"}},
+	}
+	accounts := &fakeUserEmailService{configured: true}
+	messages := &fakeEmailMessagesService{}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{
+			currentSessionResult: moduleauth.SessionState{
+				User:         moduleauth.User{ID: 1, Email: "owner@acme.test", FirstName: "Demo", LastName: "Owner"},
+				Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc.", Slug: "acme-inc"},
+				Membership:   moduleauth.Membership{Role: "owner"},
+			},
+		},
+		ContactsService:      contacts,
+		UserEmailService:     accounts,
+		EmailMessagesService: messages,
+	})
+
+	body := bytes.NewBufferString(`{"subject":"Hi {{first_name}}","body":"Hello"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if messages.lastRecord.Status != "sent" || messages.lastRecord.EntityType != "contact" || messages.lastRecord.EntityID != 8 {
+		t.Fatalf("send was not recorded correctly: %#v", messages.lastRecord)
+	}
+	if messages.lastRecord.Subject != "Hi Ada" {
+		t.Fatalf("recorded subject should be rendered: %q", messages.lastRecord.Subject)
 	}
 }

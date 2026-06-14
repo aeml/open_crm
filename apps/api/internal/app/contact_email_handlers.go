@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
@@ -32,7 +33,7 @@ type sendEmailResponse struct {
 // comes from the user, not the platform. The subject and body may contain
 // {{merge_field}} placeholders, rendered server-side from contact data. A note
 // is logged on the contact so the send appears in its activity timeline.
-func handleSendContactEmail(auth authService, contacts contactsService, accounts userEmailAccountService, notes notesService, w http.ResponseWriter, r *http.Request) {
+func handleSendContactEmail(auth authService, contacts contactsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -84,10 +85,12 @@ func handleSendContactEmail(auth authService, contacts contactsService, accounts
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", "Connect your email account in Settings before sending email to contacts")
 			return
 		}
+		recordContactEmail(r, messages, state.Organization.ID, state.User.ID, contactID, to, subject, body, "failed", err.Error())
 		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email through your mail server")
 		return
 	}
 
+	recordContactEmail(r, messages, state.Organization.ID, state.User.ID, contactID, to, subject, body, "sent", "")
 	logContactEmailNote(r, notes, state.Organization.ID, state.User.ID, contactID, subject)
 
 	response := sendEmailResponse{}
@@ -117,5 +120,21 @@ func logContactEmailNote(r *http.Request, notes notesService, organizationID, us
 		EntityType: "contact",
 		EntityID:   contactID,
 		Body:       "Sent email: " + subject,
+	})
+}
+
+func recordContactEmail(r *http.Request, messages emailMessagesService, organizationID, userID, contactID int64, to, subject, body, status, errMsg string) {
+	if messages == nil {
+		return
+	}
+	_ = messages.Record(r.Context(), organizationID, moduleemailmessages.RecordInput{
+		ToEmail:      to,
+		Subject:      subject,
+		Body:         body,
+		Status:       status,
+		Error:        errMsg,
+		EntityType:   "contact",
+		EntityID:     contactID,
+		SentByUserID: userID,
 	})
 }

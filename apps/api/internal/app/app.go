@@ -14,6 +14,7 @@ import (
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
@@ -156,6 +157,12 @@ type userEmailAccountService interface {
 	SendAs(ctx context.Context, organizationID, userID int64, to, subject, body string) error
 }
 
+type emailMessagesService interface {
+	Record(context.Context, int64, moduleemailmessages.RecordInput) error
+	ListByOrganization(context.Context, int64, int) ([]moduleemailmessages.Message, error)
+	ListByEntity(context.Context, int64, string, int64) ([]moduleemailmessages.Message, error)
+}
+
 type Dependencies struct {
 	CheckReadiness        func(context.Context) error
 	Logger                *slog.Logger
@@ -178,6 +185,7 @@ type Dependencies struct {
 	EmailService          emailService
 	EmailTemplatesService emailTemplatesService
 	UserEmailService      userEmailAccountService
+	EmailMessagesService  emailMessagesService
 }
 
 type statusResponse struct {
@@ -642,7 +650,10 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleArchiveContact(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
 	mux.HandleFunc("POST /api/contacts/{contactID}/email", func(w http.ResponseWriter, r *http.Request) {
-		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, w, r)
+		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, w, r)
+	})
+	mux.HandleFunc("GET /api/email-messages", func(w http.ResponseWriter, r *http.Request) {
+		handleListEmailMessages(dependencies.AuthService, dependencies.EmailMessagesService, w, r)
 	})
 	mux.HandleFunc("GET /api/companies", func(w http.ResponseWriter, r *http.Request) {
 		handleListCompanies(dependencies.AuthService, dependencies.CompaniesService, w, r)

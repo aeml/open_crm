@@ -12,6 +12,7 @@ import { archiveContact, contactsExportURL, createContact, getContact, listConta
 import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
 import { listEmailTemplates } from '../lib/email_templates'
+import { listEmailMessages } from '../lib/email_messages'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
 import { usePageTitle } from '../lib/use_page_title'
@@ -130,6 +131,7 @@ export function ContactsRoute() {
   const [emailForm, setEmailForm] = useState({ subject: '', body: '' })
   const [emailStatus, setEmailStatus] = useState('')
   const [isSendingEmail, setIsSendingEmail] = useState(false)
+  const [emailHistory, setEmailHistory] = useState([])
   const searchControllerRef = useRef(null)
 
   const selectedContact = detail?.contact || null
@@ -528,13 +530,25 @@ export function ContactsRoute() {
     const next = !emailOpen
     setEmailOpen(next)
     setEmailStatus('')
-    if (next && emailTemplates.length === 0) {
-      try {
-        const templates = await listEmailTemplates()
-        setEmailTemplates(templates)
-      } catch (templatesError) {
-        if (!isAbortError(templatesError)) {
-          setEmailTemplates([])
+    if (next) {
+      if (emailTemplates.length === 0) {
+        try {
+          const templates = await listEmailTemplates()
+          setEmailTemplates(templates)
+        } catch (templatesError) {
+          if (!isAbortError(templatesError)) {
+            setEmailTemplates([])
+          }
+        }
+      }
+      if (selectedContactId) {
+        try {
+          const history = await listEmailMessages({ entityType: 'contact', entityId: selectedContactId })
+          setEmailHistory(history)
+        } catch (historyError) {
+          if (!isAbortError(historyError)) {
+            setEmailHistory([])
+          }
         }
       }
     }
@@ -559,6 +573,14 @@ export function ContactsRoute() {
       setEmailStatus(`Email sent to ${result?.to || 'contact'}.`)
       setEmailForm({ subject: '', body: '' })
       setError('')
+      try {
+        const history = await listEmailMessages({ entityType: 'contact', entityId: selectedContactId })
+        setEmailHistory(history)
+      } catch (historyError) {
+        if (!isAbortError(historyError)) {
+          // history refresh is best-effort
+        }
+      }
     } catch (sendError) {
       setError(sendError.message || 'Unable to send email.')
     } finally {
@@ -894,6 +916,18 @@ export function ContactsRoute() {
                     <p className="field-hint">Merge fields like {'{{first_name}}'} are filled in when the email is sent.</p>
                     <Button type="submit" disabled={isSendingEmail}>{isSendingEmail ? 'Sending...' : 'Send email'}</Button>
                   </form>
+                ) : null}
+                {emailOpen && emailHistory.length > 0 ? (
+                  <div className="record-list" role="list" aria-label="Email history">
+                    {emailHistory.map((message) => (
+                      <article className="record-row" key={message.id} role="listitem">
+                        <div>
+                          <p>{message.subject}</p>
+                          <p className="field-hint">{message.status === 'failed' ? 'Failed' : 'Sent'} · {message.sentByName || 'You'}</p>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
                 ) : null}
               </div>
             </Card>

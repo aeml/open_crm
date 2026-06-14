@@ -21,6 +21,7 @@ import (
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
+	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
@@ -78,6 +79,7 @@ func main() {
 	var billingService *modulebilling.Service
 	var emailTemplatesService *moduleemailtemplates.Service
 	var userEmailService *moduleuseremail.Service
+	var emailMessagesService *moduleemailmessages.Service
 	credentialCipher, cipherErr := platformsecrets.NewCipherFromBase64(env.CredentialEncryptionKey)
 	if cipherErr != nil {
 		log.Printf("credential encryption disabled: %v", cipherErr)
@@ -105,6 +107,7 @@ func main() {
 			billingService = modulebilling.NewService(pool, modulebilling.NewProvider(env.BillingProvider))
 			emailTemplatesService = moduleemailtemplates.NewService(pool)
 			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
+			emailMessagesService = moduleemailmessages.NewService(pool)
 		}
 	}
 
@@ -135,6 +138,7 @@ func main() {
 		EmailService:          emailService,
 		EmailTemplatesService: emailTemplatesService,
 		UserEmailService:      userEmailService,
+		EmailMessagesService:  emailMessagesService,
 	}))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
