@@ -7,7 +7,8 @@ import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { InlineError } from '../components/ui/inline_error'
-import { archiveDeal, createDeal, dealsExportURL, getDeal, listDeals, listDealStages, updateDeal, updateDealStage } from '../lib/deals'
+import { RecordEmailComposer } from '../components/record_email_composer'
+import { archiveDeal, createDeal, dealsExportURL, getDeal, listDeals, listDealStages, sendDealEmail, updateDeal, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -265,6 +266,17 @@ export function DealsRoute() {
   }, [initialCompanyId, initialOwnerFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
 
   const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
+  const dealEmailRecipients = useMemo(() => {
+    if (!selectedDeal?.primaryContactId) {
+      return []
+    }
+    const contact = contactOptions.find((entry) => entry.id === selectedDeal.primaryContactId)
+    if (!contact?.email) {
+      return []
+    }
+    const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || selectedDeal.primaryContactName || contact.email
+    return [{ id: selectedDeal.primaryContactId, label: `${name} (${contact.email})` }]
+  }, [contactOptions, selectedDeal])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -827,6 +839,15 @@ export function DealsRoute() {
                 <Button onClick={handleMoveStage}>{labels.moveAction}</Button>
               </>
             ) : null}
+            <RecordEmailComposer
+              entityType="deal"
+              entityId={selectedDealId}
+              canWrite={canWrite}
+              recipientOptions={dealEmailRecipients}
+              sendEmail={sendDealEmail}
+              emptyMessage="Set a primary contact with an email address before sending email from this deal."
+              mergeFieldHint="Merge fields like {{first_name}}, {{deal_name}}, {{deal_stage}}, and {{company_name}} are filled in when the email is sent."
+            />
             <Card>
               <div className="card-stack">
                 <h3>Notes</h3>

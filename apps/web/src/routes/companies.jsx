@@ -6,9 +6,10 @@ import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
+import { RecordEmailComposer } from '../components/record_email_composer'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { archiveCompany, companiesExportURL, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
+import { archiveCompany, companiesExportURL, createCompany, getCompany, listCompanies, sendCompanyEmail, updateCompany } from '../lib/companies'
 import { createContact, listContacts } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
@@ -289,6 +290,15 @@ function primaryLinkedContactID(linkedContacts = []) {
   return primaryContact?.id || 0
 }
 
+function emailRecipientOptions(linkedContacts = []) {
+  return linkedContacts
+    .filter((contact) => contact.email)
+    .map((contact) => {
+      const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || contact.email
+      return { id: contact.id, label: `${name} (${contact.email})` }
+    })
+}
+
 function duplicateSearchTerm(message, fallback = '') {
   const text = String(message || '')
   const marker = text.toLowerCase().lastIndexOf('duplicate company:')
@@ -343,6 +353,7 @@ export function CompaniesRoute() {
   const selectedDeals = detail?.deals || []
   const hasFilter = search.trim() !== '' || ownerFilter !== 'all'
   const selectedActivities = detail?.activities || []
+  const companyEmailRecipients = useMemo(() => emailRecipientOptions(linkedContacts), [linkedContacts])
 
   function buildCompaniesPath(nextSearch = search, nextOwner = ownerFilter) {
     const params = new URLSearchParams()
@@ -1229,6 +1240,15 @@ export function CompaniesRoute() {
                 </div>
               </div>
             </Card>
+            <RecordEmailComposer
+              entityType="company"
+              entityId={selectedCompanyId}
+              canWrite={canWrite}
+              recipientOptions={companyEmailRecipients}
+              sendEmail={sendCompanyEmail}
+              emptyMessage="Add a linked person with an email address before sending email from this client."
+              mergeFieldHint="Merge fields like {{first_name}}, {{company_name}}, and {{client_status}} are filled in when the email is sent."
+            />
             <Card>
               <div className="card-stack">
                 <div className="section-header">

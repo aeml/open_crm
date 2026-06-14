@@ -147,7 +147,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 ### Part II — Competitive SaaS Platform
 
 - `1.0.0` Multi-Tenant SaaS Platform (signup, billing, plan gating, SSO): in progress.
-- `1.1.0` Email And Communications (2-way sync, tracking, templates, sequences): planned.
+- `1.1.0` Email And Communications (2-way sync, tracking, templates, sequences): in progress.
 - `1.2.0` Telephony, SMS, And Meeting Scheduling: planned.
 - `1.3.0` Sales Acceleration And CPQ (catalog, quotes, e-sign, quotas): planned.
 - `1.4.0` Marketing And Lead Generation (forms, pages, campaigns, scoring): planned.
@@ -1757,7 +1757,7 @@ Exit criteria:
 
 ## Version 1.1.0 - Email And Communications
 
-Status: planned.
+Status: in progress.
 
 Goal: make Open CRM the place revenue teams live by bringing email into the CRM. This is the single highest-impact competitive gap.
 
@@ -1770,6 +1770,7 @@ Progress:
 - `1.1.6` (send-from-record): updated to route through the sending user's mailbox (`SendAs`) instead of the shared provider; returns `EMAIL_ACCOUNT_REQUIRED` when the user has not connected their email. Merge-field rendering and contact-timeline logging unchanged.
 - `1.1.4` (email outbox/log): complete. Added migration `018_email_messages.sql` and an `emailmessages` module recording every customer email send (status `sent`/`failed`, recipient, subject, body, linked record, sender). Sends from contacts are recorded automatically. `GET /api/email-messages` serves both the per-record history (`?entityType=contact&entityId=` — any member) and the org-wide log (no filter — admin only). Frontend: an admin "Email Log" settings page and a lazy-loaded email history on the contact detail. Backend handler tests and a frontend page test added. Live server configured with Postmark (system mail) + `CREDENTIAL_ENCRYPTION_KEY` (per-user SMTP) and verified healthy.
 - `1.1.2` (admin sets member mailbox): complete. Org admins/owners can connect, view, and remove a team member's mailbox via `GET/PUT/DELETE /api/users/{id}/email-account` (membership-verified before write). Frontend: a "Set up email for a member" panel on the Users settings page with a member selector. Backend handler tests (admin gating, non-member rejection) and a frontend flow test added.
+- `1.1.6` (send-from-company/deal): complete. Added `POST /api/companies/{id}/email` and `POST /api/deals/{id}/email`, both sending through the current user's connected mailbox, rendering record-specific merge fields, recording to `email_messages`, and adding a note to the source record. Frontend: shared record email composer on company and deal detail pages with lazy template/history loading. Backend company/deal send tests and a frontend company-send flow test added.
 
 Candidate slices:
 
