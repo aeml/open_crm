@@ -115,6 +115,115 @@ func handleDeleteMyEmailAccount(auth authService, accounts userEmailAccountServi
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func handleAdminGetUserEmailAccount(auth authService, accounts userEmailAccountService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if accounts == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email account service unavailable")
+		return
+	}
+	targetID, ok := parsePathInt64(w, r, "userID")
+	if !ok {
+		return
+	}
+
+	response := userEmailAccountResponse{}
+	response.Data.Configured = accounts.Configured()
+	response.Meta.RequestID = requestID
+
+	account, err := accounts.GetForUser(r.Context(), state.Organization.ID, targetID)
+	if err != nil {
+		if errors.Is(err, moduleuseremail.ErrNotFound) {
+			platformweb.WriteJSON(w, http.StatusOK, response)
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load email account")
+		return
+	}
+	response.Data.Account = &account
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleAdminSaveUserEmailAccount(auth authService, accounts userEmailAccountService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if accounts == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email account service unavailable")
+		return
+	}
+	targetID, ok := parsePathInt64(w, r, "userID")
+	if !ok {
+		return
+	}
+
+	member, err := accounts.MemberExists(r.Context(), state.Organization.ID, targetID)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to verify team member")
+		return
+	}
+	if !member {
+		platformweb.WriteNotFound(w, requestID)
+		return
+	}
+
+	var request userEmailAccountRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+
+	account, err := accounts.Upsert(r.Context(), state.Organization.ID, targetID, moduleuseremail.UpsertInput{
+		FromEmail:    request.FromEmail,
+		FromName:     request.FromName,
+		SMTPHost:     request.SMTPHost,
+		SMTPPort:     request.SMTPPort,
+		SMTPUsername: request.SMTPUsername,
+		SMTPPassword: request.SMTPPassword,
+		SMTPUseTLS:   request.SMTPUseTLS,
+	})
+	if err != nil {
+		writeUserEmailAccountError(w, requestID, err)
+		return
+	}
+
+	response := userEmailAccountResponse{}
+	response.Data.Account = &account
+	response.Data.Configured = accounts.Configured()
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleAdminDeleteUserEmailAccount(auth authService, accounts userEmailAccountService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if accounts == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email account service unavailable")
+		return
+	}
+	targetID, ok := parsePathInt64(w, r, "userID")
+	if !ok {
+		return
+	}
+
+	if err := accounts.Delete(r.Context(), state.Organization.ID, targetID); err != nil {
+		if errors.Is(err, moduleuseremail.ErrNotFound) {
+			platformweb.WriteNotFound(w, requestID)
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to remove email account")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func writeUserEmailAccountError(w http.ResponseWriter, requestID string, err error) {
 	switch {
 	case errors.Is(err, moduleuseremail.ErrInvalidInput):

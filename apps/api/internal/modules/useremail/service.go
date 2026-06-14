@@ -76,6 +76,20 @@ func (s *Service) Configured() bool {
 	return s != nil && s.pool != nil && s.cipher != nil
 }
 
+// MemberExists reports whether the user belongs to the organization. Used to
+// guard admin operations that set a mailbox on behalf of another user.
+func (s *Service) MemberExists(ctx context.Context, organizationID, userID int64) (bool, error) {
+	if s == nil || s.pool == nil {
+		return false, fmt.Errorf("user email service not configured")
+	}
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organization_memberships WHERE organization_id = $1 AND user_id = $2)`, organizationID, userID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check organization membership: %w", err)
+	}
+	return exists, nil
+}
+
 const selectAccountSQL = `
 	SELECT from_email, from_name, smtp_host, smtp_port, smtp_username,
 	       smtp_password_enc, smtp_use_tls, updated_at

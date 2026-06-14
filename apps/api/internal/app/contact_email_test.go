@@ -14,16 +14,18 @@ import (
 )
 
 type fakeUserEmailService struct {
-	configured  bool
-	account     moduleuseremail.Account
-	getErr      error
-	upsertErr   error
-	deleteErr   error
-	sendErr     error
-	sendCalled  bool
-	sendTo      string
-	sendSubject string
-	sendBody    string
+	configured       bool
+	account          moduleuseremail.Account
+	getErr           error
+	upsertErr        error
+	deleteErr        error
+	sendErr          error
+	sendCalled       bool
+	sendTo           string
+	sendSubject      string
+	sendBody         string
+	memberOK         bool
+	lastUpsertUserID int64
 }
 
 func (f *fakeUserEmailService) Configured() bool { return f.configured }
@@ -32,7 +34,8 @@ func (f *fakeUserEmailService) GetForUser(_ context.Context, _, _ int64) (module
 	return f.account, f.getErr
 }
 
-func (f *fakeUserEmailService) Upsert(_ context.Context, _, _ int64, _ moduleuseremail.UpsertInput) (moduleuseremail.Account, error) {
+func (f *fakeUserEmailService) Upsert(_ context.Context, _, userID int64, _ moduleuseremail.UpsertInput) (moduleuseremail.Account, error) {
+	f.lastUpsertUserID = userID
 	return f.account, f.upsertErr
 }
 
@@ -44,6 +47,10 @@ func (f *fakeUserEmailService) SendAs(_ context.Context, _, _ int64, to, subject
 	f.sendSubject = subject
 	f.sendBody = body
 	return f.sendErr
+}
+
+func (f *fakeUserEmailService) MemberExists(_ context.Context, _, _ int64) (bool, error) {
+	return f.memberOK, nil
 }
 
 func authenticatedContactEmailServer(contacts *fakeContactsService, accounts *fakeUserEmailService) http.Handler {

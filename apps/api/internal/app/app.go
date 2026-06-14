@@ -155,6 +155,7 @@ type userEmailAccountService interface {
 	Upsert(context.Context, int64, int64, moduleuseremail.UpsertInput) (moduleuseremail.Account, error)
 	Delete(context.Context, int64, int64) error
 	SendAs(ctx context.Context, organizationID, userID int64, to, subject, body string) error
+	MemberExists(context.Context, int64, int64) (bool, error)
 }
 
 type emailMessagesService interface {
@@ -581,6 +582,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/users/{userID}/role", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateUserRole(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("GET /api/users/{userID}/email-account", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminGetUserEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
+	})
+	mux.HandleFunc("PUT /api/users/{userID}/email-account", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminSaveUserEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/users/{userID}/email-account", func(w http.ResponseWriter, r *http.Request) {
+		handleAdminDeleteUserEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/me/profile", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateProfile(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)

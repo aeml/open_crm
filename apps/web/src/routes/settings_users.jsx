@@ -7,6 +7,7 @@ import { createOrganizationUser, listOrganizationUsers, updateOrganizationUserRo
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
+import { AdminMemberEmail } from './admin_member_email'
 
 const emptyForm = {
   firstName: '',
@@ -193,6 +194,7 @@ export function SettingsUsersRoute() {
           </div>
         </Card>
       ) : null}
+      {canManageUsers ? <AdminMemberEmail users={users} /> : null}
     </section>
   )
 }
