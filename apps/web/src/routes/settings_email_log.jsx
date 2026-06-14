@@ -15,6 +15,15 @@ function formatTimestamp(value) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
 }
 
+function openStatus(message) {
+  const count = Number.parseInt(String(message?.openCount || 0), 10) || 0
+  if (count <= 0) {
+    return 'Not opened yet'
+  }
+  const suffix = count === 1 ? 'time' : 'times'
+  return `Opened ${count} ${suffix}`
+}
+
 export function SettingsEmailLogRoute() {
   const { session } = useAuth()
   usePageTitle('Email Log')
@@ -100,6 +109,7 @@ export function SettingsEmailLogRoute() {
                 <div>
                   <h3>{message.subject}</h3>
                   <p className="field-hint">To {message.toEmail} · {message.sentByName || 'Unknown sender'}{message.status === 'failed' ? ' · Failed' : ''}</p>
+                  <p className="field-hint">{openStatus(message)}</p>
                 </div>
                 <div>
                   <p>{formatTimestamp(message.createdAt)}</p>
@@ -116,6 +126,7 @@ export function SettingsEmailLogRoute() {
                 <div>
                   <h3>{selectedMessage.subject}</h3>
                   <p className="field-hint">To {selectedMessage.toEmail} · {selectedMessage.sentByName || 'Unknown sender'} · {formatTimestamp(selectedMessage.createdAt)}</p>
+                  <p className="field-hint">{openStatus(selectedMessage)}</p>
                 </div>
                 {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}
                 <pre className="field-hint message-body">{selectedMessage.body}</pre>

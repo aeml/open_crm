@@ -19,11 +19,11 @@ describe('mailbox route', () => {
       }
       if (path.endsWith('/api/me/email-messages')) {
         return { ok: true, json: async () => ({ data: { messages: [
-          { id: 10, toEmail: 'lead@acme.test', subject: 'Following up', status: 'sent', entityType: 'deal', entityId: 22, createdAt: '2026-05-01T12:00:00Z' }
+          { id: 10, toEmail: 'lead@acme.test', subject: 'Following up', status: 'sent', entityType: 'deal', entityId: 22, openCount: 2, createdAt: '2026-05-01T12:00:00Z' }
         ] } }) }
       }
       if (path.endsWith('/api/email-messages/10')) {
-        return { ok: true, json: async () => ({ data: { message: { id: 10, toEmail: 'lead@acme.test', subject: 'Following up', body: 'Thanks for talking today.', status: 'sent', entityType: 'deal', entityId: 22, createdAt: '2026-05-01T12:00:00Z' } } }) }
+        return { ok: true, json: async () => ({ data: { message: { id: 10, toEmail: 'lead@acme.test', subject: 'Following up', body: 'Thanks for talking today.', status: 'sent', entityType: 'deal', entityId: 22, openCount: 2, createdAt: '2026-05-01T12:00:00Z' } } }) }
       }
       return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
     })
@@ -36,6 +36,7 @@ describe('mailbox route', () => {
     expect(await screen.findByRole('heading', { name: /mailbox/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /following up/i })).toBeInTheDocument()
     expect(screen.getByText(/to lead@acme.test/i)).toBeInTheDocument()
+    expect(screen.getByText(/opened 2 times/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /open deal #22/i })).toHaveAttribute('href', '/deals/22')
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/me\/email-messages$/), expect.any(Object))

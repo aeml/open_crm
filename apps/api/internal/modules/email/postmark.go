@@ -76,6 +76,7 @@ func (p *PostmarkProvider) Send(ctx context.Context, msg Message) error {
 		From:          p.fromEmail,
 		To:            to,
 		Subject:       subject,
+		HtmlBody:      msg.HTMLBody,
 		TextBody:      msg.TextBody,
 		MessageStream: p.messageStream,
 	}

@@ -12,34 +12,40 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrNotFound = errors.New("email message not found")
 
 type Message struct {
-	ID           int64     `json:"id"`
-	ToEmail      string    `json:"toEmail"`
-	Subject      string    `json:"subject"`
-	Body         string    `json:"body"`
-	Status       string    `json:"status"`
-	Error        string    `json:"error,omitempty"`
-	EntityType   string    `json:"entityType,omitempty"`
-	EntityID     int64     `json:"entityId,omitempty"`
-	SentByUserID int64     `json:"sentByUserId,omitempty"`
-	SentByName   string    `json:"sentByName,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID            int64      `json:"id"`
+	ToEmail       string     `json:"toEmail"`
+	Subject       string     `json:"subject"`
+	Body          string     `json:"body"`
+	Status        string     `json:"status"`
+	Error         string     `json:"error,omitempty"`
+	EntityType    string     `json:"entityType,omitempty"`
+	EntityID      int64      `json:"entityId,omitempty"`
+	SentByUserID  int64      `json:"sentByUserId,omitempty"`
+	SentByName    string     `json:"sentByName,omitempty"`
+	TrackingToken string     `json:"-"`
+	OpenCount     int        `json:"openCount"`
+	FirstOpenedAt *time.Time `json:"firstOpenedAt,omitempty"`
+	LastOpenedAt  *time.Time `json:"lastOpenedAt,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
 }
 
 type RecordInput struct {
-	ToEmail      string
-	Subject      string
-	Body         string
-	Status       string
-	Error        string
-	EntityType   string
-	EntityID     int64
-	SentByUserID int64
+	ToEmail       string
+	Subject       string
+	Body          string
+	Status        string
+	Error         string
+	EntityType    string
+	EntityID      int64
+	SentByUserID  int64
+	TrackingToken string
 }
 
 type Service struct {
@@ -68,10 +74,15 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 	if input.SentByUserID > 0 {
 		sentBy = &input.SentByUserID
 	}
+	trackingToken := strings.TrimSpace(input.TrackingToken)
+	var token *string
+	if trackingToken != "" {
+		token = &trackingToken
+	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO email_messages (organization_id, to_email, subject, body, status, error, entity_type, entity_id, sent_by_user_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, organizationID, input.ToEmail, input.Subject, input.Body, status, input.Error, strings.TrimSpace(input.EntityType), entityID, sentBy)
+		INSERT INTO email_messages (organization_id, to_email, subject, body, status, error, entity_type, entity_id, sent_by_user_id, tracking_token)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, organizationID, input.ToEmail, input.Subject, input.Body, status, input.Error, strings.TrimSpace(input.EntityType), entityID, sentBy, token)
 	if err != nil {
 		return fmt.Errorf("record email message: %w", err)
 	}
@@ -81,7 +92,8 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 const baseSelect = `
 	SELECT m.id, m.to_email, m.subject, m.body, m.status, m.error,
 	       m.entity_type, COALESCE(m.entity_id, 0), COALESCE(m.sent_by_user_id, 0),
-	       COALESCE(u.first_name || ' ' || u.last_name, ''), m.created_at
+	       COALESCE(u.first_name || ' ' || u.last_name, ''), COALESCE(m.tracking_token, ''),
+	       COALESCE(m.open_count, 0), m.first_opened_at, m.last_opened_at, m.created_at
 	FROM email_messages m
 	LEFT JOIN users u ON u.id = m.sent_by_user_id
 `
@@ -111,10 +123,10 @@ func (s *Service) GetByID(ctx context.Context, organizationID, messageID int64) 
 	if s == nil || s.pool == nil {
 		return Message{}, fmt.Errorf("email messages service not configured")
 	}
-	var m Message
-	if err := s.pool.QueryRow(ctx, baseSelect+`
+	m, err := scanMessage(s.pool.QueryRow(ctx, baseSelect+`
 		WHERE m.organization_id = $1 AND m.id = $2
-	`, organizationID, messageID).Scan(&m.ID, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error, &m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.CreatedAt); err != nil {
+	`, organizationID, messageID))
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Message{}, ErrNotFound
 		}
@@ -160,6 +172,29 @@ func (s *Service) ListBySender(ctx context.Context, organizationID, userID int64
 	return scanMessages(rows)
 }
 
+// MarkOpenedByToken records an open event for the tracking token. Unknown tokens
+// are ignored so the tracking pixel endpoint never leaks whether a token exists.
+func (s *Service) MarkOpenedByToken(ctx context.Context, token string) error {
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("email messages service not configured")
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE email_messages
+		SET open_count = open_count + 1,
+		    first_opened_at = COALESCE(first_opened_at, NOW()),
+		    last_opened_at = NOW()
+		WHERE tracking_token = $1
+	`, token)
+	if err != nil {
+		return fmt.Errorf("mark email opened: %w", err)
+	}
+	return nil
+}
+
 type rows interface {
 	Next() bool
 	Scan(dest ...any) error
@@ -169,9 +204,8 @@ type rows interface {
 func scanMessages(r rows) ([]Message, error) {
 	messages := make([]Message, 0)
 	for r.Next() {
-		var m Message
-		if err := r.Scan(&m.ID, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error,
-			&m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.CreatedAt); err != nil {
+		m, err := scanMessage(r)
+		if err != nil {
 			return nil, fmt.Errorf("scan email message: %w", err)
 		}
 		messages = append(messages, m)
@@ -180,4 +214,30 @@ func scanMessages(r rows) ([]Message, error) {
 		return nil, fmt.Errorf("iterate email messages: %w", err)
 	}
 	return messages, nil
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanMessage(s scanner) (Message, error) {
+	var (
+		m           Message
+		firstOpened pgtype.Timestamptz
+		lastOpened  pgtype.Timestamptz
+	)
+	if err := s.Scan(&m.ID, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error,
+		&m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.TrackingToken,
+		&m.OpenCount, &firstOpened, &lastOpened, &m.CreatedAt); err != nil {
+		return Message{}, err
+	}
+	if firstOpened.Valid {
+		opened := firstOpened.Time
+		m.FirstOpenedAt = &opened
+	}
+	if lastOpened.Valid {
+		opened := lastOpened.Time
+		m.LastOpenedAt = &opened
+	}
+	return m, nil
 }

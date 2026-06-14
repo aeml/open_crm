@@ -20,9 +20,10 @@ type SMTPCredentials struct {
 	UseTLS    bool
 }
 
-// SendSMTP delivers a plain-text message through a user's own SMTP server,
-// sending as that user. It supports implicit TLS (port 465), STARTTLS, and
-// plaintext fallback for local testing.
+// SendSMTP delivers a message through a user's own SMTP server, sending as that
+// user. Messages are plain text unless an HTML body is provided, in which case
+// a multipart/alternative message is sent. It supports implicit TLS (port 465),
+// STARTTLS, and plaintext fallback for local testing.
 func SendSMTP(creds SMTPCredentials, msg Message) error {
 	to := strings.TrimSpace(msg.To)
 	if to == "" || strings.TrimSpace(msg.Subject) == "" {
@@ -35,7 +36,7 @@ func SendSMTP(creds SMTPCredentials, msg Message) error {
 	addr := net.JoinHostPort(creds.Host, fmt.Sprintf("%d", creds.Port))
 	auth := smtp.PlainAuth("", creds.Username, creds.Password, creds.Host)
 	from := formatFrom(creds.FromName, creds.FromEmail)
-	raw := buildMessage(from, to, msg.Subject, msg.TextBody)
+	raw := buildMessage(from, to, msg.Subject, msg.TextBody, msg.HTMLBody)
 
 	// Implicit TLS (typically port 465).
 	if creds.Port == 465 {
@@ -108,15 +109,31 @@ func formatFrom(name, email string) string {
 	return fmt.Sprintf("%s <%s>", name, email)
 }
 
-func buildMessage(from, to, subject, body string) []byte {
+func buildMessage(from, to, subject, textBody, htmlBody string) []byte {
 	var b strings.Builder
 	b.WriteString("From: " + from + "\r\n")
 	b.WriteString("To: " + to + "\r\n")
 	b.WriteString("Subject: " + subject + "\r\n")
 	b.WriteString("MIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: text/plain; charset=\"UTF-8\"\r\n")
+	if strings.TrimSpace(htmlBody) == "" {
+		b.WriteString("Content-Type: text/plain; charset=\"UTF-8\"\r\n")
+		b.WriteString("\r\n")
+		b.WriteString(textBody)
+		b.WriteString("\r\n")
+		return []byte(b.String())
+	}
+
+	boundary := "open-crm-alt-boundary"
+	b.WriteString("Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n")
 	b.WriteString("\r\n")
-	b.WriteString(body)
+	b.WriteString("--" + boundary + "\r\n")
+	b.WriteString("Content-Type: text/plain; charset=\"UTF-8\"\r\n\r\n")
+	b.WriteString(textBody)
 	b.WriteString("\r\n")
+	b.WriteString("--" + boundary + "\r\n")
+	b.WriteString("Content-Type: text/html; charset=\"UTF-8\"\r\n\r\n")
+	b.WriteString(htmlBody)
+	b.WriteString("\r\n")
+	b.WriteString("--" + boundary + "--\r\n")
 	return []byte(b.String())
 }

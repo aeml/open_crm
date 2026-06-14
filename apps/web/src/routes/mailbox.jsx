@@ -38,6 +38,15 @@ function recordLabel(message) {
   return `${message.entityType} #${message.entityId}`
 }
 
+function openStatus(message) {
+  const count = Number.parseInt(String(message?.openCount || 0), 10) || 0
+  if (count <= 0) {
+    return 'Not opened yet'
+  }
+  const suffix = count === 1 ? 'time' : 'times'
+  return `Opened ${count} ${suffix}`
+}
+
 export function MailboxRoute() {
   usePageTitle('Mailbox')
   const [messages, setMessages] = useState([])
@@ -117,6 +126,7 @@ export function MailboxRoute() {
                   <div>
                     <h3>{message.subject}</h3>
                     <p className="field-hint">To {message.toEmail}{message.status === 'failed' ? ' · Failed' : ''}</p>
+                    <p className="field-hint">{openStatus(message)}</p>
                   </div>
                   <div>
                     <p>{formatTimestamp(message.createdAt)}</p>
@@ -135,6 +145,7 @@ export function MailboxRoute() {
                 <div>
                   <h3>{selectedMessage.subject}</h3>
                   <p className="field-hint">To {selectedMessage.toEmail} · {formatTimestamp(selectedMessage.createdAt)}</p>
+                  <p className="field-hint">{openStatus(selectedMessage)}</p>
                 </div>
                 {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}
                 <pre className="field-hint message-body">{selectedMessage.body}</pre>

@@ -1,8 +1,12 @@
 package app
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
+	"html"
 	"net/http"
+	"net/url"
 	"strings"
 
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
@@ -274,18 +278,28 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Subject and body are required")
 		return
 	}
+	trackingToken := ""
+	trackingURL := ""
+	if messages != nil {
+		trackingToken = newEmailTrackingToken()
+		trackingURL = emailTrackingURL(r, trackingToken)
+	}
+	htmlBody := ""
+	if trackingURL != "" {
+		htmlBody = trackedHTMLBody(body, trackingURL)
+	}
 
-	if err := accounts.SendAs(r.Context(), organizationID, userID, to, subject, body); err != nil {
+	if err := accounts.SendAs(r.Context(), organizationID, userID, to, subject, body, htmlBody); err != nil {
 		if errors.Is(err, moduleuseremail.ErrNotFound) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", accountRequiredMessage)
 			return
 		}
-		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, body, "failed", err.Error())
+		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, body, "failed", err.Error(), trackingToken)
 		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email through your mail server")
 		return
 	}
 
-	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, body, "sent", "")
+	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, body, "sent", "", trackingToken)
 	logEntityEmailNote(r, notes, organizationID, userID, entityType, entityID, subject)
 
 	response := sendEmailResponse{}
@@ -293,6 +307,45 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 	response.Data.To = to
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func newEmailTrackingToken() string {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:])
+}
+
+func emailTrackingURL(r *http.Request, token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ""
+	}
+	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	if host == "" {
+		return ""
+	}
+	return scheme + "://" + host + "/api/email-messages/open/" + url.PathEscape(token)
+}
+
+func trackedHTMLBody(textBody, trackingURL string) string {
+	escaped := html.EscapeString(textBody)
+	escaped = strings.ReplaceAll(escaped, "\r\n", "\n")
+	escaped = strings.ReplaceAll(escaped, "\r", "\n")
+	escaped = strings.ReplaceAll(escaped, "\n", "<br>\n")
+	return `<!doctype html><html><body><div>` + escaped + `</div><img src="` + html.EscapeString(trackingURL) + `" width="1" height="1" alt="" style="display:none" /></body></html>`
 }
 
 func logEntityEmailNote(r *http.Request, notes notesService, organizationID, userID int64, entityType string, entityID int64, subject string) {
@@ -306,18 +359,19 @@ func logEntityEmailNote(r *http.Request, notes notesService, organizationID, use
 	})
 }
 
-func recordEntityEmail(r *http.Request, messages emailMessagesService, organizationID, userID int64, entityType string, entityID int64, to, subject, body, status, errMsg string) {
+func recordEntityEmail(r *http.Request, messages emailMessagesService, organizationID, userID int64, entityType string, entityID int64, to, subject, body, status, errMsg, trackingToken string) {
 	if messages == nil {
 		return
 	}
 	_ = messages.Record(r.Context(), organizationID, moduleemailmessages.RecordInput{
-		ToEmail:      to,
-		Subject:      subject,
-		Body:         body,
-		Status:       status,
-		Error:        errMsg,
-		EntityType:   entityType,
-		EntityID:     entityID,
-		SentByUserID: userID,
+		ToEmail:       to,
+		Subject:       subject,
+		Body:          body,
+		Status:        status,
+		Error:         errMsg,
+		EntityType:    entityType,
+		EntityID:      entityID,
+		SentByUserID:  userID,
+		TrackingToken: trackingToken,
 	})
 }

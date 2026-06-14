@@ -154,7 +154,7 @@ type userEmailAccountService interface {
 	GetForUser(context.Context, int64, int64) (moduleuseremail.Account, error)
 	Upsert(context.Context, int64, int64, moduleuseremail.UpsertInput) (moduleuseremail.Account, error)
 	Delete(context.Context, int64, int64) error
-	SendAs(ctx context.Context, organizationID, userID int64, to, subject, body string) error
+	SendAs(ctx context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error
 	MemberExists(context.Context, int64, int64) (bool, error)
 }
 
@@ -164,6 +164,7 @@ type emailMessagesService interface {
 	ListByOrganization(context.Context, int64, int) ([]moduleemailmessages.Message, error)
 	ListByEntity(context.Context, int64, string, int64) ([]moduleemailmessages.Message, error)
 	ListBySender(context.Context, int64, int64, int) ([]moduleemailmessages.Message, error)
+	MarkOpenedByToken(context.Context, string) error
 }
 
 type Dependencies struct {
@@ -663,6 +664,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/contacts/{contactID}/email", func(w http.ResponseWriter, r *http.Request) {
 		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, w, r)
+	})
+	mux.HandleFunc("GET /api/email-messages/open/{trackingToken}", func(w http.ResponseWriter, r *http.Request) {
+		handleTrackEmailOpen(dependencies.EmailMessagesService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailMessages(dependencies.AuthService, dependencies.EmailMessagesService, w, r)

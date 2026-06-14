@@ -18,6 +18,7 @@ type Message struct {
 	To       string
 	Subject  string
 	TextBody string
+	HTMLBody string
 }
 
 // Provider delivers email messages. Implementations must be safe for

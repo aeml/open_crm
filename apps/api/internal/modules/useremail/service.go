@@ -196,10 +196,11 @@ func (s *Service) Upsert(ctx context.Context, organizationID, userID int64, inpu
 	return s.GetForUser(ctx, organizationID, userID)
 }
 
-// SendAs sends a plain-text email through the user's own SMTP mailbox, from the
-// user's configured address. Returns ErrNotFound when the user has not yet
+// SendAs sends an email through the user's own SMTP mailbox, from the user's
+// configured address. htmlBody may be empty; textBody is always preserved for
+// clients that prefer plain text. Returns ErrNotFound when the user has not yet
 // connected an email account.
-func (s *Service) SendAs(ctx context.Context, organizationID, userID int64, to, subject, body string) error {
+func (s *Service) SendAs(ctx context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error {
 	creds, err := s.Credentials(ctx, organizationID, userID)
 	if err != nil {
 		return err
@@ -212,7 +213,7 @@ func (s *Service) SendAs(ctx context.Context, organizationID, userID int64, to, 
 		Username:  creds.Username,
 		Password:  creds.Password,
 		UseTLS:    creds.UseTLS,
-	}, moduleemail.Message{To: to, Subject: subject, TextBody: body})
+	}, moduleemail.Message{To: to, Subject: subject, TextBody: textBody, HTMLBody: htmlBody})
 }
 
 // Delete removes a user's email account.

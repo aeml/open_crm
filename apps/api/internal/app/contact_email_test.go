@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
@@ -24,6 +25,7 @@ type fakeUserEmailService struct {
 	sendTo           string
 	sendSubject      string
 	sendBody         string
+	sendHTMLBody     string
 	memberOK         bool
 	lastUpsertUserID int64
 }
@@ -41,11 +43,12 @@ func (f *fakeUserEmailService) Upsert(_ context.Context, _, userID int64, _ modu
 
 func (f *fakeUserEmailService) Delete(_ context.Context, _, _ int64) error { return f.deleteErr }
 
-func (f *fakeUserEmailService) SendAs(_ context.Context, _, _ int64, to, subject, body string) error {
+func (f *fakeUserEmailService) SendAs(_ context.Context, _, _ int64, to, subject, body, htmlBody string) error {
 	f.sendCalled = true
 	f.sendTo = to
 	f.sendSubject = subject
 	f.sendBody = body
+	f.sendHTMLBody = htmlBody
 	return f.sendErr
 }
 
@@ -200,5 +203,11 @@ func TestSendContactEmailRecordsToLog(t *testing.T) {
 	}
 	if messages.lastRecord.Subject != "Hi Ada" {
 		t.Fatalf("recorded subject should be rendered: %q", messages.lastRecord.Subject)
+	}
+	if messages.lastRecord.TrackingToken == "" {
+		t.Fatalf("expected sent email to include a tracking token")
+	}
+	if accounts.sendHTMLBody == "" || !strings.Contains(accounts.sendHTMLBody, "/api/email-messages/open/") {
+		t.Fatalf("expected HTML tracking pixel, got %q", accounts.sendHTMLBody)
 	}
 }

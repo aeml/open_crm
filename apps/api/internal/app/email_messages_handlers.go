@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
@@ -19,15 +20,18 @@ type emailMessagesListResponse struct {
 }
 
 type emailMessageView struct {
-	ID         int64  `json:"id"`
-	ToEmail    string `json:"toEmail"`
-	Subject    string `json:"subject"`
-	Status     string `json:"status"`
-	Error      string `json:"error,omitempty"`
-	EntityType string `json:"entityType,omitempty"`
-	EntityID   int64  `json:"entityId,omitempty"`
-	SentByName string `json:"sentByName,omitempty"`
-	CreatedAt  string `json:"createdAt"`
+	ID            int64  `json:"id"`
+	ToEmail       string `json:"toEmail"`
+	Subject       string `json:"subject"`
+	Status        string `json:"status"`
+	Error         string `json:"error,omitempty"`
+	EntityType    string `json:"entityType,omitempty"`
+	EntityID      int64  `json:"entityId,omitempty"`
+	SentByName    string `json:"sentByName,omitempty"`
+	OpenCount     int    `json:"openCount"`
+	FirstOpenedAt string `json:"firstOpenedAt,omitempty"`
+	LastOpenedAt  string `json:"lastOpenedAt,omitempty"`
+	CreatedAt     string `json:"createdAt"`
 }
 
 type emailMessageDetailResponse struct {
@@ -40,16 +44,24 @@ type emailMessageDetailResponse struct {
 }
 
 type emailMessageDetailView struct {
-	ID         int64  `json:"id"`
-	ToEmail    string `json:"toEmail"`
-	Subject    string `json:"subject"`
-	Body       string `json:"body"`
-	Status     string `json:"status"`
-	Error      string `json:"error,omitempty"`
-	EntityType string `json:"entityType,omitempty"`
-	EntityID   int64  `json:"entityId,omitempty"`
-	SentByName string `json:"sentByName,omitempty"`
-	CreatedAt  string `json:"createdAt"`
+	ID            int64  `json:"id"`
+	ToEmail       string `json:"toEmail"`
+	Subject       string `json:"subject"`
+	Body          string `json:"body"`
+	Status        string `json:"status"`
+	Error         string `json:"error,omitempty"`
+	EntityType    string `json:"entityType,omitempty"`
+	EntityID      int64  `json:"entityId,omitempty"`
+	SentByName    string `json:"sentByName,omitempty"`
+	OpenCount     int    `json:"openCount"`
+	FirstOpenedAt string `json:"firstOpenedAt,omitempty"`
+	LastOpenedAt  string `json:"lastOpenedAt,omitempty"`
+	CreatedAt     string `json:"createdAt"`
+}
+
+var transparentTrackingPixel = []byte{
+	'G', 'I', 'F', '8', '9', 'a', 1, 0, 1, 0, 0x80, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff, ',',
+	0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 1, 0, ';',
 }
 
 // handleListEmailMessages serves both the per-record email history (when
@@ -163,19 +175,34 @@ func handleGetEmailMessage(auth authService, messages emailMessagesService, w ht
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
+func handleTrackEmailOpen(messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
+	trackingToken := strings.TrimSpace(r.PathValue("trackingToken"))
+	if messages != nil && trackingToken != "" {
+		_ = messages.MarkOpenedByToken(r.Context(), trackingToken)
+	}
+	w.Header().Set("Content-Type", "image/gif")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(transparentTrackingPixel)
+}
+
 func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageView {
 	views := make([]emailMessageView, 0, len(records))
 	for _, m := range records {
 		views = append(views, emailMessageView{
-			ID:         m.ID,
-			ToEmail:    m.ToEmail,
-			Subject:    m.Subject,
-			Status:     m.Status,
-			Error:      m.Error,
-			EntityType: m.EntityType,
-			EntityID:   m.EntityID,
-			SentByName: m.SentByName,
-			CreatedAt:  m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			ID:            m.ID,
+			ToEmail:       m.ToEmail,
+			Subject:       m.Subject,
+			Status:        m.Status,
+			Error:         m.Error,
+			EntityType:    m.EntityType,
+			EntityID:      m.EntityID,
+			SentByName:    m.SentByName,
+			OpenCount:     m.OpenCount,
+			FirstOpenedAt: formatOptionalTime(m.FirstOpenedAt),
+			LastOpenedAt:  formatOptionalTime(m.LastOpenedAt),
+			CreatedAt:     m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 	return views
@@ -183,15 +210,25 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 
 func toEmailMessageDetailView(m moduleemailmessages.Message) emailMessageDetailView {
 	return emailMessageDetailView{
-		ID:         m.ID,
-		ToEmail:    m.ToEmail,
-		Subject:    m.Subject,
-		Body:       m.Body,
-		Status:     m.Status,
-		Error:      m.Error,
-		EntityType: m.EntityType,
-		EntityID:   m.EntityID,
-		SentByName: m.SentByName,
-		CreatedAt:  m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ID:            m.ID,
+		ToEmail:       m.ToEmail,
+		Subject:       m.Subject,
+		Body:          m.Body,
+		Status:        m.Status,
+		Error:         m.Error,
+		EntityType:    m.EntityType,
+		EntityID:      m.EntityID,
+		SentByName:    m.SentByName,
+		OpenCount:     m.OpenCount,
+		FirstOpenedAt: formatOptionalTime(m.FirstOpenedAt),
+		LastOpenedAt:  formatOptionalTime(m.LastOpenedAt),
+		CreatedAt:     m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
+}
+
+func formatOptionalTime(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return value.UTC().Format("2006-01-02T15:04:05Z")
 }
