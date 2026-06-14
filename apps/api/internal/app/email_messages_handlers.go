@@ -78,6 +78,33 @@ func handleListEmailMessages(auth authService, messages emailMessagesService, w 
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
+// handleListMyEmailMessages returns the current user's sent CRM emails. It is
+// member-safe because it only reads messages where sent_by_user_id matches the
+// authenticated user.
+func handleListMyEmailMessages(auth authService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if messages == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email log service unavailable")
+		return
+	}
+
+	limit := int(parseQueryInt64(r.URL.Query().Get("limit")))
+	records, err := messages.ListBySender(r.Context(), state.Organization.ID, state.User.ID, limit)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load sent email")
+		return
+	}
+
+	response := emailMessagesListResponse{}
+	response.Data.Messages = toEmailMessageViews(records)
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
 func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageView {
 	views := make([]emailMessageView, 0, len(records))
 	for _, m := range records {

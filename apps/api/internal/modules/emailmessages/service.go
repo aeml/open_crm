@@ -119,6 +119,26 @@ func (s *Service) ListByEntity(ctx context.Context, organizationID int64, entity
 	return scanMessages(rows)
 }
 
+// ListBySender returns the most recent CRM emails sent by one user.
+func (s *Service) ListBySender(ctx context.Context, organizationID, userID int64, limit int) ([]Message, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("email messages service not configured")
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, baseSelect+`
+		WHERE m.organization_id = $1 AND m.sent_by_user_id = $2
+		ORDER BY m.created_at DESC, m.id DESC
+		LIMIT $3
+	`, organizationID, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list email messages by sender: %w", err)
+	}
+	defer rows.Close()
+	return scanMessages(rows)
+}
+
 type rows interface {
 	Next() bool
 	Scan(dest ...any) error

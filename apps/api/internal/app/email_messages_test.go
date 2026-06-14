@@ -16,11 +16,13 @@ import (
 type fakeEmailMessagesService struct {
 	orgResult    []moduleemailmessages.Message
 	entityResult []moduleemailmessages.Message
+	senderResult []moduleemailmessages.Message
 	recordErr    error
 	lastRecord   moduleemailmessages.RecordInput
 	lastOrgID    int64
 	lastEntity   string
 	lastEntityID int64
+	lastSenderID int64
 }
 
 func (f *fakeEmailMessagesService) Record(_ context.Context, organizationID int64, input moduleemailmessages.RecordInput) error {
@@ -39,6 +41,12 @@ func (f *fakeEmailMessagesService) ListByEntity(_ context.Context, organizationI
 	f.lastEntity = entityType
 	f.lastEntityID = entityID
 	return f.entityResult, nil
+}
+
+func (f *fakeEmailMessagesService) ListBySender(_ context.Context, organizationID, userID int64, _ int) ([]moduleemailmessages.Message, error) {
+	f.lastOrgID = organizationID
+	f.lastSenderID = userID
+	return f.senderResult, nil
 }
 
 func emailMessagesServer(service *fakeEmailMessagesService, role string) http.Handler {
@@ -111,5 +119,35 @@ func TestEmailLogPerRecordAllowsMember(t *testing.T) {
 	}
 	if service.lastEntity != "contact" || service.lastEntityID != 7 || service.lastOrgID != 42 {
 		t.Fatalf("unexpected entity scoping: org=%d type=%s id=%d", service.lastOrgID, service.lastEntity, service.lastEntityID)
+	}
+}
+
+func TestMyEmailMessagesAllowsMemberAndScopesToCurrentUser(t *testing.T) {
+	service := &fakeEmailMessagesService{
+		senderResult: []moduleemailmessages.Message{{ID: 3, ToEmail: "lead@example.test", Subject: "Intro", Status: "sent", SentByUserID: 1, CreatedAt: time.Now()}},
+	}
+	server := emailMessagesServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/me/email-messages", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for member own sent email, got %d", recorder.Code)
+	}
+	if service.lastOrgID != 42 || service.lastSenderID != 1 {
+		t.Fatalf("unexpected sender scoping: org=%d sender=%d", service.lastOrgID, service.lastSenderID)
+	}
+	var response struct {
+		Data struct {
+			Messages []emailMessageView `json:"messages"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(response.Data.Messages) != 1 || response.Data.Messages[0].Subject != "Intro" {
+		t.Fatalf("unexpected sent email payload: %#v", response.Data.Messages)
 	}
 }

@@ -162,6 +162,7 @@ type emailMessagesService interface {
 	Record(context.Context, int64, moduleemailmessages.RecordInput) error
 	ListByOrganization(context.Context, int64, int) ([]moduleemailmessages.Message, error)
 	ListByEntity(context.Context, int64, string, int64) ([]moduleemailmessages.Message, error)
+	ListBySender(context.Context, int64, int64, int) ([]moduleemailmessages.Message, error)
 }
 
 type Dependencies struct {
@@ -664,6 +665,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/email-messages", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailMessages(dependencies.AuthService, dependencies.EmailMessagesService, w, r)
+	})
+	mux.HandleFunc("GET /api/me/email-messages", func(w http.ResponseWriter, r *http.Request) {
+		handleListMyEmailMessages(dependencies.AuthService, dependencies.EmailMessagesService, w, r)
 	})
 	mux.HandleFunc("GET /api/companies", func(w http.ResponseWriter, r *http.Request) {
 		handleListCompanies(dependencies.AuthService, dependencies.CompaniesService, w, r)

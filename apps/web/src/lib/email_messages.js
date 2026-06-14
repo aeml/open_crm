@@ -10,3 +10,12 @@ export async function listEmailMessages({ entityType, entityId, limit, signal } 
 
   return payload?.data?.messages || []
 }
+
+export async function listMyEmailMessages({ limit, signal } = {}) {
+  const params = new URLSearchParams()
+  if (limit) params.set('limit', String(limit))
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  const payload = await apiRequest(`/api/me/email-messages${suffix}`, { fallbackMessage: 'Unable to load your sent email.', signal })
+
+  return payload?.data?.messages || []
+}
