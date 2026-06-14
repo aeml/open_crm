@@ -11,6 +11,8 @@ import { isAbortError } from '../lib/api'
 import { archiveContact, contactsExportURL, createContact, getContact, listContacts, sendContactEmail, updateContact } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
+import { listEmailSequences } from '../lib/email_sequences'
+import { cancelEmailSequenceEnrollment, createEmailSequenceEnrollment, listEmailSequenceEnrollments } from '../lib/email_sequence_enrollments'
 import { listEmailTemplates } from '../lib/email_templates'
 import { listEmailMessages } from '../lib/email_messages'
 import { createTask, listTasks } from '../lib/tasks'
@@ -86,6 +88,14 @@ function formatMoney(value, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(amount)
 }
 
+function formatSequenceTime(value) {
+  if (!value) {
+    return 'Not scheduled'
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Not scheduled' : date.toLocaleString()
+}
+
 function relatedPipelineLabels(businessType) {
   if (businessType === 'services' || businessType === 'construction-services') {
     return { plural: 'Jobs', singular: 'job' }
@@ -132,6 +142,12 @@ export function ContactsRoute() {
   const [emailStatus, setEmailStatus] = useState('')
   const [isSendingEmail, setIsSendingEmail] = useState(false)
   const [emailHistory, setEmailHistory] = useState([])
+  const [sequencesOpen, setSequencesOpen] = useState(false)
+  const [sequenceOptions, setSequenceOptions] = useState([])
+  const [sequenceEnrollments, setSequenceEnrollments] = useState([])
+  const [sequenceForm, setSequenceForm] = useState({ sequenceId: '' })
+  const [sequenceStatus, setSequenceStatus] = useState('')
+  const [isEnrollingSequence, setIsEnrollingSequence] = useState(false)
   const searchControllerRef = useRef(null)
 
   const selectedContact = detail?.contact || null
@@ -140,6 +156,13 @@ export function ContactsRoute() {
   const selectedDeals = detail?.deals || []
   const hasFilter = search.trim() !== '' || ownerFilter !== 'all'
   const selectedActivities = detail?.activities || []
+
+  useEffect(() => {
+    setSequencesOpen(false)
+    setSequenceEnrollments([])
+    setSequenceStatus('')
+    setSequenceForm({ sequenceId: '' })
+  }, [selectedContactId])
 
   function buildContactsPath(nextSearch = search, nextOwner = ownerFilter) {
     const params = new URLSearchParams()
@@ -554,6 +577,61 @@ export function ContactsRoute() {
     }
   }
 
+  async function handleToggleSequences() {
+    const next = !sequencesOpen
+    setSequencesOpen(next)
+    setSequenceStatus('')
+    if (!next || !selectedContactId) {
+      return
+    }
+    try {
+      const [sequences, enrollments] = await Promise.all([
+        listEmailSequences(),
+        listEmailSequenceEnrollments({ contactId: selectedContactId })
+      ])
+      setSequenceOptions(sequences)
+      setSequenceEnrollments(enrollments)
+      setSequenceForm((current) => ({ sequenceId: current.sequenceId || (sequences[0]?.id ? String(sequences[0].id) : '') }))
+    } catch (loadError) {
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load email sequences.')
+      }
+    }
+  }
+
+  async function handleEnrollSequence(event) {
+    event.preventDefault()
+    if (!selectedContactId || !sequenceForm.sequenceId) {
+      return
+    }
+    setIsEnrollingSequence(true)
+    setSequenceStatus('')
+    try {
+      const enrollment = await createEmailSequenceEnrollment({
+        contactId: selectedContactId,
+        sequenceId: Number.parseInt(sequenceForm.sequenceId, 10)
+      })
+      setSequenceEnrollments((current) => [enrollment, ...current.filter((entry) => entry.id !== enrollment.id)])
+      setSequenceStatus(`Enrolled in ${enrollment.sequenceName || 'sequence'}.`)
+      setError('')
+    } catch (enrollError) {
+      setError(enrollError.message || 'Unable to enroll contact in sequence.')
+    } finally {
+      setIsEnrollingSequence(false)
+    }
+  }
+
+  async function handleCancelSequenceEnrollment(enrollmentId) {
+    try {
+      await cancelEmailSequenceEnrollment(enrollmentId)
+      setSequenceEnrollments((current) => current.filter((entry) => entry.id !== enrollmentId))
+      setSequenceStatus('Sequence enrollment cancelled.')
+      setError('')
+    } catch (cancelError) {
+      setError(cancelError.message || 'Unable to cancel sequence enrollment.')
+    }
+  }
+
   function applyEmailTemplate(templateId) {
     const template = emailTemplates.find((item) => String(item.id) === String(templateId))
     if (template) {
@@ -925,6 +1003,61 @@ export function ContactsRoute() {
                           <p>{message.subject}</p>
                           <p className="field-hint">{message.status === 'failed' ? 'Failed' : 'Sent'} · {message.sentByName || 'You'}</p>
                         </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+            <Card>
+              <div className="card-stack">
+                <div className="section-header">
+                  <div>
+                    <h3>Sequences</h3>
+                    <p className="field-hint">Enroll this contact into a prepared cadence. Automated sending is not active yet.</p>
+                  </div>
+                  {canWrite ? (
+                    <Button className="button-secondary" type="button" onClick={handleToggleSequences}>
+                      {sequencesOpen ? 'Close' : 'Manage sequences'}
+                    </Button>
+                  ) : null}
+                </div>
+                {sequenceStatus ? <p className="field-hint" role="status">{sequenceStatus}</p> : null}
+                {canWrite && sequencesOpen ? (
+                  <form className="auth-form" onSubmit={handleEnrollSequence}>
+                    {sequenceOptions.length > 0 ? (
+                      <Field label="Sequence">
+                        <select className="text-input" value={sequenceForm.sequenceId} onChange={(event) => setSequenceForm({ sequenceId: event.target.value })} required>
+                          {sequenceOptions.map((sequence) => (
+                            <option key={sequence.id} value={sequence.id}>{sequence.name}</option>
+                          ))}
+                        </select>
+                      </Field>
+                    ) : (
+                      <p className="field-hint">Create a sequence in Settings, Email Sequences before enrolling contacts.</p>
+                    )}
+                    <Button type="submit" disabled={isEnrollingSequence || sequenceOptions.length === 0}>{isEnrollingSequence ? 'Enrolling...' : 'Enroll contact'}</Button>
+                  </form>
+                ) : null}
+                {sequencesOpen ? (
+                  <div className="record-list" role="list" aria-label="Sequence enrollments">
+                    {sequenceEnrollments.length === 0 ? (
+                      <article className="record-row" role="listitem">
+                        <div>
+                          <p>No active sequence enrollments.</p>
+                        </div>
+                      </article>
+                    ) : sequenceEnrollments.map((enrollment) => (
+                      <article className="record-row" key={enrollment.id} role="listitem">
+                        <div>
+                          <p>{enrollment.sequenceName}</p>
+                          <p className="field-hint">Step {enrollment.currentStepOrder} · next send {formatSequenceTime(enrollment.nextSendAt)}</p>
+                        </div>
+                        {canWrite ? (
+                          <div>
+                            <Button className="button-secondary" type="button" onClick={() => handleCancelSequenceEnrollment(enrollment.id)}>Cancel</Button>
+                          </div>
+                        ) : null}
                       </article>
                     ))}
                   </div>

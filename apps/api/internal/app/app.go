@@ -157,6 +157,12 @@ type emailSequencesService interface {
 	Delete(context.Context, int64, int64) error
 }
 
+type emailSequenceEnrollmentsService interface {
+	ListEnrollmentsByContact(context.Context, int64, int64) ([]moduleemailsequences.Enrollment, error)
+	EnrollContact(context.Context, int64, moduleemailsequences.EnrollmentInput) (moduleemailsequences.Enrollment, error)
+	CancelEnrollment(context.Context, int64, int64) error
+}
+
 type userEmailAccountService interface {
 	Configured() bool
 	GetForUser(context.Context, int64, int64) (moduleuseremail.Account, error)
@@ -177,29 +183,30 @@ type emailMessagesService interface {
 }
 
 type Dependencies struct {
-	CheckReadiness        func(context.Context) error
-	Logger                *slog.Logger
-	AuthService           authService
-	UsersService          usersService
-	AuditService          auditService
-	ContactsService       contactsService
-	CompaniesService      companiesService
-	DealsService          dealsService
-	TasksService          tasksService
-	ExportsService        dataExportsService
-	OrgProfileService     orgProfileService
-	DashboardService      dashboardService
-	NotesService          notesService
-	ImportsService        importsService
-	SavedViewsService     savedViewsService
-	OnboardingService     onboardingService
-	NotificationsService  notificationsService
-	BillingService        billingService
-	EmailService          emailService
-	EmailTemplatesService emailTemplatesService
-	EmailSequencesService emailSequencesService
-	UserEmailService      userEmailAccountService
-	EmailMessagesService  emailMessagesService
+	CheckReadiness                  func(context.Context) error
+	Logger                          *slog.Logger
+	AuthService                     authService
+	UsersService                    usersService
+	AuditService                    auditService
+	ContactsService                 contactsService
+	CompaniesService                companiesService
+	DealsService                    dealsService
+	TasksService                    tasksService
+	ExportsService                  dataExportsService
+	OrgProfileService               orgProfileService
+	DashboardService                dashboardService
+	NotesService                    notesService
+	ImportsService                  importsService
+	SavedViewsService               savedViewsService
+	OnboardingService               onboardingService
+	NotificationsService            notificationsService
+	BillingService                  billingService
+	EmailService                    emailService
+	EmailTemplatesService           emailTemplatesService
+	EmailSequencesService           emailSequencesService
+	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
+	UserEmailService                userEmailAccountService
+	EmailMessagesService            emailMessagesService
 }
 
 type statusResponse struct {
@@ -665,6 +672,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/email-sequences/{sequenceID}", func(w http.ResponseWriter, r *http.Request) {
 		handleDeleteEmailSequence(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
+	})
+	mux.HandleFunc("GET /api/email-sequence-enrollments", func(w http.ResponseWriter, r *http.Request) {
+		handleListEmailSequenceEnrollments(dependencies.AuthService, dependencies.EmailSequenceEnrollmentsService, w, r)
+	})
+	mux.HandleFunc("POST /api/email-sequence-enrollments", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateEmailSequenceEnrollment(dependencies.AuthService, dependencies.EmailSequenceEnrollmentsService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/email-sequence-enrollments/{enrollmentID}", func(w http.ResponseWriter, r *http.Request) {
+		handleCancelEmailSequenceEnrollment(dependencies.AuthService, dependencies.EmailSequenceEnrollmentsService, w, r)
 	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)
