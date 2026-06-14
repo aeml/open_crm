@@ -300,22 +300,22 @@ func handleAdminDeleteUserEmailAccount(auth authService, accounts userEmailAccou
 }
 
 func emailOAuthProviders(env config.Env) []emailOAuthProviderStatus {
-	return []emailOAuthProviderStatus{
-		{
-			Provider:   "google",
-			Label:      "Google Workspace / Gmail",
-			Configured: env.GoogleOAuthClientID != "",
-			Scopes:     []string{"openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly"},
-			Status:     "oauth_callback_pending",
-		},
-		{
-			Provider:   "microsoft",
-			Label:      "Microsoft 365 / Outlook",
-			Configured: env.MicrosoftOAuthClientID != "",
-			Scopes:     []string{"openid", "email", "profile", "offline_access", "https://graph.microsoft.com/Mail.Read"},
-			Status:     "oauth_callback_pending",
-		},
+	configs := emailOAuthProviderConfigs(env)
+	providers := make([]emailOAuthProviderStatus, 0, len(configs))
+	for _, config := range configs {
+		status := "ready"
+		if !config.Configured() {
+			status = "missing_client_credentials"
+		}
+		providers = append(providers, emailOAuthProviderStatus{
+			Provider:   config.Provider,
+			Label:      config.Label,
+			Configured: config.Configured(),
+			Scopes:     config.Scopes,
+			Status:     status,
+		})
 	}
+	return providers
 }
 
 func writeUserEmailAccountError(w http.ResponseWriter, requestID string, err error) {

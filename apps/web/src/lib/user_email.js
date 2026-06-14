@@ -12,6 +12,12 @@ export async function getMyEmailSyncStatus({ signal } = {}) {
   return payload?.data || { account: null, configured: false, connected: false, oauthProviders: [] }
 }
 
+export async function startMyEmailOAuth(provider, { signal } = {}) {
+  const payload = await apiRequest(`/api/me/email-sync/oauth/${provider}/start`, { method: 'POST', fallbackMessage: 'Unable to start mailbox OAuth.', signal })
+
+  return payload?.data || { authorizationUrl: '' }
+}
+
 export async function saveMyEmailAccount(input, { signal } = {}) {
   const payload = await apiRequest('/api/me/email-account', { method: 'PUT', body: input, fallbackMessage: 'Unable to save email account.', signal })
 

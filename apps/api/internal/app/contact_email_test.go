@@ -28,6 +28,7 @@ type fakeUserEmailService struct {
 	sendHTMLBody     string
 	memberOK         bool
 	lastUpsertUserID int64
+	lastOAuthInput   moduleuseremail.OAuthConnectionInput
 }
 
 func (f *fakeUserEmailService) Configured() bool { return f.configured }
@@ -38,6 +39,16 @@ func (f *fakeUserEmailService) GetForUser(_ context.Context, _, _ int64) (module
 
 func (f *fakeUserEmailService) Upsert(_ context.Context, _, userID int64, _ moduleuseremail.UpsertInput) (moduleuseremail.Account, error) {
 	f.lastUpsertUserID = userID
+	return f.account, f.upsertErr
+}
+
+func (f *fakeUserEmailService) SaveOAuthConnection(_ context.Context, _, _ int64, input moduleuseremail.OAuthConnectionInput) (moduleuseremail.Account, error) {
+	f.lastOAuthInput = input
+	f.account.Provider = input.Provider
+	f.account.AuthMethod = "oauth"
+	f.account.SyncEnabled = true
+	f.account.SyncStatus = "pending"
+	f.account.OAuthConnected = true
 	return f.account, f.upsertErr
 }
 

@@ -87,4 +87,56 @@ describe('settings email account route', () => {
 
     expect(await screen.findByText(/not enabled on this server/i)).toBeInTheDocument()
   })
+
+  it('shows OAuth provider readiness and callback status', async () => {
+    const account = {
+      fromEmail: 'rep@acme.test',
+      smtpHost: 'smtp.acme.test',
+      smtpPort: 587,
+      smtpUsername: 'rep',
+      smtpUseTls: true,
+      hasPassword: true,
+      provider: 'google',
+      authMethod: 'oauth',
+      syncEnabled: true,
+      syncStatus: 'pending',
+      oauthConnected: true
+    }
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/me/email-account') && method === 'GET') {
+        return { ok: true, json: async () => ({ data: { account, configured: true } }) }
+      }
+      if (path.endsWith('/api/me/email-sync/status')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              account,
+              configured: true,
+              connected: true,
+              oauthProviders: [
+                { provider: 'google', label: 'Google Workspace / Gmail', configured: true, status: 'ready', scopes: [] },
+                { provider: 'microsoft', label: 'Microsoft 365 / Outlook', configured: false, status: 'missing_client_credentials', scopes: [] }
+              ]
+            }
+          })
+        }
+      }
+      return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/email-account?emailSync=oauth_connected')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/mailbox oauth connected/i)).toBeInTheDocument()
+    expect(screen.getByText('Google Workspace / Gmail')).toBeInTheDocument()
+    expect(screen.getByText(/connected for mailbox sync/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /connect google/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /connect microsoft/i })).toBeDisabled()
+  })
 })

@@ -70,6 +70,16 @@ type UpsertInput struct {
 	SyncEnabled  bool
 }
 
+// OAuthConnectionInput stores the result of a provider OAuth callback. Tokens
+// are encrypted before storage and are never returned by Account.
+type OAuthConnectionInput struct {
+	Provider     string
+	Subject      string
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    *time.Time
+}
+
 // Credentials is the decrypted connection used to send mail. It must never be
 // serialized to clients.
 type Credentials struct {
@@ -155,7 +165,7 @@ func (s *Service) GetForUser(ctx context.Context, organizationID, userID int64) 
 	}
 	account.HasPassword = passwordEnc != ""
 	account.HasIMAPPassword = imapPassword != ""
-	account.OAuthConnected = oauthRefresh != ""
+	account.OAuthConnected = oauthRefresh != "" && account.AuthMethod == "oauth" && (account.Provider == "google" || account.Provider == "microsoft")
 	if lastSyncAt.Valid {
 		value := lastSyncAt.Time
 		account.LastSyncAt = &value
@@ -256,12 +266,62 @@ func (s *Service) Upsert(ctx context.Context, organizationID, userID int64, inpu
 			sync_enabled = EXCLUDED.sync_enabled,
 			sync_status = EXCLUDED.sync_status,
 			last_sync_error = EXCLUDED.last_sync_error,
+			oauth_subject = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_subject ELSE '' END,
+			oauth_access_token_enc = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_access_token_enc ELSE '' END,
+			oauth_refresh_token_enc = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_refresh_token_enc ELSE '' END,
+			oauth_token_expires_at = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_token_expires_at ELSE NULL END,
 			updated_at = NOW()
 	`, organizationID, userID, input.FromEmail, input.FromName, input.SMTPHost, input.SMTPPort, input.SMTPUsername, passwordEnc, input.SMTPUseTLS,
 		input.IMAPHost, input.IMAPPort, input.IMAPUsername, imapPasswordEnc, input.IMAPUseTLS, input.Provider, input.AuthMethod, input.SyncEnabled, syncStatus); err != nil {
 		return Account{}, fmt.Errorf("save user email account: %w", err)
 	}
 
+	return s.GetForUser(ctx, organizationID, userID)
+}
+
+// SaveOAuthConnection marks mailbox sync ready for OAuth-backed providers after
+// a successful provider callback.
+func (s *Service) SaveOAuthConnection(ctx context.Context, organizationID, userID int64, input OAuthConnectionInput) (Account, error) {
+	if !s.Configured() {
+		return Account{}, ErrEncryptionUnavailable
+	}
+	input.Provider = strings.ToLower(strings.TrimSpace(input.Provider))
+	input.Subject = strings.TrimSpace(input.Subject)
+	input.AccessToken = strings.TrimSpace(input.AccessToken)
+	input.RefreshToken = strings.TrimSpace(input.RefreshToken)
+	if (input.Provider != "google" && input.Provider != "microsoft") || input.AccessToken == "" || input.RefreshToken == "" {
+		return Account{}, ErrInvalidInput
+	}
+
+	accessTokenEnc, err := s.cipher.Encrypt(input.AccessToken)
+	if err != nil {
+		return Account{}, fmt.Errorf("encrypt oauth access token: %w", err)
+	}
+	refreshTokenEnc, err := s.cipher.Encrypt(input.RefreshToken)
+	if err != nil {
+		return Account{}, fmt.Errorf("encrypt oauth refresh token: %w", err)
+	}
+
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE user_email_accounts
+		SET provider = $3,
+		    auth_method = 'oauth',
+		    sync_enabled = TRUE,
+		    sync_status = 'pending',
+		    oauth_subject = $4,
+		    oauth_access_token_enc = $5,
+		    oauth_refresh_token_enc = $6,
+		    oauth_token_expires_at = $7,
+		    last_sync_error = '',
+		    updated_at = NOW()
+		WHERE organization_id = $1 AND user_id = $2
+	`, organizationID, userID, input.Provider, input.Subject, accessTokenEnc, refreshTokenEnc, input.ExpiresAt)
+	if err != nil {
+		return Account{}, fmt.Errorf("save oauth connection: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return Account{}, ErrNotFound
+	}
 	return s.GetForUser(ctx, organizationID, userID)
 }
 

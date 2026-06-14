@@ -5,7 +5,7 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { getMyEmailAccount, getMyEmailSyncStatus, saveMyEmailAccount, deleteMyEmailAccount } from '../lib/user_email'
+import { getMyEmailAccount, getMyEmailSyncStatus, startMyEmailOAuth, saveMyEmailAccount, deleteMyEmailAccount } from '../lib/user_email'
 import { usePageTitle } from '../lib/use_page_title'
 
 const emptyForm = {
@@ -39,17 +39,45 @@ function syncStatusText(account) {
   return account.syncStatus || 'Sync enabled'
 }
 
+function initialOAuthResultMessage() {
+  if (typeof window === 'undefined') {
+    return { status: '', error: '' }
+  }
+  const result = new URLSearchParams(window.location.search).get('emailSync')
+  if (result === 'oauth_connected') {
+    return { status: 'Mailbox OAuth connected. Sync will start when mailbox ingestion is enabled.', error: '' }
+  }
+  if (result === 'oauth_invalid_state') {
+    return { status: '', error: 'Mailbox OAuth expired or could not be verified. Start the connection again.' }
+  }
+  if (result === 'oauth_not_configured') {
+    return { status: '', error: 'Mailbox OAuth is not configured on this server yet.' }
+  }
+  if (result === 'oauth_missing_account') {
+    return { status: '', error: 'Save your email account before connecting OAuth mailbox sync.' }
+  }
+  if (result === 'oauth_token_missing') {
+    return { status: '', error: 'The provider did not return a refresh token. Try reconnecting and approving offline mailbox access.' }
+  }
+  if (result === 'oauth_exchange_failed' || result === 'oauth_error') {
+    return { status: '', error: 'Mailbox OAuth connection failed. Try again from this page.' }
+  }
+  return { status: '', error: '' }
+}
+
 export function SettingsEmailAccountRoute() {
   const { session } = useAuth()
   usePageTitle('My Email')
+  const initialOAuthResult = initialOAuthResultMessage()
   const [form, setForm] = useState(emptyForm)
   const [configured, setConfigured] = useState(true)
   const [hasAccount, setHasAccount] = useState(false)
-  const [error, setError] = useState('')
-  const [status, setStatus] = useState('')
+  const [error, setError] = useState(initialOAuthResult.error)
+  const [status, setStatus] = useState(initialOAuthResult.status)
   const [syncStatus, setSyncStatus] = useState({ account: null, oauthProviders: [] })
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [startingOAuthProvider, setStartingOAuthProvider] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -105,15 +133,34 @@ export function SettingsEmailAccountRoute() {
     setIsSaving(true)
     setStatus('')
     try {
-      await saveMyEmailAccount({ ...form, smtpPort: Number(form.smtpPort), imapPort: Number(form.imapPort) })
+      const account = await saveMyEmailAccount({ ...form, smtpPort: Number(form.smtpPort), imapPort: Number(form.imapPort) })
       setHasAccount(true)
       setForm({ ...form, smtpPassword: '', imapPassword: '' })
+      if (account) {
+        setSyncStatus({ account, oauthProviders: syncStatus.oauthProviders || [] })
+      }
       setStatus('Email account saved. Emails you send to contacts will come from your address.')
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to save email account.')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleStartOAuth(provider) {
+    setStartingOAuthProvider(provider.provider)
+    setStatus('')
+    setError('')
+    try {
+      const data = await startMyEmailOAuth(provider.provider)
+      if (!data.authorizationUrl) {
+        throw new Error('Provider did not return an authorization URL.')
+      }
+      window.location.assign(data.authorizationUrl)
+    } catch (oauthError) {
+      setError(oauthError.message || 'Unable to start mailbox OAuth.')
+      setStartingOAuthProvider('')
     }
   }
 
@@ -174,7 +221,7 @@ export function SettingsEmailAccountRoute() {
                 <div className="card-stack">
                   <div>
                     <h3>Mailbox sync</h3>
-                    <p className="field-hint">Store sync settings for two-way mailbox work. Message ingestion and OAuth callback handling ship in a later slice.</p>
+                    <p className="field-hint">Store sync settings for two-way mailbox work. OAuth connects tokens now; message ingestion ships in a later slice.</p>
                     {syncStatus.account ? <p className="field-hint">Status: {syncStatusText(syncStatus.account)}</p> : null}
                   </div>
                   <label className="checkbox-row">
@@ -210,7 +257,7 @@ export function SettingsEmailAccountRoute() {
                           </label>
                         </div>
                       ) : (
-                        <p className="field-hint">OAuth connection metadata is available below. Token exchange and mailbox ingestion are not active yet.</p>
+                        <p className="field-hint">Use the provider buttons below to connect OAuth mailbox access. Message ingestion is not active yet.</p>
                       )}
                     </div>
                   ) : null}
@@ -221,7 +268,11 @@ export function SettingsEmailAccountRoute() {
                           <div>
                             <p>{provider.label}</p>
                             <p className="field-hint">{provider.configured ? 'OAuth client configured' : 'OAuth client not configured'} · {provider.status}</p>
+                            {syncStatus.account?.provider === provider.provider && syncStatus.account?.oauthConnected ? <p className="field-hint">Connected for mailbox sync</p> : null}
                           </div>
+                          <Button type="button" className="button-secondary" disabled={!provider.configured || !hasAccount || startingOAuthProvider === provider.provider} onClick={() => handleStartOAuth(provider)}>
+                            {startingOAuthProvider === provider.provider ? 'Starting...' : `Connect ${provider.provider === 'google' ? 'Google' : 'Microsoft'}`}
+                          </Button>
                         </article>
                       ))}
                     </div>

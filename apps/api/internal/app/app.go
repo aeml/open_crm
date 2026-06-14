@@ -167,6 +167,7 @@ type userEmailAccountService interface {
 	Configured() bool
 	GetForUser(context.Context, int64, int64) (moduleuseremail.Account, error)
 	Upsert(context.Context, int64, int64, moduleuseremail.UpsertInput) (moduleuseremail.Account, error)
+	SaveOAuthConnection(context.Context, int64, int64, moduleuseremail.OAuthConnectionInput) (moduleuseremail.Account, error)
 	Delete(context.Context, int64, int64) error
 	SendAs(ctx context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error
 	MemberExists(context.Context, int64, int64) (bool, error)
@@ -206,6 +207,7 @@ type Dependencies struct {
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService
+	EmailOAuthClient                emailOAuthClient
 	EmailMessagesService            emailMessagesService
 }
 
@@ -571,6 +573,10 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	if len(deps) > 0 {
 		dependencies = deps[0]
 	}
+	emailOAuthClient := dependencies.EmailOAuthClient
+	if emailOAuthClient == nil {
+		emailOAuthClient = defaultEmailOAuthClient{}
+	}
 	rateLimiter := newAuthRateLimiter()
 
 	mux := http.NewServeMux()
@@ -626,6 +632,12 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/me/email-sync/status", func(w http.ResponseWriter, r *http.Request) {
 		handleGetMyEmailSyncStatus(env, dependencies.AuthService, dependencies.UserEmailService, w, r)
+	})
+	mux.HandleFunc("POST /api/me/email-sync/oauth/{provider}/start", func(w http.ResponseWriter, r *http.Request) {
+		handleStartMyEmailOAuth(env, dependencies.AuthService, dependencies.UserEmailService, w, r)
+	})
+	mux.HandleFunc("GET /api/me/email-sync/oauth/{provider}/callback", func(w http.ResponseWriter, r *http.Request) {
+		handleMyEmailOAuthCallback(env, dependencies.AuthService, dependencies.UserEmailService, emailOAuthClient, w, r)
 	})
 	mux.HandleFunc("PUT /api/me/email-account", func(w http.ResponseWriter, r *http.Request) {
 		handleSaveMyEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)

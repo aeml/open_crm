@@ -6,20 +6,23 @@ import (
 )
 
 type Env struct {
-	Port                    string
-	AllowedOrigins          []string
-	GOEnv                   string
-	BillingProvider         string
-	EmailProvider           string
-	EmailFromAddress        string
-	EmailFromName           string
-	PostmarkServerToken     string
-	PostmarkFromEmail       string
-	PostmarkMessageStream   string
-	CredentialEncryptionKey string
-	WebBaseURL              string
-	GoogleOAuthClientID     string
-	MicrosoftOAuthClientID  string
+	Port                       string
+	AllowedOrigins             []string
+	GOEnv                      string
+	BillingProvider            string
+	EmailProvider              string
+	EmailFromAddress           string
+	EmailFromName              string
+	PostmarkServerToken        string
+	PostmarkFromEmail          string
+	PostmarkMessageStream      string
+	CredentialEncryptionKey    string
+	APIBaseURL                 string
+	WebBaseURL                 string
+	GoogleOAuthClientID        string
+	GoogleOAuthClientSecret    string
+	MicrosoftOAuthClientID     string
+	MicrosoftOAuthClientSecret string
 }
 
 func Load() Env {
@@ -43,21 +46,29 @@ func Load() Env {
 		webBaseURL = "http://localhost:5173"
 	}
 
+	apiBaseURL := os.Getenv("API_BASE_URL")
+	if apiBaseURL == "" {
+		apiBaseURL = "http://localhost:8080"
+	}
+
 	return Env{
-		Port:                    port,
-		AllowedOrigins:          parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
-		GOEnv:                   os.Getenv("GO_ENV"),
-		BillingProvider:         billingProvider,
-		EmailProvider:           emailProvider,
-		EmailFromAddress:        os.Getenv("EMAIL_FROM_ADDRESS"),
-		EmailFromName:           os.Getenv("EMAIL_FROM_NAME"),
-		PostmarkServerToken:     os.Getenv("POSTMARK_SERVER_TOKEN"),
-		PostmarkFromEmail:       os.Getenv("POSTMARK_FROM_EMAIL"),
-		PostmarkMessageStream:   os.Getenv("POSTMARK_MESSAGE_STREAM"),
-		CredentialEncryptionKey: os.Getenv("CREDENTIAL_ENCRYPTION_KEY"),
-		WebBaseURL:              webBaseURL,
-		GoogleOAuthClientID:     os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
-		MicrosoftOAuthClientID:  os.Getenv("MICROSOFT_OAUTH_CLIENT_ID"),
+		Port:                       port,
+		AllowedOrigins:             parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
+		GOEnv:                      os.Getenv("GO_ENV"),
+		BillingProvider:            billingProvider,
+		EmailProvider:              emailProvider,
+		EmailFromAddress:           os.Getenv("EMAIL_FROM_ADDRESS"),
+		EmailFromName:              os.Getenv("EMAIL_FROM_NAME"),
+		PostmarkServerToken:        os.Getenv("POSTMARK_SERVER_TOKEN"),
+		PostmarkFromEmail:          os.Getenv("POSTMARK_FROM_EMAIL"),
+		PostmarkMessageStream:      os.Getenv("POSTMARK_MESSAGE_STREAM"),
+		CredentialEncryptionKey:    os.Getenv("CREDENTIAL_ENCRYPTION_KEY"),
+		APIBaseURL:                 apiBaseURL,
+		WebBaseURL:                 webBaseURL,
+		GoogleOAuthClientID:        os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
+		GoogleOAuthClientSecret:    os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+		MicrosoftOAuthClientID:     os.Getenv("MICROSOFT_OAUTH_CLIENT_ID"),
+		MicrosoftOAuthClientSecret: os.Getenv("MICROSOFT_OAUTH_CLIENT_SECRET"),
 	}
 }
 
