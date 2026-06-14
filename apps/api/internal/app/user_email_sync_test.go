@@ -132,6 +132,41 @@ func TestStartMyEmailOAuthReturnsProviderAuthorizationURL(t *testing.T) {
 	}
 }
 
+func TestStartMyEmailOAuthFallsBackToRequestHostForRedirectURI(t *testing.T) {
+	accounts := &fakeUserEmailService{
+		configured: true,
+		account: moduleuseremail.Account{
+			FromEmail: "rep@acme.test",
+		},
+	}
+	env := testOAuthEnv()
+	env.APIBaseURL = ""
+	server := testEmailSyncServer(env, accounts, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/me/email-sync/oauth/google/start", nil)
+	request.Host = "crmserver.mendola.tech"
+	request.Header.Set("X-Forwarded-Proto", "https")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response emailOAuthStartResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	authorizationURL, err := url.Parse(response.Data.AuthorizationURL)
+	if err != nil {
+		t.Fatalf("invalid authorization url: %v", err)
+	}
+	if redirectURI := authorizationURL.Query().Get("redirect_uri"); redirectURI != "https://crmserver.mendola.tech/api/me/email-sync/oauth/google/callback" {
+		t.Fatalf("unexpected redirect uri: %q", redirectURI)
+	}
+}
+
 func TestMyEmailOAuthCallbackStoresEncryptedTokenMetadata(t *testing.T) {
 	accounts := &fakeUserEmailService{
 		configured: true,

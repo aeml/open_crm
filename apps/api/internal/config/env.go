@@ -46,11 +46,6 @@ func Load() Env {
 		webBaseURL = "http://localhost:5173"
 	}
 
-	apiBaseURL := os.Getenv("API_BASE_URL")
-	if apiBaseURL == "" {
-		apiBaseURL = "http://localhost:8080"
-	}
-
 	return Env{
 		Port:                       port,
 		AllowedOrigins:             parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
@@ -63,7 +58,7 @@ func Load() Env {
 		PostmarkFromEmail:          os.Getenv("POSTMARK_FROM_EMAIL"),
 		PostmarkMessageStream:      os.Getenv("POSTMARK_MESSAGE_STREAM"),
 		CredentialEncryptionKey:    os.Getenv("CREDENTIAL_ENCRYPTION_KEY"),
-		APIBaseURL:                 apiBaseURL,
+		APIBaseURL:                 os.Getenv("API_BASE_URL"),
 		WebBaseURL:                 webBaseURL,
 		GoogleOAuthClientID:        os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 		GoogleOAuthClientSecret:    os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),

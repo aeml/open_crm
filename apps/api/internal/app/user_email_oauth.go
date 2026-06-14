@@ -108,7 +108,7 @@ func handleStartMyEmailOAuth(env config.Env, auth authService, accounts userEmai
 	}
 
 	response := emailOAuthStartResponse{}
-	response.Data.AuthorizationURL = emailOAuthAuthorizationURL(provider, emailOAuthRedirectURI(env, provider.Provider), oauthState, account.FromEmail)
+	response.Data.AuthorizationURL = emailOAuthAuthorizationURL(provider, emailOAuthRedirectURI(env, r, provider.Provider), oauthState, account.FromEmail)
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -142,7 +142,7 @@ func handleMyEmailOAuthCallback(env config.Env, auth authService, accounts userE
 	if client == nil {
 		client = defaultEmailOAuthClient{}
 	}
-	tokens, err := client.Exchange(r.Context(), provider, code, emailOAuthRedirectURI(env, provider.Provider))
+	tokens, err := client.Exchange(r.Context(), provider, code, emailOAuthRedirectURI(env, r, provider.Provider))
 	if err != nil {
 		redirectEmailOAuthResult(w, r, env, "oauth_exchange_failed")
 		return
@@ -293,8 +293,11 @@ func emailOAuthAuthorizationURL(provider emailOAuthProvider, redirectURI, state,
 	return provider.AuthURL + "?" + values.Encode()
 }
 
-func emailOAuthRedirectURI(env config.Env, provider string) string {
+func emailOAuthRedirectURI(env config.Env, r *http.Request, provider string) string {
 	base := strings.TrimRight(env.APIBaseURL, "/")
+	if base == "" && r != nil && r.Host != "" {
+		base = requestScheme(r) + "://" + r.Host
+	}
 	if base == "" {
 		base = "http://localhost:8080"
 	}
