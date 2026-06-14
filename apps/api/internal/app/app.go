@@ -15,6 +15,7 @@ import (
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
+	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
@@ -149,6 +150,13 @@ type emailTemplatesService interface {
 	Delete(context.Context, int64, int64) error
 }
 
+type emailSequencesService interface {
+	ListByOrganization(context.Context, int64) ([]moduleemailsequences.Sequence, error)
+	Create(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
+	Update(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
+	Delete(context.Context, int64, int64) error
+}
+
 type userEmailAccountService interface {
 	Configured() bool
 	GetForUser(context.Context, int64, int64) (moduleuseremail.Account, error)
@@ -189,6 +197,7 @@ type Dependencies struct {
 	BillingService        billingService
 	EmailService          emailService
 	EmailTemplatesService emailTemplatesService
+	EmailSequencesService emailSequencesService
 	UserEmailService      userEmailAccountService
 	EmailMessagesService  emailMessagesService
 }
@@ -644,6 +653,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/email-templates/{templateID}", func(w http.ResponseWriter, r *http.Request) {
 		handleDeleteEmailTemplate(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
+	})
+	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
+		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
+	})
+	mux.HandleFunc("POST /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateEmailSequence(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/email-sequences/{sequenceID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateEmailSequence(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/email-sequences/{sequenceID}", func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteEmailSequence(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
 	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)

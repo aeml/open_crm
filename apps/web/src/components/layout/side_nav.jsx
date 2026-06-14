@@ -12,6 +12,7 @@ const baseLinks = [
   { to: '/settings/users', labelKey: 'users', fallback: 'Users' },
   { to: '/settings/business-profile', labelKey: 'businessProfile', fallback: 'Business Profile' },
   { to: '/settings/email-templates', labelKey: 'emailTemplates', fallback: 'Email Templates' },
+  { to: '/settings/email-sequences', labelKey: 'emailSequences', fallback: 'Email Sequences' },
   { to: '/settings/email-log', labelKey: 'emailLog', fallback: 'Email Log' },
   { to: '/settings/billing', labelKey: 'billing', fallback: 'Plan & Billing' },
   { to: '/settings/audit', labelKey: 'audit', fallback: 'Audit Trail' }

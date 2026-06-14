@@ -16,6 +16,7 @@ import { BusinessProfileRoute } from '../routes/business_profile'
 import { SettingsAuditRoute } from '../routes/settings_audit'
 import { SettingsBillingRoute } from '../routes/settings_billing'
 import { SettingsEmailTemplatesRoute } from '../routes/settings_email_templates'
+import { SettingsEmailSequencesRoute } from '../routes/settings_email_sequences'
 import { SettingsEmailAccountRoute } from '../routes/settings_email_account'
 import { SettingsEmailLogRoute } from '../routes/settings_email_log'
 import { NotificationsRoute } from '../routes/notifications'
@@ -45,6 +46,7 @@ export function AppRouter() {
             <Route path="settings/business-profile" element={<BusinessProfileRoute />} />
             <Route path="settings/billing" element={<SettingsBillingRoute />} />
             <Route path="settings/email-templates" element={<SettingsEmailTemplatesRoute />} />
+            <Route path="settings/email-sequences" element={<SettingsEmailSequencesRoute />} />
             <Route path="settings/email-account" element={<SettingsEmailAccountRoute />} />
             <Route path="settings/email-log" element={<SettingsEmailLogRoute />} />
             <Route path="settings/audit" element={<SettingsAuditRoute />} />

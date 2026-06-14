@@ -22,6 +22,7 @@ import (
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
+	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
@@ -78,6 +79,7 @@ func main() {
 	var orgProfileService *moduleorgprofile.Service
 	var billingService *modulebilling.Service
 	var emailTemplatesService *moduleemailtemplates.Service
+	var emailSequencesService *moduleemailsequences.Service
 	var userEmailService *moduleuseremail.Service
 	var emailMessagesService *moduleemailmessages.Service
 	credentialCipher, cipherErr := platformsecrets.NewCipherFromBase64(env.CredentialEncryptionKey)
@@ -106,6 +108,7 @@ func main() {
 			orgProfileService = moduleorgprofile.NewService(pool)
 			billingService = modulebilling.NewService(pool, modulebilling.NewProvider(env.BillingProvider))
 			emailTemplatesService = moduleemailtemplates.NewService(pool)
+			emailSequencesService = moduleemailsequences.NewService(pool)
 			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
 			emailMessagesService = moduleemailmessages.NewService(pool)
 		}
@@ -137,6 +140,7 @@ func main() {
 		BillingService:        billingService,
 		EmailService:          emailService,
 		EmailTemplatesService: emailTemplatesService,
+		EmailSequencesService: emailSequencesService,
 		UserEmailService:      userEmailService,
 		EmailMessagesService:  emailMessagesService,
 	}))
