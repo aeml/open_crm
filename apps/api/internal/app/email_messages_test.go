@@ -14,19 +14,22 @@ import (
 )
 
 type fakeEmailMessagesService struct {
-	orgResult       []moduleemailmessages.Message
-	entityResult    []moduleemailmessages.Message
-	senderResult    []moduleemailmessages.Message
-	getResult       moduleemailmessages.Message
-	getErr          error
-	recordErr       error
-	lastRecord      moduleemailmessages.RecordInput
-	lastOrgID       int64
-	lastGetID       int64
-	lastEntity      string
-	lastEntityID    int64
-	lastSenderID    int64
-	lastOpenedToken string
+	orgResult        []moduleemailmessages.Message
+	entityResult     []moduleemailmessages.Message
+	senderResult     []moduleemailmessages.Message
+	getResult        moduleemailmessages.Message
+	getErr           error
+	recordErr        error
+	lastRecord       moduleemailmessages.RecordInput
+	lastOrgID        int64
+	lastGetID        int64
+	lastEntity       string
+	lastEntityID     int64
+	lastSenderID     int64
+	lastOpenedToken  string
+	lastClickedToken string
+	clickTargetURL   string
+	clickErr         error
 }
 
 func (f *fakeEmailMessagesService) Record(_ context.Context, organizationID int64, input moduleemailmessages.RecordInput) error {
@@ -62,6 +65,11 @@ func (f *fakeEmailMessagesService) ListBySender(_ context.Context, organizationI
 func (f *fakeEmailMessagesService) MarkOpenedByToken(_ context.Context, token string) error {
 	f.lastOpenedToken = token
 	return nil
+}
+
+func (f *fakeEmailMessagesService) MarkClickedByToken(_ context.Context, token string) (string, error) {
+	f.lastClickedToken = token
+	return f.clickTargetURL, f.clickErr
 }
 
 func emailMessagesServer(service *fakeEmailMessagesService, role string) http.Handler {
@@ -241,5 +249,24 @@ func TestTrackEmailOpenMarksTokenAndReturnsPixel(t *testing.T) {
 	}
 	if recorder.Header().Get("Content-Type") != "image/gif" || recorder.Body.Len() == 0 {
 		t.Fatalf("expected gif pixel response, headers=%v len=%d", recorder.Header(), recorder.Body.Len())
+	}
+}
+
+func TestTrackEmailClickMarksTokenAndRedirects(t *testing.T) {
+	service := &fakeEmailMessagesService{clickTargetURL: "https://example.test/offer"}
+	request := httptest.NewRequest(http.MethodGet, "/api/email-messages/click/click-123", nil)
+	request.SetPathValue("clickToken", "click-123")
+	recorder := httptest.NewRecorder()
+
+	handleTrackEmailClick(service, recorder, request)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", recorder.Code)
+	}
+	if service.lastClickedToken != "click-123" {
+		t.Fatalf("expected token to be marked clicked, got %q", service.lastClickedToken)
+	}
+	if location := recorder.Header().Get("Location"); location != "https://example.test/offer" {
+		t.Fatalf("unexpected redirect location: %q", location)
 	}
 }

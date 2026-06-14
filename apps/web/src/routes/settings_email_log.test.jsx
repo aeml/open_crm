@@ -28,7 +28,7 @@ describe('settings email log route', () => {
           json: async () => ({
             data: {
               messages: [
-                { id: 1, toEmail: 'lead@acme.test', subject: 'Following up', status: 'sent', sentByName: 'Demo Owner', openCount: 1, createdAt: '2026-05-01T12:00:00Z' }
+                { id: 1, toEmail: 'lead@acme.test', subject: 'Following up', status: 'sent', sentByName: 'Demo Owner', openCount: 1, clickCount: 3, createdAt: '2026-05-01T12:00:00Z' }
               ]
             }
           })
@@ -39,7 +39,7 @@ describe('settings email log route', () => {
           ok: true,
           json: async () => ({
             data: {
-              message: { id: 1, toEmail: 'lead@acme.test', subject: 'Following up', body: 'Admin-visible full body.', status: 'sent', sentByName: 'Demo Owner', openCount: 1, createdAt: '2026-05-01T12:00:00Z' }
+              message: { id: 1, toEmail: 'lead@acme.test', subject: 'Following up', body: 'Admin-visible full body.', status: 'sent', sentByName: 'Demo Owner', openCount: 1, clickCount: 3, createdAt: '2026-05-01T12:00:00Z' }
             }
           })
         }
@@ -56,6 +56,7 @@ describe('settings email log route', () => {
     expect(await screen.findByRole('heading', { name: /following up/i })).toBeInTheDocument()
     expect(screen.getByText(/to lead@acme.test/i)).toBeInTheDocument()
     expect(screen.getByText(/opened 1 time/i)).toBeInTheDocument()
+    expect(screen.getByText(/clicked 3 times/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /view details/i }))
     expect(await screen.findByText(/admin-visible full body/i)).toBeInTheDocument()
   })

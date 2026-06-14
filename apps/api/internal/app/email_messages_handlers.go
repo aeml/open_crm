@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,18 +21,21 @@ type emailMessagesListResponse struct {
 }
 
 type emailMessageView struct {
-	ID            int64  `json:"id"`
-	ToEmail       string `json:"toEmail"`
-	Subject       string `json:"subject"`
-	Status        string `json:"status"`
-	Error         string `json:"error,omitempty"`
-	EntityType    string `json:"entityType,omitempty"`
-	EntityID      int64  `json:"entityId,omitempty"`
-	SentByName    string `json:"sentByName,omitempty"`
-	OpenCount     int    `json:"openCount"`
-	FirstOpenedAt string `json:"firstOpenedAt,omitempty"`
-	LastOpenedAt  string `json:"lastOpenedAt,omitempty"`
-	CreatedAt     string `json:"createdAt"`
+	ID             int64  `json:"id"`
+	ToEmail        string `json:"toEmail"`
+	Subject        string `json:"subject"`
+	Status         string `json:"status"`
+	Error          string `json:"error,omitempty"`
+	EntityType     string `json:"entityType,omitempty"`
+	EntityID       int64  `json:"entityId,omitempty"`
+	SentByName     string `json:"sentByName,omitempty"`
+	OpenCount      int    `json:"openCount"`
+	FirstOpenedAt  string `json:"firstOpenedAt,omitempty"`
+	LastOpenedAt   string `json:"lastOpenedAt,omitempty"`
+	ClickCount     int    `json:"clickCount"`
+	FirstClickedAt string `json:"firstClickedAt,omitempty"`
+	LastClickedAt  string `json:"lastClickedAt,omitempty"`
+	CreatedAt      string `json:"createdAt"`
 }
 
 type emailMessageDetailResponse struct {
@@ -44,19 +48,22 @@ type emailMessageDetailResponse struct {
 }
 
 type emailMessageDetailView struct {
-	ID            int64  `json:"id"`
-	ToEmail       string `json:"toEmail"`
-	Subject       string `json:"subject"`
-	Body          string `json:"body"`
-	Status        string `json:"status"`
-	Error         string `json:"error,omitempty"`
-	EntityType    string `json:"entityType,omitempty"`
-	EntityID      int64  `json:"entityId,omitempty"`
-	SentByName    string `json:"sentByName,omitempty"`
-	OpenCount     int    `json:"openCount"`
-	FirstOpenedAt string `json:"firstOpenedAt,omitempty"`
-	LastOpenedAt  string `json:"lastOpenedAt,omitempty"`
-	CreatedAt     string `json:"createdAt"`
+	ID             int64  `json:"id"`
+	ToEmail        string `json:"toEmail"`
+	Subject        string `json:"subject"`
+	Body           string `json:"body"`
+	Status         string `json:"status"`
+	Error          string `json:"error,omitempty"`
+	EntityType     string `json:"entityType,omitempty"`
+	EntityID       int64  `json:"entityId,omitempty"`
+	SentByName     string `json:"sentByName,omitempty"`
+	OpenCount      int    `json:"openCount"`
+	FirstOpenedAt  string `json:"firstOpenedAt,omitempty"`
+	LastOpenedAt   string `json:"lastOpenedAt,omitempty"`
+	ClickCount     int    `json:"clickCount"`
+	FirstClickedAt string `json:"firstClickedAt,omitempty"`
+	LastClickedAt  string `json:"lastClickedAt,omitempty"`
+	CreatedAt      string `json:"createdAt"`
 }
 
 var transparentTrackingPixel = []byte{
@@ -187,22 +194,51 @@ func handleTrackEmailOpen(messages emailMessagesService, w http.ResponseWriter, 
 	_, _ = w.Write(transparentTrackingPixel)
 }
 
+func handleTrackEmailClick(messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
+	clickToken := strings.TrimSpace(r.PathValue("clickToken"))
+	targetURL := ""
+	if messages != nil && clickToken != "" {
+		resolvedURL, err := messages.MarkClickedByToken(r.Context(), clickToken)
+		if err == nil {
+			targetURL = resolvedURL
+		}
+	}
+	if !isSafeEmailClickURL(targetURL) {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	http.Redirect(w, r, targetURL, http.StatusFound)
+}
+
+func isSafeEmailClickURL(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return parsed.Scheme == "http" || parsed.Scheme == "https"
+}
+
 func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageView {
 	views := make([]emailMessageView, 0, len(records))
 	for _, m := range records {
 		views = append(views, emailMessageView{
-			ID:            m.ID,
-			ToEmail:       m.ToEmail,
-			Subject:       m.Subject,
-			Status:        m.Status,
-			Error:         m.Error,
-			EntityType:    m.EntityType,
-			EntityID:      m.EntityID,
-			SentByName:    m.SentByName,
-			OpenCount:     m.OpenCount,
-			FirstOpenedAt: formatOptionalTime(m.FirstOpenedAt),
-			LastOpenedAt:  formatOptionalTime(m.LastOpenedAt),
-			CreatedAt:     m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			ID:             m.ID,
+			ToEmail:        m.ToEmail,
+			Subject:        m.Subject,
+			Status:         m.Status,
+			Error:          m.Error,
+			EntityType:     m.EntityType,
+			EntityID:       m.EntityID,
+			SentByName:     m.SentByName,
+			OpenCount:      m.OpenCount,
+			FirstOpenedAt:  formatOptionalTime(m.FirstOpenedAt),
+			LastOpenedAt:   formatOptionalTime(m.LastOpenedAt),
+			ClickCount:     m.ClickCount,
+			FirstClickedAt: formatOptionalTime(m.FirstClickedAt),
+			LastClickedAt:  formatOptionalTime(m.LastClickedAt),
+			CreatedAt:      m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 	return views
@@ -210,19 +246,22 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 
 func toEmailMessageDetailView(m moduleemailmessages.Message) emailMessageDetailView {
 	return emailMessageDetailView{
-		ID:            m.ID,
-		ToEmail:       m.ToEmail,
-		Subject:       m.Subject,
-		Body:          m.Body,
-		Status:        m.Status,
-		Error:         m.Error,
-		EntityType:    m.EntityType,
-		EntityID:      m.EntityID,
-		SentByName:    m.SentByName,
-		OpenCount:     m.OpenCount,
-		FirstOpenedAt: formatOptionalTime(m.FirstOpenedAt),
-		LastOpenedAt:  formatOptionalTime(m.LastOpenedAt),
-		CreatedAt:     m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ID:             m.ID,
+		ToEmail:        m.ToEmail,
+		Subject:        m.Subject,
+		Body:           m.Body,
+		Status:         m.Status,
+		Error:          m.Error,
+		EntityType:     m.EntityType,
+		EntityID:       m.EntityID,
+		SentByName:     m.SentByName,
+		OpenCount:      m.OpenCount,
+		FirstOpenedAt:  formatOptionalTime(m.FirstOpenedAt),
+		LastOpenedAt:   formatOptionalTime(m.LastOpenedAt),
+		ClickCount:     m.ClickCount,
+		FirstClickedAt: formatOptionalTime(m.FirstClickedAt),
+		LastClickedAt:  formatOptionalTime(m.LastClickedAt),
+		CreatedAt:      m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 }
 

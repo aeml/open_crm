@@ -7,6 +7,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
@@ -34,6 +35,8 @@ type sendEmailResponse struct {
 		RequestID string `json:"requestId"`
 	} `json:"meta"`
 }
+
+var emailBodyURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
 // handleSendContactEmail sends a one-to-one email to a contact through the
 // sending user's own mailbox (their configured SMTP account), so the email
@@ -280,13 +283,16 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 	}
 	trackingToken := ""
 	trackingURL := ""
+	trackingBaseURL := ""
 	if messages != nil {
 		trackingToken = newEmailTrackingToken()
-		trackingURL = emailTrackingURL(r, trackingToken)
+		trackingBaseURL = emailTrackingBaseURL(r)
+		trackingURL = emailTrackingURL(trackingBaseURL, trackingToken)
 	}
 	htmlBody := ""
+	var trackedLinks []moduleemailmessages.TrackedLinkInput
 	if trackingURL != "" {
-		htmlBody = trackedHTMLBody(body, trackingURL)
+		htmlBody, trackedLinks = trackedHTMLBody(body, trackingURL, trackingBaseURL)
 	}
 
 	if err := accounts.SendAs(r.Context(), organizationID, userID, to, subject, body, htmlBody); err != nil {
@@ -294,12 +300,12 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", accountRequiredMessage)
 			return
 		}
-		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, body, "failed", err.Error(), trackingToken)
+		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, body, "failed", err.Error(), trackingToken, trackedLinks)
 		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email through your mail server")
 		return
 	}
 
-	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, body, "sent", "", trackingToken)
+	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, body, "sent", "", trackingToken, trackedLinks)
 	logEntityEmailNote(r, notes, organizationID, userID, entityType, entityID, subject)
 
 	response := sendEmailResponse{}
@@ -317,11 +323,7 @@ func newEmailTrackingToken() string {
 	return base64.RawURLEncoding.EncodeToString(b[:])
 }
 
-func emailTrackingURL(r *http.Request, token string) string {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return ""
-	}
+func emailTrackingBaseURL(r *http.Request) string {
 	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
 	if scheme == "" {
 		if r.TLS != nil {
@@ -337,15 +339,71 @@ func emailTrackingURL(r *http.Request, token string) string {
 	if host == "" {
 		return ""
 	}
-	return scheme + "://" + host + "/api/email-messages/open/" + url.PathEscape(token)
+	return scheme + "://" + host
 }
 
-func trackedHTMLBody(textBody, trackingURL string) string {
-	escaped := html.EscapeString(textBody)
+func emailTrackingURL(baseURL, token string) string {
+	return emailTrackingRouteURL(baseURL, "/api/email-messages/open/", token)
+}
+
+func emailClickTrackingURL(baseURL, token string) string {
+	return emailTrackingRouteURL(baseURL, "/api/email-messages/click/", token)
+}
+
+func emailTrackingRouteURL(baseURL, routePrefix, token string) string {
+	token = strings.TrimSpace(token)
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if token == "" || baseURL == "" {
+		return ""
+	}
+	return baseURL + routePrefix + url.PathEscape(token)
+}
+
+func trackedHTMLBody(textBody, trackingURL, trackingBaseURL string) (string, []moduleemailmessages.TrackedLinkInput) {
+	var body strings.Builder
+	links := make([]moduleemailmessages.TrackedLinkInput, 0)
+	last := 0
+	for _, loc := range emailBodyURLPattern.FindAllStringIndex(textBody, -1) {
+		if loc[0] < last {
+			continue
+		}
+		candidate := textBody[loc[0]:loc[1]]
+		targetURL, trailing := splitEmailBodyURL(candidate)
+		if targetURL == "" || !isSafeEmailClickURL(targetURL) {
+			continue
+		}
+		appendEscapedEmailHTML(&body, textBody[last:loc[0]])
+		href := targetURL
+		if trackingBaseURL != "" && len(links) < 100 {
+			clickToken := newEmailTrackingToken()
+			clickURL := emailClickTrackingURL(trackingBaseURL, clickToken)
+			if clickURL != "" {
+				href = clickURL
+				links = append(links, moduleemailmessages.TrackedLinkInput{ClickToken: clickToken, TargetURL: targetURL})
+			}
+		}
+		body.WriteString(`<a href="` + html.EscapeString(href) + `">` + html.EscapeString(targetURL) + `</a>`)
+		appendEscapedEmailHTML(&body, trailing)
+		last = loc[1]
+	}
+	appendEscapedEmailHTML(&body, textBody[last:])
+	return `<!doctype html><html><body><div>` + body.String() + `</div><img src="` + html.EscapeString(trackingURL) + `" width="1" height="1" alt="" style="display:none" /></body></html>`, links
+}
+
+func appendEscapedEmailHTML(builder *strings.Builder, value string) {
+	escaped := html.EscapeString(value)
 	escaped = strings.ReplaceAll(escaped, "\r\n", "\n")
 	escaped = strings.ReplaceAll(escaped, "\r", "\n")
 	escaped = strings.ReplaceAll(escaped, "\n", "<br>\n")
-	return `<!doctype html><html><body><div>` + escaped + `</div><img src="` + html.EscapeString(trackingURL) + `" width="1" height="1" alt="" style="display:none" /></body></html>`
+	builder.WriteString(escaped)
+}
+
+func splitEmailBodyURL(value string) (string, string) {
+	targetURL := strings.TrimRight(value, ".,;:!?)]}")
+	if targetURL == "" {
+		return "", value
+	}
+	return targetURL, value[len(targetURL):]
 }
 
 func logEntityEmailNote(r *http.Request, notes notesService, organizationID, userID int64, entityType string, entityID int64, subject string) {
@@ -359,7 +417,7 @@ func logEntityEmailNote(r *http.Request, notes notesService, organizationID, use
 	})
 }
 
-func recordEntityEmail(r *http.Request, messages emailMessagesService, organizationID, userID int64, entityType string, entityID int64, to, subject, body, status, errMsg, trackingToken string) {
+func recordEntityEmail(r *http.Request, messages emailMessagesService, organizationID, userID int64, entityType string, entityID int64, to, subject, body, status, errMsg, trackingToken string, trackedLinks []moduleemailmessages.TrackedLinkInput) {
 	if messages == nil {
 		return
 	}
@@ -373,5 +431,6 @@ func recordEntityEmail(r *http.Request, messages emailMessagesService, organizat
 		EntityID:      entityID,
 		SentByUserID:  userID,
 		TrackingToken: trackingToken,
+		TrackedLinks:  trackedLinks,
 	})
 }

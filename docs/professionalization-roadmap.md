@@ -1774,6 +1774,7 @@ Progress:
 - `1.1.6` (personal mailbox/sent view): complete. Added member-safe `GET /api/me/email-messages` backed by `emailmessages.ListBySender`, plus a primary-nav "Mailbox" page showing the current user's sent CRM emails and links back to source contacts/companies/deals. Backend scoping test and frontend route test added.
 - `1.1.6` (email message detail): complete. Added `GET /api/email-messages/{id}` with admin-or-sender access control so users can inspect full body/error detail without exposing other users' message bodies to members. The Mailbox and admin Email Log now include "View details" panels. Backend access-control tests and frontend detail tests added.
 - `1.1.4` (open tracking foundation): complete. Added migration `019_email_open_tracking.sql` with tracking tokens and open counters, a public no-auth tracking-pixel endpoint (`GET /api/email-messages/open/{token}`), multipart text+HTML SMTP sends with a hidden tracking pixel for CRM customer email, and open-count display in Mailbox/Admin Email Log. Backend tracking/MIME tests and frontend open-count assertions added.
+- `1.1.4` (click tracking foundation): complete. Added migration `020_email_click_tracking.sql` with aggregate click counters plus a per-link token table, rewrote HTTP(S) URLs in outbound CRM email HTML through a public tracked redirect (`GET /api/email-messages/click/{token}`), and added click-count display in Mailbox/Admin Email Log. Backend redirect/link-recording tests and frontend click-count assertions added.
 
 Candidate slices:
 

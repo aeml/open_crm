@@ -24,6 +24,15 @@ function openStatus(message) {
   return `Opened ${count} ${suffix}`
 }
 
+function clickStatus(message) {
+  const count = Number.parseInt(String(message?.clickCount || 0), 10) || 0
+  if (count <= 0) {
+    return 'No clicks yet'
+  }
+  const suffix = count === 1 ? 'time' : 'times'
+  return `Clicked ${count} ${suffix}`
+}
+
 export function SettingsEmailLogRoute() {
   const { session } = useAuth()
   usePageTitle('Email Log')
@@ -110,6 +119,7 @@ export function SettingsEmailLogRoute() {
                   <h3>{message.subject}</h3>
                   <p className="field-hint">To {message.toEmail} · {message.sentByName || 'Unknown sender'}{message.status === 'failed' ? ' · Failed' : ''}</p>
                   <p className="field-hint">{openStatus(message)}</p>
+                  <p className="field-hint">{clickStatus(message)}</p>
                 </div>
                 <div>
                   <p>{formatTimestamp(message.createdAt)}</p>
@@ -127,6 +137,7 @@ export function SettingsEmailLogRoute() {
                   <h3>{selectedMessage.subject}</h3>
                   <p className="field-hint">To {selectedMessage.toEmail} · {selectedMessage.sentByName || 'Unknown sender'} · {formatTimestamp(selectedMessage.createdAt)}</p>
                   <p className="field-hint">{openStatus(selectedMessage)}</p>
+                  <p className="field-hint">{clickStatus(selectedMessage)}</p>
                 </div>
                 {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}
                 <pre className="field-hint message-body">{selectedMessage.body}</pre>

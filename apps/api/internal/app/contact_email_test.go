@@ -188,7 +188,7 @@ func TestSendContactEmailRecordsToLog(t *testing.T) {
 		EmailMessagesService: messages,
 	})
 
-	body := bytes.NewBufferString(`{"subject":"Hi {{first_name}}","body":"Hello"}`)
+	body := bytes.NewBufferString(`{"subject":"Hi {{first_name}}","body":"Hello https://example.test/demo."}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -207,7 +207,13 @@ func TestSendContactEmailRecordsToLog(t *testing.T) {
 	if messages.lastRecord.TrackingToken == "" {
 		t.Fatalf("expected sent email to include a tracking token")
 	}
+	if len(messages.lastRecord.TrackedLinks) != 1 || messages.lastRecord.TrackedLinks[0].TargetURL != "https://example.test/demo" {
+		t.Fatalf("expected tracked link to be recorded, got %#v", messages.lastRecord.TrackedLinks)
+	}
 	if accounts.sendHTMLBody == "" || !strings.Contains(accounts.sendHTMLBody, "/api/email-messages/open/") {
 		t.Fatalf("expected HTML tracking pixel, got %q", accounts.sendHTMLBody)
+	}
+	if !strings.Contains(accounts.sendHTMLBody, "/api/email-messages/click/") {
+		t.Fatalf("expected HTML click tracking link, got %q", accounts.sendHTMLBody)
 	}
 }

@@ -165,6 +165,7 @@ type emailMessagesService interface {
 	ListByEntity(context.Context, int64, string, int64) ([]moduleemailmessages.Message, error)
 	ListBySender(context.Context, int64, int64, int) ([]moduleemailmessages.Message, error)
 	MarkOpenedByToken(context.Context, string) error
+	MarkClickedByToken(context.Context, string) (string, error)
 }
 
 type Dependencies struct {
@@ -667,6 +668,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/email-messages/open/{trackingToken}", func(w http.ResponseWriter, r *http.Request) {
 		handleTrackEmailOpen(dependencies.EmailMessagesService, w, r)
+	})
+	mux.HandleFunc("GET /api/email-messages/click/{clickToken}", func(w http.ResponseWriter, r *http.Request) {
+		handleTrackEmailClick(dependencies.EmailMessagesService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailMessages(dependencies.AuthService, dependencies.EmailMessagesService, w, r)
