@@ -121,6 +121,12 @@
   gap: var(--space-4);
 }
 
+.message-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .auth-stack {
   gap: var(--space-3);
 }

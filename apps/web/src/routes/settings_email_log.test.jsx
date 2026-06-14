@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 
 afterEach(() => {
@@ -34,6 +34,16 @@ describe('settings email log route', () => {
           })
         }
       }
+      if (path.endsWith('/api/email-messages/1')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              message: { id: 1, toEmail: 'lead@acme.test', subject: 'Following up', body: 'Admin-visible full body.', status: 'sent', sentByName: 'Demo Owner', createdAt: '2026-05-01T12:00:00Z' }
+            }
+          })
+        }
+      }
       return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
     })
 
@@ -45,5 +55,7 @@ describe('settings email log route', () => {
     expect(await screen.findByRole('heading', { name: /email log/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /following up/i })).toBeInTheDocument()
     expect(screen.getByText(/to lead@acme.test/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }))
+    expect(await screen.findByText(/admin-visible full body/i)).toBeInTheDocument()
   })
 })

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 
 afterEach(() => {
@@ -22,6 +22,9 @@ describe('mailbox route', () => {
           { id: 10, toEmail: 'lead@acme.test', subject: 'Following up', status: 'sent', entityType: 'deal', entityId: 22, createdAt: '2026-05-01T12:00:00Z' }
         ] } }) }
       }
+      if (path.endsWith('/api/email-messages/10')) {
+        return { ok: true, json: async () => ({ data: { message: { id: 10, toEmail: 'lead@acme.test', subject: 'Following up', body: 'Thanks for talking today.', status: 'sent', entityType: 'deal', entityId: 22, createdAt: '2026-05-01T12:00:00Z' } } }) }
+      }
       return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
     })
 
@@ -37,5 +40,7 @@ describe('mailbox route', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/me\/email-messages$/), expect.any(Object))
     })
+    fireEvent.click(screen.getByRole('button', { name: /view details/i }))
+    expect(await screen.findByText(/thanks for talking today/i)).toBeInTheDocument()
   })
 })

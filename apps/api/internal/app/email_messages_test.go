@@ -17,9 +17,12 @@ type fakeEmailMessagesService struct {
 	orgResult    []moduleemailmessages.Message
 	entityResult []moduleemailmessages.Message
 	senderResult []moduleemailmessages.Message
+	getResult    moduleemailmessages.Message
+	getErr       error
 	recordErr    error
 	lastRecord   moduleemailmessages.RecordInput
 	lastOrgID    int64
+	lastGetID    int64
 	lastEntity   string
 	lastEntityID int64
 	lastSenderID int64
@@ -29,6 +32,12 @@ func (f *fakeEmailMessagesService) Record(_ context.Context, organizationID int6
 	f.lastOrgID = organizationID
 	f.lastRecord = input
 	return f.recordErr
+}
+
+func (f *fakeEmailMessagesService) GetByID(_ context.Context, organizationID, messageID int64) (moduleemailmessages.Message, error) {
+	f.lastOrgID = organizationID
+	f.lastGetID = messageID
+	return f.getResult, f.getErr
 }
 
 func (f *fakeEmailMessagesService) ListByOrganization(_ context.Context, organizationID int64, _ int) ([]moduleemailmessages.Message, error) {
@@ -149,5 +158,63 @@ func TestMyEmailMessagesAllowsMemberAndScopesToCurrentUser(t *testing.T) {
 	}
 	if len(response.Data.Messages) != 1 || response.Data.Messages[0].Subject != "Intro" {
 		t.Fatalf("unexpected sent email payload: %#v", response.Data.Messages)
+	}
+}
+
+func TestEmailMessageDetailAllowsSender(t *testing.T) {
+	service := &fakeEmailMessagesService{
+		getResult: moduleemailmessages.Message{ID: 3, ToEmail: "lead@example.test", Subject: "Intro", Body: "Full body", Status: "sent", SentByUserID: 1, CreatedAt: time.Now()},
+	}
+	server := emailMessagesServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/email-messages/3", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for sender detail, got %d", recorder.Code)
+	}
+	if service.lastOrgID != 42 || service.lastGetID != 3 {
+		t.Fatalf("unexpected detail lookup: org=%d id=%d", service.lastOrgID, service.lastGetID)
+	}
+	var response emailMessageDetailResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Message.Body != "Full body" {
+		t.Fatalf("expected body in detail response, got %#v", response.Data.Message)
+	}
+}
+
+func TestEmailMessageDetailRejectsOtherMember(t *testing.T) {
+	service := &fakeEmailMessagesService{
+		getResult: moduleemailmessages.Message{ID: 4, ToEmail: "lead@example.test", Subject: "Intro", Body: "Full body", Status: "sent", SentByUserID: 2, CreatedAt: time.Now()},
+	}
+	server := emailMessagesServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/email-messages/4", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for another user's message, got %d", recorder.Code)
+	}
+}
+
+func TestEmailMessageDetailAllowsAdmin(t *testing.T) {
+	service := &fakeEmailMessagesService{
+		getResult: moduleemailmessages.Message{ID: 4, ToEmail: "lead@example.test", Subject: "Intro", Body: "Admin body", Status: "sent", SentByUserID: 2, CreatedAt: time.Now()},
+	}
+	server := emailMessagesServer(service, "admin")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/email-messages/4", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for admin detail, got %d", recorder.Code)
 	}
 }

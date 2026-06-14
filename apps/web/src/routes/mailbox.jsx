@@ -4,7 +4,7 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { isAbortError } from '../lib/api'
-import { listMyEmailMessages } from '../lib/email_messages'
+import { getEmailMessage, listMyEmailMessages } from '../lib/email_messages'
 import { usePageTitle } from '../lib/use_page_title'
 
 function formatTimestamp(value) {
@@ -41,8 +41,11 @@ function recordLabel(message) {
 export function MailboxRoute() {
   usePageTitle('Mailbox')
   const [messages, setMessages] = useState([])
+  const [selectedMessage, setSelectedMessage] = useState(null)
   const [error, setError] = useState('')
+  const [detailError, setDetailError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [isDetailLoading, setIsDetailLoading] = useState(false)
 
   async function load({ signal } = {}) {
     setIsLoading(true)
@@ -66,6 +69,21 @@ export function MailboxRoute() {
     load({ signal: controller.signal })
     return () => controller.abort()
   }, [])
+
+  async function handleSelectMessage(messageId) {
+    setIsDetailLoading(true)
+    setDetailError('')
+    try {
+      const message = await getEmailMessage(messageId)
+      setSelectedMessage(message)
+    } catch (loadError) {
+      if (!isAbortError(loadError)) {
+        setDetailError(loadError.message || 'Unable to load email message.')
+      }
+    } finally {
+      setIsDetailLoading(false)
+    }
+  }
 
   return (
     <section className="dashboard-grid settings-grid">
@@ -102,12 +120,27 @@ export function MailboxRoute() {
                   </div>
                   <div>
                     <p>{formatTimestamp(message.createdAt)}</p>
+                    <Button className="button-secondary" type="button" onClick={() => handleSelectMessage(message.id)}>View details</Button>
                     {path ? <Link className="button button-ghost" to={path}>Open {label}</Link> : null}
                   </div>
                 </article>
               )
             })}
           </div>
+          {isDetailLoading ? <p className="field-hint">Loading message details...</p> : null}
+          {detailError ? <InlineError message={detailError} /> : null}
+          {selectedMessage ? (
+            <Card>
+              <div className="card-stack">
+                <div>
+                  <h3>{selectedMessage.subject}</h3>
+                  <p className="field-hint">To {selectedMessage.toEmail} · {formatTimestamp(selectedMessage.createdAt)}</p>
+                </div>
+                {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}
+                <pre className="field-hint message-body">{selectedMessage.body}</pre>
+              </div>
+            </Card>
+          ) : null}
         </div>
       </Card>
     </section>

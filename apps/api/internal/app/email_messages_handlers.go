@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -21,6 +22,28 @@ type emailMessageView struct {
 	ID         int64  `json:"id"`
 	ToEmail    string `json:"toEmail"`
 	Subject    string `json:"subject"`
+	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
+	EntityType string `json:"entityType,omitempty"`
+	EntityID   int64  `json:"entityId,omitempty"`
+	SentByName string `json:"sentByName,omitempty"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+type emailMessageDetailResponse struct {
+	Data struct {
+		Message emailMessageDetailView `json:"message"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type emailMessageDetailView struct {
+	ID         int64  `json:"id"`
+	ToEmail    string `json:"toEmail"`
+	Subject    string `json:"subject"`
+	Body       string `json:"body"`
 	Status     string `json:"status"`
 	Error      string `json:"error,omitempty"`
 	EntityType string `json:"entityType,omitempty"`
@@ -105,6 +128,41 @@ func handleListMyEmailMessages(auth authService, messages emailMessagesService, 
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
+func handleGetEmailMessage(auth authService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if messages == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email log service unavailable")
+		return
+	}
+	messageID, ok := parsePathInt64(w, r, "messageID")
+	if !ok {
+		return
+	}
+
+	message, err := messages.GetByID(r.Context(), state.Organization.ID, messageID)
+	if err != nil {
+		if errors.Is(err, moduleemailmessages.ErrNotFound) {
+			platformweb.WriteNotFound(w, requestID)
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load email message")
+		return
+	}
+	if !isOrgAdminRole(state.Membership.Role) && message.SentByUserID != state.User.ID {
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "You can only view email messages you sent")
+		return
+	}
+
+	response := emailMessageDetailResponse{}
+	response.Data.Message = toEmailMessageDetailView(message)
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
 func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageView {
 	views := make([]emailMessageView, 0, len(records))
 	for _, m := range records {
@@ -121,4 +179,19 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 		})
 	}
 	return views
+}
+
+func toEmailMessageDetailView(m moduleemailmessages.Message) emailMessageDetailView {
+	return emailMessageDetailView{
+		ID:         m.ID,
+		ToEmail:    m.ToEmail,
+		Subject:    m.Subject,
+		Body:       m.Body,
+		Status:     m.Status,
+		Error:      m.Error,
+		EntityType: m.EntityType,
+		EntityID:   m.EntityID,
+		SentByName: m.SentByName,
+		CreatedAt:  m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+	}
 }

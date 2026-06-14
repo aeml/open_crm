@@ -1772,6 +1772,7 @@ Progress:
 - `1.1.2` (admin sets member mailbox): complete. Org admins/owners can connect, view, and remove a team member's mailbox via `GET/PUT/DELETE /api/users/{id}/email-account` (membership-verified before write). Frontend: a "Set up email for a member" panel on the Users settings page with a member selector. Backend handler tests (admin gating, non-member rejection) and a frontend flow test added.
 - `1.1.6` (send-from-company/deal): complete. Added `POST /api/companies/{id}/email` and `POST /api/deals/{id}/email`, both sending through the current user's connected mailbox, rendering record-specific merge fields, recording to `email_messages`, and adding a note to the source record. Frontend: shared record email composer on company and deal detail pages with lazy template/history loading. Backend company/deal send tests and a frontend company-send flow test added.
 - `1.1.6` (personal mailbox/sent view): complete. Added member-safe `GET /api/me/email-messages` backed by `emailmessages.ListBySender`, plus a primary-nav "Mailbox" page showing the current user's sent CRM emails and links back to source contacts/companies/deals. Backend scoping test and frontend route test added.
+- `1.1.6` (email message detail): complete. Added `GET /api/email-messages/{id}` with admin-or-sender access control so users can inspect full body/error detail without exposing other users' message bodies to members. The Mailbox and admin Email Log now include "View details" panels. Backend access-control tests and frontend detail tests added.
 
 Candidate slices:
 

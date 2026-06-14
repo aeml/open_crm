@@ -6,12 +6,16 @@ package emailmessages
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrNotFound = errors.New("email message not found")
 
 type Message struct {
 	ID           int64     `json:"id"`
@@ -100,6 +104,23 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	}
 	defer rows.Close()
 	return scanMessages(rows)
+}
+
+// GetByID returns one email message scoped to an organization.
+func (s *Service) GetByID(ctx context.Context, organizationID, messageID int64) (Message, error) {
+	if s == nil || s.pool == nil {
+		return Message{}, fmt.Errorf("email messages service not configured")
+	}
+	var m Message
+	if err := s.pool.QueryRow(ctx, baseSelect+`
+		WHERE m.organization_id = $1 AND m.id = $2
+	`, organizationID, messageID).Scan(&m.ID, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error, &m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Message{}, ErrNotFound
+		}
+		return Message{}, fmt.Errorf("get email message: %w", err)
+	}
+	return m, nil
 }
 
 // ListByEntity returns emails linked to a specific CRM record.

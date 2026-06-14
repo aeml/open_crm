@@ -19,3 +19,9 @@ export async function listMyEmailMessages({ limit, signal } = {}) {
 
   return payload?.data?.messages || []
 }
+
+export async function getEmailMessage(messageId, { signal } = {}) {
+  const payload = await apiRequest(`/api/email-messages/${messageId}`, { fallbackMessage: 'Unable to load email message.', signal })
+
+  return payload?.data?.message
+}
