@@ -39,6 +39,37 @@ type EnrollmentInput struct {
 	EnrolledByUserID int64
 }
 
+type DueSend struct {
+	OrganizationID   int64
+	EnrollmentID     int64
+	SequenceID       int64
+	ContactID        int64
+	EnrolledByUserID int64
+	CurrentStepOrder int
+	ContactFirstName string
+	ContactLastName  string
+	ContactEmail     string
+	ContactJobTitle  string
+	Subject          string
+	Body             string
+}
+
+const selectDueSendsSQL = `
+	SELECT e.organization_id, e.id, e.sequence_id, e.contact_id, COALESCE(e.enrolled_by_user_id, 0), e.current_step_order,
+	       contact.first_name, contact.last_name, COALESCE(contact.email, ''), COALESCE(contact.job_title, ''), step.subject, step.body
+	FROM email_sequence_enrollments e
+	JOIN email_sequences seq ON seq.id = e.sequence_id AND seq.organization_id = e.organization_id AND seq.status = 'active'
+	JOIN email_sequence_steps step ON step.sequence_id = e.sequence_id AND step.step_order = e.current_step_order
+	JOIN contacts contact ON contact.id = e.contact_id AND contact.organization_id = e.organization_id AND contact.archived_at IS NULL
+	WHERE e.status = 'active'
+	  AND e.next_send_at IS NOT NULL
+	  AND e.next_send_at <= NOW()
+	  AND e.enrolled_by_user_id IS NOT NULL
+	  AND COALESCE(contact.email, '') <> ''
+	ORDER BY e.next_send_at ASC, e.id ASC
+	LIMIT $1
+`
+
 func (s *Service) ListEnrollmentsByContact(ctx context.Context, organizationID, contactID int64) ([]Enrollment, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("email sequences service not configured")
@@ -124,6 +155,95 @@ func (s *Service) CancelEnrollment(ctx context.Context, organizationID, enrollme
 	`, organizationID, enrollmentID)
 	if err != nil {
 		return fmt.Errorf("cancel email sequence enrollment: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Service) ListDueSends(ctx context.Context, limit int) ([]DueSend, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("email sequences service not configured")
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 25
+	}
+	rows, err := s.pool.Query(ctx, selectDueSendsSQL, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list due email sequence sends: %w", err)
+	}
+	defer rows.Close()
+
+	due := make([]DueSend, 0)
+	for rows.Next() {
+		var send DueSend
+		if err := rows.Scan(&send.OrganizationID, &send.EnrollmentID, &send.SequenceID, &send.ContactID, &send.EnrolledByUserID, &send.CurrentStepOrder, &send.ContactFirstName, &send.ContactLastName, &send.ContactEmail, &send.ContactJobTitle, &send.Subject, &send.Body); err != nil {
+			return nil, fmt.Errorf("scan due email sequence send: %w", err)
+		}
+		due = append(due, send)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate due email sequence sends: %w", err)
+	}
+	return due, nil
+}
+
+func (s *Service) MarkStepSent(ctx context.Context, organizationID, enrollmentID int64, currentStepOrder int) error {
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("email sequences service not configured")
+	}
+	if organizationID <= 0 || enrollmentID <= 0 || currentStepOrder <= 0 {
+		return ErrInvalidInput
+	}
+	tag, err := s.pool.Exec(ctx, `
+		WITH current_enrollment AS (
+			SELECT id, sequence_id
+			FROM email_sequence_enrollments
+			WHERE organization_id = $1 AND id = $2 AND status = 'active' AND current_step_order = $3
+		), next_step AS (
+			SELECT step.step_order, step.delay_days
+			FROM email_sequence_steps step
+			JOIN current_enrollment e ON e.sequence_id = step.sequence_id
+			WHERE step.step_order > $3
+			ORDER BY step.step_order ASC
+			LIMIT 1
+		)
+		UPDATE email_sequence_enrollments e
+		SET last_sent_at = NOW(),
+		    current_step_order = COALESCE((SELECT step_order FROM next_step), e.current_step_order),
+		    next_send_at = CASE WHEN EXISTS (SELECT 1 FROM next_step) THEN NOW() + ((SELECT delay_days FROM next_step) * INTERVAL '1 day') ELSE NULL END,
+		    status = CASE WHEN EXISTS (SELECT 1 FROM next_step) THEN 'active' ELSE 'completed' END,
+		    completed_at = CASE WHEN EXISTS (SELECT 1 FROM next_step) THEN e.completed_at ELSE COALESCE(e.completed_at, NOW()) END,
+		    updated_at = NOW()
+		WHERE e.organization_id = $1 AND e.id IN (SELECT id FROM current_enrollment)
+	`, organizationID, enrollmentID, currentStepOrder)
+	if err != nil {
+		return fmt.Errorf("mark email sequence step sent: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Service) PostponeEnrollment(ctx context.Context, organizationID, enrollmentID int64, retryMinutes int) error {
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("email sequences service not configured")
+	}
+	if organizationID <= 0 || enrollmentID <= 0 {
+		return ErrInvalidInput
+	}
+	if retryMinutes <= 0 || retryMinutes > 24*60 {
+		retryMinutes = 60
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE email_sequence_enrollments
+		SET next_send_at = NOW() + ($3::int * INTERVAL '1 minute'), updated_at = NOW()
+		WHERE organization_id = $1 AND id = $2 AND status = 'active'
+	`, organizationID, enrollmentID, retryMinutes)
+	if err != nil {
+		return fmt.Errorf("postpone email sequence enrollment: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

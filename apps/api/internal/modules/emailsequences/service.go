@@ -1,6 +1,6 @@
 // Package emailsequences stores reusable, organization-scoped outreach cadence
-// definitions. This package only manages sequence definitions and steps;
-// enrollment, scheduling, and automatic sending are added in later slices.
+// definitions plus enrollment scheduler state. Sending is coordinated by the
+// sequencerunner module so mailbox delivery stays decoupled from storage.
 package emailsequences
 
 import (

@@ -32,6 +32,7 @@ import (
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
+	modulesequencerunner "github.com/aeml/open_crm/apps/api/internal/modules/sequencerunner"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
@@ -84,6 +85,7 @@ func main() {
 	var userEmailService *moduleuseremail.Service
 	var emailMessagesService *moduleemailmessages.Service
 	var mailboxSyncService *modulemailboxsync.Service
+	var sequenceRunnerService *modulesequencerunner.Service
 	credentialCipher, cipherErr := platformsecrets.NewCipherFromBase64(env.CredentialEncryptionKey)
 	if cipherErr != nil {
 		log.Printf("credential encryption disabled: %v", cipherErr)
@@ -114,6 +116,7 @@ func main() {
 			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
 			emailMessagesService = moduleemailmessages.NewService(pool)
 			mailboxSyncService = modulemailboxsync.NewService(userEmailService, emailMessagesService, nil)
+			sequenceRunnerService = modulesequencerunner.NewService(emailSequencesService, userEmailService, emailMessagesService)
 		}
 	}
 
@@ -121,6 +124,9 @@ func main() {
 	defer stop()
 	if mailboxSyncService != nil && mailboxSyncService.Configured() {
 		go mailboxSyncService.RunWorker(ctx, logger, 0, 0)
+	}
+	if sequenceRunnerService != nil && sequenceRunnerService.Configured() {
+		go sequenceRunnerService.RunWorker(ctx, logger, 0, 0)
 	}
 
 	server := newHTTPServer(env, app.NewServer(env, app.Dependencies{
