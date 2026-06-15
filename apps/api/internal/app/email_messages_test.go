@@ -14,24 +14,26 @@ import (
 )
 
 type fakeEmailMessagesService struct {
-	orgResult         []moduleemailmessages.Message
-	entityResult      []moduleemailmessages.Message
-	senderResult      []moduleemailmessages.Message
-	mailboxResult     []moduleemailmessages.Message
-	getResult         moduleemailmessages.Message
-	getErr            error
-	recordErr         error
-	lastRecord        moduleemailmessages.RecordInput
-	lastOrgID         int64
-	lastGetID         int64
-	lastEntity        string
-	lastEntityID      int64
-	lastSenderID      int64
-	lastMailboxUserID int64
-	lastOpenedToken   string
-	lastClickedToken  string
-	clickTargetURL    string
-	clickErr          error
+	orgResult          []moduleemailmessages.Message
+	entityResult       []moduleemailmessages.Message
+	senderResult       []moduleemailmessages.Message
+	mailboxResult      []moduleemailmessages.Message
+	getResult          moduleemailmessages.Message
+	getErr             error
+	recordErr          error
+	lastRecord         moduleemailmessages.RecordInput
+	lastOrgID          int64
+	lastGetID          int64
+	lastEntity         string
+	lastEntityID       int64
+	lastEntityViewer   int64
+	lastIncludePrivate bool
+	lastSenderID       int64
+	lastMailboxUserID  int64
+	lastOpenedToken    string
+	lastClickedToken   string
+	clickTargetURL     string
+	clickErr           error
 }
 
 func (f *fakeEmailMessagesService) Record(_ context.Context, organizationID int64, input moduleemailmessages.RecordInput) error {
@@ -51,10 +53,12 @@ func (f *fakeEmailMessagesService) ListByOrganization(_ context.Context, organiz
 	return f.orgResult, nil
 }
 
-func (f *fakeEmailMessagesService) ListByEntity(_ context.Context, organizationID int64, entityType string, entityID int64) ([]moduleemailmessages.Message, error) {
+func (f *fakeEmailMessagesService) ListByEntity(_ context.Context, organizationID int64, entityType string, entityID, viewerUserID int64, includePrivate bool) ([]moduleemailmessages.Message, error) {
 	f.lastOrgID = organizationID
 	f.lastEntity = entityType
 	f.lastEntityID = entityID
+	f.lastEntityViewer = viewerUserID
+	f.lastIncludePrivate = includePrivate
 	return f.entityResult, nil
 }
 
@@ -148,8 +152,27 @@ func TestEmailLogPerRecordAllowsMember(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200 for member per-record history, got %d", recorder.Code)
 	}
-	if service.lastEntity != "contact" || service.lastEntityID != 7 || service.lastOrgID != 42 {
-		t.Fatalf("unexpected entity scoping: org=%d type=%s id=%d", service.lastOrgID, service.lastEntity, service.lastEntityID)
+	if service.lastEntity != "contact" || service.lastEntityID != 7 || service.lastOrgID != 42 || service.lastEntityViewer != 1 || service.lastIncludePrivate {
+		t.Fatalf("unexpected entity scoping: org=%d type=%s id=%d viewer=%d includePrivate=%v", service.lastOrgID, service.lastEntity, service.lastEntityID, service.lastEntityViewer, service.lastIncludePrivate)
+	}
+}
+
+func TestEmailLogPerRecordAdminIncludesPrivate(t *testing.T) {
+	service := &fakeEmailMessagesService{
+		entityResult: []moduleemailmessages.Message{{ID: 2, ToEmail: "c@d.test", Subject: "Follow up", Status: "sent", EntityType: "contact", EntityID: 7, CreatedAt: time.Now()}},
+	}
+	server := emailMessagesServer(service, "admin")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/email-messages?entityType=contact&entityId=7", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for admin per-record history, got %d", recorder.Code)
+	}
+	if service.lastEntityViewer != 1 || !service.lastIncludePrivate {
+		t.Fatalf("expected admin per-record history to include private messages, viewer=%d includePrivate=%v", service.lastEntityViewer, service.lastIncludePrivate)
 	}
 }
 

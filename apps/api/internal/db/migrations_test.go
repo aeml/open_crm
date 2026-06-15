@@ -141,3 +141,29 @@ func TestMigrationFilesIncludeEmailMessageEntityLinksMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeEmailMessageVisibilityMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "026_email_message_visibility.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected email message visibility migration to be registered")
+	}
+
+	sql := MigrationSQL("026_email_message_visibility.sql")
+	if sql == "" {
+		t.Fatal("expected email message visibility migration SQL to be embedded")
+	}
+	for _, expected := range []string{"visibility", "email_messages_visibility_check", "direction = 'inbound'"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected email message visibility migration to include %s", expected)
+		}
+	}
+}

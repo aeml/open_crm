@@ -29,6 +29,7 @@ type Message struct {
 	Subject        string     `json:"subject"`
 	Body           string     `json:"body"`
 	Status         string     `json:"status"`
+	Visibility     string     `json:"visibility"`
 	Error          string     `json:"error,omitempty"`
 	EntityType     string     `json:"entityType,omitempty"`
 	EntityID       int64      `json:"entityId,omitempty"`
@@ -64,6 +65,7 @@ type RecordInput struct {
 	Subject       string
 	Body          string
 	Status        string
+	Visibility    string
 	Error         string
 	EntityType    string
 	EntityID      int64
@@ -84,6 +86,7 @@ type InboundInput struct {
 	EntityType        string
 	EntityID          int64
 	EntityLinks       []EntityLinkInput
+	Visibility        string
 }
 
 type Service struct {
@@ -121,6 +124,7 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 	if trackingToken != "" {
 		token = &trackingToken
 	}
+	visibility := normalizedVisibility(input.Visibility, "shared")
 	links := sanitizedTrackedLinks(input.TrackedLinks)
 	entityLinks := sanitizedEntityLinks([]EntityLinkInput{{EntityType: input.EntityType, EntityID: input.EntityID}})
 	tx, err := s.pool.Begin(ctx)
@@ -131,10 +135,10 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 
 	var messageID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO email_messages (organization_id, direction, from_email, to_email, subject, body, status, error, entity_type, entity_id, sent_by_user_id, mailbox_user_id, tracking_token)
-		VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO email_messages (organization_id, direction, from_email, to_email, subject, body, status, visibility, error, entity_type, entity_id, sent_by_user_id, mailbox_user_id, tracking_token)
+		VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id
-	`, organizationID, strings.TrimSpace(input.FromEmail), input.ToEmail, input.Subject, input.Body, status, input.Error, strings.TrimSpace(input.EntityType), entityID, sentBy, mailboxUserID, token).Scan(&messageID); err != nil {
+	`, organizationID, strings.TrimSpace(input.FromEmail), input.ToEmail, input.Subject, input.Body, status, visibility, input.Error, strings.TrimSpace(input.EntityType), entityID, sentBy, mailboxUserID, token).Scan(&messageID); err != nil {
 		return fmt.Errorf("record email message: %w", err)
 	}
 	for _, link := range links {
@@ -186,6 +190,7 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 		input.EntityID = entityLinks[0].EntityID
 		entityID = &input.EntityID
 	}
+	visibility := normalizedVisibility(input.Visibility, "private")
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -196,11 +201,11 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 	var messageID int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO email_messages
-			(organization_id, direction, from_email, to_email, subject, body, status, entity_type, entity_id, mailbox_user_id, provider_message_id, provider_thread_id, received_at)
-		VALUES ($1, 'inbound', $2, $3, $4, $5, 'received', $6, $7, $8, $9, $10, $11)
+			(organization_id, direction, from_email, to_email, subject, body, status, visibility, entity_type, entity_id, mailbox_user_id, provider_message_id, provider_thread_id, received_at)
+		VALUES ($1, 'inbound', $2, $3, $4, $5, 'received', $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (organization_id, mailbox_user_id, provider_message_id) WHERE provider_message_id <> '' DO NOTHING
 		RETURNING id
-	`, organizationID, input.FromEmail, input.ToEmail, input.Subject, input.Body, strings.TrimSpace(input.EntityType), entityID, input.MailboxUserID, input.ProviderMessageID, input.ProviderThreadID, receivedAt).Scan(&messageID)
+	`, organizationID, input.FromEmail, input.ToEmail, input.Subject, input.Body, visibility, strings.TrimSpace(input.EntityType), entityID, input.MailboxUserID, input.ProviderMessageID, input.ProviderThreadID, receivedAt).Scan(&messageID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -334,6 +339,21 @@ func sanitizedTrackedLinks(input []TrackedLinkInput) []TrackedLinkInput {
 	return links
 }
 
+func normalizedVisibility(value, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "shared":
+		return "shared"
+	case "private":
+		return "private"
+	}
+	switch strings.ToLower(strings.TrimSpace(fallback)) {
+	case "private":
+		return "private"
+	default:
+		return "shared"
+	}
+}
+
 func sanitizedEntityLinks(input []EntityLinkInput) []EntityLinkInput {
 	links := make([]EntityLinkInput, 0, len(input))
 	for _, link := range input {
@@ -401,7 +421,7 @@ func contactEntityIDs(links []EntityLinkInput) []int64 {
 
 const baseSelect = `
 	SELECT m.id, m.direction, m.from_email, m.to_email, m.subject, m.body, m.status, m.error,
-	       m.entity_type, COALESCE(m.entity_id, 0), COALESCE(m.sent_by_user_id, 0),
+	       COALESCE(m.visibility, 'shared'), m.entity_type, COALESCE(m.entity_id, 0), COALESCE(m.sent_by_user_id, 0),
 	       COALESCE(u.first_name || ' ' || u.last_name, ''), COALESCE(m.mailbox_user_id, 0),
 	       COALESCE(m.provider_message_id, ''), COALESCE(m.provider_thread_id, ''), COALESCE(m.tracking_token, ''),
 	       COALESCE(m.open_count, 0), m.first_opened_at, m.last_opened_at,
@@ -447,8 +467,9 @@ func (s *Service) GetByID(ctx context.Context, organizationID, messageID int64) 
 	return m, nil
 }
 
-// ListByEntity returns emails linked to a specific CRM record.
-func (s *Service) ListByEntity(ctx context.Context, organizationID int64, entityType string, entityID int64) ([]Message, error) {
+// ListByEntity returns emails linked to a specific CRM record. Private messages
+// are limited to admins, senders, and mailbox owners.
+func (s *Service) ListByEntity(ctx context.Context, organizationID int64, entityType string, entityID, viewerUserID int64, includePrivate bool) ([]Message, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("email messages service not configured")
 	}
@@ -464,9 +485,14 @@ func (s *Service) ListByEntity(ctx context.Context, organizationID int64, entity
 		        AND link.entity_id = $3
 		    )
 		  )
+		  AND (
+		    COALESCE(m.visibility, 'shared') = 'shared'
+		    OR $4
+		    OR ($5 > 0 AND (m.sent_by_user_id = $5 OR m.mailbox_user_id = $5))
+		  )
 		ORDER BY COALESCE(m.received_at, m.created_at) DESC, m.id DESC
 		LIMIT 100
-	`, organizationID, strings.TrimSpace(entityType), entityID)
+	`, organizationID, strings.TrimSpace(entityType), entityID, includePrivate, viewerUserID)
 	if err != nil {
 		return nil, fmt.Errorf("list email messages by entity: %w", err)
 	}
@@ -612,13 +638,14 @@ func scanMessage(s scanner) (Message, error) {
 		receivedAt   pgtype.Timestamptz
 	)
 	if err := s.Scan(&m.ID, &m.Direction, &m.FromEmail, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error,
-		&m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.MailboxUserID, &m.ProviderID, &m.ProviderThread, &m.TrackingToken,
+		&m.Visibility, &m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.MailboxUserID, &m.ProviderID, &m.ProviderThread, &m.TrackingToken,
 		&m.OpenCount, &firstOpened, &lastOpened, &m.ClickCount, &firstClicked, &lastClicked, &receivedAt, &m.CreatedAt); err != nil {
 		return Message{}, err
 	}
 	if m.Direction == "" {
 		m.Direction = "outbound"
 	}
+	m.Visibility = normalizedVisibility(m.Visibility, "shared")
 	if firstOpened.Valid {
 		opened := firstOpened.Time
 		m.FirstOpenedAt = &opened

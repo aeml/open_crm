@@ -36,3 +36,25 @@ func TestContactEntityIDsReturnsUniqueContactLinksOnly(t *testing.T) {
 		t.Fatalf("unexpected contact IDs: %#v", ids)
 	}
 }
+
+func TestNormalizedVisibilityUsesValidValueOrFallback(t *testing.T) {
+	cases := []struct {
+		name     string
+		value    string
+		fallback string
+		expected string
+	}{
+		{name: "shared value", value: " shared ", fallback: "private", expected: "shared"},
+		{name: "private value", value: "PRIVATE", fallback: "shared", expected: "private"},
+		{name: "private fallback", value: "", fallback: "private", expected: "private"},
+		{name: "invalid fallback defaults shared", value: "team", fallback: "org", expected: "shared"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizedVisibility(tc.value, tc.fallback); got != tc.expected {
+				t.Fatalf("expected %q, got %q", tc.expected, got)
+			}
+		})
+	}
+}

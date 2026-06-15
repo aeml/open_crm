@@ -89,12 +89,16 @@ func handleListEmailMessages(auth authService, messages emailMessagesService, w 
 	entityID := parseQueryInt64(r.URL.Query().Get("entityId"))
 
 	var organizationID int64
+	var viewerUserID int64
+	includePrivate := false
 	if entityType != "" && entityID > 0 {
 		state, ok := requireOrgMember(auth, w, r)
 		if !ok {
 			return
 		}
 		organizationID = state.Organization.ID
+		viewerUserID = state.User.ID
+		includePrivate = isOrgAdminRole(state.Membership.Role)
 	} else {
 		state, ok := requireOrgAdmin(auth, w, r)
 		if !ok {
@@ -110,7 +114,7 @@ func handleListEmailMessages(auth authService, messages emailMessagesService, w 
 
 	list, err := func() ([]emailMessageView, error) {
 		if entityType != "" && entityID > 0 {
-			records, listErr := messages.ListByEntity(r.Context(), organizationID, entityType, entityID)
+			records, listErr := messages.ListByEntity(r.Context(), organizationID, entityType, entityID, viewerUserID, includePrivate)
 			return toEmailMessageViews(records), listErr
 		}
 		limit := int(parseQueryInt64(r.URL.Query().Get("limit")))

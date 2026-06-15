@@ -184,7 +184,7 @@ type emailMessagesService interface {
 	Record(context.Context, int64, moduleemailmessages.RecordInput) error
 	GetByID(context.Context, int64, int64) (moduleemailmessages.Message, error)
 	ListByOrganization(context.Context, int64, int) ([]moduleemailmessages.Message, error)
-	ListByEntity(context.Context, int64, string, int64) ([]moduleemailmessages.Message, error)
+	ListByEntity(context.Context, int64, string, int64, int64, bool) ([]moduleemailmessages.Message, error)
 	ListBySender(context.Context, int64, int64, int) ([]moduleemailmessages.Message, error)
 	ListMailboxByUser(context.Context, int64, int64, int) ([]moduleemailmessages.Message, error)
 	MarkOpenedByToken(context.Context, string) error
