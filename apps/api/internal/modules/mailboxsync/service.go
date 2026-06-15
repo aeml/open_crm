@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -16,6 +17,9 @@ import (
 const (
 	defaultFetchLimit = 25
 	defaultTimeout    = 30 * time.Second
+	defaultBatchLimit = 10
+	defaultInterval   = 15 * time.Minute
+	startupDelay      = time.Minute
 )
 
 var ErrNotConfigured = errors.New("mailbox sync service not configured")
@@ -31,6 +35,10 @@ type messageStore interface {
 
 type entityResolver interface {
 	ResolveInboundEntityLinks(context.Context, int64, string) ([]moduleemailmessages.EntityLinkInput, error)
+}
+
+type syncTargetStore interface {
+	ListSyncTargets(context.Context, int) ([]moduleuseremail.SyncTarget, error)
 }
 
 type Fetcher interface {
@@ -52,6 +60,12 @@ type Result struct {
 	Error    string                  `json:"error,omitempty"`
 	Imported int                     `json:"imported"`
 	Account  moduleuseremail.Account `json:"account"`
+}
+
+type Summary struct {
+	Attempted int
+	Imported  int
+	Failed    int
 }
 
 type Service struct {
@@ -132,6 +146,67 @@ func (s *Service) SyncUser(ctx context.Context, organizationID, userID int64) (R
 		return Result{}, err
 	}
 	return Result{Status: "ready", Imported: imported, Account: account}, nil
+}
+
+func (s *Service) SyncDue(ctx context.Context, limit int) (Summary, error) {
+	if !s.Configured() {
+		return Summary{}, ErrNotConfigured
+	}
+	targetsStore, ok := s.accounts.(syncTargetStore)
+	if !ok {
+		return Summary{}, ErrNotConfigured
+	}
+	if limit <= 0 || limit > 100 {
+		limit = defaultBatchLimit
+	}
+	targets, err := targetsStore.ListSyncTargets(ctx, limit)
+	if err != nil {
+		return Summary{}, err
+	}
+	summary := Summary{}
+	for _, target := range targets {
+		summary.Attempted++
+		result, err := s.SyncUser(ctx, target.OrganizationID, target.UserID)
+		if err != nil {
+			summary.Failed++
+			continue
+		}
+		summary.Imported += result.Imported
+		if result.Status == "error" {
+			summary.Failed++
+		}
+	}
+	return summary, nil
+}
+
+func (s *Service) RunWorker(ctx context.Context, logger *slog.Logger, interval time.Duration, limit int) {
+	if !s.Configured() {
+		return
+	}
+	if interval <= 0 {
+		interval = defaultInterval
+	}
+	if limit <= 0 || limit > 100 {
+		limit = defaultBatchLimit
+	}
+	timer := time.NewTimer(startupDelay)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			summary, err := s.SyncDue(ctx, limit)
+			if err != nil {
+				if logger != nil {
+					logger.Warn("mailbox sync worker failed", "error", err)
+				}
+			} else if summary.Attempted > 0 && logger != nil {
+				logger.Info("mailbox sync worker completed", "attempted", summary.Attempted, "imported", summary.Imported, "failed", summary.Failed)
+			}
+			timer.Reset(interval)
+		}
+	}
 }
 
 func syncCredentialFailure(creds moduleuseremail.SyncCredentials) string {

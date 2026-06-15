@@ -14,6 +14,7 @@ import (
 type fakeAccountStore struct {
 	creds   moduleuseremail.SyncCredentials
 	account moduleuseremail.Account
+	targets []moduleuseremail.SyncTarget
 	updates []moduleuseremail.SyncStateInput
 	err     error
 }
@@ -27,6 +28,13 @@ func (f *fakeAccountStore) UpdateSyncState(_ context.Context, _, _ int64, input 
 	f.account.SyncStatus = input.Status
 	f.account.LastSyncError = input.Error
 	return f.account, f.err
+}
+
+func (f *fakeAccountStore) ListSyncTargets(_ context.Context, limit int) ([]moduleuseremail.SyncTarget, error) {
+	if limit > 0 && len(f.targets) > limit {
+		return f.targets[:limit], f.err
+	}
+	return f.targets, f.err
 }
 
 type fakeMessageStore struct {
@@ -192,6 +200,46 @@ func TestSyncUserRejectsOAuthProvidersUntilImplemented(t *testing.T) {
 	}
 	if fetcher.called {
 		t.Fatalf("fetcher should not run for unsupported providers")
+	}
+}
+
+func TestSyncDueImportsDueTargets(t *testing.T) {
+	accounts := &fakeAccountStore{
+		creds: readyIMAPCredentials(),
+		targets: []moduleuseremail.SyncTarget{
+			{OrganizationID: 42, UserID: 7},
+			{OrganizationID: 42, UserID: 8},
+		},
+	}
+	messages := &fakeMessageStore{}
+	fetcher := &fakeFetcher{messages: []FetchedMessage{{FromEmail: "customer@acme.test", ProviderMessageID: "10", ReceivedAt: time.Now()}}}
+	service := NewService(accounts, messages, fetcher)
+
+	summary, err := service.SyncDue(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("sync due: %v", err)
+	}
+	if summary.Attempted != 2 || summary.Imported != 2 || summary.Failed != 0 {
+		t.Fatalf("unexpected sync summary: %#v", summary)
+	}
+	if len(messages.inputs) != 2 {
+		t.Fatalf("expected one imported message per target, got %d", len(messages.inputs))
+	}
+}
+
+func TestSyncDueCountsValidationFailures(t *testing.T) {
+	accounts := &fakeAccountStore{
+		creds:   moduleuseremail.SyncCredentials{Provider: "google", AuthMethod: "oauth", SyncEnabled: true},
+		targets: []moduleuseremail.SyncTarget{{OrganizationID: 42, UserID: 7}},
+	}
+	service := NewService(accounts, &fakeMessageStore{}, &fakeFetcher{})
+
+	summary, err := service.SyncDue(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("sync due should record per-target validation failures without failing the batch: %v", err)
+	}
+	if summary.Attempted != 1 || summary.Imported != 0 || summary.Failed != 1 {
+		t.Fatalf("unexpected sync summary: %#v", summary)
 	}
 }
 

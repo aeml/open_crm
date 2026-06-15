@@ -1,6 +1,9 @@
 package useremail
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidateInputAcceptsCompleteAccount(t *testing.T) {
 	in := normalizeInput(UpsertInput{
@@ -37,5 +40,17 @@ func TestValidateInputRejectsBadValues(t *testing.T) {
 func TestUnconfiguredServiceReportsNotConfigured(t *testing.T) {
 	if (&Service{}).Configured() {
 		t.Fatalf("service without pool/cipher should not be configured")
+	}
+}
+
+func TestSelectSyncTargetsSQLLimitsAutomaticRunnerScope(t *testing.T) {
+	lowerSQL := strings.ToLower(selectSyncTargetsSQL)
+	for _, expected := range []string{"sync_enabled = true", "provider = 'imap'", "auth_method = 'password'", "sync_status in ('pending', 'ready', 'error')", "interval '15 minutes'"} {
+		if !strings.Contains(lowerSQL, expected) {
+			t.Fatalf("expected sync target SQL to include %q, got %s", expected, selectSyncTargetsSQL)
+		}
+	}
+	if strings.Contains(lowerSQL, "oauth") {
+		t.Fatalf("automatic generic IMAP target SQL should not include OAuth accounts: %s", selectSyncTargetsSQL)
 	}
 }

@@ -119,6 +119,11 @@ type SyncCredentials struct {
 	SyncStatus   string
 }
 
+type SyncTarget struct {
+	OrganizationID int64
+	UserID         int64
+}
+
 type Service struct {
 	pool   *pgxpool.Pool
 	cipher *secrets.Cipher
@@ -171,6 +176,18 @@ const selectSyncCredentialsSQL = `
 	       oauth_access_token_enc, oauth_refresh_token_enc
 	FROM user_email_accounts
 	WHERE organization_id = $1 AND user_id = $2
+`
+
+const selectSyncTargetsSQL = `
+	SELECT organization_id, user_id
+	FROM user_email_accounts
+	WHERE sync_enabled = TRUE
+	  AND provider = 'imap'
+	  AND auth_method = 'password'
+	  AND sync_status IN ('pending', 'ready', 'error')
+	  AND COALESCE(last_sync_at, updated_at) <= NOW() - INTERVAL '15 minutes'
+	ORDER BY COALESCE(last_sync_at, updated_at) ASC, organization_id ASC, user_id ASC
+	LIMIT $1
 `
 
 // GetForUser returns the sanitized account for a user, or ErrNotFound.
@@ -280,6 +297,34 @@ func (s *Service) SyncCredentials(ctx context.Context, organizationID, userID in
 		creds.OAuthRefresh = refresh
 	}
 	return creds, nil
+}
+
+// ListSyncTargets returns due generic IMAP accounts for the background sync
+// worker. OAuth providers are fetched by provider-specific workers later.
+func (s *Service) ListSyncTargets(ctx context.Context, limit int) ([]SyncTarget, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("user email service not configured")
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(ctx, selectSyncTargetsSQL, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list mailbox sync targets: %w", err)
+	}
+	defer rows.Close()
+	targets := make([]SyncTarget, 0)
+	for rows.Next() {
+		var target SyncTarget
+		if err := rows.Scan(&target.OrganizationID, &target.UserID); err != nil {
+			return nil, fmt.Errorf("scan mailbox sync target: %w", err)
+		}
+		targets = append(targets, target)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate mailbox sync targets: %w", err)
+	}
+	return targets, nil
 }
 
 // Upsert creates or updates a user's email account. A blank SMTPPassword keeps

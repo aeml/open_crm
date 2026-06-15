@@ -117,6 +117,12 @@ func main() {
 		}
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if mailboxSyncService != nil && mailboxSyncService.Configured() {
+		go mailboxSyncService.RunWorker(ctx, logger, 0, 0)
+	}
+
 	server := newHTTPServer(env, app.NewServer(env, app.Dependencies{
 		CheckReadiness: func(ctx context.Context) error {
 			if dbConfigErr != nil {
@@ -149,9 +155,6 @@ func main() {
 		MailboxSyncService:              mailboxSyncService,
 		EmailMessagesService:            emailMessagesService,
 	}))
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	log.Printf("open_crm api listening on %s", env.APIAddress())
 	if err := serveWithShutdown(ctx, server); err != nil {
