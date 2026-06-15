@@ -22,3 +22,17 @@ func TestSanitizedEntityLinksKeepsValidUniqueLinks(t *testing.T) {
 		t.Fatalf("unexpected remaining links: %#v", links)
 	}
 }
+
+func TestContactEntityIDsReturnsUniqueContactLinksOnly(t *testing.T) {
+	ids := contactEntityIDs([]EntityLinkInput{
+		{EntityType: "contact", EntityID: 7},
+		{EntityType: "company", EntityID: 9},
+		{EntityType: "contact", EntityID: 7},
+		{EntityType: "deal", EntityID: 11},
+		{EntityType: "contact", EntityID: 12},
+	})
+
+	if len(ids) != 2 || ids[0] != 7 || ids[1] != 12 {
+		t.Fatalf("unexpected contact IDs: %#v", ids)
+	}
+}

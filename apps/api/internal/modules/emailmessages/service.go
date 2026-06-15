@@ -210,6 +210,9 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 	if err := insertEntityLinks(ctx, tx, organizationID, messageID, entityLinks); err != nil {
 		return false, err
 	}
+	if err := completeSequenceEnrollmentsForReplies(ctx, tx, organizationID, entityLinks); err != nil {
+		return false, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("commit inbound email message record: %w", err)
 	}
@@ -367,6 +370,33 @@ func insertEntityLinks(ctx context.Context, tx pgx.Tx, organizationID, messageID
 		}
 	}
 	return nil
+}
+
+func completeSequenceEnrollmentsForReplies(ctx context.Context, tx pgx.Tx, organizationID int64, links []EntityLinkInput) error {
+	for _, contactID := range contactEntityIDs(links) {
+		_, err := tx.Exec(ctx, `
+			UPDATE email_sequence_enrollments
+			SET status = 'completed', completed_at = COALESCE(completed_at, NOW()), next_send_at = NULL, updated_at = NOW()
+			WHERE organization_id = $1 AND contact_id = $2 AND status IN ('active', 'paused')
+		`, organizationID, contactID)
+		if err != nil {
+			return fmt.Errorf("complete replied email sequence enrollments: %w", err)
+		}
+	}
+	return nil
+}
+
+func contactEntityIDs(links []EntityLinkInput) []int64 {
+	ids := make([]int64, 0)
+	seen := map[int64]bool{}
+	for _, link := range sanitizedEntityLinks(links) {
+		if link.EntityType != "contact" || seen[link.EntityID] {
+			continue
+		}
+		seen[link.EntityID] = true
+		ids = append(ids, link.EntityID)
+	}
+	return ids
 }
 
 const baseSelect = `
