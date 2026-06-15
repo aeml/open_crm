@@ -56,6 +56,21 @@ function clickStatus(message) {
   return `Clicked ${count} ${suffix}`
 }
 
+function isInbound(message) {
+  return message?.direction === 'inbound'
+}
+
+function messageTimestamp(message) {
+  return message?.receivedAt || message?.createdAt
+}
+
+function participantLabel(message) {
+  if (isInbound(message)) {
+    return `From ${message.fromEmail || 'unknown sender'}`
+  }
+  return `To ${message.toEmail || 'unknown recipient'}`
+}
+
 export function MailboxRoute() {
   usePageTitle('Mailbox')
   const [messages, setMessages] = useState([])
@@ -73,7 +88,7 @@ export function MailboxRoute() {
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
-        setError(loadError.message || 'Unable to load your sent email.')
+        setError(loadError.message || 'Unable to load your mailbox.')
       }
     } finally {
       if (!signal?.aborted) {
@@ -110,7 +125,7 @@ export function MailboxRoute() {
           <div className="section-header">
             <div>
               <h2>Mailbox</h2>
-              <p>Your CRM-sent emails. Incoming sync will appear here once mailbox sync is enabled.</p>
+              <p>Your CRM-sent emails and synced incoming mailbox messages.</p>
             </div>
             <div className="button-row">
               <Link className="button button-secondary" to="/settings/email-account">Email settings</Link>
@@ -123,8 +138,8 @@ export function MailboxRoute() {
             {!isLoading && messages.length === 0 ? (
               <article className="record-row" role="listitem">
                 <div>
-                  <p>No sent CRM emails yet.</p>
-                  <p className="field-hint">Emails you send from contacts, companies, and deals will appear here.</p>
+                  <p>No mailbox messages yet.</p>
+                  <p className="field-hint">Emails you send from CRM records and synced inbound messages will appear here.</p>
                 </div>
               </article>
             ) : messages.map((message) => {
@@ -134,12 +149,12 @@ export function MailboxRoute() {
                 <article className={message.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} key={message.id} role="listitem">
                   <div>
                     <h3>{message.subject}</h3>
-                    <p className="field-hint">To {message.toEmail}{message.status === 'failed' ? ' · Failed' : ''}</p>
-                    <p className="field-hint">{openStatus(message)}</p>
-                    <p className="field-hint">{clickStatus(message)}</p>
+                    <p className="field-hint">{participantLabel(message)}{message.status === 'failed' ? ' · Failed' : ''}{isInbound(message) ? ' · Received' : ''}</p>
+                    {!isInbound(message) ? <p className="field-hint">{openStatus(message)}</p> : null}
+                    {!isInbound(message) ? <p className="field-hint">{clickStatus(message)}</p> : null}
                   </div>
                   <div>
-                    <p>{formatTimestamp(message.createdAt)}</p>
+                    <p>{formatTimestamp(messageTimestamp(message))}</p>
                     <Button className="button-secondary" type="button" onClick={() => handleSelectMessage(message.id)}>View details</Button>
                     {path ? <Link className="button button-ghost" to={path}>Open {label}</Link> : null}
                   </div>
@@ -154,9 +169,9 @@ export function MailboxRoute() {
               <div className="card-stack">
                 <div>
                   <h3>{selectedMessage.subject}</h3>
-                  <p className="field-hint">To {selectedMessage.toEmail} · {formatTimestamp(selectedMessage.createdAt)}</p>
-                  <p className="field-hint">{openStatus(selectedMessage)}</p>
-                  <p className="field-hint">{clickStatus(selectedMessage)}</p>
+                  <p className="field-hint">{participantLabel(selectedMessage)} · {formatTimestamp(messageTimestamp(selectedMessage))}</p>
+                  {!isInbound(selectedMessage) ? <p className="field-hint">{openStatus(selectedMessage)}</p> : null}
+                  {!isInbound(selectedMessage) ? <p className="field-hint">{clickStatus(selectedMessage)}</p> : null}
                 </div>
                 {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}
                 <pre className="field-hint message-body">{selectedMessage.body}</pre>

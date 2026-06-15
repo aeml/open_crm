@@ -15,7 +15,7 @@ export async function listMyEmailMessages({ limit, signal } = {}) {
   const params = new URLSearchParams()
   if (limit) params.set('limit', String(limit))
   const suffix = params.toString() ? `?${params.toString()}` : ''
-  const payload = await apiRequest(`/api/me/email-messages${suffix}`, { fallbackMessage: 'Unable to load your sent email.', signal })
+  const payload = await apiRequest(`/api/me/email-messages${suffix}`, { fallbackMessage: 'Unable to load your mailbox.', signal })
 
   return payload?.data?.messages || []
 }

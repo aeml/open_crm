@@ -16,10 +16,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrNotFound = errors.New("email message not found")
+var (
+	ErrNotFound     = errors.New("email message not found")
+	ErrInvalidInput = errors.New("invalid email message")
+)
 
 type Message struct {
 	ID             int64      `json:"id"`
+	Direction      string     `json:"direction"`
+	FromEmail      string     `json:"fromEmail"`
 	ToEmail        string     `json:"toEmail"`
 	Subject        string     `json:"subject"`
 	Body           string     `json:"body"`
@@ -29,6 +34,9 @@ type Message struct {
 	EntityID       int64      `json:"entityId,omitempty"`
 	SentByUserID   int64      `json:"sentByUserId,omitempty"`
 	SentByName     string     `json:"sentByName,omitempty"`
+	MailboxUserID  int64      `json:"mailboxUserId,omitempty"`
+	ProviderID     string     `json:"-"`
+	ProviderThread string     `json:"-"`
 	TrackingToken  string     `json:"-"`
 	OpenCount      int        `json:"openCount"`
 	FirstOpenedAt  *time.Time `json:"firstOpenedAt,omitempty"`
@@ -36,6 +44,7 @@ type Message struct {
 	ClickCount     int        `json:"clickCount"`
 	FirstClickedAt *time.Time `json:"firstClickedAt,omitempty"`
 	LastClickedAt  *time.Time `json:"lastClickedAt,omitempty"`
+	ReceivedAt     *time.Time `json:"receivedAt,omitempty"`
 	CreatedAt      time.Time  `json:"createdAt"`
 }
 
@@ -45,6 +54,7 @@ type TrackedLinkInput struct {
 }
 
 type RecordInput struct {
+	FromEmail     string
 	ToEmail       string
 	Subject       string
 	Body          string
@@ -55,6 +65,19 @@ type RecordInput struct {
 	SentByUserID  int64
 	TrackingToken string
 	TrackedLinks  []TrackedLinkInput
+}
+
+type InboundInput struct {
+	FromEmail         string
+	ToEmail           string
+	Subject           string
+	Body              string
+	MailboxUserID     int64
+	ProviderMessageID string
+	ProviderThreadID  string
+	ReceivedAt        time.Time
+	EntityType        string
+	EntityID          int64
 }
 
 type Service struct {
@@ -83,6 +106,10 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 	if input.SentByUserID > 0 {
 		sentBy = &input.SentByUserID
 	}
+	var mailboxUserID *int64
+	if input.SentByUserID > 0 {
+		mailboxUserID = &input.SentByUserID
+	}
 	trackingToken := strings.TrimSpace(input.TrackingToken)
 	var token *string
 	if trackingToken != "" {
@@ -97,10 +124,10 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 
 	var messageID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO email_messages (organization_id, to_email, subject, body, status, error, entity_type, entity_id, sent_by_user_id, tracking_token)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO email_messages (organization_id, direction, from_email, to_email, subject, body, status, error, entity_type, entity_id, sent_by_user_id, mailbox_user_id, tracking_token)
+		VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id
-	`, organizationID, input.ToEmail, input.Subject, input.Body, status, input.Error, strings.TrimSpace(input.EntityType), entityID, sentBy, token).Scan(&messageID); err != nil {
+	`, organizationID, strings.TrimSpace(input.FromEmail), input.ToEmail, input.Subject, input.Body, status, input.Error, strings.TrimSpace(input.EntityType), entityID, sentBy, mailboxUserID, token).Scan(&messageID); err != nil {
 		return fmt.Errorf("record email message: %w", err)
 	}
 	for _, link := range links {
@@ -114,6 +141,41 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit email message record: %w", err)
+	}
+	return nil
+}
+
+// RecordInbound stores a message received through a user's connected mailbox.
+// Provider message IDs are used for idempotency when available.
+func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input InboundInput) error {
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("email messages service not configured")
+	}
+	input.FromEmail = strings.TrimSpace(strings.ToLower(input.FromEmail))
+	input.ToEmail = strings.TrimSpace(strings.ToLower(input.ToEmail))
+	input.Subject = strings.TrimSpace(input.Subject)
+	input.ProviderMessageID = strings.TrimSpace(input.ProviderMessageID)
+	input.ProviderThreadID = strings.TrimSpace(input.ProviderThreadID)
+	if organizationID <= 0 || input.MailboxUserID <= 0 || input.FromEmail == "" || input.ToEmail == "" {
+		return ErrInvalidInput
+	}
+	receivedAt := input.ReceivedAt
+	if receivedAt.IsZero() {
+		receivedAt = time.Now().UTC()
+	}
+	var entityID *int64
+	if input.EntityID > 0 {
+		entityID = &input.EntityID
+	}
+
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO email_messages
+			(organization_id, direction, from_email, to_email, subject, body, status, entity_type, entity_id, mailbox_user_id, provider_message_id, provider_thread_id, received_at)
+		VALUES ($1, 'inbound', $2, $3, $4, $5, 'received', $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (organization_id, mailbox_user_id, provider_message_id) WHERE provider_message_id <> '' DO NOTHING
+	`, organizationID, input.FromEmail, input.ToEmail, input.Subject, input.Body, strings.TrimSpace(input.EntityType), entityID, input.MailboxUserID, input.ProviderMessageID, input.ProviderThreadID, receivedAt)
+	if err != nil {
+		return fmt.Errorf("record inbound email message: %w", err)
 	}
 	return nil
 }
@@ -140,11 +202,12 @@ func sanitizedTrackedLinks(input []TrackedLinkInput) []TrackedLinkInput {
 }
 
 const baseSelect = `
-	SELECT m.id, m.to_email, m.subject, m.body, m.status, m.error,
+	SELECT m.id, m.direction, m.from_email, m.to_email, m.subject, m.body, m.status, m.error,
 	       m.entity_type, COALESCE(m.entity_id, 0), COALESCE(m.sent_by_user_id, 0),
-	       COALESCE(u.first_name || ' ' || u.last_name, ''), COALESCE(m.tracking_token, ''),
+	       COALESCE(u.first_name || ' ' || u.last_name, ''), COALESCE(m.mailbox_user_id, 0),
+	       COALESCE(m.provider_message_id, ''), COALESCE(m.provider_thread_id, ''), COALESCE(m.tracking_token, ''),
 	       COALESCE(m.open_count, 0), m.first_opened_at, m.last_opened_at,
-	       COALESCE(m.click_count, 0), m.first_clicked_at, m.last_clicked_at, m.created_at
+	       COALESCE(m.click_count, 0), m.first_clicked_at, m.last_clicked_at, m.received_at, m.created_at
 	FROM email_messages m
 	LEFT JOIN users u ON u.id = m.sent_by_user_id
 `
@@ -159,7 +222,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	}
 	rows, err := s.pool.Query(ctx, baseSelect+`
 		WHERE m.organization_id = $1
-		ORDER BY m.created_at DESC, m.id DESC
+		ORDER BY COALESCE(m.received_at, m.created_at) DESC, m.id DESC
 		LIMIT $2
 	`, organizationID, limit)
 	if err != nil {
@@ -193,7 +256,7 @@ func (s *Service) ListByEntity(ctx context.Context, organizationID int64, entity
 	}
 	rows, err := s.pool.Query(ctx, baseSelect+`
 		WHERE m.organization_id = $1 AND m.entity_type = $2 AND m.entity_id = $3
-		ORDER BY m.created_at DESC, m.id DESC
+		ORDER BY COALESCE(m.received_at, m.created_at) DESC, m.id DESC
 		LIMIT 100
 	`, organizationID, strings.TrimSpace(entityType), entityID)
 	if err != nil {
@@ -218,6 +281,28 @@ func (s *Service) ListBySender(ctx context.Context, organizationID, userID int64
 	`, organizationID, userID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list email messages by sender: %w", err)
+	}
+	defer rows.Close()
+	return scanMessages(rows)
+}
+
+// ListMailboxByUser returns messages in a user's mailbox: synced inbound email
+// plus CRM-sent outbound email from that user.
+func (s *Service) ListMailboxByUser(ctx context.Context, organizationID, userID int64, limit int) ([]Message, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("email messages service not configured")
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, baseSelect+`
+		WHERE m.organization_id = $1
+		  AND (m.mailbox_user_id = $2 OR (m.direction = 'outbound' AND m.sent_by_user_id = $2))
+		ORDER BY COALESCE(m.received_at, m.created_at) DESC, m.id DESC
+		LIMIT $3
+	`, organizationID, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list mailbox messages by user: %w", err)
 	}
 	defer rows.Close()
 	return scanMessages(rows)
@@ -316,11 +401,15 @@ func scanMessage(s scanner) (Message, error) {
 		lastOpened   pgtype.Timestamptz
 		firstClicked pgtype.Timestamptz
 		lastClicked  pgtype.Timestamptz
+		receivedAt   pgtype.Timestamptz
 	)
-	if err := s.Scan(&m.ID, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error,
-		&m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.TrackingToken,
-		&m.OpenCount, &firstOpened, &lastOpened, &m.ClickCount, &firstClicked, &lastClicked, &m.CreatedAt); err != nil {
+	if err := s.Scan(&m.ID, &m.Direction, &m.FromEmail, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error,
+		&m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.MailboxUserID, &m.ProviderID, &m.ProviderThread, &m.TrackingToken,
+		&m.OpenCount, &firstOpened, &lastOpened, &m.ClickCount, &firstClicked, &lastClicked, &receivedAt, &m.CreatedAt); err != nil {
 		return Message{}, err
+	}
+	if m.Direction == "" {
+		m.Direction = "outbound"
 	}
 	if firstOpened.Valid {
 		opened := firstOpened.Time
@@ -337,6 +426,10 @@ func scanMessage(s scanner) (Message, error) {
 	if lastClicked.Valid {
 		clicked := lastClicked.Time
 		m.LastClickedAt = &clicked
+	}
+	if receivedAt.Valid {
+		received := receivedAt.Time
+		m.ReceivedAt = &received
 	}
 	return m, nil
 }

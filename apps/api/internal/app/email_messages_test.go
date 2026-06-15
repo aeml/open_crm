@@ -14,22 +14,24 @@ import (
 )
 
 type fakeEmailMessagesService struct {
-	orgResult        []moduleemailmessages.Message
-	entityResult     []moduleemailmessages.Message
-	senderResult     []moduleemailmessages.Message
-	getResult        moduleemailmessages.Message
-	getErr           error
-	recordErr        error
-	lastRecord       moduleemailmessages.RecordInput
-	lastOrgID        int64
-	lastGetID        int64
-	lastEntity       string
-	lastEntityID     int64
-	lastSenderID     int64
-	lastOpenedToken  string
-	lastClickedToken string
-	clickTargetURL   string
-	clickErr         error
+	orgResult         []moduleemailmessages.Message
+	entityResult      []moduleemailmessages.Message
+	senderResult      []moduleemailmessages.Message
+	mailboxResult     []moduleemailmessages.Message
+	getResult         moduleemailmessages.Message
+	getErr            error
+	recordErr         error
+	lastRecord        moduleemailmessages.RecordInput
+	lastOrgID         int64
+	lastGetID         int64
+	lastEntity        string
+	lastEntityID      int64
+	lastSenderID      int64
+	lastMailboxUserID int64
+	lastOpenedToken   string
+	lastClickedToken  string
+	clickTargetURL    string
+	clickErr          error
 }
 
 func (f *fakeEmailMessagesService) Record(_ context.Context, organizationID int64, input moduleemailmessages.RecordInput) error {
@@ -60,6 +62,12 @@ func (f *fakeEmailMessagesService) ListBySender(_ context.Context, organizationI
 	f.lastOrgID = organizationID
 	f.lastSenderID = userID
 	return f.senderResult, nil
+}
+
+func (f *fakeEmailMessagesService) ListMailboxByUser(_ context.Context, organizationID, userID int64, _ int) ([]moduleemailmessages.Message, error) {
+	f.lastOrgID = organizationID
+	f.lastMailboxUserID = userID
+	return f.mailboxResult, nil
 }
 
 func (f *fakeEmailMessagesService) MarkOpenedByToken(_ context.Context, token string) error {
@@ -147,7 +155,10 @@ func TestEmailLogPerRecordAllowsMember(t *testing.T) {
 
 func TestMyEmailMessagesAllowsMemberAndScopesToCurrentUser(t *testing.T) {
 	service := &fakeEmailMessagesService{
-		senderResult: []moduleemailmessages.Message{{ID: 3, ToEmail: "lead@example.test", Subject: "Intro", Status: "sent", SentByUserID: 1, CreatedAt: time.Now()}},
+		mailboxResult: []moduleemailmessages.Message{
+			{ID: 3, Direction: "outbound", ToEmail: "lead@example.test", Subject: "Intro", Status: "sent", SentByUserID: 1, MailboxUserID: 1, CreatedAt: time.Now()},
+			{ID: 4, Direction: "inbound", FromEmail: "lead@example.test", ToEmail: "rep@acme.test", Subject: "Re: Intro", Status: "received", MailboxUserID: 1, CreatedAt: time.Now()},
+		},
 	}
 	server := emailMessagesServer(service, "member")
 
@@ -157,10 +168,10 @@ func TestMyEmailMessagesAllowsMemberAndScopesToCurrentUser(t *testing.T) {
 	server.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected 200 for member own sent email, got %d", recorder.Code)
+		t.Fatalf("expected 200 for member own mailbox, got %d", recorder.Code)
 	}
-	if service.lastOrgID != 42 || service.lastSenderID != 1 {
-		t.Fatalf("unexpected sender scoping: org=%d sender=%d", service.lastOrgID, service.lastSenderID)
+	if service.lastOrgID != 42 || service.lastMailboxUserID != 1 {
+		t.Fatalf("unexpected mailbox scoping: org=%d mailboxUser=%d", service.lastOrgID, service.lastMailboxUserID)
 	}
 	var response struct {
 		Data struct {
@@ -170,8 +181,31 @@ func TestMyEmailMessagesAllowsMemberAndScopesToCurrentUser(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if len(response.Data.Messages) != 1 || response.Data.Messages[0].Subject != "Intro" {
-		t.Fatalf("unexpected sent email payload: %#v", response.Data.Messages)
+	if len(response.Data.Messages) != 2 || response.Data.Messages[1].Direction != "inbound" || response.Data.Messages[1].FromEmail != "lead@example.test" {
+		t.Fatalf("unexpected mailbox payload: %#v", response.Data.Messages)
+	}
+}
+
+func TestEmailMessageDetailAllowsInboundMailboxOwner(t *testing.T) {
+	service := &fakeEmailMessagesService{
+		getResult: moduleemailmessages.Message{ID: 5, Direction: "inbound", FromEmail: "lead@example.test", ToEmail: "owner@acme.test", Subject: "Re: Intro", Body: "Inbound body", Status: "received", MailboxUserID: 1, CreatedAt: time.Now()},
+	}
+	server := emailMessagesServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/email-messages/5", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for inbound mailbox owner detail, got %d", recorder.Code)
+	}
+	var response emailMessageDetailResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Message.Direction != "inbound" || response.Data.Message.FromEmail != "lead@example.test" || response.Data.Message.Body != "Inbound body" {
+		t.Fatalf("unexpected inbound detail response: %#v", response.Data.Message)
 	}
 }
 

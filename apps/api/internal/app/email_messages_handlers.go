@@ -22,6 +22,8 @@ type emailMessagesListResponse struct {
 
 type emailMessageView struct {
 	ID             int64  `json:"id"`
+	Direction      string `json:"direction"`
+	FromEmail      string `json:"fromEmail,omitempty"`
 	ToEmail        string `json:"toEmail"`
 	Subject        string `json:"subject"`
 	Status         string `json:"status"`
@@ -29,12 +31,14 @@ type emailMessageView struct {
 	EntityType     string `json:"entityType,omitempty"`
 	EntityID       int64  `json:"entityId,omitempty"`
 	SentByName     string `json:"sentByName,omitempty"`
+	MailboxUserID  int64  `json:"mailboxUserId,omitempty"`
 	OpenCount      int    `json:"openCount"`
 	FirstOpenedAt  string `json:"firstOpenedAt,omitempty"`
 	LastOpenedAt   string `json:"lastOpenedAt,omitempty"`
 	ClickCount     int    `json:"clickCount"`
 	FirstClickedAt string `json:"firstClickedAt,omitempty"`
 	LastClickedAt  string `json:"lastClickedAt,omitempty"`
+	ReceivedAt     string `json:"receivedAt,omitempty"`
 	CreatedAt      string `json:"createdAt"`
 }
 
@@ -49,6 +53,8 @@ type emailMessageDetailResponse struct {
 
 type emailMessageDetailView struct {
 	ID             int64  `json:"id"`
+	Direction      string `json:"direction"`
+	FromEmail      string `json:"fromEmail,omitempty"`
 	ToEmail        string `json:"toEmail"`
 	Subject        string `json:"subject"`
 	Body           string `json:"body"`
@@ -57,12 +63,14 @@ type emailMessageDetailView struct {
 	EntityType     string `json:"entityType,omitempty"`
 	EntityID       int64  `json:"entityId,omitempty"`
 	SentByName     string `json:"sentByName,omitempty"`
+	MailboxUserID  int64  `json:"mailboxUserId,omitempty"`
 	OpenCount      int    `json:"openCount"`
 	FirstOpenedAt  string `json:"firstOpenedAt,omitempty"`
 	LastOpenedAt   string `json:"lastOpenedAt,omitempty"`
 	ClickCount     int    `json:"clickCount"`
 	FirstClickedAt string `json:"firstClickedAt,omitempty"`
 	LastClickedAt  string `json:"lastClickedAt,omitempty"`
+	ReceivedAt     string `json:"receivedAt,omitempty"`
 	CreatedAt      string `json:"createdAt"`
 }
 
@@ -120,9 +128,8 @@ func handleListEmailMessages(auth authService, messages emailMessagesService, w 
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-// handleListMyEmailMessages returns the current user's sent CRM emails. It is
-// member-safe because it only reads messages where sent_by_user_id matches the
-// authenticated user.
+// handleListMyEmailMessages returns messages in the current user's mailbox. It
+// is member-safe because it only reads messages owned by or sent by that user.
 func handleListMyEmailMessages(auth authService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgMember(auth, w, r)
@@ -135,9 +142,9 @@ func handleListMyEmailMessages(auth authService, messages emailMessagesService, 
 	}
 
 	limit := int(parseQueryInt64(r.URL.Query().Get("limit")))
-	records, err := messages.ListBySender(r.Context(), state.Organization.ID, state.User.ID, limit)
+	records, err := messages.ListMailboxByUser(r.Context(), state.Organization.ID, state.User.ID, limit)
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load sent email")
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load mailbox")
 		return
 	}
 
@@ -171,8 +178,8 @@ func handleGetEmailMessage(auth authService, messages emailMessagesService, w ht
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load email message")
 		return
 	}
-	if !isOrgAdminRole(state.Membership.Role) && message.SentByUserID != state.User.ID {
-		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "You can only view email messages you sent")
+	if !isOrgAdminRole(state.Membership.Role) && message.SentByUserID != state.User.ID && message.MailboxUserID != state.User.ID {
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "You can only view email messages in your mailbox")
 		return
 	}
 
@@ -225,6 +232,8 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 	for _, m := range records {
 		views = append(views, emailMessageView{
 			ID:             m.ID,
+			Direction:      emailMessageDirection(m),
+			FromEmail:      m.FromEmail,
 			ToEmail:        m.ToEmail,
 			Subject:        m.Subject,
 			Status:         m.Status,
@@ -232,12 +241,14 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 			EntityType:     m.EntityType,
 			EntityID:       m.EntityID,
 			SentByName:     m.SentByName,
+			MailboxUserID:  m.MailboxUserID,
 			OpenCount:      m.OpenCount,
 			FirstOpenedAt:  formatOptionalTime(m.FirstOpenedAt),
 			LastOpenedAt:   formatOptionalTime(m.LastOpenedAt),
 			ClickCount:     m.ClickCount,
 			FirstClickedAt: formatOptionalTime(m.FirstClickedAt),
 			LastClickedAt:  formatOptionalTime(m.LastClickedAt),
+			ReceivedAt:     formatOptionalTime(m.ReceivedAt),
 			CreatedAt:      m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
@@ -247,6 +258,8 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 func toEmailMessageDetailView(m moduleemailmessages.Message) emailMessageDetailView {
 	return emailMessageDetailView{
 		ID:             m.ID,
+		Direction:      emailMessageDirection(m),
+		FromEmail:      m.FromEmail,
 		ToEmail:        m.ToEmail,
 		Subject:        m.Subject,
 		Body:           m.Body,
@@ -255,14 +268,23 @@ func toEmailMessageDetailView(m moduleemailmessages.Message) emailMessageDetailV
 		EntityType:     m.EntityType,
 		EntityID:       m.EntityID,
 		SentByName:     m.SentByName,
+		MailboxUserID:  m.MailboxUserID,
 		OpenCount:      m.OpenCount,
 		FirstOpenedAt:  formatOptionalTime(m.FirstOpenedAt),
 		LastOpenedAt:   formatOptionalTime(m.LastOpenedAt),
 		ClickCount:     m.ClickCount,
 		FirstClickedAt: formatOptionalTime(m.FirstClickedAt),
 		LastClickedAt:  formatOptionalTime(m.LastClickedAt),
+		ReceivedAt:     formatOptionalTime(m.ReceivedAt),
 		CreatedAt:      m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
+}
+
+func emailMessageDirection(m moduleemailmessages.Message) string {
+	if m.Direction == "inbound" {
+		return "inbound"
+	}
+	return "outbound"
 }
 
 func formatOptionalTime(value *time.Time) string {
