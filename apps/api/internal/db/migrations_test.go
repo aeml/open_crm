@@ -115,3 +115,29 @@ func TestMigrationFilesIncludeSavedViewsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeEmailMessageEntityLinksMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "025_email_message_entity_links.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected email message entity links migration to be registered")
+	}
+
+	sql := MigrationSQL("025_email_message_entity_links.sql")
+	if sql == "" {
+		t.Fatal("expected email message entity links migration SQL to be embedded")
+	}
+	for _, expected := range []string{"email_message_entity_links", "idx_email_message_entity_links_entity", "ON CONFLICT"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected email message entity links migration to include %s", expected)
+		}
+	}
+}

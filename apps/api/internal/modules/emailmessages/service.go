@@ -53,6 +53,11 @@ type TrackedLinkInput struct {
 	TargetURL  string
 }
 
+type EntityLinkInput struct {
+	EntityType string
+	EntityID   int64
+}
+
 type RecordInput struct {
 	FromEmail     string
 	ToEmail       string
@@ -78,6 +83,7 @@ type InboundInput struct {
 	ReceivedAt        time.Time
 	EntityType        string
 	EntityID          int64
+	EntityLinks       []EntityLinkInput
 }
 
 type Service struct {
@@ -116,6 +122,7 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 		token = &trackingToken
 	}
 	links := sanitizedTrackedLinks(input.TrackedLinks)
+	entityLinks := sanitizedEntityLinks([]EntityLinkInput{{EntityType: input.EntityType, EntityID: input.EntityID}})
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin email message record: %w", err)
@@ -138,6 +145,9 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 		if err != nil {
 			return fmt.Errorf("record email message link: %w", err)
 		}
+	}
+	if err := insertEntityLinks(ctx, tx, organizationID, messageID, entityLinks); err != nil {
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit email message record: %w", err)
@@ -167,17 +177,137 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 	if input.EntityID > 0 {
 		entityID = &input.EntityID
 	}
+	entityLinks := sanitizedEntityLinks(input.EntityLinks)
+	if len(entityLinks) == 0 {
+		entityLinks = sanitizedEntityLinks([]EntityLinkInput{{EntityType: input.EntityType, EntityID: input.EntityID}})
+	}
+	if len(entityLinks) > 0 && (strings.TrimSpace(input.EntityType) == "" || input.EntityID <= 0) {
+		input.EntityType = entityLinks[0].EntityType
+		input.EntityID = entityLinks[0].EntityID
+		entityID = &input.EntityID
+	}
 
-	tag, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin inbound email message record: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var messageID int64
+	err = tx.QueryRow(ctx, `
 		INSERT INTO email_messages
 			(organization_id, direction, from_email, to_email, subject, body, status, entity_type, entity_id, mailbox_user_id, provider_message_id, provider_thread_id, received_at)
 		VALUES ($1, 'inbound', $2, $3, $4, $5, 'received', $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (organization_id, mailbox_user_id, provider_message_id) WHERE provider_message_id <> '' DO NOTHING
-	`, organizationID, input.FromEmail, input.ToEmail, input.Subject, input.Body, strings.TrimSpace(input.EntityType), entityID, input.MailboxUserID, input.ProviderMessageID, input.ProviderThreadID, receivedAt)
+		RETURNING id
+	`, organizationID, input.FromEmail, input.ToEmail, input.Subject, input.Body, strings.TrimSpace(input.EntityType), entityID, input.MailboxUserID, input.ProviderMessageID, input.ProviderThreadID, receivedAt).Scan(&messageID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("record inbound email message: %w", err)
 	}
-	return tag.RowsAffected() > 0, nil
+	if err := insertEntityLinks(ctx, tx, organizationID, messageID, entityLinks); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit inbound email message record: %w", err)
+	}
+	return true, nil
+}
+
+// ResolveInboundEntityLinks matches an inbound sender to CRM records. The first
+// link is the primary/legacy entity; additional links make the same email appear
+// on related company and open-deal histories.
+func (s *Service) ResolveInboundEntityLinks(ctx context.Context, organizationID int64, fromEmail string) ([]EntityLinkInput, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("email messages service not configured")
+	}
+	fromEmail = strings.TrimSpace(strings.ToLower(fromEmail))
+	if organizationID <= 0 || fromEmail == "" || !strings.Contains(fromEmail, "@") {
+		return nil, nil
+	}
+
+	var contactID int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT id
+		FROM contacts
+		WHERE organization_id = $1 AND email = $2 AND archived_at IS NULL
+		ORDER BY id ASC
+		LIMIT 1
+	`, organizationID, fromEmail).Scan(&contactID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("match inbound email contact: %w", err)
+	}
+
+	links := []EntityLinkInput{{EntityType: "contact", EntityID: contactID}}
+	companyRows, err := s.pool.Query(ctx, `
+		SELECT c.id
+		FROM companies c
+		JOIN contact_company_links l ON l.company_id = c.id AND l.organization_id = c.organization_id
+		WHERE c.organization_id = $1
+		  AND c.archived_at IS NULL
+		  AND l.contact_id = $2
+		ORDER BY l.is_primary DESC, c.id ASC
+		LIMIT 5
+	`, organizationID, contactID)
+	if err != nil {
+		return nil, fmt.Errorf("match inbound email companies: %w", err)
+	}
+	for companyRows.Next() {
+		var companyID int64
+		if err := companyRows.Scan(&companyID); err != nil {
+			companyRows.Close()
+			return nil, fmt.Errorf("scan inbound email company match: %w", err)
+		}
+		links = appendEntityLink(links, EntityLinkInput{EntityType: "company", EntityID: companyID})
+	}
+	if err := companyRows.Err(); err != nil {
+		companyRows.Close()
+		return nil, fmt.Errorf("iterate inbound email company matches: %w", err)
+	}
+	companyRows.Close()
+
+	dealRows, err := s.pool.Query(ctx, `
+		SELECT d.id
+		FROM deals d
+		JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
+		WHERE d.organization_id = $1
+		  AND d.archived_at IS NULL
+		  AND COALESCE(ds.is_closed, FALSE) = FALSE
+		  AND (
+		    d.primary_contact_id = $2 OR EXISTS (
+		      SELECT 1
+		      FROM contact_company_links l
+		      WHERE l.organization_id = d.organization_id
+		        AND l.contact_id = $2
+		        AND l.company_id = d.company_id
+		    )
+		  )
+		ORDER BY d.updated_at DESC, d.id DESC
+		LIMIT 5
+	`, organizationID, contactID)
+	if err != nil {
+		return nil, fmt.Errorf("match inbound email deals: %w", err)
+	}
+	for dealRows.Next() {
+		var dealID int64
+		if err := dealRows.Scan(&dealID); err != nil {
+			dealRows.Close()
+			return nil, fmt.Errorf("scan inbound email deal match: %w", err)
+		}
+		links = appendEntityLink(links, EntityLinkInput{EntityType: "deal", EntityID: dealID})
+	}
+	if err := dealRows.Err(); err != nil {
+		dealRows.Close()
+		return nil, fmt.Errorf("iterate inbound email deal matches: %w", err)
+	}
+	dealRows.Close()
+
+	return links, nil
 }
 
 func sanitizedTrackedLinks(input []TrackedLinkInput) []TrackedLinkInput {
@@ -199,6 +329,44 @@ func sanitizedTrackedLinks(input []TrackedLinkInput) []TrackedLinkInput {
 		}
 	}
 	return links
+}
+
+func sanitizedEntityLinks(input []EntityLinkInput) []EntityLinkInput {
+	links := make([]EntityLinkInput, 0, len(input))
+	for _, link := range input {
+		link.EntityType = strings.TrimSpace(strings.ToLower(link.EntityType))
+		if (link.EntityType != "contact" && link.EntityType != "company" && link.EntityType != "deal") || link.EntityID <= 0 {
+			continue
+		}
+		links = appendEntityLink(links, link)
+	}
+	return links
+}
+
+func appendEntityLink(links []EntityLinkInput, link EntityLinkInput) []EntityLinkInput {
+	if link.EntityID <= 0 {
+		return links
+	}
+	for _, existing := range links {
+		if existing.EntityType == link.EntityType && existing.EntityID == link.EntityID {
+			return links
+		}
+	}
+	return append(links, link)
+}
+
+func insertEntityLinks(ctx context.Context, tx pgx.Tx, organizationID, messageID int64, links []EntityLinkInput) error {
+	for _, link := range sanitizedEntityLinks(links) {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO email_message_entity_links (organization_id, email_message_id, entity_type, entity_id)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (email_message_id, entity_type, entity_id) DO NOTHING
+		`, organizationID, messageID, link.EntityType, link.EntityID)
+		if err != nil {
+			return fmt.Errorf("record email message entity link: %w", err)
+		}
+	}
+	return nil
 }
 
 const baseSelect = `
@@ -255,7 +423,17 @@ func (s *Service) ListByEntity(ctx context.Context, organizationID int64, entity
 		return nil, fmt.Errorf("email messages service not configured")
 	}
 	rows, err := s.pool.Query(ctx, baseSelect+`
-		WHERE m.organization_id = $1 AND m.entity_type = $2 AND m.entity_id = $3
+		WHERE m.organization_id = $1
+		  AND (
+		    (m.entity_type = $2 AND m.entity_id = $3) OR EXISTS (
+		      SELECT 1
+		      FROM email_message_entity_links link
+		      WHERE link.email_message_id = m.id
+		        AND link.organization_id = m.organization_id
+		        AND link.entity_type = $2
+		        AND link.entity_id = $3
+		    )
+		  )
 		ORDER BY COALESCE(m.received_at, m.created_at) DESC, m.id DESC
 		LIMIT 100
 	`, organizationID, strings.TrimSpace(entityType), entityID)

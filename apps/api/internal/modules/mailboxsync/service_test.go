@@ -30,9 +30,12 @@ func (f *fakeAccountStore) UpdateSyncState(_ context.Context, _, _ int64, input 
 }
 
 type fakeMessageStore struct {
-	inserted []bool
-	inputs   []moduleemailmessages.InboundInput
-	err      error
+	inserted       []bool
+	inputs         []moduleemailmessages.InboundInput
+	entityLinks    []moduleemailmessages.EntityLinkInput
+	resolvedEmails []string
+	err            error
+	resolveErr     error
 }
 
 func (f *fakeMessageStore) RecordInbound(_ context.Context, _ int64, input moduleemailmessages.InboundInput) (bool, error) {
@@ -44,6 +47,11 @@ func (f *fakeMessageStore) RecordInbound(_ context.Context, _ int64, input modul
 		return f.inserted[len(f.inputs)-1], nil
 	}
 	return true, nil
+}
+
+func (f *fakeMessageStore) ResolveInboundEntityLinks(_ context.Context, _ int64, fromEmail string) ([]moduleemailmessages.EntityLinkInput, error) {
+	f.resolvedEmails = append(f.resolvedEmails, fromEmail)
+	return f.entityLinks, f.resolveErr
 }
 
 type fakeFetcher struct {
@@ -122,6 +130,31 @@ func TestSyncUserSkipsDuplicateProviderMessages(t *testing.T) {
 	}
 	if len(messages.inputs) != 2 {
 		t.Fatalf("expected both fetched messages to be attempted, got %d", len(messages.inputs))
+	}
+}
+
+func TestSyncUserAutoLinksInboundMessages(t *testing.T) {
+	accounts := &fakeAccountStore{creds: readyIMAPCredentials()}
+	messages := &fakeMessageStore{entityLinks: []moduleemailmessages.EntityLinkInput{
+		{EntityType: "contact", EntityID: 12},
+		{EntityType: "company", EntityID: 34},
+		{EntityType: "deal", EntityID: 56},
+	}}
+	fetcher := &fakeFetcher{messages: []FetchedMessage{{FromEmail: "customer@acme.test", ProviderMessageID: "10", ReceivedAt: time.Now()}}}
+	service := NewService(accounts, messages, fetcher)
+
+	result, err := service.SyncUser(context.Background(), 42, 7)
+	if err != nil {
+		t.Fatalf("sync user: %v", err)
+	}
+	if result.Imported != 1 {
+		t.Fatalf("expected one imported message, got %d", result.Imported)
+	}
+	if len(messages.resolvedEmails) != 1 || messages.resolvedEmails[0] != "customer@acme.test" {
+		t.Fatalf("expected resolver to use sender email, got %#v", messages.resolvedEmails)
+	}
+	if len(messages.inputs) != 1 || messages.inputs[0].EntityType != "contact" || messages.inputs[0].EntityID != 12 || len(messages.inputs[0].EntityLinks) != 3 {
+		t.Fatalf("expected inbound message links to be passed through, got %#v", messages.inputs)
 	}
 }
 

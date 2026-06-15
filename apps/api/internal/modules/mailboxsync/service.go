@@ -29,6 +29,10 @@ type messageStore interface {
 	RecordInbound(context.Context, int64, moduleemailmessages.InboundInput) (bool, error)
 }
 
+type entityResolver interface {
+	ResolveInboundEntityLinks(context.Context, int64, string) ([]moduleemailmessages.EntityLinkInput, error)
+}
+
 type Fetcher interface {
 	Fetch(context.Context, moduleuseremail.SyncCredentials, int) ([]FetchedMessage, error)
 }
@@ -53,6 +57,7 @@ type Result struct {
 type Service struct {
 	accounts accountStore
 	messages messageStore
+	resolver entityResolver
 	fetcher  Fetcher
 	limit    int
 	timeout  time.Duration
@@ -62,7 +67,8 @@ func NewService(accounts accountStore, messages messageStore, fetcher Fetcher) *
 	if fetcher == nil {
 		fetcher = NewIMAPFetcher()
 	}
-	return &Service{accounts: accounts, messages: messages, fetcher: fetcher, limit: defaultFetchLimit, timeout: defaultTimeout}
+	resolver, _ := messages.(entityResolver)
+	return &Service{accounts: accounts, messages: messages, resolver: resolver, fetcher: fetcher, limit: defaultFetchLimit, timeout: defaultTimeout}
 }
 
 func (s *Service) Configured() bool {
@@ -96,6 +102,18 @@ func (s *Service) SyncUser(ctx context.Context, organizationID, userID int64) (R
 	cursor := strings.TrimSpace(creds.SyncCursor)
 	for _, message := range fetched {
 		input := toInboundInput(userID, creds, message)
+		if s.resolver != nil {
+			links, err := s.resolver.ResolveInboundEntityLinks(ctx, organizationID, input.FromEmail)
+			if err != nil {
+				_, _ = s.updateFailure(ctx, organizationID, userID, "Unable to match synced mailbox message to CRM records.")
+				return Result{}, err
+			}
+			input.EntityLinks = links
+			if len(links) > 0 {
+				input.EntityType = links[0].EntityType
+				input.EntityID = links[0].EntityID
+			}
+		}
 		inserted, err := s.messages.RecordInbound(ctx, organizationID, input)
 		if err != nil {
 			_, _ = s.updateFailure(ctx, organizationID, userID, "Unable to store synced mailbox message.")
