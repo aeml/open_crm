@@ -147,9 +147,9 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 
 // RecordInbound stores a message received through a user's connected mailbox.
 // Provider message IDs are used for idempotency when available.
-func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input InboundInput) error {
+func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input InboundInput) (bool, error) {
 	if s == nil || s.pool == nil {
-		return fmt.Errorf("email messages service not configured")
+		return false, fmt.Errorf("email messages service not configured")
 	}
 	input.FromEmail = strings.TrimSpace(strings.ToLower(input.FromEmail))
 	input.ToEmail = strings.TrimSpace(strings.ToLower(input.ToEmail))
@@ -157,7 +157,7 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 	input.ProviderMessageID = strings.TrimSpace(input.ProviderMessageID)
 	input.ProviderThreadID = strings.TrimSpace(input.ProviderThreadID)
 	if organizationID <= 0 || input.MailboxUserID <= 0 || input.FromEmail == "" || input.ToEmail == "" {
-		return ErrInvalidInput
+		return false, ErrInvalidInput
 	}
 	receivedAt := input.ReceivedAt
 	if receivedAt.IsZero() {
@@ -168,16 +168,16 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 		entityID = &input.EntityID
 	}
 
-	_, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `
 		INSERT INTO email_messages
 			(organization_id, direction, from_email, to_email, subject, body, status, entity_type, entity_id, mailbox_user_id, provider_message_id, provider_thread_id, received_at)
 		VALUES ($1, 'inbound', $2, $3, $4, $5, 'received', $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (organization_id, mailbox_user_id, provider_message_id) WHERE provider_message_id <> '' DO NOTHING
 	`, organizationID, input.FromEmail, input.ToEmail, input.Subject, input.Body, strings.TrimSpace(input.EntityType), entityID, input.MailboxUserID, input.ProviderMessageID, input.ProviderThreadID, receivedAt)
 	if err != nil {
-		return fmt.Errorf("record inbound email message: %w", err)
+		return false, fmt.Errorf("record inbound email message: %w", err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 func sanitizedTrackedLinks(input []TrackedLinkInput) []TrackedLinkInput {

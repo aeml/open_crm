@@ -5,7 +5,7 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { getMyEmailAccount, getMyEmailSyncStatus, startMyEmailOAuth, checkMyEmailSync, saveMyEmailAccount, deleteMyEmailAccount } from '../lib/user_email'
+import { getMyEmailAccount, getMyEmailSyncStatus, startMyEmailOAuth, checkMyEmailSync, runMyEmailSync, saveMyEmailAccount, deleteMyEmailAccount } from '../lib/user_email'
 import { usePageTitle } from '../lib/use_page_title'
 
 const emptyForm = {
@@ -78,6 +78,7 @@ export function SettingsEmailAccountRoute() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isCheckingSync, setIsCheckingSync] = useState(false)
+  const [isRunningSync, setIsRunningSync] = useState(false)
   const [startingOAuthProvider, setStartingOAuthProvider] = useState('')
 
   useEffect(() => {
@@ -175,7 +176,7 @@ export function SettingsEmailAccountRoute() {
         setSyncStatus({ account: data.account, oauthProviders: syncStatus.oauthProviders || [] })
       }
       if (data.status === 'ready') {
-        setStatus('Mailbox sync settings are ready. Message ingestion will run when the sync worker is enabled.')
+        setStatus('Mailbox sync settings are ready. You can manually import generic IMAP messages now.')
       } else {
         setError(data.error || 'Mailbox sync is not ready yet.')
       }
@@ -183,6 +184,28 @@ export function SettingsEmailAccountRoute() {
       setError(syncError.message || 'Unable to check mailbox sync.')
     } finally {
       setIsCheckingSync(false)
+    }
+  }
+
+  async function handleRunSync() {
+    setIsRunningSync(true)
+    setStatus('')
+    setError('')
+    try {
+      const data = await runMyEmailSync()
+      if (data.account) {
+        setSyncStatus({ account: data.account, oauthProviders: syncStatus.oauthProviders || [] })
+      }
+      if (data.status === 'ready') {
+        const imported = Number(data.imported || 0)
+        setStatus(`Mailbox sync imported ${imported} new ${imported === 1 ? 'message' : 'messages'}.`)
+      } else {
+        setError(data.error || 'Mailbox sync did not complete.')
+      }
+    } catch (syncError) {
+      setError(syncError.message || 'Unable to run mailbox sync.')
+    } finally {
+      setIsRunningSync(false)
     }
   }
 
@@ -243,7 +266,7 @@ export function SettingsEmailAccountRoute() {
                 <div className="card-stack">
                   <div>
                     <h3>Mailbox sync</h3>
-                    <p className="field-hint">Store sync settings for two-way mailbox work. OAuth connects tokens now; message ingestion ships in a later slice.</p>
+                    <p className="field-hint">Store sync settings for two-way mailbox work. Generic IMAP can be imported manually now; Google and Microsoft ingestion are still pending.</p>
                     {syncStatus.account ? <p className="field-hint">Status: {syncStatusText(syncStatus.account)}</p> : null}
                   </div>
                   <label className="checkbox-row">
@@ -253,6 +276,9 @@ export function SettingsEmailAccountRoute() {
                   <div>
                     <Button type="button" className="button-secondary" disabled={!hasAccount || !form.syncEnabled || isCheckingSync} onClick={handleCheckSync}>
                       {isCheckingSync ? 'Checking...' : 'Check sync readiness'}
+                    </Button>
+                    <Button type="button" className="button-secondary" disabled={!hasAccount || !form.syncEnabled || isRunningSync} onClick={handleRunSync}>
+                      {isRunningSync ? 'Syncing...' : 'Run sync now'}
                     </Button>
                   </div>
                   {form.syncEnabled ? (
@@ -284,7 +310,7 @@ export function SettingsEmailAccountRoute() {
                           </label>
                         </div>
                       ) : (
-                        <p className="field-hint">Use the provider buttons below to connect OAuth mailbox access. Message ingestion is not active yet.</p>
+                        <p className="field-hint">Use the provider buttons below to connect OAuth mailbox access. Google and Microsoft message ingestion is not active yet.</p>
                       )}
                     </div>
                   ) : null}

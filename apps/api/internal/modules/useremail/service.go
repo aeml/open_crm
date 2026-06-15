@@ -101,6 +101,24 @@ type Credentials struct {
 	UseTLS    bool
 }
 
+// SyncCredentials contains decrypted mailbox sync secrets. It must never be
+// serialized to clients.
+type SyncCredentials struct {
+	FromEmail    string
+	Provider     string
+	AuthMethod   string
+	SyncEnabled  bool
+	IMAPHost     string
+	IMAPPort     int
+	IMAPUsername string
+	IMAPPassword string
+	IMAPUseTLS   bool
+	OAuthAccess  string
+	OAuthRefresh string
+	SyncCursor   string
+	SyncStatus   string
+}
+
 type Service struct {
 	pool   *pgxpool.Pool
 	cipher *secrets.Cipher
@@ -143,6 +161,14 @@ const selectAccountSQL = `
 const selectCredentialsSQL = `
 	SELECT from_email, from_name, smtp_host, smtp_port, smtp_username,
 	       smtp_password_enc, smtp_use_tls, updated_at
+	FROM user_email_accounts
+	WHERE organization_id = $1 AND user_id = $2
+`
+
+const selectSyncCredentialsSQL = `
+	SELECT from_email, imap_host, imap_port, imap_username, imap_password_enc,
+	       imap_use_tls, provider, auth_method, sync_enabled, sync_cursor, sync_status,
+	       oauth_access_token_enc, oauth_refresh_token_enc
 	FROM user_email_accounts
 	WHERE organization_id = $1 AND user_id = $2
 `
@@ -207,6 +233,52 @@ func (s *Service) Credentials(ctx context.Context, organizationID, userID int64)
 		return Credentials{}, fmt.Errorf("decrypt smtp password: %w", err)
 	}
 	creds.Password = password
+	return creds, nil
+}
+
+// SyncCredentials returns decrypted mailbox sync credentials, or ErrNotFound.
+func (s *Service) SyncCredentials(ctx context.Context, organizationID, userID int64) (SyncCredentials, error) {
+	if !s.Configured() {
+		return SyncCredentials{}, ErrEncryptionUnavailable
+	}
+	var (
+		creds        SyncCredentials
+		imapEnc      string
+		oauthAccess  string
+		oauthRefresh string
+	)
+	err := s.pool.QueryRow(ctx, selectSyncCredentialsSQL, organizationID, userID).Scan(
+		&creds.FromEmail, &creds.IMAPHost, &creds.IMAPPort, &creds.IMAPUsername, &imapEnc,
+		&creds.IMAPUseTLS, &creds.Provider, &creds.AuthMethod, &creds.SyncEnabled, &creds.SyncCursor, &creds.SyncStatus,
+		&oauthAccess, &oauthRefresh,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SyncCredentials{}, ErrNotFound
+	}
+	if err != nil {
+		return SyncCredentials{}, fmt.Errorf("load user email sync credentials: %w", err)
+	}
+	if imapEnc != "" {
+		password, err := s.cipher.Decrypt(imapEnc)
+		if err != nil {
+			return SyncCredentials{}, fmt.Errorf("decrypt imap password: %w", err)
+		}
+		creds.IMAPPassword = password
+	}
+	if oauthAccess != "" {
+		access, err := s.cipher.Decrypt(oauthAccess)
+		if err != nil {
+			return SyncCredentials{}, fmt.Errorf("decrypt oauth access token: %w", err)
+		}
+		creds.OAuthAccess = access
+	}
+	if oauthRefresh != "" {
+		refresh, err := s.cipher.Decrypt(oauthRefresh)
+		if err != nil {
+			return SyncCredentials{}, fmt.Errorf("decrypt oauth refresh token: %w", err)
+		}
+		creds.OAuthRefresh = refresh
+	}
 	return creds, nil
 }
 

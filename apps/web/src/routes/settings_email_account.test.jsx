@@ -186,4 +186,51 @@ describe('settings email account route', () => {
     })
     expect(await screen.findByText(/mailbox sync settings are ready/i)).toBeInTheDocument()
   })
+
+  it('runs manual mailbox sync for a saved account', async () => {
+    const account = {
+      fromEmail: 'rep@acme.test',
+      smtpHost: 'smtp.acme.test',
+      smtpPort: 587,
+      smtpUsername: 'rep',
+      smtpUseTls: true,
+      hasPassword: true,
+      provider: 'imap',
+      authMethod: 'password',
+      syncEnabled: true,
+      syncStatus: 'ready',
+      imapHost: 'imap.acme.test',
+      imapPort: 993,
+      imapUsername: 'rep',
+      imapUseTls: true,
+      hasImapPassword: true
+    }
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/me/email-account') && method === 'GET') {
+        return { ok: true, json: async () => ({ data: { account, configured: true } }) }
+      }
+      if (path.endsWith('/api/me/email-sync/status')) {
+        return { ok: true, json: async () => ({ data: { account, configured: true, connected: true, oauthProviders: [] } }) }
+      }
+      if (path.endsWith('/api/me/email-sync/run') && method === 'POST') {
+        return { ok: true, json: async () => ({ data: { status: 'ready', imported: 2, account } }) }
+      }
+      return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/email-account')
+
+    render(<AppRouter />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /run sync now/i }))
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/api/me/email-sync/run') && call[1]?.method === 'POST')).toBe(true)
+    })
+    expect(await screen.findByText(/mailbox sync imported 2 new messages/i)).toBeInTheDocument()
+  })
 })

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
+	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -54,6 +55,18 @@ type userEmailSyncCheckResponse struct {
 		Status  string                   `json:"status"`
 		Error   string                   `json:"error,omitempty"`
 		Account *moduleuseremail.Account `json:"account"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type userEmailSyncRunResponse struct {
+	Data struct {
+		Status   string                   `json:"status"`
+		Error    string                   `json:"error,omitempty"`
+		Imported int                      `json:"imported"`
+		Account  *moduleuseremail.Account `json:"account"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -223,6 +236,31 @@ func handleCheckMyEmailSync(auth authService, accounts userEmailAccountService, 
 	}
 	response.Data.Status = "ready"
 	response.Data.Account = &updated
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleRunMyEmailSync(auth authService, syncer mailboxSyncService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if syncer == nil || !syncer.Configured() {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Mailbox sync service is not configured on this server")
+		return
+	}
+
+	result, err := syncer.SyncUser(r.Context(), state.Organization.ID, state.User.ID)
+	if err != nil {
+		writeRunMyEmailSyncError(w, requestID, err)
+		return
+	}
+	response := userEmailSyncRunResponse{}
+	response.Data.Status = result.Status
+	response.Data.Error = result.Error
+	response.Data.Imported = result.Imported
+	response.Data.Account = &result.Account
+	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
@@ -423,5 +461,16 @@ func writeUserEmailSyncStateError(w http.ResponseWriter, requestID string, err e
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", "Save your email account before enabling mailbox sync")
 	default:
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update email sync status")
+	}
+}
+
+func writeRunMyEmailSyncError(w http.ResponseWriter, requestID string, err error) {
+	switch {
+	case errors.Is(err, modulemailboxsync.ErrNotConfigured), errors.Is(err, moduleuseremail.ErrEncryptionUnavailable):
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email account storage is not configured on this server")
+	case errors.Is(err, moduleuseremail.ErrNotFound):
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", "Save your email account before running mailbox sync")
+	default:
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to run mailbox sync")
 	}
 }

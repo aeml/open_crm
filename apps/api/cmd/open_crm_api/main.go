@@ -26,6 +26,7 @@ import (
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
+	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
@@ -82,6 +83,7 @@ func main() {
 	var emailSequencesService *moduleemailsequences.Service
 	var userEmailService *moduleuseremail.Service
 	var emailMessagesService *moduleemailmessages.Service
+	var mailboxSyncService *modulemailboxsync.Service
 	credentialCipher, cipherErr := platformsecrets.NewCipherFromBase64(env.CredentialEncryptionKey)
 	if cipherErr != nil {
 		log.Printf("credential encryption disabled: %v", cipherErr)
@@ -111,6 +113,7 @@ func main() {
 			emailSequencesService = moduleemailsequences.NewService(pool)
 			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
 			emailMessagesService = moduleemailmessages.NewService(pool)
+			mailboxSyncService = modulemailboxsync.NewService(userEmailService, emailMessagesService, nil)
 		}
 	}
 
@@ -143,6 +146,7 @@ func main() {
 		EmailSequencesService:           emailSequencesService,
 		EmailSequenceEnrollmentsService: emailSequencesService,
 		UserEmailService:                userEmailService,
+		MailboxSyncService:              mailboxSyncService,
 		EmailMessagesService:            emailMessagesService,
 	}))
 

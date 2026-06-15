@@ -24,6 +24,12 @@ export async function checkMyEmailSync({ signal } = {}) {
   return payload?.data || { status: 'error', error: 'Unable to check mailbox sync.', account: null }
 }
 
+export async function runMyEmailSync({ signal } = {}) {
+  const payload = await apiRequest('/api/me/email-sync/run', { method: 'POST', fallbackMessage: 'Unable to run mailbox sync.', signal })
+
+  return payload?.data || { status: 'error', error: 'Unable to run mailbox sync.', imported: 0, account: null }
+}
+
 export async function saveMyEmailAccount(input, { signal } = {}) {
   const payload = await apiRequest('/api/me/email-account', { method: 'PUT', body: input, fallbackMessage: 'Unable to save email account.', signal })
 

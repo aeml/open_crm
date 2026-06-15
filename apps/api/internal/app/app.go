@@ -19,6 +19,7 @@ import (
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
+	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
@@ -174,6 +175,11 @@ type userEmailAccountService interface {
 	MemberExists(context.Context, int64, int64) (bool, error)
 }
 
+type mailboxSyncService interface {
+	Configured() bool
+	SyncUser(context.Context, int64, int64) (modulemailboxsync.Result, error)
+}
+
 type emailMessagesService interface {
 	Record(context.Context, int64, moduleemailmessages.RecordInput) error
 	GetByID(context.Context, int64, int64) (moduleemailmessages.Message, error)
@@ -209,6 +215,7 @@ type Dependencies struct {
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService
+	MailboxSyncService              mailboxSyncService
 	EmailOAuthClient                emailOAuthClient
 	EmailMessagesService            emailMessagesService
 }
@@ -637,6 +644,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/me/email-sync/check", func(w http.ResponseWriter, r *http.Request) {
 		handleCheckMyEmailSync(dependencies.AuthService, dependencies.UserEmailService, w, r)
+	})
+	mux.HandleFunc("POST /api/me/email-sync/run", func(w http.ResponseWriter, r *http.Request) {
+		handleRunMyEmailSync(dependencies.AuthService, dependencies.MailboxSyncService, w, r)
 	})
 	mux.HandleFunc("POST /api/me/email-sync/oauth/{provider}/start", func(w http.ResponseWriter, r *http.Request) {
 		handleStartMyEmailOAuth(env, dependencies.AuthService, dependencies.UserEmailService, w, r)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
 
@@ -20,6 +21,24 @@ type fakeEmailOAuthClient struct {
 	lastCode        string
 	lastRedirectURI string
 	err             error
+}
+
+type fakeMailboxSyncService struct {
+	configured bool
+	result     modulemailboxsync.Result
+	err        error
+	called     bool
+	lastOrgID  int64
+	lastUserID int64
+}
+
+func (f *fakeMailboxSyncService) Configured() bool { return f.configured }
+
+func (f *fakeMailboxSyncService) SyncUser(_ context.Context, organizationID, userID int64) (modulemailboxsync.Result, error) {
+	f.called = true
+	f.lastOrgID = organizationID
+	f.lastUserID = userID
+	return f.result, f.err
 }
 
 func (f *fakeEmailOAuthClient) Exchange(_ context.Context, provider emailOAuthProvider, code, redirectURI string) (emailOAuthTokenSet, error) {
@@ -40,6 +59,10 @@ func testOAuthEnv() config.Env {
 }
 
 func testEmailSyncServer(env config.Env, accounts *fakeUserEmailService, oauthClient emailOAuthClient) http.Handler {
+	return testEmailSyncServerWithSync(env, accounts, oauthClient, nil)
+}
+
+func testEmailSyncServerWithSync(env config.Env, accounts *fakeUserEmailService, oauthClient emailOAuthClient, syncer mailboxSyncService) http.Handler {
 	return NewServer(env, Dependencies{
 		AuthService: &fakeAuthService{
 			currentSessionResult: moduleauth.SessionState{
@@ -48,8 +71,9 @@ func testEmailSyncServer(env config.Env, accounts *fakeUserEmailService, oauthCl
 				Membership:   moduleauth.Membership{Role: "member"},
 			},
 		},
-		UserEmailService: accounts,
-		EmailOAuthClient: oauthClient,
+		UserEmailService:   accounts,
+		MailboxSyncService: syncer,
+		EmailOAuthClient:   oauthClient,
 	})
 }
 
@@ -157,6 +181,50 @@ func TestCheckMyEmailSyncRequiresOAuthConnection(t *testing.T) {
 	}
 	if len(accounts.syncStateInputs) != 2 || accounts.syncStateInputs[0].Status != "syncing" || accounts.syncStateInputs[1].Status != "error" {
 		t.Fatalf("expected syncing then error state updates, got %#v", accounts.syncStateInputs)
+	}
+}
+
+func TestRunMyEmailSyncReturnsImportResult(t *testing.T) {
+	accounts := &fakeUserEmailService{configured: true}
+	syncer := &fakeMailboxSyncService{configured: true, result: modulemailboxsync.Result{
+		Status:   "ready",
+		Imported: 2,
+		Account:  moduleuseremail.Account{FromEmail: "rep@acme.test", SyncEnabled: true, SyncStatus: "ready"},
+	}}
+	server := testEmailSyncServerWithSync(testOAuthEnv(), accounts, nil, syncer)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/me/email-sync/run", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response userEmailSyncRunResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Status != "ready" || response.Data.Imported != 2 || response.Data.Account == nil || response.Data.Account.SyncStatus != "ready" {
+		t.Fatalf("unexpected sync run response: %#v", response.Data)
+	}
+	if !syncer.called || syncer.lastOrgID != 42 || syncer.lastUserID != 1 {
+		t.Fatalf("syncer was not called with current principal: %#v", syncer)
+	}
+}
+
+func TestRunMyEmailSyncRequiresConfiguredService(t *testing.T) {
+	server := testEmailSyncServerWithSync(testOAuthEnv(), &fakeUserEmailService{configured: true}, nil, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/me/email-sync/run", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", recorder.Code)
 	}
 }
 
