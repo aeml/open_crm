@@ -182,8 +182,10 @@ const selectSyncTargetsSQL = `
 	SELECT organization_id, user_id
 	FROM user_email_accounts
 	WHERE sync_enabled = TRUE
-	  AND provider = 'imap'
-	  AND auth_method = 'password'
+	  AND (
+	    (provider = 'imap' AND auth_method = 'password') OR
+	    (provider = 'google' AND auth_method = 'oauth')
+	  )
 	  AND sync_status IN ('pending', 'ready', 'error')
 	  AND COALESCE(last_sync_at, updated_at) <= NOW() - INTERVAL '15 minutes'
 	ORDER BY COALESCE(last_sync_at, updated_at) ASC, organization_id ASC, user_id ASC
@@ -299,8 +301,7 @@ func (s *Service) SyncCredentials(ctx context.Context, organizationID, userID in
 	return creds, nil
 }
 
-// ListSyncTargets returns due generic IMAP accounts for the background sync
-// worker. OAuth providers are fetched by provider-specific workers later.
+// ListSyncTargets returns due accounts supported by the background sync worker.
 func (s *Service) ListSyncTargets(ctx context.Context, limit int) ([]SyncTarget, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("user email service not configured")

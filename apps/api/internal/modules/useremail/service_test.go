@@ -45,12 +45,12 @@ func TestUnconfiguredServiceReportsNotConfigured(t *testing.T) {
 
 func TestSelectSyncTargetsSQLLimitsAutomaticRunnerScope(t *testing.T) {
 	lowerSQL := strings.ToLower(selectSyncTargetsSQL)
-	for _, expected := range []string{"sync_enabled = true", "provider = 'imap'", "auth_method = 'password'", "sync_status in ('pending', 'ready', 'error')", "interval '15 minutes'"} {
+	for _, expected := range []string{"sync_enabled = true", "provider = 'imap'", "auth_method = 'password'", "provider = 'google'", "auth_method = 'oauth'", "sync_status in ('pending', 'ready', 'error')", "interval '15 minutes'"} {
 		if !strings.Contains(lowerSQL, expected) {
 			t.Fatalf("expected sync target SQL to include %q, got %s", expected, selectSyncTargetsSQL)
 		}
 	}
-	if strings.Contains(lowerSQL, "oauth") {
-		t.Fatalf("automatic generic IMAP target SQL should not include OAuth accounts: %s", selectSyncTargetsSQL)
+	if strings.Contains(lowerSQL, "microsoft") {
+		t.Fatalf("automatic sync target SQL should not include Microsoft accounts until Graph fetching exists: %s", selectSyncTargetsSQL)
 	}
 }

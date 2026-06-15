@@ -79,7 +79,7 @@ type Service struct {
 
 func NewService(accounts accountStore, messages messageStore, fetcher Fetcher) *Service {
 	if fetcher == nil {
-		fetcher = NewIMAPFetcher()
+		fetcher = NewProviderFetcher()
 	}
 	resolver, _ := messages.(entityResolver)
 	return &Service{accounts: accounts, messages: messages, resolver: resolver, fetcher: fetcher, limit: defaultFetchLimit, timeout: defaultTimeout}
@@ -213,11 +213,19 @@ func syncCredentialFailure(creds moduleuseremail.SyncCredentials) string {
 	if !creds.SyncEnabled {
 		return "Enable mailbox sync before running ingestion."
 	}
-	if creds.Provider != "imap" || creds.AuthMethod != "password" {
-		return "Mailbox sync runner currently supports generic IMAP accounts only."
-	}
-	if strings.TrimSpace(creds.IMAPHost) == "" || creds.IMAPPort <= 0 || strings.TrimSpace(creds.IMAPUsername) == "" || strings.TrimSpace(creds.IMAPPassword) == "" {
-		return "Save complete IMAP host, port, username, and password settings before running sync."
+	switch {
+	case creds.Provider == "imap" && creds.AuthMethod == "password":
+		if strings.TrimSpace(creds.IMAPHost) == "" || creds.IMAPPort <= 0 || strings.TrimSpace(creds.IMAPUsername) == "" || strings.TrimSpace(creds.IMAPPassword) == "" {
+			return "Save complete IMAP host, port, username, and password settings before running sync."
+		}
+	case creds.Provider == "google" && creds.AuthMethod == "oauth":
+		if strings.TrimSpace(creds.OAuthAccess) == "" {
+			return "Connect Google OAuth before syncing this mailbox."
+		}
+	case creds.Provider == "microsoft" && creds.AuthMethod == "oauth":
+		return "Microsoft Graph mailbox sync is not implemented yet."
+	default:
+		return "Choose a supported mailbox sync provider before running ingestion."
 	}
 	return ""
 }

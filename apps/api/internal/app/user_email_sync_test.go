@@ -184,6 +184,70 @@ func TestCheckMyEmailSyncRequiresOAuthConnection(t *testing.T) {
 	}
 }
 
+func TestCheckMyEmailSyncMarksGoogleOAuthAccountReady(t *testing.T) {
+	accounts := &fakeUserEmailService{
+		configured: true,
+		account: moduleuseremail.Account{
+			FromEmail:      "rep@acme.test",
+			Provider:       "google",
+			AuthMethod:     "oauth",
+			SyncEnabled:    true,
+			SyncStatus:     "pending",
+			OAuthConnected: true,
+		},
+	}
+	server := testEmailSyncServer(testOAuthEnv(), accounts, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/me/email-sync/check", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response userEmailSyncCheckResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Status != "ready" || response.Data.Account == nil || response.Data.Account.SyncStatus != "ready" {
+		t.Fatalf("unexpected readiness response: %#v", response.Data)
+	}
+}
+
+func TestCheckMyEmailSyncRejectsMicrosoftUntilGraphFetcherExists(t *testing.T) {
+	accounts := &fakeUserEmailService{
+		configured: true,
+		account: moduleuseremail.Account{
+			FromEmail:      "rep@acme.test",
+			Provider:       "microsoft",
+			AuthMethod:     "oauth",
+			SyncEnabled:    true,
+			SyncStatus:     "pending",
+			OAuthConnected: true,
+		},
+	}
+	server := testEmailSyncServer(testOAuthEnv(), accounts, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/me/email-sync/check", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response userEmailSyncCheckResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Status != "error" || response.Data.Error != "Microsoft Graph mailbox sync is not implemented yet." {
+		t.Fatalf("unexpected readiness response: %#v", response.Data)
+	}
+}
+
 func TestRunMyEmailSyncReturnsImportResult(t *testing.T) {
 	accounts := &fakeUserEmailService{configured: true}
 	syncer := &fakeMailboxSyncService{configured: true, result: modulemailboxsync.Result{

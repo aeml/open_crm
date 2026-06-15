@@ -278,6 +278,7 @@ func mailboxSyncReadinessError(account moduleuseremail.Account) string {
 		if account.AuthMethod != "oauth" || !account.OAuthConnected {
 			return "Connect Microsoft OAuth before syncing this mailbox."
 		}
+		return "Microsoft Graph mailbox sync is not implemented yet."
 	default:
 		return "Choose an IMAP, Google, or Microsoft sync provider before syncing this mailbox."
 	}
