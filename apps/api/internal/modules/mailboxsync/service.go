@@ -223,7 +223,9 @@ func syncCredentialFailure(creds moduleuseremail.SyncCredentials) string {
 			return "Connect Google OAuth before syncing this mailbox."
 		}
 	case creds.Provider == "microsoft" && creds.AuthMethod == "oauth":
-		return "Microsoft Graph mailbox sync is not implemented yet."
+		if strings.TrimSpace(creds.OAuthAccess) == "" {
+			return "Connect Microsoft OAuth before syncing this mailbox."
+		}
 	default:
 		return "Choose a supported mailbox sync provider before running ingestion."
 	}

@@ -216,7 +216,7 @@ func TestCheckMyEmailSyncMarksGoogleOAuthAccountReady(t *testing.T) {
 	}
 }
 
-func TestCheckMyEmailSyncRejectsMicrosoftUntilGraphFetcherExists(t *testing.T) {
+func TestCheckMyEmailSyncMarksMicrosoftOAuthAccountReady(t *testing.T) {
 	accounts := &fakeUserEmailService{
 		configured: true,
 		account: moduleuseremail.Account{
@@ -243,7 +243,7 @@ func TestCheckMyEmailSyncRejectsMicrosoftUntilGraphFetcherExists(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if response.Data.Status != "error" || response.Data.Error != "Microsoft Graph mailbox sync is not implemented yet." {
+	if response.Data.Status != "ready" || response.Data.Account == nil || response.Data.Account.SyncStatus != "ready" {
 		t.Fatalf("unexpected readiness response: %#v", response.Data)
 	}
 }

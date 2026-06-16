@@ -103,6 +103,17 @@ func readyGoogleCredentials() moduleuseremail.SyncCredentials {
 	}
 }
 
+func readyMicrosoftCredentials() moduleuseremail.SyncCredentials {
+	return moduleuseremail.SyncCredentials{
+		FromEmail:   "rep@acme.test",
+		Provider:    "microsoft",
+		AuthMethod:  "oauth",
+		SyncEnabled: true,
+		OAuthAccess: "access-token",
+		SyncCursor:  "graph-9",
+	}
+}
+
 func TestSyncUserImportsReadyIMAPMessages(t *testing.T) {
 	accounts := &fakeAccountStore{creds: readyIMAPCredentials()}
 	messages := &fakeMessageStore{}
@@ -216,20 +227,20 @@ func TestSyncUserImportsReadyGoogleMessages(t *testing.T) {
 	}
 }
 
-func TestSyncUserRejectsMicrosoftUntilImplemented(t *testing.T) {
-	accounts := &fakeAccountStore{creds: moduleuseremail.SyncCredentials{Provider: "microsoft", AuthMethod: "oauth", SyncEnabled: true, OAuthAccess: "access-token"}}
-	fetcher := &fakeFetcher{}
+func TestSyncUserImportsReadyMicrosoftMessages(t *testing.T) {
+	accounts := &fakeAccountStore{creds: readyMicrosoftCredentials()}
+	fetcher := &fakeFetcher{messages: []FetchedMessage{{FromEmail: "customer@acme.test", ProviderMessageID: "graph-10", ReceivedAt: time.Now()}}}
 	service := NewService(accounts, &fakeMessageStore{}, fetcher)
 
 	result, err := service.SyncUser(context.Background(), 42, 7)
 	if err != nil {
-		t.Fatalf("sync user should record unsupported providers without failing the request: %v", err)
+		t.Fatalf("sync user: %v", err)
 	}
-	if result.Status != "error" || !strings.Contains(result.Error, "Microsoft Graph") {
-		t.Fatalf("unexpected provider result: %#v", result)
+	if result.Status != "ready" || result.Imported != 1 {
+		t.Fatalf("unexpected microsoft sync result: %#v", result)
 	}
-	if fetcher.called {
-		t.Fatalf("fetcher should not run for unsupported providers")
+	if !fetcher.called || fetcher.creds.Provider != "microsoft" || fetcher.creds.OAuthAccess != "access-token" {
+		t.Fatalf("expected microsoft credentials to reach fetcher, got called=%v creds=%#v", fetcher.called, fetcher.creds)
 	}
 }
 

@@ -184,7 +184,8 @@ const selectSyncTargetsSQL = `
 	WHERE sync_enabled = TRUE
 	  AND (
 	    (provider = 'imap' AND auth_method = 'password') OR
-	    (provider = 'google' AND auth_method = 'oauth')
+	    (provider = 'google' AND auth_method = 'oauth') OR
+	    (provider = 'microsoft' AND auth_method = 'oauth')
 	  )
 	  AND sync_status IN ('pending', 'ready', 'error')
 	  AND COALESCE(last_sync_at, updated_at) <= NOW() - INTERVAL '15 minutes'
