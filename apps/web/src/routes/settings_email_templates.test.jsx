@@ -21,22 +21,26 @@ function sessionResponse() {
 
 describe('settings email templates route', () => {
   it('lists templates and creates a new one', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(sessionResponse())
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: { templates: [{ id: 3, name: 'Welcome', subject: 'Hi there', body: 'Hello {{first_name}}' }] }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: { template: { id: 5, name: 'Follow up', subject: 'Checking in', body: 'Hi {{first_name}}' } }
-        })
-      })
+    const jsonResponse = (payload) => ({ ok: true, json: async () => payload })
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const path = requestURL.pathname
+      const method = options.method || 'GET'
+
+      if (path.endsWith('/auth/me')) {
+        return sessionResponse()
+      }
+      if (path.endsWith('/api/email-templates/merge-fields')) {
+        return jsonResponse({ data: { groups: [{ key: 'contact', label: 'Contact fields', fields: [{ token: '{{first_name}}', label: 'First name' }] }] } })
+      }
+      if (path.endsWith('/api/email-templates') && method === 'POST') {
+        return jsonResponse({ data: { template: { id: 5, name: 'Follow up', subject: 'Checking in', body: 'Hi {{first_name}}' } } })
+      }
+      if (path.endsWith('/api/email-templates')) {
+        return jsonResponse({ data: { templates: [{ id: 3, name: 'Welcome', subject: 'Hi there', body: 'Hello {{first_name}}' }] } })
+      }
+      return jsonResponse({ data: { unreadCount: 0 } })
+    })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/settings/email-templates')
@@ -45,6 +49,7 @@ describe('settings email templates route', () => {
 
     expect(await screen.findByRole('heading', { name: /email templates/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /welcome/i })).toBeInTheDocument()
+    expect(await screen.findByText('{{first_name}}')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'Follow up' } })
     fireEvent.change(screen.getByLabelText(/subject/i), { target: { value: 'Checking in' } })

@@ -3,15 +3,17 @@ import { Card } from './ui/card'
 import { Button } from './ui/button'
 import { Field } from './ui/field'
 import { InlineError } from './ui/inline_error'
+import { MergeFieldCatalog } from './merge_field_catalog'
 import { isAbortError } from '../lib/api'
 import { listEmailMessages } from '../lib/email_messages'
-import { listEmailTemplates } from '../lib/email_templates'
+import { listEmailTemplates, listEmailTemplateMergeFields } from '../lib/email_templates'
 
 const emptyForm = { subject: '', body: '' }
 
 export function RecordEmailComposer({ entityType, entityId, canWrite, recipientOptions = [], sendEmail, emptyMessage, mergeFieldHint }) {
   const [open, setOpen] = useState(false)
   const [templates, setTemplates] = useState([])
+  const [mergeFieldGroups, setMergeFieldGroups] = useState([])
   const [history, setHistory] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [selectedRecipientId, setSelectedRecipientId] = useState('')
@@ -51,6 +53,9 @@ export function RecordEmailComposer({ entityType, entityId, canWrite, recipientO
     try {
       if (templates.length === 0) {
         setTemplates(await listEmailTemplates())
+      }
+      if (mergeFieldGroups.length === 0) {
+        setMergeFieldGroups(await listEmailTemplateMergeFields())
       }
       await loadHistory()
     } catch (loadError) {
@@ -139,6 +144,7 @@ export function RecordEmailComposer({ entityType, entityId, canWrite, recipientO
               <textarea className="text-input" rows={6} value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} required />
             </Field>
             <p className="field-hint">{mergeFieldHint || `Merge fields like {{first_name}} are filled in when the email is sent.`}</p>
+            <MergeFieldCatalog groups={mergeFieldGroups} compact />
             <Button type="submit" disabled={isSending}>{isSending ? 'Sending...' : 'Send email'}</Button>
           </form>
         ) : null}

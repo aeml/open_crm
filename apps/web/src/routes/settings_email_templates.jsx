@@ -3,9 +3,10 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
+import { MergeFieldCatalog } from '../components/merge_field_catalog'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { listEmailTemplates, createEmailTemplate, updateEmailTemplate, deleteEmailTemplate } from '../lib/email_templates'
+import { listEmailTemplates, listEmailTemplateMergeFields, createEmailTemplate, updateEmailTemplate, deleteEmailTemplate } from '../lib/email_templates'
 import { usePageTitle } from '../lib/use_page_title'
 
 const emptyForm = { name: '', subject: '', body: '' }
@@ -16,6 +17,7 @@ export function SettingsEmailTemplatesRoute() {
   const role = session?.membership?.role || ''
   const canManage = role !== 'viewer'
   const [templates, setTemplates] = useState([])
+  const [mergeFieldGroups, setMergeFieldGroups] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
   const [error, setError] = useState('')
@@ -25,8 +27,12 @@ export function SettingsEmailTemplatesRoute() {
   async function loadTemplates({ signal } = {}) {
     setIsLoading(true)
     try {
-      const next = await listEmailTemplates({ signal })
+      const [next, fields] = await Promise.all([
+        listEmailTemplates({ signal }),
+        listEmailTemplateMergeFields({ signal })
+      ])
       setTemplates(next)
+      setMergeFieldGroups(fields)
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -125,6 +131,15 @@ export function SettingsEmailTemplatesRoute() {
               </article>
             ))}
           </div>
+          {mergeFieldGroups.length > 0 ? (
+            <div className="card-stack">
+              <div>
+                <h3>Available merge fields</h3>
+                <p className="field-hint">Use these tokens in template subjects and bodies. Values are filled from the record before sending.</p>
+              </div>
+              <MergeFieldCatalog groups={mergeFieldGroups} />
+            </div>
+          ) : null}
         </div>
       </Card>
 

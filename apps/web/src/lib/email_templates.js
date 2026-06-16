@@ -6,6 +6,12 @@ export async function listEmailTemplates({ signal } = {}) {
   return payload?.data?.templates || []
 }
 
+export async function listEmailTemplateMergeFields({ signal } = {}) {
+  const payload = await apiRequest('/api/email-templates/merge-fields', { fallbackMessage: 'Unable to load merge fields.', signal })
+
+  return payload?.data?.groups || []
+}
+
 export async function createEmailTemplate(input, { signal } = {}) {
   const payload = await apiRequest('/api/email-templates', { method: 'POST', body: input, fallbackMessage: 'Unable to save email template.', signal })
 

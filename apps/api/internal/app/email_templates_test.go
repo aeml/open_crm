@@ -97,6 +97,46 @@ func TestListEmailTemplatesScopesToOrganization(t *testing.T) {
 	}
 }
 
+func TestListEmailTemplateMergeFields(t *testing.T) {
+	server := authenticatedEmailTemplatesServer(nil, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/email-templates/merge-fields", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	var response struct {
+		Data struct {
+			Groups []moduleemailtemplates.MergeFieldGroup `json:"groups"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(response.Data.Groups) < 3 {
+		t.Fatalf("expected contact/company/deal merge field groups, got %#v", response.Data.Groups)
+	}
+	var foundFirstName, foundDealName bool
+	for _, group := range response.Data.Groups {
+		for _, field := range group.Fields {
+			if field.Token == "{{first_name}}" {
+				foundFirstName = true
+			}
+			if field.Token == "{{deal_name}}" {
+				foundDealName = true
+			}
+		}
+	}
+	if !foundFirstName || !foundDealName {
+		t.Fatalf("expected contact and deal merge fields, got %#v", response.Data.Groups)
+	}
+}
+
 func TestCreateEmailTemplateUsesCurrentOrganization(t *testing.T) {
 	service := &fakeEmailTemplatesService{
 		createResult: moduleemailtemplates.Template{ID: 7, Name: "Follow up", Subject: "Checking in", Body: "Hi {{first_name}}"},

@@ -127,6 +127,40 @@
   word-break: break-word;
 }
 
+.merge-field-catalog {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.merge-field-catalog-compact {
+  gap: var(--space-2);
+}
+
+.merge-field-group {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.merge-field-group h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.merge-field-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.merge-field-token {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 0.25rem 0.55rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
 .auth-stack {
   gap: var(--space-3);
 }

@@ -27,6 +27,15 @@ type emailTemplateResponse struct {
 	} `json:"meta"`
 }
 
+type emailTemplateMergeFieldsResponse struct {
+	Data struct {
+		Groups []moduleemailtemplates.MergeFieldGroup `json:"groups"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type emailTemplateRequest struct {
 	Name    string `json:"name"`
 	Subject string `json:"subject"`
@@ -52,6 +61,18 @@ func handleListEmailTemplates(auth authService, templates emailTemplatesService,
 
 	response := emailTemplatesListResponse{}
 	response.Data.Templates = list
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleListEmailTemplateMergeFields(auth authService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	if _, ok := requireOrgMember(auth, w, r); !ok {
+		return
+	}
+
+	response := emailTemplateMergeFieldsResponse{}
+	response.Data.Groups = moduleemailtemplates.MergeFieldCatalog()
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }

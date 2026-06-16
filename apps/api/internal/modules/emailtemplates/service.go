@@ -30,6 +30,18 @@ type Template struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type MergeField struct {
+	Token       string `json:"token"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+type MergeFieldGroup struct {
+	Key    string       `json:"key"`
+	Label  string       `json:"label"`
+	Fields []MergeField `json:"fields"`
+}
+
 type Input struct {
 	Name    string `json:"name"`
 	Subject string `json:"subject"`
@@ -42,6 +54,49 @@ type Service struct {
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
+}
+
+func MergeFieldCatalog() []MergeFieldGroup {
+	return []MergeFieldGroup{
+		{
+			Key:   "contact",
+			Label: "Contact fields",
+			Fields: []MergeField{
+				{Token: "{{first_name}}", Label: "First name", Description: "Recipient contact first name."},
+				{Token: "{{last_name}}", Label: "Last name", Description: "Recipient contact last name."},
+				{Token: "{{full_name}}", Label: "Full name", Description: "Recipient contact full name."},
+				{Token: "{{email}}", Label: "Email", Description: "Recipient contact email address."},
+				{Token: "{{job_title}}", Label: "Job title", Description: "Recipient contact job title."},
+			},
+		},
+		{
+			Key:   "company",
+			Label: "Company fields",
+			Fields: []MergeField{
+				{Token: "{{company_name}}", Label: "Company name", Description: "Company or client name."},
+				{Token: "{{client_name}}", Label: "Client name", Description: "Alias for company or client name."},
+				{Token: "{{client_type}}", Label: "Client type", Description: "Company client type."},
+				{Token: "{{company_status}}", Label: "Company status", Description: "Company status."},
+				{Token: "{{client_status}}", Label: "Client status", Description: "Alias for company status."},
+				{Token: "{{industry}}", Label: "Industry", Description: "Company industry."},
+				{Token: "{{phone}}", Label: "Phone", Description: "Company phone number."},
+				{Token: "{{website}}", Label: "Website", Description: "Company website."},
+			},
+		},
+		{
+			Key:   "deal",
+			Label: "Deal fields",
+			Fields: []MergeField{
+				{Token: "{{deal_name}}", Label: "Deal name", Description: "Deal name."},
+				{Token: "{{deal_stage}}", Label: "Deal stage", Description: "Current deal stage."},
+				{Token: "{{deal_status}}", Label: "Deal status", Description: "Current deal status."},
+				{Token: "{{deal_value}}", Label: "Deal value", Description: "Deal value amount."},
+				{Token: "{{deal_currency}}", Label: "Deal currency", Description: "Deal value currency."},
+				{Token: "{{expected_close_date}}", Label: "Expected close", Description: "Expected close date."},
+				{Token: "{{primary_contact_name}}", Label: "Primary contact", Description: "Deal primary contact name."},
+			},
+		},
+	}
 }
 
 func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]Template, error) {
