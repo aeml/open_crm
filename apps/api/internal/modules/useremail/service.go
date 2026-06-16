@@ -115,8 +115,18 @@ type SyncCredentials struct {
 	IMAPUseTLS   bool
 	OAuthAccess  string
 	OAuthRefresh string
+	OAuthExpires *time.Time
 	SyncCursor   string
 	SyncStatus   string
+}
+
+// OAuthTokenUpdateInput persists refreshed OAuth tokens. RefreshToken may be
+// blank when the provider returns only a new access token.
+type OAuthTokenUpdateInput struct {
+	Provider     string
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    *time.Time
 }
 
 type SyncTarget struct {
@@ -173,7 +183,7 @@ const selectCredentialsSQL = `
 const selectSyncCredentialsSQL = `
 	SELECT from_email, imap_host, imap_port, imap_username, imap_password_enc,
 	       imap_use_tls, provider, auth_method, sync_enabled, sync_cursor, sync_status,
-	       oauth_access_token_enc, oauth_refresh_token_enc
+	       oauth_access_token_enc, oauth_refresh_token_enc, oauth_token_expires_at
 	FROM user_email_accounts
 	WHERE organization_id = $1 AND user_id = $2
 `
@@ -266,11 +276,12 @@ func (s *Service) SyncCredentials(ctx context.Context, organizationID, userID in
 		imapEnc      string
 		oauthAccess  string
 		oauthRefresh string
+		oauthExpires pgtype.Timestamptz
 	)
 	err := s.pool.QueryRow(ctx, selectSyncCredentialsSQL, organizationID, userID).Scan(
 		&creds.FromEmail, &creds.IMAPHost, &creds.IMAPPort, &creds.IMAPUsername, &imapEnc,
 		&creds.IMAPUseTLS, &creds.Provider, &creds.AuthMethod, &creds.SyncEnabled, &creds.SyncCursor, &creds.SyncStatus,
-		&oauthAccess, &oauthRefresh,
+		&oauthAccess, &oauthRefresh, &oauthExpires,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SyncCredentials{}, ErrNotFound
@@ -298,6 +309,10 @@ func (s *Service) SyncCredentials(ctx context.Context, organizationID, userID in
 			return SyncCredentials{}, fmt.Errorf("decrypt oauth refresh token: %w", err)
 		}
 		creds.OAuthRefresh = refresh
+	}
+	if oauthExpires.Valid {
+		value := oauthExpires.Time
+		creds.OAuthExpires = &value
 	}
 	return creds, nil
 }
@@ -446,6 +461,53 @@ func (s *Service) SaveOAuthConnection(ctx context.Context, organizationID, userI
 	`, organizationID, userID, input.Provider, input.Subject, accessTokenEnc, refreshTokenEnc, input.ExpiresAt)
 	if err != nil {
 		return Account{}, fmt.Errorf("save oauth connection: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return Account{}, ErrNotFound
+	}
+	return s.GetForUser(ctx, organizationID, userID)
+}
+
+// UpdateOAuthTokens stores a refreshed OAuth access token for an existing
+// mailbox connection. Some providers do not return a new refresh token during
+// refresh; in that case the stored refresh token is preserved.
+func (s *Service) UpdateOAuthTokens(ctx context.Context, organizationID, userID int64, input OAuthTokenUpdateInput) (Account, error) {
+	if !s.Configured() {
+		return Account{}, ErrEncryptionUnavailable
+	}
+	input.Provider = strings.ToLower(strings.TrimSpace(input.Provider))
+	input.AccessToken = strings.TrimSpace(input.AccessToken)
+	input.RefreshToken = strings.TrimSpace(input.RefreshToken)
+	if (input.Provider != "google" && input.Provider != "microsoft") || input.AccessToken == "" {
+		return Account{}, ErrInvalidInput
+	}
+
+	accessTokenEnc, err := s.cipher.Encrypt(input.AccessToken)
+	if err != nil {
+		return Account{}, fmt.Errorf("encrypt oauth access token: %w", err)
+	}
+	refreshTokenEnc := ""
+	if input.RefreshToken != "" {
+		refreshTokenEnc, err = s.cipher.Encrypt(input.RefreshToken)
+		if err != nil {
+			return Account{}, fmt.Errorf("encrypt oauth refresh token: %w", err)
+		}
+	}
+
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE user_email_accounts
+		SET oauth_access_token_enc = $4,
+		    oauth_refresh_token_enc = CASE WHEN $5 <> '' THEN $5 ELSE oauth_refresh_token_enc END,
+		    oauth_token_expires_at = $6,
+		    last_sync_error = '',
+		    updated_at = NOW()
+		WHERE organization_id = $1
+		  AND user_id = $2
+		  AND provider = $3
+		  AND auth_method = 'oauth'
+	`, organizationID, userID, input.Provider, accessTokenEnc, refreshTokenEnc, input.ExpiresAt)
+	if err != nil {
+		return Account{}, fmt.Errorf("update oauth tokens: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return Account{}, ErrNotFound

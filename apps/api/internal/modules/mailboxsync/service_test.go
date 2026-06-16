@@ -12,11 +12,12 @@ import (
 )
 
 type fakeAccountStore struct {
-	creds   moduleuseremail.SyncCredentials
-	account moduleuseremail.Account
-	targets []moduleuseremail.SyncTarget
-	updates []moduleuseremail.SyncStateInput
-	err     error
+	creds        moduleuseremail.SyncCredentials
+	account      moduleuseremail.Account
+	targets      []moduleuseremail.SyncTarget
+	updates      []moduleuseremail.SyncStateInput
+	tokenUpdates []moduleuseremail.OAuthTokenUpdateInput
+	err          error
 }
 
 func (f *fakeAccountStore) SyncCredentials(_ context.Context, _, _ int64) (moduleuseremail.SyncCredentials, error) {
@@ -27,6 +28,16 @@ func (f *fakeAccountStore) UpdateSyncState(_ context.Context, _, _ int64, input 
 	f.updates = append(f.updates, input)
 	f.account.SyncStatus = input.Status
 	f.account.LastSyncError = input.Error
+	return f.account, f.err
+}
+
+func (f *fakeAccountStore) UpdateOAuthTokens(_ context.Context, _ int64, _ int64, input moduleuseremail.OAuthTokenUpdateInput) (moduleuseremail.Account, error) {
+	f.tokenUpdates = append(f.tokenUpdates, input)
+	f.creds.OAuthAccess = input.AccessToken
+	if input.RefreshToken != "" {
+		f.creds.OAuthRefresh = input.RefreshToken
+	}
+	f.creds.OAuthExpires = input.ExpiresAt
 	return f.account, f.err
 }
 
@@ -68,6 +79,19 @@ type fakeFetcher struct {
 	limit    int
 	called   bool
 	err      error
+}
+
+type fakeOAuthRefresher struct {
+	tokens OAuthTokenSet
+	creds  moduleuseremail.SyncCredentials
+	called bool
+	err    error
+}
+
+func (f *fakeOAuthRefresher) RefreshOAuthToken(_ context.Context, creds moduleuseremail.SyncCredentials) (OAuthTokenSet, error) {
+	f.called = true
+	f.creds = creds
+	return f.tokens, f.err
 }
 
 func (f *fakeFetcher) Fetch(_ context.Context, creds moduleuseremail.SyncCredentials, limit int) ([]FetchedMessage, error) {
@@ -224,6 +248,57 @@ func TestSyncUserImportsReadyGoogleMessages(t *testing.T) {
 	}
 	if !fetcher.called || fetcher.creds.Provider != "google" || fetcher.creds.OAuthAccess != "access-token" {
 		t.Fatalf("expected google credentials to reach fetcher, got called=%v creds=%#v", fetcher.called, fetcher.creds)
+	}
+}
+
+func TestSyncUserRefreshesExpiredOAuthTokenBeforeFetch(t *testing.T) {
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	creds := readyGoogleCredentials()
+	creds.OAuthAccess = "old-access-token"
+	creds.OAuthRefresh = "refresh-token"
+	past := time.Now().UTC().Add(-time.Minute)
+	creds.OAuthExpires = &past
+	accounts := &fakeAccountStore{creds: creds}
+	fetcher := &fakeFetcher{messages: []FetchedMessage{{FromEmail: "customer@acme.test", ProviderMessageID: "gmail-10", ReceivedAt: time.Now()}}}
+	refresher := &fakeOAuthRefresher{tokens: OAuthTokenSet{AccessToken: "new-access-token", RefreshToken: "new-refresh-token", ExpiresAt: &expiresAt}}
+	service := NewServiceWithOAuthRefresh(accounts, &fakeMessageStore{}, fetcher, refresher)
+
+	result, err := service.SyncUser(context.Background(), 42, 7)
+	if err != nil {
+		t.Fatalf("sync user: %v", err)
+	}
+	if result.Status != "ready" || result.Imported != 1 {
+		t.Fatalf("unexpected sync result: %#v", result)
+	}
+	if !refresher.called || refresher.creds.OAuthAccess != "old-access-token" || refresher.creds.OAuthRefresh != "refresh-token" {
+		t.Fatalf("expected old oauth credentials to be refreshed, got called=%v creds=%#v", refresher.called, refresher.creds)
+	}
+	if len(accounts.tokenUpdates) != 1 || accounts.tokenUpdates[0].AccessToken != "new-access-token" || accounts.tokenUpdates[0].RefreshToken != "new-refresh-token" {
+		t.Fatalf("expected refreshed tokens to be persisted, got %#v", accounts.tokenUpdates)
+	}
+	if !fetcher.called || fetcher.creds.OAuthAccess != "new-access-token" || fetcher.creds.OAuthRefresh != "new-refresh-token" {
+		t.Fatalf("expected fetcher to use refreshed token, got called=%v creds=%#v", fetcher.called, fetcher.creds)
+	}
+}
+
+func TestSyncUserFailsExpiredOAuthTokenWhenRefreshUnconfigured(t *testing.T) {
+	creds := readyGoogleCredentials()
+	creds.OAuthRefresh = "refresh-token"
+	past := time.Now().UTC().Add(-time.Minute)
+	creds.OAuthExpires = &past
+	accounts := &fakeAccountStore{creds: creds}
+	fetcher := &fakeFetcher{}
+	service := NewService(accounts, &fakeMessageStore{}, fetcher)
+
+	result, err := service.SyncUser(context.Background(), 42, 7)
+	if err != nil {
+		t.Fatalf("sync user should record refresh setup errors without failing the request: %v", err)
+	}
+	if result.Status != "error" || !strings.Contains(result.Error, "oauth token refresh is not configured") {
+		t.Fatalf("unexpected refresh setup result: %#v", result)
+	}
+	if fetcher.called {
+		t.Fatalf("fetcher should not run when expired token refresh is unconfigured")
 	}
 }
 

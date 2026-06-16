@@ -115,7 +115,12 @@ func main() {
 			emailSequencesService = moduleemailsequences.NewService(pool)
 			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
 			emailMessagesService = moduleemailmessages.NewService(pool)
-			mailboxSyncService = modulemailboxsync.NewService(userEmailService, emailMessagesService, nil)
+			mailboxSyncService = modulemailboxsync.NewServiceWithOAuthRefresh(userEmailService, emailMessagesService, nil, modulemailboxsync.NewOAuthTokenRefresher(modulemailboxsync.OAuthTokenRefresherConfig{
+				GoogleClientID:        env.GoogleOAuthClientID,
+				GoogleClientSecret:    env.GoogleOAuthClientSecret,
+				MicrosoftClientID:     env.MicrosoftOAuthClientID,
+				MicrosoftClientSecret: env.MicrosoftOAuthClientSecret,
+			}))
 			sequenceRunnerService = modulesequencerunner.NewService(emailSequencesService, userEmailService, emailMessagesService)
 		}
 	}

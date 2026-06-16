@@ -29,6 +29,10 @@ type accountStore interface {
 	UpdateSyncState(context.Context, int64, int64, moduleuseremail.SyncStateInput) (moduleuseremail.Account, error)
 }
 
+type oauthTokenStore interface {
+	UpdateOAuthTokens(context.Context, int64, int64, moduleuseremail.OAuthTokenUpdateInput) (moduleuseremail.Account, error)
+}
+
 type messageStore interface {
 	RecordInbound(context.Context, int64, moduleemailmessages.InboundInput) (bool, error)
 }
@@ -43,6 +47,16 @@ type syncTargetStore interface {
 
 type Fetcher interface {
 	Fetch(context.Context, moduleuseremail.SyncCredentials, int) ([]FetchedMessage, error)
+}
+
+type OAuthTokenRefresher interface {
+	RefreshOAuthToken(context.Context, moduleuseremail.SyncCredentials) (OAuthTokenSet, error)
+}
+
+type OAuthTokenSet struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    *time.Time
 }
 
 type FetchedMessage struct {
@@ -69,20 +83,27 @@ type Summary struct {
 }
 
 type Service struct {
-	accounts accountStore
-	messages messageStore
-	resolver entityResolver
-	fetcher  Fetcher
-	limit    int
-	timeout  time.Duration
+	accounts  accountStore
+	tokens    oauthTokenStore
+	messages  messageStore
+	resolver  entityResolver
+	fetcher   Fetcher
+	refresher OAuthTokenRefresher
+	limit     int
+	timeout   time.Duration
 }
 
 func NewService(accounts accountStore, messages messageStore, fetcher Fetcher) *Service {
+	return NewServiceWithOAuthRefresh(accounts, messages, fetcher, nil)
+}
+
+func NewServiceWithOAuthRefresh(accounts accountStore, messages messageStore, fetcher Fetcher, refresher OAuthTokenRefresher) *Service {
 	if fetcher == nil {
 		fetcher = NewProviderFetcher()
 	}
 	resolver, _ := messages.(entityResolver)
-	return &Service{accounts: accounts, messages: messages, resolver: resolver, fetcher: fetcher, limit: defaultFetchLimit, timeout: defaultTimeout}
+	tokens, _ := accounts.(oauthTokenStore)
+	return &Service{accounts: accounts, tokens: tokens, messages: messages, resolver: resolver, fetcher: fetcher, refresher: refresher, limit: defaultFetchLimit, timeout: defaultTimeout}
 }
 
 func (s *Service) Configured() bool {
@@ -96,6 +117,10 @@ func (s *Service) SyncUser(ctx context.Context, organizationID, userID int64) (R
 	creds, err := s.accounts.SyncCredentials(ctx, organizationID, userID)
 	if err != nil {
 		return Result{}, err
+	}
+	creds, err = s.refreshOAuthTokenIfNeeded(ctx, organizationID, userID, creds)
+	if err != nil {
+		return s.updateFailure(ctx, organizationID, userID, cleanSyncError(err))
 	}
 	if failure := syncCredentialFailure(creds); failure != "" {
 		return s.updateFailure(ctx, organizationID, userID, failure)
@@ -207,6 +232,49 @@ func (s *Service) RunWorker(ctx context.Context, logger *slog.Logger, interval t
 			timer.Reset(interval)
 		}
 	}
+}
+
+func (s *Service) refreshOAuthTokenIfNeeded(ctx context.Context, organizationID, userID int64, creds moduleuseremail.SyncCredentials) (moduleuseremail.SyncCredentials, error) {
+	if !oauthTokenRefreshNeeded(creds) {
+		return creds, nil
+	}
+	if s.refresher == nil || s.tokens == nil {
+		return creds, fmt.Errorf("mailbox oauth token refresh is not configured")
+	}
+	tokens, err := s.refresher.RefreshOAuthToken(ctx, creds)
+	if err != nil {
+		return creds, fmt.Errorf("refresh mailbox oauth token: %w", err)
+	}
+	if strings.TrimSpace(tokens.AccessToken) == "" {
+		return creds, fmt.Errorf("refresh mailbox oauth token: missing access token")
+	}
+	if _, err := s.tokens.UpdateOAuthTokens(ctx, organizationID, userID, moduleuseremail.OAuthTokenUpdateInput{
+		Provider:     creds.Provider,
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+		ExpiresAt:    tokens.ExpiresAt,
+	}); err != nil {
+		return creds, err
+	}
+	creds.OAuthAccess = tokens.AccessToken
+	if strings.TrimSpace(tokens.RefreshToken) != "" {
+		creds.OAuthRefresh = tokens.RefreshToken
+	}
+	creds.OAuthExpires = tokens.ExpiresAt
+	return creds, nil
+}
+
+func oauthTokenRefreshNeeded(creds moduleuseremail.SyncCredentials) bool {
+	if creds.AuthMethod != "oauth" || (creds.Provider != "google" && creds.Provider != "microsoft") || strings.TrimSpace(creds.OAuthRefresh) == "" {
+		return false
+	}
+	if strings.TrimSpace(creds.OAuthAccess) == "" {
+		return true
+	}
+	if creds.OAuthExpires == nil {
+		return false
+	}
+	return time.Now().UTC().Add(2 * time.Minute).After(creds.OAuthExpires.UTC())
 }
 
 func syncCredentialFailure(creds moduleuseremail.SyncCredentials) string {
