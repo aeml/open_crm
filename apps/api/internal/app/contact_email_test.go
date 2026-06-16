@@ -188,6 +188,88 @@ func TestSendContactEmailRejectsEmptyBody(t *testing.T) {
 	}
 }
 
+func TestSendContactEmailBlocksSuppressedRecipient(t *testing.T) {
+	contacts := &fakeContactsService{
+		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", Email: "ada@acme.test"}},
+	}
+	accounts := &fakeUserEmailService{configured: true}
+	suppressions := &fakeEmailSuppressionsService{suppressed: true}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{
+			currentSessionResult: moduleauth.SessionState{
+				User:         moduleauth.User{ID: 1, Email: "owner@acme.test"},
+				Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc.", Slug: "acme-inc"},
+				Membership:   moduleauth.Membership{Role: "owner"},
+			},
+		},
+		ContactsService:          contacts,
+		UserEmailService:         accounts,
+		EmailSuppressionsService: suppressions,
+	})
+
+	body := bytes.NewBufferString(`{"subject":"Hi","body":"Body"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected status %d, got %d", http.StatusConflict, recorder.Code)
+	}
+	if accounts.sendCalled {
+		t.Fatalf("suppressed recipient should not be sent email")
+	}
+	if !suppressions.isCalled || suppressions.lastOrgID != 42 || suppressions.lastEmail != "ada@acme.test" {
+		t.Fatalf("expected suppression check for recipient, got %#v", suppressions)
+	}
+}
+
+func TestSendContactEmailAddsUnsubscribeFooter(t *testing.T) {
+	contacts := &fakeContactsService{
+		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", Email: "ada@acme.test"}},
+	}
+	accounts := &fakeUserEmailService{configured: true}
+	suppressions := &fakeEmailSuppressionsService{token: "signed.token"}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{
+			currentSessionResult: moduleauth.SessionState{
+				User:         moduleauth.User{ID: 1, Email: "owner@acme.test"},
+				Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc.", Slug: "acme-inc"},
+				Membership:   moduleauth.Membership{Role: "owner"},
+			},
+		},
+		ContactsService:          contacts,
+		UserEmailService:         accounts,
+		EmailSuppressionsService: suppressions,
+	})
+
+	body := bytes.NewBufferString(`{"subject":"Hi","body":"Body"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", body)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Forwarded-Proto", "https")
+	request.Header.Set("X-Forwarded-Host", "crm.example.test")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	expectedURL := "https://crm.example.test/api/email-unsubscribe/signed.token"
+	if !strings.Contains(accounts.sendBody, expectedURL) {
+		t.Fatalf("expected text body to include unsubscribe URL %q, got %q", expectedURL, accounts.sendBody)
+	}
+	if !strings.Contains(accounts.sendHTMLBody, `<a href="`+expectedURL+`">unsubscribe here</a>`) {
+		t.Fatalf("expected HTML body to include unsubscribe link, got %q", accounts.sendHTMLBody)
+	}
+	if !suppressions.tokenCalled || suppressions.lastOrgID != 42 || suppressions.lastEmail != "ada@acme.test" {
+		t.Fatalf("expected unsubscribe token for recipient, got %#v", suppressions)
+	}
+}
+
 func TestSendContactEmailRecordsToLog(t *testing.T) {
 	contacts := &fakeContactsService{
 		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", Email: "ada@acme.test"}},

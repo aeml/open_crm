@@ -3,6 +3,7 @@ package sequencerunner
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
@@ -49,17 +50,44 @@ type fakeMailboxSender struct {
 	to         string
 	subject    string
 	body       string
+	htmlBody   string
 }
 
 func (f *fakeMailboxSender) Configured() bool { return f.configured }
 
-func (f *fakeMailboxSender) SendAs(_ context.Context, organizationID, userID int64, to, subject, textBody, _ string) error {
+func (f *fakeMailboxSender) SendAs(_ context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error {
 	f.orgID = organizationID
 	f.userID = userID
 	f.to = to
 	f.subject = subject
 	f.body = textBody
+	f.htmlBody = htmlBody
 	return f.err
+}
+
+type fakeSuppressionStore struct {
+	suppressed  bool
+	isErr       error
+	token       string
+	tokenErr    error
+	lastOrgID   int64
+	lastEmail   string
+	isCalled    bool
+	tokenCalled bool
+}
+
+func (f *fakeSuppressionStore) IsSuppressed(_ context.Context, organizationID int64, email string) (bool, error) {
+	f.isCalled = true
+	f.lastOrgID = organizationID
+	f.lastEmail = email
+	return f.suppressed, f.isErr
+}
+
+func (f *fakeSuppressionStore) UnsubscribeToken(organizationID int64, email string) (string, error) {
+	f.tokenCalled = true
+	f.lastOrgID = organizationID
+	f.lastEmail = email
+	return f.token, f.tokenErr
 }
 
 type fakeMessageStore struct {
@@ -137,6 +165,66 @@ func TestSendDuePostponesAndRecordsFailedSend(t *testing.T) {
 	}
 	if !messages.called || messages.input.Status != "failed" || messages.input.Error != "smtp offline" {
 		t.Fatalf("expected failed email log, got %#v", messages.input)
+	}
+}
+
+func TestSendDueAdvancesSuppressedRecipientWithoutRetry(t *testing.T) {
+	sequences := &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}
+	sender := &fakeMailboxSender{configured: true}
+	messages := &fakeMessageStore{}
+	suppressions := &fakeSuppressionStore{suppressed: true}
+	service := NewServiceWithSuppressions(sequences, sender, messages, suppressions, "https://crm.example.test")
+
+	summary, err := service.SendDue(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("send due should continue after suppressed recipients: %v", err)
+	}
+	if summary.Attempted != 1 || summary.Sent != 0 || summary.Failed != 1 {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if sender.to != "" {
+		t.Fatalf("suppressed recipient should not be sent email, got send %#v", sender)
+	}
+	if sequences.markedOrgID != 42 || sequences.markedEnrollID != 9 || sequences.markedStep != 1 {
+		t.Fatalf("expected suppressed enrollment to advance, got %#v", sequences)
+	}
+	if sequences.postponeEnrollID != 0 {
+		t.Fatalf("suppressed enrollment should not be retried, got %#v", sequences)
+	}
+	if !messages.called || messages.input.Status != "failed" || messages.input.Error != "Recipient has unsubscribed from email." {
+		t.Fatalf("expected suppressed email log, got %#v", messages.input)
+	}
+	if !suppressions.isCalled || suppressions.lastOrgID != 42 || suppressions.lastEmail != "ada@acme.test" {
+		t.Fatalf("expected suppression check, got %#v", suppressions)
+	}
+}
+
+func TestSendDueAddsUnsubscribeFooterWhenConfigured(t *testing.T) {
+	sequences := &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}
+	sender := &fakeMailboxSender{configured: true}
+	messages := &fakeMessageStore{}
+	suppressions := &fakeSuppressionStore{token: "signed.token"}
+	service := NewServiceWithSuppressions(sequences, sender, messages, suppressions, "https://crm.example.test/")
+
+	summary, err := service.SendDue(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("send due: %v", err)
+	}
+	if summary.Attempted != 1 || summary.Sent != 1 || summary.Failed != 0 {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	expectedURL := "https://crm.example.test/api/email-unsubscribe/signed.token"
+	if !strings.Contains(sender.body, expectedURL) {
+		t.Fatalf("expected text body to include unsubscribe URL %q, got %q", expectedURL, sender.body)
+	}
+	if !strings.Contains(sender.htmlBody, `<a href="`+expectedURL+`">unsubscribe here</a>`) {
+		t.Fatalf("expected HTML body to include unsubscribe link, got %q", sender.htmlBody)
+	}
+	if messages.input.Body != sender.body {
+		t.Fatalf("email log should record sent body with footer, got %q", messages.input.Body)
+	}
+	if !suppressions.tokenCalled || suppressions.lastOrgID != 42 || suppressions.lastEmail != "ada@acme.test" {
+		t.Fatalf("expected unsubscribe token for recipient, got %#v", suppressions)
 	}
 }
 

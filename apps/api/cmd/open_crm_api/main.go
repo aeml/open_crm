@@ -23,6 +23,7 @@ import (
 	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
+	moduleemailsuppressions "github.com/aeml/open_crm/apps/api/internal/modules/emailsuppressions"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
@@ -82,6 +83,7 @@ func main() {
 	var billingService *modulebilling.Service
 	var emailTemplatesService *moduleemailtemplates.Service
 	var emailSequencesService *moduleemailsequences.Service
+	var emailSuppressionsService *moduleemailsuppressions.Service
 	var userEmailService *moduleuseremail.Service
 	var emailMessagesService *moduleemailmessages.Service
 	var mailboxSyncService *modulemailboxsync.Service
@@ -113,6 +115,7 @@ func main() {
 			billingService = modulebilling.NewService(pool, modulebilling.NewProvider(env.BillingProvider))
 			emailTemplatesService = moduleemailtemplates.NewService(pool)
 			emailSequencesService = moduleemailsequences.NewService(pool)
+			emailSuppressionsService = moduleemailsuppressions.NewService(pool, env.CredentialEncryptionKey)
 			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
 			emailMessagesService = moduleemailmessages.NewService(pool)
 			mailboxSyncService = modulemailboxsync.NewServiceWithOAuthRefresh(userEmailService, emailMessagesService, nil, modulemailboxsync.NewOAuthTokenRefresher(modulemailboxsync.OAuthTokenRefresherConfig{
@@ -121,7 +124,7 @@ func main() {
 				MicrosoftClientID:     env.MicrosoftOAuthClientID,
 				MicrosoftClientSecret: env.MicrosoftOAuthClientSecret,
 			}))
-			sequenceRunnerService = modulesequencerunner.NewService(emailSequencesService, userEmailService, emailMessagesService)
+			sequenceRunnerService = modulesequencerunner.NewServiceWithSuppressions(emailSequencesService, userEmailService, emailMessagesService, emailSuppressionsService, env.APIBaseURL)
 		}
 	}
 
@@ -162,6 +165,7 @@ func main() {
 		EmailTemplatesService:           emailTemplatesService,
 		EmailSequencesService:           emailSequencesService,
 		EmailSequenceEnrollmentsService: emailSequencesService,
+		EmailSuppressionsService:        emailSuppressionsService,
 		UserEmailService:                userEmailService,
 		MailboxSyncService:              mailboxSyncService,
 		EmailMessagesService:            emailMessagesService,

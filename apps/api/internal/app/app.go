@@ -16,6 +16,7 @@ import (
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
+	moduleemailsuppressions "github.com/aeml/open_crm/apps/api/internal/modules/emailsuppressions"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
@@ -191,6 +192,12 @@ type emailMessagesService interface {
 	MarkClickedByToken(context.Context, string) (string, error)
 }
 
+type emailSuppressionsService interface {
+	IsSuppressed(context.Context, int64, string) (bool, error)
+	UnsubscribeToken(int64, string) (string, error)
+	UnsubscribeByToken(context.Context, string) (moduleemailsuppressions.Suppression, error)
+}
+
 type Dependencies struct {
 	CheckReadiness                  func(context.Context) error
 	Logger                          *slog.Logger
@@ -218,6 +225,7 @@ type Dependencies struct {
 	MailboxSyncService              mailboxSyncService
 	EmailOAuthClient                emailOAuthClient
 	EmailMessagesService            emailMessagesService
+	EmailSuppressionsService        emailSuppressionsService
 }
 
 type statusResponse struct {
@@ -731,7 +739,10 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleArchiveContact(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
 	mux.HandleFunc("POST /api/contacts/{contactID}/email", func(w http.ResponseWriter, r *http.Request) {
-		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, w, r)
+		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+	})
+	mux.HandleFunc("GET /api/email-unsubscribe/{token}", func(w http.ResponseWriter, r *http.Request) {
+		handleEmailUnsubscribe(dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages/open/{trackingToken}", func(w http.ResponseWriter, r *http.Request) {
 		handleTrackEmailOpen(dependencies.EmailMessagesService, w, r)
@@ -767,7 +778,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleArchiveCompany(dependencies.AuthService, dependencies.CompaniesService, w, r)
 	})
 	mux.HandleFunc("POST /api/companies/{companyID}/email", func(w http.ResponseWriter, r *http.Request) {
-		handleSendCompanyEmail(dependencies.AuthService, dependencies.CompaniesService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, w, r)
+		handleSendCompanyEmail(dependencies.AuthService, dependencies.CompaniesService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("GET /api/deal-stages", func(w http.ResponseWriter, r *http.Request) {
 		handleListDealStages(dependencies.AuthService, dependencies.DealsService, w, r)
@@ -791,7 +802,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleArchiveDeal(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("POST /api/deals/{dealID}/email", func(w http.ResponseWriter, r *http.Request) {
-		handleSendDealEmail(dependencies.AuthService, dependencies.DealsService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, w, r)
+		handleSendDealEmail(dependencies.AuthService, dependencies.DealsService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}/stage", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateDealStage(dependencies.AuthService, dependencies.DealsService, w, r)

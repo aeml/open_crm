@@ -1790,6 +1790,7 @@ Progress:
 - `1.1.8` (sequence enrollment/schedule-state foundation): complete. Added migration `022_email_sequence_enrollments.sql` for active/paused/completed/cancelled contact enrollments with `current_step_order` and `next_send_at`, backend list/create/cancel endpoints (`/api/email-sequence-enrollments`), and a contact-detail Sequences panel for enrolling contacts. This stores scheduler state only; automated sends do not run yet.
 - `1.1.8` (sequence reply detection foundation): complete. Inbound synced email that matches a contact now completes that contact's active/paused sequence enrollments and clears `next_send_at`, so replies stop future sequence sends.
 - `1.1.8` (sequence send worker foundation): complete. Added an in-process sequence runner that polls due active enrollments, renders contact merge fields, sends the current step through the enrolling user's mailbox, records sent/failed messages in `email_messages`, advances to the next step using its delay, and completes the enrollment after the last step. Failed sends are postponed for retry instead of being hammered every worker interval.
+- `1.1.7` (unsubscribe/suppression foundation): complete. Added organization-scoped recipient suppressions, HMAC-signed public unsubscribe links, one-to-one send suppression checks with compliance footers, and sequence-runner suppression enforcement that records suppressed sends and advances enrollments instead of retrying forever. Bulk list selection, campaign UI, and richer compliance reporting remain deferred to the marketing/bulk-email slice.
 
 Candidate slices:
 
@@ -1799,7 +1800,7 @@ Candidate slices:
 - `1.1.4` Email open and link-click tracking with per-message and aggregate engagement.
 - `1.1.5` Email templates, snippets, and merge fields.
 - `1.1.6` One-to-one send from record pages and a connected-inbox view.
-- `1.1.7` Bulk/mass email with list selection, unsubscribe management, and CAN-SPAM/GDPR compliance footers.
+- `1.1.7` Bulk/mass email with list selection, unsubscribe management, and CAN-SPAM/GDPR compliance footers. Suppression/unsubscribe primitives are complete; bulk campaign UX remains future work.
 - `1.1.8` Email sequences / cadences: multi-step automated outreach with conditions and reply detection.
 - `1.1.9` Shared team inboxes and assignment for collaborative reply workflows.
 

@@ -43,7 +43,7 @@ var emailBodyURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 // comes from the user, not the platform. The subject and body may contain
 // {{merge_field}} placeholders, rendered server-side from contact data. A note
 // is logged on the contact so the send appears in its activity timeline.
-func handleSendContactEmail(auth authService, contacts contactsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
+func handleSendContactEmail(auth authService, contacts contactsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -83,10 +83,10 @@ func handleSendContactEmail(auth authService, contacts contactsService, accounts
 	}
 
 	fields := contactMergeFields(detail)
-	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, state.Organization.ID, state.User.ID, "contact", contactID, to, request.Subject, request.Body, fields, "Connect your email account in Settings before sending email to contacts")
+	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "contact", contactID, to, request.Subject, request.Body, fields, "Connect your email account in Settings before sending email to contacts")
 }
 
-func handleSendCompanyEmail(auth authService, companies companiesService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
+func handleSendCompanyEmail(auth authService, companies companiesService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -125,10 +125,10 @@ func handleSendCompanyEmail(auth authService, companies companiesService, accoun
 	}
 
 	fields := companyMergeFields(detail, recipient)
-	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, state.Organization.ID, state.User.ID, "company", companyID, recipient.Email, request.Subject, request.Body, fields, "Connect your email account in Settings before sending email")
+	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "company", companyID, recipient.Email, request.Subject, request.Body, fields, "Connect your email account in Settings before sending email")
 }
 
-func handleSendDealEmail(auth authService, deals dealsService, contacts contactsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
+func handleSendDealEmail(auth authService, deals dealsService, contacts contactsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -188,7 +188,7 @@ func handleSendDealEmail(auth authService, deals dealsService, contacts contacts
 	}
 
 	fields := dealMergeFields(detail, contact)
-	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, state.Organization.ID, state.User.ID, "deal", dealID, to, request.Subject, request.Body, fields, "Connect your email account in Settings before sending email")
+	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "deal", dealID, to, request.Subject, request.Body, fields, "Connect your email account in Settings before sending email")
 }
 
 func contactMergeFields(detail modulecontacts.Detail) map[string]string {
@@ -274,13 +274,26 @@ func dealMergeFields(detail moduledeals.Detail, contact modulecontacts.Detail) m
 	return fields
 }
 
-func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID string, accounts userEmailAccountService, notes notesService, messages emailMessagesService, organizationID, userID int64, entityType string, entityID int64, to, subjectTemplate, bodyTemplate string, fields map[string]string, accountRequiredMessage string) {
+func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID string, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, organizationID, userID int64, entityType string, entityID int64, to, subjectTemplate, bodyTemplate string, fields map[string]string, accountRequiredMessage string) {
 	subject := strings.TrimSpace(moduleemailtemplates.Render(subjectTemplate, fields))
 	body := strings.TrimSpace(moduleemailtemplates.Render(bodyTemplate, fields))
 	if subject == "" || body == "" {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Subject and body are required")
 		return
 	}
+	if suppressions != nil {
+		suppressed, err := suppressions.IsSuppressed(r.Context(), organizationID, to)
+		if err != nil {
+			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to check email suppression status")
+			return
+		}
+		if suppressed {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "EMAIL_SUPPRESSED", "This recipient has unsubscribed from email")
+			return
+		}
+	}
+	unsubscribeURL := emailUnsubscribeURL(r, suppressions, organizationID, to)
+	bodyToSend := textBodyWithUnsubscribe(body, unsubscribeURL)
 	trackingToken := ""
 	trackingURL := ""
 	trackingBaseURL := ""
@@ -291,21 +304,21 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 	}
 	htmlBody := ""
 	var trackedLinks []moduleemailmessages.TrackedLinkInput
-	if trackingURL != "" {
-		htmlBody, trackedLinks = trackedHTMLBody(body, trackingURL, trackingBaseURL)
+	if trackingURL != "" || unsubscribeURL != "" {
+		htmlBody, trackedLinks = trackedHTMLBody(body, trackingURL, trackingBaseURL, unsubscribeURL)
 	}
 
-	if err := accounts.SendAs(r.Context(), organizationID, userID, to, subject, body, htmlBody); err != nil {
+	if err := accounts.SendAs(r.Context(), organizationID, userID, to, subject, bodyToSend, htmlBody); err != nil {
 		if errors.Is(err, moduleuseremail.ErrNotFound) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", accountRequiredMessage)
 			return
 		}
-		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, body, "failed", err.Error(), trackingToken, trackedLinks)
+		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackingToken, trackedLinks)
 		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email through your mail server")
 		return
 	}
 
-	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, body, "sent", "", trackingToken, trackedLinks)
+	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "sent", "", trackingToken, trackedLinks)
 	logEntityEmailNote(r, notes, organizationID, userID, entityType, entityID, subject)
 
 	response := sendEmailResponse{}
@@ -359,7 +372,7 @@ func emailTrackingRouteURL(baseURL, routePrefix, token string) string {
 	return baseURL + routePrefix + url.PathEscape(token)
 }
 
-func trackedHTMLBody(textBody, trackingURL, trackingBaseURL string) (string, []moduleemailmessages.TrackedLinkInput) {
+func trackedHTMLBody(textBody, trackingURL, trackingBaseURL, unsubscribeURL string) (string, []moduleemailmessages.TrackedLinkInput) {
 	var body strings.Builder
 	links := make([]moduleemailmessages.TrackedLinkInput, 0)
 	last := 0
@@ -387,7 +400,32 @@ func trackedHTMLBody(textBody, trackingURL, trackingBaseURL string) (string, []m
 		last = loc[1]
 	}
 	appendEscapedEmailHTML(&body, textBody[last:])
-	return `<!doctype html><html><body><div>` + body.String() + `</div><img src="` + html.EscapeString(trackingURL) + `" width="1" height="1" alt="" style="display:none" /></body></html>`, links
+	if unsubscribeURL != "" {
+		body.WriteString(`<p style="margin-top:24px;font-size:12px;color:#666">To stop receiving emails from us, <a href="` + html.EscapeString(unsubscribeURL) + `">unsubscribe here</a>.</p>`)
+	}
+	trackingPixel := ""
+	if trackingURL != "" {
+		trackingPixel = `<img src="` + html.EscapeString(trackingURL) + `" width="1" height="1" alt="" style="display:none" />`
+	}
+	return `<!doctype html><html><body><div>` + body.String() + `</div>` + trackingPixel + `</body></html>`, links
+}
+
+func emailUnsubscribeURL(r *http.Request, suppressions emailSuppressionsService, organizationID int64, email string) string {
+	if suppressions == nil {
+		return ""
+	}
+	token, err := suppressions.UnsubscribeToken(organizationID, email)
+	if err != nil {
+		return ""
+	}
+	return emailTrackingRouteURL(emailTrackingBaseURL(r), "/api/email-unsubscribe/", token)
+}
+
+func textBodyWithUnsubscribe(body, unsubscribeURL string) string {
+	if unsubscribeURL == "" {
+		return body
+	}
+	return strings.TrimRight(body, " \t\r\n") + "\n\nTo stop receiving emails from us, unsubscribe here: " + unsubscribeURL
 }
 
 func appendEscapedEmailHTML(builder *strings.Builder, value string) {

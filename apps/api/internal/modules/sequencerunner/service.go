@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -22,7 +23,10 @@ const (
 	failureRetryDelayMinutes = 60
 )
 
-var ErrNotConfigured = errors.New("email sequence runner not configured")
+var (
+	ErrNotConfigured = errors.New("email sequence runner not configured")
+	ErrSuppressed    = errors.New("email recipient suppressed")
+)
 
 type sequenceStore interface {
 	ListDueSends(context.Context, int) ([]moduleemailsequences.DueSend, error)
@@ -39,6 +43,11 @@ type messageStore interface {
 	Record(context.Context, int64, moduleemailmessages.RecordInput) error
 }
 
+type suppressionStore interface {
+	IsSuppressed(context.Context, int64, string) (bool, error)
+	UnsubscribeToken(int64, string) (string, error)
+}
+
 type Summary struct {
 	Attempted int
 	Sent      int
@@ -46,14 +55,20 @@ type Summary struct {
 }
 
 type Service struct {
-	sequences sequenceStore
-	sender    mailboxSender
-	messages  messageStore
-	limit     int
+	sequences          sequenceStore
+	sender             mailboxSender
+	messages           messageStore
+	suppressions       suppressionStore
+	unsubscribeBaseURL string
+	limit              int
 }
 
 func NewService(sequences sequenceStore, sender mailboxSender, messages messageStore) *Service {
-	return &Service{sequences: sequences, sender: sender, messages: messages, limit: defaultBatchLimit}
+	return NewServiceWithSuppressions(sequences, sender, messages, nil, "")
+}
+
+func NewServiceWithSuppressions(sequences sequenceStore, sender mailboxSender, messages messageStore, suppressions suppressionStore, unsubscribeBaseURL string) *Service {
+	return &Service{sequences: sequences, sender: sender, messages: messages, suppressions: suppressions, unsubscribeBaseURL: strings.TrimRight(strings.TrimSpace(unsubscribeBaseURL), "/"), limit: defaultBatchLimit}
 }
 
 func (s *Service) Configured() bool {
@@ -90,17 +105,68 @@ func (s *Service) sendOne(ctx context.Context, send moduleemailsequences.DueSend
 		_ = s.sequences.PostponeEnrollment(ctx, send.OrganizationID, send.EnrollmentID, failureRetryDelayMinutes)
 		return fmt.Errorf("invalid due sequence send")
 	}
+	if s.suppressions != nil {
+		suppressed, err := s.suppressions.IsSuppressed(ctx, send.OrganizationID, send.ContactEmail)
+		if err != nil {
+			s.record(ctx, send, subject, body, "failed", "Unable to check email suppression status.")
+			_ = s.sequences.PostponeEnrollment(ctx, send.OrganizationID, send.EnrollmentID, failureRetryDelayMinutes)
+			return err
+		}
+		if suppressed {
+			s.record(ctx, send, subject, body, "failed", "Recipient has unsubscribed from email.")
+			if err := s.sequences.MarkStepSent(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder); err != nil {
+				return err
+			}
+			return ErrSuppressed
+		}
+	}
+	unsubscribeURL := s.unsubscribeURL(send.OrganizationID, send.ContactEmail)
+	bodyToSend := textBodyWithUnsubscribe(body, unsubscribeURL)
+	htmlBody := htmlBodyWithUnsubscribe(body, unsubscribeURL)
 
-	if err := s.sender.SendAs(ctx, send.OrganizationID, send.EnrolledByUserID, send.ContactEmail, subject, body, ""); err != nil {
-		s.record(ctx, send, subject, body, "failed", err.Error())
+	if err := s.sender.SendAs(ctx, send.OrganizationID, send.EnrolledByUserID, send.ContactEmail, subject, bodyToSend, htmlBody); err != nil {
+		s.record(ctx, send, subject, bodyToSend, "failed", err.Error())
 		_ = s.sequences.PostponeEnrollment(ctx, send.OrganizationID, send.EnrollmentID, failureRetryDelayMinutes)
 		return err
 	}
-	s.record(ctx, send, subject, body, "sent", "")
+	s.record(ctx, send, subject, bodyToSend, "sent", "")
 	if err := s.sequences.MarkStepSent(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (s *Service) unsubscribeURL(organizationID int64, email string) string {
+	if s.suppressions == nil || s.unsubscribeBaseURL == "" {
+		return ""
+	}
+	token, err := s.suppressions.UnsubscribeToken(organizationID, email)
+	if err != nil || strings.TrimSpace(token) == "" {
+		return ""
+	}
+	return s.unsubscribeBaseURL + "/api/email-unsubscribe/" + url.PathEscape(token)
+}
+
+func textBodyWithUnsubscribe(body, unsubscribeURL string) string {
+	if unsubscribeURL == "" {
+		return body
+	}
+	return strings.TrimRight(body, " \t\r\n") + "\n\nTo stop receiving emails from us, unsubscribe here: " + unsubscribeURL
+}
+
+func htmlBodyWithUnsubscribe(body, unsubscribeURL string) string {
+	if unsubscribeURL == "" {
+		return ""
+	}
+	return `<!doctype html><html><body><div>` + strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(htmlEscape(body), "\r\n", "\n"), "\r", "\n"), "\n", "<br>\n") + `</div><p style="margin-top:24px;font-size:12px;color:#666">To stop receiving emails from us, <a href="` + htmlEscape(unsubscribeURL) + `">unsubscribe here</a>.</p></body></html>`
+}
+
+func htmlEscape(value string) string {
+	value = strings.ReplaceAll(value, "&", "&amp;")
+	value = strings.ReplaceAll(value, "<", "&lt;")
+	value = strings.ReplaceAll(value, ">", "&gt;")
+	value = strings.ReplaceAll(value, `"`, "&quot;")
+	return strings.ReplaceAll(value, "'", "&#39;")
 }
 
 func (s *Service) record(ctx context.Context, send moduleemailsequences.DueSend, subject, body, status, errMsg string) {
