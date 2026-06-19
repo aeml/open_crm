@@ -8,7 +8,7 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { completeCall, listCalls, logCall, startCall } from '../lib/calls'
+import { completeCall, listCalls, logCall, startCall, updateCallRecording } from '../lib/calls'
 import { archiveContact, contactsExportURL, createContact, getContact, listContacts, sendContactEmail, updateContact } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
@@ -57,6 +57,12 @@ const emptyManualCallForm = {
   phoneNumber: '',
   disposition: '',
   notes: ''
+}
+
+const emptyRecordingForm = {
+  recordingUrl: '',
+  recordingConsent: 'unknown',
+  retentionDays: '365'
 }
 
 function fullName(contact) {
@@ -116,6 +122,29 @@ function formatCallTime(value) {
   return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString()
 }
 
+function formatRecordingConsent(value) {
+  if (value === 'granted') return 'Consent granted'
+  if (value === 'denied') return 'Consent denied'
+  if (value === 'not_required') return 'Consent not required'
+  return 'Consent unknown'
+}
+
+function formatRecordingRetention(value) {
+  if (!value) {
+    return 'No retention date'
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'No retention date' : `Retain until ${date.toLocaleDateString()}`
+}
+
+function recordingFormValues(call) {
+  return {
+    recordingUrl: call?.recordingUrl || '',
+    recordingConsent: call?.recordingConsent || 'unknown',
+    retentionDays: '365'
+  }
+}
+
 function relatedPipelineLabels(businessType) {
   if (businessType === 'services' || businessType === 'construction-services') {
     return { plural: 'Jobs', singular: 'job' }
@@ -169,10 +198,13 @@ export function ContactsRoute() {
   const [callForm, setCallForm] = useState(emptyCallForm)
   const [inboundCallOpen, setInboundCallOpen] = useState(false)
   const [manualCallForm, setManualCallForm] = useState(emptyManualCallForm)
+  const [recordingCallId, setRecordingCallId] = useState(null)
+  const [recordingForm, setRecordingForm] = useState(emptyRecordingForm)
   const [callStatus, setCallStatus] = useState('')
   const [isStartingCall, setIsStartingCall] = useState(false)
   const [isCompletingCall, setIsCompletingCall] = useState(false)
   const [isLoggingCall, setIsLoggingCall] = useState(false)
+  const [isUpdatingRecording, setIsUpdatingRecording] = useState(false)
   const [sequencesOpen, setSequencesOpen] = useState(false)
   const [sequenceOptions, setSequenceOptions] = useState([])
   const [sequenceEnrollments, setSequenceEnrollments] = useState([])
@@ -196,6 +228,8 @@ export function ContactsRoute() {
     setCallForm(emptyCallForm)
     setInboundCallOpen(false)
     setManualCallForm(emptyManualCallForm)
+    setRecordingCallId(null)
+    setRecordingForm(emptyRecordingForm)
     setCallStatus('')
     setSequencesOpen(false)
     setSequenceEnrollments([])
@@ -722,6 +756,66 @@ export function ContactsRoute() {
     }
   }
 
+  function handleToggleRecordingControls(call) {
+    setCallStatus('')
+    if (recordingCallId === call.id) {
+      setRecordingCallId(null)
+      setRecordingForm(emptyRecordingForm)
+      return
+    }
+    setRecordingCallId(call.id)
+    setRecordingForm(recordingFormValues(call))
+  }
+
+  async function handleUpdateCallRecording(event) {
+    event.preventDefault()
+    if (!recordingCallId) {
+      return
+    }
+    setIsUpdatingRecording(true)
+    setCallStatus('')
+    try {
+      const call = await updateCallRecording(recordingCallId, {
+        recordingUrl: recordingForm.recordingUrl.trim(),
+        recordingConsent: recordingForm.recordingConsent,
+        retentionDays: Number.parseInt(recordingForm.retentionDays, 10) || 365,
+        deleteRecording: false
+      })
+      setCallLogs((current) => current.map((entry) => entry.id === call.id ? call : entry))
+      setRecordingCallId(null)
+      setRecordingForm(emptyRecordingForm)
+      setCallStatus('Call recording controls updated.')
+      setError('')
+    } catch (recordingError) {
+      setError(recordingError.message || 'Unable to update call recording.')
+    } finally {
+      setIsUpdatingRecording(false)
+    }
+  }
+
+  async function handleDeleteCallRecording() {
+    if (!recordingCallId) {
+      return
+    }
+    setIsUpdatingRecording(true)
+    setCallStatus('')
+    try {
+      const call = await updateCallRecording(recordingCallId, {
+        recordingConsent: recordingForm.recordingConsent,
+        deleteRecording: true
+      })
+      setCallLogs((current) => current.map((entry) => entry.id === call.id ? call : entry))
+      setRecordingCallId(null)
+      setRecordingForm(emptyRecordingForm)
+      setCallStatus('Call recording deleted.')
+      setError('')
+    } catch (recordingError) {
+      setError(recordingError.message || 'Unable to delete call recording.')
+    } finally {
+      setIsUpdatingRecording(false)
+    }
+  }
+
   async function handleToggleSequences() {
     const next = !sequencesOpen
     setSequencesOpen(next)
@@ -1172,11 +1266,49 @@ export function ContactsRoute() {
                           <p>{call.disposition || (call.status === 'initiated' ? 'Call started' : 'Call logged')}</p>
                           <p className="field-hint">{call.phoneNumber} · {call.status}</p>
                           {call.notes ? <p className="field-hint">{call.notes}</p> : null}
+                          <p className="field-hint">
+                            Recording: {call.recordingStatus === 'available' && call.recordingUrl ? <a href={call.recordingUrl} target="_blank" rel="noreferrer">available</a> : (call.recordingStatus === 'deleted' ? 'deleted' : 'not recorded')} · {formatRecordingConsent(call.recordingConsent)}
+                          </p>
+                          {call.recordingStatus === 'available' ? <p className="field-hint">{formatRecordingRetention(call.recordingRetentionUntil)}</p> : null}
                         </div>
                         <div>
                           <p>{formatCallTime(call.completedAt || call.startedAt || call.createdAt)}</p>
                           <p className="field-hint">{call.createdByUserName || 'You'}</p>
+                          {canWrite ? (
+                            <Button className="button-ghost" type="button" onClick={() => handleToggleRecordingControls(call)}>
+                              {recordingCallId === call.id ? 'Cancel recording controls' : 'Edit recording controls'}
+                            </Button>
+                          ) : null}
                         </div>
+                        {recordingCallId === call.id ? (
+                          <form className="auth-form" onSubmit={handleUpdateCallRecording}>
+                            <Field label="Recording URL">
+                              <input className="text-input" value={recordingForm.recordingUrl} onChange={(event) => setRecordingForm((current) => ({ ...current, recordingUrl: event.target.value }))} placeholder="https://recordings.example/call.mp3" />
+                            </Field>
+                            <Field label="Recording consent">
+                              <select className="text-input" value={recordingForm.recordingConsent} onChange={(event) => setRecordingForm((current) => ({ ...current, recordingConsent: event.target.value }))}>
+                                <option value="unknown">Unknown</option>
+                                <option value="granted">Granted</option>
+                                <option value="denied">Denied</option>
+                                <option value="not_required">Not required</option>
+                              </select>
+                            </Field>
+                            <Field label="Retention policy">
+                              <select className="text-input" value={recordingForm.retentionDays} onChange={(event) => setRecordingForm((current) => ({ ...current, retentionDays: event.target.value }))}>
+                                <option value="30">Delete after 30 days</option>
+                                <option value="90">Delete after 90 days</option>
+                                <option value="365">Delete after 1 year</option>
+                                <option value="1095">Delete after 3 years</option>
+                              </select>
+                            </Field>
+                            <div className="button-row">
+                              <Button type="submit" disabled={isUpdatingRecording}>{isUpdatingRecording ? 'Saving...' : 'Save recording controls'}</Button>
+                              {call.recordingStatus === 'available' ? (
+                                <Button className="button-secondary" type="button" onClick={handleDeleteCallRecording} disabled={isUpdatingRecording}>Delete recording metadata</Button>
+                              ) : null}
+                            </div>
+                          </form>
+                        ) : null}
                       </article>
                     ))}
                   </div>

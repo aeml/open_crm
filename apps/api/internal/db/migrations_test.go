@@ -271,3 +271,29 @@ func TestMigrationFilesIncludeCallLogsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeCallRecordingControlsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "031_call_recording_controls.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected call recording controls migration to be registered")
+	}
+
+	sql := MigrationSQL("031_call_recording_controls.sql")
+	if sql == "" {
+		t.Fatal("expected call recording controls migration SQL to be embedded")
+	}
+	for _, expected := range []string{"recording_status", "recording_consent", "recording_retention_until", "idx_call_logs_recording_retention"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected call recording controls migration to include %s", expected)
+		}
+	}
+}

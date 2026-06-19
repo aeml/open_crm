@@ -15,23 +15,27 @@ import (
 )
 
 type fakeCallLogsService struct {
-	listResult        []modulecalllogs.Log
-	listErr           error
-	startResult       modulecalllogs.StartResult
-	startErr          error
-	completeResult    modulecalllogs.Log
-	completeErr       error
-	recordResult      modulecalllogs.Log
-	recordErr         error
-	lastOrgID         int64
-	lastActorID       int64
-	lastEntityType    string
-	lastEntityID      int64
-	lastLimit         int
-	lastStartInput    modulecalllogs.StartInput
-	lastCompleteID    int64
-	lastCompleteInput modulecalllogs.CompleteInput
-	lastRecordInput   modulecalllogs.RecordInput
+	listResult         []modulecalllogs.Log
+	listErr            error
+	startResult        modulecalllogs.StartResult
+	startErr           error
+	completeResult     modulecalllogs.Log
+	completeErr        error
+	recordResult       modulecalllogs.Log
+	recordErr          error
+	recordingResult    modulecalllogs.Log
+	recordingErr       error
+	lastOrgID          int64
+	lastActorID        int64
+	lastEntityType     string
+	lastEntityID       int64
+	lastLimit          int
+	lastStartInput     modulecalllogs.StartInput
+	lastCompleteID     int64
+	lastCompleteInput  modulecalllogs.CompleteInput
+	lastRecordInput    modulecalllogs.RecordInput
+	lastRecordingID    int64
+	lastRecordingInput modulecalllogs.RecordingInput
 }
 
 func (f *fakeCallLogsService) ListByEntity(_ context.Context, organizationID int64, entityType string, entityID int64, limit int) ([]modulecalllogs.Log, error) {
@@ -62,6 +66,14 @@ func (f *fakeCallLogsService) RecordManual(_ context.Context, organizationID, ac
 	f.lastActorID = actorUserID
 	f.lastRecordInput = input
 	return f.recordResult, f.recordErr
+}
+
+func (f *fakeCallLogsService) UpdateRecording(_ context.Context, organizationID, actorUserID, callID int64, input modulecalllogs.RecordingInput) (modulecalllogs.Log, error) {
+	f.lastOrgID = organizationID
+	f.lastActorID = actorUserID
+	f.lastRecordingID = callID
+	f.lastRecordingInput = input
+	return f.recordingResult, f.recordingErr
 }
 
 func callLogsServer(service *fakeCallLogsService, role string) http.Handler {
@@ -177,5 +189,33 @@ func TestRecordCallAllowsWriterAndCapturesInboundCall(t *testing.T) {
 	}
 	if response.Data.Call.Direction != "inbound" || response.Data.Call.Disposition != "Voicemail" {
 		t.Fatalf("unexpected manual call response: %#v", response.Data.Call)
+	}
+}
+
+func TestUpdateCallRecordingAllowsWriterAndCapturesConsent(t *testing.T) {
+	service := &fakeCallLogsService{
+		recordingResult: modulecalllogs.Log{ID: 5, EntityType: "contact", EntityID: 8, Direction: "outbound", PhoneNumber: "+15550001111", Status: "completed", RecordingStatus: "available", RecordingURL: "https://recordings.example/call-5.mp3", RecordingConsent: "granted", CreatedByUserID: 1, StartedAt: time.Now(), CreatedAt: time.Now(), UpdatedAt: time.Now()},
+	}
+	server := callLogsServer(service, "member")
+
+	body := strings.NewReader(`{"recordingUrl":"https://recordings.example/call-5.mp3","recordingConsent":"granted","retentionDays":365}`)
+	request := httptest.NewRequest(http.MethodPatch, "/api/calls/5/recording", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for recording update, got %d", recorder.Code)
+	}
+	if service.lastOrgID != 42 || service.lastActorID != 1 || service.lastRecordingID != 5 || service.lastRecordingInput.RecordingURL != "https://recordings.example/call-5.mp3" || service.lastRecordingInput.Consent != "granted" || service.lastRecordingInput.RetentionDays != 365 {
+		t.Fatalf("unexpected recording input: org=%d actor=%d id=%d input=%#v", service.lastOrgID, service.lastActorID, service.lastRecordingID, service.lastRecordingInput)
+	}
+	var response callLogResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Call.RecordingStatus != "available" || response.Data.Call.RecordingConsent != "granted" {
+		t.Fatalf("unexpected recording response: %#v", response.Data.Call)
 	}
 }

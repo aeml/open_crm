@@ -20,22 +20,27 @@ var (
 )
 
 type Log struct {
-	ID                int64      `json:"id"`
-	EntityType        string     `json:"entityType"`
-	EntityID          int64      `json:"entityId"`
-	Direction         string     `json:"direction"`
-	PhoneNumber       string     `json:"phoneNumber"`
-	Status            string     `json:"status"`
-	Disposition       string     `json:"disposition,omitempty"`
-	Notes             string     `json:"notes,omitempty"`
-	ProviderName      string     `json:"providerName,omitempty"`
-	ProviderCallID    string     `json:"providerCallId,omitempty"`
-	CreatedByUserID   int64      `json:"createdByUserId"`
-	CreatedByUserName string     `json:"createdByUserName,omitempty"`
-	StartedAt         time.Time  `json:"startedAt"`
-	CompletedAt       *time.Time `json:"completedAt,omitempty"`
-	CreatedAt         time.Time  `json:"createdAt"`
-	UpdatedAt         time.Time  `json:"updatedAt"`
+	ID                      int64      `json:"id"`
+	EntityType              string     `json:"entityType"`
+	EntityID                int64      `json:"entityId"`
+	Direction               string     `json:"direction"`
+	PhoneNumber             string     `json:"phoneNumber"`
+	Status                  string     `json:"status"`
+	Disposition             string     `json:"disposition,omitempty"`
+	Notes                   string     `json:"notes,omitempty"`
+	ProviderName            string     `json:"providerName,omitempty"`
+	ProviderCallID          string     `json:"providerCallId,omitempty"`
+	RecordingStatus         string     `json:"recordingStatus"`
+	RecordingURL            string     `json:"recordingUrl,omitempty"`
+	RecordingConsent        string     `json:"recordingConsent"`
+	RecordingRetentionUntil *time.Time `json:"recordingRetentionUntil,omitempty"`
+	RecordingDeletedAt      *time.Time `json:"recordingDeletedAt,omitempty"`
+	CreatedByUserID         int64      `json:"createdByUserId"`
+	CreatedByUserName       string     `json:"createdByUserName,omitempty"`
+	StartedAt               time.Time  `json:"startedAt"`
+	CompletedAt             *time.Time `json:"completedAt,omitempty"`
+	CreatedAt               time.Time  `json:"createdAt"`
+	UpdatedAt               time.Time  `json:"updatedAt"`
 }
 
 type StartInput struct {
@@ -58,6 +63,13 @@ type RecordInput struct {
 	Status      string
 	Disposition string
 	Notes       string
+}
+
+type RecordingInput struct {
+	RecordingURL    string
+	Consent         string
+	RetentionDays   int
+	DeleteRecording bool
 }
 
 type StartResult struct {
@@ -240,6 +252,73 @@ func (s *Service) RecordManual(ctx context.Context, organizationID, actorUserID 
 	return s.GetByID(ctx, organizationID, callID)
 }
 
+func (s *Service) UpdateRecording(ctx context.Context, organizationID, actorUserID, callID int64, input RecordingInput) (Log, error) {
+	if s == nil || s.pool == nil {
+		return Log{}, fmt.Errorf("call logs service not configured")
+	}
+	input = normalizeRecordingInput(input)
+	if organizationID <= 0 || actorUserID <= 0 || callID <= 0 || input.Consent == "" || len(input.RecordingURL) > 1000 || input.RetentionDays > 2555 {
+		return Log{}, ErrInvalidInput
+	}
+	if input.Consent == "denied" && input.RecordingURL != "" {
+		return Log{}, ErrInvalidInput
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Log{}, fmt.Errorf("begin call recording transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	status := "not_recorded"
+	var retentionUntil *time.Time
+	setDeletedAt := false
+	if input.DeleteRecording {
+		status = "deleted"
+		setDeletedAt = true
+	} else if input.RecordingURL != "" {
+		status = "available"
+		retention := time.Now().UTC().AddDate(0, 0, input.RetentionDays)
+		retentionUntil = &retention
+	}
+
+	var entityType string
+	var entityID int64
+	if err := tx.QueryRow(ctx, `
+		UPDATE call_logs
+		SET recording_status = $3,
+		    recording_url = $4,
+		    recording_consent = $5,
+		    recording_retention_until = $6,
+		    recording_deleted_at = CASE WHEN $7 THEN NOW() ELSE NULL END,
+		    updated_at = NOW()
+		WHERE organization_id = $1 AND id = $2
+		RETURNING entity_type, entity_id
+	`, organizationID, callID, status, input.RecordingURL, input.Consent, retentionUntil, setDeletedAt).Scan(&entityType, &entityID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Log{}, ErrNotFound
+		}
+		return Log{}, fmt.Errorf("update call recording: %w", err)
+	}
+	summary := "Call recording controls updated"
+	action := "call.recording_updated"
+	if status == "available" {
+		summary = "Call recording available"
+	} else if status == "deleted" {
+		summary = "Call recording deleted"
+		action = "call.recording_deleted"
+	} else if input.Consent == "denied" {
+		summary = "Call recording consent denied"
+	}
+	if err := insertActivity(ctx, tx, organizationID, entityType, entityID, actorUserID, action, summary); err != nil {
+		return Log{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Log{}, fmt.Errorf("commit call recording transaction: %w", err)
+	}
+	return s.GetByID(ctx, organizationID, callID)
+}
+
 func (s *Service) GetByID(ctx context.Context, organizationID, callID int64) (Log, error) {
 	call, err := scanLog(s.pool.QueryRow(ctx, baseSelect+`
 		WHERE c.organization_id = $1 AND c.id = $2
@@ -280,6 +359,33 @@ func normalizeDirection(value string) string {
 		return "inbound"
 	case "outbound":
 		return "outbound"
+	default:
+		return ""
+	}
+}
+
+func normalizeRecordingInput(input RecordingInput) RecordingInput {
+	input.RecordingURL = strings.TrimSpace(input.RecordingURL)
+	input.Consent = normalizeRecordingConsent(input.Consent)
+	if input.DeleteRecording {
+		input.RecordingURL = ""
+	}
+	if input.RetentionDays <= 0 {
+		input.RetentionDays = 365
+	}
+	return input
+}
+
+func normalizeRecordingConsent(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "unknown":
+		return "unknown"
+	case "granted":
+		return "granted"
+	case "denied":
+		return "denied"
+	case "not_required", "not required", "not-required":
+		return "not_required"
 	default:
 		return ""
 	}
@@ -374,7 +480,8 @@ func insertActivity(ctx context.Context, executor activityExecutor, organization
 
 const baseSelect = `
 	SELECT c.id, c.entity_type, c.entity_id, c.direction, c.phone_number, c.status, c.disposition, c.notes,
-	       c.provider_name, c.provider_call_id, c.created_by_user_id,
+	       c.provider_name, c.provider_call_id, c.recording_status, c.recording_url, c.recording_consent,
+	       c.recording_retention_until, c.recording_deleted_at, c.created_by_user_id,
 	       TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')),
 	       c.started_at, c.completed_at, c.created_at, c.updated_at
 	FROM call_logs c
@@ -409,6 +516,8 @@ type scanner interface {
 func scanLog(s scanner) (Log, error) {
 	var call Log
 	var completedAt pgtype.Timestamptz
+	var retentionUntil pgtype.Timestamptz
+	var deletedAt pgtype.Timestamptz
 	if err := s.Scan(
 		&call.ID,
 		&call.EntityType,
@@ -420,6 +529,11 @@ func scanLog(s scanner) (Log, error) {
 		&call.Notes,
 		&call.ProviderName,
 		&call.ProviderCallID,
+		&call.RecordingStatus,
+		&call.RecordingURL,
+		&call.RecordingConsent,
+		&retentionUntil,
+		&deletedAt,
 		&call.CreatedByUserID,
 		&call.CreatedByUserName,
 		&call.StartedAt,
@@ -432,6 +546,14 @@ func scanLog(s scanner) (Log, error) {
 	if completedAt.Valid {
 		completed := completedAt.Time
 		call.CompletedAt = &completed
+	}
+	if retentionUntil.Valid {
+		retention := retentionUntil.Time
+		call.RecordingRetentionUntil = &retention
+	}
+	if deletedAt.Valid {
+		deleted := deletedAt.Time
+		call.RecordingDeletedAt = &deleted
 	}
 	return call, nil
 }

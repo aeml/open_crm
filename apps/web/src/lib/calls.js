@@ -28,3 +28,9 @@ export async function logCall(input, { signal } = {}) {
 
   return payload?.data?.call
 }
+
+export async function updateCallRecording(callId, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/calls/${callId}/recording`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update call recording.', signal })
+
+  return payload?.data?.call
+}

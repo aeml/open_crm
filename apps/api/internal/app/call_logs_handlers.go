@@ -59,6 +59,13 @@ type callRecordRequest struct {
 	Notes       string `json:"notes"`
 }
 
+type callRecordingRequest struct {
+	RecordingURL     string `json:"recordingUrl"`
+	RecordingConsent string `json:"recordingConsent"`
+	RetentionDays    int    `json:"retentionDays"`
+	DeleteRecording  bool   `json:"deleteRecording"`
+}
+
 func handleListCallLogs(auth authService, calls callLogsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgMember(auth, w, r)
@@ -189,6 +196,42 @@ func handleRecordCall(auth authService, calls callLogsService, w http.ResponseWr
 	response.Data.Call = call
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusCreated, response)
+}
+
+func handleUpdateCallRecording(auth authService, calls callLogsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgWriter(auth, w, r)
+	if !ok {
+		return
+	}
+	if calls == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Call log service unavailable")
+		return
+	}
+	callID, ok := parsePathInt64(w, r, "callID")
+	if !ok {
+		return
+	}
+
+	var request callRecordingRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	call, err := calls.UpdateRecording(r.Context(), state.Organization.ID, state.User.ID, callID, modulecalllogs.RecordingInput{
+		RecordingURL:    request.RecordingURL,
+		Consent:         request.RecordingConsent,
+		RetentionDays:   request.RetentionDays,
+		DeleteRecording: request.DeleteRecording,
+	})
+	if err != nil {
+		writeCallLogError(w, requestID, err, "Unable to update call recording")
+		return
+	}
+
+	response := callLogResponse{}
+	response.Data.Call = call
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
 func writeCallLogError(w http.ResponseWriter, requestID string, err error, fallback string) {

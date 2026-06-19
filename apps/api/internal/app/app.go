@@ -123,6 +123,7 @@ type callLogsService interface {
 	StartOutbound(context.Context, int64, int64, modulecalllogs.StartInput) (modulecalllogs.StartResult, error)
 	Complete(context.Context, int64, int64, int64, modulecalllogs.CompleteInput) (modulecalllogs.Log, error)
 	RecordManual(context.Context, int64, int64, modulecalllogs.RecordInput) (modulecalllogs.Log, error)
+	UpdateRecording(context.Context, int64, int64, int64, modulecalllogs.RecordingInput) (modulecalllogs.Log, error)
 }
 
 type importsService interface {
@@ -761,6 +762,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/calls/{callID}/complete", func(w http.ResponseWriter, r *http.Request) {
 		handleCompleteCall(dependencies.AuthService, dependencies.CallLogsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/calls/{callID}/recording", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateCallRecording(dependencies.AuthService, dependencies.CallLogsService, w, r)
 	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)

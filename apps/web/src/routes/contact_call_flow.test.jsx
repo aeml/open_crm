@@ -42,6 +42,9 @@ describe('contact call flow', () => {
       if (path.endsWith('/api/calls/44/complete') && method === 'PATCH') {
         return jsonResponse({ data: { call: { id: 44, entityType: 'contact', entityId: 7, direction: 'outbound', phoneNumber: '+15551234567', status: 'completed', disposition: 'Connected', notes: 'Asked for a quote', createdByUserName: 'Demo Owner', startedAt: '2026-06-19T19:00:00Z', completedAt: '2026-06-19T19:05:00Z', createdAt: '2026-06-19T19:00:00Z', updatedAt: '2026-06-19T19:05:00Z' } } })
       }
+      if (path.endsWith('/api/calls/44/recording') && method === 'PATCH') {
+        return jsonResponse({ data: { call: { id: 44, entityType: 'contact', entityId: 7, direction: 'outbound', phoneNumber: '+15551234567', status: 'completed', disposition: 'Connected', notes: 'Asked for a quote', recordingStatus: 'available', recordingUrl: 'https://recordings.example/call-44.mp3', recordingConsent: 'granted', recordingRetentionUntil: '2027-06-19T19:05:00Z', createdByUserName: 'Demo Owner', startedAt: '2026-06-19T19:00:00Z', completedAt: '2026-06-19T19:05:00Z', createdAt: '2026-06-19T19:00:00Z', updatedAt: '2026-06-19T19:05:00Z' } } })
+      }
       return jsonResponse({ data: { tasks: [], deals: [], users: [], unreadCount: 0 } })
     })
 
@@ -71,6 +74,20 @@ describe('contact call flow', () => {
     })
     expect(await screen.findByText(/call outcome logged/i)).toBeInTheDocument()
     expect(screen.getByText(/connected/i)).toBeInTheDocument()
+
+    fireEvent.click(await screen.findByRole('button', { name: /edit recording controls/i }))
+    fireEvent.change(screen.getByLabelText(/recording url/i), { target: { value: 'https://recordings.example/call-44.mp3' } })
+    fireEvent.change(screen.getByLabelText(/recording consent/i), { target: { value: 'granted' } })
+    fireEvent.change(screen.getByLabelText(/retention policy/i), { target: { value: '365' } })
+    fireEvent.click(screen.getByRole('button', { name: /save recording controls/i }))
+
+    await waitFor(() => {
+      const recordingCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/calls/44/recording'))
+      expect(recordingCall).toBeTruthy()
+      expect(JSON.parse(recordingCall[1].body)).toEqual({ recordingUrl: 'https://recordings.example/call-44.mp3', recordingConsent: 'granted', retentionDays: 365, deleteRecording: false })
+    })
+    expect(await screen.findByText(/call recording controls updated/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /available/i })).toHaveAttribute('href', 'https://recordings.example/call-44.mp3')
   })
 
   it('logs an inbound call from contact detail', async () => {

@@ -50,3 +50,19 @@ func TestManualActivitySummary(t *testing.T) {
 		t.Fatalf("unexpected outbound failed summary: %q", got)
 	}
 }
+
+func TestNormalizeRecordingInputDefaultsConsentAndRetention(t *testing.T) {
+	input := normalizeRecordingInput(RecordingInput{RecordingURL: " https://recordings.example/call.mp3 ", Consent: " Not Required "})
+
+	if input.RecordingURL != "https://recordings.example/call.mp3" || input.Consent != "not_required" || input.RetentionDays != 365 {
+		t.Fatalf("unexpected normalized recording input: %#v", input)
+	}
+}
+
+func TestNormalizeRecordingInputClearsDeletedURL(t *testing.T) {
+	input := normalizeRecordingInput(RecordingInput{RecordingURL: "https://recordings.example/call.mp3", Consent: "granted", RetentionDays: 30, DeleteRecording: true})
+
+	if input.RecordingURL != "" || input.Consent != "granted" || input.RetentionDays != 30 || !input.DeleteRecording {
+		t.Fatalf("unexpected deleted recording input: %#v", input)
+	}
+}
