@@ -193,3 +193,29 @@ func TestMigrationFilesIncludeEmailSuppressionsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeEmailSnippetsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "028_email_snippets.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected email snippets migration to be registered")
+	}
+
+	sql := MigrationSQL("028_email_snippets.sql")
+	if sql == "" {
+		t.Fatal("expected email snippets migration SQL to be embedded")
+	}
+	for _, expected := range []string{"email_snippets", "idx_email_snippets_org_name", "organization_id"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected email snippets migration to include %s", expected)
+		}
+	}
+}

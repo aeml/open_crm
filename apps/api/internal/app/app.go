@@ -150,6 +150,10 @@ type emailTemplatesService interface {
 	Create(context.Context, int64, moduleemailtemplates.Input) (moduleemailtemplates.Template, error)
 	Update(context.Context, int64, int64, moduleemailtemplates.Input) (moduleemailtemplates.Template, error)
 	Delete(context.Context, int64, int64) error
+	ListSnippetsByOrganization(context.Context, int64) ([]moduleemailtemplates.Snippet, error)
+	CreateSnippet(context.Context, int64, moduleemailtemplates.SnippetInput) (moduleemailtemplates.Snippet, error)
+	UpdateSnippet(context.Context, int64, int64, moduleemailtemplates.SnippetInput) (moduleemailtemplates.Snippet, error)
+	DeleteSnippet(context.Context, int64, int64) error
 }
 
 type emailSequencesService interface {
@@ -701,6 +705,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/email-templates/{templateID}", func(w http.ResponseWriter, r *http.Request) {
 		handleDeleteEmailTemplate(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
+	})
+	mux.HandleFunc("GET /api/email-snippets", func(w http.ResponseWriter, r *http.Request) {
+		handleListEmailSnippets(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
+	})
+	mux.HandleFunc("POST /api/email-snippets", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateEmailSnippet(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/email-snippets/{snippetID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateEmailSnippet(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/email-snippets/{snippetID}", func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteEmailSnippet(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)

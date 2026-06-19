@@ -14,19 +14,33 @@ import (
 )
 
 type fakeEmailTemplatesService struct {
-	listResult      []moduleemailtemplates.Template
-	createResult    moduleemailtemplates.Template
-	createErr       error
-	updateResult    moduleemailtemplates.Template
-	updateErr       error
-	deleteErr       error
-	lastListOrgID   int64
-	lastCreateOrgID int64
-	lastCreateInput moduleemailtemplates.Input
-	lastUpdateOrgID int64
-	lastUpdateID    int64
-	lastDeleteOrgID int64
-	lastDeleteID    int64
+	listResult           []moduleemailtemplates.Template
+	createResult         moduleemailtemplates.Template
+	createErr            error
+	updateResult         moduleemailtemplates.Template
+	updateErr            error
+	deleteErr            error
+	snippetListResult    []moduleemailtemplates.Snippet
+	snippetCreateResult  moduleemailtemplates.Snippet
+	snippetCreateErr     error
+	snippetUpdateResult  moduleemailtemplates.Snippet
+	snippetUpdateErr     error
+	snippetDeleteErr     error
+	lastListOrgID        int64
+	lastCreateOrgID      int64
+	lastCreateInput      moduleemailtemplates.Input
+	lastUpdateOrgID      int64
+	lastUpdateID         int64
+	lastDeleteOrgID      int64
+	lastDeleteID         int64
+	lastSnippetListOrgID int64
+	lastSnippetCreateOrg int64
+	lastSnippetCreateIn  moduleemailtemplates.SnippetInput
+	lastSnippetUpdateOrg int64
+	lastSnippetUpdateID  int64
+	lastSnippetUpdateIn  moduleemailtemplates.SnippetInput
+	lastSnippetDeleteOrg int64
+	lastSnippetDeleteID  int64
 }
 
 func (f *fakeEmailTemplatesService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleemailtemplates.Template, error) {
@@ -50,6 +64,30 @@ func (f *fakeEmailTemplatesService) Delete(_ context.Context, organizationID, te
 	f.lastDeleteOrgID = organizationID
 	f.lastDeleteID = templateID
 	return f.deleteErr
+}
+
+func (f *fakeEmailTemplatesService) ListSnippetsByOrganization(_ context.Context, organizationID int64) ([]moduleemailtemplates.Snippet, error) {
+	f.lastSnippetListOrgID = organizationID
+	return f.snippetListResult, nil
+}
+
+func (f *fakeEmailTemplatesService) CreateSnippet(_ context.Context, organizationID int64, input moduleemailtemplates.SnippetInput) (moduleemailtemplates.Snippet, error) {
+	f.lastSnippetCreateOrg = organizationID
+	f.lastSnippetCreateIn = input
+	return f.snippetCreateResult, f.snippetCreateErr
+}
+
+func (f *fakeEmailTemplatesService) UpdateSnippet(_ context.Context, organizationID, snippetID int64, input moduleemailtemplates.SnippetInput) (moduleemailtemplates.Snippet, error) {
+	f.lastSnippetUpdateOrg = organizationID
+	f.lastSnippetUpdateID = snippetID
+	f.lastSnippetUpdateIn = input
+	return f.snippetUpdateResult, f.snippetUpdateErr
+}
+
+func (f *fakeEmailTemplatesService) DeleteSnippet(_ context.Context, organizationID, snippetID int64) error {
+	f.lastSnippetDeleteOrg = organizationID
+	f.lastSnippetDeleteID = snippetID
+	return f.snippetDeleteErr
 }
 
 func authenticatedEmailTemplatesServer(service *fakeEmailTemplatesService, role string) http.Handler {
@@ -194,5 +232,77 @@ func TestDeleteEmailTemplateScopesToOrganization(t *testing.T) {
 	}
 	if service.lastDeleteOrgID != 42 || service.lastDeleteID != 9 {
 		t.Fatalf("unexpected delete routing: org=%d id=%d", service.lastDeleteOrgID, service.lastDeleteID)
+	}
+}
+
+func TestListEmailSnippetsScopesToOrganization(t *testing.T) {
+	service := &fakeEmailTemplatesService{
+		snippetListResult: []moduleemailtemplates.Snippet{{ID: 4, Name: "CTA", Body: "Would next week work?"}},
+	}
+	server := authenticatedEmailTemplatesServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/email-snippets", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastSnippetListOrgID != 42 {
+		t.Fatalf("expected snippet list scoped to org 42, got %d", service.lastSnippetListOrgID)
+	}
+
+	var response struct {
+		Data struct {
+			Snippets []moduleemailtemplates.Snippet `json:"snippets"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(response.Data.Snippets) != 1 || response.Data.Snippets[0].Name != "CTA" {
+		t.Fatalf("unexpected snippets payload: %#v", response.Data.Snippets)
+	}
+}
+
+func TestCreateEmailSnippetUsesCurrentOrganization(t *testing.T) {
+	service := &fakeEmailTemplatesService{
+		snippetCreateResult: moduleemailtemplates.Snippet{ID: 8, Name: "CTA", Body: "Would next week work?"},
+	}
+	server := authenticatedEmailTemplatesServer(service, "owner")
+
+	body := bytes.NewBufferString(`{"name":"CTA","body":"Would next week work?"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/email-snippets", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
+	}
+	if service.lastSnippetCreateOrg != 42 || service.lastSnippetCreateIn.Name != "CTA" || service.lastSnippetCreateIn.Body != "Would next week work?" {
+		t.Fatalf("unexpected snippet create routing/input: org=%d input=%#v", service.lastSnippetCreateOrg, service.lastSnippetCreateIn)
+	}
+}
+
+func TestDeleteEmailSnippetScopesToOrganization(t *testing.T) {
+	service := &fakeEmailTemplatesService{}
+	server := authenticatedEmailTemplatesServer(service, "admin")
+
+	request := httptest.NewRequest(http.MethodDelete, "/api/email-snippets/11", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, recorder.Code)
+	}
+	if service.lastSnippetDeleteOrg != 42 || service.lastSnippetDeleteID != 11 {
+		t.Fatalf("unexpected snippet delete routing: org=%d id=%d", service.lastSnippetDeleteOrg, service.lastSnippetDeleteID)
 	}
 }

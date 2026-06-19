@@ -54,6 +54,12 @@ describe('record email composer flow', () => {
       if (path.endsWith('/api/email-templates')) {
         return jsonResponse({ data: { templates: [{ id: 2, name: 'Intro', subject: 'Hello {{first_name}}', body: 'Hi {{first_name}} from {{company_name}}.' }] } })
       }
+      if (path.endsWith('/api/email-snippets')) {
+        return jsonResponse({ data: { snippets: [{ id: 3, name: 'Scheduling CTA', body: 'Would next week work?' }] } })
+      }
+      if (path.endsWith('/api/email-templates/merge-fields')) {
+        return jsonResponse({ data: { groups: [] } })
+      }
       if (path.endsWith('/api/email-messages')) {
         return jsonResponse({ data: { messages: [] } })
       }
@@ -80,6 +86,9 @@ describe('record email composer flow', () => {
     const templateSelect = await screen.findByLabelText(/template/i)
     fireEvent.change(templateSelect, { target: { value: '2' } })
     expect(screen.getByLabelText(/subject/i)).toHaveValue('Hello {{first_name}}')
+    const snippetSelect = await screen.findByLabelText(/snippet/i)
+    fireEvent.change(snippetSelect, { target: { value: '3' } })
+    expect(screen.getByLabelText(/body/i)).toHaveValue('Hi {{first_name}} from {{company_name}}.\n\nWould next week work?')
 
     fireEvent.click(screen.getByRole('button', { name: /^send email$/i }))
 
@@ -88,7 +97,7 @@ describe('record email composer flow', () => {
         (call) => String(call[0]).endsWith('/api/companies/5/email') && call[1]?.method === 'POST'
       )
       expect(sendCall).toBeTruthy()
-      expect(JSON.parse(sendCall[1].body)).toEqual({ subject: 'Hello {{first_name}}', body: 'Hi {{first_name}} from {{company_name}}.', contactId: 7 })
+      expect(JSON.parse(sendCall[1].body)).toEqual({ subject: 'Hello {{first_name}}', body: 'Hi {{first_name}} from {{company_name}}.\n\nWould next week work?', contactId: 7 })
     })
     expect(await screen.findByText(/email sent to morgan@northstar.test/i)).toBeInTheDocument()
   })

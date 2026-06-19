@@ -6,13 +6,14 @@ import { InlineError } from './ui/inline_error'
 import { MergeFieldCatalog } from './merge_field_catalog'
 import { isAbortError } from '../lib/api'
 import { listEmailMessages } from '../lib/email_messages'
-import { listEmailTemplates, listEmailTemplateMergeFields } from '../lib/email_templates'
+import { listEmailTemplates, listEmailTemplateMergeFields, listEmailSnippets } from '../lib/email_templates'
 
 const emptyForm = { subject: '', body: '' }
 
 export function RecordEmailComposer({ entityType, entityId, canWrite, recipientOptions = [], sendEmail, emptyMessage, mergeFieldHint }) {
   const [open, setOpen] = useState(false)
   const [templates, setTemplates] = useState([])
+  const [snippets, setSnippets] = useState([])
   const [mergeFieldGroups, setMergeFieldGroups] = useState([])
   const [history, setHistory] = useState([])
   const [form, setForm] = useState(emptyForm)
@@ -54,6 +55,9 @@ export function RecordEmailComposer({ entityType, entityId, canWrite, recipientO
       if (templates.length === 0) {
         setTemplates(await listEmailTemplates())
       }
+      if (snippets.length === 0) {
+        setSnippets(await listEmailSnippets())
+      }
       if (mergeFieldGroups.length === 0) {
         setMergeFieldGroups(await listEmailTemplateMergeFields())
       }
@@ -70,6 +74,17 @@ export function RecordEmailComposer({ entityType, entityId, canWrite, recipientO
     if (template) {
       setForm({ subject: template.subject, body: template.body })
     }
+  }
+
+  function insertSnippet(snippetId) {
+    const snippet = snippets.find((item) => String(item.id) === String(snippetId))
+    if (!snippet) {
+      return
+    }
+    setForm((current) => {
+      const body = current.body.trimRight()
+      return { ...current, body: body ? `${body}\n\n${snippet.body}` : snippet.body }
+    })
   }
 
   async function handleSubmit(event) {
@@ -133,6 +148,19 @@ export function RecordEmailComposer({ entityType, entityId, canWrite, recipientO
                   <option value="">Start from scratch</option>
                   {templates.map((template) => (
                     <option key={template.id} value={template.id}>{template.name}</option>
+                  ))}
+                </select>
+              </Field>
+            ) : null}
+            {snippets.length > 0 ? (
+              <Field label="Snippet">
+                <select className="text-input" defaultValue="" onChange={(event) => {
+                  insertSnippet(event.target.value)
+                  event.target.value = ''
+                }}>
+                  <option value="">Insert reusable snippet</option>
+                  {snippets.map((snippet) => (
+                    <option key={snippet.id} value={snippet.id}>{snippet.name}</option>
                   ))}
                 </select>
               </Field>

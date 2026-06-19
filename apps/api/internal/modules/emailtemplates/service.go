@@ -1,6 +1,5 @@
-// Package emailtemplates provides organization-scoped, reusable email message
-// templates with merge fields (e.g. {{first_name}}). Templates power one-to-one
-// sends, sequences, and bulk email in later slices.
+// Package emailtemplates provides organization-scoped email templates,
+// snippets, and merge field metadata for reusable customer-facing messages.
 package emailtemplates
 
 import (
@@ -30,6 +29,14 @@ type Template struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type Snippet struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 type MergeField struct {
 	Token       string `json:"token"`
 	Label       string `json:"label"`
@@ -46,6 +53,11 @@ type Input struct {
 	Name    string `json:"name"`
 	Subject string `json:"subject"`
 	Body    string `json:"body"`
+}
+
+type SnippetInput struct {
+	Name string `json:"name"`
+	Body string `json:"body"`
 }
 
 type Service struct {
@@ -190,6 +202,97 @@ func (s *Service) Delete(ctx context.Context, organizationID, templateID int64) 
 	return nil
 }
 
+func (s *Service) ListSnippetsByOrganization(ctx context.Context, organizationID int64) ([]Snippet, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("email templates service not configured")
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, name, body, created_at, updated_at
+		FROM email_snippets
+		WHERE organization_id = $1
+		ORDER BY lower(name) ASC, id ASC
+	`, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("list email snippets: %w", err)
+	}
+	defer rows.Close()
+
+	snippets := make([]Snippet, 0)
+	for rows.Next() {
+		var snippet Snippet
+		if err := rows.Scan(&snippet.ID, &snippet.Name, &snippet.Body, &snippet.CreatedAt, &snippet.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan email snippet: %w", err)
+		}
+		snippets = append(snippets, snippet)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate email snippets: %w", err)
+	}
+	return snippets, nil
+}
+
+func (s *Service) CreateSnippet(ctx context.Context, organizationID int64, input SnippetInput) (Snippet, error) {
+	if s == nil || s.pool == nil {
+		return Snippet{}, fmt.Errorf("email templates service not configured")
+	}
+	input = normalizeSnippetInput(input)
+	if err := validateSnippetInput(input); err != nil {
+		return Snippet{}, err
+	}
+
+	var snippet Snippet
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO email_snippets (organization_id, name, body)
+		VALUES ($1, $2, $3)
+		RETURNING id, name, body, created_at, updated_at
+	`, organizationID, input.Name, input.Body).Scan(&snippet.ID, &snippet.Name, &snippet.Body, &snippet.CreatedAt, &snippet.UpdatedAt)
+	if err != nil {
+		return Snippet{}, mapSaveError(err)
+	}
+	return snippet, nil
+}
+
+func (s *Service) UpdateSnippet(ctx context.Context, organizationID, snippetID int64, input SnippetInput) (Snippet, error) {
+	if s == nil || s.pool == nil {
+		return Snippet{}, fmt.Errorf("email templates service not configured")
+	}
+	input = normalizeSnippetInput(input)
+	if err := validateSnippetInput(input); err != nil {
+		return Snippet{}, err
+	}
+
+	var snippet Snippet
+	err := s.pool.QueryRow(ctx, `
+		UPDATE email_snippets
+		SET name = $3, body = $4, updated_at = NOW()
+		WHERE organization_id = $1 AND id = $2
+		RETURNING id, name, body, created_at, updated_at
+	`, organizationID, snippetID, input.Name, input.Body).Scan(&snippet.ID, &snippet.Name, &snippet.Body, &snippet.CreatedAt, &snippet.UpdatedAt)
+	if err != nil {
+		return Snippet{}, mapSaveError(err)
+	}
+	return snippet, nil
+}
+
+func (s *Service) DeleteSnippet(ctx context.Context, organizationID, snippetID int64) error {
+	if s == nil || s.pool == nil {
+		return fmt.Errorf("email templates service not configured")
+	}
+
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM email_snippets
+		WHERE organization_id = $1 AND id = $2
+	`, organizationID, snippetID)
+	if err != nil {
+		return fmt.Errorf("delete email snippet: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func normalizeInput(input Input) Input {
 	input.Name = strings.TrimSpace(input.Name)
 	input.Subject = strings.TrimSpace(input.Subject)
@@ -199,6 +302,19 @@ func normalizeInput(input Input) Input {
 
 func validateInput(input Input) error {
 	if input.Name == "" || input.Subject == "" || input.Body == "" {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func normalizeSnippetInput(input SnippetInput) SnippetInput {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Body = strings.TrimSpace(input.Body)
+	return input
+}
+
+func validateSnippetInput(input SnippetInput) error {
+	if input.Name == "" || input.Body == "" {
 		return ErrInvalidInput
 	}
 	return nil
