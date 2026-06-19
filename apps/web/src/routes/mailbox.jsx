@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
+import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { getEmailMessage, listMyEmailMessages } from '../lib/email_messages'
+import { getEmailMessage, listMyEmailMessages, updateSharedInboxEmailMessage } from '../lib/email_messages'
 import { usePageTitle } from '../lib/use_page_title'
 
 function formatTimestamp(value) {
@@ -72,6 +73,7 @@ function participantLabel(message) {
 }
 
 export function MailboxRoute() {
+  const { session } = useAuth()
   usePageTitle('Mailbox')
   const [messages, setMessages] = useState([])
   const [selectedMessage, setSelectedMessage] = useState(null)
@@ -79,6 +81,7 @@ export function MailboxRoute() {
   const [detailError, setDetailError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
+  const [isSharing, setIsSharing] = useState(false)
 
   async function load({ signal } = {}) {
     setIsLoading(true)
@@ -115,6 +118,23 @@ export function MailboxRoute() {
       }
     } finally {
       setIsDetailLoading(false)
+    }
+  }
+
+  async function handleShareMessage(messageId) {
+    setIsSharing(true)
+    setError('')
+    try {
+      const userId = session?.user?.id || 0
+      const updated = await updateSharedInboxEmailMessage(messageId, { visibility: 'shared', status: 'open', assignedToUserId: userId || undefined })
+      setMessages((current) => current.map((message) => (message.id === updated.id ? { ...message, ...updated } : message)))
+      setSelectedMessage((current) => (current?.id === updated.id ? { ...current, ...updated } : current))
+    } catch (shareError) {
+      if (!isAbortError(shareError)) {
+        setError(shareError.message || 'Unable to share this message with the team.')
+      }
+    } finally {
+      setIsSharing(false)
     }
   }
 
@@ -156,6 +176,7 @@ export function MailboxRoute() {
                   <div>
                     <p>{formatTimestamp(messageTimestamp(message))}</p>
                     <Button className="button-secondary" type="button" onClick={() => handleSelectMessage(message.id)}>View details</Button>
+                    {isInbound(message) && message.visibility !== 'shared' ? <Button className="button-secondary" type="button" onClick={() => handleShareMessage(message.id)} disabled={isSharing}>Share with team</Button> : null}
                     {path ? <Link className="button button-ghost" to={path}>Open {label}</Link> : null}
                   </div>
                 </article>

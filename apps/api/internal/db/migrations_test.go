@@ -219,3 +219,29 @@ func TestMigrationFilesIncludeEmailSnippetsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeEmailSharedInboxMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "029_email_shared_inbox.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected email shared inbox migration to be registered")
+	}
+
+	sql := MigrationSQL("029_email_shared_inbox.sql")
+	if sql == "" {
+		t.Fatal("expected email shared inbox migration SQL to be embedded")
+	}
+	for _, expected := range []string{"shared_inbox_status", "shared_inbox_assigned_to_user_id", "idx_email_messages_shared_inbox"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected email shared inbox migration to include %s", expected)
+		}
+	}
+}

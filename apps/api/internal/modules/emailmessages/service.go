@@ -22,31 +22,34 @@ var (
 )
 
 type Message struct {
-	ID             int64      `json:"id"`
-	Direction      string     `json:"direction"`
-	FromEmail      string     `json:"fromEmail"`
-	ToEmail        string     `json:"toEmail"`
-	Subject        string     `json:"subject"`
-	Body           string     `json:"body"`
-	Status         string     `json:"status"`
-	Visibility     string     `json:"visibility"`
-	Error          string     `json:"error,omitempty"`
-	EntityType     string     `json:"entityType,omitempty"`
-	EntityID       int64      `json:"entityId,omitempty"`
-	SentByUserID   int64      `json:"sentByUserId,omitempty"`
-	SentByName     string     `json:"sentByName,omitempty"`
-	MailboxUserID  int64      `json:"mailboxUserId,omitempty"`
-	ProviderID     string     `json:"-"`
-	ProviderThread string     `json:"-"`
-	TrackingToken  string     `json:"-"`
-	OpenCount      int        `json:"openCount"`
-	FirstOpenedAt  *time.Time `json:"firstOpenedAt,omitempty"`
-	LastOpenedAt   *time.Time `json:"lastOpenedAt,omitempty"`
-	ClickCount     int        `json:"clickCount"`
-	FirstClickedAt *time.Time `json:"firstClickedAt,omitempty"`
-	LastClickedAt  *time.Time `json:"lastClickedAt,omitempty"`
-	ReceivedAt     *time.Time `json:"receivedAt,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
+	ID                          int64      `json:"id"`
+	Direction                   string     `json:"direction"`
+	FromEmail                   string     `json:"fromEmail"`
+	ToEmail                     string     `json:"toEmail"`
+	Subject                     string     `json:"subject"`
+	Body                        string     `json:"body"`
+	Status                      string     `json:"status"`
+	Visibility                  string     `json:"visibility"`
+	Error                       string     `json:"error,omitempty"`
+	EntityType                  string     `json:"entityType,omitempty"`
+	EntityID                    int64      `json:"entityId,omitempty"`
+	SentByUserID                int64      `json:"sentByUserId,omitempty"`
+	SentByName                  string     `json:"sentByName,omitempty"`
+	MailboxUserID               int64      `json:"mailboxUserId,omitempty"`
+	SharedInboxStatus           string     `json:"sharedInboxStatus,omitempty"`
+	SharedInboxAssignedToUserID int64      `json:"sharedInboxAssignedToUserId,omitempty"`
+	SharedInboxAssignedToName   string     `json:"sharedInboxAssignedToName,omitempty"`
+	ProviderID                  string     `json:"-"`
+	ProviderThread              string     `json:"-"`
+	TrackingToken               string     `json:"-"`
+	OpenCount                   int        `json:"openCount"`
+	FirstOpenedAt               *time.Time `json:"firstOpenedAt,omitempty"`
+	LastOpenedAt                *time.Time `json:"lastOpenedAt,omitempty"`
+	ClickCount                  int        `json:"clickCount"`
+	FirstClickedAt              *time.Time `json:"firstClickedAt,omitempty"`
+	LastClickedAt               *time.Time `json:"lastClickedAt,omitempty"`
+	ReceivedAt                  *time.Time `json:"receivedAt,omitempty"`
+	CreatedAt                   time.Time  `json:"createdAt"`
 }
 
 type TrackedLinkInput struct {
@@ -87,6 +90,12 @@ type InboundInput struct {
 	EntityID          int64
 	EntityLinks       []EntityLinkInput
 	Visibility        string
+}
+
+type SharedInboxUpdateInput struct {
+	Visibility       string
+	Status           string
+	AssignedToUserID *int64
 }
 
 type Service struct {
@@ -354,6 +363,47 @@ func normalizedVisibility(value, fallback string) string {
 	}
 }
 
+func normalizeOptionalVisibility(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return "", nil
+	case "shared":
+		return "shared", nil
+	case "private":
+		return "private", nil
+	default:
+		return "", ErrInvalidInput
+	}
+}
+
+func normalizeOptionalSharedInboxStatus(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return "", nil
+	case "open":
+		return "open", nil
+	case "closed":
+		return "closed", nil
+	default:
+		return "", ErrInvalidInput
+	}
+}
+
+func (s *Service) userBelongsToOrganization(ctx context.Context, organizationID, userID int64) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+		  SELECT 1
+		  FROM organization_memberships
+		  WHERE organization_id = $1 AND user_id = $2
+		)
+	`, organizationID, userID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check shared inbox assignee membership: %w", err)
+	}
+	return exists, nil
+}
+
 func sanitizedEntityLinks(input []EntityLinkInput) []EntityLinkInput {
 	links := make([]EntityLinkInput, 0, len(input))
 	for _, link := range input {
@@ -423,11 +473,13 @@ const baseSelect = `
 	SELECT m.id, m.direction, m.from_email, m.to_email, m.subject, m.body, m.status, m.error,
 	       COALESCE(m.visibility, 'shared'), m.entity_type, COALESCE(m.entity_id, 0), COALESCE(m.sent_by_user_id, 0),
 	       COALESCE(u.first_name || ' ' || u.last_name, ''), COALESCE(m.mailbox_user_id, 0),
+	       COALESCE(m.shared_inbox_status, 'open'), COALESCE(m.shared_inbox_assigned_to_user_id, 0), COALESCE(au.first_name || ' ' || au.last_name, ''),
 	       COALESCE(m.provider_message_id, ''), COALESCE(m.provider_thread_id, ''), COALESCE(m.tracking_token, ''),
 	       COALESCE(m.open_count, 0), m.first_opened_at, m.last_opened_at,
 	       COALESCE(m.click_count, 0), m.first_clicked_at, m.last_clicked_at, m.received_at, m.created_at
 	FROM email_messages m
 	LEFT JOIN users u ON u.id = m.sent_by_user_id
+	LEFT JOIN users au ON au.id = m.shared_inbox_assigned_to_user_id
 `
 
 // ListByOrganization returns the most recent emails for an organization.
@@ -542,6 +594,75 @@ func (s *Service) ListMailboxByUser(ctx context.Context, organizationID, userID 
 	return scanMessages(rows)
 }
 
+// ListSharedInbox returns shared inbound messages available to the team inbox.
+func (s *Service) ListSharedInbox(ctx context.Context, organizationID int64, limit int) ([]Message, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("email messages service not configured")
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, baseSelect+`
+		WHERE m.organization_id = $1
+		  AND m.direction = 'inbound'
+		  AND COALESCE(m.visibility, 'shared') = 'shared'
+		ORDER BY CASE WHEN COALESCE(m.shared_inbox_status, 'open') = 'open' THEN 0 ELSE 1 END,
+		         COALESCE(m.received_at, m.created_at) DESC,
+		         m.id DESC
+		LIMIT $2
+	`, organizationID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list shared inbox email messages: %w", err)
+	}
+	defer rows.Close()
+	return scanMessages(rows)
+}
+
+// UpdateSharedInbox updates shared team inbox metadata for one inbound message.
+func (s *Service) UpdateSharedInbox(ctx context.Context, organizationID, messageID int64, input SharedInboxUpdateInput) (Message, error) {
+	if s == nil || s.pool == nil {
+		return Message{}, fmt.Errorf("email messages service not configured")
+	}
+	visibility, err := normalizeOptionalVisibility(input.Visibility)
+	if err != nil {
+		return Message{}, err
+	}
+	status, err := normalizeOptionalSharedInboxStatus(input.Status)
+	if err != nil {
+		return Message{}, err
+	}
+	assignmentSet := input.AssignedToUserID != nil
+	var assignedTo *int64
+	if assignmentSet && *input.AssignedToUserID > 0 {
+		ok, err := s.userBelongsToOrganization(ctx, organizationID, *input.AssignedToUserID)
+		if err != nil {
+			return Message{}, err
+		}
+		if !ok {
+			return Message{}, ErrInvalidInput
+		}
+		assignedTo = input.AssignedToUserID
+	}
+
+	var updatedID int64
+	err = s.pool.QueryRow(ctx, `
+		UPDATE email_messages
+		SET visibility = CASE WHEN $3 <> '' THEN $3 ELSE visibility END,
+		    shared_inbox_status = CASE WHEN $4 <> '' THEN $4 ELSE shared_inbox_status END,
+		    shared_inbox_assigned_to_user_id = CASE WHEN $5 THEN $6::bigint ELSE shared_inbox_assigned_to_user_id END,
+		    shared_inbox_updated_at = NOW()
+		WHERE organization_id = $1 AND id = $2 AND direction = 'inbound'
+		RETURNING id
+	`, organizationID, messageID, visibility, status, assignmentSet, assignedTo).Scan(&updatedID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Message{}, ErrNotFound
+		}
+		return Message{}, fmt.Errorf("update shared inbox email message: %w", err)
+	}
+	return s.GetByID(ctx, organizationID, updatedID)
+}
+
 // MarkOpenedByToken records an open event for the tracking token. Unknown tokens
 // are ignored so the tracking pixel endpoint never leaks whether a token exists.
 func (s *Service) MarkOpenedByToken(ctx context.Context, token string) error {
@@ -638,7 +759,9 @@ func scanMessage(s scanner) (Message, error) {
 		receivedAt   pgtype.Timestamptz
 	)
 	if err := s.Scan(&m.ID, &m.Direction, &m.FromEmail, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error,
-		&m.Visibility, &m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.MailboxUserID, &m.ProviderID, &m.ProviderThread, &m.TrackingToken,
+		&m.Visibility, &m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.MailboxUserID,
+		&m.SharedInboxStatus, &m.SharedInboxAssignedToUserID, &m.SharedInboxAssignedToName,
+		&m.ProviderID, &m.ProviderThread, &m.TrackingToken,
 		&m.OpenCount, &firstOpened, &lastOpened, &m.ClickCount, &firstClicked, &lastClicked, &receivedAt, &m.CreatedAt); err != nil {
 		return Message{}, err
 	}
@@ -646,6 +769,9 @@ func scanMessage(s scanner) (Message, error) {
 		m.Direction = "outbound"
 	}
 	m.Visibility = normalizedVisibility(m.Visibility, "shared")
+	if m.SharedInboxStatus != "closed" {
+		m.SharedInboxStatus = "open"
+	}
 	if firstOpened.Valid {
 		opened := firstOpened.Time
 		m.FirstOpenedAt = &opened

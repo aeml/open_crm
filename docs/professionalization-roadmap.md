@@ -1792,6 +1792,7 @@ Progress:
 - `1.1.8` (sequence reply detection foundation): complete. Inbound synced email that matches a contact now completes that contact's active/paused sequence enrollments and clears `next_send_at`, so replies stop future sequence sends.
 - `1.1.8` (sequence send worker foundation): complete. Added an in-process sequence runner that polls due active enrollments, renders contact merge fields, sends the current step through the enrolling user's mailbox, records sent/failed messages in `email_messages`, advances to the next step using its delay, and completes the enrollment after the last step. Failed sends are postponed for retry instead of being hammered every worker interval.
 - `1.1.7` (unsubscribe/suppression foundation): complete. Added organization-scoped recipient suppressions, HMAC-signed public unsubscribe links, one-to-one send suppression checks with compliance footers, and sequence-runner suppression enforcement that records suppressed sends and advances enrollments instead of retrying forever. Bulk list selection, campaign UI, and richer compliance reporting remain deferred to the marketing/bulk-email slice.
+- `1.1.9` (shared team inbox foundation): complete. Added shared inbound email queue metadata, team inbox listing, assignment/open/closed status updates, mailbox-owner/admin sharing controls for private synced messages, member-safe detail access for shared inbound messages, and a Team Inbox UI for collaborative follow-up.
 
 Candidate slices:
 
@@ -1803,7 +1804,7 @@ Candidate slices:
 - `1.1.6` One-to-one send from record pages and a connected-inbox view.
 - `1.1.7` Bulk/mass email with list selection, unsubscribe management, and CAN-SPAM/GDPR compliance footers. Suppression/unsubscribe primitives are complete; bulk campaign UX remains future work.
 - `1.1.8` Email sequences / cadences: multi-step automated outreach with conditions and reply detection.
-- `1.1.9` Shared team inboxes and assignment for collaborative reply workflows.
+- `1.1.9` Shared team inboxes and assignment for collaborative reply workflows: foundation complete.
 
 Exit criteria:
 

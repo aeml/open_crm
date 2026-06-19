@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,8 +19,11 @@ type fakeEmailMessagesService struct {
 	entityResult       []moduleemailmessages.Message
 	senderResult       []moduleemailmessages.Message
 	mailboxResult      []moduleemailmessages.Message
+	sharedInboxResult  []moduleemailmessages.Message
 	getResult          moduleemailmessages.Message
 	getErr             error
+	updateResult       moduleemailmessages.Message
+	updateErr          error
 	recordErr          error
 	lastRecord         moduleemailmessages.RecordInput
 	lastOrgID          int64
@@ -30,6 +34,9 @@ type fakeEmailMessagesService struct {
 	lastIncludePrivate bool
 	lastSenderID       int64
 	lastMailboxUserID  int64
+	lastSharedLimit    int
+	lastUpdateID       int64
+	lastUpdateInput    moduleemailmessages.SharedInboxUpdateInput
 	lastOpenedToken    string
 	lastClickedToken   string
 	clickTargetURL     string
@@ -72,6 +79,19 @@ func (f *fakeEmailMessagesService) ListMailboxByUser(_ context.Context, organiza
 	f.lastOrgID = organizationID
 	f.lastMailboxUserID = userID
 	return f.mailboxResult, nil
+}
+
+func (f *fakeEmailMessagesService) ListSharedInbox(_ context.Context, organizationID int64, limit int) ([]moduleemailmessages.Message, error) {
+	f.lastOrgID = organizationID
+	f.lastSharedLimit = limit
+	return f.sharedInboxResult, nil
+}
+
+func (f *fakeEmailMessagesService) UpdateSharedInbox(_ context.Context, organizationID, messageID int64, input moduleemailmessages.SharedInboxUpdateInput) (moduleemailmessages.Message, error) {
+	f.lastOrgID = organizationID
+	f.lastUpdateID = messageID
+	f.lastUpdateInput = input
+	return f.updateResult, f.updateErr
 }
 
 func (f *fakeEmailMessagesService) MarkOpenedByToken(_ context.Context, token string) error {
@@ -209,6 +229,80 @@ func TestMyEmailMessagesAllowsMemberAndScopesToCurrentUser(t *testing.T) {
 	}
 }
 
+func TestSharedInboxAllowsMemberAndListsSharedInbound(t *testing.T) {
+	service := &fakeEmailMessagesService{
+		sharedInboxResult: []moduleemailmessages.Message{{ID: 7, Direction: "inbound", Visibility: "shared", FromEmail: "lead@example.test", ToEmail: "team@acme.test", Subject: "Need help", Status: "received", SharedInboxStatus: "open", SharedInboxAssignedToUserID: 1, SharedInboxAssignedToName: "Demo Owner", CreatedAt: time.Now()}},
+	}
+	server := emailMessagesServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/shared-inbox/email-messages?limit=25", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for member shared inbox, got %d", recorder.Code)
+	}
+	if service.lastOrgID != 42 || service.lastSharedLimit != 25 {
+		t.Fatalf("unexpected shared inbox scoping: org=%d limit=%d", service.lastOrgID, service.lastSharedLimit)
+	}
+	var response struct {
+		Data struct {
+			Messages []emailMessageView `json:"messages"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(response.Data.Messages) != 1 || response.Data.Messages[0].SharedInboxStatus != "open" || response.Data.Messages[0].SharedInboxAssignedToUserName != "Demo Owner" {
+		t.Fatalf("unexpected shared inbox payload: %#v", response.Data.Messages)
+	}
+}
+
+func TestUpdateSharedInboxAllowsMailboxOwnerToShare(t *testing.T) {
+	assignedTo := int64(1)
+	service := &fakeEmailMessagesService{
+		getResult:    moduleemailmessages.Message{ID: 8, Direction: "inbound", Visibility: "private", MailboxUserID: 1, CreatedAt: time.Now()},
+		updateResult: moduleemailmessages.Message{ID: 8, Direction: "inbound", Visibility: "shared", MailboxUserID: 1, SharedInboxStatus: "open", SharedInboxAssignedToUserID: 1, CreatedAt: time.Now()},
+	}
+	server := emailMessagesServer(service, "member")
+
+	body := strings.NewReader(`{"visibility":"shared","status":"open","assignedToUserId":1}`)
+	request := httptest.NewRequest(http.MethodPatch, "/api/email-messages/8/shared-inbox", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for mailbox owner sharing message, got %d", recorder.Code)
+	}
+	if service.lastUpdateID != 8 || service.lastUpdateInput.Visibility != "shared" || service.lastUpdateInput.Status != "open" || service.lastUpdateInput.AssignedToUserID == nil || *service.lastUpdateInput.AssignedToUserID != assignedTo {
+		t.Fatalf("unexpected shared inbox update: id=%d input=%#v", service.lastUpdateID, service.lastUpdateInput)
+	}
+}
+
+func TestUpdateSharedInboxRejectsPrivateOtherMailboxMember(t *testing.T) {
+	service := &fakeEmailMessagesService{
+		getResult: moduleemailmessages.Message{ID: 9, Direction: "inbound", Visibility: "private", MailboxUserID: 2, CreatedAt: time.Now()},
+	}
+	server := emailMessagesServer(service, "member")
+
+	body := strings.NewReader(`{"visibility":"shared","status":"open"}`)
+	request := httptest.NewRequest(http.MethodPatch, "/api/email-messages/9/shared-inbox", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for another user's private inbound message, got %d", recorder.Code)
+	}
+	if service.lastUpdateID != 0 {
+		t.Fatalf("forbidden shared inbox update should not reach service")
+	}
+}
+
 func TestEmailMessageDetailAllowsInboundMailboxOwner(t *testing.T) {
 	service := &fakeEmailMessagesService{
 		getResult: moduleemailmessages.Message{ID: 5, Direction: "inbound", FromEmail: "lead@example.test", ToEmail: "owner@acme.test", Subject: "Re: Intro", Body: "Inbound body", Status: "received", MailboxUserID: 1, CreatedAt: time.Now()},
@@ -229,6 +323,29 @@ func TestEmailMessageDetailAllowsInboundMailboxOwner(t *testing.T) {
 	}
 	if response.Data.Message.Direction != "inbound" || response.Data.Message.FromEmail != "lead@example.test" || response.Data.Message.Body != "Inbound body" {
 		t.Fatalf("unexpected inbound detail response: %#v", response.Data.Message)
+	}
+}
+
+func TestEmailMessageDetailAllowsSharedInboundMember(t *testing.T) {
+	service := &fakeEmailMessagesService{
+		getResult: moduleemailmessages.Message{ID: 6, Direction: "inbound", Visibility: "shared", FromEmail: "lead@example.test", ToEmail: "owner@acme.test", Subject: "Team question", Body: "Shared body", Status: "received", MailboxUserID: 2, CreatedAt: time.Now()},
+	}
+	server := emailMessagesServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/email-messages/6", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for shared inbound detail, got %d", recorder.Code)
+	}
+	var response emailMessageDetailResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Message.Body != "Shared body" || response.Data.Message.Visibility != "shared" {
+		t.Fatalf("unexpected shared inbound detail response: %#v", response.Data.Message)
 	}
 }
 

@@ -46,9 +46,10 @@ describe('mailbox route', () => {
     expect(await screen.findByText(/thanks for talking today/i)).toBeInTheDocument()
   })
 
-  it('shows synced inbound mailbox messages', async () => {
-    const fetchMock = vi.fn(async (url) => {
+  it('shows synced inbound mailbox messages and shares them with the team', async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
       const path = new URL(String(url), 'http://localhost').pathname
+      const method = options.method || 'GET'
       if (path.endsWith('/auth/me')) {
         return { ok: true, json: async () => ({ data: {
           user: { id: 1, email: 'rep@acme.test', firstName: 'Rep', lastName: 'Person' },
@@ -64,6 +65,9 @@ describe('mailbox route', () => {
       if (path.endsWith('/api/email-messages/11')) {
         return { ok: true, json: async () => ({ data: { message: { id: 11, direction: 'inbound', fromEmail: 'customer@acme.test', toEmail: 'rep@acme.test', subject: 'Re: Estimate', body: 'Can we schedule Tuesday?', status: 'received', receivedAt: '2026-05-02T14:30:00Z', createdAt: '2026-05-02T14:31:00Z' } } }) }
       }
+      if (path.endsWith('/api/email-messages/11/shared-inbox') && method === 'PATCH') {
+        return { ok: true, json: async () => ({ data: { message: { id: 11, direction: 'inbound', visibility: 'shared', fromEmail: 'customer@acme.test', toEmail: 'rep@acme.test', subject: 'Re: Estimate', body: 'Can we schedule Tuesday?', status: 'received', sharedInboxStatus: 'open', sharedInboxAssignedToUserId: 1, receivedAt: '2026-05-02T14:30:00Z', createdAt: '2026-05-02T14:31:00Z' } } }) }
+      }
       return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
     })
 
@@ -78,5 +82,11 @@ describe('mailbox route', () => {
     fireEvent.click(screen.getByRole('button', { name: /view details/i }))
     expect(await screen.findByText(/can we schedule tuesday/i)).toBeInTheDocument()
     expect(screen.getAllByText(/from customer@acme.test/i).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: /share with team/i }))
+    await waitFor(() => {
+      const shareCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/email-messages/11/shared-inbox'))
+      expect(shareCall).toBeTruthy()
+      expect(JSON.parse(shareCall[1].body)).toEqual({ visibility: 'shared', status: 'open', assignedToUserId: 1 })
+    })
   })
 })

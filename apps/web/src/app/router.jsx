@@ -7,6 +7,7 @@ import { CompaniesRoute } from '../routes/companies'
 import { DealsRoute } from '../routes/deals'
 import { TasksRoute } from '../routes/tasks'
 import { MailboxRoute } from '../routes/mailbox'
+import { TeamInboxRoute } from '../routes/team_inbox'
 import { LoginRoute } from '../routes/login'
 import { BootstrapRoute } from '../routes/bootstrap'
 import { SetupPasswordRoute } from '../routes/setup_password'
@@ -41,6 +42,7 @@ export function AppRouter() {
             <Route path="tasks" element={<TasksRoute />} />
             <Route path="tasks/:taskId" element={<TasksRoute />} />
             <Route path="mailbox" element={<MailboxRoute />} />
+            <Route path="team-inbox" element={<TeamInboxRoute />} />
             <Route path="settings/profile" element={<SettingsProfileRoute />} />
             <Route path="settings/users" element={<SettingsUsersRoute />} />
             <Route path="settings/business-profile" element={<BusinessProfileRoute />} />

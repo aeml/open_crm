@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -21,25 +22,29 @@ type emailMessagesListResponse struct {
 }
 
 type emailMessageView struct {
-	ID             int64  `json:"id"`
-	Direction      string `json:"direction"`
-	FromEmail      string `json:"fromEmail,omitempty"`
-	ToEmail        string `json:"toEmail"`
-	Subject        string `json:"subject"`
-	Status         string `json:"status"`
-	Error          string `json:"error,omitempty"`
-	EntityType     string `json:"entityType,omitempty"`
-	EntityID       int64  `json:"entityId,omitempty"`
-	SentByName     string `json:"sentByName,omitempty"`
-	MailboxUserID  int64  `json:"mailboxUserId,omitempty"`
-	OpenCount      int    `json:"openCount"`
-	FirstOpenedAt  string `json:"firstOpenedAt,omitempty"`
-	LastOpenedAt   string `json:"lastOpenedAt,omitempty"`
-	ClickCount     int    `json:"clickCount"`
-	FirstClickedAt string `json:"firstClickedAt,omitempty"`
-	LastClickedAt  string `json:"lastClickedAt,omitempty"`
-	ReceivedAt     string `json:"receivedAt,omitempty"`
-	CreatedAt      string `json:"createdAt"`
+	ID                            int64  `json:"id"`
+	Direction                     string `json:"direction"`
+	FromEmail                     string `json:"fromEmail,omitempty"`
+	ToEmail                       string `json:"toEmail"`
+	Subject                       string `json:"subject"`
+	Status                        string `json:"status"`
+	Visibility                    string `json:"visibility"`
+	Error                         string `json:"error,omitempty"`
+	EntityType                    string `json:"entityType,omitempty"`
+	EntityID                      int64  `json:"entityId,omitempty"`
+	SentByName                    string `json:"sentByName,omitempty"`
+	MailboxUserID                 int64  `json:"mailboxUserId,omitempty"`
+	SharedInboxStatus             string `json:"sharedInboxStatus,omitempty"`
+	SharedInboxAssignedToUserID   int64  `json:"sharedInboxAssignedToUserId,omitempty"`
+	SharedInboxAssignedToUserName string `json:"sharedInboxAssignedToUserName,omitempty"`
+	OpenCount                     int    `json:"openCount"`
+	FirstOpenedAt                 string `json:"firstOpenedAt,omitempty"`
+	LastOpenedAt                  string `json:"lastOpenedAt,omitempty"`
+	ClickCount                    int    `json:"clickCount"`
+	FirstClickedAt                string `json:"firstClickedAt,omitempty"`
+	LastClickedAt                 string `json:"lastClickedAt,omitempty"`
+	ReceivedAt                    string `json:"receivedAt,omitempty"`
+	CreatedAt                     string `json:"createdAt"`
 }
 
 type emailMessageDetailResponse struct {
@@ -52,26 +57,36 @@ type emailMessageDetailResponse struct {
 }
 
 type emailMessageDetailView struct {
-	ID             int64  `json:"id"`
-	Direction      string `json:"direction"`
-	FromEmail      string `json:"fromEmail,omitempty"`
-	ToEmail        string `json:"toEmail"`
-	Subject        string `json:"subject"`
-	Body           string `json:"body"`
-	Status         string `json:"status"`
-	Error          string `json:"error,omitempty"`
-	EntityType     string `json:"entityType,omitempty"`
-	EntityID       int64  `json:"entityId,omitempty"`
-	SentByName     string `json:"sentByName,omitempty"`
-	MailboxUserID  int64  `json:"mailboxUserId,omitempty"`
-	OpenCount      int    `json:"openCount"`
-	FirstOpenedAt  string `json:"firstOpenedAt,omitempty"`
-	LastOpenedAt   string `json:"lastOpenedAt,omitempty"`
-	ClickCount     int    `json:"clickCount"`
-	FirstClickedAt string `json:"firstClickedAt,omitempty"`
-	LastClickedAt  string `json:"lastClickedAt,omitempty"`
-	ReceivedAt     string `json:"receivedAt,omitempty"`
-	CreatedAt      string `json:"createdAt"`
+	ID                            int64  `json:"id"`
+	Direction                     string `json:"direction"`
+	FromEmail                     string `json:"fromEmail,omitempty"`
+	ToEmail                       string `json:"toEmail"`
+	Subject                       string `json:"subject"`
+	Body                          string `json:"body"`
+	Status                        string `json:"status"`
+	Visibility                    string `json:"visibility"`
+	Error                         string `json:"error,omitempty"`
+	EntityType                    string `json:"entityType,omitempty"`
+	EntityID                      int64  `json:"entityId,omitempty"`
+	SentByName                    string `json:"sentByName,omitempty"`
+	MailboxUserID                 int64  `json:"mailboxUserId,omitempty"`
+	SharedInboxStatus             string `json:"sharedInboxStatus,omitempty"`
+	SharedInboxAssignedToUserID   int64  `json:"sharedInboxAssignedToUserId,omitempty"`
+	SharedInboxAssignedToUserName string `json:"sharedInboxAssignedToUserName,omitempty"`
+	OpenCount                     int    `json:"openCount"`
+	FirstOpenedAt                 string `json:"firstOpenedAt,omitempty"`
+	LastOpenedAt                  string `json:"lastOpenedAt,omitempty"`
+	ClickCount                    int    `json:"clickCount"`
+	FirstClickedAt                string `json:"firstClickedAt,omitempty"`
+	LastClickedAt                 string `json:"lastClickedAt,omitempty"`
+	ReceivedAt                    string `json:"receivedAt,omitempty"`
+	CreatedAt                     string `json:"createdAt"`
+}
+
+type sharedInboxUpdateRequest struct {
+	Visibility       string `json:"visibility"`
+	Status           string `json:"status"`
+	AssignedToUserID *int64 `json:"assignedToUserId"`
 }
 
 var transparentTrackingPixel = []byte{
@@ -158,6 +173,30 @@ func handleListMyEmailMessages(auth authService, messages emailMessagesService, 
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
+func handleListSharedInboxMessages(auth authService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if messages == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Shared inbox service unavailable")
+		return
+	}
+
+	limit := int(parseQueryInt64(r.URL.Query().Get("limit")))
+	records, err := messages.ListSharedInbox(r.Context(), state.Organization.ID, limit)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load shared inbox")
+		return
+	}
+
+	response := emailMessagesListResponse{}
+	response.Data.Messages = toEmailMessageViews(records)
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
 func handleGetEmailMessage(auth authService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgMember(auth, w, r)
@@ -182,13 +221,82 @@ func handleGetEmailMessage(auth authService, messages emailMessagesService, w ht
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load email message")
 		return
 	}
-	if !isOrgAdminRole(state.Membership.Role) && message.SentByUserID != state.User.ID && message.MailboxUserID != state.User.ID {
+	if !canViewEmailMessageDetail(state, message) {
 		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "You can only view email messages in your mailbox")
 		return
 	}
 
 	response := emailMessageDetailResponse{}
 	response.Data.Message = toEmailMessageDetailView(message)
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleUpdateSharedInboxMessage(auth authService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if messages == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Shared inbox service unavailable")
+		return
+	}
+	messageID, ok := parsePathInt64(w, r, "messageID")
+	if !ok {
+		return
+	}
+
+	message, err := messages.GetByID(r.Context(), state.Organization.ID, messageID)
+	if err != nil {
+		if errors.Is(err, moduleemailmessages.ErrNotFound) {
+			platformweb.WriteNotFound(w, requestID)
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load email message")
+		return
+	}
+	if message.Direction != "inbound" {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Only inbound messages can use the shared inbox")
+		return
+	}
+
+	var request sharedInboxUpdateRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	admin := isOrgAdminRole(state.Membership.Role)
+	owner := message.MailboxUserID == state.User.ID
+	wantsPrivate := strings.EqualFold(strings.TrimSpace(request.Visibility), "private")
+	if message.Visibility != "shared" && !admin && !owner {
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Only the mailbox owner can share this message")
+		return
+	}
+	if wantsPrivate && !admin && !owner {
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Only the mailbox owner can remove this message from the shared inbox")
+		return
+	}
+
+	updated, err := messages.UpdateSharedInbox(r.Context(), state.Organization.ID, messageID, moduleemailmessages.SharedInboxUpdateInput{
+		Visibility:       request.Visibility,
+		Status:           request.Status,
+		AssignedToUserID: request.AssignedToUserID,
+	})
+	if err != nil {
+		if errors.Is(err, moduleemailmessages.ErrNotFound) {
+			platformweb.WriteNotFound(w, requestID)
+			return
+		}
+		if errors.Is(err, moduleemailmessages.ErrInvalidInput) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid shared inbox update")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update shared inbox message")
+		return
+	}
+
+	response := emailMessageDetailResponse{}
+	response.Data.Message = toEmailMessageDetailView(updated)
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -235,25 +343,29 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 	views := make([]emailMessageView, 0, len(records))
 	for _, m := range records {
 		views = append(views, emailMessageView{
-			ID:             m.ID,
-			Direction:      emailMessageDirection(m),
-			FromEmail:      m.FromEmail,
-			ToEmail:        m.ToEmail,
-			Subject:        m.Subject,
-			Status:         m.Status,
-			Error:          m.Error,
-			EntityType:     m.EntityType,
-			EntityID:       m.EntityID,
-			SentByName:     m.SentByName,
-			MailboxUserID:  m.MailboxUserID,
-			OpenCount:      m.OpenCount,
-			FirstOpenedAt:  formatOptionalTime(m.FirstOpenedAt),
-			LastOpenedAt:   formatOptionalTime(m.LastOpenedAt),
-			ClickCount:     m.ClickCount,
-			FirstClickedAt: formatOptionalTime(m.FirstClickedAt),
-			LastClickedAt:  formatOptionalTime(m.LastClickedAt),
-			ReceivedAt:     formatOptionalTime(m.ReceivedAt),
-			CreatedAt:      m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			ID:                            m.ID,
+			Direction:                     emailMessageDirection(m),
+			FromEmail:                     m.FromEmail,
+			ToEmail:                       m.ToEmail,
+			Subject:                       m.Subject,
+			Status:                        m.Status,
+			Visibility:                    m.Visibility,
+			Error:                         m.Error,
+			EntityType:                    m.EntityType,
+			EntityID:                      m.EntityID,
+			SentByName:                    m.SentByName,
+			MailboxUserID:                 m.MailboxUserID,
+			SharedInboxStatus:             m.SharedInboxStatus,
+			SharedInboxAssignedToUserID:   m.SharedInboxAssignedToUserID,
+			SharedInboxAssignedToUserName: m.SharedInboxAssignedToName,
+			OpenCount:                     m.OpenCount,
+			FirstOpenedAt:                 formatOptionalTime(m.FirstOpenedAt),
+			LastOpenedAt:                  formatOptionalTime(m.LastOpenedAt),
+			ClickCount:                    m.ClickCount,
+			FirstClickedAt:                formatOptionalTime(m.FirstClickedAt),
+			LastClickedAt:                 formatOptionalTime(m.LastClickedAt),
+			ReceivedAt:                    formatOptionalTime(m.ReceivedAt),
+			CreatedAt:                     m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 	return views
@@ -261,27 +373,38 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 
 func toEmailMessageDetailView(m moduleemailmessages.Message) emailMessageDetailView {
 	return emailMessageDetailView{
-		ID:             m.ID,
-		Direction:      emailMessageDirection(m),
-		FromEmail:      m.FromEmail,
-		ToEmail:        m.ToEmail,
-		Subject:        m.Subject,
-		Body:           m.Body,
-		Status:         m.Status,
-		Error:          m.Error,
-		EntityType:     m.EntityType,
-		EntityID:       m.EntityID,
-		SentByName:     m.SentByName,
-		MailboxUserID:  m.MailboxUserID,
-		OpenCount:      m.OpenCount,
-		FirstOpenedAt:  formatOptionalTime(m.FirstOpenedAt),
-		LastOpenedAt:   formatOptionalTime(m.LastOpenedAt),
-		ClickCount:     m.ClickCount,
-		FirstClickedAt: formatOptionalTime(m.FirstClickedAt),
-		LastClickedAt:  formatOptionalTime(m.LastClickedAt),
-		ReceivedAt:     formatOptionalTime(m.ReceivedAt),
-		CreatedAt:      m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ID:                            m.ID,
+		Direction:                     emailMessageDirection(m),
+		FromEmail:                     m.FromEmail,
+		ToEmail:                       m.ToEmail,
+		Subject:                       m.Subject,
+		Body:                          m.Body,
+		Status:                        m.Status,
+		Visibility:                    m.Visibility,
+		Error:                         m.Error,
+		EntityType:                    m.EntityType,
+		EntityID:                      m.EntityID,
+		SentByName:                    m.SentByName,
+		MailboxUserID:                 m.MailboxUserID,
+		SharedInboxStatus:             m.SharedInboxStatus,
+		SharedInboxAssignedToUserID:   m.SharedInboxAssignedToUserID,
+		SharedInboxAssignedToUserName: m.SharedInboxAssignedToName,
+		OpenCount:                     m.OpenCount,
+		FirstOpenedAt:                 formatOptionalTime(m.FirstOpenedAt),
+		LastOpenedAt:                  formatOptionalTime(m.LastOpenedAt),
+		ClickCount:                    m.ClickCount,
+		FirstClickedAt:                formatOptionalTime(m.FirstClickedAt),
+		LastClickedAt:                 formatOptionalTime(m.LastClickedAt),
+		ReceivedAt:                    formatOptionalTime(m.ReceivedAt),
+		CreatedAt:                     m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
+}
+
+func canViewEmailMessageDetail(state moduleauth.SessionState, message moduleemailmessages.Message) bool {
+	return isOrgAdminRole(state.Membership.Role) ||
+		message.SentByUserID == state.User.ID ||
+		message.MailboxUserID == state.User.ID ||
+		(message.Direction == "inbound" && message.Visibility == "shared")
 }
 
 func emailMessageDirection(m moduleemailmessages.Message) string {
