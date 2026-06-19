@@ -35,6 +35,7 @@ import (
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	modulesequencerunner "github.com/aeml/open_crm/apps/api/internal/modules/sequencerunner"
+	modulesms "github.com/aeml/open_crm/apps/api/internal/modules/sms"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
@@ -78,6 +79,7 @@ func main() {
 	emailService := moduleemail.NewService(emailProvider, env.EmailFromName, env.EmailFromAddress, env.WebBaseURL)
 	var notesService *modulenotes.Service
 	var callLogsService *modulecalllogs.Service
+	var smsService *modulesms.Service
 	var notificationsService *modulenotifications.Service
 	var savedViewsService *modulesavedviews.Service
 	var onboardingService *moduleonboarding.Service
@@ -111,6 +113,7 @@ func main() {
 			dashboardService = moduledashboard.NewService(pool)
 			notesService = modulenotes.NewService(pool)
 			callLogsService = modulecalllogs.NewService(pool, modulecalllogs.NewProvider(env.TelephonyProvider, logger))
+			smsService = modulesms.NewService(pool, modulesms.NewProvider(env.TelephonyProvider, logger))
 			notificationsService = modulenotifications.NewService(pool)
 			savedViewsService = modulesavedviews.NewService(pool)
 			onboardingService = moduleonboarding.NewService(pool)
@@ -159,6 +162,7 @@ func main() {
 		DashboardService:                dashboardService,
 		NotesService:                    notesService,
 		CallLogsService:                 callLogsService,
+		SMSService:                      smsService,
 		ImportsService:                  importsService,
 		SavedViewsService:               savedViewsService,
 		OnboardingService:               onboardingService,

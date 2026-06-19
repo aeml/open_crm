@@ -27,6 +27,7 @@ import (
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
+	modulesms "github.com/aeml/open_crm/apps/api/internal/modules/sms"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
@@ -124,6 +125,13 @@ type callLogsService interface {
 	Complete(context.Context, int64, int64, int64, modulecalllogs.CompleteInput) (modulecalllogs.Log, error)
 	RecordManual(context.Context, int64, int64, modulecalllogs.RecordInput) (modulecalllogs.Log, error)
 	UpdateRecording(context.Context, int64, int64, int64, modulecalllogs.RecordingInput) (modulecalllogs.Log, error)
+}
+
+type smsService interface {
+	ListByEntity(context.Context, int64, string, int64, int) ([]modulesms.Message, error)
+	Send(context.Context, int64, int64, modulesms.SendInput) (modulesms.Message, error)
+	RecordInbound(context.Context, int64, int64, modulesms.InboundInput) (modulesms.Message, error)
+	Suppress(context.Context, int64, int64, modulesms.SuppressInput) (modulesms.Suppression, error)
 }
 
 type importsService interface {
@@ -228,6 +236,7 @@ type Dependencies struct {
 	DashboardService                dashboardService
 	NotesService                    notesService
 	CallLogsService                 callLogsService
+	SMSService                      smsService
 	ImportsService                  importsService
 	SavedViewsService               savedViewsService
 	OnboardingService               onboardingService
@@ -766,6 +775,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("PATCH /api/calls/{callID}/recording", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateCallRecording(dependencies.AuthService, dependencies.CallLogsService, w, r)
 	})
+	mux.HandleFunc("GET /api/sms-messages", func(w http.ResponseWriter, r *http.Request) {
+		handleListSMSMessages(dependencies.AuthService, dependencies.SMSService, w, r)
+	})
+	mux.HandleFunc("POST /api/sms-messages/log", func(w http.ResponseWriter, r *http.Request) {
+		handleRecordInboundSMS(dependencies.AuthService, dependencies.SMSService, w, r)
+	})
+	mux.HandleFunc("POST /api/sms/opt-outs", func(w http.ResponseWriter, r *http.Request) {
+		handleSMSOptOut(dependencies.AuthService, dependencies.SMSService, w, r)
+	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
@@ -786,6 +804,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/contacts/{contactID}/email", func(w http.ResponseWriter, r *http.Request) {
 		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+	})
+	mux.HandleFunc("POST /api/contacts/{contactID}/sms", func(w http.ResponseWriter, r *http.Request) {
+		handleSendContactSMS(dependencies.AuthService, dependencies.ContactsService, dependencies.SMSService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-unsubscribe/{token}", func(w http.ResponseWriter, r *http.Request) {
 		handleEmailUnsubscribe(dependencies.EmailSuppressionsService, w, r)

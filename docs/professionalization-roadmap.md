@@ -1822,13 +1822,14 @@ Progress:
 - `1.2.1` (click-to-call and call logging foundation): complete. Added persistent organization-scoped `call_logs`, a telephony provider seam with fake/default and unconfigured real-provider behavior, API endpoints to list/start/complete calls, contact-detail call start/logging UI, and call history display. Real Twilio call origination, inbound routing, recording, SMS, and scheduling remain future slices.
 - `1.2.2` (inbound call logging foundation): complete. Added manual inbound call logging for contacts using the shared call log store, including voicemail/missed-call dispositions, notes, and `call.logged`/`call.failed` activity timeline entries. Real carrier webhook routing, voicemail media capture, and assignment rules remain future provider-specific work.
 - `1.2.3` (call recording controls foundation): complete. Added recording metadata fields on call logs, consent state, retention-until tracking, recording delete markers, a writer-only recording controls API, contact-detail controls for recording links/consent/retention, and activity timeline entries for recording updates/deletes. Real provider recording capture, media storage, consent prompts, and automated retention deletion remain future provider/ops work.
+- `1.2.4` (SMS foundation): complete. Added organization-scoped SMS message history, phone-number opt-out suppressions, a fake/default SMS provider seam using the telephony provider selector, contact-detail SMS composer with starter templates and merge-field rendering, manual inbound SMS logging with STOP-style opt-out detection, manual opt-out controls, and SMS activity timeline entries. Real Twilio SMS send/receive webhooks, carrier delivery receipts, reusable managed SMS template CRUD, and bulk texting remain future slices.
 
 Candidate slices:
 
 - `1.2.1` Click-to-call and call logging via a provider (Twilio) with disposition and notes: foundation complete.
 - `1.2.2` Inbound call routing, voicemail, and call activity timeline entries: manual logging foundation complete.
 - `1.2.3` Call recording with consent controls and retention policy: metadata/control foundation complete.
-- `1.2.4` SMS send/receive with templates and opt-out handling.
+- `1.2.4` SMS send/receive with templates and opt-out handling: contact-level fake-provider foundation complete.
 - `1.2.5` Calendar two-way sync (Google/Microsoft) for meetings and availability.
 - `1.2.6` Meeting scheduler / booking links (Calendly-style) with round-robin and team availability.
 - `1.2.7` Meeting reminders and automatic activity logging.

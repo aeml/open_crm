@@ -297,3 +297,29 @@ func TestMigrationFilesIncludeCallRecordingControlsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeSMSFoundationMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "032_sms_foundation.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected sms foundation migration to be registered")
+	}
+
+	sql := MigrationSQL("032_sms_foundation.sql")
+	if sql == "" {
+		t.Fatal("expected sms foundation migration SQL to be embedded")
+	}
+	for _, expected := range []string{"sms_messages", "sms_suppressions", "idx_sms_messages_org_entity_created", "idx_sms_suppressions_org_phone"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected sms foundation migration to include %s", expected)
+		}
+	}
+}

@@ -16,6 +16,7 @@ import { listEmailSequences } from '../lib/email_sequences'
 import { cancelEmailSequenceEnrollment, createEmailSequenceEnrollment, listEmailSequenceEnrollments } from '../lib/email_sequence_enrollments'
 import { listEmailTemplates } from '../lib/email_templates'
 import { listEmailMessages } from '../lib/email_messages'
+import { listSMSMessages, logInboundSMS, optOutSMS, sendContactSMS } from '../lib/sms'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
 import { usePageTitle } from '../lib/use_page_title'
@@ -63,6 +64,21 @@ const emptyRecordingForm = {
   recordingUrl: '',
   recordingConsent: 'unknown',
   retentionDays: '365'
+}
+
+const smsTemplates = [
+  { name: 'Follow-up', body: 'Hi {{first_name}}, thanks for your time today. Reply STOP to opt out.' },
+  { name: 'Appointment reminder', body: 'Hi {{first_name}}, quick reminder about our upcoming appointment. Reply STOP to opt out.' },
+  { name: 'Callback request', body: 'Hi {{first_name}}, I tried reaching you. What is a good time for a quick call? Reply STOP to opt out.' }
+]
+
+const emptySMSForm = {
+  templateName: '',
+  body: ''
+}
+
+const emptyInboundSMSForm = {
+  body: ''
 }
 
 function fullName(contact) {
@@ -115,6 +131,14 @@ function formatSequenceTime(value) {
 }
 
 function formatCallTime(value) {
+  if (!value) {
+    return 'Unknown time'
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString()
+}
+
+function formatSMSTime(value) {
   if (!value) {
     return 'Unknown time'
   }
@@ -191,6 +215,15 @@ export function ContactsRoute() {
   const [emailStatus, setEmailStatus] = useState('')
   const [isSendingEmail, setIsSendingEmail] = useState(false)
   const [emailHistory, setEmailHistory] = useState([])
+  const [smsOpen, setSmsOpen] = useState(false)
+  const [smsMessages, setSmsMessages] = useState([])
+  const [smsForm, setSmsForm] = useState(emptySMSForm)
+  const [inboundSMSOpen, setInboundSMSOpen] = useState(false)
+  const [inboundSMSForm, setInboundSMSForm] = useState(emptyInboundSMSForm)
+  const [smsStatus, setSmsStatus] = useState('')
+  const [isSendingSMS, setIsSendingSMS] = useState(false)
+  const [isLoggingInboundSMS, setIsLoggingInboundSMS] = useState(false)
+  const [isOptingOutSMS, setIsOptingOutSMS] = useState(false)
   const [callsOpen, setCallsOpen] = useState(false)
   const [callLogs, setCallLogs] = useState([])
   const [activeCall, setActiveCall] = useState(null)
@@ -231,6 +264,12 @@ export function ContactsRoute() {
     setRecordingCallId(null)
     setRecordingForm(emptyRecordingForm)
     setCallStatus('')
+    setSmsOpen(false)
+    setSmsMessages([])
+    setSmsForm(emptySMSForm)
+    setInboundSMSOpen(false)
+    setInboundSMSForm(emptyInboundSMSForm)
+    setSmsStatus('')
     setSequencesOpen(false)
     setSequenceEnrollments([])
     setSequenceStatus('')
@@ -663,6 +702,106 @@ export function ContactsRoute() {
       if (!isAbortError(loadError)) {
         setError(loadError.message || 'Unable to load call history.')
       }
+    }
+  }
+
+  async function handleToggleSMS() {
+    const next = !smsOpen
+    setSmsOpen(next)
+    setSmsStatus('')
+    if (!next || !selectedContactId) {
+      return
+    }
+    try {
+      setSmsMessages(await listSMSMessages({ entityType: 'contact', entityId: selectedContactId }))
+    } catch (loadError) {
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load SMS history.')
+      }
+    }
+  }
+
+  function applySMSTemplate(templateName) {
+    const template = smsTemplates.find((entry) => entry.name === templateName)
+    setSmsForm({ templateName, body: template?.body || '' })
+  }
+
+  async function handleSendSMS(event) {
+    event.preventDefault()
+    if (!selectedContactId || !selectedContact?.phone || !smsForm.body.trim()) {
+      return
+    }
+    setIsSendingSMS(true)
+    setSmsStatus('')
+    try {
+      const message = await sendContactSMS(selectedContactId, {
+        body: smsForm.body.trim(),
+        templateName: smsForm.templateName
+      })
+      setSmsMessages((current) => [message, ...current.filter((entry) => entry.id !== message.id)])
+      setSmsOpen(true)
+      setSmsForm(emptySMSForm)
+      setSmsStatus(message.status === 'suppressed' ? 'SMS suppressed because this phone number is opted out.' : (message.status === 'failed' ? 'SMS failed.' : 'SMS sent.'))
+      setError('')
+    } catch (sendError) {
+      setError(sendError.message || 'Unable to send SMS.')
+    } finally {
+      setIsSendingSMS(false)
+    }
+  }
+
+  function handleToggleInboundSMSLog() {
+    setInboundSMSOpen((current) => !current)
+    setSmsStatus('')
+  }
+
+  async function handleLogInboundSMS(event) {
+    event.preventDefault()
+    if (!selectedContactId || !selectedContact?.phone || !inboundSMSForm.body.trim()) {
+      return
+    }
+    setIsLoggingInboundSMS(true)
+    setSmsStatus('')
+    try {
+      const message = await logInboundSMS({
+        entityType: 'contact',
+        entityId: selectedContactId,
+        phoneNumber: selectedContact.phone,
+        body: inboundSMSForm.body.trim()
+      })
+      setSmsMessages((current) => [message, ...current.filter((entry) => entry.id !== message.id)])
+      setSmsOpen(true)
+      setInboundSMSOpen(false)
+      setInboundSMSForm(emptyInboundSMSForm)
+      setSmsStatus('Inbound SMS logged. STOP-style replies opt the number out automatically.')
+      setError('')
+    } catch (logError) {
+      setError(logError.message || 'Unable to log inbound SMS.')
+    } finally {
+      setIsLoggingInboundSMS(false)
+    }
+  }
+
+  async function handleSMSOptOut() {
+    if (!selectedContactId || !selectedContact?.phone) {
+      return
+    }
+    setIsOptingOutSMS(true)
+    setSmsStatus('')
+    try {
+      await optOutSMS({
+        phoneNumber: selectedContact.phone,
+        reason: 'manual',
+        source: 'contact_detail',
+        entityType: 'contact',
+        entityId: selectedContactId
+      })
+      setSmsStatus('SMS opt-out recorded.')
+      setError('')
+    } catch (optOutError) {
+      setError(optOutError.message || 'Unable to opt out phone number.')
+    } finally {
+      setIsOptingOutSMS(false)
     }
   }
 
@@ -1309,6 +1448,82 @@ export function ContactsRoute() {
                             </div>
                           </form>
                         ) : null}
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+            <Card>
+              <div className="card-stack">
+                <div className="section-header">
+                  <div>
+                    <h3>SMS</h3>
+                    <p className="field-hint">Send compliant one-to-one texts and log inbound replies.</p>
+                  </div>
+                  <div className="button-row">
+                    <Button className="button-secondary" type="button" onClick={handleToggleSMS}>
+                      {smsOpen ? 'Hide SMS' : 'Show SMS'}
+                    </Button>
+                    {canWrite && selectedContact.phone ? (
+                      <Button className="button-secondary" type="button" onClick={handleToggleInboundSMSLog}>
+                        {inboundSMSOpen ? 'Cancel inbound SMS' : 'Log inbound SMS'}
+                      </Button>
+                    ) : null}
+                    {canWrite && selectedContact.phone ? (
+                      <Button className="button-secondary" type="button" onClick={handleSMSOptOut} disabled={isOptingOutSMS}>
+                        {isOptingOutSMS ? 'Opting out...' : 'Mark SMS opt-out'}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                {!selectedContact.phone ? <p className="field-hint">Add a phone number to this contact before sending SMS.</p> : null}
+                {smsStatus ? <p className="field-hint" role="status">{smsStatus}</p> : null}
+                {canWrite && selectedContact.phone ? (
+                  <form className="auth-form" onSubmit={handleSendSMS}>
+                    <Field label="SMS template">
+                      <select className="text-input" value={smsForm.templateName} onChange={(event) => applySMSTemplate(event.target.value)}>
+                        <option value="">Start from scratch</option>
+                        {smsTemplates.map((template) => (
+                          <option key={template.name} value={template.name}>{template.name}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="SMS body">
+                      <textarea className="text-input" rows={4} value={smsForm.body} onChange={(event) => setSmsForm((current) => ({ ...current, body: event.target.value }))} placeholder="Type a short text message" required />
+                    </Field>
+                    <p className="field-hint">Merge fields like {'{{first_name}}'} are filled in when the SMS is sent. Include opt-out language for outreach.</p>
+                    <Button type="submit" disabled={isSendingSMS}>{isSendingSMS ? 'Sending...' : 'Send text'}</Button>
+                  </form>
+                ) : null}
+                {inboundSMSOpen ? (
+                  <form className="auth-form" onSubmit={handleLogInboundSMS}>
+                    <Field label="Inbound SMS body">
+                      <textarea className="text-input" rows={3} value={inboundSMSForm.body} onChange={(event) => setInboundSMSForm({ body: event.target.value })} placeholder="Paste the inbound text. STOP records an opt-out." required />
+                    </Field>
+                    <Button type="submit" disabled={isLoggingInboundSMS}>{isLoggingInboundSMS ? 'Logging...' : 'Save inbound SMS'}</Button>
+                  </form>
+                ) : null}
+                {smsOpen ? (
+                  <div className="record-list" role="list" aria-label="SMS history">
+                    {smsMessages.length === 0 ? (
+                      <article className="record-row" role="listitem">
+                        <div>
+                          <p>No SMS messages logged yet.</p>
+                        </div>
+                      </article>
+                    ) : smsMessages.map((message) => (
+                      <article className="record-row" key={message.id} role="listitem">
+                        <div>
+                          <p>{message.direction === 'inbound' ? 'Inbound SMS' : (message.status === 'suppressed' ? 'SMS suppressed' : 'Outbound SMS')}</p>
+                          <p className="field-hint">{message.phoneNumber} · {message.status}{message.templateName ? ` · ${message.templateName}` : ''}</p>
+                          <p className="field-hint">{message.body}</p>
+                          {message.error ? <p className="field-hint">{message.error}</p> : null}
+                        </div>
+                        <div>
+                          <p>{formatSMSTime(message.sentAt || message.receivedAt || message.createdAt)}</p>
+                          <p className="field-hint">{message.createdByUserName || 'You'}</p>
+                        </div>
                       </article>
                     ))}
                   </div>
