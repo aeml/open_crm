@@ -50,6 +50,16 @@ type CompleteInput struct {
 	Notes       string
 }
 
+type RecordInput struct {
+	EntityType  string
+	EntityID    int64
+	Direction   string
+	PhoneNumber string
+	Status      string
+	Disposition string
+	Notes       string
+}
+
 type StartResult struct {
 	Call    Log
 	DialURL string
@@ -195,6 +205,41 @@ func (s *Service) Complete(ctx context.Context, organizationID, actorUserID, cal
 	return s.GetByID(ctx, organizationID, callID)
 }
 
+func (s *Service) RecordManual(ctx context.Context, organizationID, actorUserID int64, input RecordInput) (Log, error) {
+	if s == nil || s.pool == nil {
+		return Log{}, fmt.Errorf("call logs service not configured")
+	}
+	input = normalizeRecordInput(input)
+	if organizationID <= 0 || actorUserID <= 0 || input.EntityID <= 0 || !isSupportedEntityType(input.EntityType) || input.Direction == "" || input.PhoneNumber == "" || input.Status == "" || len(input.PhoneNumber) > 100 || len(input.Disposition) > 120 || len(input.Notes) > 4000 {
+		return Log{}, ErrInvalidInput
+	}
+	if err := ensureEntityExists(ctx, s.pool, organizationID, input.EntityType, input.EntityID); err != nil {
+		return Log{}, err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Log{}, fmt.Errorf("begin manual call log transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var callID int64
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO call_logs (organization_id, entity_type, entity_id, direction, phone_number, status, disposition, notes, provider_name, created_by_user_id, completed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'manual', $9, NOW())
+		RETURNING id
+	`, organizationID, input.EntityType, input.EntityID, input.Direction, input.PhoneNumber, input.Status, input.Disposition, input.Notes, actorUserID).Scan(&callID); err != nil {
+		return Log{}, fmt.Errorf("insert manual call log: %w", err)
+	}
+	if err := insertActivity(ctx, tx, organizationID, input.EntityType, input.EntityID, actorUserID, manualActivityAction(input.Status), manualActivitySummary(input.Direction, input.Status, input.Disposition)); err != nil {
+		return Log{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Log{}, fmt.Errorf("commit manual call log transaction: %w", err)
+	}
+	return s.GetByID(ctx, organizationID, callID)
+}
+
 func (s *Service) GetByID(ctx context.Context, organizationID, callID int64) (Log, error) {
 	call, err := scanLog(s.pool.QueryRow(ctx, baseSelect+`
 		WHERE c.organization_id = $1 AND c.id = $2
@@ -214,6 +259,32 @@ func normalizeStartInput(input StartInput) StartInput {
 	return input
 }
 
+func normalizeRecordInput(input RecordInput) RecordInput {
+	input.EntityType = normalizeEntityType(input.EntityType)
+	input.Direction = normalizeDirection(input.Direction)
+	input.PhoneNumber = strings.TrimSpace(input.PhoneNumber)
+	input.Disposition = strings.TrimSpace(input.Disposition)
+	input.Notes = strings.TrimSpace(input.Notes)
+	status, err := normalizeCompleteStatus(input.Status)
+	if err != nil {
+		input.Status = ""
+	} else {
+		input.Status = status
+	}
+	return input
+}
+
+func normalizeDirection(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "inbound":
+		return "inbound"
+	case "outbound":
+		return "outbound"
+	default:
+		return ""
+	}
+}
+
 func normalizeEntityType(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
@@ -227,6 +298,27 @@ func normalizeCompleteStatus(value string) (string, error) {
 	default:
 		return "", ErrInvalidInput
 	}
+}
+
+func manualActivityAction(status string) string {
+	if status == "failed" {
+		return "call.failed"
+	}
+	return "call.logged"
+}
+
+func manualActivitySummary(direction, status, disposition string) string {
+	label := "Inbound call logged"
+	if direction == "outbound" {
+		label = "Outbound call logged"
+	}
+	if status == "failed" {
+		label = strings.TrimSuffix(label, " logged") + " failed"
+	}
+	if disposition != "" {
+		label += ": " + disposition
+	}
+	return label
 }
 
 func isSupportedEntityType(entityType string) bool {

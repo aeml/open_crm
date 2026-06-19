@@ -21,6 +21,8 @@ type fakeCallLogsService struct {
 	startErr          error
 	completeResult    modulecalllogs.Log
 	completeErr       error
+	recordResult      modulecalllogs.Log
+	recordErr         error
 	lastOrgID         int64
 	lastActorID       int64
 	lastEntityType    string
@@ -29,6 +31,7 @@ type fakeCallLogsService struct {
 	lastStartInput    modulecalllogs.StartInput
 	lastCompleteID    int64
 	lastCompleteInput modulecalllogs.CompleteInput
+	lastRecordInput   modulecalllogs.RecordInput
 }
 
 func (f *fakeCallLogsService) ListByEntity(_ context.Context, organizationID int64, entityType string, entityID int64, limit int) ([]modulecalllogs.Log, error) {
@@ -52,6 +55,13 @@ func (f *fakeCallLogsService) Complete(_ context.Context, organizationID, actorU
 	f.lastCompleteID = callID
 	f.lastCompleteInput = input
 	return f.completeResult, f.completeErr
+}
+
+func (f *fakeCallLogsService) RecordManual(_ context.Context, organizationID, actorUserID int64, input modulecalllogs.RecordInput) (modulecalllogs.Log, error) {
+	f.lastOrgID = organizationID
+	f.lastActorID = actorUserID
+	f.lastRecordInput = input
+	return f.recordResult, f.recordErr
 }
 
 func callLogsServer(service *fakeCallLogsService, role string) http.Handler {
@@ -139,5 +149,33 @@ func TestCompleteCallAllowsWriterAndCapturesDisposition(t *testing.T) {
 	}
 	if service.lastOrgID != 42 || service.lastActorID != 1 || service.lastCompleteID != 4 || service.lastCompleteInput.Disposition != "Connected" || service.lastCompleteInput.Notes != "Asked for quote" {
 		t.Fatalf("unexpected complete call input: org=%d actor=%d id=%d input=%#v", service.lastOrgID, service.lastActorID, service.lastCompleteID, service.lastCompleteInput)
+	}
+}
+
+func TestRecordCallAllowsWriterAndCapturesInboundCall(t *testing.T) {
+	service := &fakeCallLogsService{
+		recordResult: modulecalllogs.Log{ID: 5, EntityType: "contact", EntityID: 8, Direction: "inbound", PhoneNumber: "+15550001111", Status: "completed", Disposition: "Voicemail", Notes: "Asked for callback", CreatedByUserID: 1, StartedAt: time.Now(), CreatedAt: time.Now(), UpdatedAt: time.Now()},
+	}
+	server := callLogsServer(service, "member")
+
+	body := strings.NewReader(`{"entityType":"contact","entityId":8,"direction":"inbound","phoneNumber":"+15550001111","status":"completed","disposition":"Voicemail","notes":"Asked for callback"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/calls/log", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for manual call log, got %d", recorder.Code)
+	}
+	if service.lastOrgID != 42 || service.lastActorID != 1 || service.lastRecordInput.Direction != "inbound" || service.lastRecordInput.Disposition != "Voicemail" || service.lastRecordInput.Notes != "Asked for callback" {
+		t.Fatalf("unexpected manual call log input: org=%d actor=%d input=%#v", service.lastOrgID, service.lastActorID, service.lastRecordInput)
+	}
+	var response callLogResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Call.Direction != "inbound" || response.Data.Call.Disposition != "Voicemail" {
+		t.Fatalf("unexpected manual call response: %#v", response.Data.Call)
 	}
 }

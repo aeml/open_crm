@@ -1820,11 +1820,12 @@ Goal: add real-time communication channels and remove scheduling friction.
 Progress:
 
 - `1.2.1` (click-to-call and call logging foundation): complete. Added persistent organization-scoped `call_logs`, a telephony provider seam with fake/default and unconfigured real-provider behavior, API endpoints to list/start/complete calls, contact-detail call start/logging UI, and call history display. Real Twilio call origination, inbound routing, recording, SMS, and scheduling remain future slices.
+- `1.2.2` (inbound call logging foundation): complete. Added manual inbound call logging for contacts using the shared call log store, including voicemail/missed-call dispositions, notes, and `call.logged`/`call.failed` activity timeline entries. Real carrier webhook routing, voicemail media capture, and assignment rules remain future provider-specific work.
 
 Candidate slices:
 
 - `1.2.1` Click-to-call and call logging via a provider (Twilio) with disposition and notes: foundation complete.
-- `1.2.2` Inbound call routing, voicemail, and call activity timeline entries.
+- `1.2.2` Inbound call routing, voicemail, and call activity timeline entries: manual logging foundation complete.
 - `1.2.3` Call recording with consent controls and retention policy.
 - `1.2.4` SMS send/receive with templates and opt-out handling.
 - `1.2.5` Calendar two-way sync (Google/Microsoft) for meetings and availability.

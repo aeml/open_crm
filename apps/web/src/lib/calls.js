@@ -22,3 +22,9 @@ export async function completeCall(callId, input, { signal } = {}) {
 
   return payload?.data?.call
 }
+
+export async function logCall(input, { signal } = {}) {
+  const payload = await apiRequest('/api/calls/log', { method: 'POST', body: input, fallbackMessage: 'Unable to log call.', signal })
+
+  return payload?.data?.call
+}

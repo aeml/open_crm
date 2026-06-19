@@ -33,3 +33,20 @@ func TestNormalizeDialNumber(t *testing.T) {
 		t.Fatalf("unexpected normalized phone with country code: %q", got)
 	}
 }
+
+func TestNormalizeRecordInputDefaultsInboundCompleted(t *testing.T) {
+	input := normalizeRecordInput(RecordInput{EntityType: " Contact ", EntityID: 7, Direction: "", PhoneNumber: " 555-1234 ", Status: "", Disposition: " Connected ", Notes: " Follow up "})
+
+	if input.EntityType != "contact" || input.Direction != "inbound" || input.Status != "completed" || input.PhoneNumber != "555-1234" || input.Disposition != "Connected" || input.Notes != "Follow up" {
+		t.Fatalf("unexpected normalized manual call input: %#v", input)
+	}
+}
+
+func TestManualActivitySummary(t *testing.T) {
+	if got := manualActivitySummary("inbound", "completed", "Voicemail"); got != "Inbound call logged: Voicemail" {
+		t.Fatalf("unexpected inbound summary: %q", got)
+	}
+	if got := manualActivitySummary("outbound", "failed", "No answer"); got != "Outbound call failed: No answer" {
+		t.Fatalf("unexpected outbound failed summary: %q", got)
+	}
+}

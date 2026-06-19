@@ -49,6 +49,16 @@ type callCompleteRequest struct {
 	Notes       string `json:"notes"`
 }
 
+type callRecordRequest struct {
+	EntityType  string `json:"entityType"`
+	EntityID    int64  `json:"entityId"`
+	Direction   string `json:"direction"`
+	PhoneNumber string `json:"phoneNumber"`
+	Status      string `json:"status"`
+	Disposition string `json:"disposition"`
+	Notes       string `json:"notes"`
+}
+
 func handleListCallLogs(auth authService, calls callLogsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgMember(auth, w, r)
@@ -144,6 +154,41 @@ func handleCompleteCall(auth authService, calls callLogsService, w http.Response
 	response.Data.Call = call
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleRecordCall(auth authService, calls callLogsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgWriter(auth, w, r)
+	if !ok {
+		return
+	}
+	if calls == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Call log service unavailable")
+		return
+	}
+
+	var request callRecordRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	call, err := calls.RecordManual(r.Context(), state.Organization.ID, state.User.ID, modulecalllogs.RecordInput{
+		EntityType:  request.EntityType,
+		EntityID:    request.EntityID,
+		Direction:   request.Direction,
+		PhoneNumber: request.PhoneNumber,
+		Status:      request.Status,
+		Disposition: request.Disposition,
+		Notes:       request.Notes,
+	})
+	if err != nil {
+		writeCallLogError(w, requestID, err, "Unable to log call")
+		return
+	}
+
+	response := callLogResponse{}
+	response.Data.Call = call
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusCreated, response)
 }
 
 func writeCallLogError(w http.ResponseWriter, requestID string, err error, fallback string) {

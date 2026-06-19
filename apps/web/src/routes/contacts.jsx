@@ -8,7 +8,7 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { completeCall, listCalls, startCall } from '../lib/calls'
+import { completeCall, listCalls, logCall, startCall } from '../lib/calls'
 import { archiveContact, contactsExportURL, createContact, getContact, listContacts, sendContactEmail, updateContact } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
@@ -49,6 +49,12 @@ const emptyTaskForm = {
 }
 
 const emptyCallForm = {
+  disposition: '',
+  notes: ''
+}
+
+const emptyManualCallForm = {
+  phoneNumber: '',
   disposition: '',
   notes: ''
 }
@@ -161,9 +167,12 @@ export function ContactsRoute() {
   const [activeCall, setActiveCall] = useState(null)
   const [callDialURL, setCallDialURL] = useState('')
   const [callForm, setCallForm] = useState(emptyCallForm)
+  const [inboundCallOpen, setInboundCallOpen] = useState(false)
+  const [manualCallForm, setManualCallForm] = useState(emptyManualCallForm)
   const [callStatus, setCallStatus] = useState('')
   const [isStartingCall, setIsStartingCall] = useState(false)
   const [isCompletingCall, setIsCompletingCall] = useState(false)
+  const [isLoggingCall, setIsLoggingCall] = useState(false)
   const [sequencesOpen, setSequencesOpen] = useState(false)
   const [sequenceOptions, setSequenceOptions] = useState([])
   const [sequenceEnrollments, setSequenceEnrollments] = useState([])
@@ -185,6 +194,8 @@ export function ContactsRoute() {
     setActiveCall(null)
     setCallDialURL('')
     setCallForm(emptyCallForm)
+    setInboundCallOpen(false)
+    setManualCallForm(emptyManualCallForm)
     setCallStatus('')
     setSequencesOpen(false)
     setSequenceEnrollments([])
@@ -670,6 +681,47 @@ export function ContactsRoute() {
     }
   }
 
+  function handleToggleInboundCallLog() {
+    setInboundCallOpen((current) => {
+      const next = !current
+      if (next) {
+        setManualCallForm((form) => ({ ...form, phoneNumber: form.phoneNumber || selectedContact?.phone || '' }))
+      }
+      return next
+    })
+    setCallStatus('')
+  }
+
+  async function handleRecordInboundCall(event) {
+    event.preventDefault()
+    if (!selectedContactId || !manualCallForm.phoneNumber.trim()) {
+      return
+    }
+    setIsLoggingCall(true)
+    setCallStatus('')
+    try {
+      const call = await logCall({
+        entityType: 'contact',
+        entityId: selectedContactId,
+        direction: 'inbound',
+        phoneNumber: manualCallForm.phoneNumber.trim(),
+        status: 'completed',
+        disposition: manualCallForm.disposition.trim(),
+        notes: manualCallForm.notes.trim()
+      })
+      setCallLogs((current) => [call, ...current.filter((entry) => entry.id !== call.id)])
+      setCallsOpen(true)
+      setInboundCallOpen(false)
+      setManualCallForm(emptyManualCallForm)
+      setCallStatus('Inbound call logged.')
+      setError('')
+    } catch (logError) {
+      setError(logError.message || 'Unable to log inbound call.')
+    } finally {
+      setIsLoggingCall(false)
+    }
+  }
+
   async function handleToggleSequences() {
     const next = !sequencesOpen
     setSequencesOpen(next)
@@ -1071,6 +1123,11 @@ export function ContactsRoute() {
                         {isStartingCall ? 'Starting...' : 'Start call'}
                       </Button>
                     ) : null}
+                    {canWrite ? (
+                      <Button className="button-secondary" type="button" onClick={handleToggleInboundCallLog}>
+                        {inboundCallOpen ? 'Cancel inbound log' : 'Add inbound call'}
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
                 {!selectedContact.phone ? <p className="field-hint">Add a phone number to this contact before starting a call.</p> : null}
@@ -1085,6 +1142,20 @@ export function ContactsRoute() {
                       <textarea className="text-input" rows={4} value={callForm.notes} onChange={(event) => setCallForm((current) => ({ ...current, notes: event.target.value }))} />
                     </Field>
                     <Button type="submit" disabled={isCompletingCall}>{isCompletingCall ? 'Logging...' : 'Log call outcome'}</Button>
+                  </form>
+                ) : null}
+                {inboundCallOpen ? (
+                  <form className="auth-form" onSubmit={handleRecordInboundCall}>
+                    <Field label="Inbound phone number">
+                      <input className="text-input" value={manualCallForm.phoneNumber} onChange={(event) => setManualCallForm((current) => ({ ...current, phoneNumber: event.target.value }))} required />
+                    </Field>
+                    <Field label="Inbound disposition">
+                      <input className="text-input" value={manualCallForm.disposition} onChange={(event) => setManualCallForm((current) => ({ ...current, disposition: event.target.value }))} placeholder="Connected, voicemail, missed" />
+                    </Field>
+                    <Field label="Inbound notes">
+                      <textarea className="text-input" rows={4} value={manualCallForm.notes} onChange={(event) => setManualCallForm((current) => ({ ...current, notes: event.target.value }))} />
+                    </Field>
+                    <Button type="submit" disabled={isLoggingCall}>{isLoggingCall ? 'Saving...' : 'Save inbound call'}</Button>
                   </form>
                 ) : null}
                 {callsOpen ? (
