@@ -16,6 +16,7 @@ import (
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
+	modulecalllogs "github.com/aeml/open_crm/apps/api/internal/modules/calllogs"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
@@ -76,6 +77,7 @@ func main() {
 	})
 	emailService := moduleemail.NewService(emailProvider, env.EmailFromName, env.EmailFromAddress, env.WebBaseURL)
 	var notesService *modulenotes.Service
+	var callLogsService *modulecalllogs.Service
 	var notificationsService *modulenotifications.Service
 	var savedViewsService *modulesavedviews.Service
 	var onboardingService *moduleonboarding.Service
@@ -108,6 +110,7 @@ func main() {
 			exportsService = moduleexports.NewService(pool)
 			dashboardService = moduledashboard.NewService(pool)
 			notesService = modulenotes.NewService(pool)
+			callLogsService = modulecalllogs.NewService(pool, modulecalllogs.NewProvider(env.TelephonyProvider, logger))
 			notificationsService = modulenotifications.NewService(pool)
 			savedViewsService = modulesavedviews.NewService(pool)
 			onboardingService = moduleonboarding.NewService(pool)
@@ -155,6 +158,7 @@ func main() {
 		ExportsService:                  exportsService,
 		DashboardService:                dashboardService,
 		NotesService:                    notesService,
+		CallLogsService:                 callLogsService,
 		ImportsService:                  importsService,
 		SavedViewsService:               savedViewsService,
 		OnboardingService:               onboardingService,

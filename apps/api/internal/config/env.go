@@ -10,6 +10,7 @@ type Env struct {
 	AllowedOrigins             []string
 	GOEnv                      string
 	BillingProvider            string
+	TelephonyProvider          string
 	EmailProvider              string
 	EmailFromAddress           string
 	EmailFromName              string
@@ -36,6 +37,11 @@ func Load() Env {
 		billingProvider = "fake"
 	}
 
+	telephonyProvider := os.Getenv("TELEPHONY_PROVIDER")
+	if telephonyProvider == "" {
+		telephonyProvider = "fake"
+	}
+
 	emailProvider := os.Getenv("EMAIL_PROVIDER")
 	if emailProvider == "" {
 		emailProvider = "fake"
@@ -51,6 +57,7 @@ func Load() Env {
 		AllowedOrigins:             parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
 		GOEnv:                      os.Getenv("GO_ENV"),
 		BillingProvider:            billingProvider,
+		TelephonyProvider:          telephonyProvider,
 		EmailProvider:              emailProvider,
 		EmailFromAddress:           os.Getenv("EMAIL_FROM_ADDRESS"),
 		EmailFromName:              os.Getenv("EMAIL_FROM_NAME"),

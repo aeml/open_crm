@@ -8,6 +8,7 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
+import { completeCall, listCalls, startCall } from '../lib/calls'
 import { archiveContact, contactsExportURL, createContact, getContact, listContacts, sendContactEmail, updateContact } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
@@ -45,6 +46,11 @@ const emptyTaskForm = {
   description: '',
   dueAt: '',
   assignedToUserId: ''
+}
+
+const emptyCallForm = {
+  disposition: '',
+  notes: ''
 }
 
 function fullName(contact) {
@@ -96,6 +102,14 @@ function formatSequenceTime(value) {
   return Number.isNaN(date.getTime()) ? 'Not scheduled' : date.toLocaleString()
 }
 
+function formatCallTime(value) {
+  if (!value) {
+    return 'Unknown time'
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString()
+}
+
 function relatedPipelineLabels(businessType) {
   if (businessType === 'services' || businessType === 'construction-services') {
     return { plural: 'Jobs', singular: 'job' }
@@ -142,6 +156,14 @@ export function ContactsRoute() {
   const [emailStatus, setEmailStatus] = useState('')
   const [isSendingEmail, setIsSendingEmail] = useState(false)
   const [emailHistory, setEmailHistory] = useState([])
+  const [callsOpen, setCallsOpen] = useState(false)
+  const [callLogs, setCallLogs] = useState([])
+  const [activeCall, setActiveCall] = useState(null)
+  const [callDialURL, setCallDialURL] = useState('')
+  const [callForm, setCallForm] = useState(emptyCallForm)
+  const [callStatus, setCallStatus] = useState('')
+  const [isStartingCall, setIsStartingCall] = useState(false)
+  const [isCompletingCall, setIsCompletingCall] = useState(false)
   const [sequencesOpen, setSequencesOpen] = useState(false)
   const [sequenceOptions, setSequenceOptions] = useState([])
   const [sequenceEnrollments, setSequenceEnrollments] = useState([])
@@ -158,6 +180,12 @@ export function ContactsRoute() {
   const selectedActivities = detail?.activities || []
 
   useEffect(() => {
+    setCallsOpen(false)
+    setCallLogs([])
+    setActiveCall(null)
+    setCallDialURL('')
+    setCallForm(emptyCallForm)
+    setCallStatus('')
     setSequencesOpen(false)
     setSequenceEnrollments([])
     setSequenceStatus('')
@@ -577,6 +605,71 @@ export function ContactsRoute() {
     }
   }
 
+  async function handleToggleCalls() {
+    const next = !callsOpen
+    setCallsOpen(next)
+    setCallStatus('')
+    if (!next || !selectedContactId) {
+      return
+    }
+    try {
+      setCallLogs(await listCalls({ entityType: 'contact', entityId: selectedContactId }))
+    } catch (loadError) {
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load call history.')
+      }
+    }
+  }
+
+  async function handleStartCall() {
+    if (!selectedContactId || !selectedContact?.phone) {
+      return
+    }
+    setIsStartingCall(true)
+    setCallStatus('')
+    try {
+      const result = await startCall({ entityType: 'contact', entityId: selectedContactId, phoneNumber: selectedContact.phone })
+      if (result?.call) {
+        setActiveCall(result.call)
+        setCallLogs((current) => [result.call, ...current.filter((call) => call.id !== result.call.id)])
+      }
+      setCallDialURL(result?.dialUrl || '')
+      setCallsOpen(true)
+      setCallStatus('Call started. Log the outcome when you finish.')
+      setError('')
+    } catch (startError) {
+      setError(startError.message || 'Unable to start call.')
+    } finally {
+      setIsStartingCall(false)
+    }
+  }
+
+  async function handleCompleteCall(event) {
+    event.preventDefault()
+    if (!activeCall?.id) {
+      return
+    }
+    setIsCompletingCall(true)
+    setCallStatus('')
+    try {
+      const call = await completeCall(activeCall.id, {
+        status: 'completed',
+        disposition: callForm.disposition.trim(),
+        notes: callForm.notes.trim()
+      })
+      setCallLogs((current) => [call, ...current.filter((entry) => entry.id !== call.id)])
+      setActiveCall(null)
+      setCallDialURL('')
+      setCallForm(emptyCallForm)
+      setCallStatus('Call outcome logged.')
+      setError('')
+    } catch (completeError) {
+      setError(completeError.message || 'Unable to log call outcome.')
+    } finally {
+      setIsCompletingCall(false)
+    }
+  }
+
   async function handleToggleSequences() {
     const next = !sequencesOpen
     setSequencesOpen(next)
@@ -960,6 +1053,63 @@ export function ContactsRoute() {
                     </article>
                   ))}
                 </div>
+              </div>
+            </Card>
+            <Card>
+              <div className="card-stack">
+                <div className="section-header">
+                  <div>
+                    <h3>Calls</h3>
+                    <p className="field-hint">Start an outbound call and log the outcome on this contact.</p>
+                  </div>
+                  <div className="button-row">
+                    <Button className="button-secondary" type="button" onClick={handleToggleCalls}>
+                      {callsOpen ? 'Hide calls' : 'Show calls'}
+                    </Button>
+                    {canWrite && selectedContact.phone ? (
+                      <Button className="button-secondary" type="button" onClick={handleStartCall} disabled={isStartingCall}>
+                        {isStartingCall ? 'Starting...' : 'Start call'}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                {!selectedContact.phone ? <p className="field-hint">Add a phone number to this contact before starting a call.</p> : null}
+                {callStatus ? <p className="field-hint" role="status">{callStatus}</p> : null}
+                {callDialURL ? <a className="button button-ghost" href={callDialURL}>Open dialer</a> : null}
+                {activeCall ? (
+                  <form className="auth-form" onSubmit={handleCompleteCall}>
+                    <Field label="Disposition">
+                      <input className="text-input" value={callForm.disposition} onChange={(event) => setCallForm((current) => ({ ...current, disposition: event.target.value }))} placeholder="Connected, left voicemail, no answer" />
+                    </Field>
+                    <Field label="Call notes">
+                      <textarea className="text-input" rows={4} value={callForm.notes} onChange={(event) => setCallForm((current) => ({ ...current, notes: event.target.value }))} />
+                    </Field>
+                    <Button type="submit" disabled={isCompletingCall}>{isCompletingCall ? 'Logging...' : 'Log call outcome'}</Button>
+                  </form>
+                ) : null}
+                {callsOpen ? (
+                  <div className="record-list" role="list" aria-label="Call history">
+                    {callLogs.length === 0 ? (
+                      <article className="record-row" role="listitem">
+                        <div>
+                          <p>No calls logged yet.</p>
+                        </div>
+                      </article>
+                    ) : callLogs.map((call) => (
+                      <article className="record-row" key={call.id} role="listitem">
+                        <div>
+                          <p>{call.disposition || (call.status === 'initiated' ? 'Call started' : 'Call logged')}</p>
+                          <p className="field-hint">{call.phoneNumber} · {call.status}</p>
+                          {call.notes ? <p className="field-hint">{call.notes}</p> : null}
+                        </div>
+                        <div>
+                          <p>{formatCallTime(call.completedAt || call.startedAt || call.createdAt)}</p>
+                          <p className="field-hint">{call.createdByUserName || 'You'}</p>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </Card>
             <Card>

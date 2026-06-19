@@ -89,8 +89,11 @@ var emailSnippetsSQL string
 //go:embed migrations/029_email_shared_inbox.sql
 var emailSharedInboxSQL string
 
+//go:embed migrations/030_call_logs.sql
+var callLogsSQL string
+
 func MigrationFiles() []string {
-	return []string{"001_initial_schema.sql", "002_company_client_type.sql", "003_contact_client_flag.sql", "004_client_address.sql", "005_client_structured_address.sql", "006_remove_company_domain.sql", "007_task_archive.sql", "008_user_setup_tokens.sql", "009_database_integrity.sql", "010_saved_views.sql", "011_audit_events.sql", "012_user_preferences.sql", "013_notifications.sql", "014_billing_plans.sql", "015_subscription_lifecycle.sql", "016_email_templates.sql", "017_user_email_accounts.sql", "018_email_messages.sql", "019_email_open_tracking.sql", "020_email_click_tracking.sql", "021_email_sequences.sql", "022_email_sequence_enrollments.sql", "023_user_email_sync_foundation.sql", "024_inbound_email_messages.sql", "025_email_message_entity_links.sql", "026_email_message_visibility.sql", "027_email_suppressions.sql", "028_email_snippets.sql", "029_email_shared_inbox.sql"}
+	return []string{"001_initial_schema.sql", "002_company_client_type.sql", "003_contact_client_flag.sql", "004_client_address.sql", "005_client_structured_address.sql", "006_remove_company_domain.sql", "007_task_archive.sql", "008_user_setup_tokens.sql", "009_database_integrity.sql", "010_saved_views.sql", "011_audit_events.sql", "012_user_preferences.sql", "013_notifications.sql", "014_billing_plans.sql", "015_subscription_lifecycle.sql", "016_email_templates.sql", "017_user_email_accounts.sql", "018_email_messages.sql", "019_email_open_tracking.sql", "020_email_click_tracking.sql", "021_email_sequences.sql", "022_email_sequence_enrollments.sql", "023_user_email_sync_foundation.sql", "024_inbound_email_messages.sql", "025_email_message_entity_links.sql", "026_email_message_visibility.sql", "027_email_suppressions.sql", "028_email_snippets.sql", "029_email_shared_inbox.sql", "030_call_logs.sql"}
 }
 
 func MigrationSQL(name string) string {
@@ -180,6 +183,9 @@ func MigrationSQL(name string) string {
 	}
 	if name == "029_email_shared_inbox.sql" {
 		return emailSharedInboxSQL
+	}
+	if name == "030_call_logs.sql" {
+		return callLogsSQL
 	}
 	return ""
 }

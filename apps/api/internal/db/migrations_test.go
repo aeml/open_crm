@@ -245,3 +245,29 @@ func TestMigrationFilesIncludeEmailSharedInboxMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeCallLogsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "030_call_logs.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected call logs migration to be registered")
+	}
+
+	sql := MigrationSQL("030_call_logs.sql")
+	if sql == "" {
+		t.Fatal("expected call logs migration SQL to be embedded")
+	}
+	for _, expected := range []string{"call_logs", "idx_call_logs_org_entity_created", "call_logs_status_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected call logs migration to include %s", expected)
+		}
+	}
+}

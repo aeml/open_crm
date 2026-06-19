@@ -1813,13 +1813,17 @@ Exit criteria:
 
 ## Version 1.2.0 - Telephony, SMS, And Meeting Scheduling
 
-Status: planned.
+Status: in progress.
 
 Goal: add real-time communication channels and remove scheduling friction.
 
+Progress:
+
+- `1.2.1` (click-to-call and call logging foundation): complete. Added persistent organization-scoped `call_logs`, a telephony provider seam with fake/default and unconfigured real-provider behavior, API endpoints to list/start/complete calls, contact-detail call start/logging UI, and call history display. Real Twilio call origination, inbound routing, recording, SMS, and scheduling remain future slices.
+
 Candidate slices:
 
-- `1.2.1` Click-to-call and call logging via a provider (Twilio) with disposition and notes.
+- `1.2.1` Click-to-call and call logging via a provider (Twilio) with disposition and notes: foundation complete.
 - `1.2.2` Inbound call routing, voicemail, and call activity timeline entries.
 - `1.2.3` Call recording with consent controls and retention policy.
 - `1.2.4` SMS send/receive with templates and opt-out handling.

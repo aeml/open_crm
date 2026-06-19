@@ -10,6 +10,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulecalllogs "github.com/aeml/open_crm/apps/api/internal/modules/calllogs"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
@@ -117,6 +118,12 @@ type notesService interface {
 	Create(context.Context, int64, int64, modulenotes.CreateInput) (modulenotes.CreateResult, error)
 }
 
+type callLogsService interface {
+	ListByEntity(context.Context, int64, string, int64, int) ([]modulecalllogs.Log, error)
+	StartOutbound(context.Context, int64, int64, modulecalllogs.StartInput) (modulecalllogs.StartResult, error)
+	Complete(context.Context, int64, int64, int64, modulecalllogs.CompleteInput) (modulecalllogs.Log, error)
+}
+
 type importsService interface {
 	Preview(context.Context, moduleimports.PreviewInput) (moduleimports.PreviewResult, error)
 }
@@ -218,6 +225,7 @@ type Dependencies struct {
 	OrgProfileService               orgProfileService
 	DashboardService                dashboardService
 	NotesService                    notesService
+	CallLogsService                 callLogsService
 	ImportsService                  importsService
 	SavedViewsService               savedViewsService
 	OnboardingService               onboardingService
@@ -740,6 +748,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/email-sequence-enrollments/{enrollmentID}", func(w http.ResponseWriter, r *http.Request) {
 		handleCancelEmailSequenceEnrollment(dependencies.AuthService, dependencies.EmailSequenceEnrollmentsService, w, r)
+	})
+	mux.HandleFunc("GET /api/calls", func(w http.ResponseWriter, r *http.Request) {
+		handleListCallLogs(dependencies.AuthService, dependencies.CallLogsService, w, r)
+	})
+	mux.HandleFunc("POST /api/calls/start", func(w http.ResponseWriter, r *http.Request) {
+		handleStartCall(dependencies.AuthService, dependencies.CallLogsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/calls/{callID}/complete", func(w http.ResponseWriter, r *http.Request) {
+		handleCompleteCall(dependencies.AuthService, dependencies.CallLogsService, w, r)
 	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)
