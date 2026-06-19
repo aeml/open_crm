@@ -8,6 +8,7 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
+import { cancelCalendarEvent, listCalendarEvents, scheduleCalendarEvent } from '../lib/calendar'
 import { completeCall, listCalls, logCall, startCall, updateCallRecording } from '../lib/calls'
 import { archiveContact, contactsExportURL, createContact, getContact, listContacts, sendContactEmail, updateContact } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
@@ -81,6 +82,20 @@ const emptyInboundSMSForm = {
   body: ''
 }
 
+function defaultMeetingTimezone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+}
+
+const emptyMeetingForm = {
+  title: '',
+  description: '',
+  location: '',
+  startAt: '',
+  endAt: '',
+  timezone: defaultMeetingTimezone(),
+  visibility: 'shared'
+}
+
 function fullName(contact) {
   return `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
 }
@@ -144,6 +159,19 @@ function formatSMSTime(value) {
   }
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString()
+}
+
+function formatMeetingTime(value) {
+  if (!value) {
+    return 'Unknown time'
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString()
+}
+
+function localDateTimeToISOString(value) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString()
 }
 
 function formatRecordingConsent(value) {
@@ -224,6 +252,12 @@ export function ContactsRoute() {
   const [isSendingSMS, setIsSendingSMS] = useState(false)
   const [isLoggingInboundSMS, setIsLoggingInboundSMS] = useState(false)
   const [isOptingOutSMS, setIsOptingOutSMS] = useState(false)
+  const [meetingsOpen, setMeetingsOpen] = useState(false)
+  const [meetingEvents, setMeetingEvents] = useState([])
+  const [meetingForm, setMeetingForm] = useState(emptyMeetingForm)
+  const [meetingStatus, setMeetingStatus] = useState('')
+  const [isSchedulingMeeting, setIsSchedulingMeeting] = useState(false)
+  const [cancellingMeetingId, setCancellingMeetingId] = useState(null)
   const [callsOpen, setCallsOpen] = useState(false)
   const [callLogs, setCallLogs] = useState([])
   const [activeCall, setActiveCall] = useState(null)
@@ -270,6 +304,10 @@ export function ContactsRoute() {
     setInboundSMSOpen(false)
     setInboundSMSForm(emptyInboundSMSForm)
     setSmsStatus('')
+    setMeetingsOpen(false)
+    setMeetingEvents([])
+    setMeetingForm(emptyMeetingForm)
+    setMeetingStatus('')
     setSequencesOpen(false)
     setSequenceEnrollments([])
     setSequenceStatus('')
@@ -802,6 +840,74 @@ export function ContactsRoute() {
       setError(optOutError.message || 'Unable to opt out phone number.')
     } finally {
       setIsOptingOutSMS(false)
+    }
+  }
+
+  async function handleToggleMeetings() {
+    const next = !meetingsOpen
+    setMeetingsOpen(next)
+    setMeetingStatus('')
+    if (!next || !selectedContactId) {
+      return
+    }
+    try {
+      setMeetingEvents(await listCalendarEvents({ entityType: 'contact', entityId: selectedContactId }))
+    } catch (loadError) {
+      if (!isAbortError(loadError)) {
+        setError(loadError.message || 'Unable to load meetings.')
+      }
+    }
+  }
+
+  async function handleScheduleMeeting(event) {
+    event.preventDefault()
+    if (!selectedContactId || !meetingForm.title.trim()) {
+      return
+    }
+    const startAt = localDateTimeToISOString(meetingForm.startAt)
+    const endAt = localDateTimeToISOString(meetingForm.endAt)
+    if (!startAt || !endAt) {
+      setError('Meeting start and end are required.')
+      return
+    }
+    setIsSchedulingMeeting(true)
+    setMeetingStatus('')
+    try {
+      const meeting = await scheduleCalendarEvent({
+        entityType: 'contact',
+        entityId: selectedContactId,
+        title: meetingForm.title.trim(),
+        description: meetingForm.description.trim(),
+        location: meetingForm.location.trim(),
+        startAt,
+        endAt,
+        timezone: meetingForm.timezone.trim() || defaultMeetingTimezone(),
+        visibility: meetingForm.visibility
+      })
+      setMeetingEvents((current) => [meeting, ...current.filter((entry) => entry.id !== meeting.id)])
+      setMeetingsOpen(true)
+      setMeetingForm(emptyMeetingForm)
+      setMeetingStatus('Meeting scheduled.')
+      setError('')
+    } catch (scheduleError) {
+      setError(scheduleError.message || 'Unable to schedule meeting.')
+    } finally {
+      setIsSchedulingMeeting(false)
+    }
+  }
+
+  async function handleCancelMeeting(eventId) {
+    setCancellingMeetingId(eventId)
+    setMeetingStatus('')
+    try {
+      const meeting = await cancelCalendarEvent(eventId)
+      setMeetingEvents((current) => current.map((entry) => entry.id === meeting.id ? meeting : entry))
+      setMeetingStatus('Meeting cancelled.')
+      setError('')
+    } catch (cancelError) {
+      setError(cancelError.message || 'Unable to cancel meeting.')
+    } finally {
+      setCancellingMeetingId(null)
     }
   }
 
@@ -1523,6 +1629,74 @@ export function ContactsRoute() {
                         <div>
                           <p>{formatSMSTime(message.sentAt || message.receivedAt || message.createdAt)}</p>
                           <p className="field-hint">{message.createdByUserName || 'You'}</p>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+            <Card>
+              <div className="card-stack">
+                <div className="section-header">
+                  <div>
+                    <h3>Meetings</h3>
+                    <p className="field-hint">Schedule meetings and keep a contact-level calendar history.</p>
+                  </div>
+                  <Button className="button-secondary" type="button" onClick={handleToggleMeetings}>
+                    {meetingsOpen ? 'Hide meetings' : 'Show meetings'}
+                  </Button>
+                </div>
+                {meetingStatus ? <p className="field-hint" role="status">{meetingStatus}</p> : null}
+                {canWrite ? (
+                  <form className="auth-form" onSubmit={handleScheduleMeeting}>
+                    <Field label="Meeting title">
+                      <input className="text-input" value={meetingForm.title} onChange={(event) => setMeetingForm((current) => ({ ...current, title: event.target.value }))} placeholder="Discovery call" required />
+                    </Field>
+                    <Field label="Meeting start">
+                      <input className="text-input" type="datetime-local" value={meetingForm.startAt} onChange={(event) => setMeetingForm((current) => ({ ...current, startAt: event.target.value }))} required />
+                    </Field>
+                    <Field label="Meeting end">
+                      <input className="text-input" type="datetime-local" value={meetingForm.endAt} onChange={(event) => setMeetingForm((current) => ({ ...current, endAt: event.target.value }))} required />
+                    </Field>
+                    <Field label="Meeting location">
+                      <input className="text-input" value={meetingForm.location} onChange={(event) => setMeetingForm((current) => ({ ...current, location: event.target.value }))} placeholder="Zoom, Teams, office" />
+                    </Field>
+                    <Field label="Meeting notes">
+                      <textarea className="text-input" rows={3} value={meetingForm.description} onChange={(event) => setMeetingForm((current) => ({ ...current, description: event.target.value }))} />
+                    </Field>
+                    <Field label="Meeting visibility">
+                      <select className="text-input" value={meetingForm.visibility} onChange={(event) => setMeetingForm((current) => ({ ...current, visibility: event.target.value }))}>
+                        <option value="shared">Shared</option>
+                        <option value="private">Private</option>
+                      </select>
+                    </Field>
+                    <Button type="submit" disabled={isSchedulingMeeting}>{isSchedulingMeeting ? 'Scheduling...' : 'Schedule meeting'}</Button>
+                  </form>
+                ) : null}
+                {meetingsOpen ? (
+                  <div className="record-list" role="list" aria-label="Meeting history">
+                    {meetingEvents.length === 0 ? (
+                      <article className="record-row" role="listitem">
+                        <div>
+                          <p>No meetings scheduled yet.</p>
+                        </div>
+                      </article>
+                    ) : meetingEvents.map((meeting) => (
+                      <article className="record-row" key={meeting.id} role="listitem">
+                        <div>
+                          <p>{meeting.title}</p>
+                          <p className="field-hint">{meeting.status} · {meeting.location || 'No location'} · {meeting.visibility}</p>
+                          {meeting.description ? <p className="field-hint">{meeting.description}</p> : null}
+                        </div>
+                        <div>
+                          <p>{formatMeetingTime(meeting.startAt)}</p>
+                          <p className="field-hint">Ends {formatMeetingTime(meeting.endAt)}</p>
+                          {canWrite && meeting.status === 'scheduled' ? (
+                            <Button className="button-secondary" type="button" onClick={() => handleCancelMeeting(meeting.id)} disabled={cancellingMeetingId === meeting.id}>
+                              {cancellingMeetingId === meeting.id ? 'Cancelling...' : 'Cancel meeting'}
+                            </Button>
+                          ) : null}
                         </div>
                       </article>
                     ))}

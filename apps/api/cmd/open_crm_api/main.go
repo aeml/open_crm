@@ -16,6 +16,7 @@ import (
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
+	modulecalendar "github.com/aeml/open_crm/apps/api/internal/modules/calendar"
 	modulecalllogs "github.com/aeml/open_crm/apps/api/internal/modules/calllogs"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
@@ -80,6 +81,7 @@ func main() {
 	var notesService *modulenotes.Service
 	var callLogsService *modulecalllogs.Service
 	var smsService *modulesms.Service
+	var calendarService *modulecalendar.Service
 	var notificationsService *modulenotifications.Service
 	var savedViewsService *modulesavedviews.Service
 	var onboardingService *moduleonboarding.Service
@@ -114,6 +116,7 @@ func main() {
 			notesService = modulenotes.NewService(pool)
 			callLogsService = modulecalllogs.NewService(pool, modulecalllogs.NewProvider(env.TelephonyProvider, logger))
 			smsService = modulesms.NewService(pool, modulesms.NewProvider(env.TelephonyProvider, logger))
+			calendarService = modulecalendar.NewService(pool, modulecalendar.NewProvider(env.CalendarProvider, logger))
 			notificationsService = modulenotifications.NewService(pool)
 			savedViewsService = modulesavedviews.NewService(pool)
 			onboardingService = moduleonboarding.NewService(pool)
@@ -163,6 +166,7 @@ func main() {
 		NotesService:                    notesService,
 		CallLogsService:                 callLogsService,
 		SMSService:                      smsService,
+		CalendarService:                 calendarService,
 		ImportsService:                  importsService,
 		SavedViewsService:               savedViewsService,
 		OnboardingService:               onboardingService,

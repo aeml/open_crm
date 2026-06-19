@@ -10,6 +10,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulecalendar "github.com/aeml/open_crm/apps/api/internal/modules/calendar"
 	modulecalllogs "github.com/aeml/open_crm/apps/api/internal/modules/calllogs"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
@@ -134,6 +135,14 @@ type smsService interface {
 	Suppress(context.Context, int64, int64, modulesms.SuppressInput) (modulesms.Suppression, error)
 }
 
+type calendarService interface {
+	ListByEntity(context.Context, int64, string, int64, int) ([]modulecalendar.Event, error)
+	Schedule(context.Context, int64, int64, modulecalendar.ScheduleInput) (modulecalendar.Event, error)
+	Cancel(context.Context, int64, int64, int64) (modulecalendar.Event, error)
+	ListAvailability(context.Context, int64, int64) ([]modulecalendar.AvailabilityBlock, error)
+	SetAvailability(context.Context, int64, int64, modulecalendar.AvailabilityInput) ([]modulecalendar.AvailabilityBlock, error)
+}
+
 type importsService interface {
 	Preview(context.Context, moduleimports.PreviewInput) (moduleimports.PreviewResult, error)
 }
@@ -237,6 +246,7 @@ type Dependencies struct {
 	NotesService                    notesService
 	CallLogsService                 callLogsService
 	SMSService                      smsService
+	CalendarService                 calendarService
 	ImportsService                  importsService
 	SavedViewsService               savedViewsService
 	OnboardingService               onboardingService
@@ -783,6 +793,21 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/sms/opt-outs", func(w http.ResponseWriter, r *http.Request) {
 		handleSMSOptOut(dependencies.AuthService, dependencies.SMSService, w, r)
+	})
+	mux.HandleFunc("GET /api/calendar-events", func(w http.ResponseWriter, r *http.Request) {
+		handleListCalendarEvents(dependencies.AuthService, dependencies.CalendarService, w, r)
+	})
+	mux.HandleFunc("POST /api/calendar-events", func(w http.ResponseWriter, r *http.Request) {
+		handleScheduleCalendarEvent(dependencies.AuthService, dependencies.CalendarService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/calendar-events/{eventID}/cancel", func(w http.ResponseWriter, r *http.Request) {
+		handleCancelCalendarEvent(dependencies.AuthService, dependencies.CalendarService, w, r)
+	})
+	mux.HandleFunc("GET /api/me/calendar-availability", func(w http.ResponseWriter, r *http.Request) {
+		handleListCalendarAvailability(dependencies.AuthService, dependencies.CalendarService, w, r)
+	})
+	mux.HandleFunc("PUT /api/me/calendar-availability", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateCalendarAvailability(dependencies.AuthService, dependencies.CalendarService, w, r)
 	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)

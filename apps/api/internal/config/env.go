@@ -11,6 +11,7 @@ type Env struct {
 	GOEnv                      string
 	BillingProvider            string
 	TelephonyProvider          string
+	CalendarProvider           string
 	EmailProvider              string
 	EmailFromAddress           string
 	EmailFromName              string
@@ -42,6 +43,11 @@ func Load() Env {
 		telephonyProvider = "fake"
 	}
 
+	calendarProvider := os.Getenv("CALENDAR_PROVIDER")
+	if calendarProvider == "" {
+		calendarProvider = "fake"
+	}
+
 	emailProvider := os.Getenv("EMAIL_PROVIDER")
 	if emailProvider == "" {
 		emailProvider = "fake"
@@ -58,6 +64,7 @@ func Load() Env {
 		GOEnv:                      os.Getenv("GO_ENV"),
 		BillingProvider:            billingProvider,
 		TelephonyProvider:          telephonyProvider,
+		CalendarProvider:           calendarProvider,
 		EmailProvider:              emailProvider,
 		EmailFromAddress:           os.Getenv("EMAIL_FROM_ADDRESS"),
 		EmailFromName:              os.Getenv("EMAIL_FROM_NAME"),

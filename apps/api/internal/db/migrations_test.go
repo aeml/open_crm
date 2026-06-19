@@ -323,3 +323,29 @@ func TestMigrationFilesIncludeSMSFoundationMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeCalendarFoundationMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "033_calendar_foundation.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected calendar foundation migration to be registered")
+	}
+
+	sql := MigrationSQL("033_calendar_foundation.sql")
+	if sql == "" {
+		t.Fatal("expected calendar foundation migration SQL to be embedded")
+	}
+	for _, expected := range []string{"calendar_events", "calendar_availability_blocks", "idx_calendar_events_org_entity_start", "idx_calendar_availability_org_user"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected calendar foundation migration to include %s", expected)
+		}
+	}
+}
