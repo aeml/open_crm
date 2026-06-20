@@ -8,7 +8,7 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { InlineError } from '../components/ui/inline_error'
 import { RecordEmailComposer } from '../components/record_email_composer'
-import { archiveDeal, createDeal, dealsExportURL, getDeal, listDeals, listDealStages, replaceDealLineItems, sendDealEmail, updateDeal, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, dealsExportURL, getDeal, listDeals, listDealStages, quotePDFURL, replaceDealLineItems, sendDealEmail, updateDeal, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -903,11 +903,14 @@ export function DealsRoute() {
                 <h2>{selectedDeal.name}</h2>
                 <p>{selectedDeal.companyName || labels.companyEmpty}</p>
               </div>
-              {canWrite ? (
-                <Button className="button-danger" onClick={handleArchive}>
-                  {labels.archiveAction}
-                </Button>
-              ) : null}
+              <div className="button-row">
+                <a className="button button-secondary" href={quotePDFURL(selectedDealId)}>Download quote PDF</a>
+                {canWrite ? (
+                  <Button className="button-danger" onClick={handleArchive}>
+                    {labels.archiveAction}
+                  </Button>
+                ) : null}
+              </div>
             </div>
             <form className="auth-form" aria-label="Deal details form" onSubmit={handleUpdate}>
               <Field label={`${labels.singular} name`}>

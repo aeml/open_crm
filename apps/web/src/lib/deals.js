@@ -71,3 +71,7 @@ export function dealsExportURL(query = {}) {
   const suffix = params.toString() ? `?${params.toString()}` : ''
   return apiURL(`/api/export/deals${suffix}`)
 }
+
+export function quotePDFURL(dealID) {
+  return apiURL(`/api/deals/${dealID}/quote.pdf`)
+}

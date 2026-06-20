@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { companiesExportURL } from './companies'
 import { contactsExportURL } from './contacts'
-import { dealsExportURL } from './deals'
+import { dealsExportURL, quotePDFURL } from './deals'
 import { tasksExportURL } from './tasks'
 
 describe('export URL helpers', () => {
@@ -12,6 +12,10 @@ describe('export URL helpers', () => {
 
   it('builds filtered deals export URLs', () => {
     expect(dealsExportURL({ search: 'bluebird', stageId: 2, ownerUserId: 1 })).toBe('https://crmserver.mendola.tech/api/export/deals?q=bluebird&stageId=2&ownerUserId=1')
+  })
+
+  it('builds deal quote PDF URLs', () => {
+    expect(quotePDFURL(12)).toBe('https://crmserver.mendola.tech/api/deals/12/quote.pdf')
   })
 
   it('builds filtered task export URLs for the visible view', () => {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
@@ -151,6 +152,43 @@ func handleGetDeal(auth authService, deals dealsService, w http.ResponseWriter, 
 	respondDealDetail(w, r, http.StatusOK, result)
 }
 
+func handleDownloadDealQuotePDF(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	dealID, ok := parsePathInt64(w, r, "dealID")
+	if !ok {
+		return
+	}
+
+	result, err := deals.GetByID(r.Context(), state.Organization.ID, dealID)
+	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to generate deal quote")
+		return
+	}
+
+	preparedBy := strings.TrimSpace(state.User.FirstName + " " + state.User.LastName)
+	if preparedBy == "" {
+		preparedBy = state.User.Email
+	}
+	file := moduledeals.BuildQuotePDF(result, moduledeals.QuotePDFInput{
+		OrganizationName: state.Organization.Name,
+		GeneratedByName:  preparedBy,
+		GeneratedAt:      time.Now().UTC(),
+	})
+	writePDFFile(w, http.StatusOK, file)
+}
+
 func handleUpdateDeal(auth authService, deals dealsService, notifs notificationsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
@@ -201,6 +239,14 @@ func handleUpdateDeal(auth authService, deals dealsService, notifs notifications
 	}
 
 	respondDealDetail(w, r, http.StatusOK, result)
+}
+
+func writePDFFile(w http.ResponseWriter, status int, file moduledeals.QuotePDFFile) {
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", file.Filename))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	_, _ = w.Write(file.Content)
 }
 
 func handleArchiveDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {

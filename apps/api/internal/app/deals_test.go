@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -256,6 +257,52 @@ func TestGetDealReturnsNotFound(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("expected status %d, got %d", http.StatusNotFound, recorder.Code)
+	}
+}
+
+func TestDownloadDealQuotePDFUsesCurrentOrganization(t *testing.T) {
+	service := &fakeDealsService{
+		getResult: moduledeals.Detail{
+			Summary: moduledeals.Summary{ID: 12, Name: "Bluebird Rollout", StageID: 3, StageName: "Proposal", CompanyName: "Bluebird Health", PrimaryContactName: "Ava Stone", ValueAmount: "308.00", ValueCurrency: "USD", Status: "open", OwnerUserID: 1},
+			LineItems: []moduledeals.LineItem{{
+				ID:             31,
+				Name:           "Implementation",
+				SKU:            "SERV-001",
+				ItemType:       "service",
+				Quantity:       "2.00",
+				UnitName:       "hour",
+				UnitPrice:      "150.00",
+				DiscountAmount: "20.00",
+				TaxRate:        "10.00",
+				Total:          "308.00",
+				Currency:       "USD",
+				Position:       1,
+			}},
+			Totals: moduledeals.DealTotals{Subtotal: "300.00", DiscountTotal: "20.00", TaxTotal: "28.00", Total: "308.00", Currency: "USD"},
+		},
+	}
+	server := authenticatedDealsServer(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/deals/12/quote.pdf", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastGetOrgID != 42 || service.lastGetDealID != 12 {
+		t.Fatalf("unexpected quote routing: org=%d deal=%d", service.lastGetOrgID, service.lastGetDealID)
+	}
+	if recorder.Header().Get("Content-Type") != "application/pdf" {
+		t.Fatalf("expected PDF content type, got %s", recorder.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(recorder.Header().Get("Content-Disposition"), "quote-bluebird-rollout.pdf") {
+		t.Fatalf("expected quote filename, got %s", recorder.Header().Get("Content-Disposition"))
+	}
+	if !bytes.HasPrefix(recorder.Body.Bytes(), []byte("%PDF-1.4")) || !bytes.Contains(recorder.Body.Bytes(), []byte("Acme, Inc.")) || !bytes.Contains(recorder.Body.Bytes(), []byte("Implementation")) {
+		t.Fatalf("unexpected quote PDF body")
 	}
 }
 

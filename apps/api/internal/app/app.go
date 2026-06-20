@@ -926,6 +926,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("GET /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
 		handleGetDeal(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
+	mux.HandleFunc("GET /api/deals/{dealID}/quote.pdf", func(w http.ResponseWriter, r *http.Request) {
+		handleDownloadDealQuotePDF(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
 	mux.HandleFunc("POST /api/deals", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, dependencies.NotificationsService, dependencies.BillingService, w, r)
 	})

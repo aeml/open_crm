@@ -637,6 +637,7 @@ describe('deals flow', () => {
     expect(await screen.findByText(/showing 2 of 2 deals/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /bluebird rollout/i }))
     const detailForm = await screen.findByRole('form', { name: /deal details form/i })
+    expect(screen.getByRole('link', { name: /download quote pdf/i })).toHaveAttribute('href', 'https://crmserver.mendola.tech/api/deals/12/quote.pdf')
 
     fireEvent.change(screen.getByLabelText(/catalog item/i), { target: { value: '7' } })
     fireEvent.change(screen.getByLabelText(/line item quantity/i), { target: { value: '2' } })
