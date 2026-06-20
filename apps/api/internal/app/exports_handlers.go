@@ -61,6 +61,7 @@ func handleExportDeals(auth authService, exports dataExportsService, w http.Resp
 
 	file, err := exports.DealsCSV(r.Context(), state.Organization.ID, moduleexports.DealsQuery{
 		Search:           strings.TrimSpace(r.URL.Query().Get("q")),
+		PipelineID:       parseExportInt64(r.URL.Query().Get("pipelineId")),
 		StageID:          parseExportInt64(r.URL.Query().Get("stageId")),
 		OwnerUserID:      parseExportInt64(r.URL.Query().Get("ownerUserId")),
 		CompanyID:        parseExportInt64(r.URL.Query().Get("companyId")),

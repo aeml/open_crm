@@ -8,7 +8,7 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { InlineError } from '../components/ui/inline_error'
 import { RecordEmailComposer } from '../components/record_email_composer'
-import { archiveDeal, createDeal, createDealSignatureRequest, dealsExportURL, getDeal, listDeals, listDealStages, quotePDFURL, replaceDealLineItems, sendDealEmail, updateDeal, updateDealSignatureRequestStatus, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, createDealPipeline, createDealSignatureRequest, dealsExportURL, getDeal, listDeals, listDealPipelines, quotePDFURL, replaceDealLineItems, sendDealEmail, updateDeal, updateDealSignatureRequestStatus, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -82,6 +82,24 @@ function signatureStatusLabel(status) {
   if (status === 'signed') return 'Signed'
   if (status === 'sent') return 'Sent'
   return 'Draft'
+}
+
+function flattenPipelineStages(pipelines) {
+  return pipelines.flatMap((pipeline) => (pipeline.stages || []).map((stage) => ({ ...stage, pipelineId: stage.pipelineId || pipeline.id, pipelineName: pipeline.name })))
+}
+
+function stagesForPipeline(stages, pipelineFilter) {
+  if (pipelineFilter === 'all') {
+    return stages
+  }
+  return stages.filter((stage) => String(stage.pipelineId) === String(pipelineFilter))
+}
+
+function stageLabel(stage, pipelineFilter) {
+  if (pipelineFilter === 'all' && stage.pipelineName) {
+    return `${stage.pipelineName}: ${stage.name}`
+  }
+  return stage.name
 }
 
 function dealFormValues(deal) {
@@ -184,16 +202,16 @@ function pipelineLabels(businessType) {
   }
 }
 
-function emptyDealsMessage(search, stageFilter, ownerFilter, labels) {
-  if (search.trim() || stageFilter !== 'all' || ownerFilter !== 'all') {
+function emptyDealsMessage(search, pipelineFilter, stageFilter, ownerFilter, labels) {
+  if (search.trim() || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all') {
     return `No ${labels.showingLabel} match the current filters.`
   }
 
   return `No ${labels.showingLabel} yet.`
 }
 
-function emptyDealsDescription(search, stageFilter, ownerFilter, labels) {
-  if (search.trim() || stageFilter !== 'all' || ownerFilter !== 'all') {
+function emptyDealsDescription(search, pipelineFilter, stageFilter, ownerFilter, labels) {
+  if (search.trim() || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all') {
     return 'Clear a filter or try a broader search to see more pipeline records.'
   }
 
@@ -212,10 +230,12 @@ export function DealsRoute() {
   const labels = pipelineLabels(businessType)
   usePageTitle(labels.collection)
   const initialSearch = searchParams.get('q') || ''
+  const initialPipelineFilter = searchParams.get('pipeline') || 'all'
   const initialStageFilter = searchParams.get('stage') || 'all'
   const initialOwnerFilter = searchParams.get('owner') || 'all'
   const initialCompanyId = searchParams.get('companyId') || ''
   const initialPrimaryContactId = searchParams.get('primaryContactId') || ''
+  const [pipelines, setPipelines] = useState([])
   const [stages, setStages] = useState([])
   const [deals, setDeals] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
@@ -226,6 +246,7 @@ export function DealsRoute() {
   })
   const [detailForm, setDetailForm] = useState(emptyForm)
   const [search, setSearch] = useState(initialSearch)
+  const [pipelineFilter, setPipelineFilter] = useState(initialPipelineFilter)
   const [stageFilter, setStageFilter] = useState(initialStageFilter)
   const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
   const [companyOptions, setCompanyOptions] = useState([])
@@ -243,21 +264,27 @@ export function DealsRoute() {
   const [lineTotals, setLineTotals] = useState(emptyLineTotals)
   const [signatureRequests, setSignatureRequests] = useState([])
   const [signatureForm, setSignatureForm] = useState(emptySignatureForm)
+  const [pipelineFormName, setPipelineFormName] = useState('')
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isSavingLineItems, setIsSavingLineItems] = useState(false)
+  const [isCreatingPipeline, setIsCreatingPipeline] = useState(false)
   const [isCreatingSignatureRequest, setIsCreatingSignatureRequest] = useState(false)
   const [updatingSignatureRequestId, setUpdatingSignatureRequestId] = useState(null)
   const [pipelineReady, setPipelineReady] = useState(false)
   const listControllerRef = useRef(null)
-  const hasDealFilters = search.trim() !== '' || stageFilter !== 'all' || ownerFilter !== 'all'
+  const filteredStages = stagesForPipeline(stages, pipelineFilter)
+  const hasDealFilters = search.trim() !== '' || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all'
 
-  function buildDealsPath(nextDealId = routeDealId, nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
+  function buildDealsPath(nextDealId = routeDealId, nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
     const params = new URLSearchParams()
     if (nextSearch) {
       params.set('q', nextSearch)
+    }
+    if (nextPipelineFilter !== 'all') {
+      params.set('pipeline', nextPipelineFilter)
     }
     if (nextStageFilter !== 'all') {
       params.set('stage', nextStageFilter)
@@ -270,10 +297,11 @@ export function DealsRoute() {
     return `${pathname}${suffix}`
   }
 
-  async function loadDeals(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
+  async function loadDeals(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
     const isUnassigned = nextOwnerFilter === 'unassigned'
     const loadedDeals = await listDeals({
       search: nextSearch,
+      pipelineId: nextPipelineFilter === 'all' ? 0 : Number.parseInt(nextPipelineFilter, 10) || 0,
       stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
       unassigned: isUnassigned,
       ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
@@ -282,12 +310,13 @@ export function DealsRoute() {
     setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
   }
 
-  async function loadPipeline(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
+  async function loadPipeline(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
     const isUnassigned = nextOwnerFilter === 'unassigned'
-    const [loadedStages, loadedDeals, loadedCompanies, loadedContacts, loadedUsers] = await Promise.all([
-      listDealStages({ signal }),
+    const [loadedPipelines, loadedDeals, loadedCompanies, loadedContacts, loadedUsers] = await Promise.all([
+      listDealPipelines({ signal }),
       listDeals({
         search: nextSearch,
+        pipelineId: nextPipelineFilter === 'all' ? 0 : Number.parseInt(nextPipelineFilter, 10) || 0,
         stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
         unassigned: isUnassigned,
         ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
@@ -296,18 +325,21 @@ export function DealsRoute() {
       listContacts('', { signal }),
       listOrganizationUsers({ signal })
     ])
+    const loadedStages = flattenPipelineStages(loadedPipelines)
     setStages(loadedStages)
+    setPipelines(loadedPipelines)
     setDeals(loadedDeals.deals || [])
     setCompanyOptions(loadedCompanies.companies || [])
     setContactOptions(loadedContacts.contacts || [])
     setUserOptions(loadedUsers)
     setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
-    if (loadedStages.length > 0 && !selectedStageId) {
-      setSelectedStageId(String(loadedStages[0].id))
+    const nextStages = stagesForPipeline(loadedStages, nextPipelineFilter)
+    if (nextStages.length > 0 && !selectedStageId) {
+      setSelectedStageId(String(nextStages[0].id))
     }
     setForm((current) => ({
       ...current,
-      stageId: current.stageId || (loadedStages[0] ? String(loadedStages[0].id) : ''),
+      stageId: current.stageId || (nextStages[0] ? String(nextStages[0].id) : ''),
       companyId: current.companyId || initialCompanyId || (loadedCompanies.companies?.[0] ? String(loadedCompanies.companies[0].id) : ''),
       primaryContactId: current.primaryContactId || initialPrimaryContactId || (loadedContacts.contacts?.[0] ? String(loadedContacts.contacts[0].id) : ''),
       ownerUserId: current.ownerUserId || (loadedUsers[0] ? String(loadedUsers[0].id) : '')
@@ -327,7 +359,7 @@ export function DealsRoute() {
     async function run() {
       setIsListLoading(true)
       try {
-        await loadPipeline(initialSearch, initialStageFilter, initialOwnerFilter, { signal: controller.signal })
+        await loadPipeline(initialSearch, initialPipelineFilter, initialStageFilter, initialOwnerFilter, { signal: controller.signal })
         setError('')
       } catch (loadError) {
         if (!isAbortError(loadError)) {
@@ -345,7 +377,7 @@ export function DealsRoute() {
     return () => {
       controller.abort()
     }
-  }, [initialCompanyId, initialOwnerFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
+  }, [initialCompanyId, initialOwnerFilter, initialPipelineFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
 
   const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
   const dealEmailRecipients = useMemo(() => {
@@ -450,13 +482,13 @@ export function DealsRoute() {
     }
   }, [deals, pipelineReady, routeDealId, selectedDealId])
 
-  async function reloadDeals(nextSearch = search, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
+  async function reloadDeals(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
     listControllerRef.current?.abort()
     const controller = new AbortController()
     listControllerRef.current = controller
     setIsListLoading(true)
     try {
-      await loadDeals(nextSearch, nextStageFilter, nextOwnerFilter, { signal: controller.signal })
+      await loadDeals(nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, { signal: controller.signal })
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -475,15 +507,26 @@ export function DealsRoute() {
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
-    navigate(buildDealsPath(selectedDealId, value, stageFilter, ownerFilter), { replace: true })
-    await reloadDeals(value, stageFilter, ownerFilter)
+    navigate(buildDealsPath(selectedDealId, value, pipelineFilter, stageFilter, ownerFilter), { replace: true })
+    await reloadDeals(value, pipelineFilter, stageFilter, ownerFilter)
+  }
+
+  async function handlePipelineFilterChange(event) {
+    const value = event.target.value
+    const nextStages = stagesForPipeline(stages, value)
+    const nextStageFilter = 'all'
+    setPipelineFilter(value)
+    setStageFilter(nextStageFilter)
+    setForm((current) => ({ ...current, stageId: nextStages[0] ? String(nextStages[0].id) : '' }))
+    navigate(buildDealsPath(selectedDealId, search, value, nextStageFilter, ownerFilter), { replace: true })
+    await reloadDeals(search, value, nextStageFilter, ownerFilter)
   }
 
   async function handleStageFilterChange(event) {
     const value = event.target.value
     setStageFilter(value)
-    navigate(buildDealsPath(selectedDealId, search, value, ownerFilter), { replace: true })
-    await reloadDeals(search, value, ownerFilter)
+    navigate(buildDealsPath(selectedDealId, search, pipelineFilter, value, ownerFilter), { replace: true })
+    await reloadDeals(search, pipelineFilter, value, ownerFilter)
   }
 
   async function handleCreate(event) {
@@ -520,7 +563,7 @@ export function DealsRoute() {
         openCount: current.openCount + 1,
         pipelineValue: String(Number.parseFloat(current.pipelineValue || '0') + Number.parseFloat(data.deal.valueAmount || '0'))
       }))
-      setForm((current) => ({ ...emptyForm, stageId: current.stageId || form.stageId || (stages[0] ? String(stages[0].id) : '') }))
+      setForm((current) => ({ ...emptyForm, stageId: current.stageId || form.stageId || (filteredStages[0] ? String(filteredStages[0].id) : stages[0] ? String(stages[0].id) : '') }))
       navigate(buildDealsPath(data.deal.id))
       setError('')
     } catch (saveError) {
@@ -536,6 +579,8 @@ export function DealsRoute() {
     try {
       const data = await updateDealStage(selectedDealId, Number.parseInt(selectedStageId, 10))
       setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
+      setSelectedStageId(String(data.deal.stageId))
+      setDetailForm(dealFormValues(data.deal))
       setActivities(data.activities || [])
       setLineItems(data.lineItems || [])
       setLineTotals(data.totals || emptyLineTotals)
@@ -785,10 +830,36 @@ export function DealsRoute() {
     }
   }
 
+  async function handleCreatePipeline(event) {
+    event.preventDefault()
+    if (!pipelineFormName.trim()) {
+      return
+    }
+    setIsCreatingPipeline(true)
+    try {
+      const pipeline = await createDealPipeline({ name: pipelineFormName.trim() })
+      const nextPipelines = [...pipelines, pipeline].sort((a, b) => (a.position - b.position) || (a.id - b.id))
+      const nextStages = flattenPipelineStages(nextPipelines)
+      setPipelines(nextPipelines)
+      setStages(nextStages)
+      setPipelineFormName('')
+      setPipelineFilter(String(pipeline.id))
+      setStageFilter('all')
+      setForm((current) => ({ ...current, stageId: pipeline.stages?.[0] ? String(pipeline.stages[0].id) : current.stageId }))
+      navigate(buildDealsPath(null, search, String(pipeline.id), 'all', ownerFilter), { replace: true })
+      await reloadDeals(search, String(pipeline.id), 'all', ownerFilter)
+      setError('')
+    } catch (pipelineError) {
+      setError(pipelineError.message || 'Unable to create pipeline.')
+    } finally {
+      setIsCreatingPipeline(false)
+    }
+  }
+
   async function applyOwnerFilter(value) {
     setOwnerFilter(value)
-    navigate(buildDealsPath(selectedDealId, search, stageFilter, value), { replace: true })
-    await reloadDeals(search, stageFilter, value)
+    navigate(buildDealsPath(selectedDealId, search, pipelineFilter, stageFilter, value), { replace: true })
+    await reloadDeals(search, pipelineFilter, stageFilter, value)
   }
 
   async function handleOwnerFilterChange(event) {
@@ -797,14 +868,18 @@ export function DealsRoute() {
 
   async function handleApplySavedView(filters) {
     const nextSearch = filters.q || ''
+    const nextPipelineFilter = filters.pipeline || 'all'
     const nextStageFilter = filters.stage || 'all'
     const nextOwnerFilter = filters.owner || 'all'
+    const nextStages = stagesForPipeline(stages, nextPipelineFilter)
     setSearch(nextSearch)
+    setPipelineFilter(nextPipelineFilter)
     setStageFilter(nextStageFilter)
     setOwnerFilter(nextOwnerFilter)
+    setForm((current) => ({ ...current, stageId: nextStages[0] ? String(nextStages[0].id) : current.stageId }))
     setSelectedDealId(null)
-    navigate(buildDealsPath(null, nextSearch, nextStageFilter, nextOwnerFilter), { replace: true })
-    await reloadDeals(nextSearch, nextStageFilter, nextOwnerFilter)
+    navigate(buildDealsPath(null, nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter), { replace: true })
+    await reloadDeals(nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter)
   }
 
   function handleOpenDealTasks() {
@@ -823,7 +898,7 @@ export function DealsRoute() {
                 <h2>{labels.collection}</h2>
                 <p>Real pipeline, real stages, no fake dashboard filler.</p>
               </div>
-              <a className="button button-secondary" href={dealsExportURL({ search, stageId: stageFilter === 'all' ? 0 : Number.parseInt(stageFilter, 10) || 0, ownerUserId: ownerFilter === 'all' ? 0 : Number.parseInt(ownerFilter, 10) || 0 })}>
+              <a className="button button-secondary" href={dealsExportURL({ search, pipelineId: pipelineFilter === 'all' ? 0 : Number.parseInt(pipelineFilter, 10) || 0, stageId: stageFilter === 'all' ? 0 : Number.parseInt(stageFilter, 10) || 0, ownerUserId: ownerFilter === 'all' ? 0 : Number.parseInt(ownerFilter, 10) || 0 })}>
                 Export CSV
               </a>
             </div>
@@ -856,15 +931,31 @@ export function DealsRoute() {
           <Field label={labels.searchLabel}>
             <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
-          <SavedViews entityType="deals" currentFilters={{ q: search, stage: stageFilter, owner: ownerFilter }} onApply={handleApplySavedView} defaultName={`${labels.singular} view`} />
-          <Field label="Stage filter">
-            <select className="text-input" value={stageFilter} onChange={handleStageFilterChange}>
-              <option value="all">All stages</option>
-              {stages.map((stage) => (
-                <option key={stage.id} value={stage.id}>{stage.name}</option>
+          <SavedViews entityType="deals" currentFilters={{ q: search, pipeline: pipelineFilter, stage: stageFilter, owner: ownerFilter }} onApply={handleApplySavedView} defaultName={`${labels.singular} view`} />
+          <Field label="Pipeline filter">
+            <select className="text-input" value={pipelineFilter} onChange={handlePipelineFilterChange}>
+              <option value="all">All pipelines</option>
+              {pipelines.map((pipeline) => (
+                <option key={pipeline.id} value={pipeline.id}>{pipeline.name}</option>
               ))}
             </select>
           </Field>
+          <Field label="Stage filter">
+            <select className="text-input" value={stageFilter} onChange={handleStageFilterChange}>
+              <option value="all">All stages</option>
+              {filteredStages.map((stage) => (
+                <option key={stage.id} value={stage.id}>{stageLabel(stage, pipelineFilter)}</option>
+              ))}
+            </select>
+          </Field>
+          {canWrite ? (
+            <form className="auth-form" onSubmit={handleCreatePipeline}>
+              <Field label="New pipeline name">
+                <input className="text-input" value={pipelineFormName} onChange={(event) => setPipelineFormName(event.target.value)} placeholder="Enterprise, Renewals, Services" />
+              </Field>
+              <Button type="submit" disabled={isCreatingPipeline}>{isCreatingPipeline ? 'Creating pipeline...' : 'Create pipeline'}</Button>
+            </form>
+          ) : null}
           <Field label="Owner filter">
             <div className="button-row">
               <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
@@ -886,21 +977,22 @@ export function DealsRoute() {
           </Field>
           {isListLoading ? <p className="field-hint">Loading {labels.showingLabel}...</p> : null}
           {error ? (
-            <InlineError message={error} onRetry={() => reloadDeals(search, stageFilter, ownerFilter)} retryLabel={`Retry ${labels.showingLabel}`} />
+            <InlineError message={error} onRetry={() => reloadDeals(search, pipelineFilter, stageFilter, ownerFilter)} retryLabel={`Retry ${labels.showingLabel}`} />
           ) : null}
           <div className="record-list" role="list" aria-label={labels.listAria}>
             {!isListLoading && deals.length === 0 ? (
               <EmptyState
-                title={emptyDealsMessage(search, stageFilter, ownerFilter, labels)}
-                description={emptyDealsDescription(search, stageFilter, ownerFilter, labels)}
+                title={emptyDealsMessage(search, pipelineFilter, stageFilter, ownerFilter, labels)}
+                description={emptyDealsDescription(search, pipelineFilter, stageFilter, ownerFilter, labels)}
                 actionLabel={hasDealFilters ? 'Clear filters' : ''}
                 onAction={() => {
                   if (hasDealFilters) {
                     setSearch('')
+                    setPipelineFilter('all')
                     setStageFilter('all')
                     setOwnerFilter('all')
-                    navigate(buildDealsPath(null, '', 'all', 'all'), { replace: true })
-                    reloadDeals('', 'all', 'all')
+                    navigate(buildDealsPath(null, '', 'all', 'all', 'all'), { replace: true })
+                    reloadDeals('', 'all', 'all', 'all')
                   }
                 }}
               />
@@ -910,7 +1002,7 @@ export function DealsRoute() {
                   <button className="button button-ghost contact-link" type="button" onClick={() => handleSelectDeal(deal)}>
                     {deal.name}
                   </button>
-                  <p>{deal.stageName}</p>
+                  <p>{deal.pipelineName ? `${deal.pipelineName} · ${deal.stageName}` : deal.stageName}</p>
                 </div>
               <div>
                 <p>{formatMoney(deal.valueAmount, deal.valueCurrency)}</p>
@@ -937,8 +1029,8 @@ export function DealsRoute() {
               </Field>
               <Field label="Stage">
                 <select className="text-input" value={form.stageId} onChange={(event) => setForm((current) => ({ ...current, stageId: event.target.value }))}>
-                  {stages.map((stage) => (
-                    <option key={stage.id} value={stage.id}>{stage.name}</option>
+                  {filteredStages.map((stage) => (
+                    <option key={stage.id} value={stage.id}>{stageLabel(stage, pipelineFilter)}</option>
                   ))}
                 </select>
               </Field>
@@ -1177,7 +1269,7 @@ export function DealsRoute() {
                 <Field label={labels.moveLabel}>
                   <select className="text-input" value={selectedStageId} onChange={(event) => setSelectedStageId(event.target.value)}>
                     {stages.map((stage) => (
-                      <option key={stage.id} value={stage.id}>{stage.name}</option>
+                      <option key={stage.id} value={stage.id}>{stageLabel(stage, 'all')}</option>
                     ))}
                   </select>
                 </Field>

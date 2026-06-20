@@ -15,6 +15,7 @@ import (
 )
 
 var (
+	ErrInvalidDealPipeline     = errors.New("invalid deal pipeline")
 	ErrInvalidLineItems        = errors.New("invalid deal line items")
 	ErrInvalidSignatureRequest = errors.New("invalid deal signature request")
 	ErrNotFound                = errors.New("deal not found")
@@ -26,16 +27,27 @@ var (
 )
 
 type Stage struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Position int    `json:"position"`
-	IsClosed bool   `json:"isClosed"`
-	IsWon    bool   `json:"isWon"`
+	ID         int64  `json:"id"`
+	PipelineID int64  `json:"pipelineId"`
+	Name       string `json:"name"`
+	Position   int    `json:"position"`
+	IsClosed   bool   `json:"isClosed"`
+	IsWon      bool   `json:"isWon"`
+}
+
+type Pipeline struct {
+	ID        int64   `json:"id"`
+	Name      string  `json:"name"`
+	Position  int     `json:"position"`
+	IsDefault bool    `json:"isDefault"`
+	Stages    []Stage `json:"stages"`
 }
 
 type Summary struct {
 	ID                 int64  `json:"id"`
 	Name               string `json:"name"`
+	PipelineID         int64  `json:"pipelineId"`
+	PipelineName       string `json:"pipelineName"`
 	StageID            int64  `json:"stageId"`
 	StageName          string `json:"stageName"`
 	CompanyID          int64  `json:"companyId"`
@@ -137,8 +149,13 @@ type SignatureStatusInput struct {
 	Status string `json:"status"`
 }
 
+type PipelineInput struct {
+	Name string `json:"name"`
+}
+
 type ListQuery struct {
 	Search           string
+	PipelineID       int64
 	StageID          int64
 	OwnerUserID      int64
 	UnassignedOnly   bool
@@ -197,16 +214,93 @@ func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
 }
 
+func (s *Service) ListPipelinesByOrganization(ctx context.Context, organizationID int64) ([]Pipeline, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("deals service not configured")
+	}
+
+	pipelines, err := s.listPipelines(ctx, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	return pipelines, nil
+}
+
+func (s *Service) CreatePipeline(ctx context.Context, organizationID, actorUserID int64, input PipelineInput) (Pipeline, error) {
+	if s == nil || s.pool == nil {
+		return Pipeline{}, fmt.Errorf("deals service not configured")
+	}
+
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" {
+		return Pipeline{}, ErrInvalidDealPipeline
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Pipeline{}, fmt.Errorf("begin create pipeline transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	position := 1
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(MAX(position), 0) + 1
+		FROM deal_pipelines
+		WHERE organization_id = $1
+	`, organizationID).Scan(&position); err != nil {
+		return Pipeline{}, fmt.Errorf("next pipeline position: %w", err)
+	}
+
+	var pipelineID int64
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO deal_pipelines (organization_id, name, position, created_by_user_id, updated_by_user_id)
+		VALUES ($1, $2, $3, $4, $4)
+		RETURNING id
+	`, organizationID, input.Name, position, actorUserID).Scan(&pipelineID); err != nil {
+		return Pipeline{}, mapPipelineSaveError(err)
+	}
+
+	templateStages, err := loadPipelineStageTemplate(ctx, tx, organizationID, pipelineID)
+	if err != nil {
+		return Pipeline{}, err
+	}
+	for _, stage := range templateStages {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO deal_stages (organization_id, pipeline_id, name, position, is_closed, is_won)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, organizationID, pipelineID, stage.Name, stage.Position, stage.IsClosed, stage.IsWon)
+		if err != nil {
+			return Pipeline{}, mapPipelineSaveError(err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Pipeline{}, fmt.Errorf("commit create pipeline transaction: %w", err)
+	}
+
+	pipelines, err := s.listPipelines(ctx, organizationID)
+	if err != nil {
+		return Pipeline{}, err
+	}
+	for _, pipeline := range pipelines {
+		if pipeline.ID == pipelineID {
+			return pipeline, nil
+		}
+	}
+	return Pipeline{}, ErrNotFound
+}
+
 func (s *Service) ListStagesByOrganization(ctx context.Context, organizationID int64) ([]Stage, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("deals service not configured")
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, position, is_closed, is_won
-		FROM deal_stages
-		WHERE organization_id = $1
-		ORDER BY position ASC, id ASC
+		SELECT ds.id, ds.pipeline_id, ds.name, ds.position, ds.is_closed, ds.is_won
+		FROM deal_stages ds
+		JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
+		WHERE ds.organization_id = $1
+		ORDER BY dp.position ASC, ds.position ASC, ds.id ASC
 	`, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("list deal stages: %w", err)
@@ -216,7 +310,7 @@ func (s *Service) ListStagesByOrganization(ctx context.Context, organizationID i
 	stages := make([]Stage, 0)
 	for rows.Next() {
 		var stage Stage
-		if err := rows.Scan(&stage.ID, &stage.Name, &stage.Position, &stage.IsClosed, &stage.IsWon); err != nil {
+		if err := rows.Scan(&stage.ID, &stage.PipelineID, &stage.Name, &stage.Position, &stage.IsClosed, &stage.IsWon); err != nil {
 			return nil, fmt.Errorf("scan deal stage: %w", err)
 		}
 		stages = append(stages, stage)
@@ -245,6 +339,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			COALESCE(SUM(CASE WHEN COALESCE(ds.is_closed, FALSE) = FALSE THEN COALESCE(d.value_amount, 0) ELSE 0 END)::text, '0')
 		FROM deals d
 		JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
+		JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
 		LEFT JOIN companies c ON c.id = d.company_id
 		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id
 		WHERE d.organization_id = $1 AND d.archived_at IS NULL` + filterSQL
@@ -259,6 +354,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 		SELECT
 			d.id,
 			d.name,
+			ds.pipeline_id,
+			dp.name,
 			d.stage_id,
 			ds.name,
 			COALESCE(d.company_id, 0),
@@ -273,11 +370,12 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, ''))
 		FROM deals d
 		JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
+		JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
 		LEFT JOIN companies c ON c.id = d.company_id
 		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id
 		LEFT JOIN users ou ON ou.id = d.owner_user_id
 		WHERE d.organization_id = $1 AND d.archived_at IS NULL`+filterSQL+`
-		ORDER BY ds.position ASC, d.id DESC
+		ORDER BY dp.position ASC, ds.position ASC, d.id DESC
 		LIMIT $`+fmt.Sprint(limitArg)+` OFFSET $`+fmt.Sprint(offsetArg), args...)
 	if err != nil {
 		return ListResult{}, fmt.Errorf("list deals: %w", err)
@@ -290,6 +388,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 		if err := rows.Scan(
 			&deal.ID,
 			&deal.Name,
+			&deal.PipelineID,
+			&deal.PipelineName,
 			&deal.StageID,
 			&deal.StageName,
 			&deal.CompanyID,
@@ -339,6 +439,20 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		return Detail{}, fmt.Errorf("begin create deal transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	var stageExists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM deal_stages
+			WHERE organization_id = $1 AND id = $2
+		)
+	`, organizationID, input.StageID).Scan(&stageExists); err != nil {
+		return Detail{}, fmt.Errorf("lookup create deal stage: %w", err)
+	}
+	if !stageExists {
+		return Detail{}, ErrNotFound
+	}
 
 	var dealID int64
 	if err := tx.QueryRow(ctx, `
@@ -683,6 +797,8 @@ func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (De
 		SELECT
 			d.id,
 			d.name,
+			ds.pipeline_id,
+			dp.name,
 			d.stage_id,
 			ds.name,
 			COALESCE(d.company_id, 0),
@@ -696,12 +812,15 @@ func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (De
 			COALESCE(d.owner_user_id, 0)
 		FROM deals d
 		JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
+		JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
 		LEFT JOIN companies c ON c.id = d.company_id
 		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id
 		WHERE d.organization_id = $1 AND d.id = $2 AND d.archived_at IS NULL
 	`, organizationID, dealID).Scan(
 		&detail.Summary.ID,
 		&detail.Summary.Name,
+		&detail.Summary.PipelineID,
+		&detail.Summary.PipelineName,
 		&detail.Summary.StageID,
 		&detail.Summary.StageName,
 		&detail.Summary.CompanyID,
@@ -891,6 +1010,107 @@ func (s *Service) listSignatureRequests(ctx context.Context, organizationID, dea
 	return requests, nil
 }
 
+func (s *Service) listPipelines(ctx context.Context, organizationID int64) ([]Pipeline, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, name, position, is_default
+		FROM deal_pipelines
+		WHERE organization_id = $1
+		ORDER BY position ASC, id ASC
+	`, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("list deal pipelines: %w", err)
+	}
+	defer rows.Close()
+
+	pipelines := make([]Pipeline, 0)
+	pipelineIndexes := map[int64]int{}
+	for rows.Next() {
+		pipeline := Pipeline{Stages: []Stage{}}
+		if err := rows.Scan(&pipeline.ID, &pipeline.Name, &pipeline.Position, &pipeline.IsDefault); err != nil {
+			return nil, fmt.Errorf("scan deal pipeline: %w", err)
+		}
+		pipelineIndexes[pipeline.ID] = len(pipelines)
+		pipelines = append(pipelines, pipeline)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate deal pipelines: %w", err)
+	}
+
+	stageRows, err := s.pool.Query(ctx, `
+		SELECT id, pipeline_id, name, position, is_closed, is_won
+		FROM deal_stages
+		WHERE organization_id = $1
+		ORDER BY pipeline_id ASC, position ASC, id ASC
+	`, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("list deal pipeline stages: %w", err)
+	}
+	defer stageRows.Close()
+
+	for stageRows.Next() {
+		var stage Stage
+		if err := stageRows.Scan(&stage.ID, &stage.PipelineID, &stage.Name, &stage.Position, &stage.IsClosed, &stage.IsWon); err != nil {
+			return nil, fmt.Errorf("scan deal pipeline stage: %w", err)
+		}
+		if index, ok := pipelineIndexes[stage.PipelineID]; ok {
+			pipelines[index].Stages = append(pipelines[index].Stages, stage)
+		}
+	}
+	if err := stageRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate deal pipeline stages: %w", err)
+	}
+
+	return pipelines, nil
+}
+
+func loadPipelineStageTemplate(ctx context.Context, tx pgx.Tx, organizationID, excludedPipelineID int64) ([]Stage, error) {
+	rows, err := tx.Query(ctx, `
+		WITH template_pipeline AS (
+			SELECT id
+			FROM deal_pipelines
+			WHERE organization_id = $1 AND id <> $2
+			ORDER BY is_default DESC, position ASC, id ASC
+			LIMIT 1
+		)
+		SELECT ds.name, ds.position, ds.is_closed, ds.is_won
+		FROM deal_stages ds
+		JOIN template_pipeline tp ON tp.id = ds.pipeline_id
+		WHERE ds.organization_id = $1
+		ORDER BY ds.position ASC, ds.id ASC
+	`, organizationID, excludedPipelineID)
+	if err != nil {
+		return nil, fmt.Errorf("load pipeline stage template: %w", err)
+	}
+	defer rows.Close()
+
+	template := make([]Stage, 0)
+	for rows.Next() {
+		var stage Stage
+		if err := rows.Scan(&stage.Name, &stage.Position, &stage.IsClosed, &stage.IsWon); err != nil {
+			return nil, fmt.Errorf("scan pipeline stage template: %w", err)
+		}
+		template = append(template, stage)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pipeline stage template: %w", err)
+	}
+	if len(template) > 0 {
+		return template, nil
+	}
+	return defaultPipelineStageTemplate(), nil
+}
+
+func defaultPipelineStageTemplate() []Stage {
+	return []Stage{
+		{Name: "Lead", Position: 1},
+		{Name: "Qualified", Position: 2},
+		{Name: "Proposal", Position: 3},
+		{Name: "Negotiation", Position: 4},
+		{Name: "Closed Won", Position: 5, IsClosed: true, IsWon: true},
+		{Name: "Closed Lost", Position: 6, IsClosed: true},
+	}
+}
+
 type catalogLineItemDefaults struct {
 	Name      string
 	SKU       string
@@ -1059,6 +1279,17 @@ func mapSignatureRequestSaveError(err error) error {
 	return fmt.Errorf("save deal signature request: %w", err)
 }
 
+func mapPipelineSaveError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23503", "23505", "23514", "22003", "22P02":
+			return ErrInvalidDealPipeline
+		}
+	}
+	return fmt.Errorf("save deal pipeline: %w", err)
+}
+
 type activityExecutor interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }
@@ -1109,6 +1340,10 @@ func buildDealFilters(organizationID int64, query ListQuery) (string, []any) {
 	if query.Search != "" {
 		parts = append(parts, fmt.Sprintf(" AND (d.name ILIKE $%d OR COALESCE(c.name, '') ILIKE $%d OR TRIM(COALESCE(pc.first_name, '') || ' ' || COALESCE(pc.last_name, '')) ILIKE $%d)", len(args)+1, len(args)+1, len(args)+1))
 		args = append(args, "%"+query.Search+"%")
+	}
+	if query.PipelineID > 0 {
+		parts = append(parts, fmt.Sprintf(" AND ds.pipeline_id = $%d", len(args)+1))
+		args = append(args, query.PipelineID)
 	}
 	if query.StageID > 0 {
 		parts = append(parts, fmt.Sprintf(" AND d.stage_id = $%d", len(args)+1))

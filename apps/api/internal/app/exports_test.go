@@ -99,7 +99,7 @@ func TestExportDealsPassesFilters(t *testing.T) {
 	service := &fakeExportsService{dealsFile: moduleexports.File{Filename: "deals-20260501.csv", Content: []byte("id,name\n12,Bluebird\n")}}
 	server := authenticatedExportsServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/export/deals?q=bluebird&stageId=2&ownerUserId=1&companyId=5&primaryContactId=7", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/export/deals?q=bluebird&pipelineId=8&stageId=2&ownerUserId=1&companyId=5&primaryContactId=7", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -111,7 +111,7 @@ func TestExportDealsPassesFilters(t *testing.T) {
 	if service.lastDealsOrgID != 42 {
 		t.Fatalf("expected org id 42, got %d", service.lastDealsOrgID)
 	}
-	if service.lastDealsQuery.Search != "bluebird" || service.lastDealsQuery.StageID != 2 || service.lastDealsQuery.OwnerUserID != 1 || service.lastDealsQuery.CompanyID != 5 || service.lastDealsQuery.PrimaryContactID != 7 {
+	if service.lastDealsQuery.Search != "bluebird" || service.lastDealsQuery.PipelineID != 8 || service.lastDealsQuery.StageID != 2 || service.lastDealsQuery.OwnerUserID != 1 || service.lastDealsQuery.CompanyID != 5 || service.lastDealsQuery.PrimaryContactID != 7 {
 		t.Fatalf("unexpected deals query: %#v", service.lastDealsQuery)
 	}
 }

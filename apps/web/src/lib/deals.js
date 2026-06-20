@@ -1,5 +1,17 @@
 import { apiRequest, apiURL } from './api'
 
+export async function listDealPipelines({ signal } = {}) {
+  const payload = await apiRequest('/api/deal-pipelines', { fallbackMessage: 'Unable to load deal pipelines.', signal })
+
+  return payload?.data?.pipelines || []
+}
+
+export async function createDealPipeline(input, { signal } = {}) {
+  const payload = await apiRequest('/api/deal-pipelines', { method: 'POST', body: input, fallbackMessage: 'Unable to create deal pipeline.', signal })
+
+  return payload?.data?.pipeline
+}
+
 export async function listDealStages({ signal } = {}) {
   const payload = await apiRequest('/api/deal-stages', { fallbackMessage: 'Unable to load deal stages.', signal })
 
@@ -9,6 +21,7 @@ export async function listDealStages({ signal } = {}) {
 export async function listDeals(query = {}, { signal } = {}) {
   const params = new URLSearchParams()
   if (query.search) params.set('q', query.search)
+  if (query.pipelineId) params.set('pipelineId', String(query.pipelineId))
   if (query.stageId) params.set('stageId', String(query.stageId))
   if (query.unassigned) params.set('unassigned', 'true')
   else if (query.ownerUserId) params.set('ownerUserId', String(query.ownerUserId))
@@ -76,6 +89,7 @@ export async function updateDealStage(dealID, stageId, { signal } = {}) {
 export function dealsExportURL(query = {}) {
   const params = new URLSearchParams()
   if (query.search) params.set('q', query.search)
+  if (query.pipelineId) params.set('pipelineId', String(query.pipelineId))
   if (query.stageId) params.set('stageId', String(query.stageId))
   if (query.ownerUserId) params.set('ownerUserId', String(query.ownerUserId))
   if (query.companyId) params.set('companyId', String(query.companyId))

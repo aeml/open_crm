@@ -88,11 +88,20 @@ func (s *Service) BootstrapOrganization(ctx context.Context, input BootstrapInpu
 		return moduleauth.LoginResult{}, fmt.Errorf("insert owner membership: %w", err)
 	}
 
+	var pipelineID int64
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO deal_pipelines (organization_id, name, position, is_default, created_by_user_id, updated_by_user_id)
+		VALUES ($1, 'Sales pipeline', 1, TRUE, $2, $2)
+		RETURNING id
+	`, organizationID, userID).Scan(&pipelineID); err != nil {
+		return moduleauth.LoginResult{}, fmt.Errorf("insert default pipeline: %w", err)
+	}
+
 	for _, stage := range db.DefaultDealStagesForBusinessType(input.BusinessType) {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO deal_stages (organization_id, name, position, is_closed, is_won)
-			VALUES ($1, $2, $3, $4, $5)
-		`, organizationID, stage.Name, stage.Position, stage.IsClosed, stage.IsWon); err != nil {
+			INSERT INTO deal_stages (organization_id, pipeline_id, name, position, is_closed, is_won)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, organizationID, pipelineID, stage.Name, stage.Position, stage.IsClosed, stage.IsWon); err != nil {
 			return moduleauth.LoginResult{}, fmt.Errorf("insert default stage %s: %w", stage.Name, err)
 		}
 	}

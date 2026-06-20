@@ -1854,6 +1854,7 @@ Progress:
 - `1.3.2` (deal line items foundation): complete. Added organization-scoped deal line items tied optionally to catalog items, quantity/unit pricing, per-line discounts, tax rates, calculated line totals, deal-level subtotal/discount/tax/total summaries, an authenticated API to replace deal line items, automatic deal value recalculation from saved line items, line-item activity logging, and a deal detail line-item editor. Quote/proposal documents, tax rules, approval workflows, and multi-currency conversion remain future slices.
 - `1.3.3` (quote/proposal PDF foundation): complete. Added a branded quote/proposal PDF download generated from current deal details, saved line items, and calculated totals, plus a deal detail download action. Quote persistence/versioning, approval workflows, customer sending, e-signature, and terms/template management remain future slices.
 - `1.3.4` (e-signature status tracking foundation): complete. Added organization-scoped deal signature requests with signer identity, native tracking provider metadata, quote filename, draft/sent/signed/declined/voided statuses, lifecycle timestamps, authenticated APIs for creating requests and updating status, activity logging, and deal detail signature tracking UI. Actual signing ceremonies, provider webhooks, customer delivery, audit certificates, and reusable terms/templates remain future slices.
+- `1.3.5` (multiple pipelines foundation): complete. Added organization-scoped deal pipelines, backfilled existing stages into a default pipeline, scoped stage uniqueness by pipeline, exposed authenticated APIs for listing/creating pipelines, copied default stage templates into new pipelines, added pipeline metadata/filtering to deal list/detail/export flows, and added pipeline selection/creation UI on the deals page. Pipeline renaming/reordering, custom stage management, team/business-unit ownership rules, and per-pipeline permissions remain future slices.
 
 Candidate slices:
 
@@ -1861,7 +1862,7 @@ Candidate slices:
 - `1.3.2` Deal line items, discounts, taxes, and totals: foundation complete.
 - `1.3.3` Quote/proposal generation with branded PDF output: foundation complete.
 - `1.3.4` E-signature flow (native or DocuSign/Dropbox Sign integration) with status tracking: foundation complete.
-- `1.3.5` Multiple pipelines per team/business unit (extends `0.6.1`).
+- `1.3.5` Multiple pipelines per team/business unit (extends `0.6.1`): foundation complete.
 - `1.3.6` Quotas, goals, and team forecasting dashboards (extends `0.6.2`).
 - `1.3.7` Multi-currency support with exchange-rate handling.
 

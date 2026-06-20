@@ -12,6 +12,60 @@ import (
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
+func handleListDealPipelines(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	pipelines, err := deals.ListPipelinesByOrganization(r.Context(), state.Organization.ID)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load deal pipelines")
+		return
+	}
+
+	response := dealPipelinesResponse{}
+	response.Data.Pipelines = pipelines
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleCreateDealPipeline(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgWriter(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	var request dealPipelineRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	pipeline, err := deals.CreatePipeline(r.Context(), state.Organization.ID, state.User.ID, moduledeals.PipelineInput{Name: request.Name})
+	if err != nil {
+		if errors.Is(err, moduledeals.ErrInvalidDealPipeline) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a unique pipeline name")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create deal pipeline")
+		return
+	}
+
+	response := dealPipelineResponse{}
+	response.Data.Pipeline = pipeline
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusCreated, response)
+}
+
 func handleListDealStages(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgMember(auth, w, r)
@@ -53,6 +107,7 @@ func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter
 	}
 	result, err := deals.ListByOrganization(r.Context(), state.Organization.ID, moduledeals.ListQuery{
 		Search:           strings.TrimSpace(r.URL.Query().Get("q")),
+		PipelineID:       moduledeals.ParseInt64(r.URL.Query().Get("pipelineId")),
 		StageID:          moduledeals.ParseInt64(r.URL.Query().Get("stageId")),
 		OwnerUserID:      dealOwnerUserID,
 		UnassignedOnly:   unassignedDeals,
@@ -107,6 +162,9 @@ func handleCreateDeal(auth authService, deals dealsService, notifs notifications
 		OwnerUserID:       request.OwnerUserID,
 	})
 	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create deal")
 		return
 	}

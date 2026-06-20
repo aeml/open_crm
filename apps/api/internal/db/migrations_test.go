@@ -479,3 +479,29 @@ func TestMigrationFilesIncludeDealSignatureRequestsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeDealPipelinesMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "039_deal_pipelines.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected deal pipelines migration to be registered")
+	}
+
+	sql := MigrationSQL("039_deal_pipelines.sql")
+	if sql == "" {
+		t.Fatal("expected deal pipelines migration SQL to be embedded")
+	}
+	for _, expected := range []string{"deal_pipelines", "pipeline_id", "idx_deal_pipelines_org_position_unique", "idx_deal_stages_org_pipeline_position_unique"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected deal pipelines migration to include %s", expected)
+		}
+	}
+}

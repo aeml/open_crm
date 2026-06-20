@@ -11,7 +11,7 @@ describe('export URL helpers', () => {
   })
 
   it('builds filtered deals export URLs', () => {
-    expect(dealsExportURL({ search: 'bluebird', stageId: 2, ownerUserId: 1 })).toBe('https://crmserver.mendola.tech/api/export/deals?q=bluebird&stageId=2&ownerUserId=1')
+    expect(dealsExportURL({ search: 'bluebird', pipelineId: 8, stageId: 2, ownerUserId: 1 })).toBe('https://crmserver.mendola.tech/api/export/deals?q=bluebird&pipelineId=8&stageId=2&ownerUserId=1')
   })
 
   it('builds deal quote PDF URLs', () => {

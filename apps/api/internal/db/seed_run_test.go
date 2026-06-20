@@ -12,6 +12,7 @@ type seededUser struct {
 
 type seedRecorder struct {
 	organizationSeeded bool
+	pipelineSeeded     bool
 	userEmails         []string
 	seededUsers        []seededUser
 	stageNames         []string
@@ -28,8 +29,13 @@ func (r *seedRecorder) SeedUser(email, passwordHash string) error {
 	return nil
 }
 
-func (r *seedRecorder) SeedStage(name string) error {
-	r.stageNames = append(r.stageNames, name)
+func (r *seedRecorder) SeedPipeline() error {
+	r.pipelineSeeded = true
+	return nil
+}
+
+func (r *seedRecorder) SeedStage(stage DealStageSeed) error {
+	r.stageNames = append(r.stageNames, stage.Name)
 	return nil
 }
 
@@ -52,6 +58,10 @@ func TestSeedDatabaseSeedsDefaultWorkspaceShape(t *testing.T) {
 
 	if len(recorder.userEmails) != 4 {
 		t.Fatalf("expected 4 seeded users, got %d", len(recorder.userEmails))
+	}
+
+	if !recorder.pipelineSeeded {
+		t.Fatal("expected pipeline seed to run")
 	}
 
 	if len(recorder.stageNames) != len(DefaultDealStages()) {

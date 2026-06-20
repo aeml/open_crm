@@ -33,6 +33,7 @@ type CompaniesQuery struct {
 
 type DealsQuery struct {
 	Search           string
+	PipelineID       int64
 	StageID          int64
 	OwnerUserID      int64
 	CompanyID        int64
@@ -132,6 +133,8 @@ func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query Deal
 		SELECT
 			d.id,
 			d.name,
+			ds.pipeline_id,
+			dp.name,
 			d.stage_id,
 			ds.name,
 			COALESCE(d.company_id, 0),
@@ -146,25 +149,26 @@ func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query Deal
 			TRIM(COALESCE(owner_user.first_name, '') || ' ' || COALESCE(owner_user.last_name, ''))
 		FROM deals d
 		JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
+		JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
 		LEFT JOIN companies c ON c.id = d.company_id AND c.organization_id = d.organization_id
 		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id AND pc.organization_id = d.organization_id
 		LEFT JOIN users owner_user ON owner_user.id = d.owner_user_id
 		WHERE d.organization_id = $1 AND d.archived_at IS NULL`+filterSQL+`
-		ORDER BY ds.position ASC, d.id DESC
+		ORDER BY dp.position ASC, ds.position ASC, d.id DESC
 		LIMIT $`+strconv.Itoa(len(args)+1), append(args, maxExportRows)...)
 	if err != nil {
 		return File{}, fmt.Errorf("export deals: %w", err)
 	}
 	defer rows.Close()
 
-	records := [][]string{{"id", "name", "stage_id", "stage_name", "company_id", "company_name", "primary_contact_id", "primary_contact_name", "status", "value_amount", "value_currency", "expected_close_date", "owner_user_id", "owner_user_name"}}
+	records := [][]string{{"id", "name", "pipeline_id", "pipeline_name", "stage_id", "stage_name", "company_id", "company_name", "primary_contact_id", "primary_contact_name", "status", "value_amount", "value_currency", "expected_close_date", "owner_user_id", "owner_user_name"}}
 	for rows.Next() {
-		var id, stageID, companyID, primaryContactID, ownerUserID int64
-		var name, stageName, companyName, primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, ownerUserName string
-		if err := rows.Scan(&id, &name, &stageID, &stageName, &companyID, &companyName, &primaryContactID, &primaryContactName, &status, &valueAmount, &valueCurrency, &expectedCloseDate, &ownerUserID, &ownerUserName); err != nil {
+		var id, pipelineID, stageID, companyID, primaryContactID, ownerUserID int64
+		var name, pipelineName, stageName, companyName, primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, ownerUserName string
+		if err := rows.Scan(&id, &name, &pipelineID, &pipelineName, &stageID, &stageName, &companyID, &companyName, &primaryContactID, &primaryContactName, &status, &valueAmount, &valueCurrency, &expectedCloseDate, &ownerUserID, &ownerUserName); err != nil {
 			return File{}, fmt.Errorf("scan deal export: %w", err)
 		}
-		records = append(records, []string{formatInt(id), name, formatInt(stageID), stageName, formatOptionalInt(companyID), companyName, formatOptionalInt(primaryContactID), primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, formatOptionalInt(ownerUserID), ownerUserName})
+		records = append(records, []string{formatInt(id), name, formatInt(pipelineID), pipelineName, formatInt(stageID), stageName, formatOptionalInt(companyID), companyName, formatOptionalInt(primaryContactID), primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, formatOptionalInt(ownerUserID), ownerUserName})
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate deal export: %w", err)
@@ -314,6 +318,10 @@ func buildDealFilters(organizationID int64, query DealsQuery) (string, []any) {
 	if query.Search != "" {
 		parts = append(parts, fmt.Sprintf(" AND (d.name ILIKE $%d OR COALESCE(c.name, '') ILIKE $%d OR TRIM(COALESCE(pc.first_name, '') || ' ' || COALESCE(pc.last_name, '')) ILIKE $%d)", len(args)+1, len(args)+1, len(args)+1))
 		args = append(args, "%"+query.Search+"%")
+	}
+	if query.PipelineID > 0 {
+		parts = append(parts, fmt.Sprintf(" AND ds.pipeline_id = $%d", len(args)+1))
+		args = append(args, query.PipelineID)
 	}
 	if query.StageID > 0 {
 		parts = append(parts, fmt.Sprintf(" AND d.stage_id = $%d", len(args)+1))

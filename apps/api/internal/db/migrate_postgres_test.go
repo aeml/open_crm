@@ -71,8 +71,11 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 	}
 
 	for _, index := range []string{
-		"idx_deal_stages_org_position_unique",
-		"idx_deal_stages_org_name_unique",
+		"idx_deal_pipelines_org_position_unique",
+		"idx_deal_pipelines_org_name_unique",
+		"idx_deal_pipelines_org_default_unique",
+		"idx_deal_stages_org_pipeline_position_unique",
+		"idx_deal_stages_org_pipeline_name_unique",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -148,15 +151,22 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 		t.Fatalf("insert user: %v", err)
 	}
 
+	var pipelineID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO deal_pipelines (organization_id, name, position, is_default) VALUES ($1, 'Sales pipeline', 1, TRUE) RETURNING id`, organizationID).Scan(&pipelineID); err != nil {
+		t.Fatalf("insert deal pipeline: %v", err)
+	}
+
 	var stageID int64
-	if err := pool.QueryRow(ctx, `INSERT INTO deal_stages (organization_id, name, position) VALUES ($1, 'Open', 1) RETURNING id`, organizationID).Scan(&stageID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO deal_stages (organization_id, pipeline_id, name, position) VALUES ($1, $2, 'Open', 1) RETURNING id`, organizationID, pipelineID).Scan(&stageID); err != nil {
 		t.Fatalf("insert deal stage: %v", err)
 	}
 
 	expectExecError(t, ctx, pool, `INSERT INTO organizations (name, slug, business_type) VALUES ('Bad Org', 'bad-org', 'invalid')`)
 	expectExecError(t, ctx, pool, `INSERT INTO organization_memberships (organization_id, user_id, role) VALUES ($1, $2, 'superuser')`, organizationID, userID)
-	expectExecError(t, ctx, pool, `INSERT INTO deal_stages (organization_id, name, position) VALUES ($1, 'Duplicate Position', 1)`, organizationID)
-	expectExecError(t, ctx, pool, `INSERT INTO deal_stages (organization_id, name, position) VALUES ($1, 'open', 2)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO deal_pipelines (organization_id, name, position) VALUES ($1, 'Duplicate Position', 1)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO deal_pipelines (organization_id, name, position) VALUES ($1, 'sales pipeline', 2)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO deal_stages (organization_id, pipeline_id, name, position) VALUES ($1, $2, 'Duplicate Position', 1)`, organizationID, pipelineID)
+	expectExecError(t, ctx, pool, `INSERT INTO deal_stages (organization_id, pipeline_id, name, position) VALUES ($1, $2, 'open', 2)`, organizationID, pipelineID)
 	expectExecError(t, ctx, pool, `INSERT INTO deals (organization_id, stage_id, name, value_amount) VALUES ($1, $2, 'Bad Deal', -1)`, organizationID, stageID)
 	expectExecError(t, ctx, pool, `INSERT INTO deals (organization_id, stage_id, name, value_currency) VALUES ($1, $2, 'Bad Currency', 'US')`, organizationID, stageID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)

@@ -83,6 +83,8 @@ type companiesService interface {
 }
 
 type dealsService interface {
+	ListPipelinesByOrganization(context.Context, int64) ([]moduledeals.Pipeline, error)
+	CreatePipeline(context.Context, int64, int64, moduledeals.PipelineInput) (moduledeals.Pipeline, error)
 	ListStagesByOrganization(context.Context, int64) ([]moduledeals.Stage, error)
 	ListByOrganization(context.Context, int64, moduledeals.ListQuery) (moduledeals.ListResult, error)
 	GetByID(context.Context, int64, int64) (moduledeals.Detail, error)
@@ -476,6 +478,10 @@ type dealRequest struct {
 	OwnerUserID       int64  `json:"ownerUserId"`
 }
 
+type dealPipelineRequest struct {
+	Name string `json:"name"`
+}
+
 type taskCreateRequest struct {
 	EntityType       string `json:"entityType"`
 	EntityID         int64  `json:"entityId"`
@@ -502,6 +508,24 @@ type dealStageUpdateRequest struct {
 type dealStagesResponse struct {
 	Data struct {
 		Stages []moduledeals.Stage `json:"stages"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type dealPipelinesResponse struct {
+	Data struct {
+		Pipelines []moduledeals.Pipeline `json:"pipelines"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type dealPipelineResponse struct {
+	Data struct {
+		Pipeline moduledeals.Pipeline `json:"pipeline"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -916,6 +940,12 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/companies/{companyID}/email", func(w http.ResponseWriter, r *http.Request) {
 		handleSendCompanyEmail(dependencies.AuthService, dependencies.CompaniesService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+	})
+	mux.HandleFunc("GET /api/deal-pipelines", func(w http.ResponseWriter, r *http.Request) {
+		handleListDealPipelines(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("POST /api/deal-pipelines", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateDealPipeline(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("GET /api/deal-stages", func(w http.ResponseWriter, r *http.Request) {
 		handleListDealStages(dependencies.AuthService, dependencies.DealsService, w, r)

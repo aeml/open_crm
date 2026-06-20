@@ -6,6 +6,34 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+const defaultPipelines = [
+  {
+    id: 1,
+    name: 'Sales pipeline',
+    position: 1,
+    isDefault: true,
+    stages: [
+      { id: 1, pipelineId: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
+      { id: 2, pipelineId: 1, name: 'Qualified', position: 2, isClosed: false, isWon: false },
+      { id: 3, pipelineId: 1, name: 'Proposal', position: 3, isClosed: false, isWon: false },
+      { id: 4, pipelineId: 1, name: 'Negotiation', position: 4, isClosed: false, isWon: false }
+    ]
+  }
+]
+
+const servicePipelines = [
+  {
+    id: 1,
+    name: 'Jobs pipeline',
+    position: 1,
+    isDefault: true,
+    stages: [
+      { id: 1, pipelineId: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
+      { id: 2, pipelineId: 1, name: 'Quote', position: 2, isClosed: false, isWon: false }
+    ]
+  }
+]
+
 describe('deals flow', () => {
   it('filters deals with the shared search pattern', async () => {
     const fetchMock = vi
@@ -27,12 +55,7 @@ describe('deals flow', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          data: {
-            stages: [
-              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
-              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false }
-            ]
-          }
+          data: { pipelines: defaultPipelines }
         })
       })
       .mockResolvedValueOnce({
@@ -130,12 +153,7 @@ describe('deals flow', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          data: {
-            stages: [
-              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
-              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false }
-            ]
-          }
+          data: { pipelines: defaultPipelines }
         })
       })
       .mockResolvedValueOnce({
@@ -184,16 +202,17 @@ describe('deals flow', () => {
       })
 
     vi.stubGlobal('fetch', fetchMock)
-    window.history.pushState({}, '', '/deals?q=bluebird&stage=2&owner=2')
+    window.history.pushState({}, '', '/deals?q=bluebird&pipeline=1&stage=2&owner=2')
 
     render(<AppRouter />)
 
     expect(await screen.findByRole('heading', { name: /deals/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/search deals/i)).toHaveValue('bluebird')
+    expect(screen.getByLabelText(/pipeline filter/i)).toHaveValue('1')
     expect(screen.getByLabelText(/stage filter/i)).toHaveValue('2')
     expect(screen.getByLabelText(/owner filter/i)).toHaveValue('2')
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?q=bluebird&stageId=2&ownerUserId=2$/), expect.any(Object))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?q=bluebird&pipelineId=1&stageId=2&ownerUserId=2$/), expect.any(Object))
     })
   })
 
@@ -217,12 +236,7 @@ describe('deals flow', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          data: {
-            stages: [
-              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
-              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false }
-            ]
-          }
+          data: { pipelines: defaultPipelines }
         })
       })
       .mockResolvedValueOnce({
@@ -279,10 +293,68 @@ describe('deals flow', () => {
     expect(screen.getByLabelText(/primary contact/i)).toHaveValue('7')
   })
 
-  it('loads stages and deals, creates a deal, and moves it to another stage', async () => {
+  it('creates a new pipeline and filters the deals view to it', async () => {
+    let pipelines = defaultPipelines
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return { ok: true, json: async () => ({ data: { user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' }, organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' }, membership: { role: 'owner' } } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/notifications/unread-count')) {
+        return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/deal-pipelines') && method === 'GET') {
+        return { ok: true, json: async () => ({ data: { pipelines } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/deal-pipelines') && method === 'POST') {
+        const pipeline = { id: 9, name: 'Enterprise', position: 2, isDefault: false, stages: [{ id: 91, pipelineId: 9, name: 'Lead', position: 1, isClosed: false, isWon: false }] }
+        pipelines = [...pipelines, pipeline]
+        return { ok: true, status: 201, json: async () => ({ data: { pipeline } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/deals') && method === 'GET') {
+        return { ok: true, json: async () => ({ data: { deals: [], meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' } } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/companies')) {
+        return { ok: true, json: async () => ({ data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/contacts')) {
+        return { ok: true, json: async () => ({ data: { contacts: [], meta: { page: 1, pageSize: 20, total: 0 } } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return { ok: true, json: async () => ({ data: { users: [{ id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }] } }) }
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/deals')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /deals/i })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/new pipeline name/i), { target: { value: 'Enterprise' } })
+    fireEvent.click(screen.getByRole('button', { name: /create pipeline/i }))
+
+    expect(await screen.findByText(/no deals match the current filters/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/pipeline filter/i)).toHaveValue('9')
+    expect(window.location.search).toBe('?pipeline=9')
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deal-pipelines$/), expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"name":"Enterprise"')
+      }))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?pipelineId=9$/), expect.any(Object))
+    })
+  })
+
+  it('loads pipelines and deals, creates a deal, and moves it to another stage', async () => {
     let hasCreatedDeal = false
     let currentDeal = { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 }
     let signatureRequests = []
+    let pipelines = defaultPipelines
 
     const jsonResponse = (payload, init = {}) => ({
       ok: init.ok ?? true,
@@ -308,19 +380,28 @@ describe('deals flow', () => {
         return jsonResponse({ data: { unreadCount: 0 } })
       }
 
-      if (requestURL.pathname.endsWith('/api/deal-stages')) {
-        return jsonResponse({
-          data: {
-            stages: [
-              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
-              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false },
-              { id: 3, name: 'Proposal', position: 3, isClosed: false, isWon: false }
-            ]
-          }
-        })
+      if (requestURL.pathname.endsWith('/api/deal-pipelines') && method === 'GET') {
+        return jsonResponse({ data: { pipelines } })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deal-pipelines') && method === 'POST') {
+        const pipeline = {
+          id: 9,
+          name: 'Enterprise',
+          position: 2,
+          isDefault: false,
+          stages: [
+            { id: 91, pipelineId: 9, name: 'Lead', position: 1, isClosed: false, isWon: false },
+            { id: 92, pipelineId: 9, name: 'Qualified', position: 2, isClosed: false, isWon: false },
+            { id: 93, pipelineId: 9, name: 'Proposal', position: 3, isClosed: false, isWon: false }
+          ]
+        }
+        pipelines = [...pipelines, pipeline]
+        return jsonResponse({ data: { pipeline } }, { status: 201 })
       }
 
       if (requestURL.pathname.endsWith('/api/deals') && method === 'GET') {
+        const pipelineId = requestURL.searchParams.get('pipelineId') || ''
         const stageId = requestURL.searchParams.get('stageId') || ''
         const ownerUserId = requestURL.searchParams.get('ownerUserId') || ''
         const defaultDeals = hasCreatedDeal
@@ -331,6 +412,15 @@ describe('deals flow', () => {
           : [
               { id: 11, name: 'Northstar Expansion', stageId: 3, stageName: 'Proposal', companyId: 5, companyName: 'Northstar Logistics', primaryContactId: 7, primaryContactName: 'Morgan Lee', status: 'open', valueAmount: '48000.00', valueCurrency: 'USD', expectedCloseDate: '2026-04-19', ownerUserId: 1 }
             ]
+
+        if (pipelineId === '9') {
+          return jsonResponse({
+            data: {
+              deals: [],
+              meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
+            }
+          })
+        }
 
         if (stageId === '2' && ownerUserId === '1') {
           return jsonResponse({
@@ -807,13 +897,7 @@ describe('deals flow', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          data: {
-            stages: [
-              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
-              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false },
-              { id: 3, name: 'Proposal', position: 3, isClosed: false, isWon: false }
-            ]
-          }
+          data: { pipelines: defaultPipelines }
         })
       })
       .mockResolvedValueOnce({
@@ -959,12 +1043,7 @@ describe('deals flow', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          data: {
-            stages: [
-              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
-              { id: 2, name: 'Quote', position: 2, isClosed: false, isWon: false }
-            ]
-          }
+          data: { pipelines: servicePipelines }
         })
       })
       .mockResolvedValueOnce({

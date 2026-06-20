@@ -13,7 +13,8 @@ const defaultSeedPassword = "opencrm-demo-password"
 type seedExecutor interface {
 	SeedOrganization() error
 	SeedUser(email, passwordHash string) error
-	SeedStage(name string) error
+	SeedPipeline() error
+	SeedStage(stage DealStageSeed) error
 }
 
 type postgresSeedExecutor struct {
@@ -47,8 +48,12 @@ func seedDatabase(_ context.Context, executor seedExecutor) error {
 		}
 	}
 
+	if err := executor.SeedPipeline(); err != nil {
+		return fmt.Errorf("seed deal pipeline: %w", err)
+	}
+
 	for _, stage := range DefaultDealStages() {
-		if err := executor.SeedStage(stage.Name); err != nil {
+		if err := executor.SeedStage(stage); err != nil {
 			return fmt.Errorf("seed deal stage %s: %w", stage.Name, err)
 		}
 	}
@@ -102,12 +107,25 @@ func seedPassword() string {
 	return defaultSeedPassword
 }
 
-func (e postgresSeedExecutor) SeedStage(name string) error {
+func (e postgresSeedExecutor) SeedPipeline() error {
 	ctx := context.Background()
 	_, err := e.pool.Exec(ctx, `
-		INSERT INTO deal_stages (organization_id, name, position, is_closed, is_won)
-		SELECT id, $1, 1, FALSE, FALSE FROM organizations WHERE slug = 'acme-inc'
+		INSERT INTO deal_pipelines (organization_id, name, position, is_default)
+		SELECT id, 'Sales pipeline', 1, TRUE FROM organizations WHERE slug = 'acme-inc'
 		ON CONFLICT DO NOTHING
-	`, name)
+	`)
+	return err
+}
+
+func (e postgresSeedExecutor) SeedStage(stage DealStageSeed) error {
+	ctx := context.Background()
+	_, err := e.pool.Exec(ctx, `
+		INSERT INTO deal_stages (organization_id, pipeline_id, name, position, is_closed, is_won)
+		SELECT organizations.id, pipelines.id, $1, $2, $3, $4
+		FROM organizations
+		JOIN deal_pipelines pipelines ON pipelines.organization_id = organizations.id AND pipelines.is_default
+		WHERE organizations.slug = 'acme-inc'
+		ON CONFLICT DO NOTHING
+	`, stage.Name, stage.Position, stage.IsClosed, stage.IsWon)
 	return err
 }

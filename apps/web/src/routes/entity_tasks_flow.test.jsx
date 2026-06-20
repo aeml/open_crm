@@ -164,10 +164,16 @@ describe('entity task visibility', () => {
         ok: true,
         json: async () => ({
           data: {
-            stages: [
-              { id: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
-              { id: 2, name: 'Qualified', position: 2, isClosed: false, isWon: false }
-            ]
+            pipelines: [{
+              id: 1,
+              name: 'Sales pipeline',
+              position: 1,
+              isDefault: true,
+              stages: [
+                { id: 1, pipelineId: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
+                { id: 2, pipelineId: 1, name: 'Qualified', position: 2, isClosed: false, isWon: false }
+              ]
+            }]
           }
         })
       })

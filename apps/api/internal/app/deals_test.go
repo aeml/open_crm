@@ -16,6 +16,10 @@ import (
 )
 
 type fakeDealsService struct {
+	listPipelinesResult        []moduledeals.Pipeline
+	listPipelinesErr           error
+	createPipelineResult       moduledeals.Pipeline
+	createPipelineErr          error
 	listStagesResult           []moduledeals.Stage
 	listStagesErr              error
 	listResult                 moduledeals.ListResult
@@ -67,6 +71,22 @@ type fakeDealsService struct {
 	lastUpdateSignatureID      int64
 	lastUpdateSignatureActorID int64
 	lastUpdateSignatureInput   moduledeals.SignatureStatusInput
+	lastListPipelinesOrgID     int64
+	lastCreatePipelineOrgID    int64
+	lastCreatePipelineActorID  int64
+	lastCreatePipelineInput    moduledeals.PipelineInput
+}
+
+func (f *fakeDealsService) ListPipelinesByOrganization(_ context.Context, organizationID int64) ([]moduledeals.Pipeline, error) {
+	f.lastListPipelinesOrgID = organizationID
+	return f.listPipelinesResult, f.listPipelinesErr
+}
+
+func (f *fakeDealsService) CreatePipeline(_ context.Context, organizationID, actorUserID int64, input moduledeals.PipelineInput) (moduledeals.Pipeline, error) {
+	f.lastCreatePipelineOrgID = organizationID
+	f.lastCreatePipelineActorID = actorUserID
+	f.lastCreatePipelineInput = input
+	return f.createPipelineResult, f.createPipelineErr
 }
 
 func (f *fakeDealsService) ListStagesByOrganization(_ context.Context, organizationID int64) ([]moduledeals.Stage, error) {
@@ -186,6 +206,75 @@ func TestListDealStagesUsesCurrentOrganization(t *testing.T) {
 	}
 }
 
+func TestListDealPipelinesUsesCurrentOrganization(t *testing.T) {
+	service := &fakeDealsService{
+		listPipelinesResult: []moduledeals.Pipeline{{
+			ID:        5,
+			Name:      "Enterprise",
+			Position:  1,
+			IsDefault: true,
+			Stages:    []moduledeals.Stage{{ID: 3, PipelineID: 5, Name: "Proposal", Position: 3}},
+		}},
+	}
+	server := authenticatedDealsServer(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/deal-pipelines", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastListPipelinesOrgID != 42 {
+		t.Fatalf("expected org id 42, got %d", service.lastListPipelinesOrgID)
+	}
+
+	var response struct {
+		Data struct {
+			Pipelines []moduledeals.Pipeline `json:"pipelines"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected valid JSON, got error: %v", err)
+	}
+	if len(response.Data.Pipelines) != 1 || response.Data.Pipelines[0].Stages[0].PipelineID != 5 {
+		t.Fatalf("unexpected pipelines payload: %#v", response.Data.Pipelines)
+	}
+}
+
+func TestCreateDealPipelineUsesCurrentOrganization(t *testing.T) {
+	service := &fakeDealsService{
+		createPipelineResult: moduledeals.Pipeline{
+			ID:        9,
+			Name:      "Services",
+			Position:  2,
+			IsDefault: false,
+			Stages:    []moduledeals.Stage{{ID: 31, PipelineID: 9, Name: "Lead", Position: 1}},
+		},
+	}
+	server := authenticatedDealsServer(service)
+
+	body := bytes.NewBufferString(`{"name":"Services"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/deal-pipelines", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
+	}
+	if service.lastCreatePipelineOrgID != 42 || service.lastCreatePipelineActorID != 1 {
+		t.Fatalf("unexpected pipeline create routing: org=%d actor=%d", service.lastCreatePipelineOrgID, service.lastCreatePipelineActorID)
+	}
+	if service.lastCreatePipelineInput.Name != "Services" {
+		t.Fatalf("unexpected pipeline create input: %#v", service.lastCreatePipelineInput)
+	}
+}
+
 func TestListDealsUsesCurrentOrganizationAndFilters(t *testing.T) {
 	service := &fakeDealsService{
 		listResult: moduledeals.ListResult{
@@ -195,7 +284,7 @@ func TestListDealsUsesCurrentOrganizationAndFilters(t *testing.T) {
 	}
 	server := authenticatedDealsServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/deals?q=northstar&stageId=3&ownerUserId=1&companyId=5&primaryContactId=7&page=1&pageSize=20", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/deals?q=northstar&pipelineId=8&stageId=3&ownerUserId=1&companyId=5&primaryContactId=7&page=1&pageSize=20", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -207,7 +296,7 @@ func TestListDealsUsesCurrentOrganizationAndFilters(t *testing.T) {
 	if service.lastListOrgID != 42 {
 		t.Fatalf("expected org id 42, got %d", service.lastListOrgID)
 	}
-	if service.lastListQuery.Search != "northstar" || service.lastListQuery.StageID != 3 || service.lastListQuery.OwnerUserID != 1 || service.lastListQuery.CompanyID != 5 || service.lastListQuery.PrimaryContactID != 7 {
+	if service.lastListQuery.Search != "northstar" || service.lastListQuery.PipelineID != 8 || service.lastListQuery.StageID != 3 || service.lastListQuery.OwnerUserID != 1 || service.lastListQuery.CompanyID != 5 || service.lastListQuery.PrimaryContactID != 7 {
 		t.Fatalf("unexpected list query: %#v", service.lastListQuery)
 	}
 }
