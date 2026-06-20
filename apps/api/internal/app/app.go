@@ -27,6 +27,7 @@ import (
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
+	moduleproductcatalog "github.com/aeml/open_crm/apps/api/internal/modules/productcatalog"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	modulesms "github.com/aeml/open_crm/apps/api/internal/modules/sms"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
@@ -185,6 +186,13 @@ type emailTemplatesService interface {
 	DeleteSnippet(context.Context, int64, int64) error
 }
 
+type productCatalogService interface {
+	ListByOrganization(context.Context, int64) ([]moduleproductcatalog.Item, error)
+	Create(context.Context, int64, int64, moduleproductcatalog.Input) (moduleproductcatalog.Item, error)
+	Update(context.Context, int64, int64, int64, moduleproductcatalog.Input) (moduleproductcatalog.Item, error)
+	Archive(context.Context, int64, int64) error
+}
+
 type emailSequencesService interface {
 	ListByOrganization(context.Context, int64) ([]moduleemailsequences.Sequence, error)
 	Create(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
@@ -257,6 +265,7 @@ type Dependencies struct {
 	BillingService                  billingService
 	EmailService                    emailService
 	EmailTemplatesService           emailTemplatesService
+	ProductCatalogService           productCatalogService
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService
@@ -751,6 +760,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/email-snippets/{snippetID}", func(w http.ResponseWriter, r *http.Request) {
 		handleDeleteEmailSnippet(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
+	})
+	mux.HandleFunc("GET /api/product-catalog-items", func(w http.ResponseWriter, r *http.Request) {
+		handleListProductCatalogItems(dependencies.AuthService, dependencies.ProductCatalogService, w, r)
+	})
+	mux.HandleFunc("POST /api/product-catalog-items", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateProductCatalogItem(dependencies.AuthService, dependencies.ProductCatalogService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/product-catalog-items/{itemID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateProductCatalogItem(dependencies.AuthService, dependencies.ProductCatalogService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/product-catalog-items/{itemID}", func(w http.ResponseWriter, r *http.Request) {
+		handleArchiveProductCatalogItem(dependencies.AuthService, dependencies.ProductCatalogService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)

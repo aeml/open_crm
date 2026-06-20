@@ -401,3 +401,29 @@ func TestMigrationFilesIncludeCalendarRemindersMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeProductCatalogMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "036_product_catalog.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected product catalog migration to be registered")
+	}
+
+	sql := MigrationSQL("036_product_catalog.sql")
+	if sql == "" {
+		t.Fatal("expected product catalog migration SQL to be embedded")
+	}
+	for _, expected := range []string{"product_catalog_items", "idx_product_catalog_items_org_sku", "idx_product_catalog_items_org_active_name", "product_catalog_items_type_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected product catalog migration to include %s", expected)
+		}
+	}
+}

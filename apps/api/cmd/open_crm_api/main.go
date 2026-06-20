@@ -34,6 +34,7 @@ import (
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
+	moduleproductcatalog "github.com/aeml/open_crm/apps/api/internal/modules/productcatalog"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	modulesequencerunner "github.com/aeml/open_crm/apps/api/internal/modules/sequencerunner"
 	modulesms "github.com/aeml/open_crm/apps/api/internal/modules/sms"
@@ -88,6 +89,7 @@ func main() {
 	var orgProfileService *moduleorgprofile.Service
 	var billingService *modulebilling.Service
 	var emailTemplatesService *moduleemailtemplates.Service
+	var productCatalogService *moduleproductcatalog.Service
 	var emailSequencesService *moduleemailsequences.Service
 	var emailSuppressionsService *moduleemailsuppressions.Service
 	var userEmailService *moduleuseremail.Service
@@ -123,6 +125,7 @@ func main() {
 			orgProfileService = moduleorgprofile.NewService(pool)
 			billingService = modulebilling.NewService(pool, modulebilling.NewProvider(env.BillingProvider))
 			emailTemplatesService = moduleemailtemplates.NewService(pool)
+			productCatalogService = moduleproductcatalog.NewService(pool)
 			emailSequencesService = moduleemailsequences.NewService(pool)
 			emailSuppressionsService = moduleemailsuppressions.NewService(pool, env.CredentialEncryptionKey)
 			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
@@ -178,6 +181,7 @@ func main() {
 		BillingService:                  billingService,
 		EmailService:                    emailService,
 		EmailTemplatesService:           emailTemplatesService,
+		ProductCatalogService:           productCatalogService,
 		EmailSequencesService:           emailSequencesService,
 		EmailSequenceEnrollmentsService: emailSequencesService,
 		EmailSuppressionsService:        emailSuppressionsService,

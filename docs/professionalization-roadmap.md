@@ -149,7 +149,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `1.0.0` Multi-Tenant SaaS Platform (signup, billing, plan gating, SSO): in progress.
 - `1.1.0` Email And Communications (2-way sync, tracking, templates, sequences): in progress.
 - `1.2.0` Telephony, SMS, And Meeting Scheduling: planned.
-- `1.3.0` Sales Acceleration And CPQ (catalog, quotes, e-sign, quotas): planned.
+- `1.3.0` Sales Acceleration And CPQ (catalog, quotes, e-sign, quotas): in progress.
 - `1.4.0` Marketing And Lead Generation (forms, pages, campaigns, scoring): planned.
 - `1.5.0` Workflow Automation Engine (visual builder): planned.
 - `1.6.0` Reporting And Analytics (custom report builder, dashboards): planned.
@@ -1844,13 +1844,17 @@ Exit criteria:
 
 ## Version 1.3.0 - Sales Acceleration And CPQ
 
-Status: planned.
+Status: in progress.
 
 Goal: support full sales execution from quote to close, extending the `0.6.x` sales workflow.
 
+Progress:
+
+- `1.3.1` (product/service catalog foundation): complete. Added organization-scoped catalog items with product/service type, SKU, description, unit price, currency, unit, active/inactive state, authenticated APIs for listing/creating/updating/archiving items, and a Settings > Product Catalog UI. Deal line items, quote totals, discounts, taxes, multi-currency exchange rates, and proposal generation remain future slices.
+
 Candidate slices:
 
-- `1.3.1` Product/service catalog with pricing, SKUs, and currency.
+- `1.3.1` Product/service catalog with pricing, SKUs, and currency: foundation complete.
 - `1.3.2` Deal line items, discounts, taxes, and totals.
 - `1.3.3` Quote/proposal generation with branded PDF output.
 - `1.3.4` E-signature flow (native or DocuSign/Dropbox Sign integration) with status tracking.

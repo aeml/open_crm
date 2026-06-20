@@ -18,6 +18,7 @@ import { SettingsAuditRoute } from '../routes/settings_audit'
 import { SettingsBillingRoute } from '../routes/settings_billing'
 import { SettingsEmailTemplatesRoute } from '../routes/settings_email_templates'
 import { SettingsEmailSequencesRoute } from '../routes/settings_email_sequences'
+import { SettingsProductCatalogRoute } from '../routes/settings_product_catalog'
 import { SettingsCalendarRoute } from '../routes/settings_calendar'
 import { SettingsEmailAccountRoute } from '../routes/settings_email_account'
 import { SettingsEmailLogRoute } from '../routes/settings_email_log'
@@ -50,6 +51,7 @@ export function AppRouter() {
             <Route path="settings/billing" element={<SettingsBillingRoute />} />
             <Route path="settings/email-templates" element={<SettingsEmailTemplatesRoute />} />
             <Route path="settings/email-sequences" element={<SettingsEmailSequencesRoute />} />
+            <Route path="settings/product-catalog" element={<SettingsProductCatalogRoute />} />
             <Route path="settings/calendar" element={<SettingsCalendarRoute />} />
             <Route path="settings/email-account" element={<SettingsEmailAccountRoute />} />
             <Route path="settings/email-log" element={<SettingsEmailLogRoute />} />
