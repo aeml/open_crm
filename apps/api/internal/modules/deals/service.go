@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -13,7 +14,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrNotFound = errors.New("deal not found")
+var (
+	ErrInvalidLineItems = errors.New("invalid deal line items")
+	ErrNotFound         = errors.New("deal not found")
+)
+
+var (
+	lineItemCurrencyPattern = regexp.MustCompile(`^[A-Z]{3}$`)
+	lineItemDecimalPattern  = regexp.MustCompile(`^\d+(\.\d{1,2})?$`)
+)
 
 type Stage struct {
 	ID       int64  `json:"id"`
@@ -50,6 +59,52 @@ type ActivityEntry struct {
 type Detail struct {
 	Summary    Summary
 	Activities []ActivityEntry
+	LineItems  []LineItem
+	Totals     DealTotals
+}
+
+type LineItem struct {
+	ID                   int64  `json:"id"`
+	ProductCatalogItemID int64  `json:"productCatalogItemId"`
+	Name                 string `json:"name"`
+	SKU                  string `json:"sku"`
+	ItemType             string `json:"itemType"`
+	Quantity             string `json:"quantity"`
+	UnitName             string `json:"unitName"`
+	UnitPrice            string `json:"unitPrice"`
+	Subtotal             string `json:"subtotal"`
+	DiscountAmount       string `json:"discountAmount"`
+	TaxRate              string `json:"taxRate"`
+	TaxAmount            string `json:"taxAmount"`
+	Total                string `json:"total"`
+	Currency             string `json:"currency"`
+	Position             int    `json:"position"`
+}
+
+type DealTotals struct {
+	Subtotal      string `json:"subtotal"`
+	DiscountTotal string `json:"discountTotal"`
+	TaxTotal      string `json:"taxTotal"`
+	Total         string `json:"total"`
+	Currency      string `json:"currency"`
+}
+
+type LineItemInput struct {
+	ProductCatalogItemID int64  `json:"productCatalogItemId"`
+	Name                 string `json:"name"`
+	SKU                  string `json:"sku"`
+	ItemType             string `json:"itemType"`
+	Quantity             string `json:"quantity"`
+	UnitName             string `json:"unitName"`
+	UnitPrice            string `json:"unitPrice"`
+	DiscountAmount       string `json:"discountAmount"`
+	TaxRate              string `json:"taxRate"`
+	Currency             string `json:"currency"`
+	Position             int    `json:"position"`
+}
+
+type LineItemsInput struct {
+	Items []LineItemInput `json:"items"`
 }
 
 type ListQuery struct {
@@ -392,12 +447,100 @@ func (s *Service) Archive(ctx context.Context, organizationID, dealID, actorUser
 	return nil
 }
 
+func (s *Service) ReplaceLineItems(ctx context.Context, organizationID, dealID, actorUserID int64, input LineItemsInput) (Detail, error) {
+	if s == nil || s.pool == nil {
+		return Detail{}, fmt.Errorf("deals service not configured")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Detail{}, fmt.Errorf("begin replace line items transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	dealCurrency := "USD"
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(value_currency, 'USD')
+		FROM deals
+		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
+	`, organizationID, dealID).Scan(&dealCurrency); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
+		return Detail{}, fmt.Errorf("lookup deal for line items: %w", err)
+	}
+
+	items := make([]LineItemInput, 0, len(input.Items))
+	lineCurrency := ""
+	for index, item := range input.Items {
+		normalized, err := normalizeLineItemInput(ctx, tx, organizationID, item, index+1)
+		if err != nil {
+			return Detail{}, err
+		}
+		if lineCurrency == "" {
+			lineCurrency = normalized.Currency
+		} else if normalized.Currency != lineCurrency {
+			return Detail{}, ErrInvalidLineItems
+		}
+		items = append(items, normalized)
+	}
+	if lineCurrency == "" {
+		lineCurrency = dealCurrency
+		if lineCurrency == "" {
+			lineCurrency = "USD"
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM deal_line_items
+		WHERE organization_id = $1 AND deal_id = $2
+	`, organizationID, dealID); err != nil {
+		return Detail{}, fmt.Errorf("delete deal line items: %w", err)
+	}
+
+	for _, item := range items {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO deal_line_items (organization_id, deal_id, product_catalog_item_id, name, sku, item_type, quantity, unit_name, unit_price, discount_amount, tax_rate, currency, position, created_by_user_id)
+			VALUES ($1, $2, NULLIF($3, 0), $4, $5, $6, $7::numeric, $8, $9::numeric, $10::numeric, $11::numeric, $12, $13, $14)
+		`, organizationID, dealID, item.ProductCatalogItemID, item.Name, item.SKU, item.ItemType, item.Quantity, item.UnitName, item.UnitPrice, item.DiscountAmount, item.TaxRate, item.Currency, item.Position, actorUserID)
+		if err != nil {
+			return Detail{}, mapLineItemSaveError(err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `
+		WITH totals AS (
+			SELECT COALESCE(ROUND(SUM(((quantity * unit_price) - discount_amount) + (((quantity * unit_price) - discount_amount) * (tax_rate / 100))), 2), 0) AS total
+			FROM deal_line_items
+			WHERE organization_id = $1 AND deal_id = $2
+		)
+		UPDATE deals
+		SET value_amount = totals.total,
+		    value_currency = $3,
+		    updated_at = NOW()
+		FROM totals
+		WHERE deals.organization_id = $1 AND deals.id = $2 AND deals.archived_at IS NULL
+	`, organizationID, dealID, lineCurrency); err != nil {
+		return Detail{}, fmt.Errorf("update deal line item total: %w", err)
+	}
+
+	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.line_items_updated", "Deal line items updated"); err != nil {
+		return Detail{}, fmt.Errorf("insert line item activity: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Detail{}, fmt.Errorf("commit replace line items transaction: %w", err)
+	}
+
+	return s.GetByID(ctx, organizationID, dealID)
+}
+
 func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (Detail, error) {
 	if s == nil || s.pool == nil {
 		return Detail{}, fmt.Errorf("deals service not configured")
 	}
 
-	detail := Detail{Activities: []ActivityEntry{}}
+	detail := Detail{Activities: []ActivityEntry{}, LineItems: []LineItem{}}
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
 			d.id,
@@ -461,7 +604,220 @@ func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (De
 		return Detail{}, fmt.Errorf("iterate deal activities: %w", err)
 	}
 
+	lineItems, totals, err := s.listLineItems(ctx, organizationID, dealID, detail.Summary.ValueCurrency)
+	if err != nil {
+		return Detail{}, err
+	}
+	detail.LineItems = lineItems
+	detail.Totals = totals
+
 	return detail, nil
+}
+
+func (s *Service) listLineItems(ctx context.Context, organizationID, dealID int64, fallbackCurrency string) ([]LineItem, DealTotals, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			id,
+			COALESCE(product_catalog_item_id, 0),
+			name,
+			sku,
+			item_type,
+			quantity::text,
+			unit_name,
+			unit_price::text,
+			ROUND(quantity * unit_price, 2)::text,
+			discount_amount::text,
+			tax_rate::text,
+			ROUND(((quantity * unit_price) - discount_amount) * (tax_rate / 100), 2)::text,
+			ROUND(((quantity * unit_price) - discount_amount) + (((quantity * unit_price) - discount_amount) * (tax_rate / 100)), 2)::text,
+			currency,
+			position
+		FROM deal_line_items
+		WHERE organization_id = $1 AND deal_id = $2
+		ORDER BY position ASC, id ASC
+	`, organizationID, dealID)
+	if err != nil {
+		return nil, DealTotals{}, fmt.Errorf("list deal line items: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]LineItem, 0)
+	for rows.Next() {
+		var item LineItem
+		if err := rows.Scan(
+			&item.ID,
+			&item.ProductCatalogItemID,
+			&item.Name,
+			&item.SKU,
+			&item.ItemType,
+			&item.Quantity,
+			&item.UnitName,
+			&item.UnitPrice,
+			&item.Subtotal,
+			&item.DiscountAmount,
+			&item.TaxRate,
+			&item.TaxAmount,
+			&item.Total,
+			&item.Currency,
+			&item.Position,
+		); err != nil {
+			return nil, DealTotals{}, fmt.Errorf("scan deal line item: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, DealTotals{}, fmt.Errorf("iterate deal line items: %w", err)
+	}
+
+	totals := DealTotals{Currency: fallbackCurrency}
+	if totals.Currency == "" {
+		totals.Currency = "USD"
+	}
+	if err := s.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(ROUND(SUM(quantity * unit_price), 2), 0)::text,
+			COALESCE(ROUND(SUM(discount_amount), 2), 0)::text,
+			COALESCE(ROUND(SUM(((quantity * unit_price) - discount_amount) * (tax_rate / 100)), 2), 0)::text,
+			COALESCE(ROUND(SUM(((quantity * unit_price) - discount_amount) + (((quantity * unit_price) - discount_amount) * (tax_rate / 100))), 2), 0)::text,
+			COALESCE(MAX(currency), $3)
+		FROM deal_line_items
+		WHERE organization_id = $1 AND deal_id = $2
+	`, organizationID, dealID, totals.Currency).Scan(&totals.Subtotal, &totals.DiscountTotal, &totals.TaxTotal, &totals.Total, &totals.Currency); err != nil {
+		return nil, DealTotals{}, fmt.Errorf("sum deal line items: %w", err)
+	}
+
+	return items, totals, nil
+}
+
+type catalogLineItemDefaults struct {
+	Name      string
+	SKU       string
+	ItemType  string
+	UnitPrice string
+	Currency  string
+	UnitName  string
+}
+
+func normalizeLineItemInput(ctx context.Context, tx pgx.Tx, organizationID int64, input LineItemInput, position int) (LineItemInput, error) {
+	input.Name = strings.TrimSpace(input.Name)
+	input.SKU = strings.ToUpper(strings.TrimSpace(input.SKU))
+	input.ItemType = strings.ToLower(strings.TrimSpace(input.ItemType))
+	input.Quantity = strings.TrimSpace(input.Quantity)
+	input.UnitName = strings.TrimSpace(input.UnitName)
+	input.UnitPrice = strings.TrimSpace(input.UnitPrice)
+	input.DiscountAmount = strings.TrimSpace(input.DiscountAmount)
+	input.TaxRate = strings.TrimSpace(input.TaxRate)
+	input.Currency = strings.ToUpper(strings.TrimSpace(input.Currency))
+	if input.ProductCatalogItemID > 0 {
+		var defaults catalogLineItemDefaults
+		if err := tx.QueryRow(ctx, `
+			SELECT name, sku, item_type, unit_price::text, currency, unit_name
+			FROM product_catalog_items
+			WHERE organization_id = $1 AND id = $2
+		`, organizationID, input.ProductCatalogItemID).Scan(&defaults.Name, &defaults.SKU, &defaults.ItemType, &defaults.UnitPrice, &defaults.Currency, &defaults.UnitName); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return LineItemInput{}, ErrInvalidLineItems
+			}
+			return LineItemInput{}, fmt.Errorf("lookup product catalog item: %w", err)
+		}
+		if input.Name == "" {
+			input.Name = defaults.Name
+		}
+		if input.SKU == "" {
+			input.SKU = defaults.SKU
+		}
+		if input.ItemType == "" {
+			input.ItemType = defaults.ItemType
+		}
+		if input.UnitPrice == "" {
+			input.UnitPrice = defaults.UnitPrice
+		}
+		if input.Currency == "" {
+			input.Currency = defaults.Currency
+		}
+		if input.UnitName == "" {
+			input.UnitName = defaults.UnitName
+		}
+	}
+	if input.ItemType == "" {
+		input.ItemType = "product"
+	}
+	if input.Quantity == "" {
+		input.Quantity = "1"
+	}
+	if input.UnitName == "" {
+		input.UnitName = "unit"
+	}
+	if input.UnitPrice == "" {
+		input.UnitPrice = "0"
+	}
+	if input.DiscountAmount == "" {
+		input.DiscountAmount = "0"
+	}
+	if input.TaxRate == "" {
+		input.TaxRate = "0"
+	}
+	if input.Currency == "" {
+		input.Currency = "USD"
+	}
+	if input.Position <= 0 {
+		input.Position = position
+	}
+	if err := validateLineItemInput(input); err != nil {
+		return LineItemInput{}, err
+	}
+	return input, nil
+}
+
+func validateLineItemInput(input LineItemInput) error {
+	if input.Name == "" || input.UnitName == "" {
+		return ErrInvalidLineItems
+	}
+	if input.ItemType != "product" && input.ItemType != "service" {
+		return ErrInvalidLineItems
+	}
+	if !lineItemCurrencyPattern.MatchString(input.Currency) {
+		return ErrInvalidLineItems
+	}
+	quantity, ok := parseLineItemDecimal(input.Quantity)
+	if !ok || quantity <= 0 {
+		return ErrInvalidLineItems
+	}
+	unitPrice, ok := parseLineItemDecimal(input.UnitPrice)
+	if !ok || unitPrice < 0 {
+		return ErrInvalidLineItems
+	}
+	discount, ok := parseLineItemDecimal(input.DiscountAmount)
+	if !ok || discount < 0 || discount > quantity*unitPrice {
+		return ErrInvalidLineItems
+	}
+	taxRate, ok := parseLineItemDecimal(input.TaxRate)
+	if !ok || taxRate < 0 || taxRate > 100 {
+		return ErrInvalidLineItems
+	}
+	return nil
+}
+
+func parseLineItemDecimal(value string) (float64, bool) {
+	if !lineItemDecimalPattern.MatchString(value) {
+		return 0, false
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
+}
+
+func mapLineItemSaveError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23503", "23514", "22003", "22P02":
+			return ErrInvalidLineItems
+		}
+	}
+	return fmt.Errorf("save deal line item: %w", err)
 }
 
 type activityExecutor interface {

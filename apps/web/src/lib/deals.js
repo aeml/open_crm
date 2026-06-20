@@ -39,6 +39,12 @@ export async function updateDeal(dealID, input, { signal } = {}) {
   return payload?.data
 }
 
+export async function replaceDealLineItems(dealID, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/deals/${dealID}/line-items`, { method: 'PUT', body: input, fallbackMessage: 'Unable to update deal line items.', signal })
+
+  return payload?.data
+}
+
 export async function archiveDeal(dealID, { signal } = {}) {
   return apiRequest(`/api/deals/${dealID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive deal.', signal })
 }

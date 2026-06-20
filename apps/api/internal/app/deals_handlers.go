@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -260,6 +261,42 @@ func handleUpdateDealStage(auth authService, deals dealsService, w http.Response
 			return
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update deal stage")
+		return
+	}
+
+	respondDealDetail(w, r, http.StatusOK, result)
+}
+
+func handleReplaceDealLineItems(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgWriter(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	dealID, ok := parsePathInt64(w, r, "dealID")
+	if !ok {
+		return
+	}
+
+	var request moduledeals.LineItemsInput
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	result, err := deals.ReplaceLineItems(r.Context(), state.Organization.ID, dealID, state.User.ID, request)
+	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
+		if errors.Is(err, moduledeals.ErrInvalidLineItems) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide valid line items with one currency, positive quantities, non-negative prices/discounts, and tax rates from 0 to 100")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update deal line items")
 		return
 	}
 

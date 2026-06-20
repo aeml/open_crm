@@ -90,6 +90,7 @@ type dealsService interface {
 	Update(context.Context, int64, int64, int64, moduledeals.UpdateInput) (moduledeals.Detail, error)
 	Archive(context.Context, int64, int64, int64) error
 	UpdateStage(context.Context, int64, int64, int64, moduledeals.UpdateStageInput) (moduledeals.Detail, error)
+	ReplaceLineItems(context.Context, int64, int64, int64, moduledeals.LineItemsInput) (moduledeals.Detail, error)
 }
 
 type tasksService interface {
@@ -519,6 +520,8 @@ type dealDetailResponse struct {
 	Data struct {
 		Deal       moduledeals.Summary         `json:"deal"`
 		Activities []moduledeals.ActivityEntry `json:"activities"`
+		LineItems  []moduledeals.LineItem      `json:"lineItems"`
+		Totals     moduledeals.DealTotals      `json:"totals"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -937,6 +940,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}/stage", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateDealStage(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("PUT /api/deals/{dealID}/line-items", func(w http.ResponseWriter, r *http.Request) {
+		handleReplaceDealLineItems(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("GET /api/notes", func(w http.ResponseWriter, r *http.Request) {
 		handleListNotes(dependencies.AuthService, dependencies.NotesService, w, r)

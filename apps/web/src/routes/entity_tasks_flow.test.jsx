@@ -185,6 +185,7 @@ describe('entity task visibility', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { companies: [{ id: 6, name: 'Bluebird Health', industry: 'Healthcare', phone: '555-0200', website: 'https://bluebird.example', status: 'prospect' }], meta: { page: 1, pageSize: 20, total: 1 } } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { contacts: [{ id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@bluebird.example', phone: '555-0300', jobTitle: 'Operations Director', status: 'lead' }], meta: { page: 1, pageSize: 20, total: 1 } } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [{ id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }, { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { deal: { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 1 }, activities: [], lineItems: [], totals: { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: 'USD' } } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { notes: [] } }) })
       .mockResolvedValueOnce({
         ok: true,
@@ -211,6 +212,7 @@ describe('entity task visibility', () => {
           }
         })
       })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { items: [] } }) })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/deals')

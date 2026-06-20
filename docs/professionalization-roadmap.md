@@ -1851,11 +1851,12 @@ Goal: support full sales execution from quote to close, extending the `0.6.x` sa
 Progress:
 
 - `1.3.1` (product/service catalog foundation): complete. Added organization-scoped catalog items with product/service type, SKU, description, unit price, currency, unit, active/inactive state, authenticated APIs for listing/creating/updating/archiving items, and a Settings > Product Catalog UI. Deal line items, quote totals, discounts, taxes, multi-currency exchange rates, and proposal generation remain future slices.
+- `1.3.2` (deal line items foundation): complete. Added organization-scoped deal line items tied optionally to catalog items, quantity/unit pricing, per-line discounts, tax rates, calculated line totals, deal-level subtotal/discount/tax/total summaries, an authenticated API to replace deal line items, automatic deal value recalculation from saved line items, line-item activity logging, and a deal detail line-item editor. Quote/proposal documents, tax rules, approval workflows, and multi-currency conversion remain future slices.
 
 Candidate slices:
 
 - `1.3.1` Product/service catalog with pricing, SKUs, and currency: foundation complete.
-- `1.3.2` Deal line items, discounts, taxes, and totals.
+- `1.3.2` Deal line items, discounts, taxes, and totals: foundation complete.
 - `1.3.3` Quote/proposal generation with branded PDF output.
 - `1.3.4` E-signature flow (native or DocuSign/Dropbox Sign integration) with status tracking.
 - `1.3.5` Multiple pipelines per team/business unit (extends `0.6.1`).

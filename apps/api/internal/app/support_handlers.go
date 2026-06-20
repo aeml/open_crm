@@ -474,6 +474,8 @@ func respondDealDetail(w http.ResponseWriter, r *http.Request, statusCode int, d
 	response := dealDetailResponse{}
 	response.Data.Deal = detail.Summary
 	response.Data.Activities = detail.Activities
+	response.Data.LineItems = detail.LineItems
+	response.Data.Totals = detail.Totals
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)
 }

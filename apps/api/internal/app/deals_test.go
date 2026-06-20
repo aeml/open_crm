@@ -28,6 +28,8 @@ type fakeDealsService struct {
 	archiveErr             error
 	updateStageResult      moduledeals.Detail
 	updateStageErr         error
+	replaceLineItemsResult moduledeals.Detail
+	replaceLineItemsErr    error
 	lastListStagesOrgID    int64
 	lastListOrgID          int64
 	lastListQuery          moduledeals.ListQuery
@@ -47,6 +49,10 @@ type fakeDealsService struct {
 	lastUpdateStageDealID  int64
 	lastUpdateStageActorID int64
 	lastUpdateStageInput   moduledeals.UpdateStageInput
+	lastLineItemsOrgID     int64
+	lastLineItemsDealID    int64
+	lastLineItemsActorID   int64
+	lastLineItemsInput     moduledeals.LineItemsInput
 }
 
 func (f *fakeDealsService) ListStagesByOrganization(_ context.Context, organizationID int64) ([]moduledeals.Stage, error) {
@@ -94,6 +100,14 @@ func (f *fakeDealsService) UpdateStage(_ context.Context, organizationID, dealID
 	f.lastUpdateStageActorID = actorUserID
 	f.lastUpdateStageInput = input
 	return f.updateStageResult, f.updateStageErr
+}
+
+func (f *fakeDealsService) ReplaceLineItems(_ context.Context, organizationID, dealID, actorUserID int64, input moduledeals.LineItemsInput) (moduledeals.Detail, error) {
+	f.lastLineItemsOrgID = organizationID
+	f.lastLineItemsDealID = dealID
+	f.lastLineItemsActorID = actorUserID
+	f.lastLineItemsInput = input
+	return f.replaceLineItemsResult, f.replaceLineItemsErr
 }
 
 func authenticatedDealsServer(service *fakeDealsService) http.Handler {
@@ -316,5 +330,64 @@ func TestUpdateDealStageUsesCurrentOrganization(t *testing.T) {
 	}
 	if service.lastUpdateStageInput.StageID != 4 {
 		t.Fatalf("unexpected stage update input: %#v", service.lastUpdateStageInput)
+	}
+}
+
+func TestReplaceDealLineItemsUsesCurrentOrganization(t *testing.T) {
+	service := &fakeDealsService{
+		replaceLineItemsResult: moduledeals.Detail{
+			Summary: moduledeals.Summary{ID: 12, Name: "Bluebird Rollout", StageID: 2, StageName: "Qualified", ValueAmount: "320.00", ValueCurrency: "USD", Status: "open", OwnerUserID: 1},
+			LineItems: []moduledeals.LineItem{{
+				ID:                   31,
+				ProductCatalogItemID: 7,
+				Name:                 "Implementation",
+				SKU:                  "SERV-001",
+				ItemType:             "service",
+				Quantity:             "2.00",
+				UnitName:             "hour",
+				UnitPrice:            "150.00",
+				Subtotal:             "300.00",
+				DiscountAmount:       "20.00",
+				TaxRate:              "10.00",
+				TaxAmount:            "28.00",
+				Total:                "308.00",
+				Currency:             "USD",
+				Position:             1,
+			}},
+			Totals:     moduledeals.DealTotals{Subtotal: "300.00", DiscountTotal: "20.00", TaxTotal: "28.00", Total: "308.00", Currency: "USD"},
+			Activities: []moduledeals.ActivityEntry{{ID: 94, Action: "deal.line_items_updated", Summary: "Deal line items updated", CreatedAt: time.Date(2026, 4, 10, 15, 0, 0, 0, time.UTC)}},
+		},
+	}
+	server := authenticatedDealsServer(service)
+
+	body := bytes.NewBufferString(`{"items":[{"productCatalogItemId":7,"name":"Implementation","sku":"SERV-001","itemType":"service","quantity":"2","unitName":"hour","unitPrice":"150.00","discountAmount":"20.00","taxRate":"10","currency":"USD"}]}`)
+	request := httptest.NewRequest(http.MethodPut, "/api/deals/12/line-items", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastLineItemsOrgID != 42 || service.lastLineItemsDealID != 12 || service.lastLineItemsActorID != 1 {
+		t.Fatalf("unexpected line item routing: org=%d deal=%d actor=%d", service.lastLineItemsOrgID, service.lastLineItemsDealID, service.lastLineItemsActorID)
+	}
+	if len(service.lastLineItemsInput.Items) != 1 || service.lastLineItemsInput.Items[0].ProductCatalogItemID != 7 || service.lastLineItemsInput.Items[0].Quantity != "2" {
+		t.Fatalf("unexpected line item input: %#v", service.lastLineItemsInput)
+	}
+
+	var response struct {
+		Data struct {
+			LineItems []moduledeals.LineItem `json:"lineItems"`
+			Totals    moduledeals.DealTotals `json:"totals"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected valid JSON, got error: %v", err)
+	}
+	if len(response.Data.LineItems) != 1 || response.Data.Totals.Total != "308.00" {
+		t.Fatalf("unexpected line item response: %#v", response.Data)
 	}
 }

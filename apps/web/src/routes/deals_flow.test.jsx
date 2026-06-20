@@ -408,6 +408,16 @@ describe('deals flow', () => {
         })
       }
 
+      if (requestURL.pathname.endsWith('/api/product-catalog-items')) {
+        return jsonResponse({
+          data: {
+            items: [
+              { id: 7, name: 'Implementation', sku: 'SERV-001', itemType: 'service', unitPrice: '150.00', currency: 'USD', unitName: 'hour', isActive: true }
+            ]
+          }
+        })
+      }
+
       if (requestURL.pathname.endsWith('/api/saved-views') && method === 'GET' && requestURL.searchParams.get('entityType') === 'deals') {
         return jsonResponse({
           data: {
@@ -428,6 +438,33 @@ describe('deals flow', () => {
             tasks: []
           }
         }, { status: 201 })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals/12') && method === 'GET') {
+        return jsonResponse({
+          data: {
+            deal: currentDeal,
+            lineItems: [],
+            totals: { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: currentDeal.valueCurrency || 'USD' },
+            activities: []
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals/12/line-items') && method === 'PUT') {
+        currentDeal = { ...currentDeal, valueAmount: '308.00', valueCurrency: 'USD' }
+        return jsonResponse({
+          data: {
+            deal: currentDeal,
+            lineItems: [
+              { id: 31, productCatalogItemId: 7, name: 'Implementation', sku: 'SERV-001', itemType: 'service', quantity: '2.00', unitName: 'hour', unitPrice: '150.00', subtotal: '300.00', discountAmount: '20.00', taxRate: '10.00', taxAmount: '28.00', total: '308.00', currency: 'USD', position: 1 }
+            ],
+            totals: { subtotal: '300.00', discountTotal: '20.00', taxTotal: '28.00', total: '308.00', currency: 'USD' },
+            activities: [
+              { id: 103, action: 'deal.line_items_updated', summary: 'Deal line items updated' }
+            ]
+          }
+        })
       }
 
       if (requestURL.pathname.endsWith('/api/deals/12') && method === 'PATCH') {
@@ -600,6 +637,26 @@ describe('deals flow', () => {
     expect(await screen.findByText(/showing 2 of 2 deals/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /bluebird rollout/i }))
     const detailForm = await screen.findByRole('form', { name: /deal details form/i })
+
+    fireEvent.change(screen.getByLabelText(/catalog item/i), { target: { value: '7' } })
+    fireEvent.change(screen.getByLabelText(/line item quantity/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/line item discount/i), { target: { value: '20.00' } })
+    fireEvent.change(screen.getByLabelText(/line item tax rate/i), { target: { value: '10' } })
+    fireEvent.click(screen.getByRole('button', { name: /add line item/i }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/SERV-001/).length).toBeGreaterThan(1)
+    })
+    fireEvent.click(screen.getByRole('button', { name: /save line items/i }))
+
+    expect(await screen.findByText(/^deal line items updated$/i, { selector: '.activity-summary' })).toBeInTheDocument()
+    expect(screen.getAllByText('$308.00').length).toBeGreaterThan(0)
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/line-items$/), expect.objectContaining({
+        method: 'PUT',
+        body: expect.stringContaining('"productCatalogItemId":7')
+      }))
+    })
 
     fireEvent.change(within(detailForm).getByLabelText(/deal name/i), { target: { value: 'Bluebird Expansion' } })
     fireEvent.change(within(detailForm).getByLabelText(/status/i), { target: { value: 'won' } })
@@ -790,6 +847,16 @@ describe('deals flow', () => {
               }
             ],
             meta: { page: 1, pageSize: 20, total: 1, openCount: 1, completedCount: 0 }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            items: [
+              { id: 7, name: 'Implementation', sku: 'SERV-001', itemType: 'service', unitPrice: '150.00', currency: 'USD', unitName: 'hour', isActive: true }
+            ]
           }
         })
       })

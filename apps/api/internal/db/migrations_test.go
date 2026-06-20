@@ -427,3 +427,29 @@ func TestMigrationFilesIncludeProductCatalogMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeDealLineItemsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "037_deal_line_items.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected deal line items migration to be registered")
+	}
+
+	sql := MigrationSQL("037_deal_line_items.sql")
+	if sql == "" {
+		t.Fatal("expected deal line items migration SQL to be embedded")
+	}
+	for _, expected := range []string{"deal_line_items", "idx_deal_line_items_org_deal_position", "deal_line_items_discount_lte_subtotal", "deal_line_items_tax_rate_range"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected deal line items migration to include %s", expected)
+		}
+	}
+}

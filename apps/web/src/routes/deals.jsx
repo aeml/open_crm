@@ -8,11 +8,12 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { InlineError } from '../components/ui/inline_error'
 import { RecordEmailComposer } from '../components/record_email_composer'
-import { archiveDeal, createDeal, dealsExportURL, getDeal, listDeals, listDealStages, sendDealEmail, updateDeal, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, dealsExportURL, getDeal, listDeals, listDealStages, replaceDealLineItems, sendDealEmail, updateDeal, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
+import { listProductCatalogItems } from '../lib/product_catalog'
 import { listOrganizationUsers } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
@@ -37,12 +38,29 @@ const emptyTaskForm = {
   assignedToUserId: ''
 }
 
+const emptyLineItemForm = {
+  productCatalogItemId: '',
+  name: '',
+  sku: '',
+  itemType: 'product',
+  quantity: '1',
+  unitName: 'unit',
+  unitPrice: '0.00',
+  discountAmount: '0.00',
+  taxRate: '0',
+  currency: 'USD'
+}
+
+const emptyLineTotals = { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: 'USD' }
+
 function formatMoney(value, currency = 'USD') {
   const amount = Number.parseFloat(value || '0')
   if (!Number.isFinite(amount)) {
     return '$0.00'
   }
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(amount)
+  const normalizedCurrency = String(currency || 'USD').toUpperCase()
+  const safeCurrency = /^[A-Z]{3}$/.test(normalizedCurrency) ? normalizedCurrency : 'USD'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: safeCurrency }).format(amount)
 }
 
 function dealFormValues(deal) {
@@ -56,6 +74,40 @@ function dealFormValues(deal) {
     valueCurrency: deal.valueCurrency || 'USD',
     expectedCloseDate: deal.expectedCloseDate || '',
     ownerUserId: deal.ownerUserId ? String(deal.ownerUserId) : ''
+  }
+}
+
+function lineItemFormFromCatalogItem(item) {
+  if (!item) {
+    return emptyLineItemForm
+  }
+  return {
+    productCatalogItemId: String(item.id),
+    name: item.name || '',
+    sku: item.sku || '',
+    itemType: item.itemType || 'product',
+    quantity: '1',
+    unitName: item.unitName || 'unit',
+    unitPrice: item.unitPrice || '0.00',
+    discountAmount: '0.00',
+    taxRate: '0',
+    currency: item.currency || 'USD'
+  }
+}
+
+function lineItemPayload(item, index) {
+  return {
+    productCatalogItemId: Number.parseInt(item.productCatalogItemId, 10) || 0,
+    name: item.name,
+    sku: item.sku,
+    itemType: item.itemType,
+    quantity: item.quantity,
+    unitName: item.unitName,
+    unitPrice: item.unitPrice,
+    discountAmount: item.discountAmount,
+    taxRate: item.taxRate,
+    currency: item.currency,
+    position: index + 1
   }
 }
 
@@ -164,10 +216,15 @@ export function DealsRoute() {
   const [tasks, setTasks] = useState([])
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
+  const [productCatalogItems, setProductCatalogItems] = useState([])
+  const [lineItems, setLineItems] = useState([])
+  const [lineItemForm, setLineItemForm] = useState(emptyLineItemForm)
+  const [lineTotals, setLineTotals] = useState(emptyLineTotals)
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
+  const [isSavingLineItems, setIsSavingLineItems] = useState(false)
   const [pipelineReady, setPipelineReady] = useState(false)
   const listControllerRef = useRef(null)
   const hasDealFilters = search.trim() !== '' || stageFilter !== 'all' || ownerFilter !== 'all'
@@ -293,6 +350,9 @@ export function DealsRoute() {
           setNotes([])
           setTasks([])
           setActivities([])
+          setLineItems([])
+          setLineTotals(emptyLineTotals)
+          setLineItemForm(emptyLineItemForm)
           setNoteBody('')
           setTaskForm(emptyTaskForm)
         }
@@ -318,10 +378,11 @@ export function DealsRoute() {
 
       try {
         setIsDetailLoading(true)
-        const [dealData, loadedNotes, taskData] = await Promise.all([
+        const [dealData, loadedNotes, taskData, loadedCatalog] = await Promise.all([
           getDeal(routeDealId, { signal: controller.signal }),
           listNotes('deal', routeDealId, { signal: controller.signal }),
-          listTasks({ status: 'open', entityType: 'deal', entityId: routeDealId }, { signal: controller.signal })
+          listTasks({ status: 'open', entityType: 'deal', entityId: routeDealId }, { signal: controller.signal }),
+          listProductCatalogItems({ signal: controller.signal })
         ])
         if (controller.signal.aborted) {
           return
@@ -334,6 +395,10 @@ export function DealsRoute() {
         setSelectedStageId(String(dealData.deal.stageId))
         setDetailForm(dealFormValues(dealData.deal))
         setActivities(dealData.activities || [])
+        setLineItems(dealData.lineItems || [])
+        setLineTotals(dealData.totals || emptyLineTotals)
+        setLineItemForm(emptyLineItemForm)
+        setProductCatalogItems(loadedCatalog)
         setNotes(loadedNotes)
         setTasks(taskData.tasks || [])
         setNoteBody('')
@@ -409,6 +474,9 @@ export function DealsRoute() {
       setDeals((current) => [...current, data.deal])
       setNotes(data.notes || [])
       setTasks(data.tasks || [])
+      setLineItems(data.lineItems || [])
+      setLineTotals(data.totals || emptyLineTotals)
+      setLineItemForm(emptyLineItemForm)
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setActivities(data.activities || [])
@@ -438,6 +506,8 @@ export function DealsRoute() {
       const data = await updateDealStage(selectedDealId, Number.parseInt(selectedStageId, 10))
       setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
       setActivities(data.activities || [])
+      setLineItems(data.lineItems || [])
+      setLineTotals(data.totals || emptyLineTotals)
       setError('')
     } catch (moveError) {
       setError(moveError.message || 'Unable to move deal.')
@@ -449,17 +519,28 @@ export function DealsRoute() {
     setSelectedStageId(String(deal.stageId))
     setDetailForm(dealFormValues(deal))
     setActivities([])
+    setLineItems([])
+    setLineTotals(emptyLineTotals)
+    setLineItemForm(emptyLineItemForm)
     setNoteBody('')
     setTaskForm(emptyTaskForm)
     navigate(buildDealsPath(deal.id))
     try {
-      const [loadedNotes, taskData] = await Promise.all([
+      const [dealData, loadedNotes, taskData, loadedCatalog] = await Promise.all([
+        getDeal(deal.id, { signal }),
         listNotes('deal', deal.id, { signal }),
-        listTasks({ status: 'open', entityType: 'deal', entityId: deal.id }, { signal })
+        listTasks({ status: 'open', entityType: 'deal', entityId: deal.id }, { signal }),
+        listProductCatalogItems({ signal })
       ])
       if (signal?.aborted) {
         return
       }
+      setDeals((current) => current.map((entry) => (entry.id === deal.id ? dealData.deal : entry)))
+      setDetailForm(dealFormValues(dealData.deal))
+      setActivities(dealData.activities || [])
+      setLineItems(dealData.lineItems || [])
+      setLineTotals(dealData.totals || emptyLineTotals)
+      setProductCatalogItems(loadedCatalog)
       setNotes(loadedNotes)
       setTasks(taskData.tasks || [])
       setError('')
@@ -492,6 +573,8 @@ export function DealsRoute() {
       setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
       setDetailForm(dealFormValues(data.deal))
       setActivities(data.activities || [])
+      setLineItems(data.lineItems || [])
+      setLineTotals(data.totals || emptyLineTotals)
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to update deal.')
@@ -516,6 +599,9 @@ export function DealsRoute() {
       setDetailForm(emptyForm)
       setNotes([])
       setTasks([])
+      setLineItems([])
+      setLineTotals(emptyLineTotals)
+      setLineItemForm(emptyLineItemForm)
       setActivities([])
       setNoteBody('')
       setTaskForm(emptyTaskForm)
@@ -569,6 +655,47 @@ export function DealsRoute() {
       setError('')
     } catch (taskError) {
       setError(taskError.message || 'Unable to create task.')
+    }
+  }
+
+  function handleCatalogLineItemChange(event) {
+    const productCatalogItemId = event.target.value
+    const catalogItem = productCatalogItems.find((item) => String(item.id) === productCatalogItemId)
+    setLineItemForm(lineItemFormFromCatalogItem(catalogItem))
+  }
+
+  function handleAddLineItem(event) {
+    event.preventDefault()
+    if (!lineItemForm.name.trim()) {
+      setError('Line item name is required.')
+      return
+    }
+    setLineItems((current) => [...current, { ...lineItemForm, position: current.length + 1 }])
+    setLineItemForm(emptyLineItemForm)
+    setError('')
+  }
+
+  function handleRemoveLineItem(index) {
+    setLineItems((current) => current.filter((_, entryIndex) => entryIndex !== index).map((item, entryIndex) => ({ ...item, position: entryIndex + 1 })))
+  }
+
+  async function handleSaveLineItems() {
+    if (!selectedDealId) {
+      return
+    }
+    setIsSavingLineItems(true)
+    try {
+      const data = await replaceDealLineItems(selectedDealId, { items: lineItems.map(lineItemPayload) })
+      setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
+      setDetailForm(dealFormValues(data.deal))
+      setLineItems(data.lineItems || [])
+      setLineTotals(data.totals || emptyLineTotals)
+      setActivities(data.activities || [])
+      setError('')
+    } catch (lineItemError) {
+      setError(lineItemError.message || 'Unable to update deal line items.')
+    } finally {
+      setIsSavingLineItems(false)
     }
   }
 
@@ -827,6 +954,84 @@ export function DealsRoute() {
               </Field>
               {canWrite ? <Button type="submit">{`Update ${labels.singular.toLowerCase()}`}</Button> : null}
             </form>
+            <Card>
+              <div className="card-stack">
+                <div className="section-header">
+                  <div>
+                    <h3>Line items</h3>
+                    <p className="field-hint">Use catalog items or custom entries. Saving line items updates the {labels.singular.toLowerCase()} value.</p>
+                  </div>
+                  <div>
+                    <p>{formatMoney(lineTotals.total, lineTotals.currency || selectedDeal.valueCurrency)}</p>
+                    <p className="field-hint">Subtotal {formatMoney(lineTotals.subtotal, lineTotals.currency || selectedDeal.valueCurrency)} · Discount {formatMoney(lineTotals.discountTotal, lineTotals.currency || selectedDeal.valueCurrency)} · Tax {formatMoney(lineTotals.taxTotal, lineTotals.currency || selectedDeal.valueCurrency)}</p>
+                  </div>
+                </div>
+                <div className="record-list" role="list" aria-label="Deal line items">
+                  {lineItems.length === 0 ? (
+                    <article className="record-row" role="listitem">
+                      <div>
+                        <p>No line items yet.</p>
+                        <p className="field-hint">Add products or services to calculate the deal value from quote-ready details.</p>
+                      </div>
+                    </article>
+                  ) : lineItems.map((item, index) => (
+                    <article className="record-row" key={`${item.id || 'draft'}-${index}`} role="listitem">
+                      <div>
+                        <h4>{item.name}</h4>
+                        <p className="field-hint">{item.sku || 'No SKU'} · {item.quantity} {item.unitName || 'unit'} x {formatMoney(item.unitPrice, item.currency)} · Discount {formatMoney(item.discountAmount, item.currency)} · Tax {item.taxRate || '0'}%</p>
+                      </div>
+                      <div>
+                        <p>{item.total ? formatMoney(item.total, item.currency) : 'Unsaved'}</p>
+                        {canWrite ? <Button className="button-secondary" type="button" onClick={() => handleRemoveLineItem(index)}>Remove</Button> : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {canWrite ? (
+                  <>
+                    <form className="auth-form" onSubmit={handleAddLineItem}>
+                      <Field label="Catalog item">
+                        <select className="text-input" value={lineItemForm.productCatalogItemId} onChange={handleCatalogLineItemChange}>
+                          <option value="">Custom line item</option>
+                          {productCatalogItems.map((item) => (
+                            <option key={item.id} value={item.id}>{item.sku ? `${item.name} (${item.sku})` : item.name}</option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Line item name">
+                        <input className="text-input" value={lineItemForm.name} onChange={(event) => setLineItemForm((current) => ({ ...current, name: event.target.value }))} required />
+                      </Field>
+                      <Field label="Line item type">
+                        <select className="text-input" value={lineItemForm.itemType} onChange={(event) => setLineItemForm((current) => ({ ...current, itemType: event.target.value }))}>
+                          <option value="product">Product</option>
+                          <option value="service">Service</option>
+                        </select>
+                      </Field>
+                      <Field label="Line item quantity">
+                        <input className="text-input" inputMode="decimal" value={lineItemForm.quantity} onChange={(event) => setLineItemForm((current) => ({ ...current, quantity: event.target.value }))} required />
+                      </Field>
+                      <Field label="Line item unit">
+                        <input className="text-input" value={lineItemForm.unitName} onChange={(event) => setLineItemForm((current) => ({ ...current, unitName: event.target.value }))} required />
+                      </Field>
+                      <Field label="Line item unit price">
+                        <input className="text-input" inputMode="decimal" value={lineItemForm.unitPrice} onChange={(event) => setLineItemForm((current) => ({ ...current, unitPrice: event.target.value }))} required />
+                      </Field>
+                      <Field label="Line item discount">
+                        <input className="text-input" inputMode="decimal" value={lineItemForm.discountAmount} onChange={(event) => setLineItemForm((current) => ({ ...current, discountAmount: event.target.value }))} />
+                      </Field>
+                      <Field label="Line item tax rate">
+                        <input className="text-input" inputMode="decimal" value={lineItemForm.taxRate} onChange={(event) => setLineItemForm((current) => ({ ...current, taxRate: event.target.value }))} />
+                      </Field>
+                      <Field label="Line item currency">
+                        <input className="text-input" maxLength={3} value={lineItemForm.currency} onChange={(event) => setLineItemForm((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} required />
+                      </Field>
+                      <Button type="submit">Add line item</Button>
+                    </form>
+                    <Button type="button" onClick={handleSaveLineItems} disabled={isSavingLineItems}>{isSavingLineItems ? 'Saving...' : 'Save line items'}</Button>
+                  </>
+                ) : null}
+              </div>
+            </Card>
             {canWrite ? (
               <>
                 <Field label={labels.moveLabel}>
