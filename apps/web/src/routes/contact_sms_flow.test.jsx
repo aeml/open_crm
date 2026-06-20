@@ -58,6 +58,9 @@ describe('contact sms flow', () => {
 
     await screen.findByRole('heading', { name: /^sms$/i })
     fireEvent.change(screen.getByLabelText(/sms template/i), { target: { value: 'Follow-up' } })
+    await waitFor(() => {
+      expect(screen.getByLabelText(/sms body/i)).toHaveValue('Hi {{first_name}}, thanks for your time today. Reply STOP to opt out.')
+    })
     fireEvent.click(screen.getByRole('button', { name: /send text/i }))
 
     await waitFor(() => {
@@ -70,6 +73,9 @@ describe('contact sms flow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /log inbound sms/i }))
     fireEvent.change(screen.getByLabelText(/inbound sms body/i), { target: { value: 'STOP' } })
+    await waitFor(() => {
+      expect(screen.getByLabelText(/inbound sms body/i)).toHaveValue('STOP')
+    })
     fireEvent.click(screen.getByRole('button', { name: /save inbound sms/i }))
 
     await waitFor(() => {
