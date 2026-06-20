@@ -16,44 +16,57 @@ import (
 )
 
 type fakeDealsService struct {
-	listStagesResult       []moduledeals.Stage
-	listStagesErr          error
-	listResult             moduledeals.ListResult
-	listErr                error
-	getResult              moduledeals.Detail
-	getErr                 error
-	createResult           moduledeals.Detail
-	createErr              error
-	updateResult           moduledeals.Detail
-	updateErr              error
-	archiveErr             error
-	updateStageResult      moduledeals.Detail
-	updateStageErr         error
-	replaceLineItemsResult moduledeals.Detail
-	replaceLineItemsErr    error
-	lastListStagesOrgID    int64
-	lastListOrgID          int64
-	lastListQuery          moduledeals.ListQuery
-	lastGetOrgID           int64
-	lastGetDealID          int64
-	lastCreateOrgID        int64
-	lastCreateActorID      int64
-	lastCreateInput        moduledeals.CreateInput
-	lastUpdateOrgID        int64
-	lastUpdateDealID       int64
-	lastUpdateActorID      int64
-	lastUpdateInput        moduledeals.UpdateInput
-	lastArchiveOrgID       int64
-	lastArchiveDealID      int64
-	lastArchiveActorID     int64
-	lastUpdateStageOrgID   int64
-	lastUpdateStageDealID  int64
-	lastUpdateStageActorID int64
-	lastUpdateStageInput   moduledeals.UpdateStageInput
-	lastLineItemsOrgID     int64
-	lastLineItemsDealID    int64
-	lastLineItemsActorID   int64
-	lastLineItemsInput     moduledeals.LineItemsInput
+	listStagesResult           []moduledeals.Stage
+	listStagesErr              error
+	listResult                 moduledeals.ListResult
+	listErr                    error
+	getResult                  moduledeals.Detail
+	getErr                     error
+	createResult               moduledeals.Detail
+	createErr                  error
+	updateResult               moduledeals.Detail
+	updateErr                  error
+	archiveErr                 error
+	updateStageResult          moduledeals.Detail
+	updateStageErr             error
+	replaceLineItemsResult     moduledeals.Detail
+	replaceLineItemsErr        error
+	createSignatureResult      moduledeals.Detail
+	createSignatureErr         error
+	updateSignatureResult      moduledeals.Detail
+	updateSignatureErr         error
+	lastListStagesOrgID        int64
+	lastListOrgID              int64
+	lastListQuery              moduledeals.ListQuery
+	lastGetOrgID               int64
+	lastGetDealID              int64
+	lastCreateOrgID            int64
+	lastCreateActorID          int64
+	lastCreateInput            moduledeals.CreateInput
+	lastUpdateOrgID            int64
+	lastUpdateDealID           int64
+	lastUpdateActorID          int64
+	lastUpdateInput            moduledeals.UpdateInput
+	lastArchiveOrgID           int64
+	lastArchiveDealID          int64
+	lastArchiveActorID         int64
+	lastUpdateStageOrgID       int64
+	lastUpdateStageDealID      int64
+	lastUpdateStageActorID     int64
+	lastUpdateStageInput       moduledeals.UpdateStageInput
+	lastLineItemsOrgID         int64
+	lastLineItemsDealID        int64
+	lastLineItemsActorID       int64
+	lastLineItemsInput         moduledeals.LineItemsInput
+	lastCreateSignatureOrgID   int64
+	lastCreateSignatureDealID  int64
+	lastCreateSignatureActorID int64
+	lastCreateSignatureInput   moduledeals.SignatureRequestInput
+	lastUpdateSignatureOrgID   int64
+	lastUpdateSignatureDealID  int64
+	lastUpdateSignatureID      int64
+	lastUpdateSignatureActorID int64
+	lastUpdateSignatureInput   moduledeals.SignatureStatusInput
 }
 
 func (f *fakeDealsService) ListStagesByOrganization(_ context.Context, organizationID int64) ([]moduledeals.Stage, error) {
@@ -109,6 +122,23 @@ func (f *fakeDealsService) ReplaceLineItems(_ context.Context, organizationID, d
 	f.lastLineItemsActorID = actorUserID
 	f.lastLineItemsInput = input
 	return f.replaceLineItemsResult, f.replaceLineItemsErr
+}
+
+func (f *fakeDealsService) CreateSignatureRequest(_ context.Context, organizationID, dealID, actorUserID int64, input moduledeals.SignatureRequestInput) (moduledeals.Detail, error) {
+	f.lastCreateSignatureOrgID = organizationID
+	f.lastCreateSignatureDealID = dealID
+	f.lastCreateSignatureActorID = actorUserID
+	f.lastCreateSignatureInput = input
+	return f.createSignatureResult, f.createSignatureErr
+}
+
+func (f *fakeDealsService) UpdateSignatureRequestStatus(_ context.Context, organizationID, dealID, requestID, actorUserID int64, input moduledeals.SignatureStatusInput) (moduledeals.Detail, error) {
+	f.lastUpdateSignatureOrgID = organizationID
+	f.lastUpdateSignatureDealID = dealID
+	f.lastUpdateSignatureID = requestID
+	f.lastUpdateSignatureActorID = actorUserID
+	f.lastUpdateSignatureInput = input
+	return f.updateSignatureResult, f.updateSignatureErr
 }
 
 func authenticatedDealsServer(service *fakeDealsService) http.Handler {
@@ -436,5 +466,105 @@ func TestReplaceDealLineItemsUsesCurrentOrganization(t *testing.T) {
 	}
 	if len(response.Data.LineItems) != 1 || response.Data.Totals.Total != "308.00" {
 		t.Fatalf("unexpected line item response: %#v", response.Data)
+	}
+}
+
+func TestCreateDealSignatureRequestUsesCurrentOrganization(t *testing.T) {
+	service := &fakeDealsService{
+		createSignatureResult: moduledeals.Detail{
+			Summary: moduledeals.Summary{ID: 12, Name: "Bluebird Rollout", StageID: 3, StageName: "Proposal", ValueAmount: "308.00", ValueCurrency: "USD", Status: "open", OwnerUserID: 1},
+			SignatureRequests: []moduledeals.SignatureRequest{{
+				ID:            41,
+				SignerName:    "Ava Stone",
+				SignerEmail:   "ava@bluebird.example",
+				Status:        "draft",
+				Provider:      "native_tracking",
+				QuoteFileName: "quote-bluebird-rollout.pdf",
+				CreatedAt:     "2026-06-20T21:00:00Z",
+				UpdatedAt:     "2026-06-20T21:00:00Z",
+			}},
+			Activities: []moduledeals.ActivityEntry{{ID: 95, Action: "deal.signature_request_created", Summary: "Signature request created for Ava Stone", CreatedAt: time.Date(2026, 6, 20, 21, 0, 0, 0, time.UTC)}},
+		},
+	}
+	server := authenticatedDealsServer(service)
+
+	body := bytes.NewBufferString(`{"signerName":"Ava Stone","signerEmail":"ava@bluebird.example","quoteFileName":"quote-bluebird-rollout.pdf"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/signature-requests", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
+	}
+	if service.lastCreateSignatureOrgID != 42 || service.lastCreateSignatureDealID != 12 || service.lastCreateSignatureActorID != 1 {
+		t.Fatalf("unexpected signature create routing: org=%d deal=%d actor=%d", service.lastCreateSignatureOrgID, service.lastCreateSignatureDealID, service.lastCreateSignatureActorID)
+	}
+	if service.lastCreateSignatureInput.SignerName != "Ava Stone" || service.lastCreateSignatureInput.SignerEmail != "ava@bluebird.example" {
+		t.Fatalf("unexpected signature create input: %#v", service.lastCreateSignatureInput)
+	}
+
+	var response struct {
+		Data struct {
+			SignatureRequests []moduledeals.SignatureRequest `json:"signatureRequests"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected valid JSON, got error: %v", err)
+	}
+	if len(response.Data.SignatureRequests) != 1 || response.Data.SignatureRequests[0].Status != "draft" {
+		t.Fatalf("unexpected signature response: %#v", response.Data.SignatureRequests)
+	}
+}
+
+func TestUpdateDealSignatureRequestStatusUsesCurrentOrganization(t *testing.T) {
+	service := &fakeDealsService{
+		updateSignatureResult: moduledeals.Detail{
+			Summary: moduledeals.Summary{ID: 12, Name: "Bluebird Rollout", StageID: 3, StageName: "Proposal", ValueAmount: "308.00", ValueCurrency: "USD", Status: "open", OwnerUserID: 1},
+			SignatureRequests: []moduledeals.SignatureRequest{{
+				ID:          41,
+				SignerName:  "Ava Stone",
+				SignerEmail: "ava@bluebird.example",
+				Status:      "signed",
+				Provider:    "native_tracking",
+				SignedAt:    "2026-06-20T21:30:00Z",
+				CreatedAt:   "2026-06-20T21:00:00Z",
+				UpdatedAt:   "2026-06-20T21:30:00Z",
+			}},
+			Activities: []moduledeals.ActivityEntry{{ID: 96, Action: "deal.signature_request_updated", Summary: "Signature request for Ava Stone marked signed", CreatedAt: time.Date(2026, 6, 20, 21, 30, 0, 0, time.UTC)}},
+		},
+	}
+	server := authenticatedDealsServer(service)
+
+	body := bytes.NewBufferString(`{"status":"signed"}`)
+	request := httptest.NewRequest(http.MethodPatch, "/api/deals/12/signature-requests/41", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastUpdateSignatureOrgID != 42 || service.lastUpdateSignatureDealID != 12 || service.lastUpdateSignatureID != 41 || service.lastUpdateSignatureActorID != 1 {
+		t.Fatalf("unexpected signature update routing: org=%d deal=%d request=%d actor=%d", service.lastUpdateSignatureOrgID, service.lastUpdateSignatureDealID, service.lastUpdateSignatureID, service.lastUpdateSignatureActorID)
+	}
+	if service.lastUpdateSignatureInput.Status != "signed" {
+		t.Fatalf("unexpected signature update input: %#v", service.lastUpdateSignatureInput)
+	}
+
+	var response struct {
+		Data struct {
+			SignatureRequests []moduledeals.SignatureRequest `json:"signatureRequests"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected valid JSON, got error: %v", err)
+	}
+	if len(response.Data.SignatureRequests) != 1 || response.Data.SignatureRequests[0].Status != "signed" {
+		t.Fatalf("unexpected signature response: %#v", response.Data.SignatureRequests)
 	}
 }

@@ -348,3 +348,79 @@ func handleReplaceDealLineItems(auth authService, deals dealsService, w http.Res
 
 	respondDealDetail(w, r, http.StatusOK, result)
 }
+
+func handleCreateDealSignatureRequest(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgWriter(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	dealID, ok := parsePathInt64(w, r, "dealID")
+	if !ok {
+		return
+	}
+
+	var request moduledeals.SignatureRequestInput
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	result, err := deals.CreateSignatureRequest(r.Context(), state.Organization.ID, dealID, state.User.ID, request)
+	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
+		if errors.Is(err, moduledeals.ErrInvalidSignatureRequest) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a signer name and valid signer email")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create signature request")
+		return
+	}
+
+	respondDealDetail(w, r, http.StatusCreated, result)
+}
+
+func handleUpdateDealSignatureRequestStatus(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgWriter(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+
+	dealID, ok := parsePathInt64(w, r, "dealID")
+	if !ok {
+		return
+	}
+	requestSignatureID, ok := parsePathInt64(w, r, "requestID")
+	if !ok {
+		return
+	}
+
+	var request moduledeals.SignatureStatusInput
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	result, err := deals.UpdateSignatureRequestStatus(r.Context(), state.Organization.ID, dealID, requestSignatureID, state.User.ID, request)
+	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
+		if errors.Is(err, moduledeals.ErrInvalidSignatureRequest) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a signature status of draft, sent, signed, declined, or voided")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update signature request")
+		return
+	}
+
+	respondDealDetail(w, r, http.StatusOK, result)
+}

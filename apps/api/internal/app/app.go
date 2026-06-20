@@ -91,6 +91,8 @@ type dealsService interface {
 	Archive(context.Context, int64, int64, int64) error
 	UpdateStage(context.Context, int64, int64, int64, moduledeals.UpdateStageInput) (moduledeals.Detail, error)
 	ReplaceLineItems(context.Context, int64, int64, int64, moduledeals.LineItemsInput) (moduledeals.Detail, error)
+	CreateSignatureRequest(context.Context, int64, int64, int64, moduledeals.SignatureRequestInput) (moduledeals.Detail, error)
+	UpdateSignatureRequestStatus(context.Context, int64, int64, int64, int64, moduledeals.SignatureStatusInput) (moduledeals.Detail, error)
 }
 
 type tasksService interface {
@@ -518,10 +520,11 @@ type dealsListResponse struct {
 
 type dealDetailResponse struct {
 	Data struct {
-		Deal       moduledeals.Summary         `json:"deal"`
-		Activities []moduledeals.ActivityEntry `json:"activities"`
-		LineItems  []moduledeals.LineItem      `json:"lineItems"`
-		Totals     moduledeals.DealTotals      `json:"totals"`
+		Deal              moduledeals.Summary            `json:"deal"`
+		Activities        []moduledeals.ActivityEntry    `json:"activities"`
+		LineItems         []moduledeals.LineItem         `json:"lineItems"`
+		Totals            moduledeals.DealTotals         `json:"totals"`
+		SignatureRequests []moduledeals.SignatureRequest `json:"signatureRequests"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -946,6 +949,12 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PUT /api/deals/{dealID}/line-items", func(w http.ResponseWriter, r *http.Request) {
 		handleReplaceDealLineItems(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("POST /api/deals/{dealID}/signature-requests", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateDealSignatureRequest(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/deals/{dealID}/signature-requests/{requestID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateDealSignatureRequestStatus(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("GET /api/notes", func(w http.ResponseWriter, r *http.Request) {
 		handleListNotes(dependencies.AuthService, dependencies.NotesService, w, r)

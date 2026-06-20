@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	ErrInvalidLineItems = errors.New("invalid deal line items")
-	ErrNotFound         = errors.New("deal not found")
+	ErrInvalidLineItems        = errors.New("invalid deal line items")
+	ErrInvalidSignatureRequest = errors.New("invalid deal signature request")
+	ErrNotFound                = errors.New("deal not found")
 )
 
 var (
@@ -57,10 +58,11 @@ type ActivityEntry struct {
 }
 
 type Detail struct {
-	Summary    Summary
-	Activities []ActivityEntry
-	LineItems  []LineItem
-	Totals     DealTotals
+	Summary           Summary
+	Activities        []ActivityEntry
+	LineItems         []LineItem
+	Totals            DealTotals
+	SignatureRequests []SignatureRequest
 }
 
 type LineItem struct {
@@ -105,6 +107,34 @@ type LineItemInput struct {
 
 type LineItemsInput struct {
 	Items []LineItemInput `json:"items"`
+}
+
+type SignatureRequest struct {
+	ID              int64  `json:"id"`
+	SignerName      string `json:"signerName"`
+	SignerEmail     string `json:"signerEmail"`
+	Status          string `json:"status"`
+	Provider        string `json:"provider"`
+	ExternalID      string `json:"externalId"`
+	QuoteFileName   string `json:"quoteFileName"`
+	SentAt          string `json:"sentAt"`
+	SignedAt        string `json:"signedAt"`
+	DeclinedAt      string `json:"declinedAt"`
+	VoidedAt        string `json:"voidedAt"`
+	CreatedByUserID int64  `json:"createdByUserId"`
+	UpdatedByUserID int64  `json:"updatedByUserId"`
+	CreatedAt       string `json:"createdAt"`
+	UpdatedAt       string `json:"updatedAt"`
+}
+
+type SignatureRequestInput struct {
+	SignerName    string `json:"signerName"`
+	SignerEmail   string `json:"signerEmail"`
+	QuoteFileName string `json:"quoteFileName"`
+}
+
+type SignatureStatusInput struct {
+	Status string `json:"status"`
 }
 
 type ListQuery struct {
@@ -535,12 +565,120 @@ func (s *Service) ReplaceLineItems(ctx context.Context, organizationID, dealID, 
 	return s.GetByID(ctx, organizationID, dealID)
 }
 
+func (s *Service) CreateSignatureRequest(ctx context.Context, organizationID, dealID, actorUserID int64, input SignatureRequestInput) (Detail, error) {
+	if s == nil || s.pool == nil {
+		return Detail{}, fmt.Errorf("deals service not configured")
+	}
+
+	input = normalizeSignatureRequestInput(input)
+	if input.SignerName == "" || !validSignatureEmail(input.SignerEmail) {
+		return Detail{}, ErrInvalidSignatureRequest
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Detail{}, fmt.Errorf("begin signature request transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	dealName := ""
+	if err := tx.QueryRow(ctx, `
+		SELECT name
+		FROM deals
+		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
+	`, organizationID, dealID).Scan(&dealName); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
+		return Detail{}, fmt.Errorf("lookup deal for signature request: %w", err)
+	}
+	if input.QuoteFileName == "" {
+		input.QuoteFileName = fmt.Sprintf("quote-%s.pdf", quoteFilename(dealName))
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO deal_signature_requests (organization_id, deal_id, signer_name, signer_email, quote_file_name, created_by_user_id, updated_by_user_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)
+	`, organizationID, dealID, input.SignerName, input.SignerEmail, input.QuoteFileName, actorUserID)
+	if err != nil {
+		return Detail{}, mapSignatureRequestSaveError(err)
+	}
+
+	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.signature_request_created", fmt.Sprintf("Signature request created for %s", input.SignerName)); err != nil {
+		return Detail{}, fmt.Errorf("insert signature request activity: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Detail{}, fmt.Errorf("commit signature request transaction: %w", err)
+	}
+
+	return s.GetByID(ctx, organizationID, dealID)
+}
+
+func (s *Service) UpdateSignatureRequestStatus(ctx context.Context, organizationID, dealID, requestID, actorUserID int64, input SignatureStatusInput) (Detail, error) {
+	if s == nil || s.pool == nil {
+		return Detail{}, fmt.Errorf("deals service not configured")
+	}
+
+	status := normalizeSignatureStatus(input.Status)
+	if status == "" {
+		return Detail{}, ErrInvalidSignatureRequest
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Detail{}, fmt.Errorf("begin signature status transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	signerName := ""
+	if err := tx.QueryRow(ctx, `
+		SELECT dsr.signer_name
+		FROM deal_signature_requests dsr
+		JOIN deals d ON d.organization_id = dsr.organization_id AND d.id = dsr.deal_id AND d.archived_at IS NULL
+		WHERE dsr.organization_id = $1 AND dsr.deal_id = $2 AND dsr.id = $3
+	`, organizationID, dealID, requestID).Scan(&signerName); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
+		return Detail{}, fmt.Errorf("lookup signature request: %w", err)
+	}
+
+	updated, err := tx.Exec(ctx, `
+		UPDATE deal_signature_requests
+		SET status = $4,
+		    sent_at = CASE WHEN $4 IN ('sent', 'signed', 'declined') AND sent_at IS NULL THEN NOW() ELSE sent_at END,
+		    signed_at = CASE WHEN $4 = 'signed' THEN NOW() ELSE signed_at END,
+		    declined_at = CASE WHEN $4 = 'declined' THEN NOW() ELSE declined_at END,
+		    voided_at = CASE WHEN $4 = 'voided' THEN NOW() ELSE voided_at END,
+		    updated_by_user_id = $5,
+		    updated_at = NOW()
+		WHERE organization_id = $1 AND deal_id = $2 AND id = $3
+	`, organizationID, dealID, requestID, status, actorUserID)
+	if err != nil {
+		return Detail{}, mapSignatureRequestSaveError(err)
+	}
+	if updated.RowsAffected() == 0 {
+		return Detail{}, ErrNotFound
+	}
+
+	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.signature_request_updated", fmt.Sprintf("Signature request for %s marked %s", signerName, status)); err != nil {
+		return Detail{}, fmt.Errorf("insert signature status activity: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Detail{}, fmt.Errorf("commit signature status transaction: %w", err)
+	}
+
+	return s.GetByID(ctx, organizationID, dealID)
+}
+
 func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (Detail, error) {
 	if s == nil || s.pool == nil {
 		return Detail{}, fmt.Errorf("deals service not configured")
 	}
 
-	detail := Detail{Activities: []ActivityEntry{}, LineItems: []LineItem{}}
+	detail := Detail{Activities: []ActivityEntry{}, LineItems: []LineItem{}, SignatureRequests: []SignatureRequest{}}
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
 			d.id,
@@ -610,6 +748,12 @@ func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (De
 	}
 	detail.LineItems = lineItems
 	detail.Totals = totals
+
+	signatureRequests, err := s.listSignatureRequests(ctx, organizationID, dealID)
+	if err != nil {
+		return Detail{}, err
+	}
+	detail.SignatureRequests = signatureRequests
 
 	return detail, nil
 }
@@ -687,6 +831,64 @@ func (s *Service) listLineItems(ctx context.Context, organizationID, dealID int6
 	}
 
 	return items, totals, nil
+}
+
+func (s *Service) listSignatureRequests(ctx context.Context, organizationID, dealID int64) ([]SignatureRequest, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			id,
+			signer_name,
+			signer_email,
+			status,
+			provider,
+			external_id,
+			quote_file_name,
+			COALESCE(TO_CHAR(sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+			COALESCE(TO_CHAR(signed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+			COALESCE(TO_CHAR(declined_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+			COALESCE(TO_CHAR(voided_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+			COALESCE(created_by_user_id, 0),
+			COALESCE(updated_by_user_id, 0),
+			TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+			TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+		FROM deal_signature_requests
+		WHERE organization_id = $1 AND deal_id = $2
+		ORDER BY created_at DESC, id DESC
+	`, organizationID, dealID)
+	if err != nil {
+		return nil, fmt.Errorf("list deal signature requests: %w", err)
+	}
+	defer rows.Close()
+
+	requests := make([]SignatureRequest, 0)
+	for rows.Next() {
+		var request SignatureRequest
+		if err := rows.Scan(
+			&request.ID,
+			&request.SignerName,
+			&request.SignerEmail,
+			&request.Status,
+			&request.Provider,
+			&request.ExternalID,
+			&request.QuoteFileName,
+			&request.SentAt,
+			&request.SignedAt,
+			&request.DeclinedAt,
+			&request.VoidedAt,
+			&request.CreatedByUserID,
+			&request.UpdatedByUserID,
+			&request.CreatedAt,
+			&request.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan deal signature request: %w", err)
+		}
+		requests = append(requests, request)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate deal signature requests: %w", err)
+	}
+
+	return requests, nil
 }
 
 type catalogLineItemDefaults struct {
@@ -818,6 +1020,43 @@ func mapLineItemSaveError(err error) error {
 		}
 	}
 	return fmt.Errorf("save deal line item: %w", err)
+}
+
+func normalizeSignatureRequestInput(input SignatureRequestInput) SignatureRequestInput {
+	input.SignerName = strings.TrimSpace(input.SignerName)
+	input.SignerEmail = strings.ToLower(strings.TrimSpace(input.SignerEmail))
+	input.QuoteFileName = strings.TrimSpace(input.QuoteFileName)
+	return input
+}
+
+func normalizeSignatureStatus(status string) string {
+	status = strings.ToLower(strings.TrimSpace(status))
+	switch status {
+	case "draft", "sent", "signed", "declined", "voided":
+		return status
+	default:
+		return ""
+	}
+}
+
+func validSignatureEmail(email string) bool {
+	email = strings.TrimSpace(email)
+	if email == "" || strings.ContainsAny(email, " \t\r\n") {
+		return false
+	}
+	at := strings.LastIndex(email, "@")
+	return at > 0 && at < len(email)-1 && strings.Contains(email[at+1:], ".")
+}
+
+func mapSignatureRequestSaveError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23503", "23514", "22003", "22P02":
+			return ErrInvalidSignatureRequest
+		}
+	}
+	return fmt.Errorf("save deal signature request: %w", err)
 }
 
 type activityExecutor interface {

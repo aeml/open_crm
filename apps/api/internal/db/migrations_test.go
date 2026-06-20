@@ -453,3 +453,29 @@ func TestMigrationFilesIncludeDealLineItemsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeDealSignatureRequestsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "038_deal_signature_requests.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected deal signature requests migration to be registered")
+	}
+
+	sql := MigrationSQL("038_deal_signature_requests.sql")
+	if sql == "" {
+		t.Fatal("expected deal signature requests migration SQL to be embedded")
+	}
+	for _, expected := range []string{"deal_signature_requests", "idx_deal_signature_requests_org_deal_created", "idx_deal_signature_requests_org_status", "deal_signature_requests_status_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected deal signature requests migration to include %s", expected)
+		}
+	}
+}

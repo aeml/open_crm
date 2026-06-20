@@ -282,6 +282,7 @@ describe('deals flow', () => {
   it('loads stages and deals, creates a deal, and moves it to another stage', async () => {
     let hasCreatedDeal = false
     let currentDeal = { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 }
+    let signatureRequests = []
 
     const jsonResponse = (payload, init = {}) => ({
       ok: init.ok ?? true,
@@ -435,7 +436,8 @@ describe('deals flow', () => {
             deal: currentDeal,
             activities: [],
             notes: [],
-            tasks: []
+            tasks: [],
+            signatureRequests: []
           }
         }, { status: 201 })
       }
@@ -446,7 +448,40 @@ describe('deals flow', () => {
             deal: currentDeal,
             lineItems: [],
             totals: { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: currentDeal.valueCurrency || 'USD' },
+            signatureRequests,
             activities: []
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals/12/signature-requests') && method === 'POST') {
+        signatureRequests = [
+          { id: 41, signerName: 'Ava Stone', signerEmail: 'ava@bluebird.example', status: 'draft', provider: 'native_tracking', externalId: '', quoteFileName: 'quote-bluebird-rollout.pdf', sentAt: '', signedAt: '', declinedAt: '', voidedAt: '', createdAt: '2026-06-20T21:00:00Z', updatedAt: '2026-06-20T21:00:00Z' }
+        ]
+        return jsonResponse({
+          data: {
+            deal: currentDeal,
+            lineItems: [],
+            totals: { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: currentDeal.valueCurrency || 'USD' },
+            signatureRequests,
+            activities: [
+              { id: 104, action: 'deal.signature_request_created', summary: 'Signature request created for Ava Stone' }
+            ]
+          }
+        }, { status: 201 })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals/12/signature-requests/41') && method === 'PATCH') {
+        signatureRequests = signatureRequests.map((request) => ({ ...request, status: 'signed', signedAt: '2026-06-20T21:30:00Z', updatedAt: '2026-06-20T21:30:00Z' }))
+        return jsonResponse({
+          data: {
+            deal: currentDeal,
+            lineItems: [],
+            totals: { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: currentDeal.valueCurrency || 'USD' },
+            signatureRequests,
+            activities: [
+              { id: 105, action: 'deal.signature_request_updated', summary: 'Signature request for Ava Stone marked signed' }
+            ]
           }
         })
       }
@@ -460,6 +495,7 @@ describe('deals flow', () => {
               { id: 31, productCatalogItemId: 7, name: 'Implementation', sku: 'SERV-001', itemType: 'service', quantity: '2.00', unitName: 'hour', unitPrice: '150.00', subtotal: '300.00', discountAmount: '20.00', taxRate: '10.00', taxAmount: '28.00', total: '308.00', currency: 'USD', position: 1 }
             ],
             totals: { subtotal: '300.00', discountTotal: '20.00', taxTotal: '28.00', total: '308.00', currency: 'USD' },
+            signatureRequests,
             activities: [
               { id: 103, action: 'deal.line_items_updated', summary: 'Deal line items updated' }
             ]
@@ -472,6 +508,7 @@ describe('deals flow', () => {
         return jsonResponse({
           data: {
             deal: currentDeal,
+            signatureRequests,
             activities: [
               { id: 98, action: 'deal.updated', summary: 'Deal updated' }
             ]
@@ -549,6 +586,7 @@ describe('deals flow', () => {
         return jsonResponse({
           data: {
             deal: currentDeal,
+            signatureRequests,
             activities: [
               { id: 99, action: 'deal.stage_changed', summary: 'Deal moved to Proposal' }
             ]
@@ -638,6 +676,29 @@ describe('deals flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /bluebird rollout/i }))
     const detailForm = await screen.findByRole('form', { name: /deal details form/i })
     expect(screen.getByRole('link', { name: /download quote pdf/i })).toHaveAttribute('href', 'https://crmserver.mendola.tech/api/deals/12/quote.pdf')
+
+    fireEvent.change(screen.getByLabelText(/signer name/i), { target: { value: 'Ava Stone' } })
+    fireEvent.change(screen.getByLabelText(/signer email/i), { target: { value: 'ava@bluebird.example' } })
+    fireEvent.click(screen.getByRole('button', { name: /create signature request/i }))
+
+    expect(await screen.findByText(/signature request created for ava stone/i, { selector: '.activity-summary' })).toBeInTheDocument()
+    expect(screen.getByText(/ava@bluebird.example/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/signature-requests$/), expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"signerEmail":"ava@bluebird.example"')
+      }))
+    })
+
+    fireEvent.change(screen.getByLabelText(/signature status for ava stone/i), { target: { value: 'signed' } })
+    expect(await screen.findByText(/signature request for ava stone marked signed/i, { selector: '.activity-summary' })).toBeInTheDocument()
+    expect(screen.getByLabelText(/signature status for ava stone/i)).toHaveValue('signed')
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/signature-requests\/41$/), expect.objectContaining({
+        method: 'PATCH',
+        body: expect.stringContaining('"status":"signed"')
+      }))
+    })
 
     fireEvent.change(screen.getByLabelText(/catalog item/i), { target: { value: '7' } })
     fireEvent.change(screen.getByLabelText(/line item quantity/i), { target: { value: '2' } })

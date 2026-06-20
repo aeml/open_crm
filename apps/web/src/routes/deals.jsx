@@ -8,7 +8,7 @@ import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { InlineError } from '../components/ui/inline_error'
 import { RecordEmailComposer } from '../components/record_email_composer'
-import { archiveDeal, createDeal, dealsExportURL, getDeal, listDeals, listDealStages, quotePDFURL, replaceDealLineItems, sendDealEmail, updateDeal, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, createDealSignatureRequest, dealsExportURL, getDeal, listDeals, listDealStages, quotePDFURL, replaceDealLineItems, sendDealEmail, updateDeal, updateDealSignatureRequestStatus, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -53,6 +53,11 @@ const emptyLineItemForm = {
 
 const emptyLineTotals = { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: 'USD' }
 
+const emptySignatureForm = {
+  signerName: '',
+  signerEmail: ''
+}
+
 function formatMoney(value, currency = 'USD') {
   const amount = Number.parseFloat(value || '0')
   if (!Number.isFinite(amount)) {
@@ -61,6 +66,22 @@ function formatMoney(value, currency = 'USD') {
   const normalizedCurrency = String(currency || 'USD').toUpperCase()
   const safeCurrency = /^[A-Z]{3}$/.test(normalizedCurrency) ? normalizedCurrency : 'USD'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: safeCurrency }).format(amount)
+}
+
+function formatSignatureTime(value) {
+  if (!value) {
+    return 'Not recorded'
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleString()
+}
+
+function signatureStatusLabel(status) {
+  if (status === 'voided') return 'Voided'
+  if (status === 'declined') return 'Declined'
+  if (status === 'signed') return 'Signed'
+  if (status === 'sent') return 'Sent'
+  return 'Draft'
 }
 
 function dealFormValues(deal) {
@@ -220,11 +241,15 @@ export function DealsRoute() {
   const [lineItems, setLineItems] = useState([])
   const [lineItemForm, setLineItemForm] = useState(emptyLineItemForm)
   const [lineTotals, setLineTotals] = useState(emptyLineTotals)
+  const [signatureRequests, setSignatureRequests] = useState([])
+  const [signatureForm, setSignatureForm] = useState(emptySignatureForm)
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isSavingLineItems, setIsSavingLineItems] = useState(false)
+  const [isCreatingSignatureRequest, setIsCreatingSignatureRequest] = useState(false)
+  const [updatingSignatureRequestId, setUpdatingSignatureRequestId] = useState(null)
   const [pipelineReady, setPipelineReady] = useState(false)
   const listControllerRef = useRef(null)
   const hasDealFilters = search.trim() !== '' || stageFilter !== 'all' || ownerFilter !== 'all'
@@ -353,6 +378,8 @@ export function DealsRoute() {
           setLineItems([])
           setLineTotals(emptyLineTotals)
           setLineItemForm(emptyLineItemForm)
+          setSignatureRequests([])
+          setSignatureForm(emptySignatureForm)
           setNoteBody('')
           setTaskForm(emptyTaskForm)
         }
@@ -398,6 +425,8 @@ export function DealsRoute() {
         setLineItems(dealData.lineItems || [])
         setLineTotals(dealData.totals || emptyLineTotals)
         setLineItemForm(emptyLineItemForm)
+        setSignatureRequests(dealData.signatureRequests || [])
+        setSignatureForm(emptySignatureForm)
         setProductCatalogItems(loadedCatalog)
         setNotes(loadedNotes)
         setTasks(taskData.tasks || [])
@@ -477,6 +506,8 @@ export function DealsRoute() {
       setLineItems(data.lineItems || [])
       setLineTotals(data.totals || emptyLineTotals)
       setLineItemForm(emptyLineItemForm)
+      setSignatureRequests(data.signatureRequests || [])
+      setSignatureForm(emptySignatureForm)
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setActivities(data.activities || [])
@@ -508,6 +539,7 @@ export function DealsRoute() {
       setActivities(data.activities || [])
       setLineItems(data.lineItems || [])
       setLineTotals(data.totals || emptyLineTotals)
+      setSignatureRequests(data.signatureRequests || [])
       setError('')
     } catch (moveError) {
       setError(moveError.message || 'Unable to move deal.')
@@ -522,6 +554,8 @@ export function DealsRoute() {
     setLineItems([])
     setLineTotals(emptyLineTotals)
     setLineItemForm(emptyLineItemForm)
+    setSignatureRequests([])
+    setSignatureForm(emptySignatureForm)
     setNoteBody('')
     setTaskForm(emptyTaskForm)
     navigate(buildDealsPath(deal.id))
@@ -540,6 +574,7 @@ export function DealsRoute() {
       setActivities(dealData.activities || [])
       setLineItems(dealData.lineItems || [])
       setLineTotals(dealData.totals || emptyLineTotals)
+      setSignatureRequests(dealData.signatureRequests || [])
       setProductCatalogItems(loadedCatalog)
       setNotes(loadedNotes)
       setTasks(taskData.tasks || [])
@@ -575,6 +610,7 @@ export function DealsRoute() {
       setActivities(data.activities || [])
       setLineItems(data.lineItems || [])
       setLineTotals(data.totals || emptyLineTotals)
+      setSignatureRequests(data.signatureRequests || [])
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to update deal.')
@@ -602,6 +638,8 @@ export function DealsRoute() {
       setLineItems([])
       setLineTotals(emptyLineTotals)
       setLineItemForm(emptyLineItemForm)
+      setSignatureRequests([])
+      setSignatureForm(emptySignatureForm)
       setActivities([])
       setNoteBody('')
       setTaskForm(emptyTaskForm)
@@ -690,12 +728,60 @@ export function DealsRoute() {
       setDetailForm(dealFormValues(data.deal))
       setLineItems(data.lineItems || [])
       setLineTotals(data.totals || emptyLineTotals)
+      setSignatureRequests(data.signatureRequests || [])
       setActivities(data.activities || [])
       setError('')
     } catch (lineItemError) {
       setError(lineItemError.message || 'Unable to update deal line items.')
     } finally {
       setIsSavingLineItems(false)
+    }
+  }
+
+  async function handleCreateSignatureRequest(event) {
+    event.preventDefault()
+    if (!selectedDealId || !signatureForm.signerName.trim() || !signatureForm.signerEmail.trim()) {
+      return
+    }
+    setIsCreatingSignatureRequest(true)
+    try {
+      const data = await createDealSignatureRequest(selectedDealId, {
+        signerName: signatureForm.signerName.trim(),
+        signerEmail: signatureForm.signerEmail.trim()
+      })
+      setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
+      setDetailForm(dealFormValues(data.deal))
+      setLineItems(data.lineItems || [])
+      setLineTotals(data.totals || emptyLineTotals)
+      setSignatureRequests(data.signatureRequests || [])
+      setSignatureForm(emptySignatureForm)
+      setActivities(data.activities || [])
+      setError('')
+    } catch (signatureError) {
+      setError(signatureError.message || 'Unable to create signature request.')
+    } finally {
+      setIsCreatingSignatureRequest(false)
+    }
+  }
+
+  async function handleUpdateSignatureRequestStatus(requestID, status) {
+    if (!selectedDealId) {
+      return
+    }
+    setUpdatingSignatureRequestId(requestID)
+    try {
+      const data = await updateDealSignatureRequestStatus(selectedDealId, requestID, status)
+      setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
+      setDetailForm(dealFormValues(data.deal))
+      setLineItems(data.lineItems || [])
+      setLineTotals(data.totals || emptyLineTotals)
+      setSignatureRequests(data.signatureRequests || [])
+      setActivities(data.activities || [])
+      setError('')
+    } catch (signatureError) {
+      setError(signatureError.message || 'Unable to update signature request.')
+    } finally {
+      setUpdatingSignatureRequestId(null)
     }
   }
 
@@ -1032,6 +1118,57 @@ export function DealsRoute() {
                     </form>
                     <Button type="button" onClick={handleSaveLineItems} disabled={isSavingLineItems}>{isSavingLineItems ? 'Saving...' : 'Save line items'}</Button>
                   </>
+                ) : null}
+              </div>
+            </Card>
+            <Card>
+              <div className="card-stack">
+                <div className="section-header">
+                  <div>
+                    <h3>Signature tracking</h3>
+                    <p className="field-hint">Track quote signature requests while native e-signature and provider integrations are built out.</p>
+                  </div>
+                </div>
+                <div className="record-list" role="list" aria-label="Deal signature requests">
+                  {signatureRequests.length === 0 ? (
+                    <article className="record-row" role="listitem">
+                      <div>
+                        <p>No signature requests yet.</p>
+                        <p className="field-hint">Create a request when a quote is ready for customer review and signature.</p>
+                      </div>
+                    </article>
+                  ) : signatureRequests.map((request) => (
+                    <article className="record-row" key={request.id} role="listitem">
+                      <div>
+                        <h4>{request.signerName}</h4>
+                        <p className="field-hint">{request.signerEmail} · {signatureStatusLabel(request.status)} · {request.provider || 'native_tracking'}</p>
+                        <p className="field-hint">Quote file: {request.quoteFileName || 'Current quote PDF'}</p>
+                      </div>
+                      <div>
+                        <p>{request.status === 'signed' ? `Signed ${formatSignatureTime(request.signedAt)}` : `Updated ${formatSignatureTime(request.updatedAt)}`}</p>
+                        {canWrite ? (
+                          <select className="text-input" aria-label={`Signature status for ${request.signerName}`} value={request.status} disabled={updatingSignatureRequestId === request.id} onChange={(event) => handleUpdateSignatureRequestStatus(request.id, event.target.value)}>
+                            <option value="draft">Draft</option>
+                            <option value="sent">Sent</option>
+                            <option value="signed">Signed</option>
+                            <option value="declined">Declined</option>
+                            <option value="voided">Voided</option>
+                          </select>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                {canWrite ? (
+                  <form className="auth-form" onSubmit={handleCreateSignatureRequest}>
+                    <Field label="Signer name">
+                      <input className="text-input" value={signatureForm.signerName} onChange={(event) => setSignatureForm((current) => ({ ...current, signerName: event.target.value }))} required />
+                    </Field>
+                    <Field label="Signer email">
+                      <input className="text-input" type="email" value={signatureForm.signerEmail} onChange={(event) => setSignatureForm((current) => ({ ...current, signerEmail: event.target.value }))} required />
+                    </Field>
+                    <Button type="submit" disabled={isCreatingSignatureRequest}>{isCreatingSignatureRequest ? 'Creating...' : 'Create signature request'}</Button>
+                  </form>
                 ) : null}
               </div>
             </Card>
