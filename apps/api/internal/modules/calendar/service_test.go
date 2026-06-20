@@ -47,3 +47,22 @@ func TestFakeProviderRecordsScheduleAndCancel(t *testing.T) {
 		t.Fatalf("unexpected fake provider records: schedules=%#v cancels=%#v", provider.Schedules(), provider.Cancels())
 	}
 }
+
+func TestNormalizeBookingLinkInputDefaultsSlugMemberAndDuration(t *testing.T) {
+	input := normalizeBookingLinkInput(BookingLinkInput{Name: " Discovery Call ", Timezone: "", AssignmentMode: ""}, 7)
+
+	if input.Name != "Discovery Call" || input.Slug != "discovery-call" || input.DurationMinutes != 30 || input.Timezone != "UTC" || input.AssignmentMode != "owner" || len(input.MemberUserIDs) != 1 || input.MemberUserIDs[0] != 7 {
+		t.Fatalf("unexpected normalized booking link input: %#v", input)
+	}
+}
+
+func TestNormalizeBookingLinkInputDeduplicatesMembers(t *testing.T) {
+	input := normalizeBookingLinkInput(BookingLinkInput{Name: "Team", DurationMinutes: 45, Timezone: "UTC", AssignmentMode: "round_robin", MemberUserIDs: []int64{2, 0, 2, 3}}, 1)
+
+	if len(input.MemberUserIDs) != 2 || input.MemberUserIDs[0] != 2 || input.MemberUserIDs[1] != 3 {
+		t.Fatalf("unexpected member IDs: %#v", input.MemberUserIDs)
+	}
+	if !validBookingLinkInput(input) {
+		t.Fatalf("expected valid booking link input: %#v", input)
+	}
+}

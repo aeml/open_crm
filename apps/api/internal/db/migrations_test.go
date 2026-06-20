@@ -349,3 +349,29 @@ func TestMigrationFilesIncludeCalendarFoundationMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeCalendarBookingLinksMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "034_calendar_booking_links.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected calendar booking links migration to be registered")
+	}
+
+	sql := MigrationSQL("034_calendar_booking_links.sql")
+	if sql == "" {
+		t.Fatal("expected calendar booking links migration SQL to be embedded")
+	}
+	for _, expected := range []string{"calendar_booking_links", "calendar_booking_link_members", "idx_calendar_booking_links_org_slug", "idx_calendar_booking_link_members_link"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected calendar booking links migration to include %s", expected)
+		}
+	}
+}

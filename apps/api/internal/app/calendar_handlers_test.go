@@ -25,6 +25,10 @@ type fakeCalendarService struct {
 	availabilityErr       error
 	setAvailabilityResult []modulecalendar.AvailabilityBlock
 	setAvailabilityErr    error
+	bookingLinksResult    []modulecalendar.BookingLink
+	bookingLinksErr       error
+	bookingLinkResult     modulecalendar.BookingLink
+	bookingLinkErr        error
 	lastOrgID             int64
 	lastActorID           int64
 	lastUserID            int64
@@ -32,8 +36,10 @@ type fakeCalendarService struct {
 	lastEntityID          int64
 	lastLimit             int
 	lastEventID           int64
+	lastBookingLinkID     int64
 	lastScheduleInput     modulecalendar.ScheduleInput
 	lastAvailabilityInput modulecalendar.AvailabilityInput
+	lastBookingLinkInput  modulecalendar.BookingLinkInput
 }
 
 func (f *fakeCalendarService) ListByEntity(_ context.Context, organizationID int64, entityType string, entityID int64, limit int) ([]modulecalendar.Event, error) {
@@ -69,6 +75,26 @@ func (f *fakeCalendarService) SetAvailability(_ context.Context, organizationID,
 	f.lastUserID = userID
 	f.lastAvailabilityInput = input
 	return f.setAvailabilityResult, f.setAvailabilityErr
+}
+
+func (f *fakeCalendarService) ListBookingLinks(_ context.Context, organizationID int64) ([]modulecalendar.BookingLink, error) {
+	f.lastOrgID = organizationID
+	return f.bookingLinksResult, f.bookingLinksErr
+}
+
+func (f *fakeCalendarService) CreateBookingLink(_ context.Context, organizationID, actorUserID int64, input modulecalendar.BookingLinkInput) (modulecalendar.BookingLink, error) {
+	f.lastOrgID = organizationID
+	f.lastActorID = actorUserID
+	f.lastBookingLinkInput = input
+	return f.bookingLinkResult, f.bookingLinkErr
+}
+
+func (f *fakeCalendarService) UpdateBookingLink(_ context.Context, organizationID, actorUserID, bookingLinkID int64, input modulecalendar.BookingLinkInput) (modulecalendar.BookingLink, error) {
+	f.lastOrgID = organizationID
+	f.lastActorID = actorUserID
+	f.lastBookingLinkID = bookingLinkID
+	f.lastBookingLinkInput = input
+	return f.bookingLinkResult, f.bookingLinkErr
 }
 
 func calendarTestServer(service *fakeCalendarService, role string) http.Handler {
@@ -173,5 +199,76 @@ func TestUpdateCalendarAvailabilityAllowsWriter(t *testing.T) {
 	}
 	if service.lastOrgID != 42 || service.lastUserID != 1 || len(service.lastAvailabilityInput.Blocks) != 1 || service.lastAvailabilityInput.Blocks[0].StartMinute != 540 {
 		t.Fatalf("unexpected availability input: org=%d user=%d input=%#v", service.lastOrgID, service.lastUserID, service.lastAvailabilityInput)
+	}
+}
+
+func TestListCalendarBookingLinksAllowsMember(t *testing.T) {
+	now := time.Now()
+	service := &fakeCalendarService{
+		bookingLinksResult: []modulecalendar.BookingLink{{ID: 12, Slug: "discovery", Name: "Discovery", DurationMinutes: 30, Timezone: "UTC", AssignmentMode: "owner", IsActive: true, CreatedByUserID: 1, CreatedAt: now, UpdatedAt: now}},
+	}
+	server := calendarTestServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/calendar-booking-links", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for booking links, got %d", recorder.Code)
+	}
+	if service.lastOrgID != 42 {
+		t.Fatalf("unexpected booking link org: %d", service.lastOrgID)
+	}
+	var response calendarBookingLinksResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(response.Data.Links) != 1 || response.Data.Links[0].Slug != "discovery" {
+		t.Fatalf("unexpected booking links payload: %#v", response.Data.Links)
+	}
+}
+
+func TestCreateCalendarBookingLinkAllowsWriter(t *testing.T) {
+	now := time.Now()
+	service := &fakeCalendarService{
+		bookingLinkResult: modulecalendar.BookingLink{ID: 12, Slug: "discovery", Name: "Discovery", DurationMinutes: 30, Timezone: "UTC", AssignmentMode: "round_robin", IsActive: true, CreatedByUserID: 1, CreatedAt: now, UpdatedAt: now},
+	}
+	server := calendarTestServer(service, "member")
+
+	body := strings.NewReader(`{"name":"Discovery","slug":"discovery","description":"Intro calls","durationMinutes":30,"bufferMinutes":10,"timezone":"UTC","assignmentMode":"round_robin","memberUserIds":[1,2]}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/calendar-booking-links", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for booking link create, got %d", recorder.Code)
+	}
+	if service.lastOrgID != 42 || service.lastActorID != 1 || service.lastBookingLinkInput.Name != "Discovery" || service.lastBookingLinkInput.AssignmentMode != "round_robin" || !service.lastBookingLinkInput.IsActive || len(service.lastBookingLinkInput.MemberUserIDs) != 2 {
+		t.Fatalf("unexpected booking link input: org=%d actor=%d input=%#v", service.lastOrgID, service.lastActorID, service.lastBookingLinkInput)
+	}
+}
+
+func TestUpdateCalendarBookingLinkAllowsWriter(t *testing.T) {
+	now := time.Now()
+	service := &fakeCalendarService{
+		bookingLinkResult: modulecalendar.BookingLink{ID: 12, Slug: "consult", Name: "Consultation", DurationMinutes: 45, Timezone: "UTC", AssignmentMode: "owner", IsActive: false, CreatedByUserID: 1, CreatedAt: now, UpdatedAt: now},
+	}
+	server := calendarTestServer(service, "member")
+
+	body := strings.NewReader(`{"name":"Consultation","slug":"consult","durationMinutes":45,"bufferMinutes":0,"timezone":"UTC","assignmentMode":"owner","isActive":false,"memberUserIds":[1]}`)
+	request := httptest.NewRequest(http.MethodPatch, "/api/calendar-booking-links/12", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 for booking link update, got %d", recorder.Code)
+	}
+	if service.lastOrgID != 42 || service.lastActorID != 1 || service.lastBookingLinkID != 12 || service.lastBookingLinkInput.DurationMinutes != 45 {
+		t.Fatalf("unexpected booking link update: org=%d actor=%d id=%d input=%#v", service.lastOrgID, service.lastActorID, service.lastBookingLinkID, service.lastBookingLinkInput)
 	}
 }

@@ -37,6 +37,24 @@ type calendarAvailabilityResponse struct {
 	} `json:"meta"`
 }
 
+type calendarBookingLinksResponse struct {
+	Data struct {
+		Links []modulecalendar.BookingLink `json:"links"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type calendarBookingLinkResponse struct {
+	Data struct {
+		Link modulecalendar.BookingLink `json:"link"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type calendarEventRequest struct {
 	EntityType  string `json:"entityType"`
 	EntityID    int64  `json:"entityId"`
@@ -58,6 +76,18 @@ type calendarAvailabilityBlockRequest struct {
 	StartMinute int    `json:"startMinute"`
 	EndMinute   int    `json:"endMinute"`
 	Timezone    string `json:"timezone"`
+}
+
+type calendarBookingLinkRequest struct {
+	Slug            string  `json:"slug"`
+	Name            string  `json:"name"`
+	Description     string  `json:"description"`
+	DurationMinutes int     `json:"durationMinutes"`
+	BufferMinutes   int     `json:"bufferMinutes"`
+	Timezone        string  `json:"timezone"`
+	AssignmentMode  string  `json:"assignmentMode"`
+	IsActive        *bool   `json:"isActive"`
+	MemberUserIDs   []int64 `json:"memberUserIds"`
 }
 
 func handleListCalendarEvents(auth authService, calendar calendarService, w http.ResponseWriter, r *http.Request) {
@@ -208,6 +238,105 @@ func handleUpdateCalendarAvailability(auth authService, calendar calendarService
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
+func handleListCalendarBookingLinks(auth authService, calendar calendarService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if calendar == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Calendar service unavailable")
+		return
+	}
+
+	links, err := calendar.ListBookingLinks(r.Context(), state.Organization.ID)
+	if err != nil {
+		writeCalendarError(w, requestID, err, "Unable to load booking links")
+		return
+	}
+
+	response := calendarBookingLinksResponse{}
+	response.Data.Links = links
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleCreateCalendarBookingLink(auth authService, calendar calendarService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgWriter(auth, w, r)
+	if !ok {
+		return
+	}
+	if calendar == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Calendar service unavailable")
+		return
+	}
+
+	var request calendarBookingLinkRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	link, err := calendar.CreateBookingLink(r.Context(), state.Organization.ID, state.User.ID, toCalendarBookingLinkInput(request))
+	if err != nil {
+		writeCalendarError(w, requestID, err, "Unable to save booking link")
+		return
+	}
+
+	response := calendarBookingLinkResponse{}
+	response.Data.Link = link
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusCreated, response)
+}
+
+func handleUpdateCalendarBookingLink(auth authService, calendar calendarService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgWriter(auth, w, r)
+	if !ok {
+		return
+	}
+	if calendar == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Calendar service unavailable")
+		return
+	}
+	bookingLinkID, ok := parsePathInt64(w, r, "bookingLinkID")
+	if !ok {
+		return
+	}
+
+	var request calendarBookingLinkRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	link, err := calendar.UpdateBookingLink(r.Context(), state.Organization.ID, state.User.ID, bookingLinkID, toCalendarBookingLinkInput(request))
+	if err != nil {
+		writeCalendarError(w, requestID, err, "Unable to save booking link")
+		return
+	}
+
+	response := calendarBookingLinkResponse{}
+	response.Data.Link = link
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func toCalendarBookingLinkInput(request calendarBookingLinkRequest) modulecalendar.BookingLinkInput {
+	isActive := true
+	if request.IsActive != nil {
+		isActive = *request.IsActive
+	}
+	return modulecalendar.BookingLinkInput{
+		Slug:            request.Slug,
+		Name:            request.Name,
+		Description:     request.Description,
+		DurationMinutes: request.DurationMinutes,
+		BufferMinutes:   request.BufferMinutes,
+		Timezone:        request.Timezone,
+		AssignmentMode:  request.AssignmentMode,
+		IsActive:        isActive,
+		MemberUserIDs:   request.MemberUserIDs,
+	}
+}
+
 func parseCalendarRange(w http.ResponseWriter, requestID, startValue, endValue string) (time.Time, time.Time, bool) {
 	startAt, err := time.Parse(time.RFC3339, strings.TrimSpace(startValue))
 	if err != nil {
@@ -229,6 +358,10 @@ func writeCalendarError(w http.ResponseWriter, requestID string, err error, fall
 	}
 	if errors.Is(err, modulecalendar.ErrNotFound) {
 		platformweb.WriteNotFound(w, requestID)
+		return
+	}
+	if errors.Is(err, modulecalendar.ErrDuplicateBookingLinkSlug) {
+		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A booking link with that slug already exists")
 		return
 	}
 	if errors.Is(err, modulecalendar.ErrProviderUnavailable) {

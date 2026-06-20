@@ -141,6 +141,9 @@ type calendarService interface {
 	Cancel(context.Context, int64, int64, int64) (modulecalendar.Event, error)
 	ListAvailability(context.Context, int64, int64) ([]modulecalendar.AvailabilityBlock, error)
 	SetAvailability(context.Context, int64, int64, modulecalendar.AvailabilityInput) ([]modulecalendar.AvailabilityBlock, error)
+	ListBookingLinks(context.Context, int64) ([]modulecalendar.BookingLink, error)
+	CreateBookingLink(context.Context, int64, int64, modulecalendar.BookingLinkInput) (modulecalendar.BookingLink, error)
+	UpdateBookingLink(context.Context, int64, int64, int64, modulecalendar.BookingLinkInput) (modulecalendar.BookingLink, error)
 }
 
 type importsService interface {
@@ -808,6 +811,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PUT /api/me/calendar-availability", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateCalendarAvailability(dependencies.AuthService, dependencies.CalendarService, w, r)
+	})
+	mux.HandleFunc("GET /api/calendar-booking-links", func(w http.ResponseWriter, r *http.Request) {
+		handleListCalendarBookingLinks(dependencies.AuthService, dependencies.CalendarService, w, r)
+	})
+	mux.HandleFunc("POST /api/calendar-booking-links", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateCalendarBookingLink(dependencies.AuthService, dependencies.CalendarService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/calendar-booking-links/{bookingLinkID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateCalendarBookingLink(dependencies.AuthService, dependencies.CalendarService, w, r)
 	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)
