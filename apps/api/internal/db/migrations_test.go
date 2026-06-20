@@ -375,3 +375,29 @@ func TestMigrationFilesIncludeCalendarBookingLinksMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeCalendarRemindersMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "035_calendar_reminders.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected calendar reminders migration to be registered")
+	}
+
+	sql := MigrationSQL("035_calendar_reminders.sql")
+	if sql == "" {
+		t.Fatal("expected calendar reminders migration SQL to be embedded")
+	}
+	for _, expected := range []string{"calendar_event_reminders", "idx_calendar_event_reminders_due", "idx_calendar_event_reminders_org_event", "idx_calendar_event_reminders_user_status"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected calendar reminders migration to include %s", expected)
+		}
+	}
+}

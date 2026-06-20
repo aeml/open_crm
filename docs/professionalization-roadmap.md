@@ -1825,6 +1825,7 @@ Progress:
 - `1.2.4` (SMS foundation): complete. Added organization-scoped SMS message history, phone-number opt-out suppressions, a fake/default SMS provider seam using the telephony provider selector, contact-detail SMS composer with starter templates and merge-field rendering, manual inbound SMS logging with STOP-style opt-out detection, manual opt-out controls, and SMS activity timeline entries. Real Twilio SMS send/receive webhooks, carrier delivery receipts, reusable managed SMS template CRUD, and bulk texting remain future slices.
 - `1.2.5` (calendar meeting foundation): complete. Added organization-scoped calendar events, user availability blocks, a fake/default calendar provider seam, APIs for listing/scheduling/cancelling meetings and current-user availability, contact-detail meeting scheduling/history/cancellation UI, and meeting activity timeline entries. Real Google/Microsoft OAuth calendar event sync, free/busy imports, external attendee invites, webhooks, and conflict resolution remain future provider-specific work.
 - `1.2.6` (booking links foundation): complete. Added organization-scoped calendar booking links with slugs, duration/buffer/timezone metadata, active/inactive state, selected host members, owner vs round-robin assignment mode, authenticated APIs for listing/creating/updating links, and a Settings > Booking Links UI for managing links and weekly availability. Public booking pages, guest self-scheduling, slot generation, real round-robin assignment, external calendar conflict checks, reminders, and rescheduling/cancellation flows remain future slices.
+- `1.2.7` (meeting reminders foundation): complete. Added persistent meeting reminder records for scheduled calendar events, automatic pending-reminder skipping when meetings are cancelled, and an in-process reminder worker that creates in-app `meeting.reminder` notifications plus `meeting.reminder_sent` activity timeline entries when reminders are due. Customer-facing email/SMS reminders, configurable reminder offsets, guest reminder preferences, calendar-provider notifications, and reminder delivery analytics remain future slices.
 
 Candidate slices:
 
@@ -1834,7 +1835,7 @@ Candidate slices:
 - `1.2.4` SMS send/receive with templates and opt-out handling: contact-level fake-provider foundation complete.
 - `1.2.5` Calendar two-way sync (Google/Microsoft) for meetings and availability: meeting/availability foundation complete.
 - `1.2.6` Meeting scheduler / booking links (Calendly-style) with round-robin and team availability: authenticated booking-link/availability foundation complete.
-- `1.2.7` Meeting reminders and automatic activity logging.
+- `1.2.7` Meeting reminders and automatic activity logging: in-app reminder/activity foundation complete.
 
 Exit criteria:
 

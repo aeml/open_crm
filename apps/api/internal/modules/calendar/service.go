@@ -151,6 +151,9 @@ func (s *Service) Schedule(ctx context.Context, organizationID, actorUserID int6
 	`, organizationID, input.EntityType, input.EntityID, input.Title, input.Description, input.Location, input.StartAt, input.EndAt, input.Timezone, input.Visibility, s.provider.Name(), providerResult.ProviderEventID, actorUserID).Scan(&eventID); err != nil {
 		return Event{}, fmt.Errorf("insert calendar event: %w", err)
 	}
+	if err := createDefaultReminder(ctx, tx, organizationID, eventID, actorUserID, input.StartAt); err != nil {
+		return Event{}, err
+	}
 	if err := insertActivity(ctx, tx, organizationID, input.EntityType, input.EntityID, actorUserID, "meeting.scheduled", "Meeting scheduled: "+input.Title); err != nil {
 		return Event{}, err
 	}
@@ -197,6 +200,9 @@ func (s *Service) Cancel(ctx context.Context, organizationID, actorUserID, event
 			return Event{}, ErrNotFound
 		}
 		return Event{}, fmt.Errorf("cancel calendar event: %w", err)
+	}
+	if err := skipPendingReminders(ctx, tx, organizationID, eventID); err != nil {
+		return Event{}, err
 	}
 	if err := insertActivity(ctx, tx, organizationID, entityType, entityID, actorUserID, "meeting.cancelled", "Meeting cancelled: "+title); err != nil {
 		return Event{}, err

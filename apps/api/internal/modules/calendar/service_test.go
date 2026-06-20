@@ -66,3 +66,19 @@ func TestNormalizeBookingLinkInputDeduplicatesMembers(t *testing.T) {
 		t.Fatalf("expected valid booking link input: %#v", input)
 	}
 }
+
+func TestReminderTimeSubtractsReminderWindow(t *testing.T) {
+	startAt := time.Date(2026, 6, 20, 14, 30, 0, 0, time.UTC)
+
+	got := reminderTime(startAt, 15)
+	want := time.Date(2026, 6, 20, 14, 15, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("unexpected reminder time: got %s want %s", got, want)
+	}
+}
+
+func TestCalendarServiceConfiguredRequiresPool(t *testing.T) {
+	if (&Service{}).Configured() {
+		t.Fatal("service without pool should not be configured")
+	}
+}

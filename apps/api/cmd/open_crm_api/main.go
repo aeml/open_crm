@@ -145,6 +145,9 @@ func main() {
 	if sequenceRunnerService != nil && sequenceRunnerService.Configured() {
 		go sequenceRunnerService.RunWorker(ctx, logger, 0, 0)
 	}
+	if calendarService != nil && calendarService.Configured() {
+		go calendarService.RunReminderWorker(ctx, logger, 0, 0)
+	}
 
 	server := newHTTPServer(env, app.NewServer(env, app.Dependencies{
 		CheckReadiness: func(ctx context.Context) error {
