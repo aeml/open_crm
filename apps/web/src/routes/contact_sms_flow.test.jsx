@@ -57,6 +57,9 @@ describe('contact sms flow', () => {
     render(<AppRouter />)
 
     await screen.findByRole('heading', { name: /^sms$/i })
+    await waitFor(() => {
+      expect(screen.queryByText(/loading contact detail/i)).not.toBeInTheDocument()
+    })
     fireEvent.change(screen.getByLabelText(/sms template/i), { target: { value: 'Follow-up' } })
     await waitFor(() => {
       expect(screen.getByLabelText(/sms body/i)).toHaveValue('Hi {{first_name}}, thanks for your time today. Reply STOP to opt out.')

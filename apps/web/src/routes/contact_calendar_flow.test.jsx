@@ -53,6 +53,9 @@ describe('contact calendar flow', () => {
     render(<AppRouter />)
 
     await screen.findByRole('heading', { name: /meetings/i })
+    await waitFor(() => {
+      expect(screen.queryByText(/loading contact detail/i)).not.toBeInTheDocument()
+    })
     fireEvent.change(screen.getByLabelText(/meeting title/i), { target: { value: 'Intro meeting' } })
     fireEvent.change(screen.getByLabelText(/meeting start/i), { target: { value: '2026-06-20T14:00' } })
     fireEvent.change(screen.getByLabelText(/meeting end/i), { target: { value: '2026-06-20T14:30' } })
