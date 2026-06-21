@@ -48,7 +48,7 @@ describe('public landing page route', () => {
     })
 
     vi.stubGlobal('fetch', fetchMock)
-    window.history.pushState({}, '', '/lp/demo-request')
+    window.history.pushState({}, '', '/lp/demo-request?utm_source=google&utm_medium=cpc&utm_campaign=spring-demo&utm_term=crm&utm_content=headline')
 
     render(<AppRouter />)
 
@@ -74,7 +74,15 @@ describe('public landing page route', () => {
           email: 'ada@example.com',
           message: 'I want a walkthrough.'
         },
-        sourceUrl: 'http://localhost:3000/lp/demo-request'
+        sourceUrl: 'http://localhost:3000/lp/demo-request?utm_source=google&utm_medium=cpc&utm_campaign=spring-demo&utm_term=crm&utm_content=headline',
+        attribution: {
+          leadSource: 'Website form',
+          utmSource: 'google',
+          utmMedium: 'cpc',
+          utmCampaign: 'spring-demo',
+          utmTerm: 'crm',
+          utmContent: 'headline'
+        }
       })
     })
   })

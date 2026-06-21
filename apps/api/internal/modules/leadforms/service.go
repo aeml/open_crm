@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -65,11 +66,21 @@ type Input struct {
 	IsActive       *bool   `json:"isActive"`
 }
 
+type Attribution struct {
+	LeadSource  string `json:"leadSource"`
+	UTMSource   string `json:"utmSource"`
+	UTMMedium   string `json:"utmMedium"`
+	UTMCampaign string `json:"utmCampaign"`
+	UTMTerm     string `json:"utmTerm"`
+	UTMContent  string `json:"utmContent"`
+}
+
 type SubmissionInput struct {
-	Values     map[string]string `json:"values"`
-	SourceURL  string            `json:"sourceUrl"`
-	RemoteAddr string            `json:"remoteAddr"`
-	UserAgent  string            `json:"userAgent"`
+	Values      map[string]string `json:"values"`
+	SourceURL   string            `json:"sourceUrl"`
+	Attribution Attribution       `json:"attribution"`
+	RemoteAddr  string            `json:"remoteAddr"`
+	UserAgent   string            `json:"userAgent"`
 }
 
 type Submission struct {
@@ -392,6 +403,8 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 	if err != nil {
 		return SubmissionResult{}, err
 	}
+	sourceURL := trimMax(input.SourceURL, 2048)
+	attribution := normalizeAttribution(form, input, sourceURL)
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -401,14 +414,20 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 
 	var contactID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO contacts (organization_id, first_name, last_name, email, phone, address_line1, address_line2, city, state, postal_code, country, job_title, status, is_client, owner_user_id)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), 'lead', FALSE, NULL)
+		INSERT INTO contacts (organization_id, first_name, last_name, email, phone, address_line1, address_line2, city, state, postal_code, country, job_title, status, is_client, owner_user_id, lead_source, first_source_url, utm_source, utm_medium, utm_campaign, utm_term, utm_content)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), 'lead', FALSE, NULL, $13, $14, $15, $16, $17, $18, $19)
 		RETURNING id
-	`, organizationID, contact.FirstName, contact.LastName, contact.Email, contact.Phone, contact.AddressLine1, contact.AddressLine2, contact.City, contact.State, contact.PostalCode, contact.Country, contact.JobTitle).Scan(&contactID); err != nil {
+	`, organizationID, contact.FirstName, contact.LastName, contact.Email, contact.Phone, contact.AddressLine1, contact.AddressLine2, contact.City, contact.State, contact.PostalCode, contact.Country, contact.JobTitle, attribution.LeadSource, sourceURL, attribution.UTMSource, attribution.UTMMedium, attribution.UTMCampaign, attribution.UTMTerm, attribution.UTMContent).Scan(&contactID); err != nil {
 		return SubmissionResult{}, mapSubmissionSaveError(err)
 	}
 
-	metadataJSON, err := json.Marshal(map[string]any{"formId": form.ID, "formName": form.Name, "formPublicId": form.PublicID})
+	metadataJSON, err := json.Marshal(map[string]any{
+		"formId":       form.ID,
+		"formName":     form.Name,
+		"formPublicId": form.PublicID,
+		"sourceUrl":    sourceURL,
+		"attribution":  attribution,
+	})
 	if err != nil {
 		return SubmissionResult{}, fmt.Errorf("encode lead capture activity metadata: %w", err)
 	}
@@ -425,10 +444,10 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 	}
 	var submission Submission
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO lead_capture_submissions (organization_id, form_id, contact_id, payload_json, source_url, remote_addr, user_agent)
-		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+		INSERT INTO lead_capture_submissions (organization_id, form_id, contact_id, payload_json, source_url, remote_addr, user_agent, lead_source, utm_source, utm_medium, utm_campaign, utm_term, utm_content)
+		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, form_id, COALESCE(contact_id, 0), created_at
-	`, organizationID, form.ID, contactID, string(payloadJSON), trimMax(input.SourceURL, 2048), trimMax(input.RemoteAddr, 255), trimMax(input.UserAgent, 1024)).Scan(&submission.ID, &submission.FormID, &submission.ContactID, &submission.CreatedAt); err != nil {
+	`, organizationID, form.ID, contactID, string(payloadJSON), sourceURL, trimMax(input.RemoteAddr, 255), trimMax(input.UserAgent, 1024), attribution.LeadSource, attribution.UTMSource, attribution.UTMMedium, attribution.UTMCampaign, attribution.UTMTerm, attribution.UTMContent).Scan(&submission.ID, &submission.FormID, &submission.ContactID, &submission.CreatedAt); err != nil {
 		return SubmissionResult{}, fmt.Errorf("insert lead capture submission: %w", err)
 	}
 
@@ -795,6 +814,68 @@ func normalizeValues(values map[string]string) map[string]string {
 		normalized[strings.TrimSpace(key)] = strings.TrimSpace(value)
 	}
 	return normalized
+}
+
+func normalizeAttribution(form Form, input SubmissionInput, sourceURL string) Attribution {
+	attribution := attributionFromSourceURL(sourceURL)
+	attribution = mergeAttribution(attribution, input.Attribution)
+	attribution.LeadSource = trimMax(attribution.LeadSource, 255)
+	if attribution.LeadSource == "" {
+		attribution.LeadSource = trimMax(form.SourceLabel, 255)
+	}
+	attribution.UTMSource = trimMax(attribution.UTMSource, 255)
+	attribution.UTMMedium = trimMax(attribution.UTMMedium, 255)
+	attribution.UTMCampaign = trimMax(attribution.UTMCampaign, 255)
+	attribution.UTMTerm = trimMax(attribution.UTMTerm, 255)
+	attribution.UTMContent = trimMax(attribution.UTMContent, 255)
+	return attribution
+}
+
+func attributionFromSourceURL(sourceURL string) Attribution {
+	parsed, err := url.Parse(strings.TrimSpace(sourceURL))
+	if err != nil {
+		return Attribution{}
+	}
+	values := parsed.Query()
+	return Attribution{
+		LeadSource:  firstQueryValue(values, "lead_source", "leadSource"),
+		UTMSource:   firstQueryValue(values, "utm_source", "utmSource"),
+		UTMMedium:   firstQueryValue(values, "utm_medium", "utmMedium"),
+		UTMCampaign: firstQueryValue(values, "utm_campaign", "utmCampaign"),
+		UTMTerm:     firstQueryValue(values, "utm_term", "utmTerm"),
+		UTMContent:  firstQueryValue(values, "utm_content", "utmContent"),
+	}
+}
+
+func firstQueryValue(values url.Values, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(values.Get(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func mergeAttribution(base, override Attribution) Attribution {
+	if value := strings.TrimSpace(override.LeadSource); value != "" {
+		base.LeadSource = value
+	}
+	if value := strings.TrimSpace(override.UTMSource); value != "" {
+		base.UTMSource = value
+	}
+	if value := strings.TrimSpace(override.UTMMedium); value != "" {
+		base.UTMMedium = value
+	}
+	if value := strings.TrimSpace(override.UTMCampaign); value != "" {
+		base.UTMCampaign = value
+	}
+	if value := strings.TrimSpace(override.UTMTerm); value != "" {
+		base.UTMTerm = value
+	}
+	if value := strings.TrimSpace(override.UTMContent); value != "" {
+		base.UTMContent = value
+	}
+	return base
 }
 
 func normalizeSlug(value string) string {

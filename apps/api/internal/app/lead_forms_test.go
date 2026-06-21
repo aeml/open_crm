@@ -214,7 +214,7 @@ func TestSubmitPublicLeadCaptureFormDoesNotRequireAuth(t *testing.T) {
 	service := &fakeLeadFormsService{submitResult: moduleleadforms.SubmissionResult{Submission: moduleleadforms.Submission{ID: 11, FormID: 9, ContactID: 22}, SuccessMessage: "Thanks"}}
 	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
 
-	body := bytes.NewBufferString(`{"values":{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.com"},"sourceUrl":"https://example.com/contact"}`)
+	body := bytes.NewBufferString(`{"values":{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.com"},"sourceUrl":"https://example.com/contact?utm_source=google","attribution":{"leadSource":"Website form","utmCampaign":"spring-demo"}}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/public/lead-capture-forms/lf_public/submissions", body)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Forwarded-For", "203.0.113.10, 10.0.0.2")
@@ -226,11 +226,14 @@ func TestSubmitPublicLeadCaptureFormDoesNotRequireAuth(t *testing.T) {
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
 	}
-	if service.lastPublicID != "lf_public" || service.lastSubmitInput.Values["firstName"] != "Ada" || service.lastSubmitInput.SourceURL != "https://example.com/contact" {
+	if service.lastPublicID != "lf_public" || service.lastSubmitInput.Values["firstName"] != "Ada" || service.lastSubmitInput.SourceURL != "https://example.com/contact?utm_source=google" {
 		t.Fatalf("unexpected submission input: publicID=%q input=%#v", service.lastPublicID, service.lastSubmitInput)
 	}
 	if service.lastSubmitInput.RemoteAddr != "203.0.113.10" || service.lastSubmitInput.UserAgent != "LeadFormTest/1.0" {
 		t.Fatalf("expected request metadata, got %#v", service.lastSubmitInput)
+	}
+	if service.lastSubmitInput.Attribution.LeadSource != "Website form" || service.lastSubmitInput.Attribution.UTMCampaign != "spring-demo" {
+		t.Fatalf("expected attribution metadata, got %#v", service.lastSubmitInput.Attribution)
 	}
 
 	var response struct {
@@ -250,7 +253,7 @@ func TestSubmitPublicLeadCaptureFormAcceptsFormEncodedBody(t *testing.T) {
 	service := &fakeLeadFormsService{submitResult: moduleleadforms.SubmissionResult{Submission: moduleleadforms.Submission{ID: 12, FormID: 9, ContactID: 23}, SuccessMessage: "Thanks"}}
 	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
 
-	body := strings.NewReader("firstName=Grace&lastName=Hopper&sourceUrl=https%3A%2F%2Fexample.com%2Fdemo")
+	body := strings.NewReader("firstName=Grace&lastName=Hopper&sourceUrl=https%3A%2F%2Fexample.com%2Fdemo&leadSource=Partner%20site&utm_source=partner&utm_campaign=fall-demo")
 	request := httptest.NewRequest(http.MethodPost, "/api/public/lead-capture-forms/lf_public/submissions", body)
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	recorder := httptest.NewRecorder()
@@ -262,6 +265,9 @@ func TestSubmitPublicLeadCaptureFormAcceptsFormEncodedBody(t *testing.T) {
 	}
 	if service.lastSubmitInput.Values["lastName"] != "Hopper" || service.lastSubmitInput.SourceURL != "https://example.com/demo" {
 		t.Fatalf("unexpected form encoded submission: %#v", service.lastSubmitInput)
+	}
+	if service.lastSubmitInput.Values["utm_source"] != "" || service.lastSubmitInput.Attribution.LeadSource != "Partner site" || service.lastSubmitInput.Attribution.UTMSource != "partner" || service.lastSubmitInput.Attribution.UTMCampaign != "fall-demo" {
+		t.Fatalf("unexpected form encoded attribution: values=%#v attribution=%#v", service.lastSubmitInput.Values, service.lastSubmitInput.Attribution)
 	}
 }
 

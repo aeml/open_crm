@@ -71,7 +71,19 @@ function embedSnippet(form) {
     return `  <label>${field.label}\n    <input name="${field.key}" type="${fieldInputType(field)}"${field.required ? ' required' : ''}>\n  </label>`
   })
 
-  return [`<form method="post" action="${action}">`, ...controls, '  <input type="hidden" name="sourceUrl" value="https://example.com/contact">', '  <button type="submit">Submit</button>', '</form>'].join('\n')
+  return [
+    `<form method="post" action="${action}">`,
+    ...controls,
+    '  <input type="hidden" name="sourceUrl" value="https://example.com/contact?utm_source=google&utm_medium=cpc&utm_campaign=spring-demo">',
+    `  <input type="hidden" name="leadSource" value="${form.sourceLabel || 'Lead capture form'}">`,
+    '  <input type="hidden" name="utm_source" value="">',
+    '  <input type="hidden" name="utm_medium" value="">',
+    '  <input type="hidden" name="utm_campaign" value="">',
+    '  <input type="hidden" name="utm_term" value="">',
+    '  <input type="hidden" name="utm_content" value="">',
+    '  <button type="submit">Submit</button>',
+    '</form>'
+  ].join('\n')
 }
 
 function mappedFieldLabel(field) {

@@ -43,6 +43,27 @@ function formatAddress(contact = {}) {
   return [street, locality, contact.country].filter(Boolean).join(' | ')
 }
 
+function hasAttribution(contact = {}) {
+  return !!(contact.leadSource || contact.firstSourceUrl || contact.utmSource || contact.utmMedium || contact.utmCampaign || contact.utmTerm || contact.utmContent)
+}
+
+function attributionSummary(contact = {}) {
+  const parts = []
+  if (contact.leadSource) parts.push(contact.leadSource)
+  if (contact.utmCampaign) parts.push(contact.utmCampaign)
+  if (contact.utmSource) parts.push(contact.utmMedium ? `${contact.utmSource} / ${contact.utmMedium}` : contact.utmSource)
+  return parts.join(' | ')
+}
+
+function safeHTTPURL(value = '') {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? value : ''
+  } catch {
+    return ''
+  }
+}
+
 const emptyTaskForm = {
   title: '',
   description: '',
@@ -1296,6 +1317,7 @@ export function ContactsRoute() {
                   <p>{contact.email || formatAddress(contact) || 'No contact details'}</p>
                   <p>{contact.status}</p>
                   <p className="field-hint">{contact.ownerUserName || 'Unassigned'}</p>
+                  {hasAttribution(contact) ? <p className="field-hint">{attributionSummary(contact)}</p> : null}
                 </div>
               </article>
             ))}
@@ -1409,6 +1431,58 @@ export function ContactsRoute() {
               </Field>
               {canWrite ? <Button type="submit">Update contact</Button> : null}
             </form>
+            {hasAttribution(selectedContact) ? (
+              <Card>
+                <div className="card-stack">
+                  <div>
+                    <h3>Attribution</h3>
+                    <p className="field-hint">First captured lead source and campaign details.</p>
+                  </div>
+                  <div className="record-list" role="list" aria-label="Lead attribution">
+                    {selectedContact.leadSource ? (
+                      <article className="record-row" role="listitem">
+                        <div>
+                          <p>Lead source</p>
+                          <p className="field-hint">{selectedContact.leadSource}</p>
+                        </div>
+                      </article>
+                    ) : null}
+                    {selectedContact.utmCampaign ? (
+                      <article className="record-row" role="listitem">
+                        <div>
+                          <p>Campaign</p>
+                          <p className="field-hint">{selectedContact.utmCampaign}</p>
+                        </div>
+                      </article>
+                    ) : null}
+                    {(selectedContact.utmSource || selectedContact.utmMedium) ? (
+                      <article className="record-row" role="listitem">
+                        <div>
+                          <p>Source / medium</p>
+                          <p className="field-hint">{[selectedContact.utmSource, selectedContact.utmMedium].filter(Boolean).join(' / ')}</p>
+                        </div>
+                      </article>
+                    ) : null}
+                    {(selectedContact.utmTerm || selectedContact.utmContent) ? (
+                      <article className="record-row" role="listitem">
+                        <div>
+                          <p>Term / content</p>
+                          <p className="field-hint">{[selectedContact.utmTerm, selectedContact.utmContent].filter(Boolean).join(' / ')}</p>
+                        </div>
+                      </article>
+                    ) : null}
+                    {selectedContact.firstSourceUrl ? (
+                      <article className="record-row" role="listitem">
+                        <div>
+                          <p>First source URL</p>
+                          <p className="field-hint">{safeHTTPURL(selectedContact.firstSourceUrl) ? <a href={selectedContact.firstSourceUrl} target="_blank" rel="noreferrer">{selectedContact.firstSourceUrl}</a> : selectedContact.firstSourceUrl}</p>
+                        </div>
+                      </article>
+                    ) : null}
+                  </div>
+                </div>
+              </Card>
+            ) : null}
             <Card>
               <div className="card-stack">
                 <div className="section-header">

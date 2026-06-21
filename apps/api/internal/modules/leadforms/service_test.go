@@ -64,6 +64,38 @@ func TestContactInputFromSubmissionRequiresConfiguredFields(t *testing.T) {
 	}
 }
 
+func TestNormalizeAttributionDerivesUTMFromSourceURL(t *testing.T) {
+	form := Form{SourceLabel: "Website form"}
+	input := SubmissionInput{SourceURL: "https://example.com/lp/demo?utm_source=google&utm_medium=cpc&utm_campaign=spring-demo&utm_term=crm&utm_content=headline"}
+
+	attribution := normalizeAttribution(form, input, input.SourceURL)
+
+	if attribution.LeadSource != "Website form" {
+		t.Fatalf("expected form source label, got %#v", attribution)
+	}
+	if attribution.UTMSource != "google" || attribution.UTMMedium != "cpc" || attribution.UTMCampaign != "spring-demo" || attribution.UTMTerm != "crm" || attribution.UTMContent != "headline" {
+		t.Fatalf("unexpected UTM attribution: %#v", attribution)
+	}
+}
+
+func TestNormalizeAttributionAllowsExplicitOverrides(t *testing.T) {
+	form := Form{SourceLabel: "Website form"}
+	input := SubmissionInput{
+		SourceURL: "https://example.com/lp/demo?utm_source=google&utm_campaign=spring-demo",
+		Attribution: Attribution{
+			LeadSource:  "Partner landing page",
+			UTMSource:   "newsletter",
+			UTMCampaign: "vip-demo",
+		},
+	}
+
+	attribution := normalizeAttribution(form, input, input.SourceURL)
+
+	if attribution.LeadSource != "Partner landing page" || attribution.UTMSource != "newsletter" || attribution.UTMCampaign != "vip-demo" {
+		t.Fatalf("expected explicit attribution override, got %#v", attribution)
+	}
+}
+
 func TestNormalizeLandingPageInputDefaultsValues(t *testing.T) {
 	input := normalizeLandingPageInput(LandingPageInput{Name: "  Demo Request  ", LeadCaptureFormID: 7})
 

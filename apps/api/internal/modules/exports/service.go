@@ -61,7 +61,8 @@ func (s *Service) ContactsCSV(ctx context.Context, organizationID int64, query C
 	query.Search = strings.TrimSpace(query.Search)
 	filterSQL, args := buildContactFilters(organizationID, query.Search)
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client
+		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client,
+			COALESCE(lead_source, ''), COALESCE(first_source_url, ''), COALESCE(utm_source, ''), COALESCE(utm_medium, ''), COALESCE(utm_campaign, ''), COALESCE(utm_term, ''), COALESCE(utm_content, '')
 		FROM contacts
 		WHERE organization_id = $1 AND archived_at IS NULL`+filterSQL+`
 		ORDER BY last_name ASC, first_name ASC, id ASC
@@ -71,15 +72,16 @@ func (s *Service) ContactsCSV(ctx context.Context, organizationID int64, query C
 	}
 	defer rows.Close()
 
-	records := [][]string{{"id", "first_name", "last_name", "email", "phone", "address_line1", "address_line2", "city", "state", "postal_code", "country", "job_title", "status", "is_client"}}
+	records := [][]string{{"id", "first_name", "last_name", "email", "phone", "address_line1", "address_line2", "city", "state", "postal_code", "country", "job_title", "status", "is_client", "lead_source", "first_source_url", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"}}
 	for rows.Next() {
 		var id int64
 		var firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode, country, jobTitle, status string
+		var leadSource, firstSourceURL, utmSource, utmMedium, utmCampaign, utmTerm, utmContent string
 		var isClient bool
-		if err := rows.Scan(&id, &firstName, &lastName, &email, &phone, &addressLine1, &addressLine2, &city, &state, &postalCode, &country, &jobTitle, &status, &isClient); err != nil {
+		if err := rows.Scan(&id, &firstName, &lastName, &email, &phone, &addressLine1, &addressLine2, &city, &state, &postalCode, &country, &jobTitle, &status, &isClient, &leadSource, &firstSourceURL, &utmSource, &utmMedium, &utmCampaign, &utmTerm, &utmContent); err != nil {
 			return File{}, fmt.Errorf("scan contact export: %w", err)
 		}
-		records = append(records, []string{formatInt(id), firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode, country, jobTitle, status, formatBool(isClient)})
+		records = append(records, []string{formatInt(id), firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode, country, jobTitle, status, formatBool(isClient), leadSource, firstSourceURL, utmSource, utmMedium, utmCampaign, utmTerm, utmContent})
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate contact export: %w", err)
@@ -254,7 +256,11 @@ func buildContactFilters(organizationID int64, search string) (string, []any) {
 		city ILIKE $2 OR
 		state ILIKE $2 OR
 		postal_code ILIKE $2 OR
-		country ILIKE $2`
+		country ILIKE $2 OR
+		lead_source ILIKE $2 OR
+		utm_source ILIKE $2 OR
+		utm_medium ILIKE $2 OR
+		utm_campaign ILIKE $2`
 	args = append(args, "%"+search+"%")
 	if phoneSearch != "" {
 		filterSQL += ` OR regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE $3`

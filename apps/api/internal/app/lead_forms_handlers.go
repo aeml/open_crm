@@ -49,8 +49,15 @@ type leadCaptureFormRequest struct {
 }
 
 type leadCaptureSubmissionRequest struct {
-	Values    map[string]string `json:"values"`
-	SourceURL string            `json:"sourceUrl"`
+	Values      map[string]string           `json:"values"`
+	SourceURL   string                      `json:"sourceUrl"`
+	LeadSource  string                      `json:"leadSource"`
+	UTMSource   string                      `json:"utmSource"`
+	UTMMedium   string                      `json:"utmMedium"`
+	UTMCampaign string                      `json:"utmCampaign"`
+	UTMTerm     string                      `json:"utmTerm"`
+	UTMContent  string                      `json:"utmContent"`
+	Attribution moduleleadforms.Attribution `json:"attribution"`
 }
 
 func handleListLeadCaptureForms(auth authService, forms leadFormsService, w http.ResponseWriter, r *http.Request) {
@@ -145,10 +152,11 @@ func handleSubmitPublicLeadCaptureForm(forms leadFormsService, w http.ResponseWr
 		return
 	}
 	result, err := forms.SubmitByPublicID(r.Context(), publicID, moduleleadforms.SubmissionInput{
-		Values:     request.Values,
-		SourceURL:  request.SourceURL,
-		RemoteAddr: clientIP(r),
-		UserAgent:  r.UserAgent(),
+		Values:      request.Values,
+		SourceURL:   request.SourceURL,
+		Attribution: leadCaptureSubmissionAttribution(request),
+		RemoteAddr:  clientIP(r),
+		UserAgent:   r.UserAgent(),
 	})
 	if err != nil {
 		writeLeadCaptureSubmissionError(w, requestID, err)
@@ -194,11 +202,24 @@ func decodeLeadCaptureSubmissionRequest(w http.ResponseWriter, r *http.Request, 
 			if len(values) == 0 {
 				continue
 			}
-			if key == "sourceUrl" {
+			switch key {
+			case "sourceUrl":
 				request.SourceURL = values[0]
-				continue
+			case "leadSource", "lead_source":
+				request.Attribution.LeadSource = values[0]
+			case "utmSource", "utm_source":
+				request.Attribution.UTMSource = values[0]
+			case "utmMedium", "utm_medium":
+				request.Attribution.UTMMedium = values[0]
+			case "utmCampaign", "utm_campaign":
+				request.Attribution.UTMCampaign = values[0]
+			case "utmTerm", "utm_term":
+				request.Attribution.UTMTerm = values[0]
+			case "utmContent", "utm_content":
+				request.Attribution.UTMContent = values[0]
+			default:
+				request.Values[key] = values[0]
 			}
-			request.Values[key] = values[0]
 		}
 		return request, true
 	}
@@ -211,6 +232,29 @@ func decodeLeadCaptureSubmissionRequest(w http.ResponseWriter, r *http.Request, 
 		request.Values = map[string]string{}
 	}
 	return request, true
+}
+
+func leadCaptureSubmissionAttribution(request leadCaptureSubmissionRequest) moduleleadforms.Attribution {
+	attribution := request.Attribution
+	if strings.TrimSpace(request.LeadSource) != "" {
+		attribution.LeadSource = request.LeadSource
+	}
+	if strings.TrimSpace(request.UTMSource) != "" {
+		attribution.UTMSource = request.UTMSource
+	}
+	if strings.TrimSpace(request.UTMMedium) != "" {
+		attribution.UTMMedium = request.UTMMedium
+	}
+	if strings.TrimSpace(request.UTMCampaign) != "" {
+		attribution.UTMCampaign = request.UTMCampaign
+	}
+	if strings.TrimSpace(request.UTMTerm) != "" {
+		attribution.UTMTerm = request.UTMTerm
+	}
+	if strings.TrimSpace(request.UTMContent) != "" {
+		attribution.UTMContent = request.UTMContent
+	}
+	return attribution
 }
 
 func writeLeadCaptureFormError(w http.ResponseWriter, requestID string, err error) {

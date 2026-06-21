@@ -19,6 +19,21 @@ function inputType(field) {
   return 'text'
 }
 
+function attributionFromLocation(form) {
+  if (typeof window === 'undefined') {
+    return { leadSource: form?.sourceLabel || '' }
+  }
+  const params = new URL(window.location.href).searchParams
+  return {
+    leadSource: form?.sourceLabel || '',
+    utmSource: params.get('utm_source') || params.get('utmSource') || '',
+    utmMedium: params.get('utm_medium') || params.get('utmMedium') || '',
+    utmCampaign: params.get('utm_campaign') || params.get('utmCampaign') || '',
+    utmTerm: params.get('utm_term') || params.get('utmTerm') || '',
+    utmContent: params.get('utm_content') || params.get('utmContent') || ''
+  }
+}
+
 export function PublicLandingPageRoute() {
   const { slug = '' } = useParams()
   const [landingPage, setLandingPage] = useState(null)
@@ -67,7 +82,8 @@ export function PublicLandingPageRoute() {
     try {
       const result = await submitPublicLeadCaptureForm(form.publicId, {
         values,
-        sourceUrl: typeof window === 'undefined' ? '' : window.location.href
+        sourceUrl: typeof window === 'undefined' ? '' : window.location.href,
+        attribution: attributionFromLocation(form)
       })
       setStatus(result?.successMessage || form.successMessage || 'Thanks. We will be in touch soon.')
       setValues(initialValues(form.fields || []))

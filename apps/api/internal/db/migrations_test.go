@@ -609,3 +609,29 @@ func TestMigrationFilesIncludeLeadLandingPagesMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeLeadAttributionMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "044_lead_attribution.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected lead attribution migration to be registered")
+	}
+
+	sql := MigrationSQL("044_lead_attribution.sql")
+	if sql == "" {
+		t.Fatal("expected lead attribution migration SQL to be embedded")
+	}
+	for _, expected := range []string{"lead_source", "utm_campaign", "idx_contacts_org_lead_source", "idx_lead_capture_submissions_org_attribution"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected lead attribution migration to include %s", expected)
+		}
+	}
+}
