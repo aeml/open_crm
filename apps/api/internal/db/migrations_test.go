@@ -713,3 +713,29 @@ func TestMigrationFilesIncludeLeadNurtureCampaignsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeLeadScoringRoutingMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "048_lead_scoring_routing.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected lead scoring routing migration to be registered")
+	}
+
+	sql := MigrationSQL("048_lead_scoring_routing.sql")
+	if sql == "" {
+		t.Fatal("expected lead scoring routing migration SQL to be embedded")
+	}
+	for _, expected := range []string{"lead_scoring_rules", "lead_score", "assign_to_user_id", "idx_lead_scoring_rules_org_active_position", "contacts_lead_grade_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected lead scoring routing migration to include %s", expected)
+		}
+	}
+}

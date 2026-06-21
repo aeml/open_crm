@@ -93,6 +93,15 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"lead_nurture_campaigns_name_check",
 		"lead_nurture_campaigns_status_check",
 		"lead_nurture_campaigns_counts_check",
+		"contacts_lead_score_check",
+		"contacts_lead_grade_check",
+		"contacts_lead_score_breakdown_json_array_check",
+		"lead_scoring_rules_name_check",
+		"lead_scoring_rules_field_check",
+		"lead_scoring_rules_operator_check",
+		"lead_scoring_rules_value_check",
+		"lead_scoring_rules_score_delta_check",
+		"lead_scoring_rules_position_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -129,6 +138,9 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_lead_nurture_campaigns_org_status",
 		"idx_lead_nurture_campaigns_org_audience",
 		"idx_lead_nurture_campaigns_org_sequence",
+		"idx_lead_scoring_rules_org_name_unique",
+		"idx_lead_scoring_rules_org_active_position",
+		"idx_contacts_org_lead_score",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -271,6 +283,16 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 		t.Fatalf("insert lead nurture campaign: %v", err)
 	}
 	expectExecError(t, ctx, pool, `INSERT INTO lead_nurture_campaigns (organization_id, audience_id, sequence_id, name) VALUES ($1, $2, $3, 'lead nurture')`, organizationID, leadAudienceID, sequenceID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_scoring_rules (organization_id, name, field, operator, value, score_delta) VALUES ($1, '', 'status', 'equals', 'lead', 10)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_scoring_rules (organization_id, name, field, operator, value, score_delta) VALUES ($1, 'Bad Field', 'source', 'equals', 'lead', 10)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_scoring_rules (organization_id, name, field, operator, value, score_delta) VALUES ($1, 'Bad Operator', 'status', 'matches', 'lead', 10)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_scoring_rules (organization_id, name, field, operator, value, score_delta) VALUES ($1, 'Bad Value', 'status', 'equals', '', 10)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_scoring_rules (organization_id, name, field, operator, value, score_delta) VALUES ($1, 'Bad Score', 'status', 'equals', 'lead', 101)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_scoring_rules (organization_id, name, field, operator, value, score_delta, position) VALUES ($1, 'Bad Position', 'status', 'equals', 'lead', 10, -1)`, organizationID)
+	if _, err := pool.Exec(ctx, `INSERT INTO lead_scoring_rules (organization_id, name, field, operator, value, score_delta, assign_to_user_id) VALUES ($1, 'Lead status fit', 'status', 'equals', 'lead', 10, $2)`, organizationID, userID); err != nil {
+		t.Fatalf("insert lead scoring rule: %v", err)
+	}
+	expectExecError(t, ctx, pool, `INSERT INTO lead_scoring_rules (organization_id, name, field, operator, value, score_delta) VALUES ($1, 'lead status fit', 'status', 'equals', 'lead', 10)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)
@@ -280,6 +302,9 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	if err := pool.QueryRow(ctx, `INSERT INTO contacts (organization_id, first_name, last_name) VALUES ($1, 'Jane', 'Contact') RETURNING id`, organizationID).Scan(&contactID); err != nil {
 		t.Fatalf("insert contact: %v", err)
 	}
+	expectExecError(t, ctx, pool, `UPDATE contacts SET lead_score = 101 WHERE id = $1`, contactID)
+	expectExecError(t, ctx, pool, `UPDATE contacts SET lead_grade = 'F' WHERE id = $1`, contactID)
+	expectExecError(t, ctx, pool, `UPDATE contacts SET lead_score_breakdown = '{}'::jsonb WHERE id = $1`, contactID)
 	var otherContactID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO contacts (organization_id, first_name, last_name) VALUES ($1, 'Other', 'Contact') RETURNING id`, organizationID).Scan(&otherContactID); err != nil {
 		t.Fatalf("insert second contact: %v", err)

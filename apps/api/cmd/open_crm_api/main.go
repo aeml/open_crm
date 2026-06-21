@@ -31,6 +31,7 @@ import (
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	moduleleadaudiences "github.com/aeml/open_crm/apps/api/internal/modules/leadaudiences"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
+	moduleleadscoring "github.com/aeml/open_crm/apps/api/internal/modules/leadscoring"
 	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
 	modulemarketingcampaigns "github.com/aeml/open_crm/apps/api/internal/modules/marketingcampaigns"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
@@ -98,6 +99,7 @@ func main() {
 	var leadAudiencesService *moduleleadaudiences.Service
 	var marketingCampaignsService *modulemarketingcampaigns.Service
 	var nurtureCampaignsService *modulenurturecampaigns.Service
+	var leadScoringService *moduleleadscoring.Service
 	var emailSequencesService *moduleemailsequences.Service
 	var emailSuppressionsService *moduleemailsuppressions.Service
 	var userEmailService *moduleuseremail.Service
@@ -138,6 +140,7 @@ func main() {
 			leadAudiencesService = moduleleadaudiences.NewService(pool)
 			marketingCampaignsService = modulemarketingcampaigns.NewService(pool)
 			nurtureCampaignsService = modulenurturecampaigns.NewService(pool)
+			leadScoringService = moduleleadscoring.NewService(pool)
 			emailSequencesService = moduleemailsequences.NewService(pool)
 			emailSuppressionsService = moduleemailsuppressions.NewService(pool, env.CredentialEncryptionKey)
 			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
@@ -198,6 +201,7 @@ func main() {
 		LeadAudiencesService:            leadAudiencesService,
 		MarketingCampaignsService:       marketingCampaignsService,
 		NurtureCampaignsService:         nurtureCampaignsService,
+		LeadScoringService:              leadScoringService,
 		EmailSequencesService:           emailSequencesService,
 		EmailSequenceEnrollmentsService: emailSequencesService,
 		EmailSuppressionsService:        emailSuppressionsService,

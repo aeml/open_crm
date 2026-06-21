@@ -24,6 +24,7 @@ import (
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	moduleleadaudiences "github.com/aeml/open_crm/apps/api/internal/modules/leadaudiences"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
+	moduleleadscoring "github.com/aeml/open_crm/apps/api/internal/modules/leadscoring"
 	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
 	modulemarketingcampaigns "github.com/aeml/open_crm/apps/api/internal/modules/marketingcampaigns"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
@@ -241,6 +242,13 @@ type nurtureCampaignsService interface {
 	Update(context.Context, int64, int64, int64, modulenurturecampaigns.Input) (modulenurturecampaigns.Campaign, error)
 }
 
+type leadScoringService interface {
+	ListByOrganization(context.Context, int64) ([]moduleleadscoring.Rule, error)
+	Create(context.Context, int64, int64, moduleleadscoring.Input) (moduleleadscoring.Rule, error)
+	Update(context.Context, int64, int64, int64, moduleleadscoring.Input) (moduleleadscoring.Rule, error)
+	EvaluateContact(context.Context, int64, int64, int64) (moduleleadscoring.Evaluation, error)
+}
+
 type emailSequenceEnrollmentsService interface {
 	ListEnrollmentsByContact(context.Context, int64, int64) ([]moduleemailsequences.Enrollment, error)
 	EnrollContact(context.Context, int64, moduleemailsequences.EnrollmentInput) (moduleemailsequences.Enrollment, error)
@@ -311,6 +319,7 @@ type Dependencies struct {
 	LeadAudiencesService            leadAudiencesService
 	MarketingCampaignsService       marketingCampaignsService
 	NurtureCampaignsService         nurtureCampaignsService
+	LeadScoringService              leadScoringService
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService
@@ -928,6 +937,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/lead-nurture-campaigns/{campaignID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateNurtureCampaign(dependencies.AuthService, dependencies.NurtureCampaignsService, w, r)
+	})
+	mux.HandleFunc("GET /api/lead-scoring-rules", func(w http.ResponseWriter, r *http.Request) {
+		handleListLeadScoringRules(dependencies.AuthService, dependencies.LeadScoringService, w, r)
+	})
+	mux.HandleFunc("POST /api/lead-scoring-rules", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateLeadScoringRule(dependencies.AuthService, dependencies.LeadScoringService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/lead-scoring-rules/{ruleID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateLeadScoringRule(dependencies.AuthService, dependencies.LeadScoringService, w, r)
+	})
+	mux.HandleFunc("POST /api/contacts/{contactID}/lead-score", func(w http.ResponseWriter, r *http.Request) {
+		handleEvaluateContactLeadScore(dependencies.AuthService, dependencies.LeadScoringService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)

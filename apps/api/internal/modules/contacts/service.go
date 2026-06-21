@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -46,29 +47,32 @@ func (e *DuplicateError) ReasonText() string {
 }
 
 type Summary struct {
-	ID             int64  `json:"id"`
-	FirstName      string `json:"firstName"`
-	LastName       string `json:"lastName"`
-	Email          string `json:"email"`
-	Phone          string `json:"phone"`
-	AddressLine1   string `json:"addressLine1"`
-	AddressLine2   string `json:"addressLine2"`
-	City           string `json:"city"`
-	State          string `json:"state"`
-	PostalCode     string `json:"postalCode"`
-	Country        string `json:"country"`
-	JobTitle       string `json:"jobTitle"`
-	Status         string `json:"status"`
-	IsClient       bool   `json:"isClient"`
-	OwnerUserID    int64  `json:"ownerUserId"`
-	OwnerUserName  string `json:"ownerUserName"`
-	LeadSource     string `json:"leadSource"`
-	FirstSourceURL string `json:"firstSourceUrl"`
-	UTMSource      string `json:"utmSource"`
-	UTMMedium      string `json:"utmMedium"`
-	UTMCampaign    string `json:"utmCampaign"`
-	UTMTerm        string `json:"utmTerm"`
-	UTMContent     string `json:"utmContent"`
+	ID             int64      `json:"id"`
+	FirstName      string     `json:"firstName"`
+	LastName       string     `json:"lastName"`
+	Email          string     `json:"email"`
+	Phone          string     `json:"phone"`
+	AddressLine1   string     `json:"addressLine1"`
+	AddressLine2   string     `json:"addressLine2"`
+	City           string     `json:"city"`
+	State          string     `json:"state"`
+	PostalCode     string     `json:"postalCode"`
+	Country        string     `json:"country"`
+	JobTitle       string     `json:"jobTitle"`
+	Status         string     `json:"status"`
+	IsClient       bool       `json:"isClient"`
+	OwnerUserID    int64      `json:"ownerUserId"`
+	OwnerUserName  string     `json:"ownerUserName"`
+	LeadSource     string     `json:"leadSource"`
+	FirstSourceURL string     `json:"firstSourceUrl"`
+	UTMSource      string     `json:"utmSource"`
+	UTMMedium      string     `json:"utmMedium"`
+	UTMCampaign    string     `json:"utmCampaign"`
+	UTMTerm        string     `json:"utmTerm"`
+	UTMContent     string     `json:"utmContent"`
+	LeadScore      int        `json:"leadScore"`
+	LeadGrade      string     `json:"leadGrade"`
+	LeadScoredAt   *time.Time `json:"leadScoredAt,omitempty"`
 }
 
 type ListQuery struct {
@@ -220,7 +224,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, '')),
 			COALESCE(co.lead_source, ''), COALESCE(co.first_source_url, ''),
 			COALESCE(co.utm_source, ''), COALESCE(co.utm_medium, ''),
-			COALESCE(co.utm_campaign, ''), COALESCE(co.utm_term, ''), COALESCE(co.utm_content, '')
+			COALESCE(co.utm_campaign, ''), COALESCE(co.utm_term, ''), COALESCE(co.utm_content, ''),
+			co.lead_score, COALESCE(co.lead_grade, ''), co.lead_scored_at
 		FROM contacts co
 		LEFT JOIN users ou ON ou.id = co.owner_user_id
 		WHERE co.organization_id = $1 AND co.archived_at IS NULL`+filter+`
@@ -234,6 +239,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	contacts := make([]Summary, 0)
 	for rows.Next() {
 		var contact Summary
+		var leadScoredAt pgtype.Timestamptz
 		if err := rows.Scan(
 			&contact.ID, &contact.FirstName, &contact.LastName,
 			&contact.Email, &contact.Phone,
@@ -244,8 +250,13 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			&contact.LeadSource, &contact.FirstSourceURL,
 			&contact.UTMSource, &contact.UTMMedium,
 			&contact.UTMCampaign, &contact.UTMTerm, &contact.UTMContent,
+			&contact.LeadScore, &contact.LeadGrade, &leadScoredAt,
 		); err != nil {
 			return ListResult{}, fmt.Errorf("scan contact: %w", err)
+		}
+		if leadScoredAt.Valid {
+			value := leadScoredAt.Time
+			contact.LeadScoredAt = &value
 		}
 		contacts = append(contacts, contact)
 	}
@@ -273,16 +284,25 @@ func (s *Service) GetByID(ctx context.Context, organizationID, contactID int64) 
 		Tasks:      []TaskEntry{},
 		Activities: []ActivityEntry{},
 	}
+	var leadScoredAt pgtype.Timestamptz
 	if err := s.pool.QueryRow(ctx, `
-		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client,
-			COALESCE(lead_source, ''), COALESCE(first_source_url, ''), COALESCE(utm_source, ''), COALESCE(utm_medium, ''), COALESCE(utm_campaign, ''), COALESCE(utm_term, ''), COALESCE(utm_content, '')
-		FROM contacts
-		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, contactID).Scan(&detail.Summary.ID, &detail.Summary.FirstName, &detail.Summary.LastName, &detail.Summary.Email, &detail.Summary.Phone, &detail.Summary.AddressLine1, &detail.Summary.AddressLine2, &detail.Summary.City, &detail.Summary.State, &detail.Summary.PostalCode, &detail.Summary.Country, &detail.Summary.JobTitle, &detail.Summary.Status, &detail.Summary.IsClient, &detail.Summary.LeadSource, &detail.Summary.FirstSourceURL, &detail.Summary.UTMSource, &detail.Summary.UTMMedium, &detail.Summary.UTMCampaign, &detail.Summary.UTMTerm, &detail.Summary.UTMContent); err != nil {
+		SELECT co.id, co.first_name, co.last_name, COALESCE(co.email, ''), COALESCE(co.phone, ''), COALESCE(co.address_line1, ''), COALESCE(co.address_line2, ''), COALESCE(co.city, ''), COALESCE(co.state, ''), COALESCE(co.postal_code, ''), COALESCE(co.country, ''), COALESCE(co.job_title, ''), COALESCE(co.status, ''), co.is_client,
+			COALESCE(co.owner_user_id, 0),
+			COALESCE(NULLIF(TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, '')), ''), COALESCE(ou.email, '')),
+			COALESCE(co.lead_source, ''), COALESCE(co.first_source_url, ''), COALESCE(co.utm_source, ''), COALESCE(co.utm_medium, ''), COALESCE(co.utm_campaign, ''), COALESCE(co.utm_term, ''), COALESCE(co.utm_content, ''),
+			co.lead_score, COALESCE(co.lead_grade, ''), co.lead_scored_at
+		FROM contacts co
+		LEFT JOIN users ou ON ou.id = co.owner_user_id
+		WHERE co.organization_id = $1 AND co.id = $2 AND co.archived_at IS NULL
+	`, organizationID, contactID).Scan(&detail.Summary.ID, &detail.Summary.FirstName, &detail.Summary.LastName, &detail.Summary.Email, &detail.Summary.Phone, &detail.Summary.AddressLine1, &detail.Summary.AddressLine2, &detail.Summary.City, &detail.Summary.State, &detail.Summary.PostalCode, &detail.Summary.Country, &detail.Summary.JobTitle, &detail.Summary.Status, &detail.Summary.IsClient, &detail.Summary.OwnerUserID, &detail.Summary.OwnerUserName, &detail.Summary.LeadSource, &detail.Summary.FirstSourceURL, &detail.Summary.UTMSource, &detail.Summary.UTMMedium, &detail.Summary.UTMCampaign, &detail.Summary.UTMTerm, &detail.Summary.UTMContent, &detail.Summary.LeadScore, &detail.Summary.LeadGrade, &leadScoredAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Detail{}, ErrNotFound
 		}
 		return Detail{}, fmt.Errorf("get contact: %w", err)
+	}
+	if leadScoredAt.Valid {
+		value := leadScoredAt.Time
+		detail.Summary.LeadScoredAt = &value
 	}
 
 	rows, err := s.pool.Query(ctx, `

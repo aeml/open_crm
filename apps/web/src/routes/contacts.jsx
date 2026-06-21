@@ -17,6 +17,7 @@ import { listEmailSequences } from '../lib/email_sequences'
 import { cancelEmailSequenceEnrollment, createEmailSequenceEnrollment, listEmailSequenceEnrollments } from '../lib/email_sequence_enrollments'
 import { listEmailTemplates } from '../lib/email_templates'
 import { listEmailMessages } from '../lib/email_messages'
+import { evaluateContactLeadScore } from '../lib/lead_scoring'
 import { listSMSMessages, logInboundSMS, optOutSMS, sendContactSMS } from '../lib/sms'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
@@ -53,6 +54,23 @@ function attributionSummary(contact = {}) {
   if (contact.utmCampaign) parts.push(contact.utmCampaign)
   if (contact.utmSource) parts.push(contact.utmMedium ? `${contact.utmSource} / ${contact.utmMedium}` : contact.utmSource)
   return parts.join(' | ')
+}
+
+function hasLeadScore(contact = {}) {
+  return !!(contact.leadScoredAt || contact.leadScore || contact.leadGrade)
+}
+
+function leadScoreLabel(contact = {}) {
+  const score = contact.leadScore || 0
+  return contact.leadGrade ? `${score} (${contact.leadGrade})` : String(score)
+}
+
+function formatLeadScoreTime(value) {
+  if (!value) {
+    return 'Not scored yet'
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Not scored yet' : `Last scored ${date.toLocaleString()}`
 }
 
 function safeHTTPURL(value = '') {
@@ -298,7 +316,9 @@ export function ContactsRoute() {
   const [sequenceEnrollments, setSequenceEnrollments] = useState([])
   const [sequenceForm, setSequenceForm] = useState({ sequenceId: '' })
   const [sequenceStatus, setSequenceStatus] = useState('')
+  const [leadScoreStatus, setLeadScoreStatus] = useState('')
   const [isEnrollingSequence, setIsEnrollingSequence] = useState(false)
+  const [isEvaluatingLeadScore, setIsEvaluatingLeadScore] = useState(false)
   const searchControllerRef = useRef(null)
 
   const selectedContact = detail?.contact || null
@@ -333,6 +353,7 @@ export function ContactsRoute() {
     setSequenceEnrollments([])
     setSequenceStatus('')
     setSequenceForm({ sequenceId: '' })
+    setLeadScoreStatus('')
   }, [selectedContactId])
 
   function buildContactsPath(nextSearch = search, nextOwner = ownerFilter) {
@@ -1137,6 +1158,37 @@ export function ContactsRoute() {
     }
   }
 
+  async function handleEvaluateLeadScore() {
+    if (!selectedContactId) {
+      return
+    }
+    const contactKey = selectedContactId
+    setIsEvaluatingLeadScore(true)
+    setLeadScoreStatus('')
+    try {
+      const evaluation = await evaluateContactLeadScore(contactKey)
+      const scoredContact = evaluation?.contact
+      if (scoredContact) {
+        setDetail((current) => {
+          if (!current) return current
+          const next = { ...current, contact: scoredContact }
+          setDetailCache((cache) => ({ ...cache, [contactKey]: next }))
+          return next
+        })
+        setContacts((current) => current.map((entry) => (entry.id === scoredContact.id ? scoredContact : entry)))
+      }
+      const matchedCount = evaluation?.matchedRules?.length || 0
+      const gradeText = evaluation?.grade ? ` (${evaluation.grade})` : ''
+      const assignmentText = evaluation?.assignedToUserName ? ` Routed to ${evaluation.assignedToUserName}.` : ''
+      setLeadScoreStatus(`Lead scored ${evaluation?.score ?? 0}${gradeText}; ${matchedCount} rule${matchedCount === 1 ? '' : 's'} matched.${assignmentText}`)
+      setError('')
+    } catch (scoreError) {
+      setError(scoreError.message || 'Unable to evaluate lead score.')
+    } finally {
+      setIsEvaluatingLeadScore(false)
+    }
+  }
+
   function applyEmailTemplate(templateId) {
     const template = emailTemplates.find((item) => String(item.id) === String(templateId))
     if (template) {
@@ -1317,6 +1369,7 @@ export function ContactsRoute() {
                   <p>{contact.email || formatAddress(contact) || 'No contact details'}</p>
                   <p>{contact.status}</p>
                   <p className="field-hint">{contact.ownerUserName || 'Unassigned'}</p>
+                  {hasLeadScore(contact) ? <p className="field-hint">Lead score {leadScoreLabel(contact)}</p> : null}
                   {hasAttribution(contact) ? <p className="field-hint">{attributionSummary(contact)}</p> : null}
                 </div>
               </article>
@@ -1388,6 +1441,33 @@ export function ContactsRoute() {
                 </Button>
               ) : null}
             </div>
+            <Card>
+              <div className="card-stack">
+                <div className="section-header">
+                  <div>
+                    <h3>Lead score</h3>
+                    <p className="field-hint">Evaluate active scoring rules and route unassigned leads.</p>
+                  </div>
+                  {canWrite ? (
+                    <Button className="button-secondary" type="button" onClick={handleEvaluateLeadScore} disabled={isEvaluatingLeadScore}>
+                      {isEvaluatingLeadScore ? 'Scoring...' : 'Evaluate score'}
+                    </Button>
+                  ) : null}
+                </div>
+                {leadScoreStatus ? <p className="field-hint" role="status">{leadScoreStatus}</p> : null}
+                <div className="record-list" role="list" aria-label="Lead score summary">
+                  <article className="record-row" role="listitem">
+                    <div>
+                      <p>{hasLeadScore(selectedContact) ? `Score ${leadScoreLabel(selectedContact)}` : 'Not scored yet'}</p>
+                      <p className="field-hint">{formatLeadScoreTime(selectedContact.leadScoredAt)}</p>
+                    </div>
+                    <div>
+                      <span className="chip">Owner: {selectedContact.ownerUserName || 'Unassigned'}</span>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </Card>
             <form className="auth-form" onSubmit={handleUpdate}>
               <Field label="First name">
                 <input className="text-input" value={form.firstName} onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))} required />
