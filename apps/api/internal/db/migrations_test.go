@@ -583,3 +583,29 @@ func TestMigrationFilesIncludeLeadCaptureFormsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeLeadLandingPagesMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "043_lead_landing_pages.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected lead landing pages migration to be registered")
+	}
+
+	sql := MigrationSQL("043_lead_landing_pages.sql")
+	if sql == "" {
+		t.Fatal("expected lead landing pages migration SQL to be embedded")
+	}
+	for _, expected := range []string{"lead_landing_pages", "idx_lead_landing_pages_slug_unique", "lead_landing_pages_theme_check", "lead_landing_pages_form_org_fk"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected lead landing pages migration to include %s", expected)
+		}
+	}
+}

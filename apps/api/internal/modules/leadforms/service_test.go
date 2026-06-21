@@ -63,3 +63,33 @@ func TestContactInputFromSubmissionRequiresConfiguredFields(t *testing.T) {
 		t.Fatalf("expected invalid submission, got %v", err)
 	}
 }
+
+func TestNormalizeLandingPageInputDefaultsValues(t *testing.T) {
+	input := normalizeLandingPageInput(LandingPageInput{Name: "  Demo Request  ", LeadCaptureFormID: 7})
+
+	if input.Name != "Demo Request" || input.Slug != "demo-request" || input.Title != "Demo Request" {
+		t.Fatalf("unexpected normalized landing page identity: %#v", input)
+	}
+	if input.CTALabel != "Submit" || input.Theme != "light" {
+		t.Fatalf("expected landing page defaults, got %#v", input)
+	}
+	if err := validateLandingPageInput(input); err != nil {
+		t.Fatalf("expected default landing page to validate: %v", err)
+	}
+}
+
+func TestValidateLandingPageInputRequiresLeadForm(t *testing.T) {
+	input := normalizeLandingPageInput(LandingPageInput{Name: "Demo Request", Theme: "blue"})
+
+	if err := validateLandingPageInput(input); !errors.Is(err, ErrInvalidPage) {
+		t.Fatalf("expected invalid landing page, got %v", err)
+	}
+}
+
+func TestValidateLandingPageInputRejectsUnknownTheme(t *testing.T) {
+	input := normalizeLandingPageInput(LandingPageInput{Name: "Demo Request", LeadCaptureFormID: 7, Theme: "neon"})
+
+	if err := validateLandingPageInput(input); !errors.Is(err, ErrInvalidPage) {
+		t.Fatalf("expected invalid landing page theme, got %v", err)
+	}
+}

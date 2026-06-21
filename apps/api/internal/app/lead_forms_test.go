@@ -16,24 +16,41 @@ import (
 )
 
 type fakeLeadFormsService struct {
-	listResult       []moduleleadforms.Form
-	listErr          error
-	createResult     moduleleadforms.Form
-	createErr        error
-	updateResult     moduleleadforms.Form
-	updateErr        error
-	submitResult     moduleleadforms.SubmissionResult
-	submitErr        error
-	lastListOrgID    int64
-	lastCreateOrgID  int64
-	lastCreateUserID int64
-	lastCreateInput  moduleleadforms.Input
-	lastUpdateOrgID  int64
-	lastUpdateID     int64
-	lastUpdateUserID int64
-	lastUpdateInput  moduleleadforms.Input
-	lastPublicID     string
-	lastSubmitInput  moduleleadforms.SubmissionInput
+	listResult          []moduleleadforms.Form
+	listErr             error
+	createResult        moduleleadforms.Form
+	createErr           error
+	updateResult        moduleleadforms.Form
+	updateErr           error
+	pageListResult      []moduleleadforms.LandingPage
+	pageListErr         error
+	pageCreateResult    moduleleadforms.LandingPage
+	pageCreateErr       error
+	pageUpdateResult    moduleleadforms.LandingPage
+	pageUpdateErr       error
+	publicPageResult    moduleleadforms.PublicLandingPage
+	publicPageErr       error
+	submitResult        moduleleadforms.SubmissionResult
+	submitErr           error
+	lastListOrgID       int64
+	lastCreateOrgID     int64
+	lastCreateUserID    int64
+	lastCreateInput     moduleleadforms.Input
+	lastUpdateOrgID     int64
+	lastUpdateID        int64
+	lastUpdateUserID    int64
+	lastUpdateInput     moduleleadforms.Input
+	lastPageListOrg     int64
+	lastPageCreateOrg   int64
+	lastPageCreateUser  int64
+	lastPageCreateInput moduleleadforms.LandingPageInput
+	lastPageUpdateOrg   int64
+	lastPageUpdateID    int64
+	lastPageUpdateUser  int64
+	lastPageUpdateInput moduleleadforms.LandingPageInput
+	lastPublicPageSlug  string
+	lastPublicID        string
+	lastSubmitInput     moduleleadforms.SubmissionInput
 }
 
 func (f *fakeLeadFormsService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleleadforms.Form, error) {
@@ -54,6 +71,31 @@ func (f *fakeLeadFormsService) Update(_ context.Context, organizationID, formID,
 	f.lastUpdateUserID = actorUserID
 	f.lastUpdateInput = input
 	return f.updateResult, f.updateErr
+}
+
+func (f *fakeLeadFormsService) ListLandingPagesByOrganization(_ context.Context, organizationID int64) ([]moduleleadforms.LandingPage, error) {
+	f.lastPageListOrg = organizationID
+	return f.pageListResult, f.pageListErr
+}
+
+func (f *fakeLeadFormsService) CreateLandingPage(_ context.Context, organizationID, actorUserID int64, input moduleleadforms.LandingPageInput) (moduleleadforms.LandingPage, error) {
+	f.lastPageCreateOrg = organizationID
+	f.lastPageCreateUser = actorUserID
+	f.lastPageCreateInput = input
+	return f.pageCreateResult, f.pageCreateErr
+}
+
+func (f *fakeLeadFormsService) UpdateLandingPage(_ context.Context, organizationID, pageID, actorUserID int64, input moduleleadforms.LandingPageInput) (moduleleadforms.LandingPage, error) {
+	f.lastPageUpdateOrg = organizationID
+	f.lastPageUpdateID = pageID
+	f.lastPageUpdateUser = actorUserID
+	f.lastPageUpdateInput = input
+	return f.pageUpdateResult, f.pageUpdateErr
+}
+
+func (f *fakeLeadFormsService) GetPublicLandingPage(_ context.Context, slug string) (moduleleadforms.PublicLandingPage, error) {
+	f.lastPublicPageSlug = slug
+	return f.publicPageResult, f.publicPageErr
 }
 
 func (f *fakeLeadFormsService) SubmitByPublicID(_ context.Context, publicID string, input moduleleadforms.SubmissionInput) (moduleleadforms.SubmissionResult, error) {
@@ -220,5 +262,127 @@ func TestSubmitPublicLeadCaptureFormAcceptsFormEncodedBody(t *testing.T) {
 	}
 	if service.lastSubmitInput.Values["lastName"] != "Hopper" || service.lastSubmitInput.SourceURL != "https://example.com/demo" {
 		t.Fatalf("unexpected form encoded submission: %#v", service.lastSubmitInput)
+	}
+}
+
+func TestListLeadLandingPagesScopesToOrganization(t *testing.T) {
+	service := &fakeLeadFormsService{pageListResult: []moduleleadforms.LandingPage{{ID: 4, Name: "Demo Page", Slug: "demo", PublicID: "lp_test", LeadCaptureFormID: 3, LeadCaptureFormName: "Website Leads", IsActive: true}}}
+	server := authenticatedLeadFormsServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/lead-landing-pages", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastPageListOrg != 42 {
+		t.Fatalf("expected page list scoped to org 42, got %d", service.lastPageListOrg)
+	}
+	var response struct {
+		Data struct {
+			Pages []moduleleadforms.LandingPage `json:"pages"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(response.Data.Pages) != 1 || response.Data.Pages[0].PublicID != "lp_test" {
+		t.Fatalf("unexpected landing pages payload: %#v", response.Data.Pages)
+	}
+}
+
+func TestCreateLeadLandingPageRequiresAdminAndUsesCurrentOrganization(t *testing.T) {
+	service := &fakeLeadFormsService{pageCreateResult: moduleleadforms.LandingPage{ID: 8, Name: "Demo Page", Slug: "demo", PublicID: "lp_created", LeadCaptureFormID: 3}}
+	server := authenticatedLeadFormsServer(service, "admin")
+
+	body := bytes.NewBufferString(`{"name":"Demo Page","slug":"demo","title":"Book a demo","subtitle":"See it live","body":"Talk to our team.","ctaLabel":"Request demo","theme":"blue","leadCaptureFormId":3,"isActive":true}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/lead-landing-pages", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
+	}
+	if service.lastPageCreateOrg != 42 || service.lastPageCreateUser != 1 || service.lastPageCreateInput.LeadCaptureFormID != 3 || service.lastPageCreateInput.Theme != "blue" {
+		t.Fatalf("unexpected landing page create input: org=%d user=%d input=%#v", service.lastPageCreateOrg, service.lastPageCreateUser, service.lastPageCreateInput)
+	}
+}
+
+func TestCreateLeadLandingPageRejectsMember(t *testing.T) {
+	service := &fakeLeadFormsService{}
+	server := authenticatedLeadFormsServer(service, "member")
+
+	body := bytes.NewBufferString(`{"name":"Demo Page","leadCaptureFormId":3}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/lead-landing-pages", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
+	}
+	if service.lastPageCreateOrg != 0 {
+		t.Fatal("member should not reach landing page create service")
+	}
+}
+
+func TestUpdateLeadLandingPageScopesToOrganization(t *testing.T) {
+	inactive := false
+	service := &fakeLeadFormsService{pageUpdateResult: moduleleadforms.LandingPage{ID: 9, Name: "Demo Page", Slug: "demo", IsActive: false}}
+	server := authenticatedLeadFormsServer(service, "owner")
+
+	body := bytes.NewBufferString(`{"name":"Demo Page","slug":"demo","title":"Book a demo","ctaLabel":"Request demo","theme":"dark","leadCaptureFormId":3,"isActive":false}`)
+	request := httptest.NewRequest(http.MethodPatch, "/api/lead-landing-pages/9", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastPageUpdateOrg != 42 || service.lastPageUpdateID != 9 || service.lastPageUpdateUser != 1 {
+		t.Fatalf("unexpected landing page update routing: org=%d id=%d user=%d", service.lastPageUpdateOrg, service.lastPageUpdateID, service.lastPageUpdateUser)
+	}
+	if service.lastPageUpdateInput.IsActive == nil || *service.lastPageUpdateInput.IsActive != inactive {
+		t.Fatalf("expected inactive update input, got %#v", service.lastPageUpdateInput.IsActive)
+	}
+}
+
+func TestGetPublicLeadLandingPageDoesNotRequireAuth(t *testing.T) {
+	service := &fakeLeadFormsService{publicPageResult: moduleleadforms.PublicLandingPage{
+		Page: moduleleadforms.LandingPage{ID: 5, Name: "Demo Page", Slug: "demo", PublicID: "lp_public", Title: "Book a demo", LeadCaptureFormID: 3, LeadCaptureFormPublicID: "lf_public", IsActive: true},
+		Form: moduleleadforms.Form{ID: 3, Name: "Website Leads", PublicID: "lf_public", Fields: []moduleleadforms.Field{{Key: "firstName", Label: "First name", Required: true, MapTo: "firstName"}}},
+	}}
+	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/public/landing-pages/demo", nil)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastPublicPageSlug != "demo" {
+		t.Fatalf("expected public slug demo, got %q", service.lastPublicPageSlug)
+	}
+	var response struct {
+		Data moduleleadforms.PublicLandingPage `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Page.PublicID != "lp_public" || response.Data.Form.PublicID != "lf_public" {
+		t.Fatalf("unexpected public landing page response: %#v", response.Data)
 	}
 }

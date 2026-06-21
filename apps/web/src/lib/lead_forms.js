@@ -21,3 +21,9 @@ export async function updateLeadCaptureForm(formId, input, { signal } = {}) {
 export function publicLeadCaptureFormSubmitURL(publicId) {
   return apiURL(`/api/public/lead-capture-forms/${encodeURIComponent(publicId)}/submissions`)
 }
+
+export async function submitPublicLeadCaptureForm(publicId, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/public/lead-capture-forms/${encodeURIComponent(publicId)}/submissions`, { method: 'POST', body: input, fallbackMessage: 'Unable to submit the form.', signal })
+
+  return payload?.data
+}

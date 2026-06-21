@@ -205,6 +205,10 @@ type leadFormsService interface {
 	ListByOrganization(context.Context, int64) ([]moduleleadforms.Form, error)
 	Create(context.Context, int64, int64, moduleleadforms.Input) (moduleleadforms.Form, error)
 	Update(context.Context, int64, int64, int64, moduleleadforms.Input) (moduleleadforms.Form, error)
+	ListLandingPagesByOrganization(context.Context, int64) ([]moduleleadforms.LandingPage, error)
+	CreateLandingPage(context.Context, int64, int64, moduleleadforms.LandingPageInput) (moduleleadforms.LandingPage, error)
+	UpdateLandingPage(context.Context, int64, int64, int64, moduleleadforms.LandingPageInput) (moduleleadforms.LandingPage, error)
+	GetPublicLandingPage(context.Context, string) (moduleleadforms.PublicLandingPage, error)
 	SubmitByPublicID(context.Context, string, moduleleadforms.SubmissionInput) (moduleleadforms.SubmissionResult, error)
 }
 
@@ -829,6 +833,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/lead-capture-forms/{formID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateLeadCaptureForm(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("GET /api/lead-landing-pages", func(w http.ResponseWriter, r *http.Request) {
+		handleListLeadLandingPages(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("POST /api/lead-landing-pages", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateLeadLandingPage(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/lead-landing-pages/{pageID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateLeadLandingPage(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("GET /api/public/landing-pages/{slug}", func(w http.ResponseWriter, r *http.Request) {
+		handleGetPublicLeadLandingPage(dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("POST /api/public/lead-capture-forms/{publicID}/submissions", func(w http.ResponseWriter, r *http.Request) {
 		handleSubmitPublicLeadCaptureForm(dependencies.LeadFormsService, w, r)

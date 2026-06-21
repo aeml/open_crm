@@ -73,6 +73,10 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"lead_capture_forms_slug_check",
 		"lead_capture_forms_fields_json_array_check",
 		"lead_capture_submissions_payload_json_object_check",
+		"lead_capture_forms_org_id_unique",
+		"lead_landing_pages_form_org_fk",
+		"lead_landing_pages_slug_check",
+		"lead_landing_pages_theme_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -94,6 +98,9 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_lead_capture_forms_org_slug_unique",
 		"idx_lead_capture_forms_org_active",
 		"idx_lead_capture_submissions_org_form_created",
+		"idx_lead_landing_pages_slug_unique",
+		"idx_lead_landing_pages_org_active",
+		"idx_lead_landing_pages_org_form",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -202,6 +209,12 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	}
 	expectExecError(t, ctx, pool, `INSERT INTO lead_capture_forms (organization_id, public_id, name, slug, title, fields_json) VALUES ($1, 'lf_test_2', 'Lead Form 2', 'lead-form', 'Lead Form 2', '[]'::jsonb)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO lead_capture_submissions (organization_id, form_id, payload_json) VALUES ($1, $2, '[]'::jsonb)`, organizationID, leadFormID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_landing_pages (organization_id, public_id, lead_capture_form_id, name, slug, title, theme) VALUES ($1, 'lp_bad', $2, 'Bad Page', 'Bad Slug', 'Bad Page', 'light')`, organizationID, leadFormID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_landing_pages (organization_id, public_id, lead_capture_form_id, name, slug, title, theme) VALUES ($1, 'lp_bad_theme', $2, 'Bad Page', 'bad-page', 'Bad Page', 'neon')`, organizationID, leadFormID)
+	if _, err := pool.Exec(ctx, `INSERT INTO lead_landing_pages (organization_id, public_id, lead_capture_form_id, name, slug, title, theme) VALUES ($1, 'lp_test', $2, 'Landing Page', 'landing-page', 'Landing Page', 'light')`, organizationID, leadFormID); err != nil {
+		t.Fatalf("insert lead landing page: %v", err)
+	}
+	expectExecError(t, ctx, pool, `INSERT INTO lead_landing_pages (organization_id, public_id, lead_capture_form_id, name, slug, title, theme) VALUES ($1, 'lp_test_2', $2, 'Landing Page 2', 'landing-page', 'Landing Page 2', 'light')`, organizationID, leadFormID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)

@@ -21,7 +21,9 @@ import (
 
 var (
 	ErrDuplicateSlug     = errors.New("lead capture form slug already exists")
+	ErrDuplicatePageSlug = errors.New("lead landing page slug already exists")
 	ErrInvalidInput      = errors.New("invalid lead capture form")
+	ErrInvalidPage       = errors.New("invalid lead landing page")
 	ErrInvalidSubmission = errors.New("invalid lead capture submission")
 	ErrNotFound          = errors.New("lead capture form not found")
 )
@@ -80,6 +82,41 @@ type Submission struct {
 type SubmissionResult struct {
 	Submission     Submission `json:"submission"`
 	SuccessMessage string     `json:"successMessage"`
+}
+
+type LandingPage struct {
+	ID                      int64     `json:"id"`
+	Name                    string    `json:"name"`
+	Slug                    string    `json:"slug"`
+	PublicID                string    `json:"publicId"`
+	Title                   string    `json:"title"`
+	Subtitle                string    `json:"subtitle"`
+	Body                    string    `json:"body"`
+	CTALabel                string    `json:"ctaLabel"`
+	Theme                   string    `json:"theme"`
+	LeadCaptureFormID       int64     `json:"leadCaptureFormId"`
+	LeadCaptureFormName     string    `json:"leadCaptureFormName"`
+	LeadCaptureFormPublicID string    `json:"leadCaptureFormPublicId"`
+	IsActive                bool      `json:"isActive"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+}
+
+type LandingPageInput struct {
+	Name              string `json:"name"`
+	Slug              string `json:"slug"`
+	Title             string `json:"title"`
+	Subtitle          string `json:"subtitle"`
+	Body              string `json:"body"`
+	CTALabel          string `json:"ctaLabel"`
+	Theme             string `json:"theme"`
+	LeadCaptureFormID int64  `json:"leadCaptureFormId"`
+	IsActive          *bool  `json:"isActive"`
+}
+
+type PublicLandingPage struct {
+	Page LandingPage `json:"page"`
+	Form Form        `json:"form"`
 }
 
 type Service struct {
@@ -199,6 +236,143 @@ func (s *Service) Update(ctx context.Context, organizationID, formID, actorUserI
 		return Form{}, mapSaveError(err)
 	}
 	return form, nil
+}
+
+func (s *Service) ListLandingPagesByOrganization(ctx context.Context, organizationID int64) ([]LandingPage, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("lead forms service not configured")
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT p.id, p.name, p.slug, p.public_id, p.title, p.subtitle, p.body, p.cta_label, p.theme,
+			p.lead_capture_form_id, f.name, f.public_id, p.is_active, p.created_at, p.updated_at
+		FROM lead_landing_pages p
+		JOIN lead_capture_forms f ON f.organization_id = p.organization_id AND f.id = p.lead_capture_form_id
+		WHERE p.organization_id = $1
+		ORDER BY p.updated_at DESC, p.id DESC
+	`, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("list lead landing pages: %w", err)
+	}
+	defer rows.Close()
+
+	pages := make([]LandingPage, 0)
+	for rows.Next() {
+		page, err := scanLandingPage(rows)
+		if err != nil {
+			return nil, err
+		}
+		pages = append(pages, page)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate lead landing pages: %w", err)
+	}
+	return pages, nil
+}
+
+func (s *Service) CreateLandingPage(ctx context.Context, organizationID, actorUserID int64, input LandingPageInput) (LandingPage, error) {
+	if s == nil || s.pool == nil {
+		return LandingPage{}, fmt.Errorf("lead forms service not configured")
+	}
+	input = normalizeLandingPageInput(input)
+	if err := validateLandingPageInput(input); err != nil {
+		return LandingPage{}, err
+	}
+	publicID, err := newLandingPagePublicID()
+	if err != nil {
+		return LandingPage{}, err
+	}
+	isActive := true
+	if input.IsActive != nil {
+		isActive = *input.IsActive
+	}
+
+	page, err := scanLandingPage(s.pool.QueryRow(ctx, `
+		WITH inserted AS (
+			INSERT INTO lead_landing_pages (organization_id, public_id, lead_capture_form_id, name, slug, title, subtitle, body, cta_label, theme, is_active, created_by_user_id, updated_by_user_id)
+			SELECT $1, $2, f.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11
+			FROM lead_capture_forms f
+			WHERE f.organization_id = $1 AND f.id = $12
+			RETURNING *
+		)
+		SELECT p.id, p.name, p.slug, p.public_id, p.title, p.subtitle, p.body, p.cta_label, p.theme,
+			p.lead_capture_form_id, f.name, f.public_id, p.is_active, p.created_at, p.updated_at
+		FROM inserted p
+		JOIN lead_capture_forms f ON f.organization_id = p.organization_id AND f.id = p.lead_capture_form_id
+	`, organizationID, publicID, input.Name, input.Slug, input.Title, input.Subtitle, input.Body, input.CTALabel, input.Theme, isActive, actorUserID, input.LeadCaptureFormID))
+	if err != nil {
+		return LandingPage{}, mapLandingPageSaveError(err)
+	}
+	return page, nil
+}
+
+func (s *Service) UpdateLandingPage(ctx context.Context, organizationID, pageID, actorUserID int64, input LandingPageInput) (LandingPage, error) {
+	if s == nil || s.pool == nil {
+		return LandingPage{}, fmt.Errorf("lead forms service not configured")
+	}
+	input = normalizeLandingPageInput(input)
+	if err := validateLandingPageInput(input); err != nil {
+		return LandingPage{}, err
+	}
+	var isActive any
+	if input.IsActive != nil {
+		isActive = *input.IsActive
+	}
+
+	page, err := scanLandingPage(s.pool.QueryRow(ctx, `
+		WITH updated AS (
+			UPDATE lead_landing_pages p
+			SET lead_capture_form_id = $3,
+			    name = $4,
+			    slug = $5,
+			    title = $6,
+			    subtitle = $7,
+			    body = $8,
+			    cta_label = $9,
+			    theme = $10,
+			    is_active = COALESCE($11::boolean, p.is_active),
+			    updated_by_user_id = $12,
+			    updated_at = NOW()
+			WHERE p.organization_id = $1
+			  AND p.id = $2
+			  AND EXISTS (SELECT 1 FROM lead_capture_forms f WHERE f.organization_id = $1 AND f.id = $3)
+			RETURNING *
+		)
+		SELECT p.id, p.name, p.slug, p.public_id, p.title, p.subtitle, p.body, p.cta_label, p.theme,
+			p.lead_capture_form_id, f.name, f.public_id, p.is_active, p.created_at, p.updated_at
+		FROM updated p
+		JOIN lead_capture_forms f ON f.organization_id = p.organization_id AND f.id = p.lead_capture_form_id
+	`, organizationID, pageID, input.LeadCaptureFormID, input.Name, input.Slug, input.Title, input.Subtitle, input.Body, input.CTALabel, input.Theme, isActive, actorUserID))
+	if err != nil {
+		return LandingPage{}, mapLandingPageSaveError(err)
+	}
+	return page, nil
+}
+
+func (s *Service) GetPublicLandingPage(ctx context.Context, slug string) (PublicLandingPage, error) {
+	if s == nil || s.pool == nil {
+		return PublicLandingPage{}, fmt.Errorf("lead forms service not configured")
+	}
+	slug = normalizeSlug(slug)
+	if slug == "" {
+		return PublicLandingPage{}, ErrNotFound
+	}
+
+	page, form, err := scanPublicLandingPage(s.pool.QueryRow(ctx, `
+		SELECT p.id, p.name, p.slug, p.public_id, p.title, p.subtitle, p.body, p.cta_label, p.theme,
+			p.lead_capture_form_id, f.name, f.public_id, p.is_active, p.created_at, p.updated_at,
+			f.id, f.name, f.slug, f.public_id, f.title, f.description, f.fields_json, f.success_message, f.source_label, f.is_active, 0, f.created_at, f.updated_at
+		FROM lead_landing_pages p
+		JOIN lead_capture_forms f ON f.organization_id = p.organization_id AND f.id = p.lead_capture_form_id
+		WHERE p.slug = $1 AND p.is_active = TRUE AND f.is_active = TRUE
+	`, slug))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return PublicLandingPage{}, ErrNotFound
+		}
+		return PublicLandingPage{}, fmt.Errorf("get public lead landing page: %w", err)
+	}
+	return PublicLandingPage{Page: page, Form: form}, nil
 }
 
 func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input SubmissionInput) (SubmissionResult, error) {
@@ -396,6 +570,72 @@ func scanFormWithOrganization(scanner formScanner) (Form, int64, error) {
 	return form, organizationID, nil
 }
 
+func scanLandingPage(scanner formScanner) (LandingPage, error) {
+	var page LandingPage
+	if err := scanner.Scan(
+		&page.ID,
+		&page.Name,
+		&page.Slug,
+		&page.PublicID,
+		&page.Title,
+		&page.Subtitle,
+		&page.Body,
+		&page.CTALabel,
+		&page.Theme,
+		&page.LeadCaptureFormID,
+		&page.LeadCaptureFormName,
+		&page.LeadCaptureFormPublicID,
+		&page.IsActive,
+		&page.CreatedAt,
+		&page.UpdatedAt,
+	); err != nil {
+		return LandingPage{}, fmt.Errorf("scan lead landing page: %w", err)
+	}
+	return page, nil
+}
+
+func scanPublicLandingPage(scanner formScanner) (LandingPage, Form, error) {
+	var page LandingPage
+	var form Form
+	var fieldsJSON []byte
+	if err := scanner.Scan(
+		&page.ID,
+		&page.Name,
+		&page.Slug,
+		&page.PublicID,
+		&page.Title,
+		&page.Subtitle,
+		&page.Body,
+		&page.CTALabel,
+		&page.Theme,
+		&page.LeadCaptureFormID,
+		&page.LeadCaptureFormName,
+		&page.LeadCaptureFormPublicID,
+		&page.IsActive,
+		&page.CreatedAt,
+		&page.UpdatedAt,
+		&form.ID,
+		&form.Name,
+		&form.Slug,
+		&form.PublicID,
+		&form.Title,
+		&form.Description,
+		&fieldsJSON,
+		&form.SuccessMessage,
+		&form.SourceLabel,
+		&form.IsActive,
+		&form.SubmissionCount,
+		&form.CreatedAt,
+		&form.UpdatedAt,
+	); err != nil {
+		return LandingPage{}, Form{}, err
+	}
+	if err := decodeFieldsJSON(fieldsJSON, &form); err != nil {
+		return LandingPage{}, Form{}, err
+	}
+	return page, form, nil
+}
+
 func decodeFieldsJSON(raw []byte, form *Form) error {
 	if len(raw) == 0 {
 		raw = []byte("[]")
@@ -479,6 +719,48 @@ func validateInput(input Input) error {
 	return nil
 }
 
+func normalizeLandingPageInput(input LandingPageInput) LandingPageInput {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Slug = normalizeSlug(input.Slug)
+	input.Title = strings.TrimSpace(input.Title)
+	input.Subtitle = strings.TrimSpace(input.Subtitle)
+	input.Body = strings.TrimSpace(input.Body)
+	input.CTALabel = strings.TrimSpace(input.CTALabel)
+	input.Theme = strings.TrimSpace(strings.ToLower(input.Theme))
+	if input.Slug == "" {
+		input.Slug = normalizeSlug(input.Name)
+	}
+	if input.Title == "" {
+		input.Title = input.Name
+	}
+	if input.CTALabel == "" {
+		input.CTALabel = "Submit"
+	}
+	if input.Theme == "" {
+		input.Theme = "light"
+	}
+	return input
+}
+
+func validateLandingPageInput(input LandingPageInput) error {
+	if input.Name == "" || input.Slug == "" || input.Title == "" || input.CTALabel == "" || input.LeadCaptureFormID <= 0 {
+		return ErrInvalidPage
+	}
+	if !isAllowedLandingPageTheme(input.Theme) {
+		return ErrInvalidPage
+	}
+	return nil
+}
+
+func isAllowedLandingPageTheme(theme string) bool {
+	switch theme {
+	case "light", "blue", "dark":
+		return true
+	default:
+		return false
+	}
+}
+
 func isAllowedFieldType(fieldType string) bool {
 	switch fieldType {
 	case "text", "email", "tel", "textarea", "hidden":
@@ -538,11 +820,19 @@ func normalizeSlug(value string) string {
 }
 
 func newPublicID() (string, error) {
+	return newPrefixedPublicID("lf")
+}
+
+func newLandingPagePublicID() (string, error) {
+	return newPrefixedPublicID("lp")
+}
+
+func newPrefixedPublicID(prefix string) (string, error) {
 	var token [16]byte
 	if _, err := rand.Read(token[:]); err != nil {
-		return "", fmt.Errorf("generate lead capture public id: %w", err)
+		return "", fmt.Errorf("generate %s public id: %w", prefix, err)
 	}
-	return "lf_" + hex.EncodeToString(token[:]), nil
+	return prefix + "_" + hex.EncodeToString(token[:]), nil
 }
 
 func trimMax(value string, maxLength int) string {
@@ -567,6 +857,24 @@ func mapSaveError(err error) error {
 		}
 	}
 	return fmt.Errorf("save lead capture form: %w", err)
+}
+
+func mapLandingPageSaveError(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505":
+			return ErrDuplicatePageSlug
+		case "23503":
+			return ErrNotFound
+		case "23514", "22P02":
+			return ErrInvalidPage
+		}
+	}
+	return fmt.Errorf("save lead landing page: %w", err)
 }
 
 func mapSubmissionSaveError(err error) error {
