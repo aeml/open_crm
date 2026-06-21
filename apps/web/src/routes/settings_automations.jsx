@@ -84,7 +84,7 @@ function emptyConditionDraft(target = 'contact') {
 }
 
 function emptyActionDraft(type = 'create_task') {
-  return { type, config: {} }
+  return { type, config: {}, delayMinutes: '', scheduledAt: '' }
 }
 
 function emptyForm() {
@@ -137,6 +137,17 @@ function parseConditions(raw) {
   }))
 }
 
+function parseDelayMinutes(value) {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return 0
+  }
+  const text = String(value).trim()
+  if (!/^\d+$/.test(text)) {
+    throw new Error('Delay minutes must be a whole number.')
+  }
+  return Number.parseInt(text, 10)
+}
+
 function parseActions(raw) {
   const parsed = JSON.parse(raw || '[]')
   if (!Array.isArray(parsed)) {
@@ -147,10 +158,18 @@ function parseActions(raw) {
     if (!config || Array.isArray(config) || typeof config !== 'object') {
       throw new Error('Action configs must be JSON objects.')
     }
-    return {
+    const delayMinutes = parseDelayMinutes(action?.delayMinutes)
+    const scheduledAt = String(action?.scheduledAt || '').trim()
+    if (delayMinutes > 0 && scheduledAt) {
+      throw new Error('Use either delay minutes or scheduled at for an action, not both.')
+    }
+    const nextAction = {
       type: String(action?.type || '').trim(),
       config: Object.fromEntries(Object.entries(config).filter(([key, value]) => key.trim() && value !== null).map(([key, value]) => [key.trim(), typeof value === 'string' ? value.trim() : value]))
     }
+    if (delayMinutes > 0) nextAction.delayMinutes = delayMinutes
+    if (scheduledAt) nextAction.scheduledAt = scheduledAt
+    return nextAction
   })
 }
 
@@ -207,7 +226,8 @@ function conditionSummary(condition) {
 function actionSummary(action) {
   const config = action.config || {}
   const primary = config.title || config.subject || config.message || config.body || config.field || config.url || config.userId || config.sequenceId || ''
-  return primary ? `${actionLabel(action.type)}: ${primary}` : actionLabel(action.type)
+  const timing = action.delayMinutes ? ` after ${action.delayMinutes}m` : action.scheduledAt ? ` at ${action.scheduledAt}` : ''
+  return primary ? `${actionLabel(action.type)}${timing}: ${primary}` : `${actionLabel(action.type)}${timing}`
 }
 
 function automationSummary(automation) {
@@ -325,6 +345,18 @@ export function SettingsAutomationsRoute() {
       setError('Fill in the action details before adding it.')
       return
     }
+    let delayMinutes
+    try {
+      delayMinutes = parseDelayMinutes(actionDraft.delayMinutes)
+    } catch (parseError) {
+      setError(parseError.message || 'Delay minutes must be a whole number.')
+      return
+    }
+    const scheduledAt = actionDraft.scheduledAt.trim()
+    if (delayMinutes > 0 && scheduledAt) {
+      setError('Use either delay minutes or scheduled at for an action, not both.')
+      return
+    }
     let currentActions
     try {
       currentActions = parseActions(form.actionsText)
@@ -332,7 +364,10 @@ export function SettingsAutomationsRoute() {
       setError(parseError.message || 'Actions must be valid JSON before using the builder.')
       return
     }
-    const nextActions = [...currentActions, { type: actionDraft.type, config }]
+    const nextAction = { type: actionDraft.type, config }
+    if (delayMinutes > 0) nextAction.delayMinutes = delayMinutes
+    if (scheduledAt) nextAction.scheduledAt = scheduledAt
+    const nextActions = [...currentActions, nextAction]
     setForm({ ...form, actionsText: JSON.stringify(nextActions, null, 2) })
     setActionDraft(emptyActionDraft(actionDraft.type))
     setError('')
@@ -522,6 +557,14 @@ export function SettingsAutomationsRoute() {
                   <input className="text-input" value={actionDraft.config[field.key] || ''} onChange={(event) => updateActionConfig(field.key, event.target.value)} />
                 </Field>
               ))}
+              <div className="button-row">
+                <Field label="Delay minutes" hint="Optional relative delay after the trigger.">
+                  <input className="text-input" min="0" type="number" value={actionDraft.delayMinutes} onChange={(event) => setActionDraft({ ...actionDraft, delayMinutes: event.target.value })} />
+                </Field>
+                <Field label="Scheduled at" hint="Optional absolute ISO time, for example 2030-05-01T15:30:00Z.">
+                  <input className="text-input" value={actionDraft.scheduledAt} onChange={(event) => setActionDraft({ ...actionDraft, scheduledAt: event.target.value })} />
+                </Field>
+              </div>
               <Button className="button-secondary" type="button" onClick={addActionFromBuilder}>Add action</Button>
               {builderActions.length > 0 ? (
                 <div className="record-list" role="list" aria-label="Builder actions">

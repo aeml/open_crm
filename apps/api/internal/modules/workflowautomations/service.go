@@ -45,8 +45,10 @@ type Condition struct {
 }
 
 type Action struct {
-	Type   string         `json:"type"`
-	Config map[string]any `json:"config"`
+	Type         string         `json:"type"`
+	Config       map[string]any `json:"config"`
+	DelayMinutes int            `json:"delayMinutes,omitempty"`
+	ScheduledAt  *time.Time     `json:"scheduledAt,omitempty"`
 }
 
 type Input struct {
@@ -65,6 +67,8 @@ type Input struct {
 type Service struct {
 	pool *pgxpool.Pool
 }
+
+const maxActionDelayMinutes = 525600
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
@@ -303,6 +307,10 @@ func normalizeInput(input Input) Input {
 	for index := range input.Actions {
 		input.Actions[index].Type = normalizeActionType(input.Actions[index].Type)
 		input.Actions[index].Config = normalizeConfigMap(input.Actions[index].Config)
+		if input.Actions[index].ScheduledAt != nil {
+			scheduledAt := input.Actions[index].ScheduledAt.UTC()
+			input.Actions[index].ScheduledAt = &scheduledAt
+		}
 	}
 	return input
 }
@@ -393,6 +401,9 @@ func validateAction(action Action) error {
 	if !isAllowedActionType(action.Type) {
 		return ErrInvalidInput
 	}
+	if err := validateActionTiming(action); err != nil {
+		return err
+	}
 	switch action.Type {
 	case "update_field":
 		if _, ok := stringConfig(action.Config, "field"); !ok || !configValueExists(action.Config, "value") {
@@ -431,6 +442,29 @@ func validateAction(action Action) error {
 		}
 	}
 	return nil
+}
+
+func validateActionTiming(action Action) error {
+	if action.DelayMinutes < 0 || action.DelayMinutes > maxActionDelayMinutes {
+		return ErrInvalidInput
+	}
+	if action.ScheduledAt == nil {
+		return nil
+	}
+	if action.ScheduledAt.IsZero() || action.DelayMinutes > 0 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func PlannedActionTime(triggeredAt time.Time, action Action) time.Time {
+	if action.ScheduledAt != nil && !action.ScheduledAt.IsZero() {
+		return action.ScheduledAt.UTC()
+	}
+	if action.DelayMinutes > 0 {
+		return triggeredAt.Add(time.Duration(action.DelayMinutes) * time.Minute)
+	}
+	return triggeredAt
 }
 
 func isAllowedActionType(actionType string) bool {

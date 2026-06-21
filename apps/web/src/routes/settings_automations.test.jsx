@@ -30,10 +30,10 @@ describe('settings automations route', () => {
       if (path.endsWith('/auth/me')) return sessionResponse()
       if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
       if (path.endsWith('/api/workflow-automations') && method === 'POST') {
-        return jsonResponse({ data: { automation: { id: 8, name: 'Website form follow-up', description: 'Start after public form capture.', triggerType: 'form_submitted', targetEntityType: 'lead_form', triggerConfig: { formPublicId: 'lf_public' }, conditionLogic: 'all', conditions: [{ field: 'leadSource', operator: 'equals', value: 'Website form' }], actions: [{ type: 'create_task', config: { title: 'Call website lead' } }], isActive: true, position: 1 } } }, 201)
+        return jsonResponse({ data: { automation: { id: 8, name: 'Website form follow-up', description: 'Start after public form capture.', triggerType: 'form_submitted', targetEntityType: 'lead_form', triggerConfig: { formPublicId: 'lf_public' }, conditionLogic: 'all', conditions: [{ field: 'leadSource', operator: 'equals', value: 'Website form' }], actions: [{ type: 'create_task', config: { title: 'Call website lead' }, delayMinutes: 30 }], isActive: true, position: 1 } } }, 201)
       }
       if (path.endsWith('/api/workflow-automations')) {
-        return jsonResponse({ data: { automations: [{ id: 5, name: 'New contact welcome', description: 'Start from new contacts.', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditionLogic: 'all', conditions: [{ field: 'status', operator: 'equals', value: 'lead' }], actions: [{ type: 'send_email', config: { subject: 'Welcome', body: 'Thanks for reaching out.' } }], isActive: false, position: 0 }] } })
+        return jsonResponse({ data: { automations: [{ id: 5, name: 'New contact welcome', description: 'Start from new contacts.', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditionLogic: 'all', conditions: [{ field: 'status', operator: 'equals', value: 'lead' }], actions: [{ type: 'send_email', config: { subject: 'Welcome', body: 'Thanks for reaching out.' }, scheduledAt: '2030-05-01T15:30:00Z' }], isActive: false, position: 0 }] } })
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })
@@ -57,6 +57,7 @@ describe('settings automations route', () => {
     fireEvent.change(screen.getByLabelText(/condition value/i), { target: { value: 'Website form' } })
     fireEvent.click(screen.getByRole('button', { name: /add condition/i }))
     fireEvent.change(screen.getByLabelText(/^task title$/i), { target: { value: 'Call website lead' } })
+    fireEvent.change(screen.getByLabelText(/delay minutes/i), { target: { value: '30' } })
     fireEvent.click(screen.getByRole('button', { name: /add action/i }))
     fireEvent.change(screen.getByLabelText(/^order$/i), { target: { value: '1' } })
     fireEvent.click(screen.getByLabelText(/active trigger definition/i))
@@ -75,7 +76,7 @@ describe('settings automations route', () => {
         triggerConfig: { formPublicId: 'lf_public' },
         conditionLogic: 'all',
         conditions: [{ field: 'leadSource', operator: 'equals', value: 'Website form' }],
-        actions: [{ type: 'create_task', config: { title: 'Call website lead' } }],
+        actions: [{ type: 'create_task', config: { title: 'Call website lead' }, delayMinutes: 30 }],
         isActive: true,
         position: 1
       })

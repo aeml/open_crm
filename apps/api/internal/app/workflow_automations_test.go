@@ -64,7 +64,7 @@ func authenticatedWorkflowAutomationsServer(service *fakeWorkflowAutomationsServ
 }
 
 func TestListWorkflowAutomationsScopesToOrganization(t *testing.T) {
-	service := &fakeWorkflowAutomationsService{listResult: []moduleworkflowautomations.Automation{{ID: 5, Name: "New lead follow-up", TriggerType: "record_created", TargetEntityType: "contact", ConditionLogic: "all", Conditions: []moduleworkflowautomations.Condition{{Field: "status", Operator: "equals", Value: "lead"}}, Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Call lead"}}}, IsActive: true}}}
+	service := &fakeWorkflowAutomationsService{listResult: []moduleworkflowautomations.Automation{{ID: 5, Name: "New lead follow-up", TriggerType: "record_created", TargetEntityType: "contact", ConditionLogic: "all", Conditions: []moduleworkflowautomations.Condition{{Field: "status", Operator: "equals", Value: "lead"}}, Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Call lead"}, DelayMinutes: 30}}, IsActive: true}}}
 	server := authenticatedWorkflowAutomationsServer(service, "member")
 
 	request := httptest.NewRequest(http.MethodGet, "/api/workflow-automations", nil)
@@ -96,7 +96,7 @@ func TestCreateWorkflowAutomationRequiresAdminAndUsesCurrentOrganization(t *test
 	service := &fakeWorkflowAutomationsService{createResult: moduleworkflowautomations.Automation{ID: 8, Name: "Website form follow-up", TriggerType: "form_submitted", TargetEntityType: "lead_form", IsActive: true}}
 	server := authenticatedWorkflowAutomationsServer(service, "owner")
 
-	body := bytes.NewBufferString(`{"name":"Website form follow-up","description":"Start after public form capture","triggerType":"form_submitted","targetEntityType":"lead_form","triggerConfig":{"formPublicId":"lf_public"},"conditionLogic":"all","conditions":[{"field":"leadSource","operator":"equals","value":"Website form"}],"actions":[{"type":"create_task","config":{"title":"Call website lead"}}],"isActive":true,"position":1}`)
+	body := bytes.NewBufferString(`{"name":"Website form follow-up","description":"Start after public form capture","triggerType":"form_submitted","targetEntityType":"lead_form","triggerConfig":{"formPublicId":"lf_public"},"conditionLogic":"all","conditions":[{"field":"leadSource","operator":"equals","value":"Website form"}],"actions":[{"type":"create_task","config":{"title":"Call website lead"},"delayMinutes":30}],"isActive":true,"position":1}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/workflow-automations", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -107,7 +107,7 @@ func TestCreateWorkflowAutomationRequiresAdminAndUsesCurrentOrganization(t *test
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
 	}
-	if service.lastCreateOrgID != 42 || service.lastCreateUserID != 1 || service.lastCreateInput.TriggerType != "form_submitted" || service.lastCreateInput.TargetEntityType != "lead_form" || service.lastCreateInput.TriggerConfig["formPublicId"] != "lf_public" || service.lastCreateInput.ConditionLogic != "all" || len(service.lastCreateInput.Conditions) != 1 || service.lastCreateInput.Conditions[0].Field != "leadSource" || len(service.lastCreateInput.Actions) != 1 || service.lastCreateInput.Actions[0].Type != "create_task" {
+	if service.lastCreateOrgID != 42 || service.lastCreateUserID != 1 || service.lastCreateInput.TriggerType != "form_submitted" || service.lastCreateInput.TargetEntityType != "lead_form" || service.lastCreateInput.TriggerConfig["formPublicId"] != "lf_public" || service.lastCreateInput.ConditionLogic != "all" || len(service.lastCreateInput.Conditions) != 1 || service.lastCreateInput.Conditions[0].Field != "leadSource" || len(service.lastCreateInput.Actions) != 1 || service.lastCreateInput.Actions[0].Type != "create_task" || service.lastCreateInput.Actions[0].DelayMinutes != 30 {
 		t.Fatalf("unexpected workflow automation create input: org=%d user=%d input=%#v", service.lastCreateOrgID, service.lastCreateUserID, service.lastCreateInput)
 	}
 }
