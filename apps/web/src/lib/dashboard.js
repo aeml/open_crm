@@ -5,6 +5,8 @@ export async function getDashboardSummary({ signal } = {}) {
 
   return payload?.data || {
     pipelineValue: '0',
+    baseCurrency: 'USD',
+    missingRateCurrencies: [],
     openDealsCount: 0,
     wonDealsCount: 0,
     openTasksCount: 0,
@@ -20,6 +22,7 @@ export async function getDashboardSummary({ signal } = {}) {
       weightedForecastAmount: '0',
       attainmentPct: '0',
       coveragePct: '0',
+      missingRateCurrencies: [],
       members: []
     },
     recentActivities: []

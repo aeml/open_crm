@@ -115,6 +115,7 @@ type dataExportsService interface {
 type orgProfileService interface {
 	GetByOrganizationID(context.Context, int64) (moduleorgprofile.Detail, error)
 	UpdateByOrganizationID(context.Context, int64, int64, moduleorgprofile.UpdateInput) (moduleorgprofile.Detail, error)
+	UpsertExchangeRate(context.Context, int64, int64, moduleorgprofile.ExchangeRateInput) (moduleorgprofile.Detail, error)
 }
 
 type dashboardService interface {
@@ -615,6 +616,13 @@ type noteDetailResponse struct {
 
 type organizationProfileRequest struct {
 	BusinessType string `json:"businessType"`
+	BaseCurrency string `json:"baseCurrency"`
+}
+
+type organizationExchangeRateRequest struct {
+	RateToBase    string `json:"rateToBase"`
+	EffectiveDate string `json:"effectiveDate"`
+	Source        string `json:"source"`
 }
 
 type tasksListResponse struct {
@@ -1037,6 +1045,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/organization/profile", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("PUT /api/organization/exchange-rates/{quoteCurrency}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpsertOrganizationExchangeRate(dependencies.AuthService, dependencies.OrgProfileService, dependencies.AuditService, w, r)
 	})
 	mux.HandleFunc("GET /api/notifications", func(w http.ResponseWriter, r *http.Request) {
 		handleListNotifications(dependencies.AuthService, dependencies.NotificationsService, w, r)

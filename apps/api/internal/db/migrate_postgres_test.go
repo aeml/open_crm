@@ -56,6 +56,7 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 
 	for _, constraint := range []string{
 		"organizations_business_type_check",
+		"organizations_base_currency_code_check",
 		"organization_memberships_role_check",
 		"companies_status_check",
 		"contacts_status_check",
@@ -65,6 +66,10 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"sales_quotas_period_order_check",
 		"sales_quotas_amount_nonnegative_check",
 		"sales_quotas_currency_code_check",
+		"organization_exchange_rates_currency_code_check",
+		"organization_exchange_rates_currency_pair_check",
+		"organization_exchange_rates_rate_positive_check",
+		"organization_exchange_rates_source_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -81,6 +86,8 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_deal_stages_org_pipeline_name_unique",
 		"idx_sales_quotas_org_user_period_unique",
 		"idx_sales_quotas_org_period",
+		"idx_org_exchange_rates_unique_effective",
+		"idx_org_exchange_rates_latest",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -167,6 +174,7 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	}
 
 	expectExecError(t, ctx, pool, `INSERT INTO organizations (name, slug, business_type) VALUES ('Bad Org', 'bad-org', 'invalid')`)
+	expectExecError(t, ctx, pool, `INSERT INTO organizations (name, slug, base_currency) VALUES ('Bad Currency Org', 'bad-currency-org', 'US')`)
 	expectExecError(t, ctx, pool, `INSERT INTO organization_memberships (organization_id, user_id, role) VALUES ($1, $2, 'superuser')`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO deal_pipelines (organization_id, name, position) VALUES ($1, 'Duplicate Position', 1)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO deal_pipelines (organization_id, name, position) VALUES ($1, 'sales pipeline', 2)`, organizationID)
@@ -177,6 +185,9 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	expectExecError(t, ctx, pool, `INSERT INTO sales_quotas (organization_id, user_id, period_start, period_end, quota_amount, currency) VALUES ($1, $2, '2026-04-01', '2026-03-31', 1000, 'USD')`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO sales_quotas (organization_id, user_id, period_start, period_end, quota_amount, currency) VALUES ($1, $2, '2026-04-01', '2026-06-30', -1, 'USD')`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO sales_quotas (organization_id, user_id, period_start, period_end, quota_amount, currency) VALUES ($1, $2, '2026-04-01', '2026-06-30', 1000, 'US')`, organizationID, userID)
+	expectExecError(t, ctx, pool, `INSERT INTO organization_exchange_rates (organization_id, base_currency, quote_currency, rate_to_base, source) VALUES ($1, 'USD', 'EUR', 0, 'manual')`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO organization_exchange_rates (organization_id, base_currency, quote_currency, rate_to_base, source) VALUES ($1, 'USD', 'USD', 1, 'manual')`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO organization_exchange_rates (organization_id, base_currency, quote_currency, rate_to_base, source) VALUES ($1, 'US', 'EUR', 1.1, 'manual')`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)

@@ -166,12 +166,14 @@ type ListQuery struct {
 }
 
 type ListMeta struct {
-	Page          int    `json:"page"`
-	PageSize      int    `json:"pageSize"`
-	Total         int    `json:"total"`
-	OpenCount     int    `json:"openCount"`
-	WonCount      int    `json:"wonCount"`
-	PipelineValue string `json:"pipelineValue"`
+	Page                  int      `json:"page"`
+	PageSize              int      `json:"pageSize"`
+	Total                 int      `json:"total"`
+	OpenCount             int      `json:"openCount"`
+	WonCount              int      `json:"wonCount"`
+	PipelineValue         string   `json:"pipelineValue"`
+	Currency              string   `json:"currency"`
+	MissingRateCurrencies []string `json:"missingRateCurrencies"`
 }
 
 type ListResult struct {
@@ -330,20 +332,47 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	filterSQL, args := buildDealFilters(organizationID, query)
 
 	var total, openCount, wonCount int
-	var pipelineValue string
+	var pipelineValue, currency, missingRateCurrencies string
 	countSQL := `
+		WITH org_settings AS (
+			SELECT COALESCE(NULLIF(base_currency, ''), 'USD') AS base_currency
+			FROM organizations
+			WHERE id = $1
+		), latest_rates AS (
+			SELECT DISTINCT ON (er.quote_currency) er.quote_currency, er.rate_to_base
+			FROM organization_exchange_rates er
+			JOIN org_settings os ON os.base_currency = er.base_currency
+			WHERE er.organization_id = $1
+			ORDER BY er.quote_currency, er.effective_date DESC, er.id DESC
+		), deal_values AS (
+			SELECT d.id,
+			       ds.is_closed,
+			       ds.is_won,
+			       COALESCE(NULLIF(d.value_currency, ''), os.base_currency) AS deal_currency,
+			       CASE
+			         WHEN COALESCE(NULLIF(d.value_currency, ''), os.base_currency) = os.base_currency THEN COALESCE(d.value_amount, 0)
+			         WHEN lr.rate_to_base IS NOT NULL THEN COALESCE(d.value_amount, 0) * lr.rate_to_base
+			         ELSE NULL
+			       END AS converted_value,
+			       os.base_currency
+			FROM deals d
+			JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
+			JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
+			LEFT JOIN companies c ON c.id = d.company_id
+			LEFT JOIN contacts pc ON pc.id = d.primary_contact_id
+			CROSS JOIN org_settings os
+			LEFT JOIN latest_rates lr ON lr.quote_currency = COALESCE(NULLIF(d.value_currency, ''), os.base_currency)
+			WHERE d.organization_id = $1 AND d.archived_at IS NULL` + filterSQL + `
+		)
 		SELECT
 			COUNT(*),
-			COUNT(*) FILTER (WHERE COALESCE(d.archived_at, NULL) IS NULL AND COALESCE(ds.is_closed, FALSE) = FALSE),
-			COUNT(*) FILTER (WHERE COALESCE(ds.is_won, FALSE) = TRUE),
-			COALESCE(SUM(CASE WHEN COALESCE(ds.is_closed, FALSE) = FALSE THEN COALESCE(d.value_amount, 0) ELSE 0 END)::text, '0')
-		FROM deals d
-		JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
-		JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
-		LEFT JOIN companies c ON c.id = d.company_id
-		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id
-		WHERE d.organization_id = $1 AND d.archived_at IS NULL` + filterSQL
-	if err := s.pool.QueryRow(ctx, countSQL, args...).Scan(&total, &openCount, &wonCount, &pipelineValue); err != nil {
+			COUNT(*) FILTER (WHERE COALESCE(is_closed, FALSE) = FALSE),
+			COUNT(*) FILTER (WHERE COALESCE(is_won, FALSE) = TRUE),
+			COALESCE(ROUND(SUM(CASE WHEN COALESCE(is_closed, FALSE) = FALSE AND converted_value IS NOT NULL THEN converted_value ELSE 0 END), 2)::text, '0'),
+			(SELECT base_currency FROM org_settings),
+			COALESCE(array_to_string(array_remove(array_agg(DISTINCT CASE WHEN COALESCE(is_closed, FALSE) = FALSE AND converted_value IS NULL THEN deal_currency END), NULL), ','), '')
+		FROM deal_values`
+	if err := s.pool.QueryRow(ctx, countSQL, args...).Scan(&total, &openCount, &wonCount, &pipelineValue, &currency, &missingRateCurrencies); err != nil {
 		return ListResult{}, fmt.Errorf("count deals: %w", err)
 	}
 
@@ -414,12 +443,14 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	return ListResult{
 		Deals: deals,
 		Meta: ListMeta{
-			Page:          query.Page,
-			PageSize:      query.PageSize,
-			Total:         total,
-			OpenCount:     openCount,
-			WonCount:      wonCount,
-			PipelineValue: pipelineValue,
+			Page:                  query.Page,
+			PageSize:              query.PageSize,
+			Total:                 total,
+			OpenCount:             openCount,
+			WonCount:              wonCount,
+			PipelineValue:         pipelineValue,
+			Currency:              currency,
+			MissingRateCurrencies: splitCurrencyList(missingRateCurrencies),
 		},
 	}, nil
 }
@@ -1364,6 +1395,18 @@ func buildDealFilters(organizationID int64, query ListQuery) (string, []any) {
 		args = append(args, query.PrimaryContactID)
 	}
 	return strings.Join(parts, ""), args
+}
+
+func splitCurrencyList(value string) []string {
+	parts := strings.Split(value, ",")
+	currencies := make([]string, 0, len(parts))
+	for _, part := range parts {
+		currency := strings.TrimSpace(part)
+		if currency != "" {
+			currencies = append(currencies, currency)
+		}
+	}
+	return currencies
 }
 
 func ParseInt64(value string) int64 {

@@ -531,3 +531,29 @@ func TestMigrationFilesIncludeSalesQuotasMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeCurrencyExchangeRatesMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "041_currency_exchange_rates.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected currency exchange rates migration to be registered")
+	}
+
+	sql := MigrationSQL("041_currency_exchange_rates.sql")
+	if sql == "" {
+		t.Fatal("expected currency exchange rates migration SQL to be embedded")
+	}
+	for _, expected := range []string{"base_currency", "organization_exchange_rates", "idx_org_exchange_rates_unique_effective", "organization_exchange_rates_rate_positive_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected currency exchange rates migration to include %s", expected)
+		}
+	}
+}

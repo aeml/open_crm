@@ -5,7 +5,7 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { getBusinessProfile, updateBusinessProfile } from '../lib/business_profile'
+import { getBusinessProfile, updateBusinessProfile, upsertExchangeRate } from '../lib/business_profile'
 import { usePageTitle } from '../lib/use_page_title'
 
 const businessTypeOptions = [
@@ -15,6 +15,10 @@ const businessTypeOptions = [
   { value: 'construction-services', label: 'Construction Services (Clients + Jobs)' }
 ]
 
+function todayISODate() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 export function BusinessProfileRoute() {
   const { session, setBusinessProfile } = useAuth()
   usePageTitle('Business Profile')
@@ -22,9 +26,12 @@ export function BusinessProfileRoute() {
   const canManageProfile = useMemo(() => ['owner', 'admin'].includes(role), [role])
   const [profile, setProfile] = useState(null)
   const [businessType, setBusinessType] = useState('general')
+  const [baseCurrency, setBaseCurrency] = useState('USD')
+  const [rateForm, setRateForm] = useState({ quoteCurrency: '', rateToBase: '', effectiveDate: todayISODate(), source: 'manual' })
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isSavingRate, setIsSavingRate] = useState(false)
 
   async function loadProfile({ signal } = {}) {
     setIsLoading(true)
@@ -32,6 +39,7 @@ export function BusinessProfileRoute() {
       const nextProfile = await getBusinessProfile({ signal })
       setProfile(nextProfile)
       setBusinessType(nextProfile?.businessType || 'general')
+      setBaseCurrency(nextProfile?.baseCurrency || 'USD')
       setBusinessProfile(nextProfile)
       setError('')
     } catch (loadError) {
@@ -63,13 +71,39 @@ export function BusinessProfileRoute() {
     setIsSubmitting(true)
     setError('')
     try {
-      const nextProfile = await updateBusinessProfile({ businessType })
+      const nextProfile = await updateBusinessProfile({ businessType, baseCurrency })
       setProfile(nextProfile)
       setBusinessProfile(nextProfile)
+      setBaseCurrency(nextProfile?.baseCurrency || baseCurrency)
     } catch (submitError) {
       setError(submitError.message || 'Unable to update business profile.')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  async function handleSaveRate(event) {
+    event.preventDefault()
+    if (!canManageProfile) {
+      return
+    }
+
+    setIsSavingRate(true)
+    setError('')
+    try {
+      const nextProfile = await upsertExchangeRate(rateForm.quoteCurrency, {
+        rateToBase: rateForm.rateToBase,
+        effectiveDate: rateForm.effectiveDate,
+        source: rateForm.source
+      })
+      setProfile(nextProfile)
+      setBusinessProfile(nextProfile)
+      setBaseCurrency(nextProfile?.baseCurrency || baseCurrency)
+      setRateForm({ quoteCurrency: '', rateToBase: '', effectiveDate: todayISODate(), source: 'manual' })
+    } catch (rateError) {
+      setError(rateError.message || 'Unable to save exchange rate.')
+    } finally {
+      setIsSavingRate(false)
     }
   }
 
@@ -91,7 +125,7 @@ export function BusinessProfileRoute() {
             <article className="record-row" role="listitem">
               <div>
                 <h3>{profile?.displayName || 'Loading profile'}</h3>
-                <p>{profile?.businessType || businessType}</p>
+                <p>{profile?.businessType || businessType} · Base currency {profile?.baseCurrency || baseCurrency}</p>
               </div>
             </article>
             {Object.entries(profile?.labels || {}).map(([key, value]) => (
@@ -124,10 +158,52 @@ export function BusinessProfileRoute() {
                 ))}
               </select>
             </Field>
+            <Field label="Base currency">
+              <input className="text-input" maxLength={3} value={baseCurrency} onChange={(event) => setBaseCurrency(event.target.value.toUpperCase())} disabled={!canManageProfile} required />
+            </Field>
             <Button type="submit" disabled={!canManageProfile || isSubmitting}>
               {isSubmitting ? 'Saving…' : 'Save business profile'}
             </Button>
           </form>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="card-stack">
+          <div>
+            <h2>Currency rates</h2>
+            <p>Set manual rates used to convert pipeline and forecast rollups into {profile?.baseCurrency || baseCurrency}. Individual records keep their original deal or catalog currency.</p>
+          </div>
+          <form className="auth-form" onSubmit={handleSaveRate}>
+            <Field label="Quote currency">
+              <input className="text-input" maxLength={3} value={rateForm.quoteCurrency} onChange={(event) => setRateForm((current) => ({ ...current, quoteCurrency: event.target.value.toUpperCase() }))} disabled={!canManageProfile} placeholder="EUR" required />
+            </Field>
+            <Field label={`Rate to ${profile?.baseCurrency || baseCurrency}`}>
+              <input className="text-input" value={rateForm.rateToBase} onChange={(event) => setRateForm((current) => ({ ...current, rateToBase: event.target.value }))} disabled={!canManageProfile} placeholder="1.08000000" required />
+            </Field>
+            <Field label="Effective date">
+              <input className="text-input" type="date" value={rateForm.effectiveDate} onChange={(event) => setRateForm((current) => ({ ...current, effectiveDate: event.target.value }))} disabled={!canManageProfile} required />
+            </Field>
+            <Field label="Source">
+              <input className="text-input" value={rateForm.source} onChange={(event) => setRateForm((current) => ({ ...current, source: event.target.value }))} disabled={!canManageProfile} placeholder="manual" />
+            </Field>
+            <Button type="submit" disabled={!canManageProfile || isSavingRate}>{isSavingRate ? 'Saving rate…' : 'Save exchange rate'}</Button>
+          </form>
+          <div className="record-list" role="list" aria-label="Exchange rates">
+            {(profile?.exchangeRates || []).length === 0 ? (
+              <p className="field-hint">No exchange rates yet. Add a rate before reporting on non-{profile?.baseCurrency || baseCurrency} deals.</p>
+            ) : (profile?.exchangeRates || []).map((rate) => (
+              <article className="record-row" key={rate.id} role="listitem">
+                <div>
+                  <p>{rate.quoteCurrency} to {rate.baseCurrency}</p>
+                  <p className="field-hint">Effective {rate.effectiveDate} · {rate.source || 'manual'}</p>
+                </div>
+                <div>
+                  <p>{rate.rateToBase}</p>
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
       </Card>
     </section>

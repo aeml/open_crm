@@ -371,8 +371,12 @@ func handleUpdateOrganizationProfile(auth authService, profiles orgProfileServic
 		return
 	}
 
-	result, profileErr := profiles.UpdateByOrganizationID(r.Context(), state.Organization.ID, state.User.ID, moduleorgprofile.UpdateInput{BusinessType: strings.TrimSpace(request.BusinessType)})
+	result, profileErr := profiles.UpdateByOrganizationID(r.Context(), state.Organization.ID, state.User.ID, moduleorgprofile.UpdateInput{BusinessType: strings.TrimSpace(request.BusinessType), BaseCurrency: strings.TrimSpace(request.BaseCurrency)})
 	if profileErr != nil {
+		if errors.Is(profileErr, moduleorgprofile.ErrInvalidInput) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid business type and three-letter base currency")
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update organization profile")
 		return
 	}
@@ -384,6 +388,52 @@ func handleUpdateOrganizationProfile(auth authService, profiles orgProfileServic
 		Summary:     fmt.Sprintf("Changed business profile to %s", result.BusinessType),
 		Metadata: map[string]string{
 			"businessType": result.BusinessType,
+			"baseCurrency": result.BaseCurrency,
+		},
+	})
+
+	respondOrganizationProfile(w, r, http.StatusOK, result)
+}
+
+func handleUpsertOrganizationExchangeRate(auth authService, profiles orgProfileService, audit auditService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if profiles == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Organization profile service unavailable")
+		return
+	}
+
+	quoteCurrency := strings.ToUpper(strings.TrimSpace(r.PathValue("quoteCurrency")))
+	var request organizationExchangeRateRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+
+	result, profileErr := profiles.UpsertExchangeRate(r.Context(), state.Organization.ID, state.User.ID, moduleorgprofile.ExchangeRateInput{
+		QuoteCurrency: quoteCurrency,
+		RateToBase:    strings.TrimSpace(request.RateToBase),
+		EffectiveDate: strings.TrimSpace(request.EffectiveDate),
+		Source:        strings.TrimSpace(request.Source),
+	})
+	if profileErr != nil {
+		if errors.Is(profileErr, moduleorgprofile.ErrInvalidInput) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid quote currency, positive rate, and effective date")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to save exchange rate")
+		return
+	}
+	recordAuditEvent(r, audit, state.Organization.ID, moduleaudit.RecordInput{
+		ActorUserID: state.User.ID,
+		EventType:   "organization.exchange_rate_saved",
+		EntityType:  "organization",
+		EntityID:    state.Organization.ID,
+		Summary:     fmt.Sprintf("Saved %s exchange rate", quoteCurrency),
+		Metadata: map[string]string{
+			"quoteCurrency": quoteCurrency,
 		},
 	})
 

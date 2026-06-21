@@ -14,14 +14,19 @@ import (
 )
 
 type fakeOrgProfileService struct {
-	getResult         moduleorgprofile.Detail
-	getErr            error
-	updateResult      moduleorgprofile.Detail
-	updateErr         error
-	lastGetOrgID      int64
-	lastUpdateOrgID   int64
-	lastUpdateActorID int64
-	lastUpdateInput   moduleorgprofile.UpdateInput
+	getResult               moduleorgprofile.Detail
+	getErr                  error
+	updateResult            moduleorgprofile.Detail
+	updateErr               error
+	upsertRateResult        moduleorgprofile.Detail
+	upsertRateErr           error
+	lastGetOrgID            int64
+	lastUpdateOrgID         int64
+	lastUpdateActorID       int64
+	lastUpdateInput         moduleorgprofile.UpdateInput
+	lastUpsertRateOrgID     int64
+	lastUpsertRateActorID   int64
+	lastUpsertExchangeInput moduleorgprofile.ExchangeRateInput
 }
 
 func (f *fakeOrgProfileService) GetByOrganizationID(_ context.Context, organizationID int64) (moduleorgprofile.Detail, error) {
@@ -34,6 +39,13 @@ func (f *fakeOrgProfileService) UpdateByOrganizationID(_ context.Context, organi
 	f.lastUpdateActorID = actorUserID
 	f.lastUpdateInput = input
 	return f.updateResult, f.updateErr
+}
+
+func (f *fakeOrgProfileService) UpsertExchangeRate(_ context.Context, organizationID, actorUserID int64, input moduleorgprofile.ExchangeRateInput) (moduleorgprofile.Detail, error) {
+	f.lastUpsertRateOrgID = organizationID
+	f.lastUpsertRateActorID = actorUserID
+	f.lastUpsertExchangeInput = input
+	return f.upsertRateResult, f.upsertRateErr
 }
 
 func authenticatedBusinessProfileServer(role string, service *fakeOrgProfileService) http.Handler {
@@ -54,6 +66,7 @@ func TestGetBusinessProfileUsesCurrentOrganization(t *testing.T) {
 		getResult: moduleorgprofile.Detail{
 			OrganizationID: 42,
 			BusinessType:   "services",
+			BaseCurrency:   "EUR",
 			DisplayName:    "Services",
 			Modules:        []string{"contacts", "companies", "deals", "tasks", "projects"},
 			Labels: map[string]string{
@@ -85,7 +98,7 @@ func TestGetBusinessProfileUsesCurrentOrganization(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("expected valid JSON, got error: %v", err)
 	}
-	if response.Data.Profile.BusinessType != "services" {
+	if response.Data.Profile.BusinessType != "services" || response.Data.Profile.BaseCurrency != "EUR" {
 		t.Fatalf("unexpected business type: %#v", response.Data.Profile)
 	}
 	if response.Data.Profile.Labels["companies"] != "Clients" {
@@ -101,6 +114,7 @@ func TestUpdateBusinessProfileUsesCurrentOrganization(t *testing.T) {
 		updateResult: moduleorgprofile.Detail{
 			OrganizationID: 42,
 			BusinessType:   "product-sales",
+			BaseCurrency:   "EUR",
 			DisplayName:    "Product Sales",
 			Modules:        []string{"contacts", "companies", "deals", "tasks", "catalog"},
 			Labels: map[string]string{
@@ -111,7 +125,7 @@ func TestUpdateBusinessProfileUsesCurrentOrganization(t *testing.T) {
 	}
 	server := authenticatedBusinessProfileServer("owner", service)
 
-	body := bytes.NewBufferString(`{"businessType":"product-sales"}`)
+	body := bytes.NewBufferString(`{"businessType":"product-sales","baseCurrency":"EUR"}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/organization/profile", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -125,8 +139,46 @@ func TestUpdateBusinessProfileUsesCurrentOrganization(t *testing.T) {
 	if service.lastUpdateOrgID != 42 || service.lastUpdateActorID != 1 {
 		t.Fatalf("unexpected update routing: org=%d actor=%d", service.lastUpdateOrgID, service.lastUpdateActorID)
 	}
-	if service.lastUpdateInput.BusinessType != "product-sales" {
+	if service.lastUpdateInput.BusinessType != "product-sales" || service.lastUpdateInput.BaseCurrency != "EUR" {
 		t.Fatalf("unexpected update input: %#v", service.lastUpdateInput)
+	}
+}
+
+func TestUpsertExchangeRateUsesCurrentOrganization(t *testing.T) {
+	service := &fakeOrgProfileService{
+		upsertRateResult: moduleorgprofile.Detail{
+			OrganizationID: 42,
+			BusinessType:   "general",
+			BaseCurrency:   "USD",
+			DisplayName:    "General CRM",
+			ExchangeRates: []moduleorgprofile.ExchangeRate{{
+				ID:            7,
+				BaseCurrency:  "USD",
+				QuoteCurrency: "EUR",
+				RateToBase:    "1.08000000",
+				EffectiveDate: "2026-06-20",
+				Source:        "manual",
+			}},
+		},
+	}
+	server := authenticatedBusinessProfileServer("owner", service)
+
+	body := bytes.NewBufferString(`{"rateToBase":"1.08","effectiveDate":"2026-06-20","source":"manual"}`)
+	request := httptest.NewRequest(http.MethodPut, "/api/organization/exchange-rates/EUR", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastUpsertRateOrgID != 42 || service.lastUpsertRateActorID != 1 {
+		t.Fatalf("unexpected exchange rate routing: org=%d actor=%d", service.lastUpsertRateOrgID, service.lastUpsertRateActorID)
+	}
+	if service.lastUpsertExchangeInput.QuoteCurrency != "EUR" || service.lastUpsertExchangeInput.RateToBase != "1.08" || service.lastUpsertExchangeInput.EffectiveDate != "2026-06-20" {
+		t.Fatalf("unexpected exchange rate input: %#v", service.lastUpsertExchangeInput)
 	}
 }
 

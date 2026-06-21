@@ -53,6 +53,8 @@ const emptyLineItemForm = {
 
 const emptyLineTotals = { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: 'USD' }
 
+const emptyDealMeta = { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0', currency: 'USD', missingRateCurrencies: [] }
+
 const emptySignatureForm = {
   signerName: '',
   signerEmail: ''
@@ -238,7 +240,7 @@ export function DealsRoute() {
   const [pipelines, setPipelines] = useState([])
   const [stages, setStages] = useState([])
   const [deals, setDeals] = useState([])
-  const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
+  const [meta, setMeta] = useState(emptyDealMeta)
   const [form, setForm] = useState({
     ...emptyForm,
     companyId: initialCompanyId,
@@ -307,7 +309,7 @@ export function DealsRoute() {
       ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
     }, { signal })
     setDeals(loadedDeals.deals || [])
-    setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
+    setMeta(loadedDeals.meta || emptyDealMeta)
   }
 
   async function loadPipeline(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
@@ -332,7 +334,7 @@ export function DealsRoute() {
     setCompanyOptions(loadedCompanies.companies || [])
     setContactOptions(loadedContacts.contacts || [])
     setUserOptions(loadedUsers)
-    setMeta(loadedDeals.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' })
+    setMeta(loadedDeals.meta || emptyDealMeta)
     const nextStages = stagesForPipeline(loadedStages, nextPipelineFilter)
     if (nextStages.length > 0 && !selectedStageId) {
       setSelectedStageId(String(nextStages[0].id))
@@ -560,8 +562,7 @@ export function DealsRoute() {
       setMeta((current) => ({
         ...current,
         total: current.total + 1,
-        openCount: current.openCount + 1,
-        pipelineValue: String(Number.parseFloat(current.pipelineValue || '0') + Number.parseFloat(data.deal.valueAmount || '0'))
+        openCount: current.openCount + 1
       }))
       setForm((current) => ({ ...emptyForm, stageId: current.stageId || form.stageId || (filteredStages[0] ? String(filteredStages[0].id) : stages[0] ? String(stages[0].id) : '') }))
       navigate(buildDealsPath(data.deal.id))
@@ -924,7 +925,8 @@ export function DealsRoute() {
                 <p>Pipeline value</p>
               </div>
               <div>
-                <p>{formatMoney(meta.pipelineValue)}</p>
+                <p>{formatMoney(meta.pipelineValue, meta.currency)}</p>
+                {(meta.missingRateCurrencies || []).length > 0 ? <p className="field-hint">Missing rates: {meta.missingRateCurrencies.join(', ')}</p> : null}
               </div>
             </article>
           </div>

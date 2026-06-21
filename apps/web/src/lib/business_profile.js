@@ -11,3 +11,9 @@ export async function updateBusinessProfile(input, { signal } = {}) {
 
   return payload?.data?.profile
 }
+
+export async function upsertExchangeRate(quoteCurrency, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/organization/exchange-rates/${quoteCurrency}`, { method: 'PUT', body: input, fallbackMessage: 'Unable to save exchange rate.', signal })
+
+  return payload?.data?.profile
+}

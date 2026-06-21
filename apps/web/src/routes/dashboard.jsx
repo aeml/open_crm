@@ -8,12 +8,14 @@ import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
 
-function formatMoney(value) {
+function formatMoney(value, currency = 'USD') {
   const amount = Number.parseFloat(value || '0')
   if (!Number.isFinite(amount)) {
     return '$0.00'
   }
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
+  const normalizedCurrency = String(currency || 'USD').toUpperCase()
+  const safeCurrency = /^[A-Z]{3}$/.test(normalizedCurrency) ? normalizedCurrency : 'USD'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: safeCurrency }).format(amount)
 }
 
 function formatPercent(value) {
@@ -43,11 +45,14 @@ const emptyForecast = {
   weightedForecastAmount: '0',
   attainmentPct: '0',
   coveragePct: '0',
+  missingRateCurrencies: [],
   members: []
 }
 
 const emptySummary = {
   pipelineValue: '0',
+  baseCurrency: 'USD',
+  missingRateCurrencies: [],
   openDealsCount: 0,
   wonDealsCount: 0,
   openTasksCount: 0,
@@ -64,8 +69,10 @@ function normalizeDashboardSummary(summary) {
     forecast: {
       ...emptyForecast,
       ...(summary?.forecast || {}),
+      missingRateCurrencies: summary?.forecast?.missingRateCurrencies || [],
       members: summary?.forecast?.members || []
     },
+    missingRateCurrencies: summary?.missingRateCurrencies || [],
     recentActivities: summary?.recentActivities || []
   }
 }
@@ -214,11 +221,11 @@ export function DashboardRoute() {
 
   const heroMetrics = useMemo(
     () => [
-      { label: labels.pipelineLabel, value: formatMoney(summary.pipelineValue) },
+      { label: labels.pipelineLabel, value: formatMoney(summary.pipelineValue, summary.baseCurrency) },
       { label: labels.dueTodayLabel, value: `${summary.dueTodayCount} tasks` },
       { label: labels.contactsLabel, value: `${summary.newContactsCount} this week` }
     ],
-    [labels.contactsLabel, labels.dueTodayLabel, labels.pipelineLabel, summary.dueTodayCount, summary.newContactsCount, summary.pipelineValue]
+    [labels.contactsLabel, labels.dueTodayLabel, labels.pipelineLabel, summary.baseCurrency, summary.dueTodayCount, summary.newContactsCount, summary.pipelineValue]
   )
   const upcomingTasksCount = Math.max(0, Number(summary.openTasksCount || 0) - Number(summary.dueTodayCount || 0))
   const latestPipelineActivity = latestActivityFor(summary.recentActivities, 'deal')
@@ -362,6 +369,9 @@ export function DashboardRoute() {
               <p className="eyebrow">Forecast</p>
               <h2>Quota coverage</h2>
               <p>{`Current period: ${formatDate(forecast.periodStart)} to ${formatDate(forecast.periodEnd)}. Weighted forecast combines won revenue with stage-weighted open pipeline.`}</p>
+              {summary.missingRateCurrencies.length > 0 ? (
+                <p className="field-hint">Add exchange rates for {summary.missingRateCurrencies.join(', ')} to include those currencies in converted rollups.</p>
+              ) : null}
             </div>
             <div className="record-list" role="list" aria-label="Team forecast summary">
               <article className="record-row" role="listitem">
@@ -370,7 +380,7 @@ export function DashboardRoute() {
                   <p className="field-hint">Target revenue for this period.</p>
                 </div>
                 <div>
-                  <p>{formatMoney(forecast.teamQuota)}</p>
+                  <p>{formatMoney(forecast.teamQuota, forecast.currency)}</p>
                 </div>
               </article>
               <article className="record-row" role="listitem">
@@ -379,7 +389,7 @@ export function DashboardRoute() {
                   <p className="field-hint">Closed-won revenue credited to this period.</p>
                 </div>
                 <div>
-                  <p>{formatMoney(forecast.wonAmount)}</p>
+                  <p>{formatMoney(forecast.wonAmount, forecast.currency)}</p>
                   <p className="field-hint">{formatPercent(forecast.attainmentPct)} attained</p>
                 </div>
               </article>
@@ -389,7 +399,7 @@ export function DashboardRoute() {
                   <p className="field-hint">Won revenue plus probability-weighted open pipeline.</p>
                 </div>
                 <div>
-                  <p>{formatMoney(forecast.weightedForecastAmount)}</p>
+                  <p>{formatMoney(forecast.weightedForecastAmount, forecast.currency)}</p>
                   <p className="field-hint">{formatPercent(forecast.coveragePct)} coverage</p>
                 </div>
               </article>
@@ -402,7 +412,7 @@ export function DashboardRoute() {
                   <article className="record-row" key={member.userId} role="listitem">
                     <div>
                       <p>{member.userName}</p>
-                      <p className="field-hint">Won {formatMoney(member.wonAmount)} · Open {formatMoney(member.openPipelineAmount)} · Weighted {formatMoney(member.weightedForecastAmount)}</p>
+                      <p className="field-hint">Won {formatMoney(member.wonAmount, forecast.currency)} · Open {formatMoney(member.openPipelineAmount, forecast.currency)} · Weighted {formatMoney(member.weightedForecastAmount, forecast.currency)}</p>
                       <p className="field-hint">{formatPercent(member.attainmentPct)} attained · {formatPercent(member.coveragePct)} coverage</p>
                     </div>
                     {canManageQuotas ? (
@@ -412,7 +422,7 @@ export function DashboardRoute() {
                       </div>
                     ) : (
                       <div>
-                        <p>{formatMoney(member.quotaAmount)}</p>
+                        <p>{formatMoney(member.quotaAmount, forecast.currency)}</p>
                         <p className="field-hint">Quota</p>
                       </div>
                     )}

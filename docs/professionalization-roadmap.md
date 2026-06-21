@@ -1856,6 +1856,7 @@ Progress:
 - `1.3.4` (e-signature status tracking foundation): complete. Added organization-scoped deal signature requests with signer identity, native tracking provider metadata, quote filename, draft/sent/signed/declined/voided statuses, lifecycle timestamps, authenticated APIs for creating requests and updating status, activity logging, and deal detail signature tracking UI. Actual signing ceremonies, provider webhooks, customer delivery, audit certificates, and reusable terms/templates remain future slices.
 - `1.3.5` (multiple pipelines foundation): complete. Added organization-scoped deal pipelines, backfilled existing stages into a default pipeline, scoped stage uniqueness by pipeline, exposed authenticated APIs for listing/creating pipelines, copied default stage templates into new pipelines, added pipeline metadata/filtering to deal list/detail/export flows, and added pipeline selection/creation UI on the deals page. Pipeline renaming/reordering, custom stage management, team/business-unit ownership rules, and per-pipeline permissions remain future slices.
 - `1.3.6` (quotas and forecasting dashboard foundation): complete. Added organization-scoped per-user sales quota records by period, admin quota upsert API, current-quarter forecast calculations using won revenue plus stage-weighted open pipeline, team/member attainment and coverage metrics, and dashboard quota editing/forecast display. Forecast categories, custom stage probabilities, quota history, rollups by team/business unit, and advanced forecast analytics remain future slices.
+- `1.3.7` (multi-currency exchange-rate foundation): complete. Added organization base currency settings, manual organization exchange-rate records, admin API/UI for saving rates, and base-currency conversion for deal-list, dashboard pipeline, quota, and weighted forecast rollups while preserving per-record deal/catalog currencies. Automated FX providers, historical rate selection beyond latest manual rates, quote-level FX disclosures, and realized gain/loss accounting remain future slices.
 
 Candidate slices:
 
@@ -1865,7 +1866,7 @@ Candidate slices:
 - `1.3.4` E-signature flow (native or DocuSign/Dropbox Sign integration) with status tracking: foundation complete.
 - `1.3.5` Multiple pipelines per team/business unit (extends `0.6.1`): foundation complete.
 - `1.3.6` Quotas, goals, and team forecasting dashboards (extends `0.6.2`): foundation complete.
-- `1.3.7` Multi-currency support with exchange-rate handling.
+- `1.3.7` Multi-currency support with exchange-rate handling: foundation complete.
 
 Exit criteria:
 
