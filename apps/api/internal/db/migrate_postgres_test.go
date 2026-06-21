@@ -80,6 +80,7 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"lead_audiences_name_check",
 		"lead_audiences_filters_json_object_check",
 		"lead_audiences_org_id_unique",
+		"email_sequences_org_id_unique",
 		"marketing_email_campaigns_audience_org_fk",
 		"marketing_email_campaigns_name_check",
 		"marketing_email_campaigns_subject_check",
@@ -87,6 +88,11 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"marketing_email_campaigns_status_check",
 		"marketing_email_campaigns_schedule_check",
 		"marketing_email_campaigns_counts_check",
+		"lead_nurture_campaigns_audience_org_fk",
+		"lead_nurture_campaigns_sequence_org_fk",
+		"lead_nurture_campaigns_name_check",
+		"lead_nurture_campaigns_status_check",
+		"lead_nurture_campaigns_counts_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -119,6 +125,10 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_marketing_email_campaigns_org_name_unique",
 		"idx_marketing_email_campaigns_org_status",
 		"idx_marketing_email_campaigns_org_scheduled",
+		"idx_lead_nurture_campaigns_org_name_unique",
+		"idx_lead_nurture_campaigns_org_status",
+		"idx_lead_nurture_campaigns_org_audience",
+		"idx_lead_nurture_campaigns_org_sequence",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -247,6 +257,20 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 		t.Fatalf("insert marketing email campaign: %v", err)
 	}
 	expectExecError(t, ctx, pool, `INSERT INTO marketing_email_campaigns (organization_id, audience_id, name, subject, body) VALUES ($1, $2, 'spring demo blast', 'Subject', 'Body')`, organizationID, leadAudienceID)
+	var sequenceID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO email_sequences (organization_id, name, status) VALUES ($1, 'Welcome nurture', 'active') RETURNING id`, organizationID).Scan(&sequenceID); err != nil {
+		t.Fatalf("insert email sequence: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO email_sequence_steps (sequence_id, step_order, delay_days, subject, body) VALUES ($1, 1, 0, 'Welcome', 'Body')`, sequenceID); err != nil {
+		t.Fatalf("insert email sequence step: %v", err)
+	}
+	expectExecError(t, ctx, pool, `INSERT INTO lead_nurture_campaigns (organization_id, audience_id, sequence_id, name) VALUES ($1, $2, $3, '')`, organizationID, leadAudienceID, sequenceID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_nurture_campaigns (organization_id, audience_id, sequence_id, name, status) VALUES ($1, $2, $3, 'Bad Status', 'queued')`, organizationID, leadAudienceID, sequenceID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_nurture_campaigns (organization_id, audience_id, sequence_id, name, eligible_count) VALUES ($1, $2, $3, 'Bad Count', -1)`, organizationID, leadAudienceID, sequenceID)
+	if _, err := pool.Exec(ctx, `INSERT INTO lead_nurture_campaigns (organization_id, audience_id, sequence_id, name, status, eligible_count) VALUES ($1, $2, $3, 'Lead nurture', 'draft', 3)`, organizationID, leadAudienceID, sequenceID); err != nil {
+		t.Fatalf("insert lead nurture campaign: %v", err)
+	}
+	expectExecError(t, ctx, pool, `INSERT INTO lead_nurture_campaigns (organization_id, audience_id, sequence_id, name) VALUES ($1, $2, $3, 'lead nurture')`, organizationID, leadAudienceID, sequenceID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)

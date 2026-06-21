@@ -687,3 +687,29 @@ func TestMigrationFilesIncludeMarketingEmailCampaignsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeLeadNurtureCampaignsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "047_lead_nurture_campaigns.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected lead nurture campaigns migration to be registered")
+	}
+
+	sql := MigrationSQL("047_lead_nurture_campaigns.sql")
+	if sql == "" {
+		t.Fatal("expected lead nurture campaigns migration SQL to be embedded")
+	}
+	for _, expected := range []string{"lead_nurture_campaigns", "sequence_id", "eligible_count", "email_sequences_org_id_unique", "idx_lead_nurture_campaigns_org_sequence"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected lead nurture campaigns migration to include %s", expected)
+		}
+	}
+}

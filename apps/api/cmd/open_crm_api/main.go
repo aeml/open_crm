@@ -35,6 +35,7 @@ import (
 	modulemarketingcampaigns "github.com/aeml/open_crm/apps/api/internal/modules/marketingcampaigns"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
+	modulenurturecampaigns "github.com/aeml/open_crm/apps/api/internal/modules/nurturecampaigns"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduleproductcatalog "github.com/aeml/open_crm/apps/api/internal/modules/productcatalog"
@@ -96,6 +97,7 @@ func main() {
 	var leadFormsService *moduleleadforms.Service
 	var leadAudiencesService *moduleleadaudiences.Service
 	var marketingCampaignsService *modulemarketingcampaigns.Service
+	var nurtureCampaignsService *modulenurturecampaigns.Service
 	var emailSequencesService *moduleemailsequences.Service
 	var emailSuppressionsService *moduleemailsuppressions.Service
 	var userEmailService *moduleuseremail.Service
@@ -135,6 +137,7 @@ func main() {
 			leadFormsService = moduleleadforms.NewService(pool)
 			leadAudiencesService = moduleleadaudiences.NewService(pool)
 			marketingCampaignsService = modulemarketingcampaigns.NewService(pool)
+			nurtureCampaignsService = modulenurturecampaigns.NewService(pool)
 			emailSequencesService = moduleemailsequences.NewService(pool)
 			emailSuppressionsService = moduleemailsuppressions.NewService(pool, env.CredentialEncryptionKey)
 			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
@@ -194,6 +197,7 @@ func main() {
 		LeadFormsService:                leadFormsService,
 		LeadAudiencesService:            leadAudiencesService,
 		MarketingCampaignsService:       marketingCampaignsService,
+		NurtureCampaignsService:         nurtureCampaignsService,
 		EmailSequencesService:           emailSequencesService,
 		EmailSequenceEnrollmentsService: emailSequencesService,
 		EmailSuppressionsService:        emailSuppressionsService,

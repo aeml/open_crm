@@ -28,6 +28,7 @@ import (
 	modulemarketingcampaigns "github.com/aeml/open_crm/apps/api/internal/modules/marketingcampaigns"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
+	modulenurturecampaigns "github.com/aeml/open_crm/apps/api/internal/modules/nurturecampaigns"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduleproductcatalog "github.com/aeml/open_crm/apps/api/internal/modules/productcatalog"
@@ -234,6 +235,12 @@ type marketingCampaignsService interface {
 	Update(context.Context, int64, int64, int64, modulemarketingcampaigns.Input) (modulemarketingcampaigns.Campaign, error)
 }
 
+type nurtureCampaignsService interface {
+	ListByOrganization(context.Context, int64) ([]modulenurturecampaigns.Campaign, error)
+	Create(context.Context, int64, int64, modulenurturecampaigns.Input) (modulenurturecampaigns.Campaign, error)
+	Update(context.Context, int64, int64, int64, modulenurturecampaigns.Input) (modulenurturecampaigns.Campaign, error)
+}
+
 type emailSequenceEnrollmentsService interface {
 	ListEnrollmentsByContact(context.Context, int64, int64) ([]moduleemailsequences.Enrollment, error)
 	EnrollContact(context.Context, int64, moduleemailsequences.EnrollmentInput) (moduleemailsequences.Enrollment, error)
@@ -303,6 +310,7 @@ type Dependencies struct {
 	LeadFormsService                leadFormsService
 	LeadAudiencesService            leadAudiencesService
 	MarketingCampaignsService       marketingCampaignsService
+	NurtureCampaignsService         nurtureCampaignsService
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService
@@ -911,6 +919,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/marketing-email-campaigns/{campaignID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateMarketingCampaign(dependencies.AuthService, dependencies.MarketingCampaignsService, w, r)
+	})
+	mux.HandleFunc("GET /api/lead-nurture-campaigns", func(w http.ResponseWriter, r *http.Request) {
+		handleListNurtureCampaigns(dependencies.AuthService, dependencies.NurtureCampaignsService, w, r)
+	})
+	mux.HandleFunc("POST /api/lead-nurture-campaigns", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateNurtureCampaign(dependencies.AuthService, dependencies.NurtureCampaignsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/lead-nurture-campaigns/{campaignID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateNurtureCampaign(dependencies.AuthService, dependencies.NurtureCampaignsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
