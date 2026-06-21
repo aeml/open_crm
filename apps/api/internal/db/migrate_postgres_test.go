@@ -79,6 +79,14 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"lead_landing_pages_theme_check",
 		"lead_audiences_name_check",
 		"lead_audiences_filters_json_object_check",
+		"lead_audiences_org_id_unique",
+		"marketing_email_campaigns_audience_org_fk",
+		"marketing_email_campaigns_name_check",
+		"marketing_email_campaigns_subject_check",
+		"marketing_email_campaigns_body_check",
+		"marketing_email_campaigns_status_check",
+		"marketing_email_campaigns_schedule_check",
+		"marketing_email_campaigns_counts_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -108,6 +116,9 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_contacts_org_utm_campaign",
 		"idx_lead_audiences_org_name_unique",
 		"idx_lead_audiences_org_active",
+		"idx_marketing_email_campaigns_org_name_unique",
+		"idx_marketing_email_campaigns_org_status",
+		"idx_marketing_email_campaigns_org_scheduled",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -224,10 +235,18 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	expectExecError(t, ctx, pool, `INSERT INTO lead_landing_pages (organization_id, public_id, lead_capture_form_id, name, slug, title, theme) VALUES ($1, 'lp_test_2', $2, 'Landing Page 2', 'landing-page', 'Landing Page 2', 'light')`, organizationID, leadFormID)
 	expectExecError(t, ctx, pool, `INSERT INTO lead_audiences (organization_id, name, filters_json) VALUES ($1, '', '{}'::jsonb)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO lead_audiences (organization_id, name, filters_json) VALUES ($1, 'Bad Audience', '[]'::jsonb)`, organizationID)
-	if _, err := pool.Exec(ctx, `INSERT INTO lead_audiences (organization_id, name, filters_json) VALUES ($1, 'Lead Audience', '{"status":"lead"}'::jsonb)`, organizationID); err != nil {
+	var leadAudienceID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO lead_audiences (organization_id, name, filters_json) VALUES ($1, 'Lead Audience', '{"status":"lead"}'::jsonb) RETURNING id`, organizationID).Scan(&leadAudienceID); err != nil {
 		t.Fatalf("insert lead audience: %v", err)
 	}
 	expectExecError(t, ctx, pool, `INSERT INTO lead_audiences (organization_id, name, filters_json) VALUES ($1, 'lead audience', '{}'::jsonb)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO marketing_email_campaigns (organization_id, audience_id, name, subject, body) VALUES ($1, $2, '', 'Subject', 'Body')`, organizationID, leadAudienceID)
+	expectExecError(t, ctx, pool, `INSERT INTO marketing_email_campaigns (organization_id, audience_id, name, subject, body, status) VALUES ($1, $2, 'Bad Status', 'Subject', 'Body', 'queued')`, organizationID, leadAudienceID)
+	expectExecError(t, ctx, pool, `INSERT INTO marketing_email_campaigns (organization_id, audience_id, name, subject, body, status) VALUES ($1, $2, 'Bad Schedule', 'Subject', 'Body', 'scheduled')`, organizationID, leadAudienceID)
+	if _, err := pool.Exec(ctx, `INSERT INTO marketing_email_campaigns (organization_id, audience_id, name, subject, body, recipient_count) VALUES ($1, $2, 'Spring Demo Blast', 'Subject', 'Body', 3)`, organizationID, leadAudienceID); err != nil {
+		t.Fatalf("insert marketing email campaign: %v", err)
+	}
+	expectExecError(t, ctx, pool, `INSERT INTO marketing_email_campaigns (organization_id, audience_id, name, subject, body) VALUES ($1, $2, 'spring demo blast', 'Subject', 'Body')`, organizationID, leadAudienceID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)

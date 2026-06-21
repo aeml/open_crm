@@ -25,6 +25,7 @@ import (
 	moduleleadaudiences "github.com/aeml/open_crm/apps/api/internal/modules/leadaudiences"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
 	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
+	modulemarketingcampaigns "github.com/aeml/open_crm/apps/api/internal/modules/marketingcampaigns"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
@@ -227,6 +228,12 @@ type emailSequencesService interface {
 	Delete(context.Context, int64, int64) error
 }
 
+type marketingCampaignsService interface {
+	ListByOrganization(context.Context, int64) ([]modulemarketingcampaigns.Campaign, error)
+	Create(context.Context, int64, int64, modulemarketingcampaigns.Input) (modulemarketingcampaigns.Campaign, error)
+	Update(context.Context, int64, int64, int64, modulemarketingcampaigns.Input) (modulemarketingcampaigns.Campaign, error)
+}
+
 type emailSequenceEnrollmentsService interface {
 	ListEnrollmentsByContact(context.Context, int64, int64) ([]moduleemailsequences.Enrollment, error)
 	EnrollContact(context.Context, int64, moduleemailsequences.EnrollmentInput) (moduleemailsequences.Enrollment, error)
@@ -295,6 +302,7 @@ type Dependencies struct {
 	ProductCatalogService           productCatalogService
 	LeadFormsService                leadFormsService
 	LeadAudiencesService            leadAudiencesService
+	MarketingCampaignsService       marketingCampaignsService
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService
@@ -894,6 +902,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/lead-audiences/{audienceID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateLeadAudience(dependencies.AuthService, dependencies.LeadAudiencesService, w, r)
+	})
+	mux.HandleFunc("GET /api/marketing-email-campaigns", func(w http.ResponseWriter, r *http.Request) {
+		handleListMarketingCampaigns(dependencies.AuthService, dependencies.MarketingCampaignsService, w, r)
+	})
+	mux.HandleFunc("POST /api/marketing-email-campaigns", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateMarketingCampaign(dependencies.AuthService, dependencies.MarketingCampaignsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/marketing-email-campaigns/{campaignID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateMarketingCampaign(dependencies.AuthService, dependencies.MarketingCampaignsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)

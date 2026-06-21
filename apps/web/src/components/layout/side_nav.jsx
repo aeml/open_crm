@@ -18,6 +18,7 @@ const baseLinks = [
   { to: '/settings/lead-forms', labelKey: 'leadForms', fallback: 'Lead Forms' },
   { to: '/settings/landing-pages', labelKey: 'landingPages', fallback: 'Landing Pages' },
   { to: '/settings/lead-audiences', labelKey: 'leadAudiences', fallback: 'Audiences' },
+  { to: '/settings/marketing-email-campaigns', labelKey: 'marketingEmailCampaigns', fallback: 'Email Campaigns' },
   { to: '/settings/calendar', labelKey: 'calendar', fallback: 'Booking Links' },
   { to: '/settings/email-log', labelKey: 'emailLog', fallback: 'Email Log' },
   { to: '/settings/billing', labelKey: 'billing', fallback: 'Plan & Billing' },

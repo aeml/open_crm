@@ -661,3 +661,29 @@ func TestMigrationFilesIncludeLeadAudiencesMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeMarketingEmailCampaignsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "046_marketing_email_campaigns.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected marketing email campaigns migration to be registered")
+	}
+
+	sql := MigrationSQL("046_marketing_email_campaigns.sql")
+	if sql == "" {
+		t.Fatal("expected marketing email campaigns migration SQL to be embedded")
+	}
+	for _, expected := range []string{"marketing_email_campaigns", "audience_id", "scheduled_at", "recipient_count", "idx_marketing_email_campaigns_org_scheduled"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected marketing email campaigns migration to include %s", expected)
+		}
+	}
+}

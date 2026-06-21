@@ -1885,6 +1885,7 @@ Progress:
 - `1.4.2` (hosted landing pages foundation): complete. Added organization-scoped landing pages tied to existing lead capture forms, globally unique public slugs, active/inactive state, light/blue/dark themes, authenticated APIs for listing/creating/updating pages, a public page lookup endpoint, a Settings > Landing Pages UI, and a public `/lp/:slug` frontend route that renders the marketing copy plus embedded lead form submission flow. Rich page templates, drag-and-drop editing, custom domains, SEO metadata controls, analytics, attribution, A/B tests, and campaign enrollment remain future slices.
 - `1.4.3` (lead source and UTM/campaign attribution tracking foundation): complete. Added first-touch lead source, source URL, and standard UTM fields on contacts created from public lead submissions; persisted attribution columns on raw lead submissions; derived attribution from submitted source URLs and explicit embed fields; surfaced attribution on contact detail/list APIs, contact detail UI, hosted landing page submissions, lead form embed snippets, and contacts CSV exports. Full campaign objects, attribution reports, multi-touch history, and automated routing/scoring remain future slices.
 - `1.4.4` (list segmentation and dynamic/saved audiences foundation): complete. Added organization-scoped lead audience definitions with reusable filters, dynamic member-count previews against contacts, authenticated APIs for listing/creating/updating/previewing audiences, and a Settings > Audiences UI for saving source/campaign/status/email-availability segments. Campaign enrollment, audience member drill-down, exclusion rules, advanced boolean logic, and scheduled snapshots remain future slices.
+- `1.4.5` (marketing email campaigns with scheduling and per-campaign analytics foundation): complete. Added organization-scoped marketing email campaign definitions tied to active saved audiences, stored schedule/status metadata, captured audience recipient-count snapshots, persisted per-campaign analytics counters, exposed authenticated APIs for listing/creating/updating campaigns, and added a Settings > Email Campaigns UI. Bulk recipient expansion, mailbox delivery, unsubscribe enforcement at send time, open/click attribution into campaign counters, send approvals, and campaign reports remain future slices.
 
 Candidate slices:
 
@@ -1892,7 +1893,7 @@ Candidate slices:
 - `1.4.2` Hosted landing pages with form capture and basic templates: foundation complete.
 - `1.4.3` Lead source and UTM/campaign attribution tracking: foundation complete.
 - `1.4.4` List segmentation and dynamic/saved audiences: foundation complete.
-- `1.4.5` Marketing email campaigns with scheduling and per-campaign analytics.
+- `1.4.5` Marketing email campaigns with scheduling and per-campaign analytics: foundation complete.
 - `1.4.6` Drip/nurture campaigns built on the sequence engine (`1.1.8`).
 - `1.4.7` Rule-based lead scoring and routing/assignment.
 - `1.4.8` Lead capture from chat/website widget (optional).
