@@ -1888,6 +1888,7 @@ Progress:
 - `1.4.5` (marketing email campaigns with scheduling and per-campaign analytics foundation): complete. Added organization-scoped marketing email campaign definitions tied to active saved audiences, stored schedule/status metadata, captured audience recipient-count snapshots, persisted per-campaign analytics counters, exposed authenticated APIs for listing/creating/updating campaigns, and added a Settings > Email Campaigns UI. Bulk recipient expansion, mailbox delivery, unsubscribe enforcement at send time, open/click attribution into campaign counters, send approvals, and campaign reports remain future slices.
 - `1.4.6` (drip/nurture campaigns built on the sequence engine foundation): complete. Added organization-scoped nurture campaign plans that bind active saved audiences to existing email sequences, validate active campaigns against active sequences, snapshot eligible audience counts, expose authenticated APIs for listing/creating/updating nurture campaigns, and add a Settings > Nurture Campaigns UI. Automatic audience enrollment, enrollment refresh scheduling, suppression-aware bulk launch approvals, per-nurture performance rollups, and reply/exit rules remain future slices.
 - `1.4.7` (rule-based lead scoring and routing/assignment foundation): complete. Added organization-scoped scoring rules over contact status, source, UTM, title, email, phone, and email-domain signals; persisted contact score/grade/scored-at metadata; exposed admin APIs for scoring-rule management plus a contact evaluation endpoint; routed unassigned contacts to rule-selected team members; logged lead scoring activity; surfaced scoring in contact list/detail; and added a Settings > Lead Scoring UI. Automatic scoring on form submission, bulk rescoring, rule simulation over audiences, SLA queues, and round-robin assignment remain future slices.
+- `1.4.8` (lead capture from chat/website widget foundation): complete. Added organization-scoped website widget definitions tied to existing lead capture forms, stable public widget IDs, light/blue/dark themes, bottom-left/bottom-right/inline embed positions, authenticated APIs for listing/creating/updating widgets, a public widget lookup endpoint, a `/widget/:publicId` frontend renderer, and a Settings > Website Widgets UI with iframe embed snippets. Live chat, bot conversation trees, agent handoff, widget analytics, spam protection, automatic scoring/routing on submission, and custom script-loader embeds remain future slices.
 
 Candidate slices:
 
@@ -1898,7 +1899,7 @@ Candidate slices:
 - `1.4.5` Marketing email campaigns with scheduling and per-campaign analytics: foundation complete.
 - `1.4.6` Drip/nurture campaigns built on the sequence engine (`1.1.8`): foundation complete.
 - `1.4.7` Rule-based lead scoring and routing/assignment: foundation complete.
-- `1.4.8` Lead capture from chat/website widget (optional).
+- `1.4.8` Lead capture from chat/website widget (optional): foundation complete.
 
 Exit criteria:
 

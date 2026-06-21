@@ -125,3 +125,30 @@ func TestValidateLandingPageInputRejectsUnknownTheme(t *testing.T) {
 		t.Fatalf("expected invalid landing page theme, got %v", err)
 	}
 }
+
+func TestNormalizeChatWidgetInputDefaultsValues(t *testing.T) {
+	input := normalizeChatWidgetInput(ChatWidgetInput{Name: "  Website chat  ", LeadCaptureFormID: 7})
+
+	if input.Name != "Website chat" || input.Title != "Website chat" {
+		t.Fatalf("unexpected normalized widget identity: %#v", input)
+	}
+	if input.WelcomeMessage == "" || input.PromptLabel != "Chat with us" || input.CTALabel != "Send" || input.Theme != "light" || input.Position != "bottom-right" {
+		t.Fatalf("expected widget defaults, got %#v", input)
+	}
+	if err := validateChatWidgetInput(input); err != nil {
+		t.Fatalf("expected default widget to validate: %v", err)
+	}
+}
+
+func TestValidateChatWidgetInputRejectsInvalidValues(t *testing.T) {
+	for _, input := range []ChatWidgetInput{
+		normalizeChatWidgetInput(ChatWidgetInput{Name: "", LeadCaptureFormID: 7}),
+		normalizeChatWidgetInput(ChatWidgetInput{Name: "Website chat", LeadCaptureFormID: 0}),
+		normalizeChatWidgetInput(ChatWidgetInput{Name: "Website chat", LeadCaptureFormID: 7, Theme: "neon"}),
+		normalizeChatWidgetInput(ChatWidgetInput{Name: "Website chat", LeadCaptureFormID: 7, Position: "center"}),
+	} {
+		if err := validateChatWidgetInput(input); !errors.Is(err, ErrInvalidWidget) {
+			t.Fatalf("expected invalid widget for %#v, got %v", input, err)
+		}
+	}
+}

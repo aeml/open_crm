@@ -102,6 +102,13 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"lead_scoring_rules_value_check",
 		"lead_scoring_rules_score_delta_check",
 		"lead_scoring_rules_position_check",
+		"lead_chat_widgets_form_org_fk",
+		"lead_chat_widgets_name_check",
+		"lead_chat_widgets_title_check",
+		"lead_chat_widgets_prompt_label_check",
+		"lead_chat_widgets_cta_label_check",
+		"lead_chat_widgets_theme_check",
+		"lead_chat_widgets_position_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -141,6 +148,8 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_lead_scoring_rules_org_name_unique",
 		"idx_lead_scoring_rules_org_active_position",
 		"idx_contacts_org_lead_score",
+		"idx_lead_chat_widgets_org_active",
+		"idx_lead_chat_widgets_org_form",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -293,6 +302,15 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 		t.Fatalf("insert lead scoring rule: %v", err)
 	}
 	expectExecError(t, ctx, pool, `INSERT INTO lead_scoring_rules (organization_id, name, field, operator, value, score_delta) VALUES ($1, 'lead status fit', 'status', 'equals', 'lead', 10)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_chat_widgets (organization_id, public_id, lead_capture_form_id, name, title) VALUES ($1, 'cw_bad_name', $2, '', 'Widget')`, organizationID, leadFormID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_chat_widgets (organization_id, public_id, lead_capture_form_id, name, title) VALUES ($1, 'cw_bad_title', $2, 'Widget', '')`, organizationID, leadFormID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_chat_widgets (organization_id, public_id, lead_capture_form_id, name, title, prompt_label) VALUES ($1, 'cw_bad_prompt', $2, 'Widget', 'Widget', '')`, organizationID, leadFormID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_chat_widgets (organization_id, public_id, lead_capture_form_id, name, title, cta_label) VALUES ($1, 'cw_bad_cta', $2, 'Widget', 'Widget', '')`, organizationID, leadFormID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_chat_widgets (organization_id, public_id, lead_capture_form_id, name, title, theme) VALUES ($1, 'cw_bad_theme', $2, 'Widget', 'Widget', 'neon')`, organizationID, leadFormID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_chat_widgets (organization_id, public_id, lead_capture_form_id, name, title, position) VALUES ($1, 'cw_bad_position', $2, 'Widget', 'Widget', 'center')`, organizationID, leadFormID)
+	if _, err := pool.Exec(ctx, `INSERT INTO lead_chat_widgets (organization_id, public_id, lead_capture_form_id, name, title, prompt_label, cta_label, theme, position) VALUES ($1, 'cw_test', $2, 'Website chat', 'Need help?', 'Chat with us', 'Send', 'blue', 'bottom-left')`, organizationID, leadFormID); err != nil {
+		t.Fatalf("insert lead chat widget: %v", err)
+	}
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)

@@ -10,6 +10,7 @@ import { MailboxRoute } from '../routes/mailbox'
 import { TeamInboxRoute } from '../routes/team_inbox'
 import { LoginRoute } from '../routes/login'
 import { PublicLandingPageRoute } from '../routes/public_landing_page'
+import { PublicLeadWidgetRoute } from '../routes/public_lead_widget'
 import { BootstrapRoute } from '../routes/bootstrap'
 import { SetupPasswordRoute } from '../routes/setup_password'
 import { SettingsProfileRoute } from '../routes/settings_profile'
@@ -26,6 +27,7 @@ import { SettingsLeadAudiencesRoute } from '../routes/settings_lead_audiences'
 import { SettingsMarketingEmailCampaignsRoute } from '../routes/settings_marketing_email_campaigns'
 import { SettingsNurtureCampaignsRoute } from '../routes/settings_nurture_campaigns'
 import { SettingsLeadScoringRoute } from '../routes/settings_lead_scoring'
+import { SettingsLeadWidgetsRoute } from '../routes/settings_lead_widgets'
 import { SettingsCalendarRoute } from '../routes/settings_calendar'
 import { SettingsEmailAccountRoute } from '../routes/settings_email_account'
 import { SettingsEmailLogRoute } from '../routes/settings_email_log'
@@ -38,6 +40,7 @@ export function AppRouter() {
         <Routes>
           <Route path="/login" element={<LoginRoute />} />
           <Route path="/lp/:slug" element={<PublicLandingPageRoute />} />
+          <Route path="/widget/:publicId" element={<PublicLeadWidgetRoute />} />
           <Route path="/bootstrap" element={<BootstrapRoute />} />
           <Route path="/setup-password" element={<SetupPasswordRoute />} />
           <Route path="/" element={<RootRoute />}>
@@ -66,6 +69,7 @@ export function AppRouter() {
             <Route path="settings/marketing-email-campaigns" element={<SettingsMarketingEmailCampaignsRoute />} />
             <Route path="settings/nurture-campaigns" element={<SettingsNurtureCampaignsRoute />} />
             <Route path="settings/lead-scoring" element={<SettingsLeadScoringRoute />} />
+            <Route path="settings/lead-widgets" element={<SettingsLeadWidgetsRoute />} />
             <Route path="settings/calendar" element={<SettingsCalendarRoute />} />
             <Route path="settings/email-account" element={<SettingsEmailAccountRoute />} />
             <Route path="settings/email-log" element={<SettingsEmailLogRoute />} />

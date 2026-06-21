@@ -213,6 +213,10 @@ type leadFormsService interface {
 	CreateLandingPage(context.Context, int64, int64, moduleleadforms.LandingPageInput) (moduleleadforms.LandingPage, error)
 	UpdateLandingPage(context.Context, int64, int64, int64, moduleleadforms.LandingPageInput) (moduleleadforms.LandingPage, error)
 	GetPublicLandingPage(context.Context, string) (moduleleadforms.PublicLandingPage, error)
+	ListChatWidgetsByOrganization(context.Context, int64) ([]moduleleadforms.ChatWidget, error)
+	CreateChatWidget(context.Context, int64, int64, moduleleadforms.ChatWidgetInput) (moduleleadforms.ChatWidget, error)
+	UpdateChatWidget(context.Context, int64, int64, int64, moduleleadforms.ChatWidgetInput) (moduleleadforms.ChatWidget, error)
+	GetPublicChatWidget(context.Context, string) (moduleleadforms.PublicChatWidget, error)
 	SubmitByPublicID(context.Context, string, moduleleadforms.SubmissionInput) (moduleleadforms.SubmissionResult, error)
 }
 
@@ -907,6 +911,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/public/lead-capture-forms/{publicID}/submissions", func(w http.ResponseWriter, r *http.Request) {
 		handleSubmitPublicLeadCaptureForm(dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("GET /api/lead-chat-widgets", func(w http.ResponseWriter, r *http.Request) {
+		handleListLeadChatWidgets(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("POST /api/lead-chat-widgets", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateLeadChatWidget(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/lead-chat-widgets/{widgetID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateLeadChatWidget(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("GET /api/public/lead-chat-widgets/{publicID}", func(w http.ResponseWriter, r *http.Request) {
+		handleGetPublicLeadChatWidget(dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("GET /api/lead-audiences", func(w http.ResponseWriter, r *http.Request) {
 		handleListLeadAudiences(dependencies.AuthService, dependencies.LeadAudiencesService, w, r)

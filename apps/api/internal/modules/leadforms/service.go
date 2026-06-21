@@ -26,6 +26,7 @@ var (
 	ErrInvalidInput      = errors.New("invalid lead capture form")
 	ErrInvalidPage       = errors.New("invalid lead landing page")
 	ErrInvalidSubmission = errors.New("invalid lead capture submission")
+	ErrInvalidWidget     = errors.New("invalid lead chat widget")
 	ErrNotFound          = errors.New("lead capture form not found")
 )
 
@@ -128,6 +129,41 @@ type LandingPageInput struct {
 type PublicLandingPage struct {
 	Page LandingPage `json:"page"`
 	Form Form        `json:"form"`
+}
+
+type ChatWidget struct {
+	ID                      int64     `json:"id"`
+	Name                    string    `json:"name"`
+	PublicID                string    `json:"publicId"`
+	Title                   string    `json:"title"`
+	WelcomeMessage          string    `json:"welcomeMessage"`
+	PromptLabel             string    `json:"promptLabel"`
+	CTALabel                string    `json:"ctaLabel"`
+	Theme                   string    `json:"theme"`
+	Position                string    `json:"position"`
+	LeadCaptureFormID       int64     `json:"leadCaptureFormId"`
+	LeadCaptureFormName     string    `json:"leadCaptureFormName"`
+	LeadCaptureFormPublicID string    `json:"leadCaptureFormPublicId"`
+	IsActive                bool      `json:"isActive"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+}
+
+type ChatWidgetInput struct {
+	Name              string `json:"name"`
+	Title             string `json:"title"`
+	WelcomeMessage    string `json:"welcomeMessage"`
+	PromptLabel       string `json:"promptLabel"`
+	CTALabel          string `json:"ctaLabel"`
+	Theme             string `json:"theme"`
+	Position          string `json:"position"`
+	LeadCaptureFormID int64  `json:"leadCaptureFormId"`
+	IsActive          *bool  `json:"isActive"`
+}
+
+type PublicChatWidget struct {
+	Widget ChatWidget `json:"widget"`
+	Form   Form       `json:"form"`
 }
 
 type Service struct {
@@ -384,6 +420,143 @@ func (s *Service) GetPublicLandingPage(ctx context.Context, slug string) (Public
 		return PublicLandingPage{}, fmt.Errorf("get public lead landing page: %w", err)
 	}
 	return PublicLandingPage{Page: page, Form: form}, nil
+}
+
+func (s *Service) ListChatWidgetsByOrganization(ctx context.Context, organizationID int64) ([]ChatWidget, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("lead forms service not configured")
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT w.id, w.name, w.public_id, w.title, w.welcome_message, w.prompt_label, w.cta_label, w.theme, w.position,
+			w.lead_capture_form_id, f.name, f.public_id, w.is_active, w.created_at, w.updated_at
+		FROM lead_chat_widgets w
+		JOIN lead_capture_forms f ON f.organization_id = w.organization_id AND f.id = w.lead_capture_form_id
+		WHERE w.organization_id = $1
+		ORDER BY w.is_active DESC, w.updated_at DESC, w.id DESC
+	`, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("list lead chat widgets: %w", err)
+	}
+	defer rows.Close()
+
+	widgets := make([]ChatWidget, 0)
+	for rows.Next() {
+		widget, err := scanChatWidget(rows)
+		if err != nil {
+			return nil, err
+		}
+		widgets = append(widgets, widget)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate lead chat widgets: %w", err)
+	}
+	return widgets, nil
+}
+
+func (s *Service) CreateChatWidget(ctx context.Context, organizationID, actorUserID int64, input ChatWidgetInput) (ChatWidget, error) {
+	if s == nil || s.pool == nil {
+		return ChatWidget{}, fmt.Errorf("lead forms service not configured")
+	}
+	input = normalizeChatWidgetInput(input)
+	if err := validateChatWidgetInput(input); err != nil {
+		return ChatWidget{}, err
+	}
+	publicID, err := newChatWidgetPublicID()
+	if err != nil {
+		return ChatWidget{}, err
+	}
+	isActive := true
+	if input.IsActive != nil {
+		isActive = *input.IsActive
+	}
+
+	widget, err := scanChatWidget(s.pool.QueryRow(ctx, `
+		WITH inserted AS (
+			INSERT INTO lead_chat_widgets (organization_id, public_id, lead_capture_form_id, name, title, welcome_message, prompt_label, cta_label, theme, position, is_active, created_by_user_id, updated_by_user_id)
+			SELECT $1, $2, f.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11
+			FROM lead_capture_forms f
+			WHERE f.organization_id = $1 AND f.id = $12
+			RETURNING *
+		)
+		SELECT w.id, w.name, w.public_id, w.title, w.welcome_message, w.prompt_label, w.cta_label, w.theme, w.position,
+			w.lead_capture_form_id, f.name, f.public_id, w.is_active, w.created_at, w.updated_at
+		FROM inserted w
+		JOIN lead_capture_forms f ON f.organization_id = w.organization_id AND f.id = w.lead_capture_form_id
+	`, organizationID, publicID, input.Name, input.Title, input.WelcomeMessage, input.PromptLabel, input.CTALabel, input.Theme, input.Position, isActive, actorUserID, input.LeadCaptureFormID))
+	if err != nil {
+		return ChatWidget{}, mapChatWidgetSaveError(err)
+	}
+	return widget, nil
+}
+
+func (s *Service) UpdateChatWidget(ctx context.Context, organizationID, widgetID, actorUserID int64, input ChatWidgetInput) (ChatWidget, error) {
+	if s == nil || s.pool == nil {
+		return ChatWidget{}, fmt.Errorf("lead forms service not configured")
+	}
+	input = normalizeChatWidgetInput(input)
+	if err := validateChatWidgetInput(input); err != nil {
+		return ChatWidget{}, err
+	}
+	var isActive any
+	if input.IsActive != nil {
+		isActive = *input.IsActive
+	}
+
+	widget, err := scanChatWidget(s.pool.QueryRow(ctx, `
+		WITH updated AS (
+			UPDATE lead_chat_widgets w
+			SET lead_capture_form_id = $3,
+			    name = $4,
+			    title = $5,
+			    welcome_message = $6,
+			    prompt_label = $7,
+			    cta_label = $8,
+			    theme = $9,
+			    position = $10,
+			    is_active = COALESCE($11::boolean, w.is_active),
+			    updated_by_user_id = $12,
+			    updated_at = NOW()
+			WHERE w.organization_id = $1
+			  AND w.id = $2
+			  AND EXISTS (SELECT 1 FROM lead_capture_forms f WHERE f.organization_id = $1 AND f.id = $3)
+			RETURNING *
+		)
+		SELECT w.id, w.name, w.public_id, w.title, w.welcome_message, w.prompt_label, w.cta_label, w.theme, w.position,
+			w.lead_capture_form_id, f.name, f.public_id, w.is_active, w.created_at, w.updated_at
+		FROM updated w
+		JOIN lead_capture_forms f ON f.organization_id = w.organization_id AND f.id = w.lead_capture_form_id
+	`, organizationID, widgetID, input.LeadCaptureFormID, input.Name, input.Title, input.WelcomeMessage, input.PromptLabel, input.CTALabel, input.Theme, input.Position, isActive, actorUserID))
+	if err != nil {
+		return ChatWidget{}, mapChatWidgetSaveError(err)
+	}
+	return widget, nil
+}
+
+func (s *Service) GetPublicChatWidget(ctx context.Context, publicID string) (PublicChatWidget, error) {
+	if s == nil || s.pool == nil {
+		return PublicChatWidget{}, fmt.Errorf("lead forms service not configured")
+	}
+	publicID = strings.TrimSpace(publicID)
+	if publicID == "" {
+		return PublicChatWidget{}, ErrNotFound
+	}
+
+	widget, form, err := scanPublicChatWidget(s.pool.QueryRow(ctx, `
+		SELECT w.id, w.name, w.public_id, w.title, w.welcome_message, w.prompt_label, w.cta_label, w.theme, w.position,
+			w.lead_capture_form_id, f.name, f.public_id, w.is_active, w.created_at, w.updated_at,
+			f.id, f.name, f.slug, f.public_id, f.title, f.description, f.fields_json, f.success_message, f.source_label, f.is_active, 0, f.created_at, f.updated_at
+		FROM lead_chat_widgets w
+		JOIN lead_capture_forms f ON f.organization_id = w.organization_id AND f.id = w.lead_capture_form_id
+		WHERE w.public_id = $1 AND w.is_active = TRUE AND f.is_active = TRUE
+	`, publicID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return PublicChatWidget{}, ErrNotFound
+		}
+		return PublicChatWidget{}, fmt.Errorf("get public lead chat widget: %w", err)
+	}
+	return PublicChatWidget{Widget: widget, Form: form}, nil
 }
 
 func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input SubmissionInput) (SubmissionResult, error) {
@@ -655,6 +828,72 @@ func scanPublicLandingPage(scanner formScanner) (LandingPage, Form, error) {
 	return page, form, nil
 }
 
+func scanChatWidget(scanner formScanner) (ChatWidget, error) {
+	var widget ChatWidget
+	if err := scanner.Scan(
+		&widget.ID,
+		&widget.Name,
+		&widget.PublicID,
+		&widget.Title,
+		&widget.WelcomeMessage,
+		&widget.PromptLabel,
+		&widget.CTALabel,
+		&widget.Theme,
+		&widget.Position,
+		&widget.LeadCaptureFormID,
+		&widget.LeadCaptureFormName,
+		&widget.LeadCaptureFormPublicID,
+		&widget.IsActive,
+		&widget.CreatedAt,
+		&widget.UpdatedAt,
+	); err != nil {
+		return ChatWidget{}, fmt.Errorf("scan lead chat widget: %w", err)
+	}
+	return widget, nil
+}
+
+func scanPublicChatWidget(scanner formScanner) (ChatWidget, Form, error) {
+	var widget ChatWidget
+	var form Form
+	var fieldsJSON []byte
+	if err := scanner.Scan(
+		&widget.ID,
+		&widget.Name,
+		&widget.PublicID,
+		&widget.Title,
+		&widget.WelcomeMessage,
+		&widget.PromptLabel,
+		&widget.CTALabel,
+		&widget.Theme,
+		&widget.Position,
+		&widget.LeadCaptureFormID,
+		&widget.LeadCaptureFormName,
+		&widget.LeadCaptureFormPublicID,
+		&widget.IsActive,
+		&widget.CreatedAt,
+		&widget.UpdatedAt,
+		&form.ID,
+		&form.Name,
+		&form.Slug,
+		&form.PublicID,
+		&form.Title,
+		&form.Description,
+		&fieldsJSON,
+		&form.SuccessMessage,
+		&form.SourceLabel,
+		&form.IsActive,
+		&form.SubmissionCount,
+		&form.CreatedAt,
+		&form.UpdatedAt,
+	); err != nil {
+		return ChatWidget{}, Form{}, err
+	}
+	if err := decodeFieldsJSON(fieldsJSON, &form); err != nil {
+		return ChatWidget{}, Form{}, err
+	}
+	return widget, form, nil
+}
+
 func decodeFieldsJSON(raw []byte, form *Form) error {
 	if len(raw) == 0 {
 		raw = []byte("[]")
@@ -769,6 +1008,54 @@ func validateLandingPageInput(input LandingPageInput) error {
 		return ErrInvalidPage
 	}
 	return nil
+}
+
+func normalizeChatWidgetInput(input ChatWidgetInput) ChatWidgetInput {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Title = strings.TrimSpace(input.Title)
+	input.WelcomeMessage = strings.TrimSpace(input.WelcomeMessage)
+	input.PromptLabel = strings.TrimSpace(input.PromptLabel)
+	input.CTALabel = strings.TrimSpace(input.CTALabel)
+	input.Theme = strings.TrimSpace(strings.ToLower(input.Theme))
+	input.Position = strings.TrimSpace(strings.ToLower(input.Position))
+	if input.Title == "" {
+		input.Title = input.Name
+	}
+	if input.WelcomeMessage == "" {
+		input.WelcomeMessage = "Hi. Tell us a little about what you need and we will follow up."
+	}
+	if input.PromptLabel == "" {
+		input.PromptLabel = "Chat with us"
+	}
+	if input.CTALabel == "" {
+		input.CTALabel = "Send"
+	}
+	if input.Theme == "" {
+		input.Theme = "light"
+	}
+	if input.Position == "" {
+		input.Position = "bottom-right"
+	}
+	return input
+}
+
+func validateChatWidgetInput(input ChatWidgetInput) error {
+	if input.Name == "" || input.Title == "" || input.PromptLabel == "" || input.CTALabel == "" || input.LeadCaptureFormID <= 0 {
+		return ErrInvalidWidget
+	}
+	if !isAllowedLandingPageTheme(input.Theme) || !isAllowedWidgetPosition(input.Position) {
+		return ErrInvalidWidget
+	}
+	return nil
+}
+
+func isAllowedWidgetPosition(position string) bool {
+	switch position {
+	case "bottom-right", "bottom-left", "inline":
+		return true
+	default:
+		return false
+	}
 }
 
 func isAllowedLandingPageTheme(theme string) bool {
@@ -908,6 +1195,10 @@ func newLandingPagePublicID() (string, error) {
 	return newPrefixedPublicID("lp")
 }
 
+func newChatWidgetPublicID() (string, error) {
+	return newPrefixedPublicID("cw")
+}
+
 func newPrefixedPublicID(prefix string) (string, error) {
 	var token [16]byte
 	if _, err := rand.Read(token[:]); err != nil {
@@ -956,6 +1247,22 @@ func mapLandingPageSaveError(err error) error {
 		}
 	}
 	return fmt.Errorf("save lead landing page: %w", err)
+}
+
+func mapChatWidgetSaveError(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23503":
+			return ErrNotFound
+		case "23514", "22P02":
+			return ErrInvalidWidget
+		}
+	}
+	return fmt.Errorf("save lead chat widget: %w", err)
 }
 
 func mapSubmissionSaveError(err error) error {

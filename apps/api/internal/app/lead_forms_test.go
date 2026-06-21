@@ -16,41 +16,58 @@ import (
 )
 
 type fakeLeadFormsService struct {
-	listResult          []moduleleadforms.Form
-	listErr             error
-	createResult        moduleleadforms.Form
-	createErr           error
-	updateResult        moduleleadforms.Form
-	updateErr           error
-	pageListResult      []moduleleadforms.LandingPage
-	pageListErr         error
-	pageCreateResult    moduleleadforms.LandingPage
-	pageCreateErr       error
-	pageUpdateResult    moduleleadforms.LandingPage
-	pageUpdateErr       error
-	publicPageResult    moduleleadforms.PublicLandingPage
-	publicPageErr       error
-	submitResult        moduleleadforms.SubmissionResult
-	submitErr           error
-	lastListOrgID       int64
-	lastCreateOrgID     int64
-	lastCreateUserID    int64
-	lastCreateInput     moduleleadforms.Input
-	lastUpdateOrgID     int64
-	lastUpdateID        int64
-	lastUpdateUserID    int64
-	lastUpdateInput     moduleleadforms.Input
-	lastPageListOrg     int64
-	lastPageCreateOrg   int64
-	lastPageCreateUser  int64
-	lastPageCreateInput moduleleadforms.LandingPageInput
-	lastPageUpdateOrg   int64
-	lastPageUpdateID    int64
-	lastPageUpdateUser  int64
-	lastPageUpdateInput moduleleadforms.LandingPageInput
-	lastPublicPageSlug  string
-	lastPublicID        string
-	lastSubmitInput     moduleleadforms.SubmissionInput
+	listResult            []moduleleadforms.Form
+	listErr               error
+	createResult          moduleleadforms.Form
+	createErr             error
+	updateResult          moduleleadforms.Form
+	updateErr             error
+	pageListResult        []moduleleadforms.LandingPage
+	pageListErr           error
+	pageCreateResult      moduleleadforms.LandingPage
+	pageCreateErr         error
+	pageUpdateResult      moduleleadforms.LandingPage
+	pageUpdateErr         error
+	publicPageResult      moduleleadforms.PublicLandingPage
+	publicPageErr         error
+	widgetListResult      []moduleleadforms.ChatWidget
+	widgetListErr         error
+	widgetCreateResult    moduleleadforms.ChatWidget
+	widgetCreateErr       error
+	widgetUpdateResult    moduleleadforms.ChatWidget
+	widgetUpdateErr       error
+	publicWidgetResult    moduleleadforms.PublicChatWidget
+	publicWidgetErr       error
+	submitResult          moduleleadforms.SubmissionResult
+	submitErr             error
+	lastListOrgID         int64
+	lastCreateOrgID       int64
+	lastCreateUserID      int64
+	lastCreateInput       moduleleadforms.Input
+	lastUpdateOrgID       int64
+	lastUpdateID          int64
+	lastUpdateUserID      int64
+	lastUpdateInput       moduleleadforms.Input
+	lastPageListOrg       int64
+	lastPageCreateOrg     int64
+	lastPageCreateUser    int64
+	lastPageCreateInput   moduleleadforms.LandingPageInput
+	lastPageUpdateOrg     int64
+	lastPageUpdateID      int64
+	lastPageUpdateUser    int64
+	lastPageUpdateInput   moduleleadforms.LandingPageInput
+	lastPublicPageSlug    string
+	lastWidgetListOrg     int64
+	lastWidgetCreateOrg   int64
+	lastWidgetCreateUser  int64
+	lastWidgetCreateInput moduleleadforms.ChatWidgetInput
+	lastWidgetUpdateOrg   int64
+	lastWidgetUpdateID    int64
+	lastWidgetUpdateUser  int64
+	lastWidgetUpdateInput moduleleadforms.ChatWidgetInput
+	lastPublicWidgetID    string
+	lastPublicID          string
+	lastSubmitInput       moduleleadforms.SubmissionInput
 }
 
 func (f *fakeLeadFormsService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleleadforms.Form, error) {
@@ -96,6 +113,31 @@ func (f *fakeLeadFormsService) UpdateLandingPage(_ context.Context, organization
 func (f *fakeLeadFormsService) GetPublicLandingPage(_ context.Context, slug string) (moduleleadforms.PublicLandingPage, error) {
 	f.lastPublicPageSlug = slug
 	return f.publicPageResult, f.publicPageErr
+}
+
+func (f *fakeLeadFormsService) ListChatWidgetsByOrganization(_ context.Context, organizationID int64) ([]moduleleadforms.ChatWidget, error) {
+	f.lastWidgetListOrg = organizationID
+	return f.widgetListResult, f.widgetListErr
+}
+
+func (f *fakeLeadFormsService) CreateChatWidget(_ context.Context, organizationID, actorUserID int64, input moduleleadforms.ChatWidgetInput) (moduleleadforms.ChatWidget, error) {
+	f.lastWidgetCreateOrg = organizationID
+	f.lastWidgetCreateUser = actorUserID
+	f.lastWidgetCreateInput = input
+	return f.widgetCreateResult, f.widgetCreateErr
+}
+
+func (f *fakeLeadFormsService) UpdateChatWidget(_ context.Context, organizationID, widgetID, actorUserID int64, input moduleleadforms.ChatWidgetInput) (moduleleadforms.ChatWidget, error) {
+	f.lastWidgetUpdateOrg = organizationID
+	f.lastWidgetUpdateID = widgetID
+	f.lastWidgetUpdateUser = actorUserID
+	f.lastWidgetUpdateInput = input
+	return f.widgetUpdateResult, f.widgetUpdateErr
+}
+
+func (f *fakeLeadFormsService) GetPublicChatWidget(_ context.Context, publicID string) (moduleleadforms.PublicChatWidget, error) {
+	f.lastPublicWidgetID = publicID
+	return f.publicWidgetResult, f.publicWidgetErr
 }
 
 func (f *fakeLeadFormsService) SubmitByPublicID(_ context.Context, publicID string, input moduleleadforms.SubmissionInput) (moduleleadforms.SubmissionResult, error) {
@@ -390,5 +432,127 @@ func TestGetPublicLeadLandingPageDoesNotRequireAuth(t *testing.T) {
 	}
 	if response.Data.Page.PublicID != "lp_public" || response.Data.Form.PublicID != "lf_public" {
 		t.Fatalf("unexpected public landing page response: %#v", response.Data)
+	}
+}
+
+func TestListLeadChatWidgetsScopesToOrganization(t *testing.T) {
+	service := &fakeLeadFormsService{widgetListResult: []moduleleadforms.ChatWidget{{ID: 4, Name: "Website chat", PublicID: "cw_test", LeadCaptureFormID: 3, LeadCaptureFormName: "Website Leads", IsActive: true}}}
+	server := authenticatedLeadFormsServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/lead-chat-widgets", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastWidgetListOrg != 42 {
+		t.Fatalf("expected widget list scoped to org 42, got %d", service.lastWidgetListOrg)
+	}
+	var response struct {
+		Data struct {
+			Widgets []moduleleadforms.ChatWidget `json:"widgets"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(response.Data.Widgets) != 1 || response.Data.Widgets[0].PublicID != "cw_test" {
+		t.Fatalf("unexpected widgets payload: %#v", response.Data.Widgets)
+	}
+}
+
+func TestCreateLeadChatWidgetRequiresAdminAndUsesCurrentOrganization(t *testing.T) {
+	service := &fakeLeadFormsService{widgetCreateResult: moduleleadforms.ChatWidget{ID: 8, Name: "Website chat", PublicID: "cw_created", LeadCaptureFormID: 3}}
+	server := authenticatedLeadFormsServer(service, "admin")
+
+	body := bytes.NewBufferString(`{"name":"Website chat","title":"Need help?","welcomeMessage":"Tell us what you need.","promptLabel":"Chat with us","ctaLabel":"Send","theme":"blue","position":"bottom-left","leadCaptureFormId":3,"isActive":true}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/lead-chat-widgets", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
+	}
+	if service.lastWidgetCreateOrg != 42 || service.lastWidgetCreateUser != 1 || service.lastWidgetCreateInput.LeadCaptureFormID != 3 || service.lastWidgetCreateInput.Theme != "blue" || service.lastWidgetCreateInput.Position != "bottom-left" {
+		t.Fatalf("unexpected chat widget create input: org=%d user=%d input=%#v", service.lastWidgetCreateOrg, service.lastWidgetCreateUser, service.lastWidgetCreateInput)
+	}
+}
+
+func TestCreateLeadChatWidgetRejectsMember(t *testing.T) {
+	service := &fakeLeadFormsService{}
+	server := authenticatedLeadFormsServer(service, "member")
+
+	body := bytes.NewBufferString(`{"name":"Website chat","leadCaptureFormId":3}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/lead-chat-widgets", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
+	}
+	if service.lastWidgetCreateOrg != 0 {
+		t.Fatal("member should not reach chat widget create service")
+	}
+}
+
+func TestUpdateLeadChatWidgetScopesToOrganization(t *testing.T) {
+	inactive := false
+	service := &fakeLeadFormsService{widgetUpdateResult: moduleleadforms.ChatWidget{ID: 9, Name: "Website chat", PublicID: "cw_existing", IsActive: false}}
+	server := authenticatedLeadFormsServer(service, "owner")
+
+	body := bytes.NewBufferString(`{"name":"Website chat","title":"Need help?","promptLabel":"Chat with us","ctaLabel":"Send","theme":"dark","position":"inline","leadCaptureFormId":3,"isActive":false}`)
+	request := httptest.NewRequest(http.MethodPatch, "/api/lead-chat-widgets/9", body)
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastWidgetUpdateOrg != 42 || service.lastWidgetUpdateID != 9 || service.lastWidgetUpdateUser != 1 {
+		t.Fatalf("unexpected chat widget update routing: org=%d id=%d user=%d", service.lastWidgetUpdateOrg, service.lastWidgetUpdateID, service.lastWidgetUpdateUser)
+	}
+	if service.lastWidgetUpdateInput.IsActive == nil || *service.lastWidgetUpdateInput.IsActive != inactive {
+		t.Fatalf("expected inactive update input, got %#v", service.lastWidgetUpdateInput.IsActive)
+	}
+}
+
+func TestGetPublicLeadChatWidgetDoesNotRequireAuth(t *testing.T) {
+	service := &fakeLeadFormsService{publicWidgetResult: moduleleadforms.PublicChatWidget{
+		Widget: moduleleadforms.ChatWidget{ID: 5, Name: "Website chat", PublicID: "cw_public", Title: "Need help?", LeadCaptureFormID: 3, LeadCaptureFormPublicID: "lf_public", IsActive: true},
+		Form:   moduleleadforms.Form{ID: 3, Name: "Website Leads", PublicID: "lf_public", Fields: []moduleleadforms.Field{{Key: "firstName", Label: "First name", Required: true, MapTo: "firstName"}}},
+	}}
+	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/public/lead-chat-widgets/cw_public", nil)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastPublicWidgetID != "cw_public" {
+		t.Fatalf("expected public widget cw_public, got %q", service.lastPublicWidgetID)
+	}
+	var response struct {
+		Data moduleleadforms.PublicChatWidget `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if response.Data.Widget.PublicID != "cw_public" || response.Data.Form.PublicID != "lf_public" {
+		t.Fatalf("unexpected public chat widget response: %#v", response.Data)
 	}
 }

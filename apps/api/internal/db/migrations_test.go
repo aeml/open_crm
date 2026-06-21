@@ -739,3 +739,29 @@ func TestMigrationFilesIncludeLeadScoringRoutingMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeLeadChatWidgetsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "049_lead_chat_widgets.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected lead chat widgets migration to be registered")
+	}
+
+	sql := MigrationSQL("049_lead_chat_widgets.sql")
+	if sql == "" {
+		t.Fatal("expected lead chat widgets migration SQL to be embedded")
+	}
+	for _, expected := range []string{"lead_chat_widgets", "public_id", "lead_chat_widgets_form_org_fk", "lead_chat_widgets_position_check", "idx_lead_chat_widgets_org_active"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected lead chat widgets migration to include %s", expected)
+		}
+	}
+}
