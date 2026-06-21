@@ -42,6 +42,7 @@ function emptyForm() {
     triggerConfigText: '{}',
     conditionLogic: 'all',
     conditionsText: '[]',
+    actionsText: '[]',
     isActive: false,
     position: '0'
   }
@@ -56,6 +57,7 @@ function formFromAutomation(automation) {
     triggerConfigText: JSON.stringify(automation.triggerConfig || {}, null, 2),
     conditionLogic: automation.conditionLogic || 'all',
     conditionsText: JSON.stringify(automation.conditions || [], null, 2),
+    actionsText: JSON.stringify(automation.actions || [], null, 2),
     isActive: automation.isActive === true,
     position: String(automation.position ?? 0)
   }
@@ -81,6 +83,23 @@ function parseConditions(raw) {
   }))
 }
 
+function parseActions(raw) {
+  const parsed = JSON.parse(raw || '[]')
+  if (!Array.isArray(parsed)) {
+    throw new Error('Actions must be a JSON array.')
+  }
+  return parsed.map((action) => {
+    const config = action?.config || {}
+    if (!config || Array.isArray(config) || typeof config !== 'object') {
+      throw new Error('Action configs must be JSON objects.')
+    }
+    return {
+      type: String(action?.type || '').trim(),
+      config: Object.fromEntries(Object.entries(config).filter(([key, value]) => key.trim() && value !== null).map(([key, value]) => [key.trim(), typeof value === 'string' ? value.trim() : value]))
+    }
+  })
+}
+
 function payloadFromForm(form) {
   return {
     name: form.name,
@@ -90,6 +109,7 @@ function payloadFromForm(form) {
     triggerConfig: parseTriggerConfig(form.triggerConfigText),
     conditionLogic: form.conditionLogic,
     conditions: parseConditions(form.conditionsText),
+    actions: parseActions(form.actionsText),
     isActive: form.isActive,
     position: Number.parseInt(String(form.position || 0), 10) || 0
   }
@@ -105,8 +125,10 @@ function targetLabel(triggerType, value) {
 
 function automationSummary(automation) {
   const conditions = automation.conditions || []
+  const actions = automation.actions || []
   const conditionText = conditions.length === 0 ? 'no conditions' : `${automation.conditionLogic || 'all'} ${conditions.length} condition${conditions.length === 1 ? '' : 's'}`
-  return `${triggerLabel(automation.triggerType)} | ${targetLabel(automation.triggerType, automation.targetEntityType)} | ${conditionText} | order ${automation.position ?? 0}`
+  const actionText = actions.length === 0 ? 'no actions' : `${actions.length} action${actions.length === 1 ? '' : 's'}`
+  return `${triggerLabel(automation.triggerType)} | ${targetLabel(automation.triggerType, automation.targetEntityType)} | ${conditionText} | ${actionText} | order ${automation.position ?? 0}`
 }
 
 export function SettingsAutomationsRoute() {
@@ -170,7 +192,7 @@ export function SettingsAutomationsRoute() {
     try {
       payload = payloadFromForm(form)
     } catch (parseError) {
-      setError(parseError.message || 'Trigger config and conditions must be valid JSON.')
+      setError(parseError.message || 'Trigger config, conditions, and actions must be valid JSON.')
       return
     }
 
@@ -204,7 +226,7 @@ export function SettingsAutomationsRoute() {
           <div className="section-header">
             <div>
               <h2>Workflow automations</h2>
-              <p>Define automation triggers now; conditions, actions, delays, and execution history come in later slices.</p>
+              <p>Define automation triggers, conditions, and action plans now; execution, delays, and run history come in later slices.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading workflow automations...</p> : null}
@@ -215,7 +237,7 @@ export function SettingsAutomationsRoute() {
               <article className="record-row" role="listitem">
                 <div>
                   <p>No workflow automations yet.</p>
-                  <p className="field-hint">Start by modeling the event that should trigger future automation work.</p>
+                  <p className="field-hint">Start by modeling the event, filters, and future actions for automation work.</p>
                 </div>
               </article>
             ) : automations.map((automation) => (
@@ -240,7 +262,7 @@ export function SettingsAutomationsRoute() {
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
             <div>
               <h2>{editingId ? 'Edit automation trigger' : 'New automation trigger'}</h2>
-              <p className="field-hint">This foundation saves trigger definitions only; it does not run actions yet.</p>
+              <p className="field-hint">This foundation saves trigger, condition, and action definitions; it does not run actions yet.</p>
             </div>
             <Field label="Automation name">
               <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="New lead follow-up" required />
@@ -269,6 +291,9 @@ export function SettingsAutomationsRoute() {
             </Field>
             <Field label="Conditions JSON" hint='Optional array like [{"field":"status","operator":"equals","value":"lead"}]. Operators: equals, notEquals, contains, exists, greaterThan, lessThan.'>
               <textarea className="text-input" rows={6} value={form.conditionsText} onChange={(event) => setForm({ ...form, conditionsText: event.target.value })} />
+            </Field>
+            <Field label="Actions JSON" hint='Optional ordered array like [{"type":"create_task","config":{"title":"Call new lead"}}]. Types: update_field, create_task, send_email, send_sms, assign_owner, add_to_sequence, call_webhook, notify.'>
+              <textarea className="text-input" rows={7} value={form.actionsText} onChange={(event) => setForm({ ...form, actionsText: event.target.value })} />
             </Field>
             <Field label="Order">
               <input className="text-input" type="number" min="0" value={form.position} onChange={(event) => setForm({ ...form, position: event.target.value })} />

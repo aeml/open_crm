@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ type Automation struct {
 	TriggerConfig    map[string]any `json:"triggerConfig"`
 	ConditionLogic   string         `json:"conditionLogic"`
 	Conditions       []Condition    `json:"conditions"`
+	Actions          []Action       `json:"actions"`
 	IsActive         bool           `json:"isActive"`
 	Position         int            `json:"position"`
 	CreatedAt        time.Time      `json:"createdAt"`
@@ -42,6 +44,11 @@ type Condition struct {
 	Value    string `json:"value"`
 }
 
+type Action struct {
+	Type   string         `json:"type"`
+	Config map[string]any `json:"config"`
+}
+
 type Input struct {
 	Name             string         `json:"name"`
 	Description      string         `json:"description"`
@@ -50,6 +57,7 @@ type Input struct {
 	TriggerConfig    map[string]any `json:"triggerConfig"`
 	ConditionLogic   string         `json:"conditionLogic"`
 	Conditions       []Condition    `json:"conditions"`
+	Actions          []Action       `json:"actions"`
 	IsActive         *bool          `json:"isActive"`
 	Position         int            `json:"position"`
 }
@@ -106,6 +114,10 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if err != nil {
 		return Automation{}, fmt.Errorf("encode workflow automation conditions: %w", err)
 	}
+	actionsJSON, err := json.Marshal(input.Actions)
+	if err != nil {
+		return Automation{}, fmt.Errorf("encode workflow automation actions: %w", err)
+	}
 	isActive := false
 	if input.IsActive != nil {
 		isActive = *input.IsActive
@@ -113,10 +125,10 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 
 	var automationID int64
 	if err := s.pool.QueryRow(ctx, `
-		INSERT INTO workflow_automations (organization_id, name, description, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, is_active, position, created_by_user_id, updated_by_user_id)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9, $10, $11, $11)
+		INSERT INTO workflow_automations (organization_id, name, description, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, actions_json, is_active, position, created_by_user_id, updated_by_user_id)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $12)
 		RETURNING id
-	`, organizationID, input.Name, input.Description, input.TriggerType, input.TargetEntityType, string(configJSON), input.ConditionLogic, string(conditionsJSON), isActive, input.Position, actorUserID).Scan(&automationID); err != nil {
+	`, organizationID, input.Name, input.Description, input.TriggerType, input.TargetEntityType, string(configJSON), input.ConditionLogic, string(conditionsJSON), string(actionsJSON), isActive, input.Position, actorUserID).Scan(&automationID); err != nil {
 		return Automation{}, mapSaveError(err)
 	}
 	return s.getByID(ctx, organizationID, automationID)
@@ -138,6 +150,10 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 	if err != nil {
 		return Automation{}, fmt.Errorf("encode workflow automation conditions: %w", err)
 	}
+	actionsJSON, err := json.Marshal(input.Actions)
+	if err != nil {
+		return Automation{}, fmt.Errorf("encode workflow automation actions: %w", err)
+	}
 	var isActive any
 	if input.IsActive != nil {
 		isActive = *input.IsActive
@@ -152,12 +168,13 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 		    trigger_config_json = $7::jsonb,
 		    condition_logic = $8,
 		    conditions_json = $9::jsonb,
-		    is_active = COALESCE($10::boolean, is_active),
-		    position = $11,
-		    updated_by_user_id = $12,
+		    actions_json = $10::jsonb,
+		    is_active = COALESCE($11::boolean, is_active),
+		    position = $12,
+		    updated_by_user_id = $13,
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2
-	`, organizationID, automationID, input.Name, input.Description, input.TriggerType, input.TargetEntityType, string(configJSON), input.ConditionLogic, string(conditionsJSON), isActive, input.Position, actorUserID)
+	`, organizationID, automationID, input.Name, input.Description, input.TriggerType, input.TargetEntityType, string(configJSON), input.ConditionLogic, string(conditionsJSON), string(actionsJSON), isActive, input.Position, actorUserID)
 	if err != nil {
 		return Automation{}, mapSaveError(err)
 	}
@@ -178,7 +195,7 @@ func (s *Service) getByID(ctx context.Context, organizationID, automationID int6
 }
 
 const automationSelect = `
-	SELECT id, name, description, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, is_active, position, created_at, updated_at
+	SELECT id, name, description, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, actions_json, is_active, position, created_at, updated_at
 	FROM workflow_automations
 `
 
@@ -190,6 +207,7 @@ func scanAutomation(scanner automationScanner) (Automation, error) {
 	var automation Automation
 	var configJSON []byte
 	var conditionsJSON []byte
+	var actionsJSON []byte
 	if err := scanner.Scan(
 		&automation.ID,
 		&automation.Name,
@@ -199,6 +217,7 @@ func scanAutomation(scanner automationScanner) (Automation, error) {
 		&configJSON,
 		&automation.ConditionLogic,
 		&conditionsJSON,
+		&actionsJSON,
 		&automation.IsActive,
 		&automation.Position,
 		&automation.CreatedAt,
@@ -224,6 +243,15 @@ func scanAutomation(scanner automationScanner) (Automation, error) {
 	if automation.Conditions == nil {
 		automation.Conditions = []Condition{}
 	}
+	if len(actionsJSON) == 0 {
+		actionsJSON = []byte("[]")
+	}
+	if err := json.Unmarshal(actionsJSON, &automation.Actions); err != nil {
+		return Automation{}, fmt.Errorf("decode workflow automation actions: %w", err)
+	}
+	if automation.Actions == nil {
+		automation.Actions = []Action{}
+	}
 	return automation, nil
 }
 
@@ -238,6 +266,9 @@ func normalizeInput(input Input) Input {
 	}
 	if input.Conditions == nil {
 		input.Conditions = []Condition{}
+	}
+	if input.Actions == nil {
+		input.Actions = []Action{}
 	}
 
 	nextConfig := make(map[string]any)
@@ -269,7 +300,31 @@ func normalizeInput(input Input) Input {
 			input.Conditions[index].Value = ""
 		}
 	}
+	for index := range input.Actions {
+		input.Actions[index].Type = normalizeActionType(input.Actions[index].Type)
+		input.Actions[index].Config = normalizeConfigMap(input.Actions[index].Config)
+	}
 	return input
+}
+
+func normalizeConfigMap(config map[string]any) map[string]any {
+	nextConfig := make(map[string]any)
+	for key, value := range config {
+		key = strings.TrimSpace(key)
+		if key == "" || value == nil {
+			continue
+		}
+		if stringValue, ok := value.(string); ok {
+			stringValue = strings.TrimSpace(stringValue)
+			if stringValue == "" {
+				continue
+			}
+			nextConfig[key] = stringValue
+			continue
+		}
+		nextConfig[key] = value
+	}
+	return nextConfig
 }
 
 func normalizeConditionOperator(operator string) string {
@@ -291,6 +346,29 @@ func normalizeConditionOperator(operator string) string {
 	}
 }
 
+func normalizeActionType(actionType string) string {
+	switch strings.ToLower(strings.TrimSpace(actionType)) {
+	case "updatefield", "update_field", "update-field":
+		return "update_field"
+	case "createtask", "create_task", "create-task":
+		return "create_task"
+	case "sendemail", "send_email", "send-email":
+		return "send_email"
+	case "sendsms", "send_sms", "send-sms":
+		return "send_sms"
+	case "assignowner", "assign_owner", "assign-owner":
+		return "assign_owner"
+	case "addtosequence", "add_to_sequence", "add-to-sequence":
+		return "add_to_sequence"
+	case "callwebhook", "call_webhook", "call-webhook":
+		return "call_webhook"
+	case "notify":
+		return "notify"
+	default:
+		return strings.TrimSpace(actionType)
+	}
+}
+
 func validateInput(input Input) error {
 	if input.Name == "" || input.Position < 0 || !isAllowedTriggerType(input.TriggerType) || !isAllowedTargetEntity(input.TargetEntityType) || !isAllowedConditionLogic(input.ConditionLogic) {
 		return ErrInvalidInput
@@ -303,7 +381,109 @@ func validateInput(input Input) error {
 			return err
 		}
 	}
+	for _, action := range input.Actions {
+		if err := validateAction(action); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateAction(action Action) error {
+	if !isAllowedActionType(action.Type) {
+		return ErrInvalidInput
+	}
+	switch action.Type {
+	case "update_field":
+		if _, ok := stringConfig(action.Config, "field"); !ok || !configValueExists(action.Config, "value") {
+			return ErrInvalidInput
+		}
+	case "create_task":
+		if _, ok := stringConfig(action.Config, "title"); !ok {
+			return ErrInvalidInput
+		}
+	case "send_email":
+		if _, ok := stringConfig(action.Config, "subject"); !ok {
+			return ErrInvalidInput
+		}
+		if _, ok := stringConfig(action.Config, "body"); !ok {
+			return ErrInvalidInput
+		}
+	case "send_sms":
+		if _, ok := stringConfig(action.Config, "body"); !ok {
+			return ErrInvalidInput
+		}
+	case "assign_owner":
+		if !positiveIntegerConfig(action.Config, "userId") {
+			return ErrInvalidInput
+		}
+	case "add_to_sequence":
+		if !positiveIntegerConfig(action.Config, "sequenceId") {
+			return ErrInvalidInput
+		}
+	case "call_webhook":
+		if !webhookURLConfig(action.Config, "url") {
+			return ErrInvalidInput
+		}
+	case "notify":
+		if _, ok := stringConfig(action.Config, "message"); !ok {
+			return ErrInvalidInput
+		}
+	}
+	return nil
+}
+
+func isAllowedActionType(actionType string) bool {
+	switch actionType {
+	case "update_field", "create_task", "send_email", "send_sms", "assign_owner", "add_to_sequence", "call_webhook", "notify":
+		return true
+	default:
+		return false
+	}
+}
+
+func stringConfig(config map[string]any, key string) (string, bool) {
+	value, ok := config[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	text = strings.TrimSpace(text)
+	return text, text != ""
+}
+
+func configValueExists(config map[string]any, key string) bool {
+	value, ok := config[key]
+	if !ok || value == nil {
+		return false
+	}
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text) != ""
+	}
+	return true
+}
+
+func positiveIntegerConfig(config map[string]any, key string) bool {
+	value, ok := config[key]
+	if !ok {
+		return false
+	}
+	number, ok := valueToFloat(value)
+	if !ok || number <= 0 {
+		return false
+	}
+	return !math.IsNaN(number) && !math.IsInf(number, 0) && number == math.Trunc(number)
+}
+
+func webhookURLConfig(config map[string]any, key string) bool {
+	urlValue, ok := stringConfig(config, key)
+	if !ok {
+		return false
+	}
+	return strings.HasPrefix(urlValue, "https://") || strings.HasPrefix(urlValue, "http://")
 }
 
 func isAllowedConditionLogic(logic string) bool {

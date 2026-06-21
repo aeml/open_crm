@@ -34,6 +34,7 @@ type workflowAutomationRequest struct {
 	TriggerConfig    map[string]any                        `json:"triggerConfig"`
 	ConditionLogic   string                                `json:"conditionLogic"`
 	Conditions       []moduleworkflowautomations.Condition `json:"conditions"`
+	Actions          []moduleworkflowautomations.Action    `json:"actions"`
 	IsActive         *bool                                 `json:"isActive"`
 	Position         int                                   `json:"position"`
 }
@@ -120,6 +121,7 @@ func workflowAutomationInput(request workflowAutomationRequest) moduleworkflowau
 		TriggerConfig:    request.TriggerConfig,
 		ConditionLogic:   request.ConditionLogic,
 		Conditions:       request.Conditions,
+		Actions:          request.Actions,
 		IsActive:         request.IsActive,
 		Position:         request.Position,
 	}
@@ -135,7 +137,7 @@ func respondWorkflowAutomation(w http.ResponseWriter, requestID string, statusCo
 func writeWorkflowAutomationError(w http.ResponseWriter, requestID string, err error) {
 	switch {
 	case errors.Is(err, moduleworkflowautomations.ErrInvalidInput):
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid automation name, trigger, target record, conditions, config, and order")
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid automation name, trigger, target record, conditions, actions, config, and order")
 	case errors.Is(err, moduleworkflowautomations.ErrDuplicateName):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A workflow automation with that name already exists")
 	case errors.Is(err, moduleworkflowautomations.ErrNotFound):
