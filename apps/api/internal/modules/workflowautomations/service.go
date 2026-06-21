@@ -307,6 +307,11 @@ func normalizeInput(input Input) Input {
 	for index := range input.Actions {
 		input.Actions[index].Type = normalizeActionType(input.Actions[index].Type)
 		input.Actions[index].Config = normalizeConfigMap(input.Actions[index].Config)
+		if input.Actions[index].Type == "request_approval" {
+			if role, ok := stringConfig(input.Actions[index].Config, "approverRole"); ok {
+				input.Actions[index].Config["approverRole"] = normalizeApprovalRole(role)
+			}
+		}
 		if input.Actions[index].ScheduledAt != nil {
 			scheduledAt := input.Actions[index].ScheduledAt.UTC()
 			input.Actions[index].ScheduledAt = &scheduledAt
@@ -372,6 +377,8 @@ func normalizeActionType(actionType string) string {
 		return "call_webhook"
 	case "notify":
 		return "notify"
+	case "requestapproval", "request_approval", "request-approval":
+		return "request_approval"
 	default:
 		return strings.TrimSpace(actionType)
 	}
@@ -440,6 +447,16 @@ func validateAction(action Action) error {
 		if _, ok := stringConfig(action.Config, "message"); !ok {
 			return ErrInvalidInput
 		}
+	case "request_approval":
+		if _, ok := stringConfig(action.Config, "approvalName"); !ok {
+			return ErrInvalidInput
+		}
+		if !approvalRoleConfig(action.Config, "approverRole") {
+			return ErrInvalidInput
+		}
+		if _, ok := stringConfig(action.Config, "message"); !ok {
+			return ErrInvalidInput
+		}
 	}
 	return nil
 }
@@ -469,10 +486,23 @@ func PlannedActionTime(triggeredAt time.Time, action Action) time.Time {
 
 func isAllowedActionType(actionType string) bool {
 	switch actionType {
-	case "update_field", "create_task", "send_email", "send_sms", "assign_owner", "add_to_sequence", "call_webhook", "notify":
+	case "update_field", "create_task", "send_email", "send_sms", "assign_owner", "add_to_sequence", "call_webhook", "notify", "request_approval":
 		return true
 	default:
 		return false
+	}
+}
+
+func normalizeApprovalRole(role string) string {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "owner":
+		return "owner"
+	case "admin":
+		return "admin"
+	case "recordowner", "record_owner", "record-owner":
+		return "record_owner"
+	default:
+		return strings.TrimSpace(role)
 	}
 }
 
@@ -510,6 +540,19 @@ func positiveIntegerConfig(config map[string]any, key string) bool {
 		return false
 	}
 	return !math.IsNaN(number) && !math.IsInf(number, 0) && number == math.Trunc(number)
+}
+
+func approvalRoleConfig(config map[string]any, key string) bool {
+	role, ok := stringConfig(config, key)
+	if !ok {
+		return false
+	}
+	switch normalizeApprovalRole(role) {
+	case "owner", "admin", "record_owner":
+		return true
+	default:
+		return false
+	}
 }
 
 func webhookURLConfig(config map[string]any, key string) bool {

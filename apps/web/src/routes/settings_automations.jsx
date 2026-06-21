@@ -52,7 +52,14 @@ const actionOptions = [
   { value: 'assign_owner', label: 'Assign owner' },
   { value: 'add_to_sequence', label: 'Add to sequence' },
   { value: 'call_webhook', label: 'Call webhook' },
-  { value: 'notify', label: 'Notify' }
+  { value: 'notify', label: 'Notify' },
+  { value: 'request_approval', label: 'Request approval' }
+]
+
+const approvalRoleOptions = [
+  { value: 'admin', label: 'Admin' },
+  { value: 'owner', label: 'Owner' },
+  { value: 'record_owner', label: 'Record owner' }
 ]
 
 const actionConfigFields = {
@@ -63,7 +70,8 @@ const actionConfigFields = {
   assign_owner: [{ key: 'userId', label: 'Owner user ID' }],
   add_to_sequence: [{ key: 'sequenceId', label: 'Sequence ID' }],
   call_webhook: [{ key: 'url', label: 'Webhook URL' }],
-  notify: [{ key: 'message', label: 'Notification message' }]
+  notify: [{ key: 'message', label: 'Notification message' }],
+  request_approval: [{ key: 'approvalName', label: 'Approval name' }, { key: 'approverRole', label: 'Approver role', options: approvalRoleOptions }, { key: 'message', label: 'Approval message' }]
 }
 
 function targetOptionsForTrigger(triggerType) {
@@ -83,8 +91,13 @@ function emptyConditionDraft(target = 'contact') {
   return { field: firstField, operator: 'equals', value: '' }
 }
 
+function defaultActionConfig(type) {
+  if (type === 'request_approval') return { approverRole: 'admin' }
+  return {}
+}
+
 function emptyActionDraft(type = 'create_task') {
-  return { type, config: {}, delayMinutes: '', scheduledAt: '' }
+  return { type, config: defaultActionConfig(type), delayMinutes: '', scheduledAt: '' }
 }
 
 function emptyForm() {
@@ -225,8 +238,12 @@ function conditionSummary(condition) {
 
 function actionSummary(action) {
   const config = action.config || {}
-  const primary = config.title || config.subject || config.message || config.body || config.field || config.url || config.userId || config.sequenceId || ''
   const timing = action.delayMinutes ? ` after ${action.delayMinutes}m` : action.scheduledAt ? ` at ${action.scheduledAt}` : ''
+  if (action.type === 'request_approval') {
+    const approver = config.approverRole ? ` from ${config.approverRole}` : ''
+    return `${actionLabel(action.type)}${timing}: ${config.approvalName || 'Approval'}${approver}`
+  }
+  const primary = config.title || config.subject || config.message || config.body || config.field || config.url || config.userId || config.sequenceId || ''
   return primary ? `${actionLabel(action.type)}${timing}: ${primary}` : `${actionLabel(action.type)}${timing}`
 }
 
@@ -554,7 +571,11 @@ export function SettingsAutomationsRoute() {
               </Field>
               {selectedActionFields.map((field) => (
                 <Field key={field.key} label={field.label}>
-                  <input className="text-input" value={actionDraft.config[field.key] || ''} onChange={(event) => updateActionConfig(field.key, event.target.value)} />
+                  {field.options ? (
+                    <select className="text-input" value={actionDraft.config[field.key] || field.options[0]?.value || ''} onChange={(event) => updateActionConfig(field.key, event.target.value)}>
+                      {field.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  ) : <input className="text-input" value={actionDraft.config[field.key] || ''} onChange={(event) => updateActionConfig(field.key, event.target.value)} />}
                 </Field>
               ))}
               <div className="button-row">
@@ -579,7 +600,7 @@ export function SettingsAutomationsRoute() {
                 </div>
               ) : null}
             </div>
-            <Field label="Actions JSON" hint='Optional ordered array like [{"type":"create_task","config":{"title":"Call new lead"}}]. Types: update_field, create_task, send_email, send_sms, assign_owner, add_to_sequence, call_webhook, notify.'>
+            <Field label="Actions JSON" hint='Optional ordered array like [{"type":"create_task","config":{"title":"Call new lead"}}]. Types: update_field, create_task, send_email, send_sms, assign_owner, add_to_sequence, call_webhook, notify, request_approval.'>
               <textarea className="text-input" rows={7} value={form.actionsText} onChange={(event) => setForm({ ...form, actionsText: event.target.value })} />
             </Field>
             <Field label="Order">

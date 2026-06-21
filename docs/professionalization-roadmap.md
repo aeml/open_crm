@@ -151,7 +151,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `1.2.0` Telephony, SMS, And Meeting Scheduling: planned.
 - `1.3.0` Sales Acceleration And CPQ (catalog, quotes, e-sign, quotas): in progress.
 - `1.4.0` Marketing And Lead Generation (forms, pages, campaigns, scoring): in progress.
-- `1.5.0` Workflow Automation Engine (visual builder): planned.
+- `1.5.0` Workflow Automation Engine (visual builder): in progress.
 - `1.6.0` Reporting And Analytics (custom report builder, dashboards): planned.
 - `1.7.0` AI And Intelligence (copilot, drafting, summarization, scoring, enrichment): planned.
 - `1.8.0` Service, Support, And Customer Portal (tickets, SLAs, knowledge base): planned.
@@ -1919,6 +1919,7 @@ Progress:
 - `1.5.3` (action library foundation): complete. Added ordered workflow action definitions with validation for update field, create task, send email, send SMS, assign owner, add to sequence, call webhook, and notify action types; persisted action arrays on workflow automations; exposed actions through the workflow automation APIs; and expanded Settings > Automations with action editing. Action execution, provider dispatch, trigger-time record hydration, visual action cards, delays/schedules, run history, and retry/idempotency remain future slices.
 - `1.5.4` (visual workflow builder foundation): complete. Added a guided Settings > Automations builder that visualizes trigger, condition, and action steps; provides target-aware condition field/operator controls; adds/removes condition chips and ordered action cards; and keeps advanced JSON editing as the persisted source of truth. Drag/drop layout, nested branches, full action-specific forms, record hydration previews, execution, delays/schedules, run history, and retry/idempotency remain future slices.
 - `1.5.5` (scheduled/time-delay action foundation): complete. Added validated per-action timing metadata for relative `delayMinutes` and absolute `scheduledAt` plans, normalized scheduled action times to UTC, exposed timing controls in the visual builder, and added a pure planned-action-time helper for the future background runner. Trigger detection, action queue persistence, due-action selection, provider dispatch, run history, loop protection, and retry/idempotency remain future slices.
+- `1.5.6` (approval/human-in-the-loop action foundation): complete. Added a validated `request_approval` workflow action definition with approval name, approver role, and message metadata; normalized approver roles for admin, owner, and record-owner routing; exposed approval action fields in the visual builder; and kept advanced JSON editing as the persisted source of truth. Approval queues, runtime pause/resume behavior, approver notifications, audit history, and execution gating remain future slices.
 
 Candidate slices:
 
@@ -1927,7 +1928,7 @@ Candidate slices:
 - `1.5.3` Action library: update field, create task, send email/SMS, assign owner, add to sequence, call webhook, notify: foundation complete.
 - `1.5.4` Visual workflow builder UI: foundation complete.
 - `1.5.5` Scheduled and time-delay actions on the background job runner (`0.9.3`): foundation complete.
-- `1.5.6` Approval steps and human-in-the-loop actions.
+- `1.5.6` Approval steps and human-in-the-loop actions: foundation complete.
 - `1.5.7` Automation run history, error handling, and safe retry/idempotency.
 
 Exit criteria:

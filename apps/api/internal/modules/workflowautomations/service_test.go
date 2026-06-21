@@ -34,6 +34,10 @@ func TestNormalizeInputTrimsTriggerFieldsAndConfig(t *testing.T) {
 	if err := validateInput(input); err != nil {
 		t.Fatalf("expected normalized workflow automation to validate: %v", err)
 	}
+	withApproval := normalizeInput(Input{Name: "Approval", TriggerType: "record_created", TargetEntityType: "deal", Actions: []Action{{Type: " request-approval ", Config: map[string]any{"approvalName": "Discount approval", "approverRole": " record-owner ", "message": "Review discount."}}}})
+	if len(withApproval.Actions) != 1 || withApproval.Actions[0].Type != "request_approval" || withApproval.Actions[0].Config["approverRole"] != "record_owner" {
+		t.Fatalf("expected normalized approval action, got %#v", withApproval.Actions)
+	}
 
 	withoutConditions := normalizeInput(Input{Name: "Default conditions", TriggerType: "record_created", TargetEntityType: "contact"})
 	if withoutConditions.ConditionLogic != "all" || withoutConditions.Conditions == nil || len(withoutConditions.Conditions) != 0 || withoutConditions.Actions == nil || len(withoutConditions.Actions) != 0 {
@@ -83,6 +87,9 @@ func TestValidateInputRejectsInvalidActions(t *testing.T) {
 		normalizeInput(Input{Name: "Bad sequence", TriggerType: "record_created", TargetEntityType: "contact", Actions: []Action{{Type: "add_to_sequence", Config: map[string]any{"sequenceId": "abc"}}}}),
 		normalizeInput(Input{Name: "Bad webhook", TriggerType: "record_created", TargetEntityType: "contact", Actions: []Action{{Type: "call_webhook", Config: map[string]any{"url": "localhost/hook"}}}}),
 		normalizeInput(Input{Name: "Bad notify", TriggerType: "record_created", TargetEntityType: "contact", Actions: []Action{{Type: "notify", Config: map[string]any{"message": ""}}}}),
+		normalizeInput(Input{Name: "Bad approval name", TriggerType: "record_created", TargetEntityType: "contact", Actions: []Action{{Type: "request_approval", Config: map[string]any{"approverRole": "admin", "message": "Review this."}}}}),
+		normalizeInput(Input{Name: "Bad approval role", TriggerType: "record_created", TargetEntityType: "contact", Actions: []Action{{Type: "request_approval", Config: map[string]any{"approvalName": "Review", "approverRole": "viewer", "message": "Review this."}}}}),
+		normalizeInput(Input{Name: "Bad approval message", TriggerType: "record_created", TargetEntityType: "contact", Actions: []Action{{Type: "request_approval", Config: map[string]any{"approvalName": "Review", "approverRole": "admin"}}}}),
 		normalizeInput(Input{Name: "Bad delay", TriggerType: "record_created", TargetEntityType: "contact", Actions: []Action{{Type: "create_task", Config: map[string]any{"title": "Call lead"}, DelayMinutes: -1}}}),
 		normalizeInput(Input{Name: "Bad long delay", TriggerType: "record_created", TargetEntityType: "contact", Actions: []Action{{Type: "create_task", Config: map[string]any{"title": "Call lead"}, DelayMinutes: maxActionDelayMinutes + 1}}}),
 		normalizeInput(Input{Name: "Bad timing mix", TriggerType: "record_created", TargetEntityType: "contact", Actions: []Action{{Type: "create_task", Config: map[string]any{"title": "Call lead"}, DelayMinutes: 15, ScheduledAt: &scheduledAt}}}),
@@ -109,6 +116,7 @@ func TestValidateInputAcceptsActionLibrary(t *testing.T) {
 			{Type: "add_to_sequence", Config: map[string]any{"sequenceId": "34"}},
 			{Type: "call_webhook", Config: map[string]any{"url": "https://example.com/hook"}},
 			{Type: "notify", Config: map[string]any{"message": "New lead matched automation."}, ScheduledAt: &scheduledAt},
+			{Type: "request_approval", Config: map[string]any{"approvalName": "Discount approval", "approverRole": "record-owner", "message": "Approve before sending quote."}},
 		},
 	})
 
@@ -117,6 +125,9 @@ func TestValidateInputAcceptsActionLibrary(t *testing.T) {
 	}
 	if input.Actions[7].ScheduledAt == nil || input.Actions[7].ScheduledAt.Location() != time.UTC {
 		t.Fatalf("expected scheduled action time normalized to UTC, got %#v", input.Actions[7].ScheduledAt)
+	}
+	if input.Actions[8].Config["approverRole"] != "record_owner" {
+		t.Fatalf("expected approval role normalized, got %#v", input.Actions[8].Config)
 	}
 }
 
