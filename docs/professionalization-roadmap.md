@@ -1884,13 +1884,14 @@ Progress:
 - `1.4.1` (embeddable lead capture forms foundation): complete. Added organization-scoped lead capture form definitions with generated public IDs, mapped standard fields into CRM lead contacts on public submissions, stored raw submission payloads and request metadata, exposed admin APIs for listing/creating/updating forms plus an unauthenticated public submission endpoint, and added a Settings > Lead Forms UI with a standard mapped field set and HTML form embed snippet. Hosted landing pages, custom dynamic field builders, attribution/UTM capture, scoring, routing, campaign enrollment, spam protection, and richer submission management remain future slices.
 - `1.4.2` (hosted landing pages foundation): complete. Added organization-scoped landing pages tied to existing lead capture forms, globally unique public slugs, active/inactive state, light/blue/dark themes, authenticated APIs for listing/creating/updating pages, a public page lookup endpoint, a Settings > Landing Pages UI, and a public `/lp/:slug` frontend route that renders the marketing copy plus embedded lead form submission flow. Rich page templates, drag-and-drop editing, custom domains, SEO metadata controls, analytics, attribution, A/B tests, and campaign enrollment remain future slices.
 - `1.4.3` (lead source and UTM/campaign attribution tracking foundation): complete. Added first-touch lead source, source URL, and standard UTM fields on contacts created from public lead submissions; persisted attribution columns on raw lead submissions; derived attribution from submitted source URLs and explicit embed fields; surfaced attribution on contact detail/list APIs, contact detail UI, hosted landing page submissions, lead form embed snippets, and contacts CSV exports. Full campaign objects, attribution reports, multi-touch history, and automated routing/scoring remain future slices.
+- `1.4.4` (list segmentation and dynamic/saved audiences foundation): complete. Added organization-scoped lead audience definitions with reusable filters, dynamic member-count previews against contacts, authenticated APIs for listing/creating/updating/previewing audiences, and a Settings > Audiences UI for saving source/campaign/status/email-availability segments. Campaign enrollment, audience member drill-down, exclusion rules, advanced boolean logic, and scheduled snapshots remain future slices.
 
 Candidate slices:
 
 - `1.4.1` Embeddable web forms with field mapping to CRM records: foundation complete.
 - `1.4.2` Hosted landing pages with form capture and basic templates: foundation complete.
 - `1.4.3` Lead source and UTM/campaign attribution tracking: foundation complete.
-- `1.4.4` List segmentation and dynamic/saved audiences.
+- `1.4.4` List segmentation and dynamic/saved audiences: foundation complete.
 - `1.4.5` Marketing email campaigns with scheduling and per-campaign analytics.
 - `1.4.6` Drip/nurture campaigns built on the sequence engine (`1.1.8`).
 - `1.4.7` Rule-based lead scoring and routing/assignment.

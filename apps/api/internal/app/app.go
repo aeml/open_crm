@@ -22,6 +22,7 @@ import (
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
+	moduleleadaudiences "github.com/aeml/open_crm/apps/api/internal/modules/leadaudiences"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
 	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
@@ -212,6 +213,13 @@ type leadFormsService interface {
 	SubmitByPublicID(context.Context, string, moduleleadforms.SubmissionInput) (moduleleadforms.SubmissionResult, error)
 }
 
+type leadAudiencesService interface {
+	ListByOrganization(context.Context, int64) ([]moduleleadaudiences.Audience, error)
+	Create(context.Context, int64, int64, moduleleadaudiences.Input) (moduleleadaudiences.Audience, error)
+	Update(context.Context, int64, int64, int64, moduleleadaudiences.Input) (moduleleadaudiences.Audience, error)
+	Preview(context.Context, int64, map[string]string) (moduleleadaudiences.Preview, error)
+}
+
 type emailSequencesService interface {
 	ListByOrganization(context.Context, int64) ([]moduleemailsequences.Sequence, error)
 	Create(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
@@ -286,6 +294,7 @@ type Dependencies struct {
 	EmailTemplatesService           emailTemplatesService
 	ProductCatalogService           productCatalogService
 	LeadFormsService                leadFormsService
+	LeadAudiencesService            leadAudiencesService
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService
@@ -617,6 +626,31 @@ type savedViewResponse struct {
 	} `json:"meta"`
 }
 
+type leadAudiencesListResponse struct {
+	Data struct {
+		Audiences []moduleleadaudiences.Audience `json:"audiences"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type leadAudienceResponse struct {
+	Data struct {
+		Audience moduleleadaudiences.Audience `json:"audience"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type leadAudiencePreviewResponse struct {
+	Data moduleleadaudiences.Preview `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type noteDetailResponse struct {
 	Data struct {
 		Note     modulenotes.Entry         `json:"note"`
@@ -848,6 +882,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/public/lead-capture-forms/{publicID}/submissions", func(w http.ResponseWriter, r *http.Request) {
 		handleSubmitPublicLeadCaptureForm(dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("GET /api/lead-audiences", func(w http.ResponseWriter, r *http.Request) {
+		handleListLeadAudiences(dependencies.AuthService, dependencies.LeadAudiencesService, w, r)
+	})
+	mux.HandleFunc("POST /api/lead-audiences", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateLeadAudience(dependencies.AuthService, dependencies.LeadAudiencesService, w, r)
+	})
+	mux.HandleFunc("POST /api/lead-audiences/preview", func(w http.ResponseWriter, r *http.Request) {
+		handlePreviewLeadAudience(dependencies.AuthService, dependencies.LeadAudiencesService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/lead-audiences/{audienceID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateLeadAudience(dependencies.AuthService, dependencies.LeadAudiencesService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)

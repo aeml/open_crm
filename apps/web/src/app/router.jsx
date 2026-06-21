@@ -22,6 +22,7 @@ import { SettingsEmailSequencesRoute } from '../routes/settings_email_sequences'
 import { SettingsProductCatalogRoute } from '../routes/settings_product_catalog'
 import { SettingsLeadFormsRoute } from '../routes/settings_lead_forms'
 import { SettingsLandingPagesRoute } from '../routes/settings_landing_pages'
+import { SettingsLeadAudiencesRoute } from '../routes/settings_lead_audiences'
 import { SettingsCalendarRoute } from '../routes/settings_calendar'
 import { SettingsEmailAccountRoute } from '../routes/settings_email_account'
 import { SettingsEmailLogRoute } from '../routes/settings_email_log'
@@ -58,6 +59,7 @@ export function AppRouter() {
             <Route path="settings/product-catalog" element={<SettingsProductCatalogRoute />} />
             <Route path="settings/lead-forms" element={<SettingsLeadFormsRoute />} />
             <Route path="settings/landing-pages" element={<SettingsLandingPagesRoute />} />
+            <Route path="settings/lead-audiences" element={<SettingsLeadAudiencesRoute />} />
             <Route path="settings/calendar" element={<SettingsCalendarRoute />} />
             <Route path="settings/email-account" element={<SettingsEmailAccountRoute />} />
             <Route path="settings/email-log" element={<SettingsEmailLogRoute />} />

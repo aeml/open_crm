@@ -635,3 +635,29 @@ func TestMigrationFilesIncludeLeadAttributionMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeLeadAudiencesMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "045_lead_audiences.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected lead audiences migration to be registered")
+	}
+
+	sql := MigrationSQL("045_lead_audiences.sql")
+	if sql == "" {
+		t.Fatal("expected lead audiences migration SQL to be embedded")
+	}
+	for _, expected := range []string{"lead_audiences", "filters_json", "idx_lead_audiences_org_name_unique", "lead_audiences_filters_json_object_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected lead audiences migration to include %s", expected)
+		}
+	}
+}

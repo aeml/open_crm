@@ -77,6 +77,8 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"lead_landing_pages_form_org_fk",
 		"lead_landing_pages_slug_check",
 		"lead_landing_pages_theme_check",
+		"lead_audiences_name_check",
+		"lead_audiences_filters_json_object_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -104,6 +106,8 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_lead_landing_pages_org_form",
 		"idx_contacts_org_lead_source",
 		"idx_contacts_org_utm_campaign",
+		"idx_lead_audiences_org_name_unique",
+		"idx_lead_audiences_org_active",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -218,6 +222,12 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 		t.Fatalf("insert lead landing page: %v", err)
 	}
 	expectExecError(t, ctx, pool, `INSERT INTO lead_landing_pages (organization_id, public_id, lead_capture_form_id, name, slug, title, theme) VALUES ($1, 'lp_test_2', $2, 'Landing Page 2', 'landing-page', 'Landing Page 2', 'light')`, organizationID, leadFormID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_audiences (organization_id, name, filters_json) VALUES ($1, '', '{}'::jsonb)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_audiences (organization_id, name, filters_json) VALUES ($1, 'Bad Audience', '[]'::jsonb)`, organizationID)
+	if _, err := pool.Exec(ctx, `INSERT INTO lead_audiences (organization_id, name, filters_json) VALUES ($1, 'Lead Audience', '{"status":"lead"}'::jsonb)`, organizationID); err != nil {
+		t.Fatalf("insert lead audience: %v", err)
+	}
+	expectExecError(t, ctx, pool, `INSERT INTO lead_audiences (organization_id, name, filters_json) VALUES ($1, 'lead audience', '{}'::jsonb)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)
