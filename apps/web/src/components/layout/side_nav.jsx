@@ -22,6 +22,7 @@ const baseLinks = [
   { to: '/settings/nurture-campaigns', labelKey: 'nurtureCampaigns', fallback: 'Nurture Campaigns' },
   { to: '/settings/lead-scoring', labelKey: 'leadScoring', fallback: 'Lead Scoring' },
   { to: '/settings/lead-widgets', labelKey: 'leadWidgets', fallback: 'Website Widgets' },
+  { to: '/settings/automations', labelKey: 'automations', fallback: 'Automations' },
   { to: '/settings/calendar', labelKey: 'calendar', fallback: 'Booking Links' },
   { to: '/settings/email-log', labelKey: 'emailLog', fallback: 'Email Log' },
   { to: '/settings/billing', labelKey: 'billing', fallback: 'Plan & Billing' },

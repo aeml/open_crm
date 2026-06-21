@@ -38,6 +38,7 @@ import (
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
+	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
@@ -253,6 +254,12 @@ type leadScoringService interface {
 	EvaluateContact(context.Context, int64, int64, int64) (moduleleadscoring.Evaluation, error)
 }
 
+type workflowAutomationsService interface {
+	ListByOrganization(context.Context, int64) ([]moduleworkflowautomations.Automation, error)
+	Create(context.Context, int64, int64, moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error)
+	Update(context.Context, int64, int64, int64, moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error)
+}
+
 type emailSequenceEnrollmentsService interface {
 	ListEnrollmentsByContact(context.Context, int64, int64) ([]moduleemailsequences.Enrollment, error)
 	EnrollContact(context.Context, int64, moduleemailsequences.EnrollmentInput) (moduleemailsequences.Enrollment, error)
@@ -324,6 +331,7 @@ type Dependencies struct {
 	MarketingCampaignsService       marketingCampaignsService
 	NurtureCampaignsService         nurtureCampaignsService
 	LeadScoringService              leadScoringService
+	WorkflowAutomationsService      workflowAutomationsService
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService
@@ -965,6 +973,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/contacts/{contactID}/lead-score", func(w http.ResponseWriter, r *http.Request) {
 		handleEvaluateContactLeadScore(dependencies.AuthService, dependencies.LeadScoringService, w, r)
+	})
+	mux.HandleFunc("GET /api/workflow-automations", func(w http.ResponseWriter, r *http.Request) {
+		handleListWorkflowAutomations(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)
+	})
+	mux.HandleFunc("POST /api/workflow-automations", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateWorkflowAutomation(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/workflow-automations/{automationID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateWorkflowAutomation(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)

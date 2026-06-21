@@ -46,6 +46,7 @@ import (
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
+	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
 	platformlogger "github.com/aeml/open_crm/apps/api/internal/platform/logger"
 	platformsecrets "github.com/aeml/open_crm/apps/api/internal/platform/secrets"
 )
@@ -100,6 +101,7 @@ func main() {
 	var marketingCampaignsService *modulemarketingcampaigns.Service
 	var nurtureCampaignsService *modulenurturecampaigns.Service
 	var leadScoringService *moduleleadscoring.Service
+	var workflowAutomationsService *moduleworkflowautomations.Service
 	var emailSequencesService *moduleemailsequences.Service
 	var emailSuppressionsService *moduleemailsuppressions.Service
 	var userEmailService *moduleuseremail.Service
@@ -141,6 +143,7 @@ func main() {
 			marketingCampaignsService = modulemarketingcampaigns.NewService(pool)
 			nurtureCampaignsService = modulenurturecampaigns.NewService(pool)
 			leadScoringService = moduleleadscoring.NewService(pool)
+			workflowAutomationsService = moduleworkflowautomations.NewService(pool)
 			emailSequencesService = moduleemailsequences.NewService(pool)
 			emailSuppressionsService = moduleemailsuppressions.NewService(pool, env.CredentialEncryptionKey)
 			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
@@ -202,6 +205,7 @@ func main() {
 		MarketingCampaignsService:       marketingCampaignsService,
 		NurtureCampaignsService:         nurtureCampaignsService,
 		LeadScoringService:              leadScoringService,
+		WorkflowAutomationsService:      workflowAutomationsService,
 		EmailSequencesService:           emailSequencesService,
 		EmailSequenceEnrollmentsService: emailSequencesService,
 		EmailSuppressionsService:        emailSuppressionsService,

@@ -109,6 +109,11 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"lead_chat_widgets_cta_label_check",
 		"lead_chat_widgets_theme_check",
 		"lead_chat_widgets_position_check",
+		"workflow_automations_name_check",
+		"workflow_automations_trigger_type_check",
+		"workflow_automations_target_entity_type_check",
+		"workflow_automations_trigger_config_json_object_check",
+		"workflow_automations_position_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -150,6 +155,9 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_contacts_org_lead_score",
 		"idx_lead_chat_widgets_org_active",
 		"idx_lead_chat_widgets_org_form",
+		"idx_workflow_automations_org_name_unique",
+		"idx_workflow_automations_org_active_position",
+		"idx_workflow_automations_org_trigger",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -311,6 +319,15 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	if _, err := pool.Exec(ctx, `INSERT INTO lead_chat_widgets (organization_id, public_id, lead_capture_form_id, name, title, prompt_label, cta_label, theme, position) VALUES ($1, 'cw_test', $2, 'Website chat', 'Need help?', 'Chat with us', 'Send', 'blue', 'bottom-left')`, organizationID, leadFormID); err != nil {
 		t.Fatalf("insert lead chat widget: %v", err)
 	}
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type) VALUES ($1, '', 'record_created', 'contact')`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type) VALUES ($1, 'Bad Trigger', 'message_received', 'contact')`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type) VALUES ($1, 'Bad Target', 'record_created', 'invoice')`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, trigger_config_json) VALUES ($1, 'Bad Config', 'record_created', 'contact', '[]'::jsonb)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, position) VALUES ($1, 'Bad Position', 'record_created', 'contact', -1)`, organizationID)
+	if _, err := pool.Exec(ctx, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, trigger_config_json, is_active) VALUES ($1, 'New contact automation', 'record_created', 'contact', '{}'::jsonb, TRUE)`, organizationID); err != nil {
+		t.Fatalf("insert workflow automation: %v", err)
+	}
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type) VALUES ($1, 'new contact automation', 'record_created', 'contact')`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)

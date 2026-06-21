@@ -765,3 +765,29 @@ func TestMigrationFilesIncludeLeadChatWidgetsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeWorkflowAutomationsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "050_workflow_automations.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected workflow automations migration to be registered")
+	}
+
+	sql := MigrationSQL("050_workflow_automations.sql")
+	if sql == "" {
+		t.Fatal("expected workflow automations migration SQL to be embedded")
+	}
+	for _, expected := range []string{"workflow_automations", "trigger_type", "trigger_config_json", "idx_workflow_automations_org_active_position", "workflow_automations_trigger_type_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected workflow automations migration to include %s", expected)
+		}
+	}
+}

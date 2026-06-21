@@ -28,6 +28,7 @@ import { SettingsMarketingEmailCampaignsRoute } from '../routes/settings_marketi
 import { SettingsNurtureCampaignsRoute } from '../routes/settings_nurture_campaigns'
 import { SettingsLeadScoringRoute } from '../routes/settings_lead_scoring'
 import { SettingsLeadWidgetsRoute } from '../routes/settings_lead_widgets'
+import { SettingsAutomationsRoute } from '../routes/settings_automations'
 import { SettingsCalendarRoute } from '../routes/settings_calendar'
 import { SettingsEmailAccountRoute } from '../routes/settings_email_account'
 import { SettingsEmailLogRoute } from '../routes/settings_email_log'
@@ -70,6 +71,7 @@ export function AppRouter() {
             <Route path="settings/nurture-campaigns" element={<SettingsNurtureCampaignsRoute />} />
             <Route path="settings/lead-scoring" element={<SettingsLeadScoringRoute />} />
             <Route path="settings/lead-widgets" element={<SettingsLeadWidgetsRoute />} />
+            <Route path="settings/automations" element={<SettingsAutomationsRoute />} />
             <Route path="settings/calendar" element={<SettingsCalendarRoute />} />
             <Route path="settings/email-account" element={<SettingsEmailAccountRoute />} />
             <Route path="settings/email-log" element={<SettingsEmailLogRoute />} />
