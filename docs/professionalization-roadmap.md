@@ -150,7 +150,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `1.1.0` Email And Communications (2-way sync, tracking, templates, sequences): in progress.
 - `1.2.0` Telephony, SMS, And Meeting Scheduling: planned.
 - `1.3.0` Sales Acceleration And CPQ (catalog, quotes, e-sign, quotas): in progress.
-- `1.4.0` Marketing And Lead Generation (forms, pages, campaigns, scoring): planned.
+- `1.4.0` Marketing And Lead Generation (forms, pages, campaigns, scoring): in progress.
 - `1.5.0` Workflow Automation Engine (visual builder): planned.
 - `1.6.0` Reporting And Analytics (custom report builder, dashboards): planned.
 - `1.7.0` AI And Intelligence (copilot, drafting, summarization, scoring, enrichment): planned.
@@ -1875,13 +1875,17 @@ Exit criteria:
 
 ## Version 1.4.0 - Marketing And Lead Generation
 
-Status: planned.
+Status: in progress.
 
 Goal: capture and nurture demand, not just manage existing relationships.
 
+Progress:
+
+- `1.4.1` (embeddable lead capture forms foundation): complete. Added organization-scoped lead capture form definitions with generated public IDs, mapped standard fields into CRM lead contacts on public submissions, stored raw submission payloads and request metadata, exposed admin APIs for listing/creating/updating forms plus an unauthenticated public submission endpoint, and added a Settings > Lead Forms UI with a standard mapped field set and HTML form embed snippet. Hosted landing pages, custom dynamic field builders, attribution/UTM capture, scoring, routing, campaign enrollment, spam protection, and richer submission management remain future slices.
+
 Candidate slices:
 
-- `1.4.1` Embeddable web forms with field mapping to CRM records.
+- `1.4.1` Embeddable web forms with field mapping to CRM records: foundation complete.
 - `1.4.2` Hosted landing pages with form capture and basic templates.
 - `1.4.3` Lead source and UTM/campaign attribution tracking.
 - `1.4.4` List segmentation and dynamic/saved audiences.

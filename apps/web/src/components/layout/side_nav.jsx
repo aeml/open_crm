@@ -15,6 +15,7 @@ const baseLinks = [
   { to: '/settings/email-templates', labelKey: 'emailTemplates', fallback: 'Email Templates' },
   { to: '/settings/email-sequences', labelKey: 'emailSequences', fallback: 'Email Sequences' },
   { to: '/settings/product-catalog', labelKey: 'productCatalog', fallback: 'Product Catalog' },
+  { to: '/settings/lead-forms', labelKey: 'leadForms', fallback: 'Lead Forms' },
   { to: '/settings/calendar', labelKey: 'calendar', fallback: 'Booking Links' },
   { to: '/settings/email-log', labelKey: 'emailLog', fallback: 'Email Log' },
   { to: '/settings/billing', labelKey: 'billing', fallback: 'Plan & Billing' },

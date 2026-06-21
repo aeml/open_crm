@@ -18,6 +18,7 @@ import (
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
@@ -634,7 +635,7 @@ func writeResourceNotFound(w http.ResponseWriter, requestID string, err error) b
 }
 
 func isResourceNotFound(err error) bool {
-	return errors.Is(err, modulecontacts.ErrNotFound) || errors.Is(err, modulecompanies.ErrNotFound) || errors.Is(err, moduledashboard.ErrNotFound) || errors.Is(err, moduledeals.ErrNotFound) || errors.Is(err, moduletasks.ErrNotFound)
+	return errors.Is(err, modulecontacts.ErrNotFound) || errors.Is(err, modulecompanies.ErrNotFound) || errors.Is(err, moduledashboard.ErrNotFound) || errors.Is(err, moduledeals.ErrNotFound) || errors.Is(err, moduleleadforms.ErrNotFound) || errors.Is(err, moduletasks.ErrNotFound)
 }
 
 func requireOrgMember(auth authService, w http.ResponseWriter, r *http.Request) (moduleauth.SessionState, bool) {

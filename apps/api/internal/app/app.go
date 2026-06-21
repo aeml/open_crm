@@ -22,6 +22,7 @@ import (
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
+	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
 	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
@@ -200,6 +201,13 @@ type productCatalogService interface {
 	Archive(context.Context, int64, int64) error
 }
 
+type leadFormsService interface {
+	ListByOrganization(context.Context, int64) ([]moduleleadforms.Form, error)
+	Create(context.Context, int64, int64, moduleleadforms.Input) (moduleleadforms.Form, error)
+	Update(context.Context, int64, int64, int64, moduleleadforms.Input) (moduleleadforms.Form, error)
+	SubmitByPublicID(context.Context, string, moduleleadforms.SubmissionInput) (moduleleadforms.SubmissionResult, error)
+}
+
 type emailSequencesService interface {
 	ListByOrganization(context.Context, int64) ([]moduleemailsequences.Sequence, error)
 	Create(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
@@ -273,6 +281,7 @@ type Dependencies struct {
 	EmailService                    emailService
 	EmailTemplatesService           emailTemplatesService
 	ProductCatalogService           productCatalogService
+	LeadFormsService                leadFormsService
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService
@@ -811,6 +820,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/product-catalog-items/{itemID}", func(w http.ResponseWriter, r *http.Request) {
 		handleArchiveProductCatalogItem(dependencies.AuthService, dependencies.ProductCatalogService, w, r)
+	})
+	mux.HandleFunc("GET /api/lead-capture-forms", func(w http.ResponseWriter, r *http.Request) {
+		handleListLeadCaptureForms(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("POST /api/lead-capture-forms", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateLeadCaptureForm(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/lead-capture-forms/{formID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateLeadCaptureForm(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("POST /api/public/lead-capture-forms/{publicID}/submissions", func(w http.ResponseWriter, r *http.Request) {
+		handleSubmitPublicLeadCaptureForm(dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)

@@ -70,6 +70,9 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"organization_exchange_rates_currency_pair_check",
 		"organization_exchange_rates_rate_positive_check",
 		"organization_exchange_rates_source_check",
+		"lead_capture_forms_slug_check",
+		"lead_capture_forms_fields_json_array_check",
+		"lead_capture_submissions_payload_json_object_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -88,6 +91,9 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_sales_quotas_org_period",
 		"idx_org_exchange_rates_unique_effective",
 		"idx_org_exchange_rates_latest",
+		"idx_lead_capture_forms_org_slug_unique",
+		"idx_lead_capture_forms_org_active",
+		"idx_lead_capture_submissions_org_form_created",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -188,6 +194,14 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	expectExecError(t, ctx, pool, `INSERT INTO organization_exchange_rates (organization_id, base_currency, quote_currency, rate_to_base, source) VALUES ($1, 'USD', 'EUR', 0, 'manual')`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO organization_exchange_rates (organization_id, base_currency, quote_currency, rate_to_base, source) VALUES ($1, 'USD', 'USD', 1, 'manual')`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO organization_exchange_rates (organization_id, base_currency, quote_currency, rate_to_base, source) VALUES ($1, 'US', 'EUR', 1.1, 'manual')`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_capture_forms (organization_id, public_id, name, slug, title, fields_json) VALUES ($1, 'lf_bad', 'Bad Form', 'Bad Slug', 'Bad Form', '[]'::jsonb)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_capture_forms (organization_id, public_id, name, slug, title, fields_json) VALUES ($1, 'lf_bad_json', 'Bad Form', 'bad-form', 'Bad Form', '{}'::jsonb)`, organizationID)
+	var leadFormID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO lead_capture_forms (organization_id, public_id, name, slug, title, fields_json) VALUES ($1, 'lf_test', 'Lead Form', 'lead-form', 'Lead Form', '[]'::jsonb) RETURNING id`, organizationID).Scan(&leadFormID); err != nil {
+		t.Fatalf("insert lead capture form: %v", err)
+	}
+	expectExecError(t, ctx, pool, `INSERT INTO lead_capture_forms (organization_id, public_id, name, slug, title, fields_json) VALUES ($1, 'lf_test_2', 'Lead Form 2', 'lead-form', 'Lead Form 2', '[]'::jsonb)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_capture_submissions (organization_id, form_id, payload_json) VALUES ($1, $2, '[]'::jsonb)`, organizationID, leadFormID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)

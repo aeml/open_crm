@@ -557,3 +557,29 @@ func TestMigrationFilesIncludeCurrencyExchangeRatesMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeLeadCaptureFormsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "042_lead_capture_forms.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected lead capture forms migration to be registered")
+	}
+
+	sql := MigrationSQL("042_lead_capture_forms.sql")
+	if sql == "" {
+		t.Fatal("expected lead capture forms migration SQL to be embedded")
+	}
+	for _, expected := range []string{"lead_capture_forms", "lead_capture_submissions", "idx_lead_capture_forms_org_slug_unique", "lead_capture_forms_fields_json_array_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected lead capture forms migration to include %s", expected)
+		}
+	}
+}
