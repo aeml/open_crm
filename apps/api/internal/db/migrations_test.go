@@ -505,3 +505,29 @@ func TestMigrationFilesIncludeDealPipelinesMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeSalesQuotasMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "040_sales_quotas.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected sales quotas migration to be registered")
+	}
+
+	sql := MigrationSQL("040_sales_quotas.sql")
+	if sql == "" {
+		t.Fatal("expected sales quotas migration SQL to be embedded")
+	}
+	for _, expected := range []string{"sales_quotas", "idx_sales_quotas_org_user_period_unique", "sales_quotas_amount_nonnegative_check", "sales_quotas_currency_code_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected sales quotas migration to include %s", expected)
+		}
+	}
+}

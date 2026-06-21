@@ -46,6 +46,20 @@ describe('AppRouter', () => {
             openTasksCount: 8,
             dueTodayCount: 2,
             newContactsCount: 5,
+            forecast: {
+              periodStart: '2026-04-01',
+              periodEnd: '2026-06-30',
+              currency: 'USD',
+              teamQuota: '100000.00',
+              wonAmount: '25000.00',
+              openPipelineAmount: '48000.00',
+              weightedForecastAmount: '49000.00',
+              attainmentPct: '25.0',
+              coveragePct: '49.0',
+              members: [
+                { userId: 1, userName: 'Demo Owner', quotaAmount: '100000.00', wonAmount: '25000.00', openPipelineAmount: '48000.00', weightedForecastAmount: '49000.00', attainmentPct: '25.0', coveragePct: '49.0' }
+              ]
+            },
             recentActivities: [
               {
                 id: 91,
@@ -89,6 +103,9 @@ describe('AppRouter', () => {
     expect(await screen.findAllByText(/deal moved to negotiation/i)).toHaveLength(2)
     expect(screen.getByText('5 this week')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /task focus/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /quota coverage/i })).toBeInTheDocument()
+    expect(screen.getAllByText(/49.0% coverage/i).length).toBeGreaterThan(0)
+    expect(screen.getByDisplayValue('100000.00')).toBeInTheDocument()
     expect(screen.getByText(/2 tasks due today/i)).toBeInTheDocument()
     expect(screen.getByText(/6 upcoming tasks/i)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /pipeline touched recently/i })).toBeInTheDocument()
@@ -97,6 +114,96 @@ describe('AppRouter', () => {
     expect(screen.getByText(/^Client #6$/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/dashboard\/summary$/), expect.any(Object))
+    })
+  })
+
+  it('lets admins save a sales quota from the dashboard forecast', async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return { ok: true, json: async () => ({ data: { user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' }, organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' }, membership: { role: 'owner' } } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/notifications/unread-count')) {
+        return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/dashboard/summary')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              pipelineValue: '48000.00',
+              openDealsCount: 3,
+              wonDealsCount: 1,
+              openTasksCount: 8,
+              dueTodayCount: 2,
+              newContactsCount: 5,
+              forecast: {
+                periodStart: '2026-04-01',
+                periodEnd: '2026-06-30',
+                currency: 'USD',
+                teamQuota: '100000.00',
+                wonAmount: '25000.00',
+                openPipelineAmount: '48000.00',
+                weightedForecastAmount: '49000.00',
+                attainmentPct: '25.0',
+                coveragePct: '49.0',
+                members: [{ userId: 2, userName: 'Alex Admin', quotaAmount: '100000.00', wonAmount: '25000.00', openPipelineAmount: '48000.00', weightedForecastAmount: '49000.00', attainmentPct: '25.0', coveragePct: '49.0' }]
+              },
+              recentActivities: []
+            }
+          })
+        }
+      }
+      if (requestURL.pathname.endsWith('/api/dashboard/sales-quotas/2') && method === 'PUT') {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              pipelineValue: '48000.00',
+              openDealsCount: 3,
+              wonDealsCount: 1,
+              openTasksCount: 8,
+              dueTodayCount: 2,
+              newContactsCount: 5,
+              forecast: {
+                periodStart: '2026-04-01',
+                periodEnd: '2026-06-30',
+                currency: 'USD',
+                teamQuota: '125000.00',
+                wonAmount: '25000.00',
+                openPipelineAmount: '48000.00',
+                weightedForecastAmount: '49000.00',
+                attainmentPct: '20.0',
+                coveragePct: '39.2',
+                members: [{ userId: 2, userName: 'Alex Admin', quotaAmount: '125000.00', wonAmount: '25000.00', openPipelineAmount: '48000.00', weightedForecastAmount: '49000.00', attainmentPct: '20.0', coveragePct: '39.2' }]
+              },
+              recentActivities: []
+            }
+          })
+        }
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/dashboard')
+
+    render(<AppRouter />)
+
+    const quotaInput = await screen.findByDisplayValue('100000.00')
+    fireEvent.change(quotaInput, { target: { value: '125000.00' } })
+    fireEvent.click(screen.getByRole('button', { name: /save quota for alex admin/i }))
+
+    expect(await screen.findByText('$125,000.00')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('125000.00')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/dashboard\/sales-quotas\/2$/), expect.objectContaining({
+        method: 'PUT',
+        body: expect.stringContaining('"quotaAmount":"125000.00"')
+      }))
     })
   })
 

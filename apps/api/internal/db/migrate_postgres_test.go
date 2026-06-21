@@ -62,6 +62,9 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"deals_status_check",
 		"deals_value_amount_nonnegative_check",
 		"deals_value_currency_code_check",
+		"sales_quotas_period_order_check",
+		"sales_quotas_amount_nonnegative_check",
+		"sales_quotas_currency_code_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -76,6 +79,8 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_deal_pipelines_org_default_unique",
 		"idx_deal_stages_org_pipeline_position_unique",
 		"idx_deal_stages_org_pipeline_name_unique",
+		"idx_sales_quotas_org_user_period_unique",
+		"idx_sales_quotas_org_period",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -169,6 +174,9 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	expectExecError(t, ctx, pool, `INSERT INTO deal_stages (organization_id, pipeline_id, name, position) VALUES ($1, $2, 'open', 2)`, organizationID, pipelineID)
 	expectExecError(t, ctx, pool, `INSERT INTO deals (organization_id, stage_id, name, value_amount) VALUES ($1, $2, 'Bad Deal', -1)`, organizationID, stageID)
 	expectExecError(t, ctx, pool, `INSERT INTO deals (organization_id, stage_id, name, value_currency) VALUES ($1, $2, 'Bad Currency', 'US')`, organizationID, stageID)
+	expectExecError(t, ctx, pool, `INSERT INTO sales_quotas (organization_id, user_id, period_start, period_end, quota_amount, currency) VALUES ($1, $2, '2026-04-01', '2026-03-31', 1000, 'USD')`, organizationID, userID)
+	expectExecError(t, ctx, pool, `INSERT INTO sales_quotas (organization_id, user_id, period_start, period_end, quota_amount, currency) VALUES ($1, $2, '2026-04-01', '2026-06-30', -1, 'USD')`, organizationID, userID)
+	expectExecError(t, ctx, pool, `INSERT INTO sales_quotas (organization_id, user_id, period_start, period_end, quota_amount, currency) VALUES ($1, $2, '2026-04-01', '2026-06-30', 1000, 'US')`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)

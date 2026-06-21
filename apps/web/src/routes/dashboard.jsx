@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
-import { getDashboardSummary } from '../lib/dashboard'
+import { getDashboardSummary, upsertSalesQuota } from '../lib/dashboard'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
@@ -14,6 +14,64 @@ function formatMoney(value) {
     return '$0.00'
   }
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
+}
+
+function formatPercent(value) {
+  const amount = Number.parseFloat(value || '0')
+  if (!Number.isFinite(amount)) {
+    return '0.0%'
+  }
+  return `${amount.toFixed(1)}%`
+}
+
+function formatDate(value) {
+  if (!value) {
+    return 'Not set'
+  }
+  const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10))
+  const date = year && month && day ? new Date(year, month - 1, day) : new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString()
+}
+
+const emptyForecast = {
+  periodStart: '',
+  periodEnd: '',
+  currency: 'USD',
+  teamQuota: '0',
+  wonAmount: '0',
+  openPipelineAmount: '0',
+  weightedForecastAmount: '0',
+  attainmentPct: '0',
+  coveragePct: '0',
+  members: []
+}
+
+const emptySummary = {
+  pipelineValue: '0',
+  openDealsCount: 0,
+  wonDealsCount: 0,
+  openTasksCount: 0,
+  dueTodayCount: 0,
+  newContactsCount: 0,
+  forecast: emptyForecast,
+  recentActivities: []
+}
+
+function normalizeDashboardSummary(summary) {
+  return {
+    ...emptySummary,
+    ...(summary || {}),
+    forecast: {
+      ...emptyForecast,
+      ...(summary?.forecast || {}),
+      members: summary?.forecast?.members || []
+    },
+    recentActivities: summary?.recentActivities || []
+  }
+}
+
+function quotaDraftsFromForecast(forecast) {
+  return (forecast?.members || []).reduce((drafts, member) => ({ ...drafts, [member.userId]: member.quotaAmount || '' }), {})
 }
 
 function formatRelativeTimestamp(value) {
@@ -96,17 +154,12 @@ export function DashboardRoute() {
   const navigate = useNavigate()
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
+  const canManageQuotas = ['owner', 'admin'].includes(session?.membership?.role)
   const labels = dashboardLabels(businessType)
   usePageTitle('Dashboard')
-  const [summary, setSummary] = useState({
-    pipelineValue: '0',
-    openDealsCount: 0,
-    wonDealsCount: 0,
-    openTasksCount: 0,
-    dueTodayCount: 0,
-    newContactsCount: 0,
-    recentActivities: []
-  })
+  const [summary, setSummary] = useState(emptySummary)
+  const [quotaDrafts, setQuotaDrafts] = useState({})
+  const [savingQuotaUserId, setSavingQuotaUserId] = useState(null)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
 
@@ -114,7 +167,9 @@ export function DashboardRoute() {
     setIsLoading(true)
     try {
       const nextSummary = await getDashboardSummary({ signal })
-      setSummary(nextSummary)
+      const normalized = normalizeDashboardSummary(nextSummary)
+      setSummary(normalized)
+      setQuotaDrafts(quotaDraftsFromForecast(normalized.forecast))
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -136,6 +191,27 @@ export function DashboardRoute() {
     }
   }, [])
 
+  async function handleSaveQuota(member) {
+    const quotaAmount = quotaDrafts[member.userId] ?? member.quotaAmount ?? '0'
+    setSavingQuotaUserId(member.userId)
+    try {
+      const nextSummary = await upsertSalesQuota(member.userId, {
+        periodStart: summary.forecast.periodStart,
+        periodEnd: summary.forecast.periodEnd,
+        quotaAmount,
+        currency: summary.forecast.currency || 'USD'
+      })
+      const normalized = normalizeDashboardSummary(nextSummary)
+      setSummary(normalized)
+      setQuotaDrafts(quotaDraftsFromForecast(normalized.forecast))
+      setError('')
+    } catch (quotaError) {
+      setError(quotaError.message || 'Unable to save sales quota.')
+    } finally {
+      setSavingQuotaUserId(null)
+    }
+  }
+
   const heroMetrics = useMemo(
     () => [
       { label: labels.pipelineLabel, value: formatMoney(summary.pipelineValue) },
@@ -148,6 +224,7 @@ export function DashboardRoute() {
   const latestPipelineActivity = latestActivityFor(summary.recentActivities, 'deal')
   const latestPipelineDays = daysSince(latestPipelineActivity?.createdAt)
   const touchedRecords = useMemo(() => recentlyTouchedRecords(summary.recentActivities), [summary.recentActivities])
+  const forecast = summary.forecast || emptyForecast
   const pipelineAttention = useMemo(() => {
     if (summary.openDealsCount <= 0) {
       return {
@@ -183,7 +260,7 @@ export function DashboardRoute() {
       path: '/deals'
     }
   }, [labels.recordsLower, latestPipelineActivity, latestPipelineDays, summary.openDealsCount])
-  const hasWorkspaceData = Number.parseFloat(summary.pipelineValue || '0') > 0 || summary.openDealsCount > 0 || summary.wonDealsCount > 0 || summary.openTasksCount > 0 || summary.dueTodayCount > 0 || summary.newContactsCount > 0 || summary.recentActivities.length > 0
+  const hasWorkspaceData = Number.parseFloat(summary.pipelineValue || '0') > 0 || Number.parseFloat(forecast.teamQuota || '0') > 0 || summary.openDealsCount > 0 || summary.wonDealsCount > 0 || summary.openTasksCount > 0 || summary.dueTodayCount > 0 || summary.newContactsCount > 0 || summary.recentActivities.length > 0
   const setupSteps = useMemo(() => {
     const pipelineLabel = businessType === 'services' || businessType === 'construction-services' ? 'Create your first job' : 'Create your first deal'
     return [
@@ -276,6 +353,73 @@ export function DashboardRoute() {
             <div>
               <Button className="button-secondary" type="button" onClick={() => navigate(pipelineAttention.path)}>{pipelineAttention.action}</Button>
             </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="card-stack">
+            <div>
+              <p className="eyebrow">Forecast</p>
+              <h2>Quota coverage</h2>
+              <p>{`Current period: ${formatDate(forecast.periodStart)} to ${formatDate(forecast.periodEnd)}. Weighted forecast combines won revenue with stage-weighted open pipeline.`}</p>
+            </div>
+            <div className="record-list" role="list" aria-label="Team forecast summary">
+              <article className="record-row" role="listitem">
+                <div>
+                  <p>Team quota</p>
+                  <p className="field-hint">Target revenue for this period.</p>
+                </div>
+                <div>
+                  <p>{formatMoney(forecast.teamQuota)}</p>
+                </div>
+              </article>
+              <article className="record-row" role="listitem">
+                <div>
+                  <p>Won revenue</p>
+                  <p className="field-hint">Closed-won revenue credited to this period.</p>
+                </div>
+                <div>
+                  <p>{formatMoney(forecast.wonAmount)}</p>
+                  <p className="field-hint">{formatPercent(forecast.attainmentPct)} attained</p>
+                </div>
+              </article>
+              <article className="record-row" role="listitem">
+                <div>
+                  <p>Weighted forecast</p>
+                  <p className="field-hint">Won revenue plus probability-weighted open pipeline.</p>
+                </div>
+                <div>
+                  <p>{formatMoney(forecast.weightedForecastAmount)}</p>
+                  <p className="field-hint">{formatPercent(forecast.coveragePct)} coverage</p>
+                </div>
+              </article>
+            </div>
+            {forecast.members.length === 0 ? (
+              <p className="field-hint">Invite users and assign deals to start building a team forecast.</p>
+            ) : (
+              <div className="record-list" role="list" aria-label="Quota forecast by owner">
+                {forecast.members.map((member) => (
+                  <article className="record-row" key={member.userId} role="listitem">
+                    <div>
+                      <p>{member.userName}</p>
+                      <p className="field-hint">Won {formatMoney(member.wonAmount)} · Open {formatMoney(member.openPipelineAmount)} · Weighted {formatMoney(member.weightedForecastAmount)}</p>
+                      <p className="field-hint">{formatPercent(member.attainmentPct)} attained · {formatPercent(member.coveragePct)} coverage</p>
+                    </div>
+                    {canManageQuotas ? (
+                      <div>
+                        <input className="text-input" aria-label={`Quota for ${member.userName}`} value={quotaDrafts[member.userId] ?? member.quotaAmount ?? ''} onChange={(event) => setQuotaDrafts((current) => ({ ...current, [member.userId]: event.target.value }))} />
+                        <Button className="button-secondary" type="button" aria-label={`Save quota for ${member.userName}`} disabled={savingQuotaUserId === member.userId} onClick={() => handleSaveQuota(member)}>{savingQuotaUserId === member.userId ? 'Saving...' : 'Save quota'}</Button>
+                      </div>
+                    ) : (
+                      <div>
+                        <p>{formatMoney(member.quotaAmount)}</p>
+                        <p className="field-hint">Quota</p>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
         </Card>
 

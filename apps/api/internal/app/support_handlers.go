@@ -264,6 +264,42 @@ func handleDashboardSummary(auth authService, dashboard dashboardService, w http
 	respondDashboardSummary(w, r, http.StatusOK, summary)
 }
 
+func handleUpsertDashboardSalesQuota(auth authService, dashboard dashboardService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if dashboard == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Dashboard service unavailable")
+		return
+	}
+
+	userID, ok := parsePathInt64(w, r, "userID")
+	if !ok {
+		return
+	}
+
+	var request moduledashboard.QuotaInput
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	summary, err := dashboard.UpsertSalesQuota(r.Context(), state.Organization.ID, userID, state.User.ID, request)
+	if err != nil {
+		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
+		if errors.Is(err, moduledashboard.ErrInvalidQuota) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid quota amount, currency, and period")
+			return
+		}
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to save sales quota")
+		return
+	}
+
+	respondDashboardSummary(w, r, http.StatusOK, summary)
+}
+
 func handleGetOrganizationProfile(auth authService, profiles orgProfileService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, err := requireCurrentSession(auth, r)
@@ -548,7 +584,7 @@ func writeResourceNotFound(w http.ResponseWriter, requestID string, err error) b
 }
 
 func isResourceNotFound(err error) bool {
-	return errors.Is(err, modulecontacts.ErrNotFound) || errors.Is(err, modulecompanies.ErrNotFound) || errors.Is(err, moduledeals.ErrNotFound) || errors.Is(err, moduletasks.ErrNotFound)
+	return errors.Is(err, modulecontacts.ErrNotFound) || errors.Is(err, modulecompanies.ErrNotFound) || errors.Is(err, moduledashboard.ErrNotFound) || errors.Is(err, moduledeals.ErrNotFound) || errors.Is(err, moduletasks.ErrNotFound)
 }
 
 func requireOrgMember(auth authService, w http.ResponseWriter, r *http.Request) (moduleauth.SessionState, bool) {

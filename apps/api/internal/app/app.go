@@ -119,6 +119,7 @@ type orgProfileService interface {
 
 type dashboardService interface {
 	SummaryByOrganization(context.Context, int64) (moduledashboard.Summary, error)
+	UpsertSalesQuota(context.Context, int64, int64, int64, moduledashboard.QuotaInput) (moduledashboard.Summary, error)
 }
 
 type notesService interface {
@@ -1027,6 +1028,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/dashboard/summary", func(w http.ResponseWriter, r *http.Request) {
 		handleDashboardSummary(dependencies.AuthService, dependencies.DashboardService, w, r)
+	})
+	mux.HandleFunc("PUT /api/dashboard/sales-quotas/{userID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpsertDashboardSalesQuota(dependencies.AuthService, dependencies.DashboardService, w, r)
 	})
 	mux.HandleFunc("GET /api/organization/profile", func(w http.ResponseWriter, r *http.Request) {
 		handleGetOrganizationProfile(dependencies.AuthService, dependencies.OrgProfileService, w, r)
