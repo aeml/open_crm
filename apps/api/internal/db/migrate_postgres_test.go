@@ -113,6 +113,8 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"workflow_automations_trigger_type_check",
 		"workflow_automations_target_entity_type_check",
 		"workflow_automations_trigger_config_json_object_check",
+		"workflow_automations_condition_logic_check",
+		"workflow_automations_conditions_json_array_check",
 		"workflow_automations_position_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
@@ -323,8 +325,10 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type) VALUES ($1, 'Bad Trigger', 'message_received', 'contact')`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type) VALUES ($1, 'Bad Target', 'record_created', 'invoice')`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, trigger_config_json) VALUES ($1, 'Bad Config', 'record_created', 'contact', '[]'::jsonb)`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, condition_logic) VALUES ($1, 'Bad Logic', 'record_created', 'contact', 'xor')`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, conditions_json) VALUES ($1, 'Bad Conditions', 'record_created', 'contact', '{}'::jsonb)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, position) VALUES ($1, 'Bad Position', 'record_created', 'contact', -1)`, organizationID)
-	if _, err := pool.Exec(ctx, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, trigger_config_json, is_active) VALUES ($1, 'New contact automation', 'record_created', 'contact', '{}'::jsonb, TRUE)`, organizationID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, is_active) VALUES ($1, 'New contact automation', 'record_created', 'contact', '{}'::jsonb, 'all', '[{"field":"status","operator":"equals","value":"lead"}]'::jsonb, TRUE)`, organizationID); err != nil {
 		t.Fatalf("insert workflow automation: %v", err)
 	}
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type) VALUES ($1, 'new contact automation', 'record_created', 'contact')`, organizationID)

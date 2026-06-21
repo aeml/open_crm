@@ -40,6 +40,8 @@ function emptyForm() {
     triggerType: 'record_created',
     targetEntityType: 'contact',
     triggerConfigText: '{}',
+    conditionLogic: 'all',
+    conditionsText: '[]',
     isActive: false,
     position: '0'
   }
@@ -52,6 +54,8 @@ function formFromAutomation(automation) {
     triggerType: automation.triggerType || 'record_created',
     targetEntityType: automation.targetEntityType || targetOptionsForTrigger(automation.triggerType || 'record_created')[0].value,
     triggerConfigText: JSON.stringify(automation.triggerConfig || {}, null, 2),
+    conditionLogic: automation.conditionLogic || 'all',
+    conditionsText: JSON.stringify(automation.conditions || [], null, 2),
     isActive: automation.isActive === true,
     position: String(automation.position ?? 0)
   }
@@ -65,6 +69,18 @@ function parseTriggerConfig(raw) {
   return Object.fromEntries(Object.entries(parsed).filter(([key, value]) => key.trim() && value !== null).map(([key, value]) => [key.trim(), value]))
 }
 
+function parseConditions(raw) {
+  const parsed = JSON.parse(raw || '[]')
+  if (!Array.isArray(parsed)) {
+    throw new Error('Conditions must be a JSON array.')
+  }
+  return parsed.map((condition) => ({
+    field: String(condition?.field || '').trim(),
+    operator: String(condition?.operator || 'equals').trim(),
+    value: String(condition?.value || '').trim()
+  }))
+}
+
 function payloadFromForm(form) {
   return {
     name: form.name,
@@ -72,6 +88,8 @@ function payloadFromForm(form) {
     triggerType: form.triggerType,
     targetEntityType: form.targetEntityType,
     triggerConfig: parseTriggerConfig(form.triggerConfigText),
+    conditionLogic: form.conditionLogic,
+    conditions: parseConditions(form.conditionsText),
     isActive: form.isActive,
     position: Number.parseInt(String(form.position || 0), 10) || 0
   }
@@ -86,7 +104,9 @@ function targetLabel(triggerType, value) {
 }
 
 function automationSummary(automation) {
-  return `${triggerLabel(automation.triggerType)} | ${targetLabel(automation.triggerType, automation.targetEntityType)} | order ${automation.position ?? 0}`
+  const conditions = automation.conditions || []
+  const conditionText = conditions.length === 0 ? 'no conditions' : `${automation.conditionLogic || 'all'} ${conditions.length} condition${conditions.length === 1 ? '' : 's'}`
+  return `${triggerLabel(automation.triggerType)} | ${targetLabel(automation.triggerType, automation.targetEntityType)} | ${conditionText} | order ${automation.position ?? 0}`
 }
 
 export function SettingsAutomationsRoute() {
@@ -150,7 +170,7 @@ export function SettingsAutomationsRoute() {
     try {
       payload = payloadFromForm(form)
     } catch (parseError) {
-      setError(parseError.message || 'Trigger config must be valid JSON.')
+      setError(parseError.message || 'Trigger config and conditions must be valid JSON.')
       return
     }
 
@@ -240,6 +260,15 @@ export function SettingsAutomationsRoute() {
             </Field>
             <Field label="Trigger config JSON" hint='Optional string key/value object, for example {"formPublicId":"lf_public"}.'>
               <textarea className="text-input" rows={5} value={form.triggerConfigText} onChange={(event) => setForm({ ...form, triggerConfigText: event.target.value })} />
+            </Field>
+            <Field label="Condition logic">
+              <select className="text-input" value={form.conditionLogic} onChange={(event) => setForm({ ...form, conditionLogic: event.target.value })}>
+                <option value="all">All conditions</option>
+                <option value="any">Any condition</option>
+              </select>
+            </Field>
+            <Field label="Conditions JSON" hint='Optional array like [{"field":"status","operator":"equals","value":"lead"}]. Operators: equals, notEquals, contains, exists, greaterThan, lessThan.'>
+              <textarea className="text-input" rows={6} value={form.conditionsText} onChange={(event) => setForm({ ...form, conditionsText: event.target.value })} />
             </Field>
             <Field label="Order">
               <input className="text-input" type="number" min="0" value={form.position} onChange={(event) => setForm({ ...form, position: event.target.value })} />

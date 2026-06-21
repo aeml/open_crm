@@ -1915,11 +1915,12 @@ Goal: let admins automate CRM work without code — a core differentiator across
 Progress:
 
 - `1.5.1` (trigger model foundation): complete. Added organization-scoped workflow automation definitions with typed triggers for record created/updated, deal stage changed, date reached, form submitted, inbound email, and webhook events; persisted target entity and JSON trigger config metadata; exposed authenticated APIs for listing/creating/updating automation trigger definitions; and added a Settings > Automations UI. Trigger detection, condition evaluation, action execution, scheduling/delays, webhooks, visual editing, run history, loop protection, and retry/idempotency remain future slices.
+- `1.5.2` (condition/branching foundation): complete. Extended workflow automation definitions with all/any condition logic and validated condition arrays over contact, company, deal, task, form-submission, inbound-email, and webhook fields; added a pure condition evaluator for equality, inequality, contains, exists, greater-than, and less-than checks; exposed conditions through the workflow automation APIs; and expanded Settings > Automations with condition editing. Visual branching, nested condition groups, trigger-time record hydration, action execution, schedule/delay handling, run history, and retry/idempotency remain future slices.
 
 Candidate slices:
 
 - `1.5.1` Trigger model: record created/updated, stage changed, date reached, form submitted, inbound email, webhook: foundation complete.
-- `1.5.2` Condition/branching engine with AND/OR rules over record fields.
+- `1.5.2` Condition/branching engine with AND/OR rules over record fields: foundation complete.
 - `1.5.3` Action library: update field, create task, send email/SMS, assign owner, add to sequence, call webhook, notify.
 - `1.5.4` Visual workflow builder UI.
 - `1.5.5` Scheduled and time-delay actions on the background job runner (`0.9.3`).

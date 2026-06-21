@@ -30,10 +30,10 @@ describe('settings automations route', () => {
       if (path.endsWith('/auth/me')) return sessionResponse()
       if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
       if (path.endsWith('/api/workflow-automations') && method === 'POST') {
-        return jsonResponse({ data: { automation: { id: 8, name: 'Website form follow-up', description: 'Start after public form capture.', triggerType: 'form_submitted', targetEntityType: 'lead_form', triggerConfig: { formPublicId: 'lf_public' }, isActive: true, position: 1 } } }, 201)
+        return jsonResponse({ data: { automation: { id: 8, name: 'Website form follow-up', description: 'Start after public form capture.', triggerType: 'form_submitted', targetEntityType: 'lead_form', triggerConfig: { formPublicId: 'lf_public' }, conditionLogic: 'all', conditions: [{ field: 'leadSource', operator: 'equals', value: 'Website form' }], isActive: true, position: 1 } } }, 201)
       }
       if (path.endsWith('/api/workflow-automations')) {
-        return jsonResponse({ data: { automations: [{ id: 5, name: 'New contact welcome', description: 'Start from new contacts.', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, isActive: false, position: 0 }] } })
+        return jsonResponse({ data: { automations: [{ id: 5, name: 'New contact welcome', description: 'Start from new contacts.', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditionLogic: 'all', conditions: [{ field: 'status', operator: 'equals', value: 'lead' }], isActive: false, position: 0 }] } })
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })
@@ -51,6 +51,8 @@ describe('settings automations route', () => {
     fireEvent.change(screen.getByLabelText(/^description$/i), { target: { value: 'Start after public form capture.' } })
     fireEvent.change(screen.getByLabelText(/^trigger type$/i), { target: { value: 'form_submitted' } })
     fireEvent.change(screen.getByLabelText(/trigger config json/i), { target: { value: '{"formPublicId":"lf_public"}' } })
+    fireEvent.change(screen.getByLabelText(/^condition logic$/i), { target: { value: 'all' } })
+    fireEvent.change(screen.getByLabelText(/conditions json/i), { target: { value: '[{"field":"leadSource","operator":"equals","value":"Website form"}]' } })
     fireEvent.change(screen.getByLabelText(/^order$/i), { target: { value: '1' } })
     fireEvent.click(screen.getByLabelText(/active trigger definition/i))
     fireEvent.click(screen.getByRole('button', { name: /create automation trigger/i }))
@@ -66,6 +68,8 @@ describe('settings automations route', () => {
         triggerType: 'form_submitted',
         targetEntityType: 'lead_form',
         triggerConfig: { formPublicId: 'lf_public' },
+        conditionLogic: 'all',
+        conditions: [{ field: 'leadSource', operator: 'equals', value: 'Website form' }],
         isActive: true,
         position: 1
       })

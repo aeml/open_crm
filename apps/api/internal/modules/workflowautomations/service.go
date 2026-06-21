@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,10 +28,18 @@ type Automation struct {
 	TriggerType      string         `json:"triggerType"`
 	TargetEntityType string         `json:"targetEntityType"`
 	TriggerConfig    map[string]any `json:"triggerConfig"`
+	ConditionLogic   string         `json:"conditionLogic"`
+	Conditions       []Condition    `json:"conditions"`
 	IsActive         bool           `json:"isActive"`
 	Position         int            `json:"position"`
 	CreatedAt        time.Time      `json:"createdAt"`
 	UpdatedAt        time.Time      `json:"updatedAt"`
+}
+
+type Condition struct {
+	Field    string `json:"field"`
+	Operator string `json:"operator"`
+	Value    string `json:"value"`
 }
 
 type Input struct {
@@ -39,6 +48,8 @@ type Input struct {
 	TriggerType      string         `json:"triggerType"`
 	TargetEntityType string         `json:"targetEntityType"`
 	TriggerConfig    map[string]any `json:"triggerConfig"`
+	ConditionLogic   string         `json:"conditionLogic"`
+	Conditions       []Condition    `json:"conditions"`
 	IsActive         *bool          `json:"isActive"`
 	Position         int            `json:"position"`
 }
@@ -91,6 +102,10 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if err != nil {
 		return Automation{}, fmt.Errorf("encode workflow automation trigger config: %w", err)
 	}
+	conditionsJSON, err := json.Marshal(input.Conditions)
+	if err != nil {
+		return Automation{}, fmt.Errorf("encode workflow automation conditions: %w", err)
+	}
 	isActive := false
 	if input.IsActive != nil {
 		isActive = *input.IsActive
@@ -98,10 +113,10 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 
 	var automationID int64
 	if err := s.pool.QueryRow(ctx, `
-		INSERT INTO workflow_automations (organization_id, name, description, trigger_type, target_entity_type, trigger_config_json, is_active, position, created_by_user_id, updated_by_user_id)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $9)
+		INSERT INTO workflow_automations (organization_id, name, description, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, is_active, position, created_by_user_id, updated_by_user_id)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9, $10, $11, $11)
 		RETURNING id
-	`, organizationID, input.Name, input.Description, input.TriggerType, input.TargetEntityType, string(configJSON), isActive, input.Position, actorUserID).Scan(&automationID); err != nil {
+	`, organizationID, input.Name, input.Description, input.TriggerType, input.TargetEntityType, string(configJSON), input.ConditionLogic, string(conditionsJSON), isActive, input.Position, actorUserID).Scan(&automationID); err != nil {
 		return Automation{}, mapSaveError(err)
 	}
 	return s.getByID(ctx, organizationID, automationID)
@@ -119,6 +134,10 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 	if err != nil {
 		return Automation{}, fmt.Errorf("encode workflow automation trigger config: %w", err)
 	}
+	conditionsJSON, err := json.Marshal(input.Conditions)
+	if err != nil {
+		return Automation{}, fmt.Errorf("encode workflow automation conditions: %w", err)
+	}
 	var isActive any
 	if input.IsActive != nil {
 		isActive = *input.IsActive
@@ -131,12 +150,14 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 		    trigger_type = $5,
 		    target_entity_type = $6,
 		    trigger_config_json = $7::jsonb,
-		    is_active = COALESCE($8::boolean, is_active),
-		    position = $9,
-		    updated_by_user_id = $10,
+		    condition_logic = $8,
+		    conditions_json = $9::jsonb,
+		    is_active = COALESCE($10::boolean, is_active),
+		    position = $11,
+		    updated_by_user_id = $12,
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2
-	`, organizationID, automationID, input.Name, input.Description, input.TriggerType, input.TargetEntityType, string(configJSON), isActive, input.Position, actorUserID)
+	`, organizationID, automationID, input.Name, input.Description, input.TriggerType, input.TargetEntityType, string(configJSON), input.ConditionLogic, string(conditionsJSON), isActive, input.Position, actorUserID)
 	if err != nil {
 		return Automation{}, mapSaveError(err)
 	}
@@ -157,7 +178,7 @@ func (s *Service) getByID(ctx context.Context, organizationID, automationID int6
 }
 
 const automationSelect = `
-	SELECT id, name, description, trigger_type, target_entity_type, trigger_config_json, is_active, position, created_at, updated_at
+	SELECT id, name, description, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, is_active, position, created_at, updated_at
 	FROM workflow_automations
 `
 
@@ -168,6 +189,7 @@ type automationScanner interface {
 func scanAutomation(scanner automationScanner) (Automation, error) {
 	var automation Automation
 	var configJSON []byte
+	var conditionsJSON []byte
 	if err := scanner.Scan(
 		&automation.ID,
 		&automation.Name,
@@ -175,6 +197,8 @@ func scanAutomation(scanner automationScanner) (Automation, error) {
 		&automation.TriggerType,
 		&automation.TargetEntityType,
 		&configJSON,
+		&automation.ConditionLogic,
+		&conditionsJSON,
 		&automation.IsActive,
 		&automation.Position,
 		&automation.CreatedAt,
@@ -191,6 +215,15 @@ func scanAutomation(scanner automationScanner) (Automation, error) {
 	if automation.TriggerConfig == nil {
 		automation.TriggerConfig = map[string]any{}
 	}
+	if len(conditionsJSON) == 0 {
+		conditionsJSON = []byte("[]")
+	}
+	if err := json.Unmarshal(conditionsJSON, &automation.Conditions); err != nil {
+		return Automation{}, fmt.Errorf("decode workflow automation conditions: %w", err)
+	}
+	if automation.Conditions == nil {
+		automation.Conditions = []Condition{}
+	}
 	return automation, nil
 }
 
@@ -199,6 +232,13 @@ func normalizeInput(input Input) Input {
 	input.Description = strings.TrimSpace(input.Description)
 	input.TriggerType = strings.TrimSpace(strings.ToLower(input.TriggerType))
 	input.TargetEntityType = strings.TrimSpace(strings.ToLower(input.TargetEntityType))
+	input.ConditionLogic = strings.TrimSpace(strings.ToLower(input.ConditionLogic))
+	if input.ConditionLogic == "" {
+		input.ConditionLogic = "all"
+	}
+	if input.Conditions == nil {
+		input.Conditions = []Condition{}
+	}
 
 	nextConfig := make(map[string]any)
 	for key, value := range input.TriggerConfig {
@@ -217,17 +257,234 @@ func normalizeInput(input Input) Input {
 		nextConfig[key] = value
 	}
 	input.TriggerConfig = nextConfig
+
+	for index := range input.Conditions {
+		input.Conditions[index].Field = strings.TrimSpace(input.Conditions[index].Field)
+		input.Conditions[index].Operator = normalizeConditionOperator(input.Conditions[index].Operator)
+		input.Conditions[index].Value = strings.TrimSpace(input.Conditions[index].Value)
+		if input.Conditions[index].Operator == "" {
+			input.Conditions[index].Operator = "equals"
+		}
+		if input.Conditions[index].Operator == "exists" {
+			input.Conditions[index].Value = ""
+		}
+	}
 	return input
 }
 
+func normalizeConditionOperator(operator string) string {
+	switch strings.ToLower(strings.TrimSpace(operator)) {
+	case "", "equals":
+		return "equals"
+	case "notequals", "not_equals", "not-equals":
+		return "notEquals"
+	case "contains":
+		return "contains"
+	case "exists":
+		return "exists"
+	case "greaterthan", "greater_than", "greater-than":
+		return "greaterThan"
+	case "lessthan", "less_than", "less-than":
+		return "lessThan"
+	default:
+		return strings.TrimSpace(operator)
+	}
+}
+
 func validateInput(input Input) error {
-	if input.Name == "" || input.Position < 0 || !isAllowedTriggerType(input.TriggerType) || !isAllowedTargetEntity(input.TargetEntityType) {
+	if input.Name == "" || input.Position < 0 || !isAllowedTriggerType(input.TriggerType) || !isAllowedTargetEntity(input.TargetEntityType) || !isAllowedConditionLogic(input.ConditionLogic) {
 		return ErrInvalidInput
 	}
 	if !triggerAllowsTarget(input.TriggerType, input.TargetEntityType) {
 		return ErrInvalidInput
 	}
+	for _, condition := range input.Conditions {
+		if err := validateCondition(input.TargetEntityType, condition); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func isAllowedConditionLogic(logic string) bool {
+	switch logic {
+	case "all", "any":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateCondition(target string, condition Condition) error {
+	if !isAllowedConditionField(target, condition.Field) || !isAllowedConditionOperator(condition.Operator) {
+		return ErrInvalidInput
+	}
+	if condition.Operator != "exists" && condition.Value == "" {
+		return ErrInvalidInput
+	}
+	if isNumericConditionOperator(condition.Operator) {
+		if _, err := strconv.ParseFloat(condition.Value, 64); err != nil {
+			return ErrInvalidInput
+		}
+	}
+	return nil
+}
+
+func isAllowedConditionOperator(operator string) bool {
+	switch operator {
+	case "equals", "notEquals", "contains", "exists", "greaterThan", "lessThan":
+		return true
+	default:
+		return false
+	}
+}
+
+func isNumericConditionOperator(operator string) bool {
+	switch operator {
+	case "greaterThan", "lessThan":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedConditionField(target, field string) bool {
+	switch target {
+	case "contact":
+		switch field {
+		case "firstName", "lastName", "email", "phone", "status", "ownerUserId", "leadSource", "utmSource", "utmMedium", "utmCampaign", "jobTitle", "city", "state", "country", "leadScore", "leadGrade":
+			return true
+		}
+	case "company":
+		switch field {
+		case "name", "clientType", "industry", "phone", "website", "status", "city", "state", "country":
+			return true
+		}
+	case "deal":
+		switch field {
+		case "name", "stageId", "stageName", "status", "valueAmount", "valueCurrency", "ownerUserId", "companyId", "primaryContactId", "expectedCloseDate":
+			return true
+		}
+	case "task":
+		switch field {
+		case "title", "status", "entityType", "entityId", "assignedToUserId", "dueAt":
+			return true
+		}
+	case "lead_form":
+		switch field {
+		case "formId", "formPublicId", "sourceUrl", "leadSource", "utmSource", "utmMedium", "utmCampaign":
+			return true
+		}
+	case "email_message":
+		switch field {
+		case "fromEmail", "toEmail", "subject", "direction", "status":
+			return true
+		}
+	case "webhook":
+		switch field {
+		case "event", "source", "payloadType":
+			return true
+		}
+	}
+	return false
+}
+
+func EvaluateConditions(logic string, conditions []Condition, fields map[string]any) bool {
+	logic = strings.TrimSpace(strings.ToLower(logic))
+	if logic == "" {
+		logic = "all"
+	}
+	if len(conditions) == 0 {
+		return true
+	}
+
+	if logic == "any" {
+		for _, condition := range conditions {
+			if conditionMatches(condition, fields) {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, condition := range conditions {
+		if !conditionMatches(condition, fields) {
+			return false
+		}
+	}
+	return true
+}
+
+func conditionMatches(condition Condition, fields map[string]any) bool {
+	actual, ok := fields[condition.Field]
+	if condition.Operator == "exists" {
+		return ok && valueExists(actual)
+	}
+	if !ok {
+		return false
+	}
+
+	actualText := valueToString(actual)
+	switch condition.Operator {
+	case "equals":
+		return strings.EqualFold(actualText, condition.Value)
+	case "notEquals":
+		return !strings.EqualFold(actualText, condition.Value)
+	case "contains":
+		return strings.Contains(strings.ToLower(actualText), strings.ToLower(condition.Value))
+	case "greaterThan", "lessThan":
+		actualNumber, actualOK := valueToFloat(actual)
+		expectedNumber, expectedErr := strconv.ParseFloat(condition.Value, 64)
+		if !actualOK || expectedErr != nil {
+			return false
+		}
+		if condition.Operator == "greaterThan" {
+			return actualNumber > expectedNumber
+		}
+		return actualNumber < expectedNumber
+	default:
+		return false
+	}
+}
+
+func valueExists(value any) bool {
+	if value == nil {
+		return false
+	}
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text) != ""
+	}
+	return true
+}
+
+func valueToString(value any) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text)
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func valueToFloat(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case float64:
+		return typed, true
+	case json.Number:
+		parsed, err := typed.Float64()
+		return parsed, err == nil
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		return parsed, err == nil
+	default:
+		parsed, err := strconv.ParseFloat(fmt.Sprint(value), 64)
+		return parsed, err == nil
+	}
 }
 
 func isAllowedTriggerType(triggerType string) bool {

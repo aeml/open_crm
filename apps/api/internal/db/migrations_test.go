@@ -791,3 +791,29 @@ func TestMigrationFilesIncludeWorkflowAutomationsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeWorkflowAutomationConditionsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "051_workflow_automation_conditions.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected workflow automation conditions migration to be registered")
+	}
+
+	sql := MigrationSQL("051_workflow_automation_conditions.sql")
+	if sql == "" {
+		t.Fatal("expected workflow automation conditions migration SQL to be embedded")
+	}
+	for _, expected := range []string{"condition_logic", "conditions_json", "workflow_automations_condition_logic_check", "workflow_automations_conditions_json_array_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected workflow automation conditions migration to include %s", expected)
+		}
+	}
+}

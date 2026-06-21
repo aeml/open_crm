@@ -27,13 +27,15 @@ type workflowAutomationResponse struct {
 }
 
 type workflowAutomationRequest struct {
-	Name             string         `json:"name"`
-	Description      string         `json:"description"`
-	TriggerType      string         `json:"triggerType"`
-	TargetEntityType string         `json:"targetEntityType"`
-	TriggerConfig    map[string]any `json:"triggerConfig"`
-	IsActive         *bool          `json:"isActive"`
-	Position         int            `json:"position"`
+	Name             string                                `json:"name"`
+	Description      string                                `json:"description"`
+	TriggerType      string                                `json:"triggerType"`
+	TargetEntityType string                                `json:"targetEntityType"`
+	TriggerConfig    map[string]any                        `json:"triggerConfig"`
+	ConditionLogic   string                                `json:"conditionLogic"`
+	Conditions       []moduleworkflowautomations.Condition `json:"conditions"`
+	IsActive         *bool                                 `json:"isActive"`
+	Position         int                                   `json:"position"`
 }
 
 func handleListWorkflowAutomations(auth authService, automations workflowAutomationsService, w http.ResponseWriter, r *http.Request) {
@@ -116,6 +118,8 @@ func workflowAutomationInput(request workflowAutomationRequest) moduleworkflowau
 		TriggerType:      request.TriggerType,
 		TargetEntityType: request.TargetEntityType,
 		TriggerConfig:    request.TriggerConfig,
+		ConditionLogic:   request.ConditionLogic,
+		Conditions:       request.Conditions,
 		IsActive:         request.IsActive,
 		Position:         request.Position,
 	}
@@ -131,7 +135,7 @@ func respondWorkflowAutomation(w http.ResponseWriter, requestID string, statusCo
 func writeWorkflowAutomationError(w http.ResponseWriter, requestID string, err error) {
 	switch {
 	case errors.Is(err, moduleworkflowautomations.ErrInvalidInput):
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid automation name, trigger type, target record, config, and order")
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid automation name, trigger, target record, conditions, config, and order")
 	case errors.Is(err, moduleworkflowautomations.ErrDuplicateName):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A workflow automation with that name already exists")
 	case errors.Is(err, moduleworkflowautomations.ErrNotFound):
