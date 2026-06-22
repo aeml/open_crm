@@ -152,7 +152,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `1.3.0` Sales Acceleration And CPQ (catalog, quotes, e-sign, quotas): in progress.
 - `1.4.0` Marketing And Lead Generation (forms, pages, campaigns, scoring): in progress.
 - `1.5.0` Workflow Automation Engine (visual builder): in progress.
-- `1.6.0` Reporting And Analytics (custom report builder, dashboards): planned.
+- `1.6.0` Reporting And Analytics (custom report builder, dashboards): in progress.
 - `1.7.0` AI And Intelligence (copilot, drafting, summarization, scoring, enrichment): planned.
 - `1.8.0` Service, Support, And Customer Portal (tickets, SLAs, knowledge base): planned.
 - `1.9.0` Ecosystem And Extensibility (integration marketplace, custom objects): planned.
@@ -1939,13 +1939,17 @@ Exit criteria:
 
 ## Version 1.6.0 - Reporting And Analytics
 
-Status: planned.
+Status: in progress.
 
 Goal: move from fixed reports to a self-service analytics layer.
 
+Progress:
+
+- `1.6.1` (custom report builder foundation): complete. Added organization-scoped custom report definitions for contacts, companies, deals, and tasks with validated selected fields, filters, grouping, and aggregation metadata; exposed authenticated list/create/update APIs; and added a top-level Reports builder UI. Runtime report query execution, chart rendering, dashboards, sharing permissions, scheduled delivery, exports, and analytics read-model/performance work remain future slices.
+
 Candidate slices:
 
-- `1.6.1` Custom report builder (choose object, fields, filters, grouping, aggregation).
+- `1.6.1` Custom report builder (choose object, fields, filters, grouping, aggregation): foundation complete.
 - `1.6.2` Chart/visualization types (table, bar, line, funnel, pie, KPI).
 - `1.6.3` Configurable dashboards with draggable widgets, shared and personal.
 - `1.6.4` Pipeline/funnel conversion analytics and velocity metrics.

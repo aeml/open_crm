@@ -3,6 +3,7 @@ import { useAuth } from '../../app/providers'
 
 const baseLinks = [
   { to: '/dashboard', labelKey: 'dashboard', fallback: 'Dashboard' },
+  { to: '/reports', labelKey: 'reports', fallback: 'Reports' },
   { to: '/companies', labelKey: 'companies', fallback: 'Companies' },
   { to: '/deals', labelKey: 'deals', fallback: 'Deals' },
   { to: '/tasks', labelKey: 'tasks', fallback: 'Tasks' },

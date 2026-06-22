@@ -869,3 +869,29 @@ func TestMigrationFilesIncludeWorkflowAutomationRunsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeCustomReportDefinitionsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "054_custom_report_definitions.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected custom report definitions migration to be registered")
+	}
+
+	sql := MigrationSQL("054_custom_report_definitions.sql")
+	if sql == "" {
+		t.Fatal("expected custom report definitions migration SQL to be embedded")
+	}
+	for _, expected := range []string{"custom_report_definitions", "columns_json", "filters_json", "aggregation_json", "idx_custom_report_definitions_org_name_unique"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected custom report definitions migration to include %s", expected)
+		}
+	}
+}

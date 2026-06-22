@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppProviders } from './providers'
 import { RootRoute } from '../routes/root'
 import { DashboardRoute } from '../routes/dashboard'
+import { ReportsRoute } from '../routes/reports'
 import { ContactsRoute } from '../routes/contacts'
 import { CompaniesRoute } from '../routes/companies'
 import { DealsRoute } from '../routes/deals'
@@ -47,6 +48,7 @@ export function AppRouter() {
           <Route path="/" element={<RootRoute />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardRoute />} />
+            <Route path="reports" element={<ReportsRoute />} />
             <Route path="contacts" element={<Navigate to="/companies" replace />} />
             <Route path="contacts/:contactId" element={<ContactsRoute />} />
             <Route path="companies" element={<CompaniesRoute />} />

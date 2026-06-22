@@ -14,6 +14,7 @@ import (
 	modulecalllogs "github.com/aeml/open_crm/apps/api/internal/modules/calllogs"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	modulecustomreports "github.com/aeml/open_crm/apps/api/internal/modules/customreports"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
@@ -261,6 +262,12 @@ type workflowAutomationsService interface {
 	Update(context.Context, int64, int64, int64, moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error)
 }
 
+type customReportsService interface {
+	ListByOrganization(context.Context, int64) ([]modulecustomreports.Definition, error)
+	Create(context.Context, int64, int64, modulecustomreports.Input) (modulecustomreports.Definition, error)
+	Update(context.Context, int64, int64, int64, modulecustomreports.Input) (modulecustomreports.Definition, error)
+}
+
 type emailSequenceEnrollmentsService interface {
 	ListEnrollmentsByContact(context.Context, int64, int64) ([]moduleemailsequences.Enrollment, error)
 	EnrollContact(context.Context, int64, moduleemailsequences.EnrollmentInput) (moduleemailsequences.Enrollment, error)
@@ -333,6 +340,7 @@ type Dependencies struct {
 	NurtureCampaignsService         nurtureCampaignsService
 	LeadScoringService              leadScoringService
 	WorkflowAutomationsService      workflowAutomationsService
+	CustomReportsService            customReportsService
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService
@@ -986,6 +994,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/workflow-automations/{automationID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateWorkflowAutomation(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)
+	})
+	mux.HandleFunc("GET /api/report-definitions", func(w http.ResponseWriter, r *http.Request) {
+		handleListCustomReportDefinitions(dependencies.AuthService, dependencies.CustomReportsService, w, r)
+	})
+	mux.HandleFunc("POST /api/report-definitions", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateCustomReportDefinition(dependencies.AuthService, dependencies.CustomReportsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/report-definitions/{definitionID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateCustomReportDefinition(dependencies.AuthService, dependencies.CustomReportsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
