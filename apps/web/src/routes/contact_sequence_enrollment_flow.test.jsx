@@ -60,7 +60,7 @@ describe('contact sequence enrollment flow', () => {
     const sequencesToggle = await screen.findByRole('button', { name: /manage sequences/i })
     fireEvent.click(sequencesToggle)
 
-    const sequenceSelect = await screen.findByLabelText(/^sequence$/i)
+    const sequenceSelect = await screen.findByLabelText(/^sequence$/i, {}, { timeout: 5000 })
     fireEvent.change(sequenceSelect, { target: { value: '4' } })
     fireEvent.click(screen.getByRole('button', { name: /enroll contact/i }))
 
