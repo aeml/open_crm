@@ -17,6 +17,15 @@ type workflowAutomationsListResponse struct {
 	} `json:"meta"`
 }
 
+type workflowAutomationRunsListResponse struct {
+	Data struct {
+		Runs []moduleworkflowautomations.Run `json:"runs"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type workflowAutomationResponse struct {
 	Data struct {
 		Automation moduleworkflowautomations.Automation `json:"automation"`
@@ -58,6 +67,32 @@ func handleListWorkflowAutomations(auth authService, automations workflowAutomat
 
 	response := workflowAutomationsListResponse{}
 	response.Data.Automations = items
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleListWorkflowAutomationRuns(auth authService, automations workflowAutomationsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if automations == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Workflow automations service unavailable")
+		return
+	}
+
+	runs, err := automations.ListRuns(r.Context(), state.Organization.ID, moduleworkflowautomations.RunListQuery{
+		AutomationID: parseQueryInt64(r.URL.Query().Get("automationId")),
+		Limit:        parsePositiveInt(r.URL.Query().Get("limit"), 20),
+	})
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load workflow automation runs")
+		return
+	}
+
+	response := workflowAutomationRunsListResponse{}
+	response.Data.Runs = runs
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }

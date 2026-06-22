@@ -843,3 +843,29 @@ func TestMigrationFilesIncludeWorkflowAutomationActionsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeWorkflowAutomationRunsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "053_workflow_automation_runs.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected workflow automation runs migration to be registered")
+	}
+
+	sql := MigrationSQL("053_workflow_automation_runs.sql")
+	if sql == "" {
+		t.Fatal("expected workflow automation runs migration SQL to be embedded")
+	}
+	for _, expected := range []string{"workflow_automation_runs", "trigger_event_key", "workflow_automation_runs_status_check", "idx_workflow_automation_runs_org_automation_event_unique"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected workflow automation runs migration to include %s", expected)
+		}
+	}
+}

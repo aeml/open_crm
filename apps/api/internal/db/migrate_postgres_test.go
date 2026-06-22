@@ -117,6 +117,18 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"workflow_automations_conditions_json_array_check",
 		"workflow_automations_actions_json_array_check",
 		"workflow_automations_position_check",
+		"workflow_automation_runs_automation_name_check",
+		"workflow_automation_runs_trigger_type_check",
+		"workflow_automation_runs_target_entity_type_check",
+		"workflow_automation_runs_target_entity_id_check",
+		"workflow_automation_runs_event_key_check",
+		"workflow_automation_runs_status_check",
+		"workflow_automation_runs_trigger_payload_json_object_check",
+		"workflow_automation_runs_actions_total_check",
+		"workflow_automation_runs_actions_completed_check",
+		"workflow_automation_runs_retry_count_check",
+		"workflow_automation_runs_action_progress_check",
+		"workflow_automation_runs_terminal_completed_check",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -161,6 +173,10 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_workflow_automations_org_name_unique",
 		"idx_workflow_automations_org_active_position",
 		"idx_workflow_automations_org_trigger",
+		"idx_workflow_automation_runs_org_automation_event_unique",
+		"idx_workflow_automation_runs_org_created",
+		"idx_workflow_automation_runs_org_status",
+		"idx_workflow_automation_runs_org_automation_created",
 		"idx_contact_company_links_unique",
 		"idx_contact_company_links_primary_company",
 		"idx_sessions_token_hash",
@@ -330,10 +346,22 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, conditions_json) VALUES ($1, 'Bad Conditions', 'record_created', 'contact', '{}'::jsonb)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, actions_json) VALUES ($1, 'Bad Actions', 'record_created', 'contact', '{}'::jsonb)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, position) VALUES ($1, 'Bad Position', 'record_created', 'contact', -1)`, organizationID)
-	if _, err := pool.Exec(ctx, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, actions_json, is_active) VALUES ($1, 'New contact automation', 'record_created', 'contact', '{}'::jsonb, 'all', '[{"field":"status","operator":"equals","value":"lead"}]'::jsonb, '[{"type":"create_task","config":{"title":"Call new lead"}}]'::jsonb, TRUE)`, organizationID); err != nil {
+	var workflowAutomationID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, actions_json, is_active) VALUES ($1, 'New contact automation', 'record_created', 'contact', '{}'::jsonb, 'all', '[{"field":"status","operator":"equals","value":"lead"}]'::jsonb, '[{"type":"create_task","config":{"title":"Call new lead"}}]'::jsonb, TRUE) RETURNING id`, organizationID).Scan(&workflowAutomationID); err != nil {
 		t.Fatalf("insert workflow automation: %v", err)
 	}
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automations (organization_id, name, trigger_type, target_entity_type) VALUES ($1, 'new contact automation', 'record_created', 'contact')`, organizationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, trigger_payload_json) VALUES ($1, $2, '', 'record_created', 'contact', 'evt_bad_name', '{}'::jsonb)`, organizationID, workflowAutomationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, status, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 'evt_bad_status', 'waiting', '{}'::jsonb)`, organizationID, workflowAutomationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', '', '{}'::jsonb)`, organizationID, workflowAutomationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, target_entity_id, trigger_event_key, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 0, 'evt_bad_target', '{}'::jsonb)`, organizationID, workflowAutomationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 'evt_bad_payload', '[]'::jsonb)`, organizationID, workflowAutomationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, actions_total, actions_completed, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 'evt_bad_progress', 1, 2, '{}'::jsonb)`, organizationID, workflowAutomationID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, status, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 'evt_bad_terminal', 'succeeded', '{}'::jsonb)`, organizationID, workflowAutomationID)
+	if _, err := pool.Exec(ctx, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, target_entity_id, trigger_event_key, trigger_payload_json, actions_total) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 7, 'contact:7:created', '{"contactId":7}'::jsonb, 1)`, organizationID, workflowAutomationID); err != nil {
+		t.Fatalf("insert workflow automation run: %v", err)
+	}
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 'contact:7:created', '{}'::jsonb)`, organizationID, workflowAutomationID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)

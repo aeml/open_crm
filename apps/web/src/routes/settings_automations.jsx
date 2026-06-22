@@ -5,7 +5,7 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { createWorkflowAutomation, listWorkflowAutomations, updateWorkflowAutomation } from '../lib/workflow_automations'
+import { createWorkflowAutomation, listWorkflowAutomationRuns, listWorkflowAutomations, updateWorkflowAutomation } from '../lib/workflow_automations'
 import { usePageTitle } from '../lib/use_page_title'
 
 const triggerOptions = [
@@ -255,12 +255,29 @@ function automationSummary(automation) {
   return `${triggerLabel(automation.triggerType)} | ${targetLabel(automation.triggerType, automation.targetEntityType)} | ${conditionText} | ${actionText} | order ${automation.position ?? 0}`
 }
 
+function formatRunTime(value) {
+  if (!value) return 'Not recorded'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+function runStatusLabel(status) {
+  if (!status) return 'Unknown'
+  return status.replace(/_/g, ' ')
+}
+
+function runActionProgress(run) {
+  return `${run.actionsCompleted ?? 0}/${run.actionsTotal ?? 0} actions completed`
+}
+
 export function SettingsAutomationsRoute() {
   const { session } = useAuth()
   usePageTitle('Automations')
   const role = session?.membership?.role || ''
   const canManage = role === 'owner' || role === 'admin'
   const [automations, setAutomations] = useState([])
+  const [runs, setRuns] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
   const [status, setStatus] = useState('')
@@ -273,8 +290,12 @@ export function SettingsAutomationsRoute() {
   async function loadAutomations({ signal } = {}) {
     setIsLoading(true)
     try {
-      const nextAutomations = await listWorkflowAutomations({ signal })
+      const [nextAutomations, nextRuns] = await Promise.all([
+        listWorkflowAutomations({ signal }),
+        listWorkflowAutomationRuns({ limit: 10, signal })
+      ])
       setAutomations(nextAutomations)
+      setRuns(nextRuns)
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -441,7 +462,7 @@ export function SettingsAutomationsRoute() {
           <div className="section-header">
             <div>
               <h2>Workflow automations</h2>
-              <p>Define automation triggers, conditions, and action plans now; execution, delays, and run history come in later slices.</p>
+              <p>Define automation triggers, conditions, action plans, and run history metadata now; execution comes in later slices.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading workflow automations...</p> : null}
@@ -468,6 +489,33 @@ export function SettingsAutomationsRoute() {
                 </div>
               </article>
             ))}
+          </div>
+          <div className="card-stack">
+            <div className="section-header">
+              <div>
+                <h3>Recent automation runs</h3>
+                <p className="field-hint">Run records capture idempotency keys, status, action progress, retry count, and errors for the future executor.</p>
+              </div>
+            </div>
+            <div className="record-list" role="list" aria-label="Workflow automation runs">
+              {!isLoading && runs.length === 0 ? (
+                <article className="record-row" role="listitem">
+                  <div>
+                    <p>No automation runs yet.</p>
+                    <p className="field-hint">Trigger execution will populate this history when the workflow runner is added.</p>
+                  </div>
+                </article>
+              ) : runs.map((run) => (
+                <article className={run.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} key={run.id} role="listitem">
+                  <div>
+                    <p>{run.automationName || `Automation #${run.automationId}`}</p>
+                    <p className="field-hint">{run.triggerEventKey} | {formatRunTime(run.createdAt)} | retry {run.retryCount ?? 0}</p>
+                    <p>{run.lastError || runActionProgress(run)}</p>
+                  </div>
+                  <span className="chip">{runStatusLabel(run.status)}</span>
+                </article>
+              ))}
+            </div>
           </div>
         </div>
       </Card>

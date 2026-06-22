@@ -14,25 +14,35 @@ import (
 )
 
 type fakeWorkflowAutomationsService struct {
-	listResult       []moduleworkflowautomations.Automation
-	listErr          error
-	createResult     moduleworkflowautomations.Automation
-	createErr        error
-	updateResult     moduleworkflowautomations.Automation
-	updateErr        error
-	lastListOrgID    int64
-	lastCreateOrgID  int64
-	lastCreateUserID int64
-	lastCreateInput  moduleworkflowautomations.Input
-	lastUpdateOrgID  int64
-	lastUpdateID     int64
-	lastUpdateUserID int64
-	lastUpdateInput  moduleworkflowautomations.Input
+	listResult        []moduleworkflowautomations.Automation
+	listErr           error
+	listRunsResult    []moduleworkflowautomations.Run
+	listRunsErr       error
+	createResult      moduleworkflowautomations.Automation
+	createErr         error
+	updateResult      moduleworkflowautomations.Automation
+	updateErr         error
+	lastListOrgID     int64
+	lastListRunsOrgID int64
+	lastListRunsQuery moduleworkflowautomations.RunListQuery
+	lastCreateOrgID   int64
+	lastCreateUserID  int64
+	lastCreateInput   moduleworkflowautomations.Input
+	lastUpdateOrgID   int64
+	lastUpdateID      int64
+	lastUpdateUserID  int64
+	lastUpdateInput   moduleworkflowautomations.Input
 }
 
 func (f *fakeWorkflowAutomationsService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleworkflowautomations.Automation, error) {
 	f.lastListOrgID = organizationID
 	return f.listResult, f.listErr
+}
+
+func (f *fakeWorkflowAutomationsService) ListRuns(_ context.Context, organizationID int64, query moduleworkflowautomations.RunListQuery) ([]moduleworkflowautomations.Run, error) {
+	f.lastListRunsOrgID = organizationID
+	f.lastListRunsQuery = query
+	return f.listRunsResult, f.listRunsErr
 }
 
 func (f *fakeWorkflowAutomationsService) Create(_ context.Context, organizationID, actorUserID int64, input moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error) {
@@ -89,6 +99,36 @@ func TestListWorkflowAutomationsScopesToOrganization(t *testing.T) {
 	}
 	if len(response.Data.Automations) != 1 || response.Data.Automations[0].TriggerType != "record_created" || len(response.Data.Automations[0].Conditions) != 1 || len(response.Data.Automations[0].Actions) != 1 {
 		t.Fatalf("unexpected workflow automations payload: %#v", response.Data.Automations)
+	}
+}
+
+func TestListWorkflowAutomationRunsScopesToOrganization(t *testing.T) {
+	matched := true
+	service := &fakeWorkflowAutomationsService{listRunsResult: []moduleworkflowautomations.Run{{ID: 11, AutomationID: 5, AutomationName: "New lead follow-up", TriggerType: "record_created", TargetEntityType: "contact", TargetEntityID: 7, TriggerEventKey: "contact:7:created", Status: "failed", TriggerPayload: map[string]any{"contactId": float64(7)}, ConditionResult: &matched, ActionsTotal: 2, ActionsCompleted: 1, RetryCount: 1, LastError: "provider unavailable", CreatedAt: "2026-06-21T23:10:00Z"}}}
+	server := authenticatedWorkflowAutomationsServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/workflow-automation-runs?automationId=5&limit=10", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if service.lastListRunsOrgID != 42 || service.lastListRunsQuery.AutomationID != 5 || service.lastListRunsQuery.Limit != 10 {
+		t.Fatalf("unexpected workflow run list scope: org=%d query=%#v", service.lastListRunsOrgID, service.lastListRunsQuery)
+	}
+	var response struct {
+		Data struct {
+			Runs []moduleworkflowautomations.Run `json:"runs"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(response.Data.Runs) != 1 || response.Data.Runs[0].Status != "failed" || response.Data.Runs[0].TriggerEventKey != "contact:7:created" || response.Data.Runs[0].ConditionResult == nil || !*response.Data.Runs[0].ConditionResult {
+		t.Fatalf("unexpected workflow automation runs payload: %#v", response.Data.Runs)
 	}
 }
 

@@ -3,6 +3,7 @@ package workflowautomations
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +50,49 @@ type Action struct {
 	Config       map[string]any `json:"config"`
 	DelayMinutes int            `json:"delayMinutes,omitempty"`
 	ScheduledAt  *time.Time     `json:"scheduledAt,omitempty"`
+}
+
+type Run struct {
+	ID               int64          `json:"id"`
+	AutomationID     int64          `json:"automationId"`
+	AutomationName   string         `json:"automationName"`
+	TriggerType      string         `json:"triggerType"`
+	TargetEntityType string         `json:"targetEntityType"`
+	TargetEntityID   int64          `json:"targetEntityId,omitempty"`
+	TriggerEventKey  string         `json:"triggerEventKey"`
+	Status           string         `json:"status"`
+	TriggerPayload   map[string]any `json:"triggerPayload"`
+	ConditionResult  *bool          `json:"conditionResult,omitempty"`
+	ActionsTotal     int            `json:"actionsTotal"`
+	ActionsCompleted int            `json:"actionsCompleted"`
+	RetryCount       int            `json:"retryCount"`
+	LastError        string         `json:"lastError"`
+	StartedAt        string         `json:"startedAt"`
+	CompletedAt      string         `json:"completedAt"`
+	CreatedAt        string         `json:"createdAt"`
+	UpdatedAt        string         `json:"updatedAt"`
+}
+
+type RunListQuery struct {
+	AutomationID int64
+	Limit        int
+}
+
+type RunInput struct {
+	TriggerEventKey string         `json:"triggerEventKey"`
+	TargetEntityID  int64          `json:"targetEntityId"`
+	TriggerPayload  map[string]any `json:"triggerPayload"`
+	ConditionResult *bool          `json:"conditionResult"`
+	ActionsTotal    int            `json:"actionsTotal"`
+	Status          string         `json:"status"`
+}
+
+type RunCompletionInput struct {
+	Status           string `json:"status"`
+	ConditionResult  *bool  `json:"conditionResult"`
+	ActionsCompleted int    `json:"actionsCompleted"`
+	RetryCount       int    `json:"retryCount"`
+	LastError        string `json:"lastError"`
 }
 
 type Input struct {
@@ -100,6 +144,111 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		return nil, fmt.Errorf("iterate workflow automations: %w", err)
 	}
 	return automations, nil
+}
+
+func (s *Service) ListRuns(ctx context.Context, organizationID int64, query RunListQuery) ([]Run, error) {
+	if s == nil || s.pool == nil {
+		return nil, fmt.Errorf("workflow automations service not configured")
+	}
+	limit := normalizeRunLimit(query.Limit)
+
+	var rows pgx.Rows
+	var err error
+	if query.AutomationID > 0 {
+		rows, err = s.pool.Query(ctx, runSelect+`
+			WHERE organization_id = $1 AND automation_id = $2
+			ORDER BY created_at DESC, id DESC
+			LIMIT $3
+		`, organizationID, query.AutomationID, limit)
+	} else {
+		rows, err = s.pool.Query(ctx, runSelect+`
+			WHERE organization_id = $1
+			ORDER BY created_at DESC, id DESC
+			LIMIT $2
+		`, organizationID, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list workflow automation runs: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]Run, 0)
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate workflow automation runs: %w", err)
+	}
+	return runs, nil
+}
+
+func (s *Service) RecordRun(ctx context.Context, organizationID, automationID int64, input RunInput) (Run, error) {
+	if s == nil || s.pool == nil {
+		return Run{}, fmt.Errorf("workflow automations service not configured")
+	}
+	input = normalizeRunInput(input)
+	if err := validateRunInput(input); err != nil {
+		return Run{}, err
+	}
+	payloadJSON, err := json.Marshal(input.TriggerPayload)
+	if err != nil {
+		return Run{}, fmt.Errorf("encode workflow automation run payload: %w", err)
+	}
+	var targetEntityID any
+	if input.TargetEntityID > 0 {
+		targetEntityID = input.TargetEntityID
+	}
+
+	run, err := scanRun(s.pool.QueryRow(ctx, `
+		WITH automation AS (
+			SELECT id, name, trigger_type, target_entity_type, jsonb_array_length(actions_json) AS action_count
+			FROM workflow_automations
+			WHERE organization_id = $1 AND id = $2
+		)
+		INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, target_entity_id, trigger_event_key, status, trigger_payload_json, condition_result, actions_total, started_at, completed_at)
+		SELECT $1, id, name, trigger_type, target_entity_type, $3, $4, $5, $6::jsonb, $7, COALESCE(NULLIF($8, 0), action_count),
+		       CASE WHEN $5 = 'queued' THEN NULL ELSE NOW() END,
+		       CASE WHEN $5 IN ('succeeded', 'failed', 'skipped', 'cancelled') THEN NOW() ELSE NULL END
+		FROM automation
+		ON CONFLICT (organization_id, automation_id, trigger_event_key) DO UPDATE
+		SET updated_at = workflow_automation_runs.updated_at
+		RETURNING `+runReturningColumns+`
+	`, organizationID, automationID, targetEntityID, input.TriggerEventKey, input.Status, string(payloadJSON), input.ConditionResult, input.ActionsTotal))
+	if err != nil {
+		return Run{}, mapRunSaveError(err)
+	}
+	return run, nil
+}
+
+func (s *Service) CompleteRun(ctx context.Context, organizationID, runID int64, input RunCompletionInput) (Run, error) {
+	if s == nil || s.pool == nil {
+		return Run{}, fmt.Errorf("workflow automations service not configured")
+	}
+	input = normalizeRunCompletionInput(input)
+	if err := validateRunCompletionInput(input); err != nil {
+		return Run{}, err
+	}
+	run, err := scanRun(s.pool.QueryRow(ctx, `
+		UPDATE workflow_automation_runs
+		SET status = $3,
+		    condition_result = COALESCE($4::boolean, condition_result),
+		    actions_completed = CASE WHEN $3 = 'succeeded' AND $5 = 0 THEN actions_total ELSE $5 END,
+		    retry_count = $6,
+		    last_error = $7,
+		    started_at = COALESCE(started_at, NOW()),
+		    completed_at = NOW(),
+		    updated_at = NOW()
+		WHERE organization_id = $1 AND id = $2
+		RETURNING `+runReturningColumns+`
+	`, organizationID, runID, input.Status, input.ConditionResult, input.ActionsCompleted, input.RetryCount, input.LastError))
+	if err != nil {
+		return Run{}, mapRunSaveError(err)
+	}
+	return run, nil
 }
 
 func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64, input Input) (Automation, error) {
@@ -203,6 +352,13 @@ const automationSelect = `
 	FROM workflow_automations
 `
 
+const runReturningColumns = `id, automation_id, automation_name, trigger_type, target_entity_type, COALESCE(target_entity_id, 0), trigger_event_key, status, trigger_payload_json, condition_result, actions_total, actions_completed, retry_count, last_error, COALESCE(TO_CHAR(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), COALESCE(TO_CHAR(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
+
+const runSelect = `
+	SELECT ` + runReturningColumns + `
+	FROM workflow_automation_runs
+`
+
 type automationScanner interface {
 	Scan(dest ...any) error
 }
@@ -257,6 +413,131 @@ func scanAutomation(scanner automationScanner) (Automation, error) {
 		automation.Actions = []Action{}
 	}
 	return automation, nil
+}
+
+func scanRun(scanner automationScanner) (Run, error) {
+	var run Run
+	var payloadJSON []byte
+	var conditionResult sql.NullBool
+	if err := scanner.Scan(
+		&run.ID,
+		&run.AutomationID,
+		&run.AutomationName,
+		&run.TriggerType,
+		&run.TargetEntityType,
+		&run.TargetEntityID,
+		&run.TriggerEventKey,
+		&run.Status,
+		&payloadJSON,
+		&conditionResult,
+		&run.ActionsTotal,
+		&run.ActionsCompleted,
+		&run.RetryCount,
+		&run.LastError,
+		&run.StartedAt,
+		&run.CompletedAt,
+		&run.CreatedAt,
+		&run.UpdatedAt,
+	); err != nil {
+		return Run{}, err
+	}
+	if len(payloadJSON) == 0 {
+		payloadJSON = []byte("{}")
+	}
+	if err := json.Unmarshal(payloadJSON, &run.TriggerPayload); err != nil {
+		return Run{}, fmt.Errorf("decode workflow automation run payload: %w", err)
+	}
+	if run.TriggerPayload == nil {
+		run.TriggerPayload = map[string]any{}
+	}
+	if conditionResult.Valid {
+		value := conditionResult.Bool
+		run.ConditionResult = &value
+	}
+	return run, nil
+}
+
+func normalizeRunLimit(limit int) int {
+	if limit <= 0 {
+		return 20
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
+}
+
+func normalizeRunInput(input RunInput) RunInput {
+	input.TriggerEventKey = strings.TrimSpace(input.TriggerEventKey)
+	input.Status = normalizeRunStatus(input.Status)
+	if input.Status == "" {
+		input.Status = "running"
+	}
+	input.TriggerPayload = normalizeConfigMap(input.TriggerPayload)
+	if input.TriggerPayload == nil {
+		input.TriggerPayload = map[string]any{}
+	}
+	return input
+}
+
+func normalizeRunCompletionInput(input RunCompletionInput) RunCompletionInput {
+	input.Status = normalizeRunStatus(input.Status)
+	input.LastError = strings.TrimSpace(input.LastError)
+	return input
+}
+
+func normalizeRunStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "queued":
+		return "queued"
+	case "running":
+		return "running"
+	case "succeeded", "success", "completed":
+		return "succeeded"
+	case "failed", "failure", "error":
+		return "failed"
+	case "skipped", "skip":
+		return "skipped"
+	case "cancelled", "canceled":
+		return "cancelled"
+	default:
+		return strings.TrimSpace(status)
+	}
+}
+
+func validateRunInput(input RunInput) error {
+	if input.TriggerEventKey == "" || !isAllowedRunStatus(input.Status) || input.TargetEntityID < 0 || input.ActionsTotal < 0 {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func validateRunCompletionInput(input RunCompletionInput) error {
+	if !isTerminalRunStatus(input.Status) || input.ActionsCompleted < 0 || input.RetryCount < 0 {
+		return ErrInvalidInput
+	}
+	if input.Status == "failed" && input.LastError == "" {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+func isAllowedRunStatus(status string) bool {
+	switch status {
+	case "queued", "running", "succeeded", "failed", "skipped", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTerminalRunStatus(status string) bool {
+	switch status {
+	case "succeeded", "failed", "skipped", "cancelled":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeInput(input Input) Input {
@@ -793,4 +1074,18 @@ func mapSaveError(err error) error {
 		}
 	}
 	return fmt.Errorf("save workflow automation: %w", err)
+}
+
+func mapRunSaveError(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23503", "23514", "22P02":
+			return ErrInvalidInput
+		}
+	}
+	return fmt.Errorf("save workflow automation run: %w", err)
 }

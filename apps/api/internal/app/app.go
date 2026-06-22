@@ -256,6 +256,7 @@ type leadScoringService interface {
 
 type workflowAutomationsService interface {
 	ListByOrganization(context.Context, int64) ([]moduleworkflowautomations.Automation, error)
+	ListRuns(context.Context, int64, moduleworkflowautomations.RunListQuery) ([]moduleworkflowautomations.Run, error)
 	Create(context.Context, int64, int64, moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error)
 	Update(context.Context, int64, int64, int64, moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error)
 }
@@ -976,6 +977,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("GET /api/workflow-automations", func(w http.ResponseWriter, r *http.Request) {
 		handleListWorkflowAutomations(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)
+	})
+	mux.HandleFunc("GET /api/workflow-automation-runs", func(w http.ResponseWriter, r *http.Request) {
+		handleListWorkflowAutomationRuns(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)
 	})
 	mux.HandleFunc("POST /api/workflow-automations", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateWorkflowAutomation(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)

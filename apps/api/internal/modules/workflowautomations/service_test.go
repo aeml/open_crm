@@ -146,6 +146,61 @@ func TestPlannedActionTimeAppliesDelayAndSchedule(t *testing.T) {
 	}
 }
 
+func TestNormalizeRunInputDefaultsStatusAndPayload(t *testing.T) {
+	matched := true
+	input := normalizeRunInput(RunInput{
+		TriggerEventKey: " contact:7:created ",
+		TargetEntityID:  7,
+		TriggerPayload:  map[string]any{" email ": " ada@example.com ", "blank": "   "},
+		ConditionResult: &matched,
+		ActionsTotal:    2,
+	})
+
+	if input.TriggerEventKey != "contact:7:created" || input.Status != "running" || input.TriggerPayload["email"] != "ada@example.com" || len(input.TriggerPayload) != 1 {
+		t.Fatalf("expected normalized run input, got %#v", input)
+	}
+	if err := validateRunInput(input); err != nil {
+		t.Fatalf("expected normalized run input to validate: %v", err)
+	}
+	if normalizeRunLimit(0) != 20 || normalizeRunLimit(250) != 100 || normalizeRunLimit(10) != 10 {
+		t.Fatal("expected run limits to default and clamp")
+	}
+}
+
+func TestValidateRunInputRejectsInvalidRuns(t *testing.T) {
+	for _, input := range []RunInput{
+		normalizeRunInput(RunInput{TriggerEventKey: "", Status: "running"}),
+		normalizeRunInput(RunInput{TriggerEventKey: "evt", Status: "waiting"}),
+		normalizeRunInput(RunInput{TriggerEventKey: "evt", TargetEntityID: -1}),
+		normalizeRunInput(RunInput{TriggerEventKey: "evt", ActionsTotal: -1}),
+	} {
+		if err := validateRunInput(input); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("expected invalid run input for %#v, got %v", input, err)
+		}
+	}
+}
+
+func TestValidateRunCompletionRejectsInvalidRuns(t *testing.T) {
+	for _, input := range []RunCompletionInput{
+		normalizeRunCompletionInput(RunCompletionInput{Status: "running"}),
+		normalizeRunCompletionInput(RunCompletionInput{Status: "failed"}),
+		normalizeRunCompletionInput(RunCompletionInput{Status: "succeeded", ActionsCompleted: -1}),
+		normalizeRunCompletionInput(RunCompletionInput{Status: "succeeded", RetryCount: -1}),
+	} {
+		if err := validateRunCompletionInput(input); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("expected invalid run completion input for %#v, got %v", input, err)
+		}
+	}
+
+	input := normalizeRunCompletionInput(RunCompletionInput{Status: "error", LastError: " provider failed ", ActionsCompleted: 1, RetryCount: 2})
+	if input.Status != "failed" || input.LastError != "provider failed" {
+		t.Fatalf("expected normalized failure completion, got %#v", input)
+	}
+	if err := validateRunCompletionInput(input); err != nil {
+		t.Fatalf("expected failed completion with error to validate: %v", err)
+	}
+}
+
 func TestEvaluateConditionsAppliesAllAndAnyLogic(t *testing.T) {
 	fields := map[string]any{
 		"status":    "lead",

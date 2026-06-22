@@ -1920,6 +1920,7 @@ Progress:
 - `1.5.4` (visual workflow builder foundation): complete. Added a guided Settings > Automations builder that visualizes trigger, condition, and action steps; provides target-aware condition field/operator controls; adds/removes condition chips and ordered action cards; and keeps advanced JSON editing as the persisted source of truth. Drag/drop layout, nested branches, full action-specific forms, record hydration previews, execution, delays/schedules, run history, and retry/idempotency remain future slices.
 - `1.5.5` (scheduled/time-delay action foundation): complete. Added validated per-action timing metadata for relative `delayMinutes` and absolute `scheduledAt` plans, normalized scheduled action times to UTC, exposed timing controls in the visual builder, and added a pure planned-action-time helper for the future background runner. Trigger detection, action queue persistence, due-action selection, provider dispatch, run history, loop protection, and retry/idempotency remain future slices.
 - `1.5.6` (approval/human-in-the-loop action foundation): complete. Added a validated `request_approval` workflow action definition with approval name, approver role, and message metadata; normalized approver roles for admin, owner, and record-owner routing; exposed approval action fields in the visual builder; and kept advanced JSON editing as the persisted source of truth. Approval queues, runtime pause/resume behavior, approver notifications, audit history, and execution gating remain future slices.
+- `1.5.7` (automation run history/retry foundation): complete. Added persistent workflow automation run records with per-automation idempotency keys, statuses, trigger payload metadata, condition results, action progress, retry count, error text, and UTC timestamps; exposed recent run history through an authenticated API and Settings > Automations panel; and added service helpers for future idempotent run recording and terminal completion. Trigger detection, action queue execution, provider dispatch, loop protection, retry scheduling, and action-level attempt history remain future slices.
 
 Candidate slices:
 
@@ -1929,7 +1930,7 @@ Candidate slices:
 - `1.5.4` Visual workflow builder UI: foundation complete.
 - `1.5.5` Scheduled and time-delay actions on the background job runner (`0.9.3`): foundation complete.
 - `1.5.6` Approval steps and human-in-the-loop actions: foundation complete.
-- `1.5.7` Automation run history, error handling, and safe retry/idempotency.
+- `1.5.7` Automation run history, error handling, and safe retry/idempotency: foundation complete.
 
 Exit criteria:
 

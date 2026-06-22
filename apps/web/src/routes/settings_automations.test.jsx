@@ -32,6 +32,9 @@ describe('settings automations route', () => {
       if (path.endsWith('/api/workflow-automations') && method === 'POST') {
         return jsonResponse({ data: { automation: { id: 8, name: 'Website form follow-up', description: 'Start after public form capture.', triggerType: 'form_submitted', targetEntityType: 'lead_form', triggerConfig: { formPublicId: 'lf_public' }, conditionLogic: 'all', conditions: [{ field: 'leadSource', operator: 'equals', value: 'Website form' }], actions: [{ type: 'create_task', config: { title: 'Call website lead' }, delayMinutes: 30 }, { type: 'request_approval', config: { approvalName: 'Discount approval', approverRole: 'record_owner', message: 'Approve before quote send.' } }], isActive: true, position: 1 } } }, 201)
       }
+      if (path.endsWith('/api/workflow-automation-runs')) {
+        return jsonResponse({ data: { runs: [{ id: 21, automationId: 5, automationName: 'New contact welcome', triggerType: 'record_created', targetEntityType: 'contact', targetEntityId: 7, triggerEventKey: 'contact:7:created', status: 'failed', triggerPayload: { contactId: 7 }, conditionResult: true, actionsTotal: 2, actionsCompleted: 1, retryCount: 1, lastError: 'SMTP provider unavailable.', createdAt: '2026-06-21T23:10:00Z', updatedAt: '2026-06-21T23:11:00Z' }] } })
+      }
       if (path.endsWith('/api/workflow-automations')) {
         return jsonResponse({ data: { automations: [{ id: 5, name: 'New contact welcome', description: 'Start from new contacts.', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditionLogic: 'all', conditions: [{ field: 'status', operator: 'equals', value: 'lead' }], actions: [{ type: 'send_email', config: { subject: 'Welcome', body: 'Thanks for reaching out.' }, scheduledAt: '2030-05-01T15:30:00Z' }], isActive: false, position: 0 }] } })
       }
@@ -47,6 +50,8 @@ describe('settings automations route', () => {
     expect(await screen.findByRole('heading', { name: /new contact welcome/i })).toBeInTheDocument()
     expect(screen.getAllByText(/record created/i).length).toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: /visual workflow builder/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /recent automation runs/i })).toBeInTheDocument()
+    expect(screen.getByText(/smtp provider unavailable/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/^automation name$/i), { target: { value: 'Website form follow-up' } })
     fireEvent.change(screen.getByLabelText(/^description$/i), { target: { value: 'Start after public form capture.' } })
