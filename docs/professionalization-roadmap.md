@@ -1946,11 +1946,12 @@ Goal: move from fixed reports to a self-service analytics layer.
 Progress:
 
 - `1.6.1` (custom report builder foundation): complete. Added organization-scoped custom report definitions for contacts, companies, deals, and tasks with validated selected fields, filters, grouping, and aggregation metadata; exposed authenticated list/create/update APIs; and added a top-level Reports builder UI. Runtime report query execution, chart rendering, dashboards, sharing permissions, scheduled delivery, exports, and analytics read-model/performance work remain future slices.
+- `1.6.2` (chart/visualization type foundation): complete. Extended custom report definitions with validated visualization type metadata for table, bar, line, funnel, pie, and KPI views; exposed the field through authenticated APIs; and added a visualization selector and chips to the Reports builder UI. Runtime chart rendering, report query execution, dashboard widgets, shared/personal dashboard layouts, and export rendering remain future slices.
 
 Candidate slices:
 
 - `1.6.1` Custom report builder (choose object, fields, filters, grouping, aggregation): foundation complete.
-- `1.6.2` Chart/visualization types (table, bar, line, funnel, pie, KPI).
+- `1.6.2` Chart/visualization types (table, bar, line, funnel, pie, KPI): foundation complete.
 - `1.6.3` Configurable dashboards with draggable widgets, shared and personal.
 - `1.6.4` Pipeline/funnel conversion analytics and velocity metrics.
 - `1.6.5` Revenue, activity, and cohort analytics with date-range and owner filters.

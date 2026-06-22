@@ -7,16 +7,17 @@ import (
 
 func TestNormalizeInputTrimsReportDefinition(t *testing.T) {
 	input := normalizeInput(Input{
-		Name:        "  Pipeline revenue  ",
-		Description: "  Revenue by stage  ",
-		SourceType:  " DEALS ",
-		Columns:     []string{" name ", "stageName", "name", "", " valueAmount "},
-		Filters:     []Filter{{Field: " status ", Operator: "not_equals", Value: " lost "}, {Field: "", Operator: "equals", Value: "ignored"}},
-		GroupBy:     " stageName ",
-		Aggregation: Aggregation{Function: "average", Field: " valueAmount "},
+		Name:              "  Pipeline revenue  ",
+		Description:       "  Revenue by stage  ",
+		SourceType:        " DEALS ",
+		VisualizationType: " BAR ",
+		Columns:           []string{" name ", "stageName", "name", "", " valueAmount "},
+		Filters:           []Filter{{Field: " status ", Operator: "not_equals", Value: " lost "}, {Field: "", Operator: "equals", Value: "ignored"}},
+		GroupBy:           " stageName ",
+		Aggregation:       Aggregation{Function: "average", Field: " valueAmount "},
 	})
 
-	if input.Name != "Pipeline revenue" || input.Description != "Revenue by stage" || input.SourceType != "deals" || input.GroupBy != "stageName" {
+	if input.Name != "Pipeline revenue" || input.Description != "Revenue by stage" || input.SourceType != "deals" || input.VisualizationType != "bar" || input.GroupBy != "stageName" {
 		t.Fatalf("unexpected normalized report input: %#v", input)
 	}
 	if len(input.Columns) != 3 || input.Columns[0] != "name" || input.Columns[2] != "valueAmount" {
@@ -37,6 +38,7 @@ func TestValidateInputRejectsInvalidReportDefinitions(t *testing.T) {
 	for _, input := range []Input{
 		normalizeInput(Input{Name: "", SourceType: "contacts", Columns: []string{"email"}}),
 		normalizeInput(Input{Name: "Bad source", SourceType: "invoices", Columns: []string{"email"}}),
+		normalizeInput(Input{Name: "Bad visualization", SourceType: "contacts", VisualizationType: "scatter", Columns: []string{"email"}}),
 		normalizeInput(Input{Name: "No columns", SourceType: "contacts"}),
 		normalizeInput(Input{Name: "Bad column", SourceType: "contacts", Columns: []string{"invoiceTotal"}}),
 		normalizeInput(Input{Name: "Bad filter", SourceType: "contacts", Columns: []string{"email"}, Filters: []Filter{{Field: "invoiceTotal", Operator: "equals", Value: "10"}}}),
@@ -53,9 +55,10 @@ func TestValidateInputRejectsInvalidReportDefinitions(t *testing.T) {
 
 func TestValidateInputAcceptsBuilderFeatures(t *testing.T) {
 	input := normalizeInput(Input{
-		Name:       "Sales analytics",
-		SourceType: "deals",
-		Columns:    []string{"name", "stageName", "valueAmount", "expectedCloseDate"},
+		Name:              "Sales analytics",
+		SourceType:        "deals",
+		VisualizationType: "line",
+		Columns:           []string{"name", "stageName", "valueAmount", "expectedCloseDate"},
 		Filters: []Filter{
 			{Field: "status", Operator: "equals", Value: "open"},
 			{Field: "expectedCloseDate", Operator: "before", Value: "2026-12-31"},

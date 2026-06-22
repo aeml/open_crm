@@ -27,14 +27,15 @@ type customReportDefinitionResponse struct {
 }
 
 type customReportDefinitionRequest struct {
-	Name        string                          `json:"name"`
-	Description string                          `json:"description"`
-	SourceType  string                          `json:"sourceType"`
-	Columns     []string                        `json:"columns"`
-	Filters     []modulecustomreports.Filter    `json:"filters"`
-	GroupBy     string                          `json:"groupBy"`
-	Aggregation modulecustomreports.Aggregation `json:"aggregation"`
-	IsActive    *bool                           `json:"isActive"`
+	Name              string                          `json:"name"`
+	Description       string                          `json:"description"`
+	SourceType        string                          `json:"sourceType"`
+	VisualizationType string                          `json:"visualizationType"`
+	Columns           []string                        `json:"columns"`
+	Filters           []modulecustomreports.Filter    `json:"filters"`
+	GroupBy           string                          `json:"groupBy"`
+	Aggregation       modulecustomreports.Aggregation `json:"aggregation"`
+	IsActive          *bool                           `json:"isActive"`
 }
 
 func handleListCustomReportDefinitions(auth authService, reports customReportsService, w http.ResponseWriter, r *http.Request) {
@@ -112,14 +113,15 @@ func handleUpdateCustomReportDefinition(auth authService, reports customReportsS
 
 func customReportDefinitionInput(request customReportDefinitionRequest) modulecustomreports.Input {
 	return modulecustomreports.Input{
-		Name:        request.Name,
-		Description: request.Description,
-		SourceType:  request.SourceType,
-		Columns:     request.Columns,
-		Filters:     request.Filters,
-		GroupBy:     request.GroupBy,
-		Aggregation: request.Aggregation,
-		IsActive:    request.IsActive,
+		Name:              request.Name,
+		Description:       request.Description,
+		SourceType:        request.SourceType,
+		VisualizationType: request.VisualizationType,
+		Columns:           request.Columns,
+		Filters:           request.Filters,
+		GroupBy:           request.GroupBy,
+		Aggregation:       request.Aggregation,
+		IsActive:          request.IsActive,
 	}
 }
 

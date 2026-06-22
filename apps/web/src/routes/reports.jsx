@@ -15,6 +15,15 @@ const sourceOptions = [
   { value: 'tasks', label: 'Tasks' }
 ]
 
+const visualizationOptions = [
+  { value: 'table', label: 'Table' },
+  { value: 'bar', label: 'Bar chart' },
+  { value: 'line', label: 'Line chart' },
+  { value: 'funnel', label: 'Funnel' },
+  { value: 'pie', label: 'Pie chart' },
+  { value: 'kpi', label: 'KPI card' }
+]
+
 const fieldOptionsBySource = {
   contacts: [
     { value: 'id', label: 'Contact ID' },
@@ -103,6 +112,10 @@ function sourceLabel(sourceType) {
   return sourceOptions.find((option) => option.value === sourceType)?.label || sourceType
 }
 
+function visualizationLabel(visualizationType) {
+  return visualizationOptions.find((option) => option.value === visualizationType)?.label || visualizationType || 'Table'
+}
+
 function defaultColumns(sourceType) {
   return fieldsForSource(sourceType).slice(0, 4).map((option) => option.value)
 }
@@ -116,6 +129,7 @@ function emptyForm(sourceType = 'contacts') {
     name: '',
     description: '',
     sourceType,
+    visualizationType: 'table',
     columns: defaultColumns(sourceType),
     filters: [],
     groupBy: '',
@@ -131,6 +145,7 @@ function formFromDefinition(definition) {
     name: definition.name || '',
     description: definition.description || '',
     sourceType,
+    visualizationType: definition.visualizationType || 'table',
     columns: definition.columns?.length ? definition.columns : defaultColumns(sourceType),
     filters: definition.filters || [],
     groupBy: definition.groupBy || '',
@@ -167,6 +182,7 @@ function payloadFromForm(form) {
     name: form.name,
     description: form.description,
     sourceType: form.sourceType,
+    visualizationType: form.visualizationType,
     columns: form.columns,
     filters,
     groupBy: form.groupBy,
@@ -182,7 +198,7 @@ function reportSummary(definition) {
   const columns = definition.columns || []
   const filters = definition.filters || []
   const group = definition.groupBy ? `grouped by ${fieldLabel(definition.sourceType, definition.groupBy)}` : 'no grouping'
-  return `${sourceLabel(definition.sourceType)} | ${columns.length} field${columns.length === 1 ? '' : 's'} | ${filters.length} filter${filters.length === 1 ? '' : 's'} | ${group} | ${aggregationSummary(definition)}`
+  return `${visualizationLabel(definition.visualizationType || 'table')} | ${sourceLabel(definition.sourceType)} | ${columns.length} field${columns.length === 1 ? '' : 's'} | ${filters.length} filter${filters.length === 1 ? '' : 's'} | ${group} | ${aggregationSummary(definition)}`
 }
 
 export function ReportsRoute() {
@@ -238,6 +254,7 @@ export function ReportsRoute() {
     setForm((current) => ({
       ...current,
       sourceType,
+      visualizationType: 'table',
       columns: defaultColumns(sourceType),
       filters: [],
       groupBy: '',
@@ -334,6 +351,7 @@ export function ReportsRoute() {
                 </div>
                 <div>
                   <span className="chip">{definition.isActive ? 'Active' : 'Inactive'}</span>
+                  <span className="chip">{visualizationLabel(definition.visualizationType || 'table')}</span>
                   <span className="chip">Definition only</span>
                   {canManage ? <Button className="button-secondary" type="button" onClick={() => startEdit(definition)}>Edit</Button> : null}
                 </div>
@@ -359,6 +377,11 @@ export function ReportsRoute() {
             <Field label="Source object">
               <select className="text-input" value={form.sourceType} onChange={(event) => setSourceType(event.target.value)}>
                 {sourceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Visualization">
+              <select className="text-input" value={form.visualizationType} onChange={(event) => setForm({ ...form, visualizationType: event.target.value })}>
+                {visualizationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </Field>
 

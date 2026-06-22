@@ -31,10 +31,10 @@ describe('reports route', () => {
         return sessionResponse()
       }
       if (path.endsWith('/api/report-definitions') && method === 'POST') {
-        return jsonResponse({ data: { definition: { id: 8, name: 'Pipeline revenue by stage', description: '', sourceType: 'deals', columns: ['id', 'name', 'stageName', 'status'], filters: [{ field: 'status', operator: 'equals', value: 'open' }], groupBy: 'stageName', aggregation: { function: 'sum', field: 'valueAmount' }, isActive: true } } })
+        return jsonResponse({ data: { definition: { id: 8, name: 'Pipeline revenue by stage', description: '', sourceType: 'deals', visualizationType: 'bar', columns: ['id', 'name', 'stageName', 'status'], filters: [{ field: 'status', operator: 'equals', value: 'open' }], groupBy: 'stageName', aggregation: { function: 'sum', field: 'valueAmount' }, isActive: true } } })
       }
       if (path.endsWith('/api/report-definitions')) {
-        return jsonResponse({ data: { definitions: [{ id: 3, name: 'Contact source report', description: 'Contacts by lead source', sourceType: 'contacts', columns: ['firstName', 'lastName', 'email'], filters: [{ field: 'status', operator: 'equals', value: 'lead' }], groupBy: 'leadSource', aggregation: { function: 'count', field: '' }, isActive: true }] } })
+        return jsonResponse({ data: { definitions: [{ id: 3, name: 'Contact source report', description: 'Contacts by lead source', sourceType: 'contacts', visualizationType: 'pie', columns: ['firstName', 'lastName', 'email'], filters: [{ field: 'status', operator: 'equals', value: 'lead' }], groupBy: 'leadSource', aggregation: { function: 'count', field: '' }, isActive: true }] } })
       }
       return jsonResponse({ data: { unreadCount: 0 } })
     })
@@ -50,6 +50,7 @@ describe('reports route', () => {
 
     fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Pipeline revenue by stage' } })
     fireEvent.change(screen.getByLabelText(/^source object$/i), { target: { value: 'deals' } })
+    fireEvent.change(screen.getByLabelText(/^visualization$/i), { target: { value: 'bar' } })
     fireEvent.click(screen.getByRole('button', { name: /add filter/i }))
     fireEvent.change(screen.getByLabelText(/^filter field 1$/i), { target: { value: 'status' } })
     fireEvent.change(screen.getByLabelText(/^filter value 1$/i), { target: { value: 'open' } })
@@ -67,6 +68,7 @@ describe('reports route', () => {
         name: 'Pipeline revenue by stage',
         description: '',
         sourceType: 'deals',
+        visualizationType: 'bar',
         columns: ['id', 'name', 'stageName', 'status'],
         filters: [{ field: 'status', operator: 'equals', value: 'open' }],
         groupBy: 'stageName',

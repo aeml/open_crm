@@ -895,3 +895,29 @@ func TestMigrationFilesIncludeCustomReportDefinitionsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeCustomReportVisualizationsMigration(t *testing.T) {
+	files := MigrationFiles()
+
+	found := false
+	for _, file := range files {
+		if file == "055_custom_report_visualizations.sql" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected custom report visualizations migration to be registered")
+	}
+
+	sql := MigrationSQL("055_custom_report_visualizations.sql")
+	if sql == "" {
+		t.Fatal("expected custom report visualizations migration SQL to be embedded")
+	}
+	for _, expected := range []string{"visualization_type", "custom_report_definitions_visualization_type_check", "idx_custom_report_definitions_org_visualization"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected custom report visualizations migration to include %s", expected)
+		}
+	}
+}

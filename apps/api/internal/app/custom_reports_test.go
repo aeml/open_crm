@@ -64,7 +64,7 @@ func authenticatedCustomReportsServer(service *fakeCustomReportsService, role st
 }
 
 func TestListCustomReportDefinitionsScopesToOrganization(t *testing.T) {
-	service := &fakeCustomReportsService{listResult: []modulecustomreports.Definition{{ID: 5, Name: "Pipeline revenue", SourceType: "deals", Columns: []string{"name", "valueAmount"}, Filters: []modulecustomreports.Filter{{Field: "status", Operator: "equals", Value: "open"}}, GroupBy: "stageName", Aggregation: modulecustomreports.Aggregation{Function: "sum", Field: "valueAmount"}, IsActive: true}}}
+	service := &fakeCustomReportsService{listResult: []modulecustomreports.Definition{{ID: 5, Name: "Pipeline revenue", SourceType: "deals", VisualizationType: "bar", Columns: []string{"name", "valueAmount"}, Filters: []modulecustomreports.Filter{{Field: "status", Operator: "equals", Value: "open"}}, GroupBy: "stageName", Aggregation: modulecustomreports.Aggregation{Function: "sum", Field: "valueAmount"}, IsActive: true}}}
 	server := authenticatedCustomReportsServer(service, "member")
 
 	request := httptest.NewRequest(http.MethodGet, "/api/report-definitions", nil)
@@ -87,7 +87,7 @@ func TestListCustomReportDefinitionsScopesToOrganization(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if len(response.Data.Definitions) != 1 || response.Data.Definitions[0].SourceType != "deals" || response.Data.Definitions[0].Aggregation.Function != "sum" {
+	if len(response.Data.Definitions) != 1 || response.Data.Definitions[0].SourceType != "deals" || response.Data.Definitions[0].VisualizationType != "bar" || response.Data.Definitions[0].Aggregation.Function != "sum" {
 		t.Fatalf("unexpected custom report definitions payload: %#v", response.Data.Definitions)
 	}
 }
@@ -96,7 +96,7 @@ func TestCreateCustomReportDefinitionRequiresWriterAndUsesCurrentOrganization(t 
 	service := &fakeCustomReportsService{createResult: modulecustomreports.Definition{ID: 8, Name: "Contact source report", SourceType: "contacts", IsActive: true}}
 	server := authenticatedCustomReportsServer(service, "member")
 
-	body := bytes.NewBufferString(`{"name":"Contact source report","description":"Contacts by source","sourceType":"contacts","columns":["firstName","lastName","email"],"filters":[{"field":"status","operator":"equals","value":"lead"}],"groupBy":"leadSource","aggregation":{"function":"count"},"isActive":true}`)
+	body := bytes.NewBufferString(`{"name":"Contact source report","description":"Contacts by source","sourceType":"contacts","visualizationType":"pie","columns":["firstName","lastName","email"],"filters":[{"field":"status","operator":"equals","value":"lead"}],"groupBy":"leadSource","aggregation":{"function":"count"},"isActive":true}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/report-definitions", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -107,7 +107,7 @@ func TestCreateCustomReportDefinitionRequiresWriterAndUsesCurrentOrganization(t 
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
 	}
-	if service.lastCreateOrgID != 42 || service.lastCreateUser != 1 || service.lastCreateInput.SourceType != "contacts" || len(service.lastCreateInput.Columns) != 3 || len(service.lastCreateInput.Filters) != 1 || service.lastCreateInput.GroupBy != "leadSource" || service.lastCreateInput.Aggregation.Function != "count" {
+	if service.lastCreateOrgID != 42 || service.lastCreateUser != 1 || service.lastCreateInput.SourceType != "contacts" || service.lastCreateInput.VisualizationType != "pie" || len(service.lastCreateInput.Columns) != 3 || len(service.lastCreateInput.Filters) != 1 || service.lastCreateInput.GroupBy != "leadSource" || service.lastCreateInput.Aggregation.Function != "count" {
 		t.Fatalf("unexpected custom report create input: org=%d user=%d input=%#v", service.lastCreateOrgID, service.lastCreateUser, service.lastCreateInput)
 	}
 }
@@ -137,7 +137,7 @@ func TestUpdateCustomReportDefinitionScopesToOrganization(t *testing.T) {
 	service := &fakeCustomReportsService{updateResult: modulecustomreports.Definition{ID: 9, Name: "Task aging", SourceType: "tasks", IsActive: false}}
 	server := authenticatedCustomReportsServer(service, "admin")
 
-	body := bytes.NewBufferString(`{"name":"Task aging","description":"Open tasks by assignee","sourceType":"tasks","columns":["title","status","dueAt"],"filters":[{"field":"status","operator":"notEquals","value":"completed"}],"groupBy":"assignedToUserId","aggregation":{"function":"max","field":"dueAt"},"isActive":false}`)
+	body := bytes.NewBufferString(`{"name":"Task aging","description":"Open tasks by assignee","sourceType":"tasks","visualizationType":"kpi","columns":["title","status","dueAt"],"filters":[{"field":"status","operator":"notEquals","value":"completed"}],"groupBy":"assignedToUserId","aggregation":{"function":"max","field":"dueAt"},"isActive":false}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/report-definitions/9", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -148,7 +148,7 @@ func TestUpdateCustomReportDefinitionScopesToOrganization(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
 	}
-	if service.lastUpdateOrgID != 42 || service.lastUpdateID != 9 || service.lastUpdateUser != 1 || service.lastUpdateInput.SourceType != "tasks" || service.lastUpdateInput.GroupBy != "assignedToUserId" || service.lastUpdateInput.Aggregation.Field != "dueAt" {
+	if service.lastUpdateOrgID != 42 || service.lastUpdateID != 9 || service.lastUpdateUser != 1 || service.lastUpdateInput.SourceType != "tasks" || service.lastUpdateInput.VisualizationType != "kpi" || service.lastUpdateInput.GroupBy != "assignedToUserId" || service.lastUpdateInput.Aggregation.Field != "dueAt" {
 		t.Fatalf("unexpected custom report update routing: org=%d id=%d user=%d input=%#v", service.lastUpdateOrgID, service.lastUpdateID, service.lastUpdateUser, service.lastUpdateInput)
 	}
 	if service.lastUpdateInput.IsActive == nil || *service.lastUpdateInput.IsActive != inactive {
