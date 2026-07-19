@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Open CRM isolated restore drill weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:15:00 UTC
+Persistent=true
+RandomizedDelaySec=30m
+Unit=open-crm-restore-drill.service
+
+[Install]
+WantedBy=timers.target

@@ -6,17 +6,19 @@
 
 > Built by [Robert Mendola](https://mendola.tech)
 
-Open CRM is a full-stack CRM and business operations platform built to support the everyday workflow of a small team: managing customers, companies, deals, tasks, notes, team users, and operational visibility in one system. It is designed to look and behave like normal business software rather than a demo app, with a clear product surface, explicit backend APIs, durable data storage, and deployment automation.
+Open CRM is a full-stack, self-hostable revenue-and-client operations CRM for small B2B service teams. It is designed around a coherent lead-to-client workflow—ownership, communication, pipeline, quoting, and handoff—without requiring enterprise CRM administration or an oversized dependency stack.
 
 Live links:
 - App: https://crm.mendola.tech
 - API: https://crmserver.mendola.tech
 - Repo: https://github.com/aeml/open_crm
 
-Preview:
+Product direction and current maturity are documented in:
 
-![Open CRM dashboard screenshot](docs/media/dashboard-summary.png)
-![Open CRM record detail workflow screenshot](docs/media/record-detail-workflow.png)
+- [`docs/product-vision.md`](docs/product-vision.md) — target customer, critical journey, and convergence scope
+- [`docs/capability-matrix.md`](docs/capability-matrix.md) — canonical evidence-backed capability status
+- [`docs/security-surface-inventory.md`](docs/security-surface-inventory.md) — route/background-operation controls and known evidence gaps
+- [`docs/project-convergence-goal.md`](docs/project-convergence-goal.md) — execution order and definition of done
 
 ## Overview
 
@@ -27,7 +29,7 @@ Open CRM is a production-oriented modular monolith made up of:
 - Docker-based local and deployment workflows
 - GitHub Actions CI/CD for testing and rollout
 
-The application covers core CRM workflows: authentication, organization bootstrap, user management, contacts, companies, deals, tasks, notes, dashboard summaries, saved views, imports, exports, audit history, and notifications.
+The production-capable core covers authentication, user roles and lifecycle, contacts, companies, deals, tasks, notes, record followers, teammate mentions, focused activity, admin-configurable pipelines with stable stages, explainable probability-weighted forecasting, snapshot-backed sales activity reporting, bounded deal follow-up task rules, mapped CSV imports with rollback, reversible bulk maintenance, reviewed contact/client duplicate merge, bounded typed contact/client custom fields, explicit archived-record recovery, live explainable data-quality queues, saved views, exports, audit history, and organization-scoped access. The repository also contains broad post-MVP foundations for billing, mailbox sync, sequences, calling/SMS/calendar, quoting, lead generation, general-purpose workflows, and custom reporting. Those foundations have different maturity levels and are not all complete product outcomes; the capability matrix is authoritative.
 
 ## Why This Project Matters
 
@@ -39,19 +41,32 @@ This repo is meant to demonstrate the kind of engineering used in practical busi
 - CI/CD quality gates for tests, linting, builds, formatting, and dependency hygiene
 - a scalable architecture choice for a CRM product: a modular monolith that stays easy to debug and evolve
 
-## Features
+## Current Product Surface
 
-- Authentication with server-side sessions, secure cookie handling, setup-password onboarding, and rate-limited auth flows
-- Multi-user organization support with role-aware settings, user management, profile updates, and preferences
-- CRM records for contacts, companies, and deals
-- Task and note workflows attached to CRM records
-- Dashboard summaries for operational follow-up
-- Saved views and filtering for list workflows
-- CSV import preview for contacts and companies
-- CSV export for contacts, companies, deals, and tasks
-- Audit events for admin-facing lifecycle tracking
-- Notifications and unread-count workflows
-- Responsive React UI with route-based navigation and automated frontend tests
+Production-capable core:
+
+- Server-side session authentication, one-time password setup, CSRF/origin protection, and rate-limited auth flows
+- Organization-scoped owner/admin/member/viewer roles and tenant isolation
+- Contacts, companies, deals, tasks, notes, activity, ownership, filters, pagination, and saved views
+- Admin-managed pipelines with bounded stage creation, renaming, outcome classification, configurable open-stage probability, exact reordering, default selection, and stable stage identities for existing deals
+- Explainable period forecasts with unweighted, won, stage-weighted, owner, unassigned, and stage-assumption rollups plus close-date filter parity across deal lists, saved views, and CSV exports
+- Snapshot-backed sales activity reports with bounded UTC date/teammate filters, exact deal and follow-up counts, outcome win rate, event-based stage movement, honest history coverage, and deal drill-down
+- Admin-managed deal rules that create one assigned, auditable, idempotent follow-up task on deal creation, a real stage change, or archive
+- Exact overdue and rolling-24-hour task surfaces with preference-aware assignment events and durable, replay-safe in-app reminders
+- Record following, explicit teammate mentions, relevant notification links, and followed/team activity digests
+- Dry-run CSV mapping, idempotent tracked imports, row error downloads, bounded bulk archive/reassignment/status changes with safe rollback, field-resolved contact/client duplicate merge, and admin-defined typed contact/client fields carried through forms, filters, saved views, imports, exports, and duplicate review
+- Searchable contact/client/deal/task archive history with role-aware restore, dependency safeguards, permanent merge-source protection, retained relationships, and transactional activity/audit evidence
+- Live data-quality queues for missing ownership/contact details, stale or incomplete deals, unscheduled tasks, and business-profile-specific client/account gaps, with explainable counts and direct cleanup links
+- Tenant-scoped CSV exports for all four core record types, with custom columns, visible-filter parity, a tested 10,000-row synchronous ceiling, and explicit refusal instead of silent truncation
+- Audit events, notification center, and documented archive-with-history-retention semantics
+- Responsive React UI with route-level tests and consistent loading/error/permission states
+
+In convergence:
+
+- Billing plans and limits currently use a fake provider; Stripe is not implemented
+- Email has real Postmark, SMTP, IMAP, Gmail, and Microsoft Graph adapters; sequence delivery now uses the durable PostgreSQL runner, while reply detection, bounce/complaint handling, and production deliverability controls remain incomplete
+- Calling, SMS, and calendar workflows currently use fake providers
+- Quote/signature, marketing, general-purpose workflow, and report-builder foundations still need their real runtime or provider outcome; the narrower deal task automation surface is executable
 
 ## Architecture
 
@@ -70,9 +85,10 @@ graph LR
 ```
 
 Engineering notes:
-- Backend routes include auth, users, contacts, companies, deals, tasks, notes, saved views, imports, exports, notifications, audit events, `/healthz`, and `/readyz`.
+- Backend routes span the core CRM plus billing, email, communication, quoting, lead-generation, workflow-definition, and report-definition foundations.
 - Authentication uses Argon2id password hashing and an `HttpOnly` same-site session cookie backed by database session records.
 - The API applies CSRF protection for state-changing requests, structured request logging, request IDs, security headers, and readiness checks.
+- Mailbox sync, email sequences, and meeting/task reminders run through a durable PostgreSQL-backed job system with idempotent enqueueing, leased claims, retries, dead letters, and operator recovery.
 - The codebase documents major architectural decisions in `docs/adr/`.
 
 ## Tech Stack
@@ -80,7 +96,7 @@ Engineering notes:
 | Layer | Technology |
 |---|---|
 | Frontend | React 18, Vite, React Router, JavaScript, CSS |
-| Backend | Go 1.23, `net/http`, `ServeMux`, `pgx/v5` |
+| Backend | Go 1.26, `net/http`, `ServeMux`, `pgx/v5` |
 | Database | PostgreSQL 16 |
 | Auth | Argon2id password hashing, server-side sessions, cookie authentication |
 | Local infra | Docker, Docker Compose, Make |
@@ -90,11 +106,13 @@ Engineering notes:
 ## Local Development
 
 Prerequisites:
-- Go 1.23+
-- Node.js 18.x and npm 9 or 10
+- Go 1.26.5
+- Node.js 24.x and npm 10
 - Docker with Compose plugin
 
 The frontend runtime is pinned in `.nvmrc` and `.node-version`.
+Supported runtime lines, audit gates, and the minimal-dependency exception
+process are defined in [`docs/dependency-policy.md`](docs/dependency-policy.md).
 
 Quick start:
 
@@ -116,13 +134,22 @@ make db-seed
 make api-dev
 make web-dev
 make test
+make test-backup-restore
+make test-monitoring
+```
+
+The browser journey intentionally requires a disposable PostgreSQL database; it will not silently use the normal development database:
+
+```bash
+cd apps/web
+OPEN_CRM_E2E_DATABASE_URL='postgres://open_crm:open_crm@127.0.0.1:5432/open_crm_e2e?sslmode=disable' npm run test:e2e
 ```
 
 Manual verification commands used by CI:
 
 ```bash
 cd apps/api && gofmt -l . && go vet ./... && go test ./...
-cd apps/web && npm test && npm run lint && npm run build
+cd apps/web && npm test && npm run lint && npm run build:checked
 ```
 
 Local environment defaults come from `example.env`:
@@ -139,19 +166,22 @@ WEB_BASE_URL=http://localhost:5173
 
 Frontend:
 - `.github/workflows/frontend-pages.yml`
-- Runs `npm test` and `npm run build:pages` from `apps/web`
-- Deploys the built frontend to GitHub Pages
+- Called by `.github/workflows/ci.yml` only after backend, frontend, real-PostgreSQL browser, and encrypted backup/restore jobs pass on `main`
+- Rebuilds the Pages artifact, deploys it, and verifies the published URL
 
 Backend:
 - `.github/workflows/backend-deploy.yml`
+- Called by `.github/workflows/ci.yml` only after backend, frontend, real-PostgreSQL browser, and encrypted backup/restore jobs pass on `main`
 - Syncs the repo to a remote host over SSH
 - Writes `.env.production` from the `DEPLOY_ENV` secret
-- Runs `scripts/remote-deploy.sh`, which builds the API image, starts PostgreSQL, runs migrations, and brings the API up with `docker-compose.deploy.yml`
+- Runs `scripts/remote-deploy.sh` with the commit SHA, which builds an immutable API image, starts PostgreSQL, enforces expand/contract migration policy, runs migrations, and brings the API up with `docker-compose.deploy.yml`
+- Verifies container health and the exact release identity locally, automatically restores the previous image after failed readiness when schema-compatible, and then verifies the public `/healthz` and `/readyz` release header
 
 Operational details already documented in the repo:
 - health and readiness endpoints: `/healthz`, `/readyz`
-- deploy recovery commands: `docs/operations-runbook.md`
-- backup and restore procedures for PostgreSQL: `docs/operations-runbook.md`
+- immutable deploy state, guarded manual rollback, and automatic recovery: `docs/operations-runbook.md`
+- encrypted off-host backup, scheduling, restore-drill, and deliberate recovery procedures: `docs/operations-runbook.md`
+- protected metrics, initial SLOs, alert rules, and incident triage: `docs/operations-runbook.md`
 
 ## Testing
 
@@ -159,22 +189,30 @@ Current automated checks in `.github/workflows/ci.yml`:
 - backend `go mod tidy` verification
 - `gofmt -l .`
 - `go vet ./...`
+- pinned `govulncheck` reachable-vulnerability scan
 - backend `go test ./...`
-- frontend `npm audit --audit-level=high`
+- full frontend dependency audit at high severity
 - frontend `npm test`
 - frontend `npm run lint`
-- frontend `npm run build`
+- frontend `npm run build:checked` with entry/lazy/total/CSS raw+gzip budgets
+- Chromium pilot journey against a disposable PostgreSQL database, including workspace bootstrap, invited-user lifecycle, required typed custom-field administration, dynamic mapped import and safe rollback, client/contact creation and reviewed core/custom-field duplicate merge, admin stage/probability configuration with existing-deal continuity and forecast verification, deal/task work, reversible bulk client changes, teammate mention and followed-digest navigation, session persistence, and cross-tenant denial
+- encrypted Restic snapshot, retention/integrity check, extraction, isolated PostgreSQL restore, forward migration, and plaintext-leak acceptance
+- immutable release, expand-migration, manual rollback, and failed-readiness recovery acceptance
+- protected bounded-cardinality operational metrics plus promtool-validated request/database/job/provider/backup alert rules
+- representative multi-tenant PostgreSQL query-plan, concurrent-read latency, and bounded database-failure budgets
 
-The backend CI job also runs against a disposable PostgreSQL service so migration and database-integrity behavior is exercised with a real database.
+The backend and browser jobs each use a disposable PostgreSQL 16 service. The
+backup job creates and removes its own disposable Compose stack and encrypted
+repository. Browser failures retain a screenshot, video, trace, and HTML report
+as a short-lived CI artifact.
 
 ## Project Status
 
-Open CRM is an actively developed portfolio project with a substantial implemented feature set across frontend, backend, data model, and deployment workflows.
+Open CRM is in a convergence phase: the repository has substantial feature breadth, but the priority is now to complete and harden the critical lead-to-client journey rather than add categories.
 
-Current state reflected in the repo:
-- completed CRM foundation for contacts, companies, deals, tasks, notes, dashboard workflows, imports, exports, saved views, audit events, and notifications
-- documented architectural decisions in `docs/adr/`
-- documented operations and recovery steps in `docs/operations-runbook.md`
-- version roadmap maintained in `docs/professionalization-roadmap.md`
+Status rules:
 
-This repo is intended to show the ability to build and operate business software end to end: React frontend, Go backend, PostgreSQL persistence, authentication, REST APIs, Dockerized deployment, and CI/CD.
+- [`docs/capability-matrix.md`](docs/capability-matrix.md) is the canonical current-state view.
+- [`docs/professionalization-roadmap.md`](docs/professionalization-roadmap.md) is the historical roadmap and implementation log.
+- A schema, management UI, fake provider, or stored definition is labeled as a foundation until the user outcome, failure recovery, operations, and acceptance tests are complete.
+- The convergence release targets a trustworthy pilot workflow and optional managed SaaS; AI, help desk, marketplace/custom objects, native mobile, real-time, and enterprise breadth are deferred.

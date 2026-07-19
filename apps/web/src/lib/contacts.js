@@ -1,4 +1,5 @@
 import { apiRequest, apiURL, getErrorMessage, isAbortError } from './api'
+import { appendCustomFieldParams } from './custom_fields'
 
 function duplicateCandidate(payload) {
   const candidate = payload?.error?.details?.duplicate
@@ -44,6 +45,7 @@ export async function listContacts(query = {}, { signal } = {}) {
   if (search) params.set('q', search)
   if (unassigned) params.set('unassigned', 'true')
   else if (ownerUserId) params.set('ownerUserId', String(ownerUserId))
+  if (typeof query === 'object') appendCustomFieldParams(params, query.customField)
   const suffix = params.toString() ? `?${params.toString()}` : ''
   const payload = await apiRequest(`/api/contacts${suffix}`, { fallbackMessage: 'Unable to load contacts.', signal })
 
@@ -84,9 +86,11 @@ export async function sendContactEmail(contactID, input, { signal } = {}) {
   return payload?.data
 }
 
-export function contactsExportURL(search = '') {
+export function contactsExportURL(query = '') {
   const params = new URLSearchParams()
+  const search = typeof query === 'string' ? query : (query.search || '')
   if (search) params.set('q', search)
+  if (typeof query === 'object') appendCustomFieldParams(params, query.customField)
   const suffix = params.toString() ? `?${params.toString()}` : ''
   return apiURL(`/api/export/contacts${suffix}`)
 }

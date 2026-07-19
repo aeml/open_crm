@@ -1,0 +1,347 @@
+import { expect, test } from '@playwright/test'
+
+const apiURL = process.env.OPEN_CRM_E2E_API_URL || 'http://127.0.0.1:8081'
+
+function uniqueRunID() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
+  const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
+  const password = 'Correct-Horse-Battery-27!'
+  const organizationName = `${prefix} Workspace ${runID}`
+
+  await page.goto('/bootstrap')
+  await expect(page.getByRole('heading', { name: 'Create your workspace' })).toBeVisible()
+  await page.getByLabel('Company name').fill(organizationName)
+  await page.getByLabel('Business type').selectOption('general')
+  await page.getByLabel('First name').fill(prefix)
+  await page.getByLabel('Last name').fill('Owner')
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: 'Create workspace' }).click()
+
+  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(page.getByText(organizationName, { exact: true })).toBeVisible()
+  return { email, password, organizationName }
+}
+
+test('pilot lead-to-client journey persists data and isolates tenants', async ({ browser, page }) => {
+  const runID = uniqueRunID()
+  const owner = await bootstrapWorkspace(page, runID)
+  const invitedEmail = `jamie-${runID}@example.test`
+  const invitedPassword = 'Jamie-Pilot-Secure-29!'
+
+  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Preferences' })).toBeVisible()
+  const taskReminderPreference = page.getByRole('checkbox', { name: 'Notify me when an assigned task is due soon or overdue', exact: true })
+  await expect(taskReminderPreference).toBeChecked()
+  await taskReminderPreference.uncheck()
+  await page.getByRole('button', { name: 'Save preferences' }).click()
+  await expect(page.getByText('Preferences saved.', { exact: true })).toBeVisible()
+  await taskReminderPreference.check()
+  await page.getByRole('button', { name: 'Save preferences' }).click()
+  await expect(page.getByText('Preferences saved.', { exact: true })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Users', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Team access' })).toBeVisible()
+  const inviteForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Invite user' }) })
+  await inviteForm.getByLabel('First name').fill('Jamie')
+  await inviteForm.getByLabel('Last name').fill('Pilot')
+  await inviteForm.getByLabel('Email').fill(invitedEmail)
+  await inviteForm.getByLabel('Role').selectOption('member')
+  await inviteForm.getByRole('button', { name: 'Invite user' }).click()
+  await expect(page.getByText(invitedEmail, { exact: true })).toBeVisible()
+  await expect(page.getByText('Setup link created:', { exact: false })).toBeVisible()
+  const setupPath = await page.locator('.inline-note code').textContent()
+  expect(setupPath).toMatch(/^\/setup-password\?token=/)
+
+  const memberContext = await browser.newContext()
+  const memberPage = await memberContext.newPage()
+  await memberPage.goto(setupPath)
+  await expect(memberPage.getByRole('heading', { name: 'Choose your password' })).toBeVisible()
+  await memberPage.getByLabel('New password').fill(invitedPassword)
+  await memberPage.getByRole('button', { name: 'Set password' }).click()
+  await expect(memberPage).toHaveURL(/\/login$/)
+  await memberPage.getByLabel('Email').fill(invitedEmail)
+  await memberPage.getByLabel('Password').fill(invitedPassword)
+  await memberPage.getByRole('button', { name: 'Sign in' }).click()
+  await expect(memberPage).toHaveURL(/\/dashboard$/)
+
+  const memberRow = page.getByRole('listitem').filter({ hasText: invitedEmail })
+  await memberRow.getByRole('button', { name: 'Deactivate', exact: true }).click()
+  await memberRow.getByRole('button', { name: 'Confirm deactivation' }).click()
+  await expect(memberRow.getByText('Disabled', { exact: true })).toBeVisible()
+  const invalidatedSession = await memberContext.request.get(`${apiURL}/auth/me`)
+  expect(invalidatedSession.status()).toBe(401)
+  await memberPage.goto('/dashboard')
+  await expect(memberPage).toHaveURL(/\/login$/)
+
+  await memberRow.getByRole('button', { name: 'Reactivate', exact: true }).click()
+  await expect(memberRow.getByText('Active', { exact: true })).toBeVisible()
+  await memberPage.getByLabel('Email').fill(invitedEmail)
+  await memberPage.getByLabel('Password').fill(invitedPassword)
+  await memberPage.getByRole('button', { name: 'Sign in' }).click()
+  await expect(memberPage).toHaveURL(/\/dashboard$/)
+
+  await page.getByRole('link', { name: 'Custom Fields', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Custom fields' })).toBeVisible()
+  const customFieldForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Create field' }) })
+  await customFieldForm.getByRole('textbox', { name: 'Label', exact: true }).fill('Relationship segment')
+  await customFieldForm.getByRole('combobox', { name: 'Type', exact: true }).selectOption('select')
+  await customFieldForm.getByRole('textbox', { name: 'Options', exact: false }).fill('Customer, Partner')
+  await customFieldForm.getByLabel('Required when a record is created or edited').check()
+  await customFieldForm.getByLabel('Show in record lists').check()
+  await customFieldForm.getByRole('button', { name: 'Create field' }).click()
+  await expect(page.getByText('created with stable key custom:relationship_segment', { exact: false })).toBeVisible()
+
+  await customFieldForm.getByRole('combobox', { name: 'Record type', exact: true }).selectOption('company')
+  await customFieldForm.getByRole('textbox', { name: 'Label', exact: true }).fill('Service tier')
+  await customFieldForm.getByRole('combobox', { name: 'Type', exact: true }).selectOption('select')
+  await customFieldForm.getByRole('textbox', { name: 'Options', exact: false }).fill('Gold, Silver')
+  await customFieldForm.getByLabel('Required when a record is created or edited').check()
+  await customFieldForm.getByLabel('Show in record lists').check()
+  await customFieldForm.getByRole('button', { name: 'Create field' }).click()
+  await expect(page.getByText('created with stable key custom:service_tier', { exact: false })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Data Imports', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Import CRM data' })).toBeVisible()
+  const importedClientName = `Imported Client ${runID}`
+  await page.getByLabel('CSV file').setInputFiles({
+    name: 'pilot-contacts.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(`First Name,Last Name,Email Address,Status,Client,Relationship Segment\nImported,Client ${runID},imported-${runID}@example.test,customer,true,Customer\n`)
+  })
+  await page.getByRole('button', { name: 'Preview and map' }).click()
+  await expect(page.getByText('1 valid', { exact: false })).toBeVisible()
+  await expect(page.getByLabel('First name column')).toHaveValue('First Name')
+  await expect(page.getByLabel('Relationship segment (custom) column')).toHaveValue('Relationship Segment')
+  await page.getByRole('button', { name: 'Import valid rows' }).click()
+  await expect(page.getByText('Import finished: 1 imported, 0 skipped.')).toBeVisible()
+  const importRow = page.getByRole('listitem').filter({ hasText: 'pilot-contacts.csv · completed' })
+  await expect(importRow).toBeVisible()
+  page.once('dialog', (dialog) => dialog.accept())
+  await importRow.getByRole('button', { name: 'Roll back import' }).click()
+  await expect(page.getByText('Rollback finished: 1 archived, 0 changed records left active.')).toBeVisible()
+  await expect(page.getByRole('listitem').filter({ hasText: 'pilot-contacts.csv · rolled back' })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Clients', exact: true }).click()
+  await expect(page.getByText(importedClientName, { exact: true })).toHaveCount(0)
+
+  await page.getByRole('link', { name: 'Clients', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Clients' })).toBeVisible()
+  await page.getByRole('button', { name: 'Add client' }).click()
+  await page.getByLabel('Client name').fill(`Northstar Advisory ${runID}`)
+  await page.getByLabel('Industry').fill('Consulting')
+  await page.getByLabel('Website').fill(`https://northstar-${runID}.example.test`)
+  await page.getByLabel('Service tier (required)', { exact: false }).selectOption('Gold')
+  await page.getByRole('button', { name: 'Save client' }).click()
+  await expect(page).toHaveURL(/\/companies\/\d+$/)
+  await expect(page.getByRole('heading', { name: `Northstar Advisory ${runID}` })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Add person' }).click()
+  const personForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save person' }) })
+  await personForm.getByLabel('First name').fill('Avery')
+  await personForm.getByLabel('Last name').fill('Buyer')
+  await personForm.getByLabel('Email').fill(`avery-${runID}@example.test`)
+  await personForm.getByLabel('Job title').fill('Operations Director')
+  await personForm.getByLabel('Relationship segment (required)', { exact: false }).selectOption('Customer')
+  await personForm.getByRole('button', { name: 'Save person' }).click()
+  await expect(page.getByRole('list', { name: 'Linked contacts list' }).getByText('Avery Buyer')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Add person' }).click()
+  const duplicatePersonForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save person' }) })
+  await duplicatePersonForm.getByLabel('First name').fill('Avery')
+  await duplicatePersonForm.getByLabel('Last name').fill('Buyer')
+  await duplicatePersonForm.getByLabel('Email').fill(`avery-duplicate-${runID}@example.test`)
+  await duplicatePersonForm.getByLabel('Job title').fill('Regional Buyer')
+  await duplicatePersonForm.getByLabel('Relationship segment (required)', { exact: false }).selectOption('Partner')
+  await duplicatePersonForm.getByRole('button', { name: 'Save person' }).click()
+
+  await page.getByRole('link', { name: 'Data Quality', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Duplicate review' })).toBeVisible()
+  const duplicatePair = page.getByRole('listitem').filter({ hasText: `avery-duplicate-${runID}@example.test` })
+  await expect(duplicatePair).toBeAttached()
+  await duplicatePair.getByRole('button', { name: `Keep Avery Buyer (avery-${runID}@example.test)` }).click()
+  await page.getByLabel('Regional Buyer').check()
+  await page.getByLabel('Partner').check()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Merge and archive Avery Buyer' }).click()
+  await expect(page.getByText('Merge complete.', { exact: false })).toBeVisible()
+  await expect(page.getByText('No likely duplicate contacts found.')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Clients', exact: true }).click()
+  const northstarRow = page.getByRole('listitem').filter({ hasText: `Northstar Advisory ${runID}` })
+  await expect(northstarRow).toContainText('Service tier: Gold')
+
+  await page.getByLabel(`Select Northstar Advisory ${runID}`).check()
+  const clientBulkActions = page.getByLabel('Bulk actions for company records')
+  await clientBulkActions.getByRole('combobox', { name: 'Bulk change', exact: true }).selectOption('set_status')
+  await clientBulkActions.getByRole('combobox', { name: 'New status', exact: true }).selectOption('customer')
+  await clientBulkActions.getByRole('button', { name: 'Apply to 1 selected' }).click()
+  await expect(clientBulkActions.getByText('Set status to customer: 1 of 1 changed.')).toBeVisible()
+  await clientBulkActions.getByText('Recent bulk changes').click()
+  page.once('dialog', (dialog) => dialog.accept())
+  const undoBulkChange = clientBulkActions.getByRole('button', { name: 'Undo', exact: true })
+  await undoBulkChange.click()
+  await expect(clientBulkActions.getByText('Undo complete: 1 restored.')).toBeVisible()
+
+  const discoveryStage = `Discovery ${runID}`
+  const reviewedDiscoveryStage = `Discovery reviewed ${runID}`
+  await page.getByRole('link', { name: 'Pipelines', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Pipeline configuration' })).toBeVisible()
+  await page.getByLabel('New stage name for Sales pipeline').fill(discoveryStage)
+  await page.getByLabel('New stage probability for Sales pipeline', { exact: false }).fill('65')
+  await page.getByRole('button', { name: 'Add stage' }).click()
+  await expect(page.getByRole('button', { name: `Save ${discoveryStage}` })).toBeVisible()
+
+  const automatedTaskTitle = `Qualify new deal ${runID}`
+  await page.getByRole('link', { name: 'Automations', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Task automation rules' })).toBeVisible()
+  await page.getByLabel('Rule name').fill(`New deal qualification ${runID}`)
+  await page.getByLabel('Task title').fill(automatedTaskTitle)
+  await page.getByLabel('Task description').fill('Confirm fit and agree the next step.')
+  await page.getByLabel('Due in days', { exact: false }).fill('1')
+  await page.getByRole('button', { name: 'Create task rule' }).click()
+  await expect(page.getByRole('heading', { name: `New deal qualification ${runID}` })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Deals', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'New deal' })).toBeVisible()
+  const dealForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save deal' }) })
+  await dealForm.getByLabel('Deal name').fill(`Website renewal ${runID}`)
+  await dealForm.getByLabel('Stage').selectOption({ label: `Sales pipeline: ${discoveryStage}` })
+  await dealForm.getByLabel('Company').selectOption({ label: `Northstar Advisory ${runID}` })
+  await dealForm.getByLabel('Primary contact').selectOption({ label: 'Avery Buyer' })
+  await dealForm.getByLabel('Value amount').fill('25000')
+  await dealForm.getByRole('button', { name: 'Save deal' }).click()
+  await expect(page).toHaveURL(/\/deals\/\d+/)
+  await expect(page.getByRole('heading', { name: `Website renewal ${runID}` })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(automatedTaskTitle)).toBeVisible()
+
+  await page.getByRole('link', { name: 'Pipelines', exact: true }).click()
+  await page.getByLabel(`Stage name for ${discoveryStage}`).fill(reviewedDiscoveryStage)
+  await page.getByRole('button', { name: `Save ${discoveryStage}` }).click()
+  await expect(page.getByText(`${reviewedDiscoveryStage} updated without changing its stage ID.`)).toBeVisible()
+  await page.getByRole('link', { name: 'Deals', exact: true }).click()
+  const configuredDeal = page.getByRole('listitem').filter({ hasText: `Website renewal ${runID}` })
+  await expect(configuredDeal).toContainText(`Sales pipeline · ${reviewedDiscoveryStage}`)
+  await page.getByRole('link', { name: 'Dashboard', exact: true }).click()
+  const configuredStageForecast = page.getByRole('list', { name: 'Forecast stage assumptions' }).getByRole('listitem').filter({ hasText: `Sales pipeline · ${reviewedDiscoveryStage} · 65%` })
+  await expect(configuredStageForecast).toContainText('$16,250.00 weighted')
+  await expect(page.getByText('1 due within 24 hours', { exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Deals', exact: true }).click()
+  await configuredDeal.getByRole('button', { name: `Website renewal ${runID}` }).click()
+  await expect(page.getByRole('heading', { name: `Website renewal ${runID}` })).toBeVisible()
+
+  const taskForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save task' }) })
+  await taskForm.getByLabel('Task title').fill(`Prepare proposal ${runID}`)
+  await taskForm.getByLabel('Task description').fill('Confirm scope and pricing with the client.')
+  await taskForm.getByRole('button', { name: 'Save task' }).click()
+  await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(`Prepare proposal ${runID}`)).toBeVisible()
+
+  await page.getByRole('link', { name: 'Reports', exact: true }).click()
+  const salesActivityCard = page.locator('.sales-activity-card')
+  await expect(salesActivityCard.getByRole('heading', { name: 'Sales activity' })).toBeVisible()
+  await expect(salesActivityCard.getByText('Complete event coverage', { exact: false })).toBeVisible()
+  const salesTotals = salesActivityCard.getByRole('list', { name: 'Sales activity totals' })
+  await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Deals created' })).toContainText('1')
+  await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Tasks created' })).toContainText('2')
+  await expect(salesActivityCard.getByRole('list', { name: 'Stage movement report' }).getByText(`Sales pipeline / ${discoveryStage}`)).toBeVisible()
+  await expect(salesActivityCard.getByRole('list', { name: 'Recent deal events' }).getByText(`Created in Sales pipeline / ${discoveryStage}`)).toBeVisible()
+  await expect(salesActivityCard.getByRole('link', { name: `Website renewal ${runID}` })).toBeVisible()
+  const incompleteDealReport = page.getByRole('listitem').filter({ hasText: 'Incomplete open deals' })
+  await expect(incompleteDealReport).toContainText('Missing expected close date')
+  await incompleteDealReport.getByRole('link', { name: `Website renewal ${runID}` }).click()
+  await expect(page).toHaveURL(/\/deals\/\d+/)
+
+  const noteForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Add note' }) })
+  await noteForm.getByLabel('New note').fill('Please review the proposal and confirm the next step.')
+  await noteForm.getByRole('button', { name: `@${invitedEmail}` }).click()
+  await noteForm.getByRole('button', { name: 'Add note' }).click()
+  await expect(page.getByRole('list', { name: 'Deal notes list' }).getByText(`@${invitedEmail}`, { exact: false })).toBeVisible()
+
+  await memberPage.goto('/notifications')
+  const mentionNotification = memberPage.getByRole('listitem').filter({ hasText: `mentioned you on Website renewal ${runID}` })
+  await expect(mentionNotification).toBeVisible()
+  await expect(memberPage.getByRole('heading', { name: 'Activity digest' })).toBeVisible()
+  await expect(memberPage.getByRole('list', { name: 'Activity digest' }).getByText(`Website renewal ${runID}: Note added`)).toBeVisible()
+  await mentionNotification.getByRole('button', { name: 'Open record' }).click()
+  await expect(memberPage).toHaveURL(/\/deals\/\d+$/)
+  await memberPage.getByRole('button', { name: 'Followers' }).click()
+  await expect(memberPage.getByRole('button', { name: 'Following' })).toBeVisible()
+  await memberContext.close()
+
+  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
+  await expect(page.getByText(/Overdue \d+ · Due soon [1-9]\d*/)).toBeVisible()
+  await page.getByLabel('Task view').selectOption('dueSoon')
+  await expect(page.getByRole('heading', { name: 'Tasks due within 24 hours' })).toBeVisible()
+  await expect(page.getByRole('button', { name: automatedTaskTitle, exact: true })).toBeVisible()
+  await page.getByLabel('Task view').selectOption('all')
+  await page.getByRole('button', { name: `Complete Prepare proposal ${runID}` }).click()
+  await expect(page.getByRole('button', { name: `Complete Prepare proposal ${runID}` })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Show completed' }).click()
+  await expect(page.getByRole('button', { name: `Reopen Prepare proposal ${runID}` })).toBeVisible()
+  await page.getByRole('button', { name: `Prepare proposal ${runID}`, exact: true }).click()
+  await expect(page).toHaveURL(/\/tasks\/\d+/)
+  await page.getByRole('button', { name: 'Archive task' }).click()
+  await expect(page).toHaveURL(/\/tasks(?:\?|$)/)
+  await page.getByRole('link', { name: 'Archived Records', exact: true }).click()
+  const archivedTask = page.getByRole('listitem').filter({ hasText: `Prepare proposal ${runID}` })
+  await expect(archivedTask).toBeVisible()
+  page.once('dialog', (dialog) => dialog.accept())
+  await archivedTask.getByRole('button', { name: 'Restore', exact: true }).click()
+  await expect(page.getByText(`Prepare proposal ${runID} was restored.`, { exact: false })).toBeVisible()
+  await page.getByRole('link', { name: 'Open restored record' }).click()
+  await expect(page).toHaveURL(/\/tasks\/\d+/)
+  await expect(page.getByRole('heading', { name: `Prepare proposal ${runID}` })).toBeVisible()
+
+  const exportExpectations = [
+    { path: 'contacts', includes: [`avery-${runID}@example.test`, 'custom:relationship_segment', 'Partner'], excludes: [`avery-duplicate-${runID}@example.test`, `imported-${runID}@example.test`] },
+    { path: 'companies', includes: [`Northstar Advisory ${runID}`, 'custom:service_tier', 'Gold'], excludes: [importedClientName] },
+    { path: 'deals', includes: [`Website renewal ${runID}`], excludes: [] },
+    { path: 'tasks', includes: [`Prepare proposal ${runID}`], excludes: [] }
+  ]
+  for (const exportExpectation of exportExpectations) {
+    const exportResponse = await page.context().request.get(`${apiURL}/api/export/${exportExpectation.path}`)
+    expect(exportResponse.status()).toBe(200)
+    expect(exportResponse.headers()['content-type']).toContain('text/csv')
+    const csv = await exportResponse.text()
+    for (const expectedValue of exportExpectation.includes) expect(csv).toContain(expectedValue)
+    for (const excludedValue of exportExpectation.excludes) expect(csv).not.toContain(excludedValue)
+  }
+
+  await page.getByRole('button', { name: 'Log out' }).click()
+  await expect(page).toHaveURL(/\/login$/)
+  await page.getByLabel('Email').fill(owner.email)
+  await page.getByLabel('Password').fill(owner.password)
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(page.getByText(owner.organizationName, { exact: true })).toBeVisible()
+
+  const otherContext = await browser.newContext()
+  try {
+    const otherPage = await otherContext.newPage()
+    await bootstrapWorkspace(otherPage, runID, 'Other')
+    const createResponse = await otherContext.request.post(`${apiURL}/api/contacts`, {
+      data: {
+        firstName: 'Tenant',
+        lastName: 'Secret',
+        email: `tenant-secret-${runID}@example.test`,
+        status: 'lead'
+      }
+    })
+    expect(createResponse.status()).toBe(201)
+    const created = await createResponse.json()
+    const otherContactID = created.data.contact.id
+
+    const ownTenantResponse = await otherContext.request.get(`${apiURL}/api/contacts/${otherContactID}`)
+    expect(ownTenantResponse.status()).toBe(200)
+
+    const crossTenantResponse = await page.context().request.get(`${apiURL}/api/contacts/${otherContactID}`)
+    expect(crossTenantResponse.status()).toBe(404)
+    const crossTenantFollowers = await page.context().request.get(`${apiURL}/api/record-followers?entityType=contact&entityId=${otherContactID}`)
+    expect(crossTenantFollowers.status()).toBe(404)
+  } finally {
+    await otherContext.close()
+  }
+})

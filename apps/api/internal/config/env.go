@@ -25,6 +25,9 @@ type Env struct {
 	GoogleOAuthClientSecret    string
 	MicrosoftOAuthClientID     string
 	MicrosoftOAuthClientSecret string
+	MetricsBearerToken         string
+	BackupStatusPath           string
+	ReleaseID                  string
 }
 
 func Load() Env {
@@ -57,6 +60,10 @@ func Load() Env {
 	if webBaseURL == "" {
 		webBaseURL = "http://localhost:5173"
 	}
+	backupStatusPath := os.Getenv("BACKUP_STATUS_PATH")
+	if strings.TrimSpace(backupStatusPath) == "" {
+		backupStatusPath = "/run/open-crm/backup-status"
+	}
 
 	return Env{
 		Port:                       port,
@@ -78,6 +85,9 @@ func Load() Env {
 		GoogleOAuthClientSecret:    os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
 		MicrosoftOAuthClientID:     os.Getenv("MICROSOFT_OAUTH_CLIENT_ID"),
 		MicrosoftOAuthClientSecret: os.Getenv("MICROSOFT_OAUTH_CLIENT_SECRET"),
+		MetricsBearerToken:         os.Getenv("METRICS_BEARER_TOKEN"),
+		BackupStatusPath:           backupStatusPath,
+		ReleaseID:                  strings.TrimSpace(os.Getenv("OPEN_CRM_RELEASE_ID")),
 	}
 }
 

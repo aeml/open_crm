@@ -1,6 +1,7 @@
 package db
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,127 @@ func TestMigrationFilesIncludeInitialSchema(t *testing.T) {
 
 	if !found {
 		t.Fatal("expected initial schema migration to be registered")
+	}
+}
+
+func TestMigrationFilesIncludeBackgroundJobs(t *testing.T) {
+	sql := MigrationSQL("056_background_jobs.sql")
+	if sql == "" {
+		t.Fatal("expected background jobs migration SQL to be embedded")
+	}
+	for _, expected := range []string{"background_jobs", "idempotency_key", "lease_expires_at", "idx_background_jobs_claim", "status IN ('pending', 'retryable')"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected background jobs migration to include %q", expected)
+		}
+	}
+}
+
+func TestMigrationFilesIncludeMailboxSyncJobs(t *testing.T) {
+	sql := MigrationSQL("057_mailbox_sync_jobs.sql")
+	if sql == "" || !strings.Contains(sql, "next_sync_at") || !strings.Contains(sql, "idx_user_email_accounts_next_sync") {
+		t.Fatalf("expected mailbox sync jobs migration to be embedded, got %q", sql)
+	}
+}
+
+func TestMigrationFilesIncludeSequenceDeliveryJobs(t *testing.T) {
+	sql := MigrationSQL("058_sequence_delivery_jobs.sql")
+	if sql == "" {
+		t.Fatal("expected sequence delivery jobs migration SQL to be embedded")
+	}
+	for _, expected := range []string{"email_sequence_deliveries", "uncertain", "email_sequence.send", "idx_email_sequence_deliveries_org_status"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected sequence delivery jobs migration to include %q", expected)
+		}
+	}
+}
+
+func TestMigrationFilesIncludeUserLifecycle(t *testing.T) {
+	sql := MigrationSQL("059_user_lifecycle.sql")
+	if sql == "" {
+		t.Fatal("expected user lifecycle migration SQL to be embedded")
+	}
+	for _, expected := range []string{"membership_status", "organization_memberships_status_check", "status_changed_by_user_id", "idx_organization_memberships_org_status"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected user lifecycle migration to include %q", expected)
+		}
+	}
+}
+
+func TestMigrationFilesIncludeCollaboration(t *testing.T) {
+	sql := MigrationSQL("060_collaboration.sql")
+	if sql == "" {
+		t.Fatal("expected collaboration migration SQL to be embedded")
+	}
+	for _, expected := range []string{"record_followers", "note_mentions", "organization_memberships(organization_id, user_id)", "idx_notes_org_id_unique", "idempotency_key", "idx_notifications_idempotency"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected collaboration migration to include %q", expected)
+		}
+	}
+}
+
+func TestMigrationFilesIncludeImportBatches(t *testing.T) {
+	sql := MigrationSQL("061_import_batches.sql")
+	if sql == "" {
+		t.Fatal("expected import batches migration SQL to be embedded")
+	}
+	for _, expected := range []string{"import_batches", "import_batch_rows", "idempotency_key", "source_sha256", "rollback_skipped", "idx_import_batch_rows_errors"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected import batches migration to include %q", expected)
+		}
+	}
+}
+
+func TestMigrationFilesIncludeBulkOperations(t *testing.T) {
+	sql := MigrationSQL("062_bulk_operations.sql")
+	if sql == "" {
+		t.Fatal("expected bulk operations migration SQL to be embedded")
+	}
+	for _, expected := range []string{"bulk_operations", "bulk_operation_rows", "idempotency_key", "request_sha256", "applied_entity_updated_at", "rollback_skipped"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected bulk operations migration to include %q", expected)
+		}
+	}
+}
+
+func TestMigrationFilesIncludeDuplicateMerges(t *testing.T) {
+	sql := MigrationSQL("063_duplicate_merges.sql")
+	if sql == "" {
+		t.Fatal("expected duplicate merges migration SQL to be embedded")
+	}
+	for _, expected := range []string{"duplicate_merge_operations", "idempotency_key", "request_sha256", "source_fields", "relationship_counts", "idx_duplicate_merge_operations_source"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected duplicate merges migration to include %q", expected)
+		}
+	}
+}
+
+func TestAutomaticMigrationCompatibilityPolicy(t *testing.T) {
+	for _, name := range MigrationFiles() {
+		if name < deploymentClassBaseline {
+			if class := MigrationDeploymentClass(name); class != "legacy" {
+				t.Fatalf("historical migration %s class = %q", name, class)
+			}
+			continue
+		}
+		class := MigrationDeploymentClass(name)
+		if class != "expand" && class != "contract" {
+			t.Fatalf("migration %s has invalid deployment class %q", name, class)
+		}
+		if err := validateAutomaticMigration(name, MigrationSQL(name), false); err != nil {
+			t.Fatalf("migration %s is not safe for automatic deploy: %v", name, err)
+		}
+	}
+
+	unsafeExpand := "-- open-crm-deploy: expand\nALTER TABLE contacts DROP COLUMN email;"
+	if err := validateAutomaticMigration("999_unsafe.sql", unsafeExpand, false); err == nil || !strings.Contains(err.Error(), "unsafe drop") {
+		t.Fatalf("unsafe expand migration was not rejected: %v", err)
+	}
+	contract := "-- open-crm-deploy: contract\nALTER TABLE contacts DROP COLUMN email;"
+	if err := validateAutomaticMigration("999_contract.sql", contract, false); err == nil || !strings.Contains(err.Error(), "maintenance window") {
+		t.Fatalf("unapproved contract migration was not rejected: %v", err)
+	}
+	if err := validateAutomaticMigration("999_contract.sql", contract, true); err != nil {
+		t.Fatalf("explicitly approved contract migration was rejected: %v", err)
 	}
 }
 
@@ -532,6 +654,36 @@ func TestMigrationFilesIncludeSalesQuotasMigration(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeStageProbabilitiesMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "065_stage_probabilities.sql") {
+		t.Fatal("expected stage probabilities migration to be registered")
+	}
+
+	sql := MigrationSQL("065_stage_probabilities.sql")
+	for _, expected := range []string{"probability_percent", "positioned_stages", "BETWEEN 0 AND 100", "open-crm-deploy: expand"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected stage probabilities migration to include %s", expected)
+		}
+	}
+}
+
+func TestMigrationFilesIncludeTaskRemindersMigration(t *testing.T) {
+	files := MigrationFiles()
+	found := false
+	for _, file := range files {
+		if file == "066_task_reminders.sql" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected task reminders migration to be registered")
+	}
+	if sql := MigrationSQL("066_task_reminders.sql"); !strings.Contains(sql, "CREATE TABLE task_reminders") || !strings.Contains(sql, "'task.reminder'") {
+		t.Fatal("expected durable task reminder schema and job backfill")
+	}
+}
+
 func TestMigrationFilesIncludeCurrencyExchangeRatesMigration(t *testing.T) {
 	files := MigrationFiles()
 
@@ -918,6 +1070,48 @@ func TestMigrationFilesIncludeCustomReportVisualizationsMigration(t *testing.T) 
 	for _, expected := range []string{"visualization_type", "custom_report_definitions_visualization_type_check", "idx_custom_report_definitions_org_visualization"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected custom report visualizations migration to include %s", expected)
+		}
+	}
+}
+
+func TestMigrationFilesIncludeCustomFieldsMigration(t *testing.T) {
+	files := MigrationFiles()
+	found := false
+	for _, file := range files {
+		if file == "064_custom_fields.sql" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected custom fields migration to be registered")
+	}
+
+	sql := MigrationSQL("064_custom_fields.sql")
+	for _, expected := range []string{"custom_field_definitions", "contacts_custom_fields_object_check", "companies_custom_fields_object_check", "idx_contacts_custom_fields_gin", "idx_companies_custom_fields_gin"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected custom fields migration to include %s", expected)
+		}
+	}
+}
+
+func TestMigrationFilesIncludeSalesActivityReportingMigration(t *testing.T) {
+	files := MigrationFiles()
+	found := false
+	for _, file := range files {
+		if file == "067_sales_activity_reporting.sql" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected sales activity reporting migration to be registered")
+	}
+
+	sql := MigrationSQL("067_sales_activity_reporting.sql")
+	for _, expected := range []string{"sales_activity_tracking_started_at", "deal_stage_events", "from_stage_outcome", "to_stage_outcome", "idx_deal_stage_events_org_owner_occurred"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected sales activity reporting migration to include %s", expected)
 		}
 	}
 }

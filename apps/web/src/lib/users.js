@@ -1,9 +1,11 @@
 import { apiRequest } from './api'
 
-export async function listOrganizationUsers({ signal } = {}) {
+export async function listOrganizationUsers({ signal, includeDisabled = false } = {}) {
   const payload = await apiRequest('/api/users', { fallbackMessage: 'Unable to load users.', signal })
 
-  return payload?.data?.users || []
+  const users = payload?.data?.users || []
+
+  return includeDisabled ? users : users.filter((user) => (user.status || 'active') === 'active')
 }
 
 export async function createOrganizationUser(input, { signal } = {}) {
@@ -16,6 +18,12 @@ export async function updateOrganizationUserRole(userId, role, { signal } = {}) 
   const payload = await apiRequest(`/api/users/${userId}/role`, { method: 'PATCH', body: { role }, fallbackMessage: 'Unable to update user role.', signal })
 
   return payload?.data?.user
+}
+
+export async function updateOrganizationUserStatus(userId, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/users/${userId}/status`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update user access.', signal })
+
+  return payload?.data
 }
 
 export async function completeUserSetup(input, { signal } = {}) {

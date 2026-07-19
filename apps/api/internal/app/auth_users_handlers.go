@@ -14,6 +14,47 @@ import (
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
+type createUserRequest struct {
+	Email     string `json:"email"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Role      string `json:"role"`
+}
+
+type updateUserRoleRequest struct {
+	Role string `json:"role"`
+}
+
+type updateUserStatusRequest struct {
+	Status           string `json:"status"`
+	ReassignToUserID int64  `json:"reassignToUserId"`
+}
+
+type usersListResponse struct {
+	Data struct {
+		Users []moduleusers.UserSummary `json:"users"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type userResponse struct {
+	Data struct {
+		User moduleusers.UserSummary `json:"user"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type userLifecycleResponse struct {
+	Data moduleusers.LifecycleResult `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 func handleLogin(env config.Env, service authService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	if service == nil {
@@ -226,8 +267,15 @@ func handleUpdateUserRole(auth authService, users usersService, audit auditServi
 
 	updated, err := users.UpdateRole(r.Context(), state.Organization.ID, userID, state.User.ID, role)
 	if err != nil {
-		if errors.Is(err, moduleusers.ErrNotFound) {
+		switch {
+		case errors.Is(err, moduleusers.ErrNotFound):
 			platformweb.WriteNotFound(w, requestID)
+			return
+		case errors.Is(err, moduleusers.ErrInvalidRole):
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Role must be owner, admin, member, or viewer")
+			return
+		case errors.Is(err, moduleusers.ErrLastActiveOwner):
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "Assign another active owner before changing the last owner's role")
 			return
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update user role")
@@ -247,6 +295,50 @@ func handleUpdateUserRole(auth authService, users usersService, audit auditServi
 
 	response := userResponse{}
 	response.Data.User = updated
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleUpdateUserStatus(auth authService, users usersService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if users == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Users service unavailable")
+		return
+	}
+	userID, ok := parsePathInt64(w, r, "userID")
+	if !ok {
+		return
+	}
+	var request updateUserStatusRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	result, err := users.SetStatus(r.Context(), state.Organization.ID, userID, state.User.ID, moduleusers.SetStatusInput{
+		Status:           strings.TrimSpace(request.Status),
+		ReassignToUserID: request.ReassignToUserID,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, moduleusers.ErrNotFound):
+			platformweb.WriteNotFound(w, requestID)
+		case errors.Is(err, moduleusers.ErrInvalidStatus):
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Status must be active or disabled")
+		case errors.Is(err, moduleusers.ErrInvalidReassignment):
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose another active team member or leave work unassigned")
+		case errors.Is(err, moduleusers.ErrCannotChangeOwnStatus):
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "You cannot deactivate your own access")
+		case errors.Is(err, moduleusers.ErrLastActiveOwner):
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "Assign another active owner before deactivating the last owner")
+		default:
+			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update user access")
+		}
+		return
+	}
+	response := userLifecycleResponse{Data: result}
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }

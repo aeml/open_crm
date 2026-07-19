@@ -96,7 +96,7 @@ func TestListCompaniesUsesCurrentOrganizationAndQuery(t *testing.T) {
 	}
 	server := authenticatedCompaniesServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/companies?q=northstar&page=2&pageSize=10", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/companies?q=northstar&page=2&pageSize=10&customField=service_tier&customOperator=eq&customValue=Gold", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -110,6 +110,9 @@ func TestListCompaniesUsesCurrentOrganizationAndQuery(t *testing.T) {
 	}
 	if service.lastListQuery.Search != "northstar" || service.lastListQuery.Page != 2 || service.lastListQuery.PageSize != 10 {
 		t.Fatalf("unexpected list query: %#v", service.lastListQuery)
+	}
+	if service.lastListQuery.CustomField.FieldKey != "service_tier" || service.lastListQuery.CustomField.Value != "Gold" {
+		t.Fatalf("unexpected custom field filter: %#v", service.lastListQuery.CustomField)
 	}
 }
 
@@ -203,7 +206,7 @@ func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 	}
 	server := authenticatedCompaniesServer(service)
 
-	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","clientType":"organization","addressLine1":"55 Foundry Way","city":"Detroit","state":"MI","postalCode":"48201","country":"US","industry":"Industrial","phone":"555-0200","website":"https://atlas.example","status":"prospect","linkedContactIDs":[7]}`)
+	body := bytes.NewBufferString(`{"name":"Atlas Manufacturing","clientType":"organization","addressLine1":"55 Foundry Way","city":"Detroit","state":"MI","postalCode":"48201","country":"US","industry":"Industrial","phone":"555-0200","website":"https://atlas.example","status":"prospect","linkedContactIDs":[7],"customFields":{"service_tier":"Gold"}}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/companies", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -219,6 +222,9 @@ func TestCreateCompanyUsesCurrentOrganization(t *testing.T) {
 	}
 	if service.lastCreateInput.Name != "Atlas Manufacturing" || service.lastCreateInput.ClientType != "organization" || service.lastCreateInput.AddressLine1 != "55 Foundry Way" || service.lastCreateInput.City != "Detroit" || service.lastCreateInput.State != "MI" || service.lastCreateInput.PostalCode != "48201" || service.lastCreateInput.Country != "US" || service.lastCreateInput.Website != "https://atlas.example" || len(service.lastCreateInput.LinkedContactIDs) != 1 || service.lastCreateInput.LinkedContactIDs[0] != 7 {
 		t.Fatalf("unexpected create input: %#v", service.lastCreateInput)
+	}
+	if string(service.lastCreateInput.CustomFields["service_tier"]) != `"Gold"` {
+		t.Fatalf("unexpected custom field input: %#v", service.lastCreateInput.CustomFields)
 	}
 }
 

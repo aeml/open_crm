@@ -1,521 +1,240 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
+import { listDealPipelines } from '../lib/deals'
 import { createWorkflowAutomation, listWorkflowAutomationRuns, listWorkflowAutomations, updateWorkflowAutomation } from '../lib/workflow_automations'
 import { usePageTitle } from '../lib/use_page_title'
 
 const triggerOptions = [
-  { value: 'record_created', label: 'Record created' },
-  { value: 'record_updated', label: 'Record updated' },
-  { value: 'stage_changed', label: 'Deal stage changed' },
-  { value: 'date_reached', label: 'Date reached' },
-  { value: 'form_submitted', label: 'Lead form submitted' },
-  { value: 'inbound_email', label: 'Inbound email received' },
-  { value: 'webhook', label: 'Webhook received' }
+  { value: 'created', label: 'Deal created' },
+  { value: 'stage_changed', label: 'Deal moved to a stage' },
+  { value: 'archived', label: 'Deal archived' }
 ]
-
-const recordTargets = [
-  { value: 'contact', label: 'Contact' },
-  { value: 'company', label: 'Company' },
-  { value: 'deal', label: 'Deal' },
-  { value: 'task', label: 'Task' }
-]
-
-const conditionFieldOptionsByTarget = {
-  contact: ['firstName', 'lastName', 'email', 'phone', 'status', 'ownerUserId', 'leadSource', 'utmSource', 'utmMedium', 'utmCampaign', 'jobTitle', 'city', 'state', 'country', 'leadScore', 'leadGrade'],
-  company: ['name', 'clientType', 'industry', 'phone', 'website', 'status', 'city', 'state', 'country'],
-  deal: ['name', 'stageId', 'stageName', 'status', 'valueAmount', 'valueCurrency', 'ownerUserId', 'companyId', 'primaryContactId', 'expectedCloseDate'],
-  task: ['title', 'status', 'entityType', 'entityId', 'assignedToUserId', 'dueAt'],
-  lead_form: ['formId', 'formPublicId', 'sourceUrl', 'leadSource', 'utmSource', 'utmMedium', 'utmCampaign'],
-  email_message: ['fromEmail', 'toEmail', 'subject', 'direction', 'status'],
-  webhook: ['event', 'source', 'payloadType']
-}
-
-const conditionOperatorOptions = [
-  { value: 'equals', label: 'equals' },
-  { value: 'notEquals', label: 'does not equal' },
-  { value: 'contains', label: 'contains' },
-  { value: 'exists', label: 'exists' },
-  { value: 'greaterThan', label: 'greater than' },
-  { value: 'lessThan', label: 'less than' }
-]
-
-const actionOptions = [
-  { value: 'update_field', label: 'Update field' },
-  { value: 'create_task', label: 'Create task' },
-  { value: 'send_email', label: 'Send email' },
-  { value: 'send_sms', label: 'Send SMS' },
-  { value: 'assign_owner', label: 'Assign owner' },
-  { value: 'add_to_sequence', label: 'Add to sequence' },
-  { value: 'call_webhook', label: 'Call webhook' },
-  { value: 'notify', label: 'Notify' },
-  { value: 'request_approval', label: 'Request approval' }
-]
-
-const approvalRoleOptions = [
-  { value: 'admin', label: 'Admin' },
-  { value: 'owner', label: 'Owner' },
-  { value: 'record_owner', label: 'Record owner' }
-]
-
-const actionConfigFields = {
-  update_field: [{ key: 'field', label: 'Field' }, { key: 'value', label: 'Value' }],
-  create_task: [{ key: 'title', label: 'Task title' }],
-  send_email: [{ key: 'subject', label: 'Email subject' }, { key: 'body', label: 'Email body' }],
-  send_sms: [{ key: 'body', label: 'SMS body' }],
-  assign_owner: [{ key: 'userId', label: 'Owner user ID' }],
-  add_to_sequence: [{ key: 'sequenceId', label: 'Sequence ID' }],
-  call_webhook: [{ key: 'url', label: 'Webhook URL' }],
-  notify: [{ key: 'message', label: 'Notification message' }],
-  request_approval: [{ key: 'approvalName', label: 'Approval name' }, { key: 'approverRole', label: 'Approver role', options: approvalRoleOptions }, { key: 'message', label: 'Approval message' }]
-}
-
-function targetOptionsForTrigger(triggerType) {
-  if (triggerType === 'stage_changed') return [{ value: 'deal', label: 'Deal' }]
-  if (triggerType === 'form_submitted') return [{ value: 'lead_form', label: 'Lead form' }]
-  if (triggerType === 'inbound_email') return [{ value: 'email_message', label: 'Email message' }]
-  if (triggerType === 'webhook') return [{ value: 'webhook', label: 'Webhook' }]
-  return recordTargets
-}
-
-function conditionOptionsForTarget(target) {
-  return (conditionFieldOptionsByTarget[target] || conditionFieldOptionsByTarget.contact).map((value) => ({ value, label: value }))
-}
-
-function emptyConditionDraft(target = 'contact') {
-  const firstField = conditionOptionsForTarget(target)[0]?.value || ''
-  return { field: firstField, operator: 'equals', value: '' }
-}
-
-function defaultActionConfig(type) {
-  if (type === 'request_approval') return { approverRole: 'admin' }
-  return {}
-}
-
-function emptyActionDraft(type = 'create_task') {
-  return { type, config: defaultActionConfig(type), delayMinutes: '', scheduledAt: '' }
-}
 
 function emptyForm() {
-  return {
-    name: '',
-    description: '',
-    triggerType: 'record_created',
-    targetEntityType: 'contact',
-    triggerConfigText: '{}',
-    conditionLogic: 'all',
-    conditionsText: '[]',
-    actionsText: '[]',
-    isActive: false,
-    position: '0'
-  }
+  return { name: '', event: 'created', stageId: '', title: '', description: '', dueDays: '1', isActive: true }
+}
+
+function eventFromAutomation(automation) {
+  if (automation.triggerType === 'record_created') return 'created'
+  if (automation.triggerType === 'stage_changed') return 'stage_changed'
+  if (automation.triggerType === 'record_updated' && automation.triggerConfig?.event === 'archived') return 'archived'
+  return ''
+}
+
+function isExecutableTaskRule(automation) {
+  const action = automation.actions?.[0]
+  const event = eventFromAutomation(automation)
+  const title = String(action?.config?.title || '')
+  const description = String(action?.config?.description || '')
+  const delayMinutes = Number(action?.delayMinutes || 0)
+  const stageID = Number(automation.triggerConfig?.stageId || 0)
+  return automation.targetEntityType === 'deal' && Boolean(event) &&
+    (automation.conditions || []).length === 0 && automation.actions?.length === 1 &&
+    action?.type === 'create_task' && !action.scheduledAt && Boolean(title) && title.length <= 200 && description.length <= 2000 &&
+    Number.isInteger(delayMinutes) && delayMinutes >= 0 && delayMinutes <= 525600 && delayMinutes % 1440 === 0 &&
+    (event !== 'stage_changed' || !automation.triggerConfig?.stageId || (Number.isInteger(stageID) && stageID > 0))
 }
 
 function formFromAutomation(automation) {
+  const action = automation.actions[0]
   return {
     name: automation.name || '',
-    description: automation.description || '',
-    triggerType: automation.triggerType || 'record_created',
-    targetEntityType: automation.targetEntityType || targetOptionsForTrigger(automation.triggerType || 'record_created')[0].value,
-    triggerConfigText: JSON.stringify(automation.triggerConfig || {}, null, 2),
-    conditionLogic: automation.conditionLogic || 'all',
-    conditionsText: JSON.stringify(automation.conditions || [], null, 2),
-    actionsText: JSON.stringify(automation.actions || [], null, 2),
-    isActive: automation.isActive === true,
-    position: String(automation.position ?? 0)
-  }
-}
-
-function parseTriggerConfig(raw) {
-  const parsed = JSON.parse(raw || '{}')
-  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-    throw new Error('Trigger config must be a JSON object.')
-  }
-  return Object.fromEntries(Object.entries(parsed).filter(([key, value]) => key.trim() && value !== null).map(([key, value]) => [key.trim(), value]))
-}
-
-function parseConditions(raw) {
-  const parsed = JSON.parse(raw || '[]')
-  if (!Array.isArray(parsed)) {
-    throw new Error('Conditions must be a JSON array.')
-  }
-  return parsed.map((condition) => ({
-    field: String(condition?.field || '').trim(),
-    operator: String(condition?.operator || 'equals').trim(),
-    value: String(condition?.value || '').trim()
-  }))
-}
-
-function parseDelayMinutes(value) {
-  if (value === undefined || value === null || String(value).trim() === '') {
-    return 0
-  }
-  const text = String(value).trim()
-  if (!/^\d+$/.test(text)) {
-    throw new Error('Delay minutes must be a whole number.')
-  }
-  return Number.parseInt(text, 10)
-}
-
-function parseActions(raw) {
-  const parsed = JSON.parse(raw || '[]')
-  if (!Array.isArray(parsed)) {
-    throw new Error('Actions must be a JSON array.')
-  }
-  return parsed.map((action) => {
-    const config = action?.config || {}
-    if (!config || Array.isArray(config) || typeof config !== 'object') {
-      throw new Error('Action configs must be JSON objects.')
-    }
-    const delayMinutes = parseDelayMinutes(action?.delayMinutes)
-    const scheduledAt = String(action?.scheduledAt || '').trim()
-    if (delayMinutes > 0 && scheduledAt) {
-      throw new Error('Use either delay minutes or scheduled at for an action, not both.')
-    }
-    const nextAction = {
-      type: String(action?.type || '').trim(),
-      config: Object.fromEntries(Object.entries(config).filter(([key, value]) => key.trim() && value !== null).map(([key, value]) => [key.trim(), typeof value === 'string' ? value.trim() : value]))
-    }
-    if (delayMinutes > 0) nextAction.delayMinutes = delayMinutes
-    if (scheduledAt) nextAction.scheduledAt = scheduledAt
-    return nextAction
-  })
-}
-
-function parseConditionsForBuilder(raw) {
-  try {
-    return parseConditions(raw)
-  } catch {
-    return []
-  }
-}
-
-function parseActionsForBuilder(raw) {
-  try {
-    return parseActions(raw)
-  } catch {
-    return []
+    event: eventFromAutomation(automation),
+    stageId: automation.triggerConfig?.stageId ? String(automation.triggerConfig.stageId) : '',
+    title: action.config?.title || '',
+    description: action.config?.description || '',
+    dueDays: String((action.delayMinutes || 0) / 1440),
+    isActive: automation.isActive === true
   }
 }
 
 function payloadFromForm(form) {
+  const dueDays = Number(form.dueDays)
+  if (!Number.isInteger(dueDays) || dueDays < 0 || dueDays > 365) {
+    throw new Error('Due days must be a whole number from 0 to 365.')
+  }
+  const triggerType = form.event === 'created' ? 'record_created' : form.event === 'stage_changed' ? 'stage_changed' : 'record_updated'
+  const triggerConfig = form.event === 'archived'
+    ? { event: 'archived' }
+    : form.event === 'stage_changed' && form.stageId
+      ? { stageId: Number(form.stageId) }
+      : {}
+  const config = { title: form.title.trim() }
+  if (form.description.trim()) config.description = form.description.trim()
   return {
-    name: form.name,
-    description: form.description,
-    triggerType: form.triggerType,
-    targetEntityType: form.targetEntityType,
-    triggerConfig: parseTriggerConfig(form.triggerConfigText),
-    conditionLogic: form.conditionLogic,
-    conditions: parseConditions(form.conditionsText),
-    actions: parseActions(form.actionsText),
+    name: form.name.trim(),
+    description: 'Creates one assigned follow-up task from a deal event.',
+    triggerType,
+    targetEntityType: 'deal',
+    triggerConfig,
+    conditionLogic: 'all',
+    conditions: [],
+    actions: [{ type: 'create_task', config, delayMinutes: dueDays * 1440 }],
     isActive: form.isActive,
-    position: Number.parseInt(String(form.position || 0), 10) || 0
+    position: 0
   }
 }
 
-function triggerLabel(value) {
-  return triggerOptions.find((option) => option.value === value)?.label || value
-}
-
-function targetLabel(triggerType, value) {
-  return targetOptionsForTrigger(triggerType).find((option) => option.value === value)?.label || value
-}
-
-function actionLabel(value) {
-  return actionOptions.find((option) => option.value === value)?.label || value
-}
-
-function conditionSummary(condition) {
-  if (condition.operator === 'exists') {
-    return `${condition.field} exists`
+function triggerSummary(automation, stagesById) {
+  const event = eventFromAutomation(automation)
+  if (event === 'stage_changed') {
+    const stageID = Number(automation.triggerConfig?.stageId || 0)
+    return stageID ? `When moved to ${stagesById.get(stageID) || `stage #${stageID}`}` : 'After every real stage change'
   }
-  return `${condition.field} ${condition.operator || 'equals'} ${condition.value}`
+  return event === 'archived' ? 'When a deal is archived' : 'When a deal is created'
 }
 
-function actionSummary(action) {
-  const config = action.config || {}
-  const timing = action.delayMinutes ? ` after ${action.delayMinutes}m` : action.scheduledAt ? ` at ${action.scheduledAt}` : ''
-  if (action.type === 'request_approval') {
-    const approver = config.approverRole ? ` from ${config.approverRole}` : ''
-    return `${actionLabel(action.type)}${timing}: ${config.approvalName || 'Approval'}${approver}`
+function dueSummary(action) {
+  const delay = Number(action?.delayMinutes || 0)
+  if (delay === 0) return 'due immediately'
+  if (delay % 1440 === 0) {
+    const days = delay / 1440
+    return `due in ${days} ${days === 1 ? 'day' : 'days'}`
   }
-  const primary = config.title || config.subject || config.message || config.body || config.field || config.url || config.userId || config.sequenceId || ''
-  return primary ? `${actionLabel(action.type)}${timing}: ${primary}` : `${actionLabel(action.type)}${timing}`
-}
-
-function automationSummary(automation) {
-  const conditions = automation.conditions || []
-  const actions = automation.actions || []
-  const conditionText = conditions.length === 0 ? 'no conditions' : `${automation.conditionLogic || 'all'} ${conditions.length} condition${conditions.length === 1 ? '' : 's'}`
-  const actionText = actions.length === 0 ? 'no actions' : `${actions.length} action${actions.length === 1 ? '' : 's'}`
-  return `${triggerLabel(automation.triggerType)} | ${targetLabel(automation.triggerType, automation.targetEntityType)} | ${conditionText} | ${actionText} | order ${automation.position ?? 0}`
+  return `due in ${delay} minutes`
 }
 
 function formatRunTime(value) {
-  if (!value) return 'Not recorded'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
-}
-
-function runStatusLabel(status) {
-  if (!status) return 'Unknown'
-  return status.replace(/_/g, ' ')
-}
-
-function runActionProgress(run) {
-  return `${run.actionsCompleted ?? 0}/${run.actionsTotal ?? 0} actions completed`
+  return value && !Number.isNaN(date.getTime()) ? date.toLocaleString() : 'Not recorded'
 }
 
 export function SettingsAutomationsRoute() {
   const { session } = useAuth()
   usePageTitle('Automations')
-  const role = session?.membership?.role || ''
-  const canManage = role === 'owner' || role === 'admin'
+  const canManage = ['owner', 'admin'].includes(session?.membership?.role)
   const [automations, setAutomations] = useState([])
   const [runs, setRuns] = useState([])
+  const [pipelines, setPipelines] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [conditionDraft, setConditionDraft] = useState(() => emptyConditionDraft())
-  const [actionDraft, setActionDraft] = useState(() => emptyActionDraft())
 
   async function loadAutomations({ signal } = {}) {
     setIsLoading(true)
     try {
-      const [nextAutomations, nextRuns] = await Promise.all([
+      const [nextAutomations, nextRuns, nextPipelines] = await Promise.all([
         listWorkflowAutomations({ signal }),
-        listWorkflowAutomationRuns({ limit: 10, signal })
+        listWorkflowAutomationRuns({ limit: 25, signal }),
+        listDealPipelines({ signal })
       ])
       setAutomations(nextAutomations)
       setRuns(nextRuns)
+      setPipelines(nextPipelines)
       setError('')
     } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setError(loadError.message || 'Unable to load workflow automations.')
-      }
+      if (!isAbortError(loadError)) setError(loadError.message || 'Unable to load task automation rules.')
     } finally {
-      if (!signal?.aborted) {
-        setIsLoading(false)
-      }
+      if (!signal?.aborted) setIsLoading(false)
     }
   }
 
   useEffect(() => {
     const controller = new AbortController()
     loadAutomations({ signal: controller.signal })
-    return () => {
-      controller.abort()
-    }
+    return () => controller.abort()
   }, [])
+
+  const executableRules = useMemo(() => automations.filter(isExecutableTaskRule), [automations])
+  const executableIDs = useMemo(() => new Set(executableRules.map((automation) => automation.id)), [executableRules])
+  const visibleRuns = useMemo(() => runs.filter((run) => executableIDs.has(run.automationId)), [executableIDs, runs])
+  const hiddenDefinitions = automations.length - executableRules.length
+  const stages = useMemo(() => pipelines.flatMap((pipeline) => (pipeline.stages || []).map((stage) => ({ ...stage, pipelineName: pipeline.name }))), [pipelines])
+  const stagesById = useMemo(() => new Map(stages.map((stage) => [stage.id, `${stage.pipelineName} · ${stage.name}`])), [stages])
 
   function resetForm() {
     setEditingId(null)
     setForm(emptyForm())
-    setConditionDraft(emptyConditionDraft())
-    setActionDraft(emptyActionDraft())
   }
 
   function startEdit(automation) {
     setEditingId(automation.id)
     setForm(formFromAutomation(automation))
-    setConditionDraft(emptyConditionDraft(automation.targetEntityType || 'contact'))
-    setActionDraft(emptyActionDraft())
     setStatus('')
-  }
-
-  function updateTriggerType(triggerType) {
-    const targetEntityType = targetOptionsForTrigger(triggerType)[0].value
-    setForm({ ...form, triggerType, targetEntityType })
-    setConditionDraft(emptyConditionDraft(targetEntityType))
-  }
-
-  function updateTargetEntityType(targetEntityType) {
-    setForm({ ...form, targetEntityType })
-    setConditionDraft(emptyConditionDraft(targetEntityType))
-  }
-
-  function addConditionFromBuilder() {
-    const field = conditionDraft.field.trim()
-    const operator = conditionDraft.operator.trim() || 'equals'
-    const value = conditionDraft.value.trim()
-    if (!field || (operator !== 'exists' && !value)) {
-      setError('Choose a condition field and value before adding it.')
-      return
-    }
-    let currentConditions
-    try {
-      currentConditions = parseConditions(form.conditionsText)
-    } catch (parseError) {
-      setError(parseError.message || 'Conditions must be valid JSON before using the builder.')
-      return
-    }
-    const nextConditions = [...currentConditions, { field, operator, value: operator === 'exists' ? '' : value }]
-    setForm({ ...form, conditionsText: JSON.stringify(nextConditions, null, 2) })
-    setConditionDraft({ ...conditionDraft, value: '' })
-    setError('')
-  }
-
-  function removeCondition(index) {
-    const nextConditions = parseConditionsForBuilder(form.conditionsText).filter((_, currentIndex) => currentIndex !== index)
-    setForm({ ...form, conditionsText: JSON.stringify(nextConditions, null, 2) })
-  }
-
-  function updateActionType(type) {
-    setActionDraft(emptyActionDraft(type))
-  }
-
-  function updateActionConfig(key, value) {
-    setActionDraft({ ...actionDraft, config: { ...actionDraft.config, [key]: value } })
-  }
-
-  function addActionFromBuilder() {
-    const configFields = actionConfigFields[actionDraft.type] || []
-    const config = Object.fromEntries(configFields.map((field) => [field.key, String(actionDraft.config[field.key] || '').trim()]).filter(([, value]) => value !== ''))
-    if (configFields.some((field) => !config[field.key])) {
-      setError('Fill in the action details before adding it.')
-      return
-    }
-    let delayMinutes
-    try {
-      delayMinutes = parseDelayMinutes(actionDraft.delayMinutes)
-    } catch (parseError) {
-      setError(parseError.message || 'Delay minutes must be a whole number.')
-      return
-    }
-    const scheduledAt = actionDraft.scheduledAt.trim()
-    if (delayMinutes > 0 && scheduledAt) {
-      setError('Use either delay minutes or scheduled at for an action, not both.')
-      return
-    }
-    let currentActions
-    try {
-      currentActions = parseActions(form.actionsText)
-    } catch (parseError) {
-      setError(parseError.message || 'Actions must be valid JSON before using the builder.')
-      return
-    }
-    const nextAction = { type: actionDraft.type, config }
-    if (delayMinutes > 0) nextAction.delayMinutes = delayMinutes
-    if (scheduledAt) nextAction.scheduledAt = scheduledAt
-    const nextActions = [...currentActions, nextAction]
-    setForm({ ...form, actionsText: JSON.stringify(nextActions, null, 2) })
-    setActionDraft(emptyActionDraft(actionDraft.type))
-    setError('')
-  }
-
-  function removeAction(index) {
-    const nextActions = parseActionsForBuilder(form.actionsText).filter((_, currentIndex) => currentIndex !== index)
-    setForm({ ...form, actionsText: JSON.stringify(nextActions, null, 2) })
   }
 
   async function handleSubmit(event) {
     event.preventDefault()
     if (!canManage) return
-
     let payload
     try {
       payload = payloadFromForm(form)
-    } catch (parseError) {
-      setError(parseError.message || 'Trigger config, conditions, and actions must be valid JSON.')
+    } catch (validationError) {
+      setError(validationError.message)
       return
     }
-
     setIsSaving(true)
     setStatus('')
     try {
       if (editingId) {
         const updated = await updateWorkflowAutomation(editingId, payload)
         setAutomations((current) => current.map((automation) => (automation.id === editingId ? updated : automation)))
-        setStatus('Workflow automation updated.')
+        setStatus('Task automation rule updated.')
       } else {
         const created = await createWorkflowAutomation(payload)
         setAutomations((current) => [created, ...current])
-        setStatus('Workflow automation created.')
+        setStatus('Task automation rule created.')
       }
       resetForm()
       setError('')
     } catch (saveError) {
-      setError(saveError.message || 'Unable to save workflow automation.')
+      setError(saveError.message || 'Unable to save task automation rule.')
     } finally {
       setIsSaving(false)
     }
   }
 
-  const targetOptions = targetOptionsForTrigger(form.triggerType)
-  const conditionFieldOptions = conditionOptionsForTarget(form.targetEntityType)
-  const builderConditions = parseConditionsForBuilder(form.conditionsText)
-  const builderActions = parseActionsForBuilder(form.actionsText)
-  const selectedActionFields = actionConfigFields[actionDraft.type] || []
-
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
         <div className="card-stack">
-          <div className="section-header">
-            <div>
-              <h2>Workflow automations</h2>
-              <p>Define automation triggers, conditions, action plans, and run history metadata now; execution comes in later slices.</p>
-            </div>
+          <div>
+            <p className="eyebrow">Deal follow-up</p>
+            <h2>Task automation rules</h2>
+            <p>Create one predictable task after a deal is created, actually changes stage, or is archived. The task is assigned to the active deal owner, falling back to the teammate who caused the event.</p>
           </div>
-          {isLoading ? <p className="field-hint">Loading workflow automations...</p> : null}
+          {isLoading ? <p className="field-hint">Loading task automation rules...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
-          {error ? <InlineError message={error} onRetry={() => loadAutomations()} retryLabel="Retry automations" /> : null}
-          <div className="record-list" role="list" aria-label="Workflow automations">
-            {!isLoading && automations.length === 0 ? (
-              <article className="record-row" role="listitem">
-                <div>
-                  <p>No workflow automations yet.</p>
-                  <p className="field-hint">Start by modeling the event, filters, and future actions for automation work.</p>
-                </div>
-              </article>
-            ) : automations.map((automation) => (
-              <article className={automation.isActive ? 'record-row' : 'record-row record-row-alert'} key={automation.id} role="listitem">
-                <div>
-                  <h3>{automation.name}</h3>
-                  <p className="field-hint">{automationSummary(automation)}</p>
-                  {automation.description ? <p>{automation.description}</p> : null}
-                </div>
-                <div>
-                  <span className="chip">{automation.isActive ? 'Active' : 'Inactive'}</span>
-                  {canManage ? <Button className="button-secondary" type="button" onClick={() => startEdit(automation)}>Edit</Button> : null}
-                </div>
+          {error ? <InlineError message={error} onRetry={() => loadAutomations()} retryLabel="Retry task automations" /> : null}
+          {hiddenDefinitions > 0 ? <p className="field-hint">{hiddenDefinitions} stored legacy workflow {hiddenDefinitions === 1 ? 'definition is' : 'definitions are'} hidden because this pilot surface only exposes executable deal task rules.</p> : null}
+          <div className="record-list" role="list" aria-label="Task automation rules">
+            {!isLoading && executableRules.length === 0 ? (
+              <article className="record-row" role="listitem"><div><p>No executable task rules yet.</p><p className="field-hint">Add one bounded follow-up rule to remove a repeated manual step.</p></div></article>
+            ) : executableRules.map((automation) => {
+              const action = automation.actions[0]
+              return (
+                <article className={automation.isActive ? 'record-row' : 'record-row record-row-alert'} key={automation.id} role="listitem">
+                  <div>
+                    <h3>{automation.name}</h3>
+                    <p>{triggerSummary(automation, stagesById)}</p>
+                    <p className="field-hint">Create “{action.config.title}” · {dueSummary(action)}</p>
+                  </div>
+                  <div><span className="chip">{automation.isActive ? 'Active' : 'Inactive'}</span>{canManage ? <Button className="button-secondary" type="button" onClick={() => startEdit(automation)}>Edit</Button> : null}</div>
+                </article>
+              )
+            })}
+          </div>
+          <div>
+            <h3>Recent task automation runs</h3>
+            <p className="field-hint">Committed runs are idempotent and show exactly how many tasks were created. Skipped means a legacy unsupported rule shape was safely ignored.</p>
+          </div>
+          <div className="record-list" role="list" aria-label="Task automation runs">
+            {!isLoading && visibleRuns.length === 0 ? (
+              <article className="record-row" role="listitem"><div><p>No task automation runs yet.</p><p className="field-hint">Runs appear after an active rule receives a matching deal event.</p></div></article>
+            ) : visibleRuns.map((run) => (
+              <article className={run.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} key={run.id} role="listitem">
+                <div><p>{run.automationName}</p><p className="field-hint">{formatRunTime(run.createdAt)} · {run.actionsCompleted ?? 0}/{run.actionsTotal ?? 0} tasks created</p><p>{run.lastError || run.triggerEventKey}</p></div>
+                <span className="chip">{run.status}</span>
               </article>
             ))}
-          </div>
-          <div className="card-stack">
-            <div className="section-header">
-              <div>
-                <h3>Recent automation runs</h3>
-                <p className="field-hint">Run records capture idempotency keys, status, action progress, retry count, and errors for the future executor.</p>
-              </div>
-            </div>
-            <div className="record-list" role="list" aria-label="Workflow automation runs">
-              {!isLoading && runs.length === 0 ? (
-                <article className="record-row" role="listitem">
-                  <div>
-                    <p>No automation runs yet.</p>
-                    <p className="field-hint">Trigger execution will populate this history when the workflow runner is added.</p>
-                  </div>
-                </article>
-              ) : runs.map((run) => (
-                <article className={run.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} key={run.id} role="listitem">
-                  <div>
-                    <p>{run.automationName || `Automation #${run.automationId}`}</p>
-                    <p className="field-hint">{run.triggerEventKey} | {formatRunTime(run.createdAt)} | retry {run.retryCount ?? 0}</p>
-                    <p>{run.lastError || runActionProgress(run)}</p>
-                  </div>
-                  <span className="chip">{runStatusLabel(run.status)}</span>
-                </article>
-              ))}
-            </div>
           </div>
         </div>
       </Card>
@@ -523,144 +242,17 @@ export function SettingsAutomationsRoute() {
       {canManage ? (
         <Card>
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
-            <div>
-              <h2>{editingId ? 'Edit automation trigger' : 'New automation trigger'}</h2>
-              <p className="field-hint">This foundation saves trigger, condition, and action definitions; it does not run actions yet.</p>
-            </div>
-            <Field label="Automation name">
-              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="New lead follow-up" required />
-            </Field>
-            <Field label="Description">
-              <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Describe when this automation should start." />
-            </Field>
-            <Field label="Trigger type">
-              <select className="text-input" value={form.triggerType} onChange={(event) => updateTriggerType(event.target.value)}>
-                {triggerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Target record">
-              <select className="text-input" value={form.targetEntityType} onChange={(event) => updateTargetEntityType(event.target.value)}>
-                {targetOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Trigger config JSON" hint='Optional string key/value object, for example {"formPublicId":"lf_public"}.'>
-              <textarea className="text-input" rows={5} value={form.triggerConfigText} onChange={(event) => setForm({ ...form, triggerConfigText: event.target.value })} />
-            </Field>
-            <div className="card-stack" aria-label="Visual workflow builder">
-              <div>
-                <h3>Visual workflow builder</h3>
-                <p className="field-hint">Build the trigger, condition checks, and ordered action plan without hand-editing the JSON arrays.</p>
-              </div>
-              <div className="record-list" role="list" aria-label="Workflow builder steps">
-                <article className="record-row" role="listitem">
-                  <div>
-                    <p className="field-hint">Step 1: Trigger</p>
-                    <p>{triggerLabel(form.triggerType)} on {targetLabel(form.triggerType, form.targetEntityType)}</p>
-                  </div>
-                </article>
-                <article className="record-row" role="listitem">
-                  <div>
-                    <p className="field-hint">Step 2: Conditions</p>
-                    <p>{builderConditions.length === 0 ? 'Run for every matching trigger.' : `${form.conditionLogic === 'any' ? 'Any' : 'All'} of ${builderConditions.length} condition${builderConditions.length === 1 ? '' : 's'} must match.`}</p>
-                  </div>
-                </article>
-                <article className="record-row" role="listitem">
-                  <div>
-                    <p className="field-hint">Step 3: Actions</p>
-                    <p>{builderActions.length === 0 ? 'No actions planned yet.' : `${builderActions.length} action${builderActions.length === 1 ? '' : 's'} will run in order.`}</p>
-                  </div>
-                </article>
-              </div>
-            </div>
-            <Field label="Condition logic">
-              <select className="text-input" value={form.conditionLogic} onChange={(event) => setForm({ ...form, conditionLogic: event.target.value })}>
-                <option value="all">All conditions</option>
-                <option value="any">Any condition</option>
-              </select>
-            </Field>
-            <div className="card-stack">
-              <div className="button-row">
-                <Field label="Condition field">
-                  <select className="text-input" value={conditionDraft.field} onChange={(event) => setConditionDraft({ ...conditionDraft, field: event.target.value })}>
-                    {conditionFieldOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                </Field>
-                <Field label="Condition operator">
-                  <select className="text-input" value={conditionDraft.operator} onChange={(event) => setConditionDraft({ ...conditionDraft, operator: event.target.value })}>
-                    {conditionOperatorOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                </Field>
-              </div>
-              <Field label="Condition value" hint="Leave blank only when using the exists operator.">
-                <input className="text-input" value={conditionDraft.value} onChange={(event) => setConditionDraft({ ...conditionDraft, value: event.target.value })} />
-              </Field>
-              <Button className="button-secondary" type="button" onClick={addConditionFromBuilder}>Add condition</Button>
-              {builderConditions.length > 0 ? (
-                <div className="record-list" role="list" aria-label="Builder conditions">
-                  {builderConditions.map((condition, index) => (
-                    <article className="record-row" role="listitem" key={`${condition.field}-${condition.operator}-${index}`}>
-                      <div>
-                        <p>{conditionSummary(condition)}</p>
-                      </div>
-                      <Button className="button-secondary" type="button" onClick={() => removeCondition(index)}>Remove</Button>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <Field label="Conditions JSON" hint='Optional array like [{"field":"status","operator":"equals","value":"lead"}]. Operators: equals, notEquals, contains, exists, greaterThan, lessThan.'>
-              <textarea className="text-input" rows={6} value={form.conditionsText} onChange={(event) => setForm({ ...form, conditionsText: event.target.value })} />
-            </Field>
-            <div className="card-stack">
-              <Field label="Action type">
-                <select className="text-input" value={actionDraft.type} onChange={(event) => updateActionType(event.target.value)}>
-                  {actionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </Field>
-              {selectedActionFields.map((field) => (
-                <Field key={field.key} label={field.label}>
-                  {field.options ? (
-                    <select className="text-input" value={actionDraft.config[field.key] || field.options[0]?.value || ''} onChange={(event) => updateActionConfig(field.key, event.target.value)}>
-                      {field.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
-                  ) : <input className="text-input" value={actionDraft.config[field.key] || ''} onChange={(event) => updateActionConfig(field.key, event.target.value)} />}
-                </Field>
-              ))}
-              <div className="button-row">
-                <Field label="Delay minutes" hint="Optional relative delay after the trigger.">
-                  <input className="text-input" min="0" type="number" value={actionDraft.delayMinutes} onChange={(event) => setActionDraft({ ...actionDraft, delayMinutes: event.target.value })} />
-                </Field>
-                <Field label="Scheduled at" hint="Optional absolute ISO time, for example 2030-05-01T15:30:00Z.">
-                  <input className="text-input" value={actionDraft.scheduledAt} onChange={(event) => setActionDraft({ ...actionDraft, scheduledAt: event.target.value })} />
-                </Field>
-              </div>
-              <Button className="button-secondary" type="button" onClick={addActionFromBuilder}>Add action</Button>
-              {builderActions.length > 0 ? (
-                <div className="record-list" role="list" aria-label="Builder actions">
-                  {builderActions.map((action, index) => (
-                    <article className="record-row" role="listitem" key={`${action.type}-${index}`}>
-                      <div>
-                        <p>{actionSummary(action)}</p>
-                      </div>
-                      <Button className="button-secondary" type="button" onClick={() => removeAction(index)}>Remove</Button>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <Field label="Actions JSON" hint='Optional ordered array like [{"type":"create_task","config":{"title":"Call new lead"}}]. Types: update_field, create_task, send_email, send_sms, assign_owner, add_to_sequence, call_webhook, notify, request_approval.'>
-              <textarea className="text-input" rows={7} value={form.actionsText} onChange={(event) => setForm({ ...form, actionsText: event.target.value })} />
-            </Field>
-            <Field label="Order">
-              <input className="text-input" type="number" min="0" value={form.position} onChange={(event) => setForm({ ...form, position: event.target.value })} />
-            </Field>
-            <label className="field-hint">
-              <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active trigger definition
-            </label>
-            <div className="button-row">
-              <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save automation trigger' : 'Create automation trigger'}</Button>
-              {editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}
-            </div>
+            <div><h2>{editingId ? 'Edit task rule' : 'New task rule'}</h2><p className="field-hint">One event creates one task in the same transaction as the deal change. Replays cannot create a duplicate.</p></div>
+            <Field label="Rule name"><input className="text-input" maxLength="120" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Proposal follow-up" /></Field>
+            <Field label="When"><select className="text-input" value={form.event} onChange={(event) => setForm({ ...form, event: event.target.value, stageId: '' })}>{triggerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+            {form.event === 'stage_changed' ? (
+              <Field label="Destination stage" hint="Choose any stage to run after every real stage change."><select className="text-input" value={form.stageId} onChange={(event) => setForm({ ...form, stageId: event.target.value })}><option value="">Any stage</option>{stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.pipelineName} · {stage.name}</option>)}</select></Field>
+            ) : null}
+            <Field label="Task title"><input className="text-input" maxLength="200" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Prepare proposal" /></Field>
+            <Field label="Task description"><textarea className="text-input" rows={3} maxLength="2000" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
+            <Field label="Due in days" hint="0 means immediately; maximum 365."><input className="text-input" type="number" min="0" max="365" step="1" required value={form.dueDays} onChange={(event) => setForm({ ...form, dueDays: event.target.value })} /></Field>
+            <label className="field-hint"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active rule</label>
+            <div className="button-row"><Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save task rule' : 'Create task rule'}</Button>{editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}</div>
           </form>
         </Card>
       ) : null}

@@ -1,354 +1,36 @@
 package app
 
 import (
-	"context"
-	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
-	modulecalendar "github.com/aeml/open_crm/apps/api/internal/modules/calendar"
-	modulecalllogs "github.com/aeml/open_crm/apps/api/internal/modules/calllogs"
-	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
-	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
-	modulecustomreports "github.com/aeml/open_crm/apps/api/internal/modules/customreports"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
-	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
-	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
-	moduleemailsuppressions "github.com/aeml/open_crm/apps/api/internal/modules/emailsuppressions"
-	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
-	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
-	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	moduleleadaudiences "github.com/aeml/open_crm/apps/api/internal/modules/leadaudiences"
-	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
-	moduleleadscoring "github.com/aeml/open_crm/apps/api/internal/modules/leadscoring"
-	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
-	modulemarketingcampaigns "github.com/aeml/open_crm/apps/api/internal/modules/marketingcampaigns"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
-	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
-	modulenurturecampaigns "github.com/aeml/open_crm/apps/api/internal/modules/nurturecampaigns"
-	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
-	moduleproductcatalog "github.com/aeml/open_crm/apps/api/internal/modules/productcatalog"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
-	modulesms "github.com/aeml/open_crm/apps/api/internal/modules/sms"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
-	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
-	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
 const (
-	sessionCookieName  = "open_crm_session"
-	sessionCookieTTL   = 30 * 24 * time.Hour
-	maxJSONBodyBytes   = 1 << 20
-	maxImportBodyBytes = 2 << 20
-	authRateLimit      = 10
-	authRateWindow     = time.Minute
+	sessionCookieName    = "open_crm_session"
+	sessionCookieTTL     = 30 * 24 * time.Hour
+	maxJSONBodyBytes     = 1 << 20
+	maxImportBodyBytes   = 2 << 20
+	authRateLimit        = 10
+	authRateWindow       = time.Minute
+	publicReadRateLimit  = 120
+	publicWriteRateLimit = 20
+	trackingRateLimit    = 300
+	publicRateWindow     = time.Minute
+	rateLimitMaxClients  = 4096
 )
-
-type authService interface {
-	Login(context.Context, string, string) (moduleauth.LoginResult, error)
-	CurrentSession(context.Context, string) (moduleauth.SessionState, error)
-	Logout(context.Context, string) error
-}
-
-type usersService interface {
-	ListByOrganization(context.Context, int64) ([]moduleusers.UserSummary, error)
-	CreateForOrganization(context.Context, int64, moduleusers.CreateUserInput) (moduleusers.UserSummary, error)
-	UpdateRole(context.Context, int64, int64, int64, string) (moduleusers.UserSummary, error)
-	CompleteSetup(context.Context, moduleusers.CompleteSetupInput) (moduleusers.SetupCompletion, error)
-	UpdateProfile(context.Context, int64, moduleusers.UpdateProfileInput) (moduleusers.UserProfile, error)
-	GetPreferences(context.Context, int64) (moduleusers.UserPreferences, error)
-	UpdatePreferences(context.Context, int64, moduleusers.UserPreferences) (moduleusers.UserPreferences, error)
-}
-
-type auditService interface {
-	ListByOrganization(context.Context, int64, moduleaudit.ListQuery) ([]moduleaudit.Event, error)
-	Record(context.Context, int64, moduleaudit.RecordInput) error
-}
-
-type contactsService interface {
-	ListByOrganization(context.Context, int64, modulecontacts.ListQuery) (modulecontacts.ListResult, error)
-	GetByID(context.Context, int64, int64) (modulecontacts.Detail, error)
-	Create(context.Context, int64, int64, modulecontacts.CreateInput) (modulecontacts.Detail, error)
-	Update(context.Context, int64, int64, int64, modulecontacts.UpdateInput) (modulecontacts.Detail, error)
-	Archive(context.Context, int64, int64, int64) error
-}
-
-type companiesService interface {
-	ListByOrganization(context.Context, int64, modulecompanies.ListQuery) (modulecompanies.ListResult, error)
-	GetByID(context.Context, int64, int64) (modulecompanies.Detail, error)
-	Create(context.Context, int64, int64, modulecompanies.CreateInput) (modulecompanies.Detail, error)
-	Update(context.Context, int64, int64, int64, modulecompanies.UpdateInput) (modulecompanies.Detail, error)
-	Archive(context.Context, int64, int64, int64) error
-}
-
-type dealsService interface {
-	ListPipelinesByOrganization(context.Context, int64) ([]moduledeals.Pipeline, error)
-	CreatePipeline(context.Context, int64, int64, moduledeals.PipelineInput) (moduledeals.Pipeline, error)
-	ListStagesByOrganization(context.Context, int64) ([]moduledeals.Stage, error)
-	ListByOrganization(context.Context, int64, moduledeals.ListQuery) (moduledeals.ListResult, error)
-	GetByID(context.Context, int64, int64) (moduledeals.Detail, error)
-	Create(context.Context, int64, int64, moduledeals.CreateInput) (moduledeals.Detail, error)
-	Update(context.Context, int64, int64, int64, moduledeals.UpdateInput) (moduledeals.Detail, error)
-	Archive(context.Context, int64, int64, int64) error
-	UpdateStage(context.Context, int64, int64, int64, moduledeals.UpdateStageInput) (moduledeals.Detail, error)
-	ReplaceLineItems(context.Context, int64, int64, int64, moduledeals.LineItemsInput) (moduledeals.Detail, error)
-	CreateSignatureRequest(context.Context, int64, int64, int64, moduledeals.SignatureRequestInput) (moduledeals.Detail, error)
-	UpdateSignatureRequestStatus(context.Context, int64, int64, int64, int64, moduledeals.SignatureStatusInput) (moduledeals.Detail, error)
-}
-
-type tasksService interface {
-	ListByOrganization(context.Context, int64, moduletasks.ListQuery) (moduletasks.ListResult, error)
-	GetByID(context.Context, int64, int64) (moduletasks.Detail, error)
-	Archive(context.Context, int64, int64, int64) error
-	Create(context.Context, int64, int64, moduletasks.CreateInput) (moduletasks.Detail, error)
-	Update(context.Context, int64, int64, int64, moduletasks.UpdateInput) (moduletasks.Detail, error)
-}
-
-type dataExportsService interface {
-	ContactsCSV(context.Context, int64, moduleexports.ContactsQuery) (moduleexports.File, error)
-	CompaniesCSV(context.Context, int64, moduleexports.CompaniesQuery) (moduleexports.File, error)
-	DealsCSV(context.Context, int64, moduleexports.DealsQuery) (moduleexports.File, error)
-	TasksCSV(context.Context, int64, moduleexports.TasksQuery) (moduleexports.File, error)
-}
-
-type orgProfileService interface {
-	GetByOrganizationID(context.Context, int64) (moduleorgprofile.Detail, error)
-	UpdateByOrganizationID(context.Context, int64, int64, moduleorgprofile.UpdateInput) (moduleorgprofile.Detail, error)
-	UpsertExchangeRate(context.Context, int64, int64, moduleorgprofile.ExchangeRateInput) (moduleorgprofile.Detail, error)
-}
-
-type dashboardService interface {
-	SummaryByOrganization(context.Context, int64) (moduledashboard.Summary, error)
-	UpsertSalesQuota(context.Context, int64, int64, int64, moduledashboard.QuotaInput) (moduledashboard.Summary, error)
-}
-
-type notesService interface {
-	ListByEntity(context.Context, int64, string, int64) ([]modulenotes.Entry, error)
-	Create(context.Context, int64, int64, modulenotes.CreateInput) (modulenotes.CreateResult, error)
-}
-
-type callLogsService interface {
-	ListByEntity(context.Context, int64, string, int64, int) ([]modulecalllogs.Log, error)
-	StartOutbound(context.Context, int64, int64, modulecalllogs.StartInput) (modulecalllogs.StartResult, error)
-	Complete(context.Context, int64, int64, int64, modulecalllogs.CompleteInput) (modulecalllogs.Log, error)
-	RecordManual(context.Context, int64, int64, modulecalllogs.RecordInput) (modulecalllogs.Log, error)
-	UpdateRecording(context.Context, int64, int64, int64, modulecalllogs.RecordingInput) (modulecalllogs.Log, error)
-}
-
-type smsService interface {
-	ListByEntity(context.Context, int64, string, int64, int) ([]modulesms.Message, error)
-	Send(context.Context, int64, int64, modulesms.SendInput) (modulesms.Message, error)
-	RecordInbound(context.Context, int64, int64, modulesms.InboundInput) (modulesms.Message, error)
-	Suppress(context.Context, int64, int64, modulesms.SuppressInput) (modulesms.Suppression, error)
-}
-
-type calendarService interface {
-	ListByEntity(context.Context, int64, string, int64, int) ([]modulecalendar.Event, error)
-	Schedule(context.Context, int64, int64, modulecalendar.ScheduleInput) (modulecalendar.Event, error)
-	Cancel(context.Context, int64, int64, int64) (modulecalendar.Event, error)
-	ListAvailability(context.Context, int64, int64) ([]modulecalendar.AvailabilityBlock, error)
-	SetAvailability(context.Context, int64, int64, modulecalendar.AvailabilityInput) ([]modulecalendar.AvailabilityBlock, error)
-	ListBookingLinks(context.Context, int64) ([]modulecalendar.BookingLink, error)
-	CreateBookingLink(context.Context, int64, int64, modulecalendar.BookingLinkInput) (modulecalendar.BookingLink, error)
-	UpdateBookingLink(context.Context, int64, int64, int64, modulecalendar.BookingLinkInput) (modulecalendar.BookingLink, error)
-}
-
-type importsService interface {
-	Preview(context.Context, moduleimports.PreviewInput) (moduleimports.PreviewResult, error)
-}
-
-type savedViewsService interface {
-	ListByEntity(context.Context, int64, int64, string) ([]modulesavedviews.View, error)
-	Create(context.Context, int64, int64, modulesavedviews.Input) (modulesavedviews.View, error)
-	Update(context.Context, int64, int64, int64, modulesavedviews.Input) (modulesavedviews.View, error)
-	Delete(context.Context, int64, int64, int64) error
-}
-
-type onboardingService interface {
-	BootstrapOrganization(context.Context, moduleonboarding.BootstrapInput) (moduleauth.LoginResult, error)
-}
-
-type notificationsService interface {
-	Create(context.Context, int64, modulenotifications.CreateInput) error
-	ListForUser(context.Context, int64, int64) ([]modulenotifications.Notification, error)
-	MarkRead(context.Context, int64, int64, int64) error
-	MarkAllRead(context.Context, int64, int64) error
-	UnreadCount(context.Context, int64, int64) (int, error)
-}
-
-type emailService interface {
-	SendUserInvite(ctx context.Context, to, firstName, setupToken string) error
-	Send(ctx context.Context, to, subject, body string) error
-}
-
-type emailTemplatesService interface {
-	ListByOrganization(context.Context, int64) ([]moduleemailtemplates.Template, error)
-	Create(context.Context, int64, moduleemailtemplates.Input) (moduleemailtemplates.Template, error)
-	Update(context.Context, int64, int64, moduleemailtemplates.Input) (moduleemailtemplates.Template, error)
-	Delete(context.Context, int64, int64) error
-	ListSnippetsByOrganization(context.Context, int64) ([]moduleemailtemplates.Snippet, error)
-	CreateSnippet(context.Context, int64, moduleemailtemplates.SnippetInput) (moduleemailtemplates.Snippet, error)
-	UpdateSnippet(context.Context, int64, int64, moduleemailtemplates.SnippetInput) (moduleemailtemplates.Snippet, error)
-	DeleteSnippet(context.Context, int64, int64) error
-}
-
-type productCatalogService interface {
-	ListByOrganization(context.Context, int64) ([]moduleproductcatalog.Item, error)
-	Create(context.Context, int64, int64, moduleproductcatalog.Input) (moduleproductcatalog.Item, error)
-	Update(context.Context, int64, int64, int64, moduleproductcatalog.Input) (moduleproductcatalog.Item, error)
-	Archive(context.Context, int64, int64) error
-}
-
-type leadFormsService interface {
-	ListByOrganization(context.Context, int64) ([]moduleleadforms.Form, error)
-	Create(context.Context, int64, int64, moduleleadforms.Input) (moduleleadforms.Form, error)
-	Update(context.Context, int64, int64, int64, moduleleadforms.Input) (moduleleadforms.Form, error)
-	ListLandingPagesByOrganization(context.Context, int64) ([]moduleleadforms.LandingPage, error)
-	CreateLandingPage(context.Context, int64, int64, moduleleadforms.LandingPageInput) (moduleleadforms.LandingPage, error)
-	UpdateLandingPage(context.Context, int64, int64, int64, moduleleadforms.LandingPageInput) (moduleleadforms.LandingPage, error)
-	GetPublicLandingPage(context.Context, string) (moduleleadforms.PublicLandingPage, error)
-	ListChatWidgetsByOrganization(context.Context, int64) ([]moduleleadforms.ChatWidget, error)
-	CreateChatWidget(context.Context, int64, int64, moduleleadforms.ChatWidgetInput) (moduleleadforms.ChatWidget, error)
-	UpdateChatWidget(context.Context, int64, int64, int64, moduleleadforms.ChatWidgetInput) (moduleleadforms.ChatWidget, error)
-	GetPublicChatWidget(context.Context, string) (moduleleadforms.PublicChatWidget, error)
-	SubmitByPublicID(context.Context, string, moduleleadforms.SubmissionInput) (moduleleadforms.SubmissionResult, error)
-}
-
-type leadAudiencesService interface {
-	ListByOrganization(context.Context, int64) ([]moduleleadaudiences.Audience, error)
-	Create(context.Context, int64, int64, moduleleadaudiences.Input) (moduleleadaudiences.Audience, error)
-	Update(context.Context, int64, int64, int64, moduleleadaudiences.Input) (moduleleadaudiences.Audience, error)
-	Preview(context.Context, int64, map[string]string) (moduleleadaudiences.Preview, error)
-}
-
-type emailSequencesService interface {
-	ListByOrganization(context.Context, int64) ([]moduleemailsequences.Sequence, error)
-	Create(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
-	Update(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
-	Delete(context.Context, int64, int64) error
-}
-
-type marketingCampaignsService interface {
-	ListByOrganization(context.Context, int64) ([]modulemarketingcampaigns.Campaign, error)
-	Create(context.Context, int64, int64, modulemarketingcampaigns.Input) (modulemarketingcampaigns.Campaign, error)
-	Update(context.Context, int64, int64, int64, modulemarketingcampaigns.Input) (modulemarketingcampaigns.Campaign, error)
-}
-
-type nurtureCampaignsService interface {
-	ListByOrganization(context.Context, int64) ([]modulenurturecampaigns.Campaign, error)
-	Create(context.Context, int64, int64, modulenurturecampaigns.Input) (modulenurturecampaigns.Campaign, error)
-	Update(context.Context, int64, int64, int64, modulenurturecampaigns.Input) (modulenurturecampaigns.Campaign, error)
-}
-
-type leadScoringService interface {
-	ListByOrganization(context.Context, int64) ([]moduleleadscoring.Rule, error)
-	Create(context.Context, int64, int64, moduleleadscoring.Input) (moduleleadscoring.Rule, error)
-	Update(context.Context, int64, int64, int64, moduleleadscoring.Input) (moduleleadscoring.Rule, error)
-	EvaluateContact(context.Context, int64, int64, int64) (moduleleadscoring.Evaluation, error)
-}
-
-type workflowAutomationsService interface {
-	ListByOrganization(context.Context, int64) ([]moduleworkflowautomations.Automation, error)
-	ListRuns(context.Context, int64, moduleworkflowautomations.RunListQuery) ([]moduleworkflowautomations.Run, error)
-	Create(context.Context, int64, int64, moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error)
-	Update(context.Context, int64, int64, int64, moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error)
-}
-
-type customReportsService interface {
-	ListByOrganization(context.Context, int64) ([]modulecustomreports.Definition, error)
-	Create(context.Context, int64, int64, modulecustomreports.Input) (modulecustomreports.Definition, error)
-	Update(context.Context, int64, int64, int64, modulecustomreports.Input) (modulecustomreports.Definition, error)
-}
-
-type emailSequenceEnrollmentsService interface {
-	ListEnrollmentsByContact(context.Context, int64, int64) ([]moduleemailsequences.Enrollment, error)
-	EnrollContact(context.Context, int64, moduleemailsequences.EnrollmentInput) (moduleemailsequences.Enrollment, error)
-	CancelEnrollment(context.Context, int64, int64) error
-}
-
-type userEmailAccountService interface {
-	Configured() bool
-	GetForUser(context.Context, int64, int64) (moduleuseremail.Account, error)
-	Upsert(context.Context, int64, int64, moduleuseremail.UpsertInput) (moduleuseremail.Account, error)
-	SaveOAuthConnection(context.Context, int64, int64, moduleuseremail.OAuthConnectionInput) (moduleuseremail.Account, error)
-	UpdateSyncState(context.Context, int64, int64, moduleuseremail.SyncStateInput) (moduleuseremail.Account, error)
-	Delete(context.Context, int64, int64) error
-	SendAs(ctx context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error
-	MemberExists(context.Context, int64, int64) (bool, error)
-}
-
-type mailboxSyncService interface {
-	Configured() bool
-	SyncUser(context.Context, int64, int64) (modulemailboxsync.Result, error)
-}
-
-type emailMessagesService interface {
-	Record(context.Context, int64, moduleemailmessages.RecordInput) error
-	GetByID(context.Context, int64, int64) (moduleemailmessages.Message, error)
-	ListByOrganization(context.Context, int64, int) ([]moduleemailmessages.Message, error)
-	ListByEntity(context.Context, int64, string, int64, int64, bool) ([]moduleemailmessages.Message, error)
-	ListBySender(context.Context, int64, int64, int) ([]moduleemailmessages.Message, error)
-	ListMailboxByUser(context.Context, int64, int64, int) ([]moduleemailmessages.Message, error)
-	ListSharedInbox(context.Context, int64, int) ([]moduleemailmessages.Message, error)
-	UpdateSharedInbox(context.Context, int64, int64, moduleemailmessages.SharedInboxUpdateInput) (moduleemailmessages.Message, error)
-	MarkOpenedByToken(context.Context, string) error
-	MarkClickedByToken(context.Context, string) (string, error)
-}
-
-type emailSuppressionsService interface {
-	IsSuppressed(context.Context, int64, string) (bool, error)
-	UnsubscribeToken(int64, string) (string, error)
-	UnsubscribeByToken(context.Context, string) (moduleemailsuppressions.Suppression, error)
-}
-
-type Dependencies struct {
-	CheckReadiness                  func(context.Context) error
-	Logger                          *slog.Logger
-	AuthService                     authService
-	UsersService                    usersService
-	AuditService                    auditService
-	ContactsService                 contactsService
-	CompaniesService                companiesService
-	DealsService                    dealsService
-	TasksService                    tasksService
-	ExportsService                  dataExportsService
-	OrgProfileService               orgProfileService
-	DashboardService                dashboardService
-	NotesService                    notesService
-	CallLogsService                 callLogsService
-	SMSService                      smsService
-	CalendarService                 calendarService
-	ImportsService                  importsService
-	SavedViewsService               savedViewsService
-	OnboardingService               onboardingService
-	NotificationsService            notificationsService
-	BillingService                  billingService
-	EmailService                    emailService
-	EmailTemplatesService           emailTemplatesService
-	ProductCatalogService           productCatalogService
-	LeadFormsService                leadFormsService
-	LeadAudiencesService            leadAudiencesService
-	MarketingCampaignsService       marketingCampaignsService
-	NurtureCampaignsService         nurtureCampaignsService
-	LeadScoringService              leadScoringService
-	WorkflowAutomationsService      workflowAutomationsService
-	CustomReportsService            customReportsService
-	EmailSequencesService           emailSequencesService
-	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
-	UserEmailService                userEmailAccountService
-	MailboxSyncService              mailboxSyncService
-	EmailOAuthClient                emailOAuthClient
-	EmailMessagesService            emailMessagesService
-	EmailSuppressionsService        emailSuppressionsService
-}
 
 type statusResponse struct {
 	Data struct {
@@ -380,38 +62,9 @@ type bootstrapRequest struct {
 	Password         string `json:"password"`
 }
 
-type createUserRequest struct {
-	Email     string `json:"email"`
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
-	Role      string `json:"role"`
-}
-
-type updateUserRoleRequest struct {
-	Role string `json:"role"`
-}
-
 type completeUserSetupRequest struct {
 	Token    string `json:"token"`
 	Password string `json:"password"`
-}
-
-type usersListResponse struct {
-	Data struct {
-		Users []moduleusers.UserSummary `json:"users"`
-	} `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
-}
-
-type userResponse struct {
-	Data struct {
-		User moduleusers.UserSummary `json:"user"`
-	} `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
 }
 
 type updateProfileRequest struct {
@@ -429,9 +82,10 @@ type userProfileResponse struct {
 }
 
 type updatePreferencesRequest struct {
-	DefaultLandingView   string `json:"defaultLandingView"`
-	NotifyOnTaskAssigned *bool  `json:"notifyOnTaskAssigned"`
-	NotifyOnDealAssigned *bool  `json:"notifyOnDealAssigned"`
+	DefaultLandingView    string `json:"defaultLandingView"`
+	NotifyOnTaskAssigned  *bool  `json:"notifyOnTaskAssigned"`
+	NotifyOnDealAssigned  *bool  `json:"notifyOnDealAssigned"`
+	NotifyOnTaskReminders *bool  `json:"notifyOnTaskReminders"`
 }
 
 type userPreferencesResponse struct {
@@ -446,81 +100,6 @@ type userPreferencesResponse struct {
 type auditEventsResponse struct {
 	Data struct {
 		Events []moduleaudit.Event `json:"events"`
-	} `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
-}
-
-type contactRequest struct {
-	FirstName    string `json:"firstName"`
-	LastName     string `json:"lastName"`
-	Email        string `json:"email"`
-	Phone        string `json:"phone"`
-	AddressLine1 string `json:"addressLine1"`
-	AddressLine2 string `json:"addressLine2"`
-	City         string `json:"city"`
-	State        string `json:"state"`
-	PostalCode   string `json:"postalCode"`
-	Country      string `json:"country"`
-	JobTitle     string `json:"jobTitle"`
-	Status       string `json:"status"`
-	IsClient     bool   `json:"isClient"`
-}
-
-type contactsListResponse struct {
-	Data struct {
-		Contacts []modulecontacts.Summary `json:"contacts"`
-		Meta     modulecontacts.ListMeta  `json:"meta"`
-	} `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
-}
-
-type contactDetailResponse struct {
-	Data struct {
-		Contact    modulecontacts.Summary         `json:"contact"`
-		Notes      []modulecontacts.NoteEntry     `json:"notes"`
-		Tasks      []modulecontacts.TaskEntry     `json:"tasks"`
-		Activities []modulecontacts.ActivityEntry `json:"activities"`
-	} `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
-}
-
-type companyRequest struct {
-	Name             string  `json:"name"`
-	ClientType       string  `json:"clientType"`
-	AddressLine1     string  `json:"addressLine1"`
-	AddressLine2     string  `json:"addressLine2"`
-	City             string  `json:"city"`
-	State            string  `json:"state"`
-	PostalCode       string  `json:"postalCode"`
-	Country          string  `json:"country"`
-	Industry         string  `json:"industry"`
-	Phone            string  `json:"phone"`
-	Website          string  `json:"website"`
-	Status           string  `json:"status"`
-	LinkedContactIDs []int64 `json:"linkedContactIDs"`
-}
-
-type companiesListResponse struct {
-	Data struct {
-		Companies []modulecompanies.Summary `json:"companies"`
-		Meta      modulecompanies.ListMeta  `json:"meta"`
-	} `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
-}
-
-type companyDetailResponse struct {
-	Data struct {
-		Company        modulecompanies.Summary         `json:"company"`
-		LinkedContacts []modulecompanies.LinkedContact `json:"linkedContacts"`
-		Activities     []modulecompanies.ActivityEntry `json:"activities"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -647,13 +226,6 @@ type savedViewRequest struct {
 	IsDefault  bool              `json:"isDefault"`
 }
 
-type importPreviewResponse struct {
-	Data moduleimports.PreviewResult `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
-}
-
 type savedViewsListResponse struct {
 	Data struct {
 		Views []modulesavedviews.View `json:"views"`
@@ -754,16 +326,6 @@ type dashboardSummaryResponse struct {
 	} `json:"meta"`
 }
 
-type authRateLimiter struct {
-	mu      sync.Mutex
-	clients map[string]rateLimitBucket
-}
-
-type rateLimitBucket struct {
-	windowStart time.Time
-	count       int
-}
-
 func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	dependencies := Dependencies{}
 	if len(deps) > 0 {
@@ -773,19 +335,20 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	if emailOAuthClient == nil {
 		emailOAuthClient = defaultEmailOAuthClient{}
 	}
-	rateLimiter := newAuthRateLimiter()
+	authLimiter := newFixedWindowRateLimiter(authRateLimit, authRateWindow, rateLimitMaxClients)
+	publicReadLimiter := newFixedWindowRateLimiter(publicReadRateLimit, publicRateWindow, rateLimitMaxClients)
+	publicWriteLimiter := newFixedWindowRateLimiter(publicWriteRateLimit, publicRateWindow, rateLimitMaxClients)
+	trackingLimiter := newFixedWindowRateLimiter(trackingRateLimit, publicRateWindow, rateLimitMaxClients)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth/login", func(w http.ResponseWriter, r *http.Request) {
-		if !rateLimiter.allow(authRateLimitKey(r)) {
-			platformweb.WriteError(w, http.StatusTooManyRequests, platformweb.RequestIDFromContext(r.Context()), "RATE_LIMITED", "Too many authentication attempts")
+		if rejectRateLimited(authLimiter, "auth.login", "Too many authentication attempts", w, r) {
 			return
 		}
 		handleLogin(env, dependencies.AuthService, w, r)
 	})
 	mux.HandleFunc("POST /auth/bootstrap", func(w http.ResponseWriter, r *http.Request) {
-		if !rateLimiter.allow(authRateLimitKey(r)) {
-			platformweb.WriteError(w, http.StatusTooManyRequests, platformweb.RequestIDFromContext(r.Context()), "RATE_LIMITED", "Too many authentication attempts")
+		if rejectRateLimited(authLimiter, "auth.bootstrap", "Too many workspace creation attempts", w, r) {
 			return
 		}
 		handleBootstrap(env, dependencies.OnboardingService, w, r)
@@ -804,6 +367,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/users/{userID}/role", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateUserRole(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/users/{userID}/status", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateUserStatus(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
 	mux.HandleFunc("GET /api/users/{userID}/email-account", func(w http.ResponseWriter, r *http.Request) {
 		handleAdminGetUserEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
@@ -848,14 +414,22 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleDeleteMyEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
 	})
 	mux.HandleFunc("POST /auth/setup-password", func(w http.ResponseWriter, r *http.Request) {
-		if !rateLimiter.allow(authRateLimitKey(r)) {
-			platformweb.WriteError(w, http.StatusTooManyRequests, platformweb.RequestIDFromContext(r.Context()), "RATE_LIMITED", "Too many authentication attempts")
+		if rejectRateLimited(authLimiter, "auth.setup-password", "Too many password setup attempts", w, r) {
 			return
 		}
 		handleCompleteUserSetup(dependencies.UsersService, dependencies.AuditService, w, r)
 	})
 	mux.HandleFunc("GET /api/audit-events", func(w http.ResponseWriter, r *http.Request) {
 		handleListAuditEvents(dependencies.AuthService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("GET /api/admin/background-jobs", func(w http.ResponseWriter, r *http.Request) {
+		handleListBackgroundJobs(dependencies.AuthService, dependencies.BackgroundJobsService, w, r)
+	})
+	mux.HandleFunc("POST /api/admin/background-jobs/{jobID}/replay", func(w http.ResponseWriter, r *http.Request) {
+		handleReplayBackgroundJob(dependencies.AuthService, dependencies.BackgroundJobsService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("POST /api/admin/background-jobs/{jobID}/resolve-sequence-delivery", func(w http.ResponseWriter, r *http.Request) {
+		handleResolveSequenceDelivery(dependencies.AuthService, dependencies.SequenceDeliveryOperations, dependencies.AuditService, w, r)
 	})
 	mux.HandleFunc("GET /api/billing/plans", func(w http.ResponseWriter, r *http.Request) {
 		handleListPlans(dependencies.AuthService, w, r)
@@ -924,9 +498,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleUpdateLeadLandingPage(dependencies.AuthService, dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("GET /api/public/landing-pages/{slug}", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(publicReadLimiter, "public.landing-page", "Too many public page requests", w, r) {
+			return
+		}
 		handleGetPublicLeadLandingPage(dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("POST /api/public/lead-capture-forms/{publicID}/submissions", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(publicWriteLimiter, "public.lead-submission", "Too many lead submissions", w, r) {
+			return
+		}
 		handleSubmitPublicLeadCaptureForm(dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("GET /api/lead-chat-widgets", func(w http.ResponseWriter, r *http.Request) {
@@ -939,6 +519,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleUpdateLeadChatWidget(dependencies.AuthService, dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("GET /api/public/lead-chat-widgets/{publicID}", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(publicReadLimiter, "public.lead-widget", "Too many public widget requests", w, r) {
+			return
+		}
 		handleGetPublicLeadChatWidget(dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("GET /api/lead-audiences", func(w http.ResponseWriter, r *http.Request) {
@@ -1003,6 +586,12 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("PATCH /api/report-definitions/{definitionID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateCustomReportDefinition(dependencies.AuthService, dependencies.CustomReportsService, w, r)
+	})
+	mux.HandleFunc("GET /api/data-quality/summary", func(w http.ResponseWriter, r *http.Request) {
+		handleDataQualitySummary(dependencies.AuthService, dependencies.DataQualityService, w, r)
+	})
+	mux.HandleFunc("GET /api/reports/sales-activity", func(w http.ResponseWriter, r *http.Request) {
+		handleSalesActivityReport(dependencies.AuthService, dependencies.SalesReportsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
@@ -1098,12 +687,21 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleSendContactSMS(dependencies.AuthService, dependencies.ContactsService, dependencies.SMSService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-unsubscribe/{token}", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(publicWriteLimiter, "public.email-unsubscribe", "Too many unsubscribe requests", w, r) {
+			return
+		}
 		handleEmailUnsubscribe(dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages/open/{trackingToken}", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(trackingLimiter, "public.email-open", "Too many email tracking requests", w, r) {
+			return
+		}
 		handleTrackEmailOpen(dependencies.EmailMessagesService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages/click/{clickToken}", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(trackingLimiter, "public.email-click", "Too many email tracking requests", w, r) {
+			return
+		}
 		handleTrackEmailClick(dependencies.EmailMessagesService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages", func(w http.ResponseWriter, r *http.Request) {
@@ -1147,6 +745,18 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	})
 	mux.HandleFunc("POST /api/deal-pipelines", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateDealPipeline(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/deal-pipelines/{pipelineID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateDealPipeline(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("POST /api/deal-pipelines/{pipelineID}/stages", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateDealStage(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/deal-pipelines/{pipelineID}/stages/{stageID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateDealStageDefinition(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("PUT /api/deal-pipelines/{pipelineID}/stages/order", func(w http.ResponseWriter, r *http.Request) {
+		handleReorderDealStages(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("GET /api/deal-stages", func(w http.ResponseWriter, r *http.Request) {
 		handleListDealStages(dependencies.AuthService, dependencies.DealsService, w, r)
@@ -1193,8 +803,65 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("POST /api/notes", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateNote(dependencies.AuthService, dependencies.NotesService, w, r)
 	})
+	mux.HandleFunc("GET /api/record-followers", func(w http.ResponseWriter, r *http.Request) {
+		handleGetRecordFollowers(dependencies.AuthService, dependencies.CollaborationService, w, r)
+	})
+	mux.HandleFunc("PUT /api/record-followers/me", func(w http.ResponseWriter, r *http.Request) {
+		handleSetRecordFollowing(dependencies.AuthService, dependencies.CollaborationService, true, w, r)
+	})
+	mux.HandleFunc("DELETE /api/record-followers/me", func(w http.ResponseWriter, r *http.Request) {
+		handleSetRecordFollowing(dependencies.AuthService, dependencies.CollaborationService, false, w, r)
+	})
+	mux.HandleFunc("GET /api/collaboration/activity-digest", func(w http.ResponseWriter, r *http.Request) {
+		handleActivityDigest(dependencies.AuthService, dependencies.CollaborationService, w, r)
+	})
 	mux.HandleFunc("POST /api/imports/preview", func(w http.ResponseWriter, r *http.Request) {
 		handlePreviewImport(dependencies.AuthService, dependencies.ImportsService, w, r)
+	})
+	mux.HandleFunc("POST /api/imports", func(w http.ResponseWriter, r *http.Request) {
+		handleExecuteImport(dependencies.AuthService, dependencies.ImportsService, w, r)
+	})
+	mux.HandleFunc("GET /api/imports", func(w http.ResponseWriter, r *http.Request) {
+		handleListImports(dependencies.AuthService, dependencies.ImportsService, w, r)
+	})
+	mux.HandleFunc("GET /api/imports/{batchID}/errors.csv", func(w http.ResponseWriter, r *http.Request) {
+		handleImportErrorsCSV(dependencies.AuthService, dependencies.ImportsService, w, r)
+	})
+	mux.HandleFunc("POST /api/imports/{batchID}/rollback", func(w http.ResponseWriter, r *http.Request) {
+		handleRollbackImport(dependencies.AuthService, dependencies.ImportsService, w, r)
+	})
+	mux.HandleFunc("POST /api/data-operations/bulk", func(w http.ResponseWriter, r *http.Request) {
+		handleExecuteBulkOperation(dependencies.AuthService, dependencies.BulkOperationsService, w, r)
+	})
+	mux.HandleFunc("GET /api/data-operations/bulk", func(w http.ResponseWriter, r *http.Request) {
+		handleListBulkOperations(dependencies.AuthService, dependencies.BulkOperationsService, w, r)
+	})
+	mux.HandleFunc("POST /api/data-operations/bulk/{operationID}/rollback", func(w http.ResponseWriter, r *http.Request) {
+		handleRollbackBulkOperation(dependencies.AuthService, dependencies.BulkOperationsService, w, r)
+	})
+	mux.HandleFunc("GET /api/data-operations/archive", func(w http.ResponseWriter, r *http.Request) {
+		handleListArchivedRecords(dependencies.AuthService, dependencies.ArchiveOperationsService, w, r)
+	})
+	mux.HandleFunc("POST /api/data-operations/archive/{entityType}/{entityID}/restore", func(w http.ResponseWriter, r *http.Request) {
+		handleRestoreArchivedRecord(dependencies.AuthService, dependencies.ArchiveOperationsService, w, r)
+	})
+	mux.HandleFunc("GET /api/data-operations/duplicates", func(w http.ResponseWriter, r *http.Request) {
+		handleReviewDuplicates(dependencies.AuthService, dependencies.DuplicateOperationsService, w, r)
+	})
+	mux.HandleFunc("POST /api/data-operations/duplicates/merge", func(w http.ResponseWriter, r *http.Request) {
+		handleMergeDuplicate(dependencies.AuthService, dependencies.DuplicateOperationsService, w, r)
+	})
+	mux.HandleFunc("GET /api/custom-fields", func(w http.ResponseWriter, r *http.Request) {
+		handleListCustomFields(dependencies.AuthService, dependencies.CustomFieldsService, w, r)
+	})
+	mux.HandleFunc("POST /api/custom-fields", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateCustomField(dependencies.AuthService, dependencies.CustomFieldsService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/custom-fields/{definitionID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateCustomField(dependencies.AuthService, dependencies.CustomFieldsService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/custom-fields/{definitionID}", func(w http.ResponseWriter, r *http.Request) {
+		handleArchiveCustomField(dependencies.AuthService, dependencies.CustomFieldsService, w, r)
 	})
 	mux.HandleFunc("GET /api/saved-views", func(w http.ResponseWriter, r *http.Request) {
 		handleListSavedViews(dependencies.AuthService, dependencies.SavedViewsService, w, r)
@@ -1218,10 +885,10 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleGetTask(dependencies.AuthService, dependencies.TasksService, w, r)
 	})
 	mux.HandleFunc("POST /api/tasks", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateTask(dependencies.AuthService, dependencies.TasksService, dependencies.NotificationsService, w, r)
+		handleCreateTask(dependencies.AuthService, dependencies.TasksService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/tasks/{taskID}", func(w http.ResponseWriter, r *http.Request) {
-		handleUpdateTask(dependencies.AuthService, dependencies.TasksService, dependencies.NotificationsService, w, r)
+		handleUpdateTask(dependencies.AuthService, dependencies.TasksService, w, r)
 	})
 	mux.HandleFunc("DELETE /api/tasks/{taskID}", func(w http.ResponseWriter, r *http.Request) {
 		handleArchiveTask(dependencies.AuthService, dependencies.TasksService, w, r)
@@ -1266,6 +933,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 
 		respondStatus(w, r, http.StatusServiceUnavailable, "degraded")
 	})
+	mux.Handle("GET /metrics", dependencies.Metrics.Handler(env.MetricsBearerToken, dependencies.OperationalMetrics))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		platformweb.WriteNotFound(w, platformweb.RequestIDFromContext(r.Context()))
 	})
@@ -1273,7 +941,8 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	handler := withCSRFProtection(env, mux)
 	handler = withCORS(env, handler)
 	handler = withSecurityHeaders(handler)
-	handler = platformweb.RequestLogger(dependencies.Logger, handler)
+	handler = withReleaseHeader(env.ReleaseID, handler)
+	handler = platformweb.RequestTelemetry(dependencies.Logger, dependencies.Metrics, handler)
 	handler = platformweb.RequestID(handler)
 	return handler
 }

@@ -38,7 +38,19 @@ describe('tasks flow', () => {
               { id: 53, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'Send onboarding packet', description: 'Share intake forms.', status: 'open', dueAt: '', completedAt: '', assignedToUserId: 2, assignedToUserName: 'Alex Admin', createdByUserId: 1, createdByUserName: 'Demo Owner' },
               { id: 54, entityType: 'company', entityId: 6, entityLabel: 'Bluebird Health', title: 'Verify site access window', description: 'Need lockbox confirmation.', status: 'open', dueAt: '2099-04-18T15:00:00Z', completedAt: '', assignedToUserId: 0, assignedToUserName: '', createdByUserId: 1, createdByUserName: 'Demo Owner' }
             ],
-            meta: { page: 1, pageSize: 20, total: 4, openCount: 4, completedCount: 0 }
+            meta: { page: 1, pageSize: 20, total: 4, openCount: 4, completedCount: 0, overdueCount: 1, dueSoonCount: 0, upcomingCount: 2, noDueDateCount: 1 }
+          }
+        })
+      }
+
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'GET' && requestURL.search === '?status=open&due=upcoming') {
+        return jsonResponse({
+          data: {
+            tasks: [
+              { id: 51, entityType: 'deal', entityId: 12, entityLabel: 'Bluebird Rollout', title: 'Confirm installer arrival window', description: 'Need final arrival confirmation.', status: 'open', dueAt: '2099-04-16T09:00:00Z', completedAt: '', assignedToUserId: 1, assignedToUserName: 'Demo Owner', createdByUserId: 1, createdByUserName: 'Demo Owner' },
+              { id: 54, entityType: 'company', entityId: 6, entityLabel: 'Bluebird Health', title: 'Verify site access window', description: 'Need lockbox confirmation.', status: 'open', dueAt: '2099-04-18T15:00:00Z', completedAt: '', assignedToUserId: 0, assignedToUserName: '', createdByUserId: 1, createdByUserName: 'Demo Owner' }
+            ],
+            meta: { page: 1, pageSize: 20, total: 2, openCount: 2, completedCount: 0, overdueCount: 1, dueSoonCount: 0, upcomingCount: 2, noDueDateCount: 1 }
           }
         })
       }
@@ -266,7 +278,7 @@ describe('tasks flow', () => {
     expect(within(taskList).getByText(/confirm installer arrival window/i)).toBeInTheDocument()
     expect(within(taskList).getByText(/verify site access window/i)).toBeInTheDocument()
     expect(within(taskList).queryByText(/call morgan about rollout timing/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/showing 2 of 4 upcoming tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing 2 of 2 upcoming tasks/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/task view/i), { target: { value: 'all' } })
 

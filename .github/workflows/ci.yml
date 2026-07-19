@@ -7,7 +7,12 @@ on:
     paths:
       - 'apps/api/**'
       - 'apps/web/**'
+      - 'docker-compose.deploy.yml'
+      - 'scripts/**'
+      - 'ops/**'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/backend-deploy.yml'
+      - '.github/workflows/frontend-pages.yml'
       - '.github/dependabot.yml'
       - 'go.work'
       - 'Makefile'
@@ -22,9 +27,11 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16.14@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20
         env:
           POSTGRES_DB: open_crm_test
           POSTGRES_USER: open_crm
@@ -43,7 +50,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23.x'
+          go-version: '1.26.5'
           cache-dependency-path: apps/api/go.sum
 
       - name: Check go mod tidy
@@ -71,15 +78,25 @@ jobs:
         working-directory: apps/api
         run: go vet ./...
 
+      - name: Check Go dependencies and reachable code for vulnerabilities
+        working-directory: apps/api
+        # govulncheck's own module targets Go 1.25; pin the tool execution to
+        # the application's toolchain so it can load Go 1.26 packages.
+        run: GOTOOLCHAIN=go1.26.5 go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
       - name: Run backend tests
         working-directory: apps/api
         env:
           OPEN_CRM_TEST_DATABASE_URL: postgres://open_crm:open_crm@localhost:5432/open_crm_test?sslmode=disable
-        run: go test ./...
+        # Fresh-schema PostgreSQL suites create many relations in parallel;
+        # package-level serialization keeps lock-table pressure deterministic.
+        run: go test -p 1 ./...
 
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,7 +104,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
@@ -97,7 +114,7 @@ jobs:
 
       - name: Audit frontend dependencies
         working-directory: apps/web
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --audit-level=high
 
       - name: Run frontend tests
         working-directory: apps/web
@@ -107,8 +124,118 @@ jobs:
         working-directory: apps/web
         run: npm run lint
 
+      - name: Check frontend source-size ratchet
+        working-directory: apps/web
+        run: npm run check:source
+
       - name: Build frontend
         working-directory: apps/web
         env:
           VITE_API_BASE_URL: https://crmserver.mendola.tech
-        run: npm run build
+        run: npm run build:checked
+
+  browser:
+    name: Browser journey
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16.14@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20
+        env:
+          POSTGRES_DB: open_crm_e2e
+          POSTGRES_USER: open_crm
+          POSTGRES_PASSWORD: open_crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U open_crm -d open_crm_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+          cache-dependency-path: apps/api/go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run real-PostgreSQL browser journey
+        working-directory: apps/web
+        env:
+          OPEN_CRM_E2E_DATABASE_URL: postgres://open_crm:open_crm@127.0.0.1:5432/open_crm_e2e?sslmode=disable
+        run: npm run test:e2e
+
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure-evidence
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  backup-restore:
+    name: Encrypted backup and restore drill
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run disposable PostgreSQL backup and restore acceptance
+        run: scripts/test-backup-restore.sh
+
+      - name: Run immutable release and failed-readiness recovery acceptance
+        run: scripts/test-deploy-recovery.sh
+
+      - name: Validate operational alert rules
+        run: >-
+          docker run --rm
+          -v "$PWD/ops/monitoring:/monitoring:ro"
+          --entrypoint /bin/promtool
+          prom/prometheus:v3.12.0@sha256:69f5241418838263316593f7274a304b095c40bcf22e57272865da91bd60a8ac
+          check rules /monitoring/prometheus-alerts.yml
+
+  deploy-backend:
+    name: Deploy backend
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend, frontend, browser, backup-restore]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/backend-deploy.yml
+    secrets: inherit
+
+  deploy-frontend:
+    name: Deploy frontend
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend, frontend, browser, backup-restore]
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/frontend-pages.yml
+    secrets: inherit

@@ -178,6 +178,10 @@ describe('companies flow', () => {
         })
       }
 
+      if (requestURL.pathname.endsWith('/api/custom-fields')) {
+        return jsonResponse({ data: { definitions: [] } })
+      }
+
       throw new Error(`Unexpected fetch: ${requestURL.pathname}${requestURL.search}`)
     })
 
@@ -330,6 +334,8 @@ describe('companies flow', () => {
           }
         })
       })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { definitions: [] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { definitions: [] } }) })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -575,6 +581,10 @@ describe('companies flow', () => {
         })
       }
 
+      if (requestURL.pathname.endsWith('/api/custom-fields')) {
+        return jsonResponse({ data: { definitions: [] } })
+      }
+
       throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
     })
 
@@ -701,6 +711,10 @@ describe('companies flow', () => {
             meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
           }
         })
+      }
+
+      if (requestURL.pathname.endsWith('/api/custom-fields')) {
+        return jsonResponse({ data: { definitions: [] } })
       }
 
       throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
@@ -851,6 +865,10 @@ describe('companies flow', () => {
         })
       }
 
+      if (requestURL.includes('/api/custom-fields?')) {
+        return jsonResponse({ data: { definitions: [] } })
+      }
+
       throw new Error(`Unexpected fetch: ${method} ${requestURL}`)
     })
 
@@ -979,6 +997,10 @@ describe('companies flow', () => {
             meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
           }
         })
+      }
+
+      if (requestURL.includes('/api/custom-fields?')) {
+        return jsonResponse({ data: { definitions: [] } })
       }
 
       throw new Error(`Unexpected fetch: ${method} ${requestURL}`)
@@ -1113,6 +1135,10 @@ describe('companies flow', () => {
             meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' }
           }
         })
+      }
+
+      if (requestURL.pathname.endsWith('/api/custom-fields')) {
+        return jsonResponse({ data: { definitions: [] } })
       }
 
       throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)

@@ -100,7 +100,7 @@ func TestListContactsUsesCurrentOrganizationAndQuery(t *testing.T) {
 	}
 	server := authenticatedContactsServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/contacts?q=morgan&page=2&pageSize=10", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/contacts?q=morgan&page=2&pageSize=10&customField=region&customOperator=eq&customValue=West", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -114,6 +114,9 @@ func TestListContactsUsesCurrentOrganizationAndQuery(t *testing.T) {
 	}
 	if service.lastListQuery.Search != "morgan" || service.lastListQuery.Page != 2 || service.lastListQuery.PageSize != 10 {
 		t.Fatalf("unexpected list query: %#v", service.lastListQuery)
+	}
+	if service.lastListQuery.CustomField.FieldKey != "region" || service.lastListQuery.CustomField.Operator != "eq" || service.lastListQuery.CustomField.Value != "West" {
+		t.Fatalf("unexpected custom field filter: %#v", service.lastListQuery.CustomField)
 	}
 
 	var response struct {
@@ -207,7 +210,7 @@ func TestCreateContactValidatesAndReturnsCreatedDetail(t *testing.T) {
 	}
 	server := authenticatedContactsServer(service)
 
-	body := bytes.NewBufferString(`{"firstName":"Ava","lastName":"Stone","email":"ava@acme.test","phone":"555-0100","addressLine1":"55 Foundry Way","city":"Detroit","state":"MI","postalCode":"48201","country":"US","jobTitle":"COO","status":"lead","isClient":true}`)
+	body := bytes.NewBufferString(`{"firstName":"Ava","lastName":"Stone","email":"ava@acme.test","phone":"555-0100","addressLine1":"55 Foundry Way","city":"Detroit","state":"MI","postalCode":"48201","country":"US","jobTitle":"COO","status":"lead","isClient":true,"customFields":{"region":"West"}}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/contacts", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -223,6 +226,9 @@ func TestCreateContactValidatesAndReturnsCreatedDetail(t *testing.T) {
 	}
 	if service.lastCreateInput.FirstName != "Ava" || service.lastCreateInput.JobTitle != "COO" || service.lastCreateInput.AddressLine1 != "55 Foundry Way" || service.lastCreateInput.City != "Detroit" || service.lastCreateInput.State != "MI" || service.lastCreateInput.PostalCode != "48201" || service.lastCreateInput.Country != "US" || !service.lastCreateInput.IsClient {
 		t.Fatalf("unexpected create input: %#v", service.lastCreateInput)
+	}
+	if string(service.lastCreateInput.CustomFields["region"]) != `"West"` {
+		t.Fatalf("unexpected custom field input: %#v", service.lastCreateInput.CustomFields)
 	}
 }
 

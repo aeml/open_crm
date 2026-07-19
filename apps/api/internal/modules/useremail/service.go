@@ -132,15 +132,25 @@ type OAuthTokenUpdateInput struct {
 type SyncTarget struct {
 	OrganizationID int64
 	UserID         int64
+	DueAt          time.Time
 }
 
 type Service struct {
-	pool   *pgxpool.Pool
-	cipher *secrets.Cipher
+	pool     *pgxpool.Pool
+	cipher   *secrets.Cipher
+	observer ProviderObserver
+}
+
+type ProviderObserver interface {
+	ObserveProvider(provider, operation, outcome string, duration time.Duration)
 }
 
 func NewService(pool *pgxpool.Pool, cipher *secrets.Cipher) *Service {
 	return &Service{pool: pool, cipher: cipher}
+}
+
+func NewServiceWithObserver(pool *pgxpool.Pool, cipher *secrets.Cipher, observer ProviderObserver) *Service {
+	return &Service{pool: pool, cipher: cipher, observer: observer}
 }
 
 // Configured reports whether secret encryption is available. Without it, email
@@ -156,7 +166,13 @@ func (s *Service) MemberExists(ctx context.Context, organizationID, userID int64
 		return false, fmt.Errorf("user email service not configured")
 	}
 	var exists bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organization_memberships WHERE organization_id = $1 AND user_id = $2)`, organizationID, userID).Scan(&exists)
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM organization_memberships
+			WHERE organization_id = $1 AND user_id = $2
+			  AND COALESCE(membership_status, 'active') = 'active'
+		)
+	`, organizationID, userID).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("check organization membership: %w", err)
 	}
@@ -189,7 +205,7 @@ const selectSyncCredentialsSQL = `
 `
 
 const selectSyncTargetsSQL = `
-	SELECT organization_id, user_id
+	SELECT organization_id, user_id, next_sync_at
 	FROM user_email_accounts
 	WHERE sync_enabled = TRUE
 	  AND (
@@ -198,8 +214,9 @@ const selectSyncTargetsSQL = `
 	    (provider = 'microsoft' AND auth_method = 'oauth')
 	  )
 	  AND sync_status IN ('pending', 'ready', 'error')
-	  AND COALESCE(last_sync_at, updated_at) <= NOW() - INTERVAL '15 minutes'
-	ORDER BY COALESCE(last_sync_at, updated_at) ASC, organization_id ASC, user_id ASC
+	  AND next_sync_at IS NOT NULL
+	  AND next_sync_at <= NOW()
+	ORDER BY next_sync_at ASC, organization_id ASC, user_id ASC
 	LIMIT $1
 `
 
@@ -333,7 +350,7 @@ func (s *Service) ListSyncTargets(ctx context.Context, limit int) ([]SyncTarget,
 	targets := make([]SyncTarget, 0)
 	for rows.Next() {
 		var target SyncTarget
-		if err := rows.Scan(&target.OrganizationID, &target.UserID); err != nil {
+		if err := rows.Scan(&target.OrganizationID, &target.UserID, &target.DueAt); err != nil {
 			return nil, fmt.Errorf("scan mailbox sync target: %w", err)
 		}
 		targets = append(targets, target)
@@ -389,8 +406,8 @@ func (s *Service) Upsert(ctx context.Context, organizationID, userID int64, inpu
 	if _, err := s.pool.Exec(ctx, `
 		INSERT INTO user_email_accounts
 			(organization_id, user_id, from_email, from_name, smtp_host, smtp_port, smtp_username, smtp_password_enc, smtp_use_tls,
-			 imap_host, imap_port, imap_username, imap_password_enc, imap_use_tls, provider, auth_method, sync_enabled, sync_status, last_sync_error)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, '')
+			 imap_host, imap_port, imap_username, imap_password_enc, imap_use_tls, provider, auth_method, sync_enabled, sync_status, last_sync_error, next_sync_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, '', CASE WHEN $17 THEN NOW() ELSE NULL END)
 		ON CONFLICT (organization_id, user_id) DO UPDATE SET
 			from_email = EXCLUDED.from_email,
 			from_name = EXCLUDED.from_name,
@@ -409,6 +426,7 @@ func (s *Service) Upsert(ctx context.Context, organizationID, userID int64, inpu
 			sync_enabled = EXCLUDED.sync_enabled,
 			sync_status = EXCLUDED.sync_status,
 			last_sync_error = EXCLUDED.last_sync_error,
+			next_sync_at = CASE WHEN EXCLUDED.sync_enabled THEN NOW() ELSE NULL END,
 			oauth_subject = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_subject ELSE '' END,
 			oauth_access_token_enc = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_access_token_enc ELSE '' END,
 			oauth_refresh_token_enc = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_refresh_token_enc ELSE '' END,
@@ -456,6 +474,7 @@ func (s *Service) SaveOAuthConnection(ctx context.Context, organizationID, userI
 		    oauth_refresh_token_enc = $6,
 		    oauth_token_expires_at = $7,
 		    last_sync_error = '',
+		    next_sync_at = NOW(),
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND user_id = $2
 	`, organizationID, userID, input.Provider, input.Subject, accessTokenEnc, refreshTokenEnc, input.ExpiresAt)
@@ -537,6 +556,11 @@ func (s *Service) UpdateSyncState(ctx context.Context, organizationID, userID in
 		    last_sync_error = $4,
 		    sync_cursor = CASE WHEN $5 <> '' THEN $5 ELSE sync_cursor END,
 		    last_sync_at = CASE WHEN $6 THEN NOW() ELSE last_sync_at END,
+		    next_sync_at = CASE
+		      WHEN $3 = 'disabled' THEN NULL
+		      WHEN $6 THEN NOW() + INTERVAL '15 minutes'
+		      ELSE next_sync_at
+		    END,
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND user_id = $2
 	`, organizationID, userID, input.Status, input.Error, input.Cursor, input.UpdateLastSync)
@@ -558,7 +582,8 @@ func (s *Service) SendAs(ctx context.Context, organizationID, userID int64, to, 
 	if err != nil {
 		return err
 	}
-	return moduleemail.SendSMTP(moduleemail.SMTPCredentials{
+	startedAt := time.Now()
+	err = moduleemail.SendSMTP(moduleemail.SMTPCredentials{
 		FromEmail: creds.FromEmail,
 		FromName:  creds.FromName,
 		Host:      creds.Host,
@@ -567,6 +592,14 @@ func (s *Service) SendAs(ctx context.Context, organizationID, userID int64, to, 
 		Password:  creds.Password,
 		UseTLS:    creds.UseTLS,
 	}, moduleemail.Message{To: to, Subject: subject, TextBody: textBody, HTMLBody: htmlBody})
+	if s.observer != nil {
+		outcome := "success"
+		if err != nil {
+			outcome = "error"
+		}
+		s.observer.ObserveProvider("smtp", "send", outcome, time.Since(startedAt))
+	}
+	return err
 }
 
 // Delete removes a user's email account.

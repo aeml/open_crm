@@ -5,7 +5,9 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
-import { ActivityTimeline } from '../components/ui/activity_timeline'
+import { BulkActions, bulkStatusOptions } from '../components/ui/bulk_actions'
+import { CustomFieldFilter } from '../components/ui/custom_field_filter'
+import { CustomFieldsForm, CustomFieldValue } from '../components/ui/custom_fields_form'
 import { RecordEmailComposer } from '../components/record_email_composer'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
@@ -15,7 +17,33 @@ import { listDeals } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
+import { customFieldFilterFromParams, customFieldPayload, listCustomFields } from '../lib/custom_fields'
 import { usePageTitle } from '../lib/use_page_title'
+import {
+  buildClientRecords,
+  buildCompanyPayload,
+  clientTypeLabel,
+  companyFormValues,
+  createDescription,
+  detailSubtitle,
+  duplicateSearchTerm,
+  emailRecipientOptions,
+  emptyLinkedPersonForm,
+  formatAddress,
+  formatMoney,
+  individualClientFromContact,
+  isIndividualClient,
+  linkedPersonFormValues,
+  mergeLinkedContactIDs,
+  normalizeClientType,
+  organizationClientFromCompany,
+  primaryLinkedContactID,
+  relatedPipelineLabels,
+  sortContactOptions,
+  splitFullName
+} from './company_view'
+import { CompanyForm } from './company_form'
+import { RecordWorkCards } from './record_work'
 
 const emptyForm = {
   name: '',
@@ -31,7 +59,8 @@ const emptyForm = {
   phone: '',
   website: '',
   status: 'prospect',
-  linkedContactIDs: ''
+  linkedContactIDs: '',
+  customFields: {}
 }
 
 const emptyTaskForm = {
@@ -41,275 +70,6 @@ const emptyTaskForm = {
   assignedToUserId: ''
 }
 
-const emptyLinkedPersonForm = {
-  firstName: '',
-  lastName: '',
-  email: '',
-  phone: '',
-  jobTitle: '',
-  status: 'lead'
-}
-
-function parseLinkedContactIDs(value) {
-  return String(value || '')
-    .split(',')
-    .map((entry) => Number.parseInt(entry.trim(), 10))
-    .filter((entry) => Number.isInteger(entry) && entry > 0)
-}
-
-function splitFullName(value) {
-  const parts = String(value || '').trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) {
-    return { firstName: '', lastName: '' }
-  }
-  if (parts.length === 1) {
-    return { firstName: parts[0], lastName: parts[0] }
-  }
-  return {
-    firstName: parts[0],
-    lastName: parts.slice(1).join(' ')
-  }
-}
-
-function formatAddress(value = {}) {
-  const street = [value.addressLine1, value.addressLine2].filter(Boolean).join(', ')
-  const locality = [value.city, value.state, value.postalCode].filter(Boolean).join(', ')
-  return [street, locality, value.country].filter(Boolean).join(' | ')
-}
-
-function individualClientFromContact(contact) {
-  return {
-    id: `contact-${contact.id}`,
-    entityId: contact.id,
-    entityType: 'contact',
-    clientType: 'individual',
-    name: `${contact.firstName || ''} ${contact.lastName || ''}`.trim(),
-    addressLine1: contact.addressLine1 || '',
-    addressLine2: contact.addressLine2 || '',
-    city: contact.city || '',
-    state: contact.state || '',
-    postalCode: contact.postalCode || '',
-    country: contact.country || '',
-    industry: contact.jobTitle || '',
-    phone: contact.phone || '',
-    website: '',
-    status: contact.status || 'lead',
-    email: contact.email || '',
-    ownerUserName: contact.ownerUserName || ''
-  }
-}
-
-function organizationClientFromCompany(company) {
-  return {
-    ...company,
-    entityId: company.id,
-    entityType: 'company'
-  }
-}
-
-function buildClientRecords(companies, contacts) {
-  return [
-    ...(companies || []).map(organizationClientFromCompany),
-    ...(contacts || []).filter((contact) => contact.isClient).map(individualClientFromContact)
-  ].sort((left, right) => left.name.localeCompare(right.name) || left.entityId - right.entityId)
-}
-
-function normalizeClientType(value) {
-  return value === 'individual' ? 'individual' : 'organization'
-}
-
-function isIndividualClient(clientType) {
-  return normalizeClientType(clientType) === 'individual'
-}
-
-function limitLinkedContacts(clientType, value) {
-  const ids = parseLinkedContactIDs(value)
-  if (isIndividualClient(clientType)) {
-    return ids.slice(0, 1).join(',')
-  }
-  return ids.join(',')
-}
-
-function buildCompanyPayload(form) {
-  const individual = isIndividualClient(form.clientType)
-  return {
-    name: form.name,
-    clientType: normalizeClientType(form.clientType),
-    addressLine1: form.addressLine1,
-    addressLine2: form.addressLine2,
-    city: form.city,
-    state: form.state,
-    postalCode: form.postalCode,
-    country: form.country,
-    industry: individual ? '' : form.industry,
-    email: individual ? form.email : '',
-    phone: form.phone,
-    website: individual ? '' : form.website,
-    status: form.status,
-    linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs)
-  }
-}
-
-function companyFormValues(company, linkedContacts = []) {
-  return {
-    name: company.name || '',
-    clientType: normalizeClientType(company.clientType),
-    addressLine1: company.addressLine1 || '',
-    addressLine2: company.addressLine2 || '',
-    city: company.city || '',
-    state: company.state || '',
-    postalCode: company.postalCode || '',
-    country: company.country || '',
-    industry: company.industry || '',
-    email: company.email || '',
-    phone: company.phone || '',
-    website: company.website || '',
-    status: company.status || 'prospect',
-    linkedContactIDs: limitLinkedContacts(company.clientType, (linkedContacts || []).map((contact) => contact.id).join(','))
-  }
-}
-
-function clientTypeLabel(clientType) {
-  return isIndividualClient(clientType) ? 'Individual' : 'Organization'
-}
-
-function linkedContactFieldLabel(clientType) {
-  return isIndividualClient(clientType) ? 'Person record' : 'Linked contact'
-}
-
-function linkedContactFieldHint(clientType) {
-  return isIndividualClient(clientType)
-    ? 'Individual clients need one linked person record.'
-    : 'Link the main person for this organization client.'
-}
-
-function createDescription(clientType) {
-  return isIndividualClient(clientType)
-    ? 'Add an individual client and link the matching person record.'
-    : 'Add an organization client and tie the right contacts to it immediately.'
-}
-
-function nameFieldLabel(clientType) {
-  return isIndividualClient(clientType) ? 'Full name' : 'Client name'
-}
-
-function phoneFieldLabel(clientType) {
-  return isIndividualClient(clientType) ? 'Phone number' : 'Phone'
-}
-
-function detailSubtitle(company, linkedContacts = []) {
-  if (!company) {
-    return ''
-  }
-  if (isIndividualClient(company.clientType)) {
-    return company.email || (linkedContacts?.[0]?.email) || company.phone || company.status || 'Individual client'
-  }
-  return company.website || formatAddress(company) || company.status || ''
-}
-
-function applyLinkedContactSelection(currentForm, contactOptions, value) {
-  const nextLinkedContactIDs = limitLinkedContacts(currentForm.clientType, value)
-  if (!isIndividualClient(currentForm.clientType)) {
-    return { ...currentForm, linkedContactIDs: nextLinkedContactIDs }
-  }
-
-  const selectedID = parseLinkedContactIDs(nextLinkedContactIDs)[0] || 0
-  const selectedContact = contactOptions.find((contact) => contact.id === selectedID)
-
-  return {
-    ...currentForm,
-    linkedContactIDs: nextLinkedContactIDs,
-    name: currentForm.name || `${selectedContact?.firstName || ''} ${selectedContact?.lastName || ''}`.trim(),
-    email: currentForm.email || selectedContact?.email || '',
-    phone: currentForm.phone || selectedContact?.phone || '',
-    addressLine1: currentForm.addressLine1 || selectedContact?.addressLine1 || '',
-    addressLine2: currentForm.addressLine2 || selectedContact?.addressLine2 || '',
-    city: currentForm.city || selectedContact?.city || '',
-    state: currentForm.state || selectedContact?.state || '',
-    postalCode: currentForm.postalCode || selectedContact?.postalCode || '',
-    country: currentForm.country || selectedContact?.country || ''
-  }
-}
-
-function linkedPersonFormValues(company) {
-  const status = ['prospect', 'customer', 'lead'].includes(company?.status) ? company.status : 'lead'
-  return {
-    ...emptyLinkedPersonForm,
-    status
-  }
-}
-
-function sortContactOptions(contacts) {
-  return [...contacts].sort((left, right) => {
-    const leftName = `${left.firstName || ''} ${left.lastName || ''}`.trim()
-    const rightName = `${right.firstName || ''} ${right.lastName || ''}`.trim()
-    return leftName.localeCompare(rightName) || left.id - right.id
-  })
-}
-
-function mergeLinkedContactIDs(linkedContacts, nextContactID) {
-  const result = []
-  const seen = new Set()
-
-  for (const contact of linkedContacts || []) {
-    const contactID = Number.parseInt(String(contact?.id || ''), 10)
-    if (!Number.isInteger(contactID) || contactID <= 0 || seen.has(contactID)) {
-      continue
-    }
-    seen.add(contactID)
-    result.push(contactID)
-  }
-
-  if (Number.isInteger(nextContactID) && nextContactID > 0 && !seen.has(nextContactID)) {
-    result.push(nextContactID)
-  }
-
-  return result
-}
-
-function formatMoney(value, currency = 'USD') {
-  const amount = Number.parseFloat(value || '0')
-  if (!Number.isFinite(amount)) {
-    return '$0.00'
-  }
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(amount)
-}
-
-function relatedPipelineLabels(businessType) {
-  if (businessType === 'services' || businessType === 'construction-services') {
-    return { plural: 'Jobs', singular: 'job' }
-  }
-  if (businessType === 'product-sales') {
-    return { plural: 'Opportunities', singular: 'opportunity' }
-  }
-  return { plural: 'Deals', singular: 'deal' }
-}
-
-function primaryLinkedContactID(linkedContacts = []) {
-  const primaryContact = linkedContacts.find((contact) => contact.isPrimary) || linkedContacts[0]
-  return primaryContact?.id || 0
-}
-
-function emailRecipientOptions(linkedContacts = []) {
-  return linkedContacts
-    .filter((contact) => contact.email)
-    .map((contact) => {
-      const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || contact.email
-      return { id: contact.id, label: `${name} (${contact.email})` }
-    })
-}
-
-function duplicateSearchTerm(message, fallback = '') {
-  const text = String(message || '')
-  const marker = text.toLowerCase().lastIndexOf('duplicate company:')
-  if (marker >= 0) {
-    const candidate = text.slice(marker + 'duplicate company:'.length).split('(')[0].trim()
-    if (candidate) {
-      return candidate
-    }
-  }
-  return String(fallback || '').trim()
-}
 
 export function CompaniesRoute() {
   const navigate = useNavigate()
@@ -324,17 +84,24 @@ export function CompaniesRoute() {
   usePageTitle('Companies')
   const initialSearch = searchParams.get('q') || ''
   const initialOwnerFilter = searchParams.get('owner') || 'all'
+  const initialCustomFilter = customFieldFilterFromParams(searchParams)
   const [mode, setMode] = useState('list')
   const [companies, setCompanies] = useState([])
+  const [bulkEntityType, setBulkEntityType] = useState('company')
+  const [selectedClientIds, setSelectedClientIds] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
   const [search, setSearch] = useState(initialSearch)
   const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
+  const [customFilter, setCustomFilter] = useState(initialCustomFilter)
   const [selectedCompanyId, setSelectedCompanyId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
   const [contactOptions, setContactOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
   const [form, setForm] = useState(emptyForm)
+  const [companyCustomDefinitions, setCompanyCustomDefinitions] = useState([])
+  const [contactCustomDefinitions, setContactCustomDefinitions] = useState([])
+  const [customDefinitionsLoaded, setCustomDefinitionsLoaded] = useState(false)
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [linkedPersonForm, setLinkedPersonForm] = useState(emptyLinkedPersonForm)
@@ -351,11 +118,11 @@ export function CompaniesRoute() {
   const selectedNotes = detail?.notes || []
   const selectedTasks = detail?.tasks || []
   const selectedDeals = detail?.deals || []
-  const hasFilter = search.trim() !== '' || ownerFilter !== 'all'
+  const hasFilter = search.trim() !== '' || ownerFilter !== 'all' || customFilter.fieldKey !== ''
   const selectedActivities = detail?.activities || []
   const companyEmailRecipients = useMemo(() => emailRecipientOptions(linkedContacts), [linkedContacts])
 
-  function buildCompaniesPath(nextSearch = search, nextOwner = ownerFilter) {
+  function buildCompaniesPath(nextSearch = search, nextOwner = ownerFilter, nextCustomFilter = customFilter) {
     const params = new URLSearchParams()
     if (nextSearch) {
       params.set('q', nextSearch)
@@ -363,23 +130,29 @@ export function CompaniesRoute() {
     if (nextOwner !== 'all') {
       params.set('owner', nextOwner)
     }
+    if (nextCustomFilter.fieldKey) {
+      params.set('customField', nextCustomFilter.fieldKey)
+      params.set('customOperator', nextCustomFilter.operator)
+      params.set('customValue', nextCustomFilter.value)
+    }
     const suffix = params.toString() ? `?${params.toString()}` : ''
     return `/companies${suffix}`
   }
 
-  async function loadCompanies(nextSearch = '', nextOwner = 'all', { signal } = {}) {
+  async function loadCompanies(nextSearch = '', nextOwner = 'all', { signal, nextCustomFilter = customFilter } = {}) {
     const isUnassigned = nextOwner === 'unassigned'
     const ownerUserId = isUnassigned || nextOwner === 'all' ? 0 : Number.parseInt(nextOwner, 10) || 0
     const [companyData, contactData] = await Promise.all([
-      listCompanies({ search: nextSearch, unassigned: isUnassigned, ownerUserId }, { signal }),
+      listCompanies({ search: nextSearch, unassigned: isUnassigned, ownerUserId, customField: nextCustomFilter }, { signal }),
       listContacts({ search: nextSearch, unassigned: isUnassigned, ownerUserId }, { signal })
     ])
 
     if (Array.isArray(companyData?.companies)) {
       const nextCompanies = companyData.companies
-      const nextContacts = (contactData?.contacts || []).filter((contact) => contact.isClient)
+      const nextContacts = nextCustomFilter.fieldKey ? [] : (contactData?.contacts || []).filter((contact) => contact.isClient)
       const clients = buildClientRecords(nextCompanies, nextContacts)
       setCompanies(clients)
+      setSelectedClientIds([])
         setMeta({ page: 1, pageSize: 20, total: clients.length })
         return
       }
@@ -413,9 +186,16 @@ export function CompaniesRoute() {
   }
 
   function fillFormFromDetail(data) {
-    setForm(companyFormValues(data.company, data.linkedContacts || []))
+    setForm(companyFormValues(data.company, data.linkedContacts || [], companyCustomDefinitions))
     setLinkedPersonForm(linkedPersonFormValues(data.company))
     setShowLinkedPersonForm(false)
+  }
+
+  async function loadCustomDefinitions({ signal } = {}) {
+    const [companyDefinitions, contactDefinitions] = await Promise.all([listCustomFields('company', { signal }), listCustomFields('contact', { signal })])
+    setCompanyCustomDefinitions(companyDefinitions)
+    setContactCustomDefinitions(contactDefinitions)
+    setCustomDefinitionsLoaded(true)
   }
 
   useEffect(() => {
@@ -424,7 +204,7 @@ export function CompaniesRoute() {
     async function run() {
       setIsListLoading(true)
       try {
-        await Promise.all([loadCompanies(initialSearch, initialOwnerFilter, { signal: controller.signal }), loadContactOptions({ signal: controller.signal }), loadUserOptions({ signal: controller.signal })])
+        await Promise.all([loadCompanies(initialSearch, initialOwnerFilter, { signal: controller.signal }), loadContactOptions({ signal: controller.signal }), loadUserOptions({ signal: controller.signal }), loadCustomDefinitions({ signal: controller.signal })])
         setError('')
         setDuplicateSearch('')
         setDuplicateCandidate(null)
@@ -455,22 +235,24 @@ export function CompaniesRoute() {
   async function handleApplySavedView(filters) {
     const nextSearch = filters.q || ''
     const nextOwner = filters.owner || 'all'
+    const nextCustomFilter = { fieldKey: filters.customField || '', operator: filters.customOperator || '', value: filters.customValue || '' }
     setSearch(nextSearch)
     setOwnerFilter(nextOwner)
+    setCustomFilter(nextCustomFilter)
     setMode('list')
     setDetail(null)
     setSelectedCompanyId(null)
-    navigate(buildCompaniesPath(nextSearch, nextOwner), { replace: true })
-    await reloadCompanies(nextSearch, nextOwner)
+    navigate(buildCompaniesPath(nextSearch, nextOwner, nextCustomFilter), { replace: true })
+    await reloadCompanies(nextSearch, nextOwner, nextCustomFilter)
   }
 
-  async function reloadCompanies(nextSearch = search, nextOwner = ownerFilter) {
+  async function reloadCompanies(nextSearch = search, nextOwner = ownerFilter, nextCustomFilter = customFilter) {
     searchControllerRef.current?.abort()
     const controller = new AbortController()
     searchControllerRef.current = controller
     setIsListLoading(true)
     try {
-      await loadCompanies(nextSearch, nextOwner, { signal: controller.signal })
+      await loadCompanies(nextSearch, nextOwner, { signal: controller.signal, nextCustomFilter })
       setError('')
       setDuplicateSearch('')
       setDuplicateCandidate(null)
@@ -496,6 +278,12 @@ export function CompaniesRoute() {
 
   async function handleOwnerFilterChange(event) {
     await applyOwnerFilter(event.target.value)
+  }
+
+  async function applyCustomFilter(nextCustomFilter) {
+    setCustomFilter(nextCustomFilter)
+    navigate(buildCompaniesPath(search, ownerFilter, nextCustomFilter), { replace: true })
+    await reloadCompanies(search, ownerFilter, nextCustomFilter)
   }
 
   async function handleDuplicateSearch() {
@@ -595,6 +383,7 @@ export function CompaniesRoute() {
     const controller = new AbortController()
 
     async function openRouteCompany() {
+      if (!customDefinitionsLoaded) return
       if (!Number.isInteger(routeCompanyId) || routeCompanyId <= 0) {
         if (selectedCompanyId || mode === 'detail') {
           setSelectedCompanyId(null)
@@ -658,7 +447,7 @@ export function CompaniesRoute() {
     return () => {
       controller.abort()
     }
-  }, [detail, detailCache, mode, routeCompanyId, selectedCompanyId])
+  }, [customDefinitionsLoaded, detail, detailCache, mode, routeCompanyId, selectedCompanyId])
 
   async function handleCreate(event) {
     event.preventDefault()
@@ -678,7 +467,8 @@ export function CompaniesRoute() {
           country: form.country,
           jobTitle: '',
           status: form.status,
-          isClient: true
+          isClient: true,
+          customFields: customFieldPayload(contactCustomDefinitions, form.customFields)
         })
         const nextClient = individualClientFromContact(data.contact)
         setCompanies((current) => [...current, nextClient].sort((left, right) => left.name.localeCompare(right.name) || left.entityId - right.entityId))
@@ -693,7 +483,7 @@ export function CompaniesRoute() {
       }
 
       const data = await createCompany({
-        ...buildCompanyPayload(form)
+        ...buildCompanyPayload(form, companyCustomDefinitions)
       })
       if (!data?.company?.id) {
         throw new Error('Unable to create company.')
@@ -727,7 +517,7 @@ export function CompaniesRoute() {
 
     try {
       const data = await updateCompany(selectedCompanyId, {
-        ...buildCompanyPayload(form)
+        ...buildCompanyPayload(form, companyCustomDefinitions)
       })
       if (!data?.company?.id) {
         throw new Error('Unable to update company.')
@@ -766,7 +556,8 @@ export function CompaniesRoute() {
         postalCode: '',
         country: '',
         jobTitle: linkedPersonForm.jobTitle,
-        status: linkedPersonForm.status
+        status: linkedPersonForm.status,
+        customFields: customFieldPayload(contactCustomDefinitions, linkedPersonForm.customFields)
       })
       if (!contactData?.contact?.id) {
         throw new Error('Unable to create contact.')
@@ -778,7 +569,7 @@ export function CompaniesRoute() {
       const companyData = await updateCompany(selectedCompanyId, buildCompanyPayload({
         ...form,
         linkedContactIDs: linkedContactIDs.join(',')
-      }))
+      }, companyCustomDefinitions))
       if (!companyData?.company?.id) {
         throw new Error('Unable to update company.')
       }
@@ -908,7 +699,7 @@ export function CompaniesRoute() {
               <p>See client ownership, linked people, and live pipeline in one place.</p>
             </div>
             <div className="button-row">
-              <a className="button button-secondary" href={companiesExportURL(search)}>
+              <a className="button button-secondary" href={companiesExportURL({ search, customField: customFilter })}>
                 Export CSV
               </a>
               {canWrite ? (
@@ -928,10 +719,11 @@ export function CompaniesRoute() {
               ) : null}
             </div>
           </div>
+          <p className="field-hint">CSV exports include up to 10,000 matching clients. Apply filters first for larger sets.</p>
           <Field label="Search clients">
             <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
-          <SavedViews entityType="companies" currentFilters={{ q: search, owner: ownerFilter }} onApply={handleApplySavedView} defaultName="Client view" />
+          <SavedViews entityType="companies" currentFilters={{ q: search, owner: ownerFilter, customField: customFilter.fieldKey, customOperator: customFilter.operator, customValue: customFilter.value }} onApply={handleApplySavedView} defaultName="Client view" />
           <Field label="Owner filter">
             <div className="button-row">
               <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
@@ -951,6 +743,7 @@ export function CompaniesRoute() {
               </Button>
             </div>
           </Field>
+          <CustomFieldFilter definitions={companyCustomDefinitions} value={customFilter} onApply={applyCustomFilter} onClear={() => applyCustomFilter({ fieldKey: '', operator: '', value: '' })} />
           {isListLoading ? <p className="field-hint">Loading clients...</p> : null}
           {error ? (
             <div className="card-stack">
@@ -976,6 +769,7 @@ export function CompaniesRoute() {
               ) : null}
             </div>
           ) : null}
+          {canWrite ? <BulkActions entityType={bulkEntityType} selectedIds={selectedClientIds} visibleIds={companies.filter((company) => company.entityType === bulkEntityType).map((company) => company.entityId)} onSelectionChange={setSelectedClientIds} onChanged={() => reloadCompanies(search, ownerFilter)} statuses={bulkStatusOptions[bulkEntityType]} userOptions={userOptions} /> : null}
           <div className="record-list" role="list" aria-label="Clients list">
             {!isListLoading && companies.length === 0 ? (
               <EmptyState
@@ -986,8 +780,9 @@ export function CompaniesRoute() {
                   if (hasFilter) {
                     setSearch('')
                     setOwnerFilter('all')
-                    navigate(buildCompaniesPath('', 'all'), { replace: true })
-                    reloadCompanies('', 'all')
+                    setCustomFilter({ fieldKey: '', operator: '', value: '' })
+                    navigate(buildCompaniesPath('', 'all', { fieldKey: '', operator: '', value: '' }), { replace: true })
+                    reloadCompanies('', 'all', { fieldKey: '', operator: '', value: '' })
                     return
                   }
                   navigate('/companies')
@@ -1002,6 +797,7 @@ export function CompaniesRoute() {
             ) : companies.map((company) => (
               <article className="record-row" key={company.id} role="listitem">
                 <div>
+                  {canWrite ? <input type="checkbox" aria-label={`Select ${company.name}`} checked={bulkEntityType === company.entityType && selectedClientIds.includes(company.entityId)} onChange={() => { if (bulkEntityType !== company.entityType) { setBulkEntityType(company.entityType); setSelectedClientIds([company.entityId]); return } setSelectedClientIds((current) => current.includes(company.entityId) ? current.filter((id) => id !== company.entityId) : [...current, company.entityId]) }} /> : null}
                   <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenCompany(company)}>
                     {company.name}
                   </button>
@@ -1011,6 +807,9 @@ export function CompaniesRoute() {
                   <p>{company.email || company.website || formatAddress(company) || clientTypeLabel(company.clientType)}</p>
                   <p>{company.status}</p>
                   <p className="field-hint">{company.ownerUserName || 'Unassigned'}</p>
+                  {company.entityType === 'company' ? companyCustomDefinitions.filter((definition) => definition.showInList).map((definition) => (
+                    <p className="field-hint" key={definition.id}><CustomFieldValue definition={definition} value={company.customFields?.[definition.fieldKey]} /></p>
+                  )) : null}
                 </div>
               </article>
             ))}
@@ -1026,70 +825,14 @@ export function CompaniesRoute() {
                 <h2>New client</h2>
                 <p>{createDescription(form.clientType)}</p>
               </div>
-            <form className="auth-form" onSubmit={handleCreate}>
-              <Field label="Client type">
-                <select
-                  className="text-input"
-                  value={form.clientType}
-                  onChange={(event) => setForm((current) => ({
-                    ...current,
-                    clientType: event.target.value,
-                    linkedContactIDs: limitLinkedContacts(event.target.value, current.linkedContactIDs)
-                  }))}
-                >
-                  <option value="organization">Organization</option>
-                  <option value="individual">Individual</option>
-                </select>
-              </Field>
-              <Field label={nameFieldLabel(form.clientType)}>
-                <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
-              </Field>
-              <Field label={phoneFieldLabel(form.clientType)}>
-                <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
-              </Field>
-              {isIndividualClient(form.clientType) ? (
-                <Field label="Email">
-                  <input className="text-input" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
-                </Field>
-              ) : null}
-              <Field label="Address line 1">
-                <input className="text-input" value={form.addressLine1} onChange={(event) => setForm((current) => ({ ...current, addressLine1: event.target.value }))} />
-              </Field>
-              <Field label="Address line 2">
-                <input className="text-input" value={form.addressLine2} onChange={(event) => setForm((current) => ({ ...current, addressLine2: event.target.value }))} />
-              </Field>
-              <Field label="City">
-                <input className="text-input" value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} />
-              </Field>
-              <Field label="State">
-                <input className="text-input" value={form.state} onChange={(event) => setForm((current) => ({ ...current, state: event.target.value }))} />
-              </Field>
-              <Field label="Postal code">
-                <input className="text-input" value={form.postalCode} onChange={(event) => setForm((current) => ({ ...current, postalCode: event.target.value }))} />
-              </Field>
-              <Field label="Country">
-                <input className="text-input" value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} />
-              </Field>
-              <Field label={linkedContactFieldLabel(form.clientType)} hint={linkedContactFieldHint(form.clientType)}>
-                <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => applyLinkedContactSelection(current, contactOptions, event.target.value))}>
-                  <option value="">{normalizeClientType(form.clientType) === 'individual' ? 'Select person record' : 'No linked contact'}</option>
-                  {contactOptions.map((contact) => (
-                    <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
-                  ))}
-                </select>
-              </Field>
-              {!isIndividualClient(form.clientType) ? (
-                <>
-                  <Field label="Industry">
-                    <input className="text-input" value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} />
-                  </Field>
-                  <Field label="Website" hint="Company site, like https://acme.com.">
-                    <input className="text-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} />
-                  </Field>
-                </>
-              ) : null}
-              <Button type="submit">Save client</Button>
-            </form>
+            <CompanyForm
+              contacts={contactOptions}
+              customDefinitions={isIndividualClient(form.clientType) ? contactCustomDefinitions : companyCustomDefinitions}
+              form={form}
+              onSetForm={setForm}
+              onSubmit={handleCreate}
+              submitLabel="Save client"
+            />
           </div>
         </Card>
       ) : null}
@@ -1109,77 +852,16 @@ export function CompaniesRoute() {
                 </Button>
               ) : null}
             </div>
-            <form className="auth-form" onSubmit={handleUpdate}>
-              <Field label="Client type">
-                <select
-                  className="text-input"
-                  value={form.clientType}
-                  onChange={(event) => setForm((current) => ({
-                    ...current,
-                    clientType: event.target.value,
-                    linkedContactIDs: limitLinkedContacts(event.target.value, current.linkedContactIDs)
-                  }))}
-                >
-                  <option value="organization">Organization</option>
-                  <option value="individual">Individual</option>
-                </select>
-              </Field>
-              <Field label={nameFieldLabel(form.clientType)}>
-                <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
-              </Field>
-              <Field label={phoneFieldLabel(form.clientType)}>
-                <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
-              </Field>
-              {isIndividualClient(form.clientType) ? (
-                <Field label="Email">
-                  <input className="text-input" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
-                </Field>
-              ) : null}
-              <Field label="Address line 1">
-                <input className="text-input" value={form.addressLine1} onChange={(event) => setForm((current) => ({ ...current, addressLine1: event.target.value }))} />
-              </Field>
-              <Field label="Address line 2">
-                <input className="text-input" value={form.addressLine2} onChange={(event) => setForm((current) => ({ ...current, addressLine2: event.target.value }))} />
-              </Field>
-              <Field label="City">
-                <input className="text-input" value={form.city} onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))} />
-              </Field>
-              <Field label="State">
-                <input className="text-input" value={form.state} onChange={(event) => setForm((current) => ({ ...current, state: event.target.value }))} />
-              </Field>
-              <Field label="Postal code">
-                <input className="text-input" value={form.postalCode} onChange={(event) => setForm((current) => ({ ...current, postalCode: event.target.value }))} />
-              </Field>
-              <Field label="Country">
-                <input className="text-input" value={form.country} onChange={(event) => setForm((current) => ({ ...current, country: event.target.value }))} />
-              </Field>
-              <Field label="Status">
-                <select className="text-input" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
-                  <option value="prospect">Prospect</option>
-                  <option value="customer">Customer</option>
-                  <option value="lead">Lead</option>
-                </select>
-              </Field>
-              <Field label={linkedContactFieldLabel(form.clientType)} hint={linkedContactFieldHint(form.clientType)}>
-                <select className="text-input" value={form.linkedContactIDs} onChange={(event) => setForm((current) => applyLinkedContactSelection(current, contactOptions, event.target.value))}>
-                  <option value="">{normalizeClientType(form.clientType) === 'individual' ? 'Select person record' : 'No linked contact'}</option>
-                  {contactOptions.map((contact) => (
-                    <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
-                  ))}
-                </select>
-              </Field>
-              {!isIndividualClient(form.clientType) ? (
-                <>
-                  <Field label="Industry">
-                    <input className="text-input" value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} />
-                  </Field>
-                  <Field label="Website" hint="Company site, like https://acme.com.">
-                    <input className="text-input" value={form.website} onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))} />
-                  </Field>
-                </>
-              ) : null}
-              {canWrite ? <Button type="submit">Update client</Button> : null}
-            </form>
+            <CompanyForm
+              canSubmit={canWrite}
+              contacts={contactOptions}
+              customDefinitions={companyCustomDefinitions}
+              form={form}
+              includeStatus
+              onSetForm={setForm}
+              onSubmit={handleUpdate}
+              submitLabel="Update client"
+            />
             <Card>
               <div className="card-stack">
                 <div className="section-header">
@@ -1213,6 +895,7 @@ export function CompaniesRoute() {
                     <Field label="Job title">
                       <input className="text-input" value={linkedPersonForm.jobTitle} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, jobTitle: event.target.value }))} />
                     </Field>
+                    <CustomFieldsForm definitions={contactCustomDefinitions} values={linkedPersonForm.customFields} onChange={(customFields) => setLinkedPersonForm((current) => ({ ...current, customFields }))} />
                     <Button type="submit">Save person</Button>
                   </form>
                 ) : null}
@@ -1286,76 +969,25 @@ export function CompaniesRoute() {
                 </div>
               </div>
             </Card>
-            <Card>
-              <div className="card-stack">
-                <h3>Notes</h3>
-                {canWrite ? (
-                  <form className="auth-form" onSubmit={handleCreateNote}>
-                    <Field label="New note">
-                      <textarea className="text-input" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={4} />
-                    </Field>
-                    <Button type="submit">Add note</Button>
-                  </form>
-                ) : null}
-                <div className="record-list" role="list" aria-label="Client notes list">
-                  {selectedNotes.map((note) => (
-                    <article className="record-row" key={note.id} role="listitem">
-                      <div>
-                        <p>{note.body}</p>
-                        <p className="field-hint">{note.createdByUserName || 'Unknown author'}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </Card>
-            <Card>
-              <div className="card-stack">
-                <div className="section-header">
-                  <h3>Tasks</h3>
-                  <Button className="button-secondary" type="button" onClick={handleOpenCompanyTasks}>
-                    Open in tasks
-                  </Button>
-                </div>
-                {canWrite ? (
-                  <form className="auth-form" onSubmit={handleCreateTask}>
-                    <Field label="Task title">
-                      <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
-                    </Field>
-                    <Field label="Task description">
-                      <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
-                    </Field>
-                    <Field label="Assigned to">
-                      <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
-                        {userOptions.map((user) => (
-                          <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Due at">
-                      <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
-                    </Field>
-                    <Button type="submit">Save task</Button>
-                  </form>
-                ) : null}
-                <div className="record-list" role="list" aria-label="Client tasks list">
-                  {selectedTasks.map((task) => (
-                    <article className="record-row" key={task.id} role="listitem">
-                      <div>
-                        <p>{task.title}</p>
-                        <p className="field-hint">{task.assignedToUserName || 'Unassigned'}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </Card>
-            <Card>
-              <div className="card-stack">
-                <h3>Activity</h3>
-                <ActivityTimeline activities={selectedActivities} ariaLabel="Activity list" />
-              </div>
-            </Card>
+            <RecordWorkCards
+              activities={selectedActivities}
+              activityAria="Activity list"
+              canWrite={canWrite}
+              entityId={selectedCompanyId}
+              entityType="company"
+              noteBody={noteBody}
+              notes={selectedNotes}
+              notesAria="Client notes list"
+              onCreateNote={handleCreateNote}
+              onCreateTask={handleCreateTask}
+              onOpenTasks={handleOpenCompanyTasks}
+              onSetNoteBody={setNoteBody}
+              onSetTaskForm={setTaskForm}
+              taskForm={taskForm}
+              tasks={selectedTasks}
+              tasksAria="Client tasks list"
+              users={userOptions}
+            />
           </div>
         </Card>
       ) : null}

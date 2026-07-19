@@ -1,11 +1,13 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
+	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -21,9 +23,9 @@ func handleExportContacts(auth authService, exports dataExportsService, w http.R
 		return
 	}
 
-	file, err := exports.ContactsCSV(r.Context(), state.Organization.ID, moduleexports.ContactsQuery{Search: strings.TrimSpace(r.URL.Query().Get("q"))})
+	file, err := exports.ContactsCSV(r.Context(), state.Organization.ID, moduleexports.ContactsQuery{Search: strings.TrimSpace(r.URL.Query().Get("q")), CustomField: exportCustomFieldFilter(r)})
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to export contacts")
+		writeExportError(w, requestID, err, "Unable to export contacts")
 		return
 	}
 	writeCSVFile(w, http.StatusOK, file)
@@ -40,9 +42,9 @@ func handleExportCompanies(auth authService, exports dataExportsService, w http.
 		return
 	}
 
-	file, err := exports.CompaniesCSV(r.Context(), state.Organization.ID, moduleexports.CompaniesQuery{Search: strings.TrimSpace(r.URL.Query().Get("q"))})
+	file, err := exports.CompaniesCSV(r.Context(), state.Organization.ID, moduleexports.CompaniesQuery{Search: strings.TrimSpace(r.URL.Query().Get("q")), CustomField: exportCustomFieldFilter(r)})
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to export clients")
+		writeExportError(w, requestID, err, "Unable to export clients")
 		return
 	}
 	writeCSVFile(w, http.StatusOK, file)
@@ -66,9 +68,11 @@ func handleExportDeals(auth authService, exports dataExportsService, w http.Resp
 		OwnerUserID:      parseExportInt64(r.URL.Query().Get("ownerUserId")),
 		CompanyID:        parseExportInt64(r.URL.Query().Get("companyId")),
 		PrimaryContactID: parseExportInt64(r.URL.Query().Get("primaryContactId")),
+		CloseDateFrom:    strings.TrimSpace(r.URL.Query().Get("closeFrom")),
+		CloseDateTo:      strings.TrimSpace(r.URL.Query().Get("closeTo")),
 	})
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to export deals")
+		writeExportError(w, requestID, err, "Unable to export deals")
 		return
 	}
 	writeCSVFile(w, http.StatusOK, file)
@@ -94,10 +98,21 @@ func handleExportTasks(auth authService, exports dataExportsService, w http.Resp
 		AssigneeFilter: strings.TrimSpace(r.URL.Query().Get("assignee")),
 	})
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to export tasks")
+		writeExportError(w, requestID, err, "Unable to export tasks")
 		return
 	}
 	writeCSVFile(w, http.StatusOK, file)
+}
+
+func writeExportError(w http.ResponseWriter, requestID string, err error, fallbackMessage string) {
+	switch {
+	case errors.Is(err, modulecustomfields.ErrInvalidInput), errors.Is(err, moduleexports.ErrInvalidFilter):
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+	case errors.Is(err, moduleexports.ErrTooManyRows):
+		platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "EXPORT_TOO_LARGE", err.Error())
+	default:
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", fallbackMessage)
+	}
 }
 
 func writeCSVFile(w http.ResponseWriter, status int, file moduleexports.File) {
@@ -110,4 +125,8 @@ func writeCSVFile(w http.ResponseWriter, status int, file moduleexports.File) {
 func parseExportInt64(value string) int64 {
 	parsed, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 	return parsed
+}
+
+func exportCustomFieldFilter(r *http.Request) modulecustomfields.Filter {
+	return modulecustomfields.Filter{FieldKey: strings.TrimSpace(r.URL.Query().Get("customField")), Operator: strings.TrimSpace(r.URL.Query().Get("customOperator")), Value: strings.TrimSpace(r.URL.Query().Get("customValue"))}
 }

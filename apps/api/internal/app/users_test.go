@@ -14,19 +14,28 @@ import (
 )
 
 type fakeUsersService struct {
-	listResult      []moduleusers.UserSummary
-	listErr         error
-	createResult    moduleusers.UserSummary
-	createErr       error
-	setupErr        error
-	lastListOrgID   int64
-	lastCreateOrgID int64
-	lastRoleOrgID   int64
-	lastRoleUserID  int64
-	lastRoleActorID int64
-	lastRole        string
-	lastCreateInput moduleusers.CreateUserInput
-	lastSetupInput  moduleusers.CompleteSetupInput
+	listResult        []moduleusers.UserSummary
+	listErr           error
+	createResult      moduleusers.UserSummary
+	createErr         error
+	setupErr          error
+	lastListOrgID     int64
+	lastCreateOrgID   int64
+	lastRoleOrgID     int64
+	lastRoleUserID    int64
+	lastRoleActorID   int64
+	lastRole          string
+	statusResult      moduleusers.LifecycleResult
+	statusErr         error
+	lastStatusOrgID   int64
+	lastStatusUserID  int64
+	lastStatusActorID int64
+	lastStatusInput   moduleusers.SetStatusInput
+	lastCreateInput   moduleusers.CreateUserInput
+	lastSetupInput    moduleusers.CompleteSetupInput
+	preferencesResult moduleusers.UserPreferences
+	lastPreferencesID int64
+	lastPreferences   moduleusers.UserPreferences
 }
 
 func (f *fakeUsersService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleusers.UserSummary, error) {
@@ -48,6 +57,14 @@ func (f *fakeUsersService) UpdateRole(_ context.Context, organizationID, userID,
 	return moduleusers.UserSummary{ID: userID, Email: "admin@acme.test", FirstName: "Demo", LastName: "Admin", Role: role}, nil
 }
 
+func (f *fakeUsersService) SetStatus(_ context.Context, organizationID, userID, actorUserID int64, input moduleusers.SetStatusInput) (moduleusers.LifecycleResult, error) {
+	f.lastStatusOrgID = organizationID
+	f.lastStatusUserID = userID
+	f.lastStatusActorID = actorUserID
+	f.lastStatusInput = input
+	return f.statusResult, f.statusErr
+}
+
 func (f *fakeUsersService) CompleteSetup(_ context.Context, input moduleusers.CompleteSetupInput) (moduleusers.SetupCompletion, error) {
 	f.lastSetupInput = input
 	return moduleusers.SetupCompletion{UserID: 9, OrganizationID: 42, Email: "new.admin@acme.test"}, f.setupErr
@@ -58,11 +75,37 @@ func (f *fakeUsersService) UpdateProfile(_ context.Context, _ int64, _ moduleuse
 }
 
 func (f *fakeUsersService) GetPreferences(_ context.Context, _ int64) (moduleusers.UserPreferences, error) {
-	return moduleusers.UserPreferences{}, nil
+	return f.preferencesResult, nil
 }
 
-func (f *fakeUsersService) UpdatePreferences(_ context.Context, _ int64, _ moduleusers.UserPreferences) (moduleusers.UserPreferences, error) {
-	return moduleusers.UserPreferences{}, nil
+func (f *fakeUsersService) UpdatePreferences(_ context.Context, userID int64, preferences moduleusers.UserPreferences) (moduleusers.UserPreferences, error) {
+	f.lastPreferencesID = userID
+	f.lastPreferences = preferences
+	return preferences, nil
+}
+
+func TestUpdatePreferencesPersistsTaskReminderOptOutWithoutChangingAssignmentChoices(t *testing.T) {
+	usersService := &fakeUsersService{preferencesResult: moduleusers.UserPreferences{
+		DefaultLandingView: "/dashboard", NotifyOnTaskAssigned: true, NotifyOnDealAssigned: false, NotifyOnTaskReminders: true,
+	}}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User: moduleauth.User{ID: 7}, Organization: moduleauth.Organization{ID: 42}, Membership: moduleauth.Membership{Role: "member"},
+		}},
+		UsersService: usersService,
+	})
+	request := httptest.NewRequest(http.MethodPatch, "/api/me/preferences", bytes.NewBufferString(`{"defaultLandingView":"/tasks","notifyOnTaskReminders":false}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if usersService.lastPreferencesID != 7 || usersService.lastPreferences.DefaultLandingView != "/tasks" || usersService.lastPreferences.NotifyOnTaskReminders || !usersService.lastPreferences.NotifyOnTaskAssigned || usersService.lastPreferences.NotifyOnDealAssigned {
+		t.Fatalf("unexpected merged reminder preferences: user=%d preferences=%#v", usersService.lastPreferencesID, usersService.lastPreferences)
+	}
 }
 
 func TestListUsersUsesCurrentSessionOrganization(t *testing.T) {
@@ -209,6 +252,77 @@ func TestUpdateUserRoleRecordsCurrentOrganizationAndActor(t *testing.T) {
 	}
 	if usersService.lastRoleOrgID != 42 || usersService.lastRoleUserID != 9 || usersService.lastRoleActorID != 1 || usersService.lastRole != "admin" {
 		t.Fatalf("unexpected role update routing: org=%d user=%d actor=%d role=%q", usersService.lastRoleOrgID, usersService.lastRoleUserID, usersService.lastRoleActorID, usersService.lastRole)
+	}
+}
+
+func TestUpdateUserStatusRoutesTenantActorAndReassignment(t *testing.T) {
+	usersService := &fakeUsersService{statusResult: moduleusers.LifecycleResult{
+		User:                moduleusers.UserSummary{ID: 9, Email: "member@acme.test", Status: moduleusers.MembershipStatusDisabled},
+		Reassigned:          moduleusers.WorkCounts{Contacts: 2, Tasks: 1},
+		SessionsInvalidated: 3,
+		Changed:             true,
+	}}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User:         moduleauth.User{ID: 1, Email: "owner@acme.test"},
+			Organization: moduleauth.Organization{ID: 42, Name: "Acme"},
+			Membership:   moduleauth.Membership{Role: "owner"},
+		}},
+		UsersService: usersService,
+	})
+	request := httptest.NewRequest(http.MethodPatch, "/api/users/9/status", bytes.NewBufferString(`{"status":"disabled","reassignToUserId":7}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if usersService.lastStatusOrgID != 42 || usersService.lastStatusUserID != 9 || usersService.lastStatusActorID != 1 || usersService.lastStatusInput.Status != "disabled" || usersService.lastStatusInput.ReassignToUserID != 7 {
+		t.Fatalf("unexpected lifecycle routing: org=%d user=%d actor=%d input=%#v", usersService.lastStatusOrgID, usersService.lastStatusUserID, usersService.lastStatusActorID, usersService.lastStatusInput)
+	}
+	var response userLifecycleResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode lifecycle response: %v", err)
+	}
+	if response.Data.User.Status != "disabled" || response.Data.Reassigned.Total() != 3 || response.Data.SessionsInvalidated != 3 {
+		t.Fatalf("unexpected lifecycle response: %#v", response.Data)
+	}
+}
+
+func TestUpdateUserStatusRejectsViewerAndUnsafeTransitions(t *testing.T) {
+	tests := []struct {
+		name       string
+		role       string
+		serviceErr error
+		wantStatus int
+	}{
+		{name: "viewer", role: "viewer", wantStatus: http.StatusForbidden},
+		{name: "self", role: "owner", serviceErr: moduleusers.ErrCannotChangeOwnStatus, wantStatus: http.StatusConflict},
+		{name: "last owner", role: "owner", serviceErr: moduleusers.ErrLastActiveOwner, wantStatus: http.StatusConflict},
+		{name: "foreign replacement", role: "owner", serviceErr: moduleusers.ErrInvalidReassignment, wantStatus: http.StatusBadRequest},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := NewServer(config.Env{}, Dependencies{
+				AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+					User:         moduleauth.User{ID: 1},
+					Organization: moduleauth.Organization{ID: 42},
+					Membership:   moduleauth.Membership{Role: test.role},
+				}},
+				UsersService: &fakeUsersService{statusErr: test.serviceErr},
+			})
+			request := httptest.NewRequest(http.MethodPatch, "/api/users/9/status", bytes.NewBufferString(`{"status":"disabled"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("expected status %d, got %d: %s", test.wantStatus, recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 

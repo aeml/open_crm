@@ -1,16 +1,7 @@
 name: Deploy backend to ssh.mendola.tech
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/api/**'
-      - 'docker-compose.deploy.yml'
-      - 'scripts/remote-deploy.sh'
-      - '.github/workflows/backend-deploy.yml'
-      - '.dockerignore'
-      - 'README.md'
-  workflow_dispatch:
+  workflow_call:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -22,6 +13,7 @@ jobs:
       DEPLOY_HOST: ssh.mendola.tech
       DEPLOY_USER: aeml
       DEPLOY_PATH: ~/open_crm
+      DEPLOY_API_URL: https://crmserver.mendola.tech
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -96,6 +88,8 @@ jobs:
           set -euo pipefail
           rsync -az --delete \
             --exclude '.git' \
+            --exclude '.env.production' \
+            --exclude 'var' \
             --exclude 'apps/web/node_modules' \
             --exclude 'apps/web/dist' \
             -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
@@ -115,4 +109,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes ${DEPLOY_USER}@${DEPLOY_HOST} "chmod +x ${DEPLOY_PATH}/scripts/remote-deploy.sh && ${DEPLOY_PATH}/scripts/remote-deploy.sh ${DEPLOY_PATH}"
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes ${DEPLOY_USER}@${DEPLOY_HOST} "chmod +x ${DEPLOY_PATH}/scripts/remote-deploy.sh && ${DEPLOY_PATH}/scripts/remote-deploy.sh ${DEPLOY_PATH} ${GITHUB_SHA}"
+
+      - name: Verify backend readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent \
+            --retry 12 --retry-all-errors --retry-delay 5 \
+            "${DEPLOY_API_URL}/healthz" > /dev/null
+          curl --fail --show-error --silent \
+            --retry 12 --retry-all-errors --retry-delay 5 \
+            --dump-header /tmp/open-crm-ready.headers \
+            "${DEPLOY_API_URL}/readyz" > /dev/null
+          if ! grep -Fqi "X-Open-CRM-Release: ${GITHUB_SHA}" /tmp/open-crm-ready.headers; then
+            echo "Public readiness endpoint does not report expected release ${GITHUB_SHA}." >&2
+            exit 1
+          fi
+          rm -f /tmp/open-crm-ready.headers

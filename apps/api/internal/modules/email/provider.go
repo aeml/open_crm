@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Message is a single outbound email.
@@ -26,6 +27,35 @@ type Message struct {
 type Provider interface {
 	Name() string
 	Send(ctx context.Context, msg Message) error
+}
+
+type ProviderObserver interface {
+	ObserveProvider(provider, operation, outcome string, duration time.Duration)
+}
+
+type observedProvider struct {
+	provider Provider
+	observer ProviderObserver
+}
+
+func WithObserver(provider Provider, observer ProviderObserver) Provider {
+	if provider == nil || observer == nil {
+		return provider
+	}
+	return &observedProvider{provider: provider, observer: observer}
+}
+
+func (p *observedProvider) Name() string { return p.provider.Name() }
+
+func (p *observedProvider) Send(ctx context.Context, msg Message) error {
+	startedAt := time.Now()
+	err := p.provider.Send(ctx, msg)
+	outcome := "success"
+	if err != nil {
+		outcome = "error"
+	}
+	p.observer.ObserveProvider(p.provider.Name(), "send", outcome, time.Since(startedAt))
+	return err
 }
 
 // FakeProvider records messages in an in-memory outbox and logs them instead
@@ -48,7 +78,7 @@ func (p *FakeProvider) Send(_ context.Context, msg Message) error {
 	p.sent = append(p.sent, msg)
 	p.mu.Unlock()
 	if p.logger != nil {
-		p.logger.Info("fake email send", "to", msg.To, "subject", msg.Subject)
+		p.logger.Info("fake email send")
 	}
 	return nil
 }

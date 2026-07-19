@@ -8,6 +8,7 @@ import (
 
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
+	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
 )
 
 type fakeSequenceStore struct {
@@ -21,6 +22,62 @@ type fakeSequenceStore struct {
 	postponeMinutes  int
 	markErr          error
 	postponeErr      error
+}
+
+type fakeDurableSequenceStore struct {
+	*fakeSequenceStore
+	delivery            moduleemailsequences.Delivery
+	loadErr             error
+	prepareErr          error
+	claimErr            error
+	finalizeSent        int
+	finalizeSuppressed  int
+	markedUncertain     int
+	markUncertainReason error
+}
+
+func (f *fakeDurableSequenceStore) LoadScheduledSend(_ context.Context, _, _ int64, _ int) (moduleemailsequences.DueSend, error) {
+	if f.loadErr != nil {
+		return moduleemailsequences.DueSend{}, f.loadErr
+	}
+	return f.due[0], nil
+}
+
+func (f *fakeDurableSequenceStore) PrepareDelivery(_ context.Context, send moduleemailsequences.DueSend, subject, textBody, htmlBody string) (moduleemailsequences.Delivery, error) {
+	if f.prepareErr != nil {
+		return moduleemailsequences.Delivery{}, f.prepareErr
+	}
+	if f.delivery.Status == "" {
+		f.delivery = moduleemailsequences.Delivery{ID: 11, OrganizationID: send.OrganizationID, EnrollmentID: send.EnrollmentID, StepOrder: send.CurrentStepOrder, RecipientEmail: send.ContactEmail, Subject: subject, TextBody: textBody, HTMLBody: htmlBody, Status: "queued"}
+	}
+	return f.delivery, nil
+}
+
+func (f *fakeDurableSequenceStore) ClaimDelivery(context.Context, int64, int64, int) (moduleemailsequences.Delivery, error) {
+	if f.claimErr != nil {
+		return f.delivery, f.claimErr
+	}
+	f.delivery.Status = "sending"
+	return f.delivery, nil
+}
+
+func (f *fakeDurableSequenceStore) FinalizeSent(context.Context, int64, int64, int) error {
+	f.finalizeSent++
+	f.delivery.Status = "sent"
+	return f.markErr
+}
+
+func (f *fakeDurableSequenceStore) FinalizeSuppressed(context.Context, int64, int64, int) error {
+	f.finalizeSuppressed++
+	f.delivery.Status = "suppressed"
+	return f.markErr
+}
+
+func (f *fakeDurableSequenceStore) MarkDeliveryUncertain(_ context.Context, _, _ int64, _ int, failure error) error {
+	f.markedUncertain++
+	f.markUncertainReason = failure
+	f.delivery.Status = "uncertain"
+	return nil
 }
 
 func (f *fakeSequenceStore) ListDueSends(_ context.Context, limit int) ([]moduleemailsequences.DueSend, error) {
@@ -51,11 +108,13 @@ type fakeMailboxSender struct {
 	subject    string
 	body       string
 	htmlBody   string
+	calls      int
 }
 
 func (f *fakeMailboxSender) Configured() bool { return f.configured }
 
 func (f *fakeMailboxSender) SendAs(_ context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error {
+	f.calls++
 	f.orgID = organizationID
 	f.userID = userID
 	f.to = to
@@ -63,6 +122,10 @@ func (f *fakeMailboxSender) SendAs(_ context.Context, organizationID, userID int
 	f.body = textBody
 	f.htmlBody = htmlBody
 	return f.err
+}
+
+func sequenceJob() modulejobs.Job {
+	return modulejobs.Job{OrganizationID: 42, Type: moduleemailsequences.SequenceSendJobType, Payload: map[string]any{"enrollmentId": "9", "stepOrder": "1"}}
 }
 
 type fakeSuppressionStore struct {
@@ -232,5 +295,51 @@ func TestServiceRequiresConfiguredMailboxSender(t *testing.T) {
 	service := NewService(&fakeSequenceStore{}, &fakeMailboxSender{configured: false}, &fakeMessageStore{})
 	if service.Configured() {
 		t.Fatalf("service should not be configured without mailbox sender storage")
+	}
+}
+
+func TestHandleJobFinalizesDurableDelivery(t *testing.T) {
+	sequences := &fakeDurableSequenceStore{fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}}
+	sender := &fakeMailboxSender{configured: true}
+	messages := &fakeMessageStore{}
+	service := NewService(sequences, sender, messages)
+
+	result, err := service.HandleJob(context.Background(), sequenceJob())
+	if err != nil || result["status"] != "sent" || sender.calls != 1 || sequences.finalizeSent != 1 || sequences.markedUncertain != 0 {
+		t.Fatalf("unexpected durable send result: result=%#v sender=%#v sequences=%#v err=%v", result, sender, sequences, err)
+	}
+	if !messages.called || messages.input.Status != "sent" {
+		t.Fatalf("expected durable send to be logged, got %#v", messages.input)
+	}
+}
+
+func TestHandleJobMakesAmbiguousSMTPFailurePermanent(t *testing.T) {
+	sequences := &fakeDurableSequenceStore{fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}}
+	sender := &fakeMailboxSender{configured: true, err: errors.New("connection reset after DATA")}
+	service := NewService(sequences, sender, &fakeMessageStore{})
+
+	_, err := service.HandleJob(context.Background(), sequenceJob())
+	if !errors.Is(err, moduleemailsequences.ErrDeliveryUncertain) || sender.calls != 1 || sequences.markedUncertain != 1 || sequences.finalizeSent != 0 {
+		t.Fatalf("expected ambiguous SMTP result to become uncertain once, sender=%#v sequences=%#v err=%v", sender, sequences, err)
+	}
+	if _, retryErr := service.HandleJob(context.Background(), sequenceJob()); !errors.Is(retryErr, moduleemailsequences.ErrDeliveryUncertain) || sender.calls != 1 {
+		t.Fatalf("expected uncertain delivery not to resend, calls=%d err=%v", sender.calls, retryErr)
+	}
+}
+
+func TestHandleJobFinalizesSuppressedDeliveryWithoutSMTP(t *testing.T) {
+	sequences := &fakeDurableSequenceStore{fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}}
+	sender := &fakeMailboxSender{configured: true}
+	service := NewServiceWithSuppressions(sequences, sender, &fakeMessageStore{}, &fakeSuppressionStore{suppressed: true}, "")
+
+	result, err := service.HandleJob(context.Background(), sequenceJob())
+	if err != nil || result["status"] != "suppressed" || sender.calls != 0 || sequences.finalizeSuppressed != 1 {
+		t.Fatalf("unexpected suppressed durable result: result=%#v sender=%#v sequences=%#v err=%v", result, sender, sequences, err)
+	}
+}
+
+func TestSequenceJobIDsRejectsNumericJSONIDs(t *testing.T) {
+	if _, _, err := sequenceJobIDs(modulejobs.Job{OrganizationID: 42, Payload: map[string]any{"enrollmentId": float64(9), "stepOrder": "1"}}); !errors.Is(err, ErrInvalidJob) {
+		t.Fatalf("expected numeric JSON id to be rejected, got %v", err)
 	}
 }

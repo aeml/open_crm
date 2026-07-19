@@ -1,0 +1,11 @@
+[Unit]
+Description=Open CRM encrypted PostgreSQL backup
+Documentation=file://%h/open_crm/docs/operations-runbook.md
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/open_crm
+ExecStart=/usr/bin/env bash %h/open_crm/scripts/backup-postgres.sh %h/open_crm
+UMask=0077
+Nice=10

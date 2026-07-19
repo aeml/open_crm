@@ -12,6 +12,26 @@ export async function createDealPipeline(input, { signal } = {}) {
   return payload?.data?.pipeline
 }
 
+export async function updateDealPipeline(pipelineId, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/deal-pipelines/${pipelineId}`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update deal pipeline.', signal })
+  return payload?.data?.pipeline
+}
+
+export async function createDealStage(pipelineId, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/deal-pipelines/${pipelineId}/stages`, { method: 'POST', body: input, fallbackMessage: 'Unable to create deal stage.', signal })
+  return payload?.data?.pipeline
+}
+
+export async function updateDealStageDefinition(pipelineId, stageId, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/deal-pipelines/${pipelineId}/stages/${stageId}`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update deal stage.', signal })
+  return payload?.data?.pipeline
+}
+
+export async function reorderDealStages(pipelineId, stageIds, { signal } = {}) {
+  const payload = await apiRequest(`/api/deal-pipelines/${pipelineId}/stages/order`, { method: 'PUT', body: { stageIds }, fallbackMessage: 'Unable to reorder deal stages.', signal })
+  return payload?.data?.pipeline
+}
+
 export async function listDealStages({ signal } = {}) {
   const payload = await apiRequest('/api/deal-stages', { fallbackMessage: 'Unable to load deal stages.', signal })
 
@@ -27,6 +47,8 @@ export async function listDeals(query = {}, { signal } = {}) {
   else if (query.ownerUserId) params.set('ownerUserId', String(query.ownerUserId))
   if (query.companyId) params.set('companyId', String(query.companyId))
   if (query.primaryContactId) params.set('primaryContactId', String(query.primaryContactId))
+  if (query.closeFrom) params.set('closeFrom', query.closeFrom)
+  if (query.closeTo) params.set('closeTo', query.closeTo)
   const suffix = params.toString() ? `?${params.toString()}` : ''
 
   const payload = await apiRequest(`/api/deals${suffix}`, { fallbackMessage: 'Unable to load deals.', signal })
@@ -94,6 +116,8 @@ export function dealsExportURL(query = {}) {
   if (query.ownerUserId) params.set('ownerUserId', String(query.ownerUserId))
   if (query.companyId) params.set('companyId', String(query.companyId))
   if (query.primaryContactId) params.set('primaryContactId', String(query.primaryContactId))
+  if (query.closeFrom) params.set('closeFrom', query.closeFrom)
+  if (query.closeTo) params.set('closeTo', query.closeTo)
   const suffix = params.toString() ? `?${params.toString()}` : ''
   return apiURL(`/api/export/deals${suffix}`)
 }

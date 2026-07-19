@@ -1,0 +1,129 @@
+groups:
+  - name: open-crm-production-trust
+    interval: 30s
+    rules:
+      - alert: OpenCRMMetricsCollectionFailed
+        expr: open_crm_metrics_collection_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM cannot collect all operational metrics
+          runbook: docs/operations-runbook.md#monitoring-and-alerts
+
+      - alert: OpenCRMDatabaseUnavailable
+        expr: open_crm_database_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM PostgreSQL readiness is failing
+          runbook: docs/operations-runbook.md#database-or-api-incident
+
+      - alert: OpenCRMHTTPErrorRateHigh
+        expr: (sum(rate(open_crm_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(open_crm_http_requests_total[5m])), 0.001)) > 0.05 and sum(rate(open_crm_http_requests_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM 5xx ratio exceeds 5 percent
+          runbook: docs/operations-runbook.md#database-or-api-incident
+
+      - alert: OpenCRMHTTPLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(open_crm_http_request_duration_seconds_bucket[10m]))) > 2 and sum(rate(open_crm_http_requests_total[10m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM p95 API latency exceeds 2 seconds
+          runbook: docs/operations-runbook.md#database-or-api-incident
+
+      - alert: OpenCRMQueueMetricsUnavailable
+        expr: open_crm_background_jobs_available == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM durable queue health cannot be read
+          runbook: docs/operations-runbook.md#background-jobs-and-dead-letter-recovery
+
+      - alert: OpenCRMBackgroundJobLagHigh
+        expr: open_crm_background_job_oldest_ready_lag_seconds > 300
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM has runnable work delayed by more than 5 minutes
+          runbook: docs/operations-runbook.md#background-jobs-and-dead-letter-recovery
+
+      - alert: OpenCRMDeadBackgroundJobs
+        expr: open_crm_background_jobs{status="dead"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM has dead-lettered background jobs
+          runbook: docs/operations-runbook.md#background-jobs-and-dead-letter-recovery
+
+      - alert: OpenCRMWorkerCycleErrors
+        expr: increase(open_crm_background_job_outcomes_total{job_type="_worker",outcome="cycle_error"}[10m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM background worker cannot claim or finalize work
+          runbook: docs/operations-runbook.md#background-jobs-and-dead-letter-recovery
+
+      - alert: OpenCRMProviderFailures
+        expr: increase(open_crm_provider_operations_total{outcome="error"}[15m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM observed provider operation failures
+          runbook: docs/operations-runbook.md#provider-incident
+
+      - alert: OpenCRMBackupStatusUnavailable
+        expr: open_crm_backup_status_available == 0
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM cannot read verified backup and restore evidence
+          runbook: docs/operations-runbook.md#encrypted-off-host-postgresql-backups
+
+      - alert: OpenCRMLatestBackupAttemptFailed
+        expr: open_crm_backup_status_available == 1 and open_crm_backup_last_attempt_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: The latest Open CRM backup attempt failed
+          runbook: docs/operations-runbook.md#encrypted-off-host-postgresql-backups
+
+      - alert: OpenCRMBackupStale
+        expr: time() - open_crm_backup_last_success_timestamp_seconds > 108000
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM has no verified backup from the last 30 hours
+          runbook: docs/operations-runbook.md#encrypted-off-host-postgresql-backups
+
+      - alert: OpenCRMLatestRestoreDrillFailed
+        expr: open_crm_backup_status_available == 1 and open_crm_restore_drill_last_attempt_success == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: The latest Open CRM restore drill failed
+          runbook: docs/operations-runbook.md#restore-drill
+
+      - alert: OpenCRMRestoreDrillStale
+        expr: time() - open_crm_restore_drill_last_success_timestamp_seconds > 691200
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM has no verified restore drill from the last 8 days
+          runbook: docs/operations-runbook.md#restore-drill

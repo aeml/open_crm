@@ -14,6 +14,29 @@ func TestCurrentForecastPeriodUsesCalendarQuarter(t *testing.T) {
 	}
 }
 
+func TestNormalizeForecastPeriodDefaultsAndBoundsCustomRanges(t *testing.T) {
+	start, end, err := normalizeForecastPeriod(ForecastQuery{}, time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC))
+	if err != nil || start != "2026-04-01" || end != "2026-06-30" {
+		t.Fatalf("unexpected default forecast period: %s to %s err=%v", start, end, err)
+	}
+
+	start, end, err = normalizeForecastPeriod(ForecastQuery{PeriodStart: "2026-07-01", PeriodEnd: "2026-09-30"}, time.Time{})
+	if err != nil || start != "2026-07-01" || end != "2026-09-30" {
+		t.Fatalf("unexpected custom forecast period: %s to %s err=%v", start, end, err)
+	}
+
+	for _, query := range []ForecastQuery{
+		{PeriodStart: "2026-07-01"},
+		{PeriodStart: "2026-09-30", PeriodEnd: "2026-07-01"},
+		{PeriodStart: "2026-01-01", PeriodEnd: "2027-02-01"},
+		{PeriodStart: "not-a-date", PeriodEnd: "2026-09-30"},
+	} {
+		if _, _, err := normalizeForecastPeriod(query, time.Time{}); !errors.Is(err, ErrInvalidForecastPeriod) {
+			t.Fatalf("expected invalid forecast period for %#v, got %v", query, err)
+		}
+	}
+}
+
 func TestNormalizeQuotaInputValidatesAmountCurrencyAndPeriod(t *testing.T) {
 	_, err := normalizeQuotaInput(QuotaInput{PeriodStart: "2026-04-01", PeriodEnd: "2026-06-30", QuotaAmount: "not-money", Currency: "USD"}, time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC))
 	if !errors.Is(err, ErrInvalidQuota) {

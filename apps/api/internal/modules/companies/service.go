@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -47,21 +48,22 @@ func (e *DuplicateError) ReasonText() string {
 }
 
 type Summary struct {
-	ID            int64  `json:"id"`
-	Name          string `json:"name"`
-	ClientType    string `json:"clientType"`
-	AddressLine1  string `json:"addressLine1"`
-	AddressLine2  string `json:"addressLine2"`
-	City          string `json:"city"`
-	State         string `json:"state"`
-	PostalCode    string `json:"postalCode"`
-	Country       string `json:"country"`
-	Industry      string `json:"industry"`
-	Phone         string `json:"phone"`
-	Website       string `json:"website"`
-	Status        string `json:"status"`
-	OwnerUserID   int64  `json:"ownerUserId"`
-	OwnerUserName string `json:"ownerUserName"`
+	ID            int64                     `json:"id"`
+	Name          string                    `json:"name"`
+	ClientType    string                    `json:"clientType"`
+	AddressLine1  string                    `json:"addressLine1"`
+	AddressLine2  string                    `json:"addressLine2"`
+	City          string                    `json:"city"`
+	State         string                    `json:"state"`
+	PostalCode    string                    `json:"postalCode"`
+	Country       string                    `json:"country"`
+	Industry      string                    `json:"industry"`
+	Phone         string                    `json:"phone"`
+	Website       string                    `json:"website"`
+	Status        string                    `json:"status"`
+	OwnerUserID   int64                     `json:"ownerUserId"`
+	OwnerUserName string                    `json:"ownerUserName"`
+	CustomFields  modulecustomfields.Values `json:"customFields"`
 }
 
 type LinkedContact struct {
@@ -86,6 +88,7 @@ type ListQuery struct {
 	PageSize       int
 	OwnerUserID    int64
 	UnassignedOnly bool
+	CustomField    modulecustomfields.Filter
 }
 
 type ListMeta struct {
@@ -100,35 +103,37 @@ type ListResult struct {
 }
 
 type CreateInput struct {
-	Name             string  `json:"name"`
-	ClientType       string  `json:"clientType"`
-	AddressLine1     string  `json:"addressLine1"`
-	AddressLine2     string  `json:"addressLine2"`
-	City             string  `json:"city"`
-	State            string  `json:"state"`
-	PostalCode       string  `json:"postalCode"`
-	Country          string  `json:"country"`
-	Industry         string  `json:"industry"`
-	Phone            string  `json:"phone"`
-	Website          string  `json:"website"`
-	Status           string  `json:"status"`
-	LinkedContactIDs []int64 `json:"linkedContactIDs"`
+	Name             string                    `json:"name"`
+	ClientType       string                    `json:"clientType"`
+	AddressLine1     string                    `json:"addressLine1"`
+	AddressLine2     string                    `json:"addressLine2"`
+	City             string                    `json:"city"`
+	State            string                    `json:"state"`
+	PostalCode       string                    `json:"postalCode"`
+	Country          string                    `json:"country"`
+	Industry         string                    `json:"industry"`
+	Phone            string                    `json:"phone"`
+	Website          string                    `json:"website"`
+	Status           string                    `json:"status"`
+	LinkedContactIDs []int64                   `json:"linkedContactIDs"`
+	CustomFields     modulecustomfields.Values `json:"customFields"`
 }
 
 type UpdateInput struct {
-	Name             string  `json:"name"`
-	ClientType       string  `json:"clientType"`
-	AddressLine1     string  `json:"addressLine1"`
-	AddressLine2     string  `json:"addressLine2"`
-	City             string  `json:"city"`
-	State            string  `json:"state"`
-	PostalCode       string  `json:"postalCode"`
-	Country          string  `json:"country"`
-	Industry         string  `json:"industry"`
-	Phone            string  `json:"phone"`
-	Website          string  `json:"website"`
-	Status           string  `json:"status"`
-	LinkedContactIDs []int64 `json:"linkedContactIDs"`
+	Name             string                    `json:"name"`
+	ClientType       string                    `json:"clientType"`
+	AddressLine1     string                    `json:"addressLine1"`
+	AddressLine2     string                    `json:"addressLine2"`
+	City             string                    `json:"city"`
+	State            string                    `json:"state"`
+	PostalCode       string                    `json:"postalCode"`
+	Country          string                    `json:"country"`
+	Industry         string                    `json:"industry"`
+	Phone            string                    `json:"phone"`
+	Website          string                    `json:"website"`
+	Status           string                    `json:"status"`
+	LinkedContactIDs []int64                   `json:"linkedContactIDs"`
+	CustomFields     modulecustomfields.Values `json:"customFields"`
 }
 
 type Detail struct {
@@ -204,6 +209,13 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 		filter += fmt.Sprintf(` AND co.owner_user_id = $%d`, len(args)+1)
 		args = append(args, query.OwnerUserID)
 	}
+	customFilter, err := modulecustomfields.ValidateFilter(ctx, s.pool, organizationID, "company", query.CustomField)
+	if err != nil {
+		return ListResult{}, err
+	}
+	customFilterSQL, customArgs := modulecustomfields.AppendFilterSQL("co", args, customFilter)
+	filter += customFilterSQL
+	args = customArgs
 
 	countSQL := `SELECT COUNT(*) FROM companies co WHERE co.organization_id = $1 AND co.archived_at IS NULL` + filter
 	var total int
@@ -222,7 +234,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			COALESCE(co.industry, ''), COALESCE(co.phone, ''),
 			COALESCE(co.website, ''), COALESCE(co.status, ''),
 			COALESCE(co.owner_user_id, 0),
-			TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, ''))
+			TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, '')),
+			COALESCE(co.custom_fields, '{}'::jsonb)
 		FROM companies co
 		LEFT JOIN users ou ON ou.id = co.owner_user_id
 		WHERE co.organization_id = $1 AND co.archived_at IS NULL`+filter+`
@@ -236,14 +249,19 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	companies := make([]Summary, 0)
 	for rows.Next() {
 		var company Summary
+		var customFieldsJSON []byte
 		if err := rows.Scan(
 			&company.ID, &company.Name, &company.ClientType,
 			&company.AddressLine1, &company.AddressLine2,
 			&company.City, &company.State, &company.PostalCode, &company.Country,
 			&company.Industry, &company.Phone, &company.Website, &company.Status,
-			&company.OwnerUserID, &company.OwnerUserName,
+			&company.OwnerUserID, &company.OwnerUserName, &customFieldsJSON,
 		); err != nil {
 			return ListResult{}, fmt.Errorf("scan company: %w", err)
+		}
+		company.CustomFields, err = modulecustomfields.DecodeValues(customFieldsJSON)
+		if err != nil {
+			return ListResult{}, err
 		}
 		companies = append(companies, company)
 	}
@@ -270,16 +288,22 @@ func (s *Service) GetByID(ctx context.Context, organizationID, companyID int64) 
 		LinkedContacts: []LinkedContact{},
 		Activities:     []ActivityEntry{},
 	}
+	var customFieldsJSON []byte
 	if err := s.pool.QueryRow(ctx, `
-		SELECT id, name, client_type, COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
+		SELECT id, name, client_type, COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, ''), COALESCE(custom_fields, '{}'::jsonb)
 		FROM companies
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, companyID).Scan(&detail.Summary.ID, &detail.Summary.Name, &detail.Summary.ClientType, &detail.Summary.AddressLine1, &detail.Summary.AddressLine2, &detail.Summary.City, &detail.Summary.State, &detail.Summary.PostalCode, &detail.Summary.Country, &detail.Summary.Industry, &detail.Summary.Phone, &detail.Summary.Website, &detail.Summary.Status); err != nil {
+	`, organizationID, companyID).Scan(&detail.Summary.ID, &detail.Summary.Name, &detail.Summary.ClientType, &detail.Summary.AddressLine1, &detail.Summary.AddressLine2, &detail.Summary.City, &detail.Summary.State, &detail.Summary.PostalCode, &detail.Summary.Country, &detail.Summary.Industry, &detail.Summary.Phone, &detail.Summary.Website, &detail.Summary.Status, &customFieldsJSON); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Detail{}, ErrNotFound
 		}
 		return Detail{}, fmt.Errorf("get company: %w", err)
 	}
+	customFields, decodeErr := modulecustomfields.DecodeValues(customFieldsJSON)
+	if decodeErr != nil {
+		return Detail{}, decodeErr
+	}
+	detail.Summary.CustomFields = customFields
 
 	linkedRows, err := s.pool.Query(ctx, `
 		SELECT c.id, c.first_name, c.last_name, COALESCE(c.email, ''), COALESCE(l.relationship_title, ''), l.is_primary
@@ -347,13 +371,21 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		return Detail{}, fmt.Errorf("begin create company transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	customFields, err := modulecustomfields.NormalizeValues(ctx, tx, organizationID, "company", input.CustomFields, nil)
+	if err != nil {
+		return Detail{}, err
+	}
+	customFieldsJSON, err := modulecustomfields.EncodeValues(customFields)
+	if err != nil {
+		return Detail{}, err
+	}
 
 	var companyID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO companies (organization_id, name, client_type, address_line1, address_line2, city, state, postal_code, country, industry, phone, website, status, owner_user_id)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''), $14)
+		INSERT INTO companies (organization_id, name, client_type, address_line1, address_line2, city, state, postal_code, country, industry, phone, website, status, owner_user_id, custom_fields)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''), $14, $15::jsonb)
 		RETURNING id
-	`, organizationID, input.Name, input.ClientType, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.Industry, input.Phone, input.Website, input.Status, actorUserID).Scan(&companyID); err != nil {
+	`, organizationID, input.Name, input.ClientType, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.Industry, input.Phone, input.Website, input.Status, actorUserID, customFieldsJSON).Scan(&companyID); err != nil {
 		return Detail{}, fmt.Errorf("insert company: %w", err)
 	}
 
@@ -389,6 +421,25 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 		return Detail{}, fmt.Errorf("begin update company transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	var existingCustomFieldsJSON []byte
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(custom_fields, '{}'::jsonb) FROM companies WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE`, organizationID, companyID).Scan(&existingCustomFieldsJSON); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
+		return Detail{}, fmt.Errorf("lock company custom fields: %w", err)
+	}
+	existingCustomFields, err := modulecustomfields.DecodeValues(existingCustomFieldsJSON)
+	if err != nil {
+		return Detail{}, err
+	}
+	customFields, err := modulecustomfields.NormalizeValues(ctx, tx, organizationID, "company", input.CustomFields, existingCustomFields)
+	if err != nil {
+		return Detail{}, err
+	}
+	customFieldsJSON, err := modulecustomfields.EncodeValues(customFields)
+	if err != nil {
+		return Detail{}, err
+	}
 
 	updated, err := tx.Exec(ctx, `
 		UPDATE companies
@@ -405,9 +456,10 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 		    website = NULLIF($13, ''),
 		    status = NULLIF($14, ''),
 		    updated_at = NOW(),
-		    owner_user_id = COALESCE(owner_user_id, $15)
+		    owner_user_id = COALESCE(owner_user_id, $15),
+		    custom_fields = $16::jsonb
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, companyID, input.Name, input.ClientType, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.Industry, input.Phone, input.Website, input.Status, actorUserID)
+	`, organizationID, companyID, input.Name, input.ClientType, input.AddressLine1, input.AddressLine2, input.City, input.State, input.PostalCode, input.Country, input.Industry, input.Phone, input.Website, input.Status, actorUserID, customFieldsJSON)
 	if err != nil {
 		return Detail{}, fmt.Errorf("update company: %w", err)
 	}

@@ -1,5 +1,7 @@
 # Open CRM Roadmap
 
+> **Status note (2026-07-19):** This file is the historical version plan and implementation log. The canonical current maturity of exposed capabilities is maintained in [`capability-matrix.md`](capability-matrix.md), using stricter outcome-based states. A “foundation complete” note below does not mean the full product outcome or version exit criteria are complete. Current execution order and completion rules live in [`project-convergence-goal.md`](project-convergence-goal.md).
+
 This roadmap has two parts.
 
 **Part I (`0.1.1` → `0.10.0`)** moves the project from MVP-complete to a professional-grade, production-ready CRM foundation: a small, explicit CRM built from a Go API, React web app, and Postgres. Each version is a shippable slice that improves safety, reliability, maintainability, and operator trust without introducing unnecessary platform complexity. This part is largely complete or well-specified and should be finished first — it is the load-bearing foundation everything else sits on.
@@ -64,8 +66,8 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.1.8` Security Baseline: complete.
 - `0.1.9` User Lifecycle: complete.
 - `0.2.0` Observability And Operations: complete.
-- `0.2.1` Backend Maintainability: complete.
-- `0.2.2` Frontend Maintainability: complete.
+- `0.2.1` Backend Maintainability: in progress (reopened for convergence hotspot work).
+- `0.2.2` Frontend Maintainability: in progress (reopened for convergence hotspot work).
 - `0.2.3` Database Integrity: complete.
 - `0.3.0` Professional Release Candidate: complete.
 - `0.3.1` First-Use Product Polish: complete.
@@ -87,26 +89,26 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.4.2` Team Assignment Views: complete.
 - `0.4.3` Role Permissions Pass: complete.
 - `0.4.4` Notification Preferences: complete.
-- `0.4.5` Mention And Follow Model: planned.
-- `0.4.6` Team Activity Digest: planned.
-- `0.4.7` Admin User Lifecycle Hardening: planned.
+- `0.4.5` Mention And Follow Model: complete.
+- `0.4.6` Team Activity Digest: complete.
+- `0.4.7` Admin User Lifecycle Hardening: complete.
 - `0.4.8` Team Usage Reporting: planned.
 - `0.4.9` Team Release Review: planned.
-- `0.5.0` CRM Data Operations: planned.
-- `0.5.1` Bulk Actions: planned.
-- `0.5.2` Duplicate Management: planned.
-- `0.5.3` Import Mapping UI: planned.
-- `0.5.4` Import Validation And Rollback: planned.
-- `0.5.5` Custom Fields Foundation: planned.
-- `0.5.6` Custom Field Filtering: planned.
-- `0.5.7` Data Quality Reports: planned.
-- `0.5.8` Archive And Retention Controls: planned.
-- `0.5.9` Data Operations Review: planned.
-- `0.6.0` Sales Workflow Maturity: planned.
-- `0.6.1` Pipeline Configuration: planned.
-- `0.6.2` Deal Probability And Forecasting: planned.
-- `0.6.3` Task Automation Rules: planned.
-- `0.6.4` Reminder Workflow: planned.
+- `0.5.0` CRM Data Operations: complete.
+- `0.5.1` Bulk Actions: complete.
+- `0.5.2` Duplicate Management: complete.
+- `0.5.3` Import Mapping UI: complete.
+- `0.5.4` Import Validation And Rollback: complete.
+- `0.5.5` Custom Fields Foundation: complete.
+- `0.5.6` Custom Field Filtering: complete.
+- `0.5.7` Data Quality Reports: complete.
+- `0.5.8` Archive And Retention Controls: complete.
+- `0.5.9` Data Operations Review: complete.
+- `0.6.0` Sales Workflow Maturity: in progress.
+- `0.6.1` Pipeline Configuration: complete.
+- `0.6.2` Deal Probability And Forecasting: complete.
+- `0.6.3` Task Automation Rules: complete.
+- `0.6.4` Reminder Workflow: complete.
 - `0.6.5` Sales Activity Reporting: planned.
 - `0.6.6` Contact Touchpoint Tracking: planned.
 - `0.6.7` Quote Or Proposal Placeholder Flow: planned.
@@ -132,23 +134,23 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.7` Import API Endpoint: planned.
 - `0.8.8` Integration Security Review: planned.
 - `0.8.9` Integration Release Review: planned.
-- `0.9.0` Scale And Reliability: planned.
-- `0.9.1` Query Performance Review: planned.
-- `0.9.2` Pagination And Large Dataset Hardening: planned.
-- `0.9.3` Background Job Runner: planned.
+- `0.9.0` Scale And Reliability: in progress.
+- `0.9.1` Query Performance Review: in progress (core tenant query plans and representative budgets are CI-gated; dashboard/report/import/provider review remains).
+- `0.9.2` Pagination And Large Dataset Hardening: in progress (core paginated reads and the bounded 10,000-row export plus explicit overflow refusal are tested; full endpoint/pagination-boundary review remains).
+- `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: planned.
-- `0.9.5` Backup Automation: planned.
-- `0.9.6` Restore Drill Automation: planned.
-- `0.9.7` Monitoring And Alerting Hooks: planned.
-- `0.9.8` Load And Failure Testing: planned.
-- `0.9.9` Reliability Release Review: planned.
+- `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
+- `0.9.6` Restore Drill Automation: complete (real off-host validation remains required for pilot evidence).
+- `0.9.7` Monitoring And Alerting Hooks: in progress (implementation complete; production scrape/destination validation pending).
+- `0.9.8` Load And Failure Testing: in progress (read/write/query/database-failure/export/import/provider/bundle budgets complete; production-like host evidence remains).
+- `0.9.9` Reliability Release Review: in progress (immutable deploy recovery and migration compatibility complete; load/failure review remains).
 - `0.10.0` Production Beta: planned.
 
 ### Part II — Competitive SaaS Platform
 
 - `1.0.0` Multi-Tenant SaaS Platform (signup, billing, plan gating, SSO): in progress.
 - `1.1.0` Email And Communications (2-way sync, tracking, templates, sequences): in progress.
-- `1.2.0` Telephony, SMS, And Meeting Scheduling: planned.
+- `1.2.0` Telephony, SMS, And Meeting Scheduling: in progress.
 - `1.3.0` Sales Acceleration And CPQ (catalog, quotes, e-sign, quotas): in progress.
 - `1.4.0` Marketing And Lead Generation (forms, pages, campaigns, scoring): in progress.
 - `1.5.0` Workflow Automation Engine (visual builder): in progress.
@@ -217,7 +219,8 @@ Status: complete.
 
 Goal: make local setup predictable for future contributors and deployment debugging.
 
-- Add `.nvmrc` and optional `.node-version` for Node 18.
+- Add `.nvmrc` and optional `.node-version` for the supported Node runtime (currently Node 24).
+- Pin supported Go and container base-image lines in CI and production builds.
 - Add package manager metadata where useful.
 - Update README local development instructions.
 - Confirm frontend tests and builds run from a clean checkout.
@@ -226,6 +229,14 @@ Exit criteria:
 
 - A new contributor can install and test with the documented runtime versions.
 - Local frontend verification no longer depends on an accidental global Node/npm version.
+
+Current convergence evidence: local/frontend automation uses Node 24. CI,
+`go.mod`, and container builds pin Go 1.26.5 after a reachable-vulnerability
+scan identified the fixed standard-library patch requirement; the production
+image uses a supported Alpine 3.24 patch image. Container bases are
+digest-pinned and tracked by Dependabot. The upgraded runtime passed vet, every
+serialized real-PostgreSQL package, Chromium acceptance, encrypted
+backup/restore, and immutable deploy-recovery drills.
 
 ## Version 0.1.5 - Frontend API Client Consolidation
 
@@ -327,7 +338,7 @@ Exit criteria:
 
 ## Version 0.2.1 - Backend Maintainability
 
-Status: complete.
+Status: in progress (reopened for convergence hotspot work).
 
 Goal: keep the modular monolith explicit while reducing oversized files.
 
@@ -341,9 +352,19 @@ Exit criteria:
 - Handler files are easier to review in isolation.
 - No behavior changes beyond tested refactors.
 
+Current convergence evidence: CI now prevents `app.go` (948 lines),
+`support_handlers.go` (766 lines), or any smaller production application file
+from growing past its recorded ceiling. HTTP rate limiting, proxy-aware client
+identity, CSRF/CORS, and security/release headers now live in a focused 263-line
+policy file. Service contracts and dependency composition now live in a focused
+407-line file, while all 188 route registrations remain centralized and covered
+by the executable inventory digest. Existing tests are preserved. This is a
+no-regression ratchet, not completion; the remaining large files still need
+incremental domain splits where reviewability benefits.
+
 ## Version 0.2.2 - Frontend Maintainability
 
-Status: complete.
+Status: in progress (reopened for convergence hotspot work).
 
 Goal: make route components easier to evolve without changing the visual language.
 
@@ -356,6 +377,17 @@ Exit criteria:
 
 - Large routes are easier to modify safely.
 - Search and detail loading no longer leave unnecessary in-flight requests.
+
+Current convergence evidence: route-level loading and bundle budgets are
+CI-gated. Tested list, editor, view-model, communications, insights, and shared
+work extraction plus bulk/custom-field integration leave `contacts.jsx` at 1,296 lines, down from 2,038. Shared
+record-work cards plus company editor/view helpers reduced `companies.jsx` from
+1,364 to 996 lines after bulk/custom-field integration. Deal view, shared work, quote, signature, and bulk-action components
+leave `deals.jsx` at 1,016 lines, down from 1,365. Task filtering, sorting, labels,
+and due-date view logic live in a dependency-free module, reducing `tasks.jsx`
+from 1,093 to 837 lines after bulk-action integration. Tighter source ratchets preserve every reduction while
+holding other production routes to 500 lines. This remains in progress while
+the contact and deal orchestrators retain explicit exceptions.
 
 ## Version 0.2.3 - Database Integrity
 
@@ -578,7 +610,7 @@ Completion notes:
 
 ## Version 0.3.7b - Responsive And Mobile Pass
 
-Status: planned.
+Status: complete.
 
 Goal: make core CRM workflows usable on smaller viewports without committing to a separate mobile app.
 
@@ -594,7 +626,7 @@ Exit criteria:
 
 ## Version 0.3.7c - Error Boundaries And Session UX
 
-Status: planned.
+Status: complete.
 
 Goal: make unexpected client failures and session expiry feel intentional instead of broken.
 
@@ -662,7 +694,7 @@ Status: complete.
 
 Goal: keep dependencies small, current, and auditable as the project ages.
 
-- Enable Dependabot or Renovate for Go modules, npm, and GitHub Actions.
+- Enable Dependabot or Renovate for Go modules, npm, Docker, and GitHub Actions.
 - Add `go mod tidy` and `npm audit --omit=dev` checks to CI as advisory or required gates.
 - Document the dependency budget rules from `mvp.md` in a short policy doc.
 - Track third-party version skew in the roadmap rather than chasing every minor bump.
@@ -674,10 +706,12 @@ Exit criteria:
 
 Completion notes:
 
-- Added `.github/dependabot.yml` — weekly PRs for `gomod`, `npm`, and `github-actions`.
-- Added `go mod tidy` diff check and `npm audit --audit-level=high` gate to CI.
+- Added `.github/dependabot.yml` — weekly PRs for `gomod`, `npm`, Docker, and monthly `github-actions` updates.
+- Added `go mod tidy`, pinned `govulncheck`, and `npm audit --audit-level=high` gates to CI.
 - Promoted `golang.org/x/crypto` from indirect to direct in `go.mod`.
 - CI path triggers extended to include `.github/dependabot.yml`.
+- Added `docs/dependency-policy.md` with supported runtime baselines, blocking
+  audit levels, the module-only advisory exception process, and update cadence.
 
 ## Version 0.3.9 - Release Readiness Review
 
@@ -783,7 +817,7 @@ Completion notes:
 
 ## Version 0.4.3 - Role Permissions Pass
 
-Status: planned.
+Status: complete.
 
 Goal: align UI affordances and API enforcement for owner, admin, member, and viewer roles.
 
@@ -815,7 +849,7 @@ Exit criteria:
 
 ## Version 0.4.5 - Mention And Follow Model
 
-Status: planned.
+Status: complete.
 
 Goal: let team members intentionally pull others into record context.
 
@@ -829,9 +863,16 @@ Exit criteria:
 - Users can subscribe to relevant record updates.
 - Mentions/follows produce reviewable in-app events.
 
+Completion notes:
+
+- Added organization-scoped, idempotent followers for contacts, companies, and deals with active-member and record-existence validation before serializable writes.
+- Notes resolve explicit `@email` tokens only against active teammates and transactionally persist deduplicated mentions, actor/recipient following, activity, and per-user idempotent notification events.
+- Added a shared record UI for loading/following/unfollowing and inserting unambiguous teammate mentions, plus notification filters and record deep links.
+- Verified viewer self-follow, forbidden/cross-tenant/disabled paths, duplicate operations, and notification behavior in handler, real-PostgreSQL, UI, and browser acceptance.
+
 ## Version 0.4.6 - Team Activity Digest
 
-Status: planned.
+Status: complete.
 
 Goal: help teams understand what changed recently without opening every record.
 
@@ -845,9 +886,15 @@ Exit criteria:
 - Users can review relevant team changes from one place.
 - Activity remains useful without becoming an unfiltered firehose.
 
+Completion notes:
+
+- Added a tenant-scoped activity digest with explicit followed-record or whole-team scope, 1/7/30-day windows, optional actor filtering, aggregate counts, stable newest-first ordering, and a 50-item ceiling.
+- Added the digest to the notification center with scope/window/teammate controls, actor/record context, and record deep links.
+- Real-PostgreSQL tests prove followed/unrelated/foreign activity boundaries and browser acceptance proves a mentioned teammate can review the digest and return to the source record.
+
 ## Version 0.4.7 - Admin User Lifecycle Hardening
 
-Status: planned.
+Status: complete.
 
 Goal: make user access changes safer over time.
 
@@ -861,9 +908,17 @@ Exit criteria:
 - Admins can remove access without deleting historical ownership context.
 - Disabled users cannot keep active sessions.
 
+Completion notes:
+
+- Added an organization-membership lifecycle state with active/disabled visibility in the Users settings page.
+- Deactivation runs as one serializable transaction: it protects the current actor and last active owner, validates an optional same-tenant active replacement, reassigns active contacts, companies, deals, tasks, shared-inbox work, lead routing, and future meetings, ends sessions, removes record subscriptions, stops mailbox sync/reminders/jobs, and records an audit event.
+- Preserved archived ownership and creator/authorship history; reactivation restores login access without silently re-enabling mailbox sync.
+- Normal assignment pickers hide disabled users, while deal, task, shared-inbox, lead-routing, and booking-link services reject crafted disabled-user assignments.
+- Added handler permission/error tests, a freshly migrated disposable-PostgreSQL lifecycle test covering cross-tenant and forbidden paths, and invited-user activation/deactivation/reactivation coverage in the real-PostgreSQL browser journey.
+
 ## Version 0.4.8 - Team Usage Reporting
 
-Status: planned.
+Status: in progress.
 
 Goal: give admins basic visibility into whether the CRM is being used.
 
@@ -879,7 +934,7 @@ Exit criteria:
 
 ## Version 0.4.9 - Team Release Review
 
-Status: planned.
+Status: complete.
 
 Goal: close the team workflow milestone before data operations work.
 
@@ -896,7 +951,7 @@ Exit criteria:
 
 ## Version 0.5.0 - CRM Data Operations
 
-Status: planned.
+Status: complete.
 
 Goal: make data maintenance practical for real CRM usage.
 
@@ -910,9 +965,18 @@ Exit criteria:
 - Operators can maintain CRM data without one-record-at-a-time friction.
 - Data operations are safe enough for production use.
 
+Completion evidence (2026-07-19): versions 0.5.1–0.5.9 now form one tested
+operator workflow: bounded mapped imports with checkpoint resume and safe
+rollback, reversible bulk maintenance, reviewed permanent duplicate merge,
+typed contact/client custom fields through forms and data interchange, live
+quality queues, explicit archive recovery, and complete core-record CSV exports
+within their stated synchronous boundary. Each sub-version below records its
+role, tenant, transaction, idempotency, recovery, observability, and acceptance
+evidence; the integrated release review closes the combined milestone.
+
 ## Version 0.5.1 - Bulk Actions
 
-Status: planned.
+Status: complete.
 
 Goal: reduce repetitive record maintenance.
 
@@ -926,9 +990,11 @@ Exit criteria:
 - Common bulk edits can be completed safely from list views.
 - Accidental destructive actions are hard to trigger.
 
+Completion evidence (2026-07-19): contacts, organization and individual clients, deals, and tasks now expose keyboard-accessible multi-select controls for bounded owner/assignee, status/task-completion, and archive changes. The API normalizes and deduplicates at most 100 ids, rejects the entire serializable transaction when any id is missing or foreign, validates active same-organization assignees, and uses a stable request digest plus idempotency key. Persistent operation/row state contains only reversible fields; in-list history can undo an operation while exact `updated_at` checks leave later teammate edits untouched and report partial recovery. Every changed record gets activity history and each completion/rollback gets an aggregate audit event. Handler role/scope/conflict tests, a disposable-PostgreSQL idempotency/tenant/assignee/change-aware rollback acceptance test, UI failed-request retry and persistent recovery tests, and the real-PostgreSQL browser journey cover the slice.
+
 ## Version 0.5.2 - Duplicate Management
 
-Status: planned.
+Status: complete.
 
 Goal: help users identify and resolve duplicate contacts and companies.
 
@@ -942,9 +1008,11 @@ Exit criteria:
 - Users can resolve obvious duplicates without direct database work.
 - Merges do not orphan related records.
 
+Completion evidence (2026-07-19): an admin-only Data Quality view finds active contact pairs by exact normalized email, phone, or name and client pairs by exact normalized website, phone, or name; explains the match and current linked-work counts; and requires the operator to choose the survivor plus every selectable differing field. The serializable merge locks both tenant records, rejects a stale review, uses a request digest and organization-scoped idempotency key for safe retry, retains the safest client flags, archives rather than deletes the source, and collision-safely consolidates notes, tasks, activity, meetings, calls/SMS, email links, followers, notifications, contact/client links, deals, lead submissions, and sequence enrollments. Import, bulk-operation, and audit ledgers deliberately retain original record IDs for historical accuracy. Permanent-operation copy, explicit browser confirmation, tenant-scoped merge history, survivor activity, and aggregate audit make the decision visible. Handler role/scope/conflict tests, UI permission/retry tests, disposable-PostgreSQL contact/client relationship, cross-tenant, inactive-actor, idempotency, and stale-review acceptance, plus the clean-migration Chromium pilot journey cover the slice.
+
 ## Version 0.5.3 - Import Mapping UI
 
-Status: planned.
+Status: complete.
 
 Goal: make CSV import usable for real-world files with varied column names.
 
@@ -958,9 +1026,15 @@ Exit criteria:
 - Users can map CSV columns without editing files by hand.
 - Imports remain transparent before data is written.
 
+Completion notes:
+
+- Added an admin Data Imports route for contacts and companies with common-header suggestions, explicit editable mappings, and a row-level dry run before writes.
+- CSV files are bounded to 2 MiB/1,000 rows, processed in memory, and never persisted; only the mapping, source digest, counts, record ids, and privacy-safe issues remain.
+- Added UI and handler acceptance for multipart mapping and forbidden roles.
+
 ## Version 0.5.4 - Import Validation And Rollback
 
-Status: planned.
+Status: complete.
 
 Goal: make imports safe after validation moves from preview to write.
 
@@ -974,9 +1048,16 @@ Exit criteria:
 - Import results are auditable.
 - Bad imports can be corrected without manual SQL in common cases.
 
+Completion notes:
+
+- Added organization-scoped import batches and row outcomes with source-hash idempotency, serialized tenant execution, 50-row durable checkpoints, retry/resume, duplicate skips, progress/history, and downloadable row-error CSV.
+- Imported contacts/companies receive normal owner/activity behavior. Completion and rollback are audited, and cross-tenant/disabled-actor paths are rejected.
+- Rollback archives only records whose `updated_at` still matches the imported version; changed or already archived records remain active and are reported for manual review.
+- Disposable-PostgreSQL acceptance covers idempotent replay, mismatched payload conflicts, errors without retained row values, tenant isolation, changed-record protection, and full rollback. The pilot load gate writes 1,000 mapped rows under 10 seconds, and Chromium covers import plus recovery.
+
 ## Version 0.5.5 - Custom Fields Foundation
 
-Status: planned.
+Status: complete.
 
 Goal: support lightweight organization-specific data without turning into a schema builder.
 
@@ -990,9 +1071,22 @@ Exit criteria:
 - Organizations can capture a few business-specific fields.
 - Custom fields do not compromise core schema clarity.
 
+Completion evidence (2026-07-19): migration 064 adds organization-scoped
+contact/company definitions and JSONB values without changing explicit core
+columns. Admins can create, edit, and archive at most 25 active text, number,
+date, boolean, or single-select definitions per record type; stable keys and
+types are immutable, options and payloads are bounded, required fields are
+validated atomically on create/edit/import, and archived definitions retain
+historic values while leaving normal product paths. Typed forms and list values
+serve contacts, organization clients, and linked-person creation. Definition
+changes are audited, disabled actors and foreign tenants are rejected, and
+removing a select option still in use returns a conflict. Handler/unit/UI tests,
+a real-PostgreSQL vertical acceptance suite, and the Chromium pilot journey
+cover the foundation.
+
 ## Version 0.5.6 - Custom Field Filtering
 
-Status: planned.
+Status: complete.
 
 Goal: make custom fields useful in day-to-day list workflows.
 
@@ -1006,9 +1100,21 @@ Exit criteria:
 - Custom field data can be used to find records.
 - Filtering remains performant on realistic datasets.
 
+Completion evidence (2026-07-19): active fields marked for list display render
+on contact/client rows; type-appropriate equality, text containment, numeric
+range, and date range filters compile to tenant-scoped SQL over a GIN-backed
+JSONB object. Filter state round-trips through URLs, saved views, and contact or
+organization-client exports. CSV preview/write dynamically maps active custom
+columns with the same validation, and duplicate review can explicitly select
+differing custom values while preserving unselected target values, including
+false and zero. The disposable-PostgreSQL suite proves filters, imports,
+exports, duplicate merge, archive retention, and tenant isolation together; the
+clean-schema browser journey proves administration, required values, import
+mapping, list display, and selected merge in the pilot workflow.
+
 ## Version 0.5.7 - Data Quality Reports
 
-Status: planned.
+Status: complete.
 
 Goal: surface incomplete or suspicious CRM data before it causes workflow issues.
 
@@ -1022,9 +1128,26 @@ Exit criteria:
 - Operators can find data cleanup work without manual searches.
 - Reports produce explainable counts.
 
+Completion evidence (2026-07-19): every active member, including viewers, can
+open live data-quality queues in **Reports**. Five fixed, tenant-scoped queries
+count missing ownership across contacts/clients/open deals/open tasks, contacts
+without email or phone, open deals stale beyond a selectable 14/30/60/90-day
+window, open deals missing client/contact/value/expected close, and open tasks
+without a due date. One allowlisted rule adapts to the workspace profile:
+services flags customer clients without a linked person, construction services
+flags customers without a location, and product sales flags organization
+accounts without an industry. Every queue explains its criterion and each
+result's reason, excludes archived rows, returns at most 25 records with the
+exact total, and links directly to the affected record. The endpoint accepts a
+bounded 7–365-day stale window and performs no mutations. Handler tests cover
+viewer access, organization propagation, thresholds, and safe errors;
+disposable-PostgreSQL acceptance proves exact counts, all business profiles,
+archive exclusion, and foreign-tenant absence; component and clean-schema
+Chromium tests cover threshold refresh and report-to-deal cleanup navigation.
+
 ## Version 0.5.8 - Archive And Retention Controls
 
-Status: planned.
+Status: complete.
 
 Goal: make archived data behavior explicit.
 
@@ -1038,9 +1161,29 @@ Exit criteria:
 - Users can find and restore archived records.
 - Data lifecycle behavior is documented and predictable.
 
+Completion evidence (2026-07-19): a lazy-loaded **Settings > Archived Records**
+view lets every active member search and filter tenant-scoped archived contacts,
+clients, deals, and tasks, while only writers receive restore controls. Restore
+runs as one serializable operation that locks the archived row, revalidates the
+active actor and tenant, rejects hidden/foreign records, preserves record IDs and
+related history, and writes per-record activity plus an audit event atomically.
+Deals whose company or primary contact remains archived and tasks whose linked
+record remains archived return an actionable conflict so the parent can be
+restored first. Contact/client rows consumed by a permanent duplicate merge stay
+visible as blocked history and cannot be revived. Core archive never hard-deletes
+notes, tasks, activity, or relationship rows; independently active related work
+remains active, while independently archived work is restored explicitly. Normal
+lists, exports, and reports continue to exclude the archived core row until
+restore. No automatic hard-delete or time-based purge exists; core archive rows
+remain in the primary database and encrypted backups until the future tenant
+offboarding retention/deletion workflow is explicitly implemented. Handler role
+and safe-error tests, a disposable-PostgreSQL all-entity/tenant/dependency/merge-
+history/audit acceptance test, member/viewer UI tests, and the clean-schema
+Chromium task archive/restore journey cover the outcome.
+
 ## Version 0.5.9 - Data Operations Review
 
-Status: planned.
+Status: complete.
 
 Goal: close the data operations milestone safely.
 
@@ -1055,9 +1198,40 @@ Exit criteria:
 - Data operations are reliable enough for non-technical operators.
 - New data features do not undermine schema integrity.
 
+Completion evidence (2026-07-19): the clean 64-migration PostgreSQL Chromium
+journey now performs custom-field administration, mapped import and rollback,
+contact creation and reviewed custom/core-field merge, reversible bulk client
+status, live quality-report navigation, task archive/restore, and authenticated
+exports of contacts, clients, deals, and tasks in one flow. Export assertions
+prove selected custom values survive, active data is included, and rolled-back
+imports plus archived merge sources stay excluded. The complete real-PostgreSQL
+suite reruns import, bulk, duplicate, custom-field, archive, collaboration,
+tenant-denial, migration, and pilot-load tests; all frontend handler/component
+tests run with the same slice.
+
+The integrity review found migrations 061–064 retain organization-scoped
+operation identities, composite parent/child foreign keys, bounded status/count
+checks, typed JSON checks, stable custom-field keys, and tenant-first lookup
+indexes. Polymorphic CRM record references intentionally cannot use one database
+foreign key; serializable services therefore resolve every target inside the
+session organization and the PostgreSQL negative-path suites prove foreign IDs
+fail atomically. Historical actor IDs deliberately reference durable users
+rather than deletable memberships. No integrity-changing migration was needed.
+
+The review also caught and fixed a silent export-truncation defect: each export
+now requests row 10,001, rejects overflow with `EXPORT_TOO_LARGE`, and states the
+10,000-row synchronous ceiling beside its UI control. The measured pilot
+boundaries remain 2 MiB/1,000 rows per synchronous import, 100 records per bulk
+operation, 50 duplicate pairs per review, 25 active custom fields per supported
+record type, 100 archive rows per request, and 25 examples per quality queue.
+These are deliberate request/memory controls, not capacity claims. Larger
+imports/exports require the planned durable job/offboarding package; duplicate
+candidate review and JSONB quality/filter query plans should be remeasured on an
+approved production-like pilot dataset before raising any boundary.
+
 ## Version 0.6.0 - Sales Workflow Maturity
 
-Status: planned.
+Status: in progress.
 
 Goal: make deal management useful beyond a basic pipeline list.
 
@@ -1073,7 +1247,7 @@ Exit criteria:
 
 ## Version 0.6.1 - Pipeline Configuration
 
-Status: planned.
+Status: complete.
 
 Goal: let organizations adapt deal stages to their sales process.
 
@@ -1087,9 +1261,23 @@ Exit criteria:
 - Admins can configure pipelines without database edits.
 - Existing deals remain valid after stage configuration changes.
 
+Completion evidence (2026-07-19): owners and admins can create, rename, and
+choose the default among at most 10 tenant pipelines, then create, rename,
+classify, and exactly reorder at most 20 unique stages per pipeline from the
+dedicated Pipelines settings route. Serializable writes lock tenant
+configuration, preserve stable stage IDs, and reject open/won/lost
+reclassification while any active or archived deal uses a stage; safe renames
+continue to update attached deals. Each change emits a transactional audit
+event. Handler role/conflict tests, disposable-PostgreSQL uniqueness,
+ordering, default, disabled-actor, cross-tenant, usage-protection, and audit
+acceptance, focused UI tests, and the clean-schema Chromium journey cover stage
+creation plus an attached deal surviving a stage rename. The 6.12 KiB lazy
+admin route also removes inline creation from `deals.jsx`, reducing it from
+1,052 to 1,016 lines.
+
 ## Version 0.6.2 - Deal Probability And Forecasting
 
-Status: planned.
+Status: complete.
 
 Goal: provide simple revenue forecasting without complex sales ops tooling.
 
@@ -1103,9 +1291,24 @@ Exit criteria:
 - Users can see unweighted and weighted pipeline values.
 - Forecast numbers are easy to explain.
 
+Completion evidence (2026-07-19): migration 065 adds bounded stage probability
+percentages and backfills existing open stages from the previous documented
+weighting, while won/lost stages remain fixed at 100/0. Admin pipeline settings
+create and edit open-stage probabilities without changing stable stage IDs;
+transactional configuration audit events retain the before/after assumption.
+The dashboard accepts an explicit, validated period of at most one year and
+shows unweighted, won, probability-weighted, per-owner (including unassigned),
+and per-stage totals in the organization base currency, with missing exchange
+rates exposed instead of silently guessed. Open deals without an expected close
+date are consistently included; won deals without one use their last update
+date. Deals list, saved-view URL state, and CSV export share close-date range
+filters. Handler/unit tests, a disposable-PostgreSQL tenant-isolation acceptance
+test, focused UI tests, and the clean-schema Chromium journey prove that changing
+a used stage from 65% changes the explainable forecast without detaching its deal.
+
 ## Version 0.6.3 - Task Automation Rules
 
-Status: planned.
+Status: complete.
 
 Goal: remove repetitive follow-up setup for predictable CRM events.
 
@@ -1119,9 +1322,27 @@ Exit criteria:
 - Common follow-up tasks can be generated automatically.
 - Automation is simple enough for operators to audit.
 
+Completion evidence (2026-07-19): Settings > Automations now exposes only the
+production-capable subset of the earlier workflow-definition foundation:
+organization-scoped admin rules for deal creation, a real stage change
+(optionally to one destination stage), or archive, with exactly one literal
+follow-up task due in 0–365 whole days. The task is assigned to the active deal
+owner and falls back to the teammate who caused the event. Deal create, stage
+change, direct archive, and bulk archive execute the rule, task, activity, run
+ledger, and audit event in the same transaction; stable activity or bulk-event
+keys and the existing unique run constraint make retries no-ops. A repeated
+same-stage update emits no event or task. Unsupported broad legacy definitions
+are hidden from normal navigation and recorded as safely skipped if their
+trigger matches rather than partially dispatching an action. Definition changes
+are audited, recent runs expose outcomes, and disabling a rule prevents future
+tasks without rewriting already-created work. Handler/UI tests, a
+disposable-PostgreSQL suite covering all triggers, owner fallback, replay,
+unsupported rules, bulk replay, audit, and cross-tenant isolation, plus the
+clean-65-migration Chromium journey cover the vertical slice.
+
 ## Version 0.6.4 - Reminder Workflow
 
-Status: planned.
+Status: complete.
 
 Goal: help users avoid missed follow-ups.
 
@@ -1135,9 +1356,27 @@ Exit criteria:
 - Users can see what follow-ups are due without manual filtering.
 - Reminder behavior is predictable and not noisy.
 
+Completion evidence (2026-07-19): open-task queries and matching CSV exports
+now share exact saved-time buckets for overdue, the next rolling 24 hours,
+later work, and missing due dates. The Tasks view exposes the overdue/due-soon
+counts before filtering. Assigned tasks create one preference-aware,
+transactional notification, while a versioned PostgreSQL reminder ledger
+transactionally enqueues due-soon and overdue jobs on the shared durable runner.
+Delivery locks and revalidates the tenant, task generation, due time, open state,
+active assignee, and reminder preference; stale, replayed, opted-out, completed,
+archived, or reassigned work becomes a safe no-op. Direct edits, deal automation,
+bulk operations and rollback, archive restore, and member deactivation/reassignment
+all refresh or quiesce reminder generations in their existing transaction.
+Operators retain normal dead-letter visibility and replay. Email reminders remain
+deliberately absent until pilot evidence shows the in-app path is useful.
+Handler/unit coverage plus disposable-PostgreSQL delivery, preference, replay,
+tenant-isolation, due-query, task-completion, and user-lifecycle acceptance, focused
+UI tests, and the clean-schema Chromium journey cover preference persistence and
+the due-soon task surface.
+
 ## Version 0.6.5 - Sales Activity Reporting
 
-Status: planned.
+Status: complete.
 
 Goal: make sales effort and outcomes visible.
 
@@ -1150,6 +1389,23 @@ Exit criteria:
 
 - Sales teams can review activity and outcomes by period.
 - Reports match underlying record history.
+
+Completion evidence (2026-07-19): migration 067 starts an explicit per-workspace
+coverage clock and adds a tenant-indexed deal-stage event ledger. Deal creation
+and real stage changes now transactionally save the event-time deal name, actor,
+owner, pipeline, stage position, and open/won/lost outcome beside the existing
+activity, so later renames or outcome changes cannot rewrite history. The live,
+viewer-safe Reports surface accepts an inclusive UTC date window of at most 366
+days plus an optional retained teammate. It counts deals created/moved/won/lost,
+notes, tasks created/completed, outcome-based win rate, teammate contribution,
+and event-based stage entries/exits; its forward-exit rate is explicitly
+forward-or-won exits divided by all exits, not a cohort funnel. Deal metrics use
+the saved owner while note/task metrics use the activity actor. Windows that
+begin before ledger coverage are visibly partial, and recent events deep-link
+to the deal. Handler tests, a disposable-PostgreSQL suite covering snapshot
+immutability, forward/backward math, disabled owners, bounded filters, activity
+linkage, and cross-tenant denial, focused UI tests, and the clean-67-migration
+Chromium pilot journey cover the complete slice.
 
 ## Version 0.6.6 - Contact Touchpoint Tracking
 
@@ -1540,7 +1796,7 @@ Exit criteria:
 
 ## Version 0.9.0 - Scale And Reliability
 
-Status: planned.
+Status: in progress.
 
 Goal: make the system resilient under larger datasets and operational failures.
 
@@ -1556,7 +1812,7 @@ Exit criteria:
 
 ## Version 0.9.1 - Query Performance Review
 
-Status: planned.
+Status: in progress.
 
 Goal: find and fix slow paths before they become production incidents.
 
@@ -1570,9 +1826,16 @@ Exit criteria:
 - Common workflows have predictable query plans.
 - Performance fixes are backed by measured query behavior.
 
+Current convergence evidence: the real-PostgreSQL pilot gate asserts reviewed
+organization-scoped index plans and exact totals for contacts, companies, deals,
+and tasks, then budgets concurrent reads and writes through their real services.
+Mapped import write and duplicate checks now have tenant-normalized indexes and
+a 1,000-row regression budget. Dashboard, runtime report, and provider-specific
+queries still need review as those end-to-end workflows converge.
+
 ## Version 0.9.2 - Pagination And Large Dataset Hardening
 
-Status: planned.
+Status: in progress.
 
 Goal: keep list and report pages usable as records grow.
 
@@ -1586,9 +1849,16 @@ Exit criteria:
 - Large datasets do not break core list workflows.
 - Pagination behavior is consistent and documented.
 
+Current convergence evidence: representative core lists are exercised at pilot
+volumes, enforce bounded page sizes, and verify exact totals. The synchronous CSV
+path is tenant-isolated and regression-tested at its explicit 10,000-row ceiling;
+row 10,001 returns a clear error instead of silently truncating the dataset.
+A full list-endpoint pagination boundary inventory and any evidence-driven keyset
+conversion remain.
+
 ## Version 0.9.3 - Background Job Runner
 
-Status: planned.
+Status: complete.
 
 Goal: support long-running work without blocking HTTP requests.
 
@@ -1601,6 +1871,13 @@ Exit criteria:
 
 - Long-running operations can move out of request/response paths.
 - Job failures are visible and retryable.
+
+Implementation evidence:
+
+- Added a tenant-scoped PostgreSQL queue with stable idempotency keys, leased `FOR UPDATE SKIP LOCKED` claims, bounded exponential retries, exhausted-lease handling, dead-letter state, claim tokens, panic recovery, and graceful shutdown.
+- Added admin-only queue health/filtering, safe replay, audited recovery, and explicit sequence-delivery decisions for ambiguous SMTP outcomes.
+- Moved calendar reminders, automatic mailbox sync, and email sequence sends off their feature-specific execution loops. New reminders and sequence steps enqueue transactionally; mailbox cycles use a stable persisted due time.
+- Added disposable-PostgreSQL acceptance tests for migrations, multi-attempt lifecycle/replay, tenant isolation, reminder idempotency, mailbox provider-message dedupe, sequence advancement, and crash/SMTP uncertainty behavior.
 
 ## Version 0.9.4 - Async Import And Export Jobs
 
@@ -1620,7 +1897,7 @@ Exit criteria:
 
 ## Version 0.9.5 - Backup Automation
 
-Status: planned.
+Status: complete (implementation and disposable acceptance; production enablement requires an approved off-host repository and credentials).
 
 Goal: make backups less dependent on manual operator discipline.
 
@@ -1635,9 +1912,17 @@ Exit criteria:
 - Backups can run on a schedule.
 - Operators can verify that recent backups exist.
 
+Current convergence evidence: pinned Restic tooling produces verified custom
+PostgreSQL dumps with checksum/source metadata, client-side encryption,
+daily/weekly/monthly retention, repository integrity checking, atomic
+success/attempt status files, and explicit failed-run output. Production scripts
+reject local repositories. A daily persistent systemd timer template and
+off-host credential runbook are included but intentionally not enabled or
+provisioned by deployment automation.
+
 ## Version 0.9.6 - Restore Drill Automation
 
-Status: planned.
+Status: complete (implementation and disposable acceptance; production enablement requires an approved off-host repository and credentials).
 
 Goal: prove backups are usable, not just created.
 
@@ -1651,9 +1936,17 @@ Exit criteria:
 - Operators can regularly verify restore viability.
 - Restore procedures are tested outside emergencies.
 
+Current convergence evidence: the automated drill restores a selected encrypted
+snapshot into an isolated PostgreSQL 16 container, verifies its recorded
+checksum, applies current forward migrations, runs schema/data sanity checks,
+records duration/results, and removes the disposable database. CI gates deploys
+on the same end-to-end path and checks that seeded CRM plaintext is absent from
+the Restic repository. A weekly persistent timer template is included; live
+database replacement remains explicit and manual in the operations runbook.
+
 ## Version 0.9.7 - Monitoring And Alerting Hooks
 
-Status: planned.
+Status: in progress (repository implementation complete; production scrape and alert-destination validation pending).
 
 Goal: expose enough operational signals for production support.
 
@@ -1667,9 +1960,20 @@ Exit criteria:
 - Production issues can be noticed and triaged quickly.
 - Monitoring remains understandable for a small deployment.
 
+Current convergence evidence: the API exposes a hidden-until-configured,
+constant-time bearer-protected Prometheus endpoint with bounded route/status/
+latency, live database, aggregate durable queue/lag, worker outcome,
+Postmark/SMTP, and backup/restore evidence. Logs omit raw URLs, client
+addresses, recipients, subjects, phone numbers, titles, and provider IDs.
+Promtool-validated reference rules and initial pilot SLO/runbooks cover each
+required signal without adding a runtime metrics dependency. Remaining before
+completion: provision the production scrape secret, configure an approved
+Alertmanager receiver, prove synthetic delivery, and measure the SLOs in a
+pilot.
+
 ## Version 0.9.8 - Load And Failure Testing
 
-Status: planned.
+Status: in progress.
 
 Goal: validate behavior under stress and partial failure.
 
@@ -1683,9 +1987,44 @@ Exit criteria:
 - The team understands practical system limits.
 - Failure modes are documented and recoverable.
 
+Current convergence evidence: real-PostgreSQL CI now seeds 12 organizations
+with representative contact/company/deal/task volumes, verifies organization-
+scoped query plans and totals, and runs 96 mixed list reads across 12 workers
+with a 500 ms p95/2 s maximum regression budget. It also runs 32 transactional
+contact creates across two tenants at a 1 s p95/3 s maximum budget, checks every
+new ID through the wrong tenant, verifies exact totals, and proves bounded
+closed-pool failure, one-connection pool exhaustion/recovery, and locked-table
+deadline/recovery. The same gate produces and parses the tenant-isolated 10,000-
+row contact export under a 5 s budget and maps/writes 1,000 contacts with
+duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, request deadline, and
+later recovery tests complement durable sequence coverage that quarantines
+ambiguous SMTP outcomes without duplicate sends. Production frontend builds
+enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
+CSS. Current evidence is 176.80 KiB raw for the entry, 47.75 KiB for the largest
+lazy chunk, and 610.88 KiB total. Tested route splits plus bulk/custom-field
+integration leave contacts at 1,296 lines, companies at 996, deals at 1,016, and
+tasks at 837, down from 2,038,
+1,364, 1,365, and 1,093 respectively.
+Remaining work is production-like host evidence, later provider/feature loads,
+and the remaining explicit source exceptions.
+
 ## Version 0.9.9 - Reliability Release Review
 
-Status: planned.
+Status: in progress.
+
+Current convergence evidence: CI gates deploys on a Playwright/Chromium journey
+against disposable PostgreSQL 16. It covers workspace bootstrap, invitation and
+member deactivate/reactivate, required custom-field administration and dynamic
+import mapping with safe rollback, client/contact/deal/task creation, selected
+core/custom-field duplicate merge, reversible bulk client status changes,
+mentions/followed activity, task completion,
+logout/login persistence, and cross-tenant denial. Backend releases
+now use immutable commit-tagged images and exact release verification. New
+migrations declare expand or contract compatibility; ordinary destructive
+migrations are rejected. Disposable Compose acceptance proves operator rollback
+and automatic restoration of the last healthy image after failed readiness.
+Restore drills, broader load/failure testing, production-host recovery evidence,
+and the complete pilot journey remain before this review can be complete.
 
 Goal: close the reliability milestone before production beta.
 
@@ -1777,7 +2116,7 @@ Progress:
 - `1.1.2` (OAuth sync token refresh): complete. Mailbox sync now loads OAuth token expiry metadata, refreshes expired or missing access tokens with the stored refresh token before fetching Gmail/Graph messages, persists refreshed encrypted tokens, and reports provider refresh failures in sync state instead of failing opaquely during ingestion.
 - `1.1.3` (automatic inbound record matching): complete. Added migration `025_email_message_entity_links.sql` so one email message can be linked to multiple CRM records while preserving the legacy primary `entity_type`/`entity_id` fields. Inbound sync now matches the sender email to an active contact, that contact's linked companies, and related open deals before storing the message, so the same synced email appears in contact/company/deal histories. Existing sent/received messages with a primary entity are backfilled into the link table.
 - `1.1.3` (email message privacy controls): complete. Added migration `026_email_message_visibility.sql` with `shared`/`private` visibility on `email_messages`; existing inbound messages are backfilled private while outbound remains shared. New synced inbound mailbox messages default private, and per-record histories only include private messages for org admins, the sender, or the mailbox owner.
-- `1.1.2` (automatic mailbox sync worker): complete. Added due-account discovery for enabled generic IMAP/password, Google OAuth, and Microsoft OAuth mailboxes and an in-process mailbox sync worker that starts after API boot, polls due accounts every 15 minutes, runs the same ingestion path as `POST /api/me/email-sync/run`, and logs batch import/failure counts. A durable external job runner remains a future slice.
+- `1.1.2` (automatic mailbox sync worker): complete. Due generic IMAP/password, Google OAuth, and Microsoft OAuth accounts are discovered from a persisted `next_sync_at`, scheduled with a stable cycle idempotency key, and ingested through the durable PostgreSQL worker. Provider message IDs make repeated ingestion harmless, and success schedules the next cycle.
 - `1.1.6` (send-from-record): updated to route through the sending user's mailbox (`SendAs`) instead of the shared provider; returns `EMAIL_ACCOUNT_REQUIRED` when the user has not connected their email. Merge-field rendering and contact-timeline logging unchanged.
 - `1.1.4` (email outbox/log): complete. Added migration `018_email_messages.sql` and an `emailmessages` module recording every customer email send (status `sent`/`failed`, recipient, subject, body, linked record, sender). Sends from contacts are recorded automatically. `GET /api/email-messages` serves both the per-record history (`?entityType=contact&entityId=` — any member) and the org-wide log (no filter — admin only). Frontend: an admin "Email Log" settings page and a lazy-loaded email history on the contact detail. Backend handler tests and a frontend page test added. Live server configured with Postmark (system mail) + `CREDENTIAL_ENCRYPTION_KEY` (per-user SMTP) and verified healthy.
 - `1.1.2` (admin sets member mailbox): complete. Org admins/owners can connect, view, and remove a team member's mailbox via `GET/PUT/DELETE /api/users/{id}/email-account` (membership-verified before write). Frontend: a "Set up email for a member" panel on the Users settings page with a member selector. Backend handler tests (admin gating, non-member rejection) and a frontend flow test added.
@@ -1790,7 +2129,7 @@ Progress:
 - `1.1.8` (sequence definition foundation): complete. Added migration `021_email_sequences.sql` for organization-scoped sequence metadata and ordered steps, a backend `emailsequences` module with admin/writer CRUD endpoints (`/api/email-sequences`), and a Settings > Email Sequences page for drafting cadence definitions. This intentionally does not enroll contacts, schedule sends, or detect replies yet.
 - `1.1.8` (sequence enrollment/schedule-state foundation): complete. Added migration `022_email_sequence_enrollments.sql` for active/paused/completed/cancelled contact enrollments with `current_step_order` and `next_send_at`, backend list/create/cancel endpoints (`/api/email-sequence-enrollments`), and a contact-detail Sequences panel for enrolling contacts. This stores scheduler state only; automated sends do not run yet.
 - `1.1.8` (sequence reply detection foundation): complete. Inbound synced email that matches a contact now completes that contact's active/paused sequence enrollments and clears `next_send_at`, so replies stop future sequence sends.
-- `1.1.8` (sequence send worker foundation): complete. Added an in-process sequence runner that polls due active enrollments, renders contact merge fields, sends the current step through the enrolling user's mailbox, records sent/failed messages in `email_messages`, advances to the next step using its delay, and completes the enrollment after the last step. Failed sends are postponed for retry instead of being hammered every worker interval.
+- `1.1.8` (sequence send worker foundation): complete. Enrollment and each subsequent step now enqueue transactionally on the durable PostgreSQL runner. A delivery ledger snapshots the recipient/content before SMTP, advances exactly once, and quarantines an ambiguous provider result as `uncertain` rather than silently resending. Admins can confirm it sent without SMTP or explicitly approve one retry; both decisions are atomic and audited.
 - `1.1.7` (unsubscribe/suppression foundation): complete. Added organization-scoped recipient suppressions, HMAC-signed public unsubscribe links, one-to-one send suppression checks with compliance footers, and sequence-runner suppression enforcement that records suppressed sends and advances enrollments instead of retrying forever. Bulk list selection, campaign UI, and richer compliance reporting remain deferred to the marketing/bulk-email slice.
 - `1.1.9` (shared team inbox foundation): complete. Added shared inbound email queue metadata, team inbox listing, assignment/open/closed status updates, mailbox-owner/admin sharing controls for private synced messages, member-safe detail access for shared inbound messages, and a Team Inbox UI for collaborative follow-up.
 
@@ -1825,7 +2164,7 @@ Progress:
 - `1.2.4` (SMS foundation): complete. Added organization-scoped SMS message history, phone-number opt-out suppressions, a fake/default SMS provider seam using the telephony provider selector, contact-detail SMS composer with starter templates and merge-field rendering, manual inbound SMS logging with STOP-style opt-out detection, manual opt-out controls, and SMS activity timeline entries. Real Twilio SMS send/receive webhooks, carrier delivery receipts, reusable managed SMS template CRUD, and bulk texting remain future slices.
 - `1.2.5` (calendar meeting foundation): complete. Added organization-scoped calendar events, user availability blocks, a fake/default calendar provider seam, APIs for listing/scheduling/cancelling meetings and current-user availability, contact-detail meeting scheduling/history/cancellation UI, and meeting activity timeline entries. Real Google/Microsoft OAuth calendar event sync, free/busy imports, external attendee invites, webhooks, and conflict resolution remain future provider-specific work.
 - `1.2.6` (booking links foundation): complete. Added organization-scoped calendar booking links with slugs, duration/buffer/timezone metadata, active/inactive state, selected host members, owner vs round-robin assignment mode, authenticated APIs for listing/creating/updating links, and a Settings > Booking Links UI for managing links and weekly availability. Public booking pages, guest self-scheduling, slot generation, real round-robin assignment, external calendar conflict checks, reminders, and rescheduling/cancellation flows remain future slices.
-- `1.2.7` (meeting reminders foundation): complete. Added persistent meeting reminder records for scheduled calendar events, automatic pending-reminder skipping when meetings are cancelled, and an in-process reminder worker that creates in-app `meeting.reminder` notifications plus `meeting.reminder_sent` activity timeline entries when reminders are due. Customer-facing email/SMS reminders, configurable reminder offsets, guest reminder preferences, calendar-provider notifications, and reminder delivery analytics remain future slices.
+- `1.2.7` (meeting reminders foundation): complete. Scheduled events transactionally enqueue durable reminder jobs; delivery locks the tenant reminder row, creates one in-app `meeting.reminder` notification plus activity entry, and makes duplicate/replayed jobs no-ops. Cancellation skips pending reminders. Customer-facing email/SMS reminders, configurable offsets, guest preferences, provider notifications, and delivery analytics remain future slices.
 
 Candidate slices:
 
@@ -1854,7 +2193,7 @@ Progress:
 - `1.3.2` (deal line items foundation): complete. Added organization-scoped deal line items tied optionally to catalog items, quantity/unit pricing, per-line discounts, tax rates, calculated line totals, deal-level subtotal/discount/tax/total summaries, an authenticated API to replace deal line items, automatic deal value recalculation from saved line items, line-item activity logging, and a deal detail line-item editor. Quote/proposal documents, tax rules, approval workflows, and multi-currency conversion remain future slices.
 - `1.3.3` (quote/proposal PDF foundation): complete. Added a branded quote/proposal PDF download generated from current deal details, saved line items, and calculated totals, plus a deal detail download action. Quote persistence/versioning, approval workflows, customer sending, e-signature, and terms/template management remain future slices.
 - `1.3.4` (e-signature status tracking foundation): complete. Added organization-scoped deal signature requests with signer identity, native tracking provider metadata, quote filename, draft/sent/signed/declined/voided statuses, lifecycle timestamps, authenticated APIs for creating requests and updating status, activity logging, and deal detail signature tracking UI. Actual signing ceremonies, provider webhooks, customer delivery, audit certificates, and reusable terms/templates remain future slices.
-- `1.3.5` (multiple pipelines foundation): complete. Added organization-scoped deal pipelines, backfilled existing stages into a default pipeline, scoped stage uniqueness by pipeline, exposed authenticated APIs for listing/creating pipelines, copied default stage templates into new pipelines, added pipeline metadata/filtering to deal list/detail/export flows, and added pipeline selection/creation UI on the deals page. Pipeline renaming/reordering, custom stage management, team/business-unit ownership rules, and per-pipeline permissions remain future slices.
+- `1.3.5` (multiple pipelines foundation): complete. Added organization-scoped deal pipelines, backfilled existing stages into a default pipeline, scoped stage uniqueness by pipeline, exposed authenticated APIs for listing/creating pipelines, copied default stage templates into new pipelines, and added pipeline metadata/filtering to deal list/detail/export flows. The later `0.6.1` outcome moved creation into admin settings and completed rename/default plus custom stage classification/reordering; team/business-unit ownership rules and per-pipeline permissions remain future scope only if pilot evidence requires them.
 - `1.3.6` (quotas and forecasting dashboard foundation): complete. Added organization-scoped per-user sales quota records by period, admin quota upsert API, current-quarter forecast calculations using won revenue plus stage-weighted open pipeline, team/member attainment and coverage metrics, and dashboard quota editing/forecast display. Forecast categories, custom stage probabilities, quota history, rollups by team/business unit, and advanced forecast analytics remain future slices.
 - `1.3.7` (multi-currency exchange-rate foundation): complete. Added organization base currency settings, manual organization exchange-rate records, admin API/UI for saving rates, and base-currency conversion for deal-list, dashboard pipeline, quota, and weighted forecast rollups while preserving per-record deal/catalog currencies. Automated FX providers, historical rate selection beyond latest manual rates, quote-level FX disclosures, and realized gain/loss accounting remain future slices.
 
@@ -1911,6 +2250,16 @@ Exit criteria:
 Status: in progress.
 
 Goal: let admins automate CRM work without code — a core differentiator across all SaaS CRMs.
+
+Convergence reconciliation (2026-07-19): the broad definition, condition,
+action, timing, approval, and run artifacts described below remain a stored/API
+foundation, but their former general-purpose visual editor is no longer exposed
+in normal product navigation. Version `0.6.3` replaced that surface with a
+bounded deal follow-up task editor and implemented only that subset's
+transactional, idempotent runtime. Conditions, other targets/actions, scheduled
+or approval steps, provider dispatch, and general retry orchestration still do
+not execute and must not be inferred complete from the historical foundation
+entries.
 
 Progress:
 

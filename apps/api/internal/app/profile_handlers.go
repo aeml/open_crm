@@ -123,15 +123,19 @@ func handleUpdatePreferences(auth authService, users usersService, w http.Respon
 	}
 
 	merged := moduleusers.UserPreferences{
-		DefaultLandingView:   request.DefaultLandingView,
-		NotifyOnTaskAssigned: existing.NotifyOnTaskAssigned,
-		NotifyOnDealAssigned: existing.NotifyOnDealAssigned,
+		DefaultLandingView:    request.DefaultLandingView,
+		NotifyOnTaskAssigned:  existing.NotifyOnTaskAssigned,
+		NotifyOnDealAssigned:  existing.NotifyOnDealAssigned,
+		NotifyOnTaskReminders: existing.NotifyOnTaskReminders,
 	}
 	if request.NotifyOnTaskAssigned != nil {
 		merged.NotifyOnTaskAssigned = *request.NotifyOnTaskAssigned
 	}
 	if request.NotifyOnDealAssigned != nil {
 		merged.NotifyOnDealAssigned = *request.NotifyOnDealAssigned
+	}
+	if request.NotifyOnTaskReminders != nil {
+		merged.NotifyOnTaskReminders = *request.NotifyOnTaskReminders
 	}
 
 	updated, err := users.UpdatePreferences(r.Context(), state.User.ID, merged)

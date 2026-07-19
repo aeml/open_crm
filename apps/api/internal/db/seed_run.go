@@ -120,12 +120,12 @@ func (e postgresSeedExecutor) SeedPipeline() error {
 func (e postgresSeedExecutor) SeedStage(stage DealStageSeed) error {
 	ctx := context.Background()
 	_, err := e.pool.Exec(ctx, `
-		INSERT INTO deal_stages (organization_id, pipeline_id, name, position, is_closed, is_won)
-		SELECT organizations.id, pipelines.id, $1, $2, $3, $4
+		INSERT INTO deal_stages (organization_id, pipeline_id, name, position, is_closed, is_won, probability_percent)
+		SELECT organizations.id, pipelines.id, $1, $2, $3, $4, $5
 		FROM organizations
 		JOIN deal_pipelines pipelines ON pipelines.organization_id = organizations.id AND pipelines.is_default
 		WHERE organizations.slug = 'acme-inc'
 		ON CONFLICT DO NOTHING
-	`, stage.Name, stage.Position, stage.IsClosed, stage.IsWon)
+	`, stage.Name, stage.Position, stage.IsClosed, stage.IsWon, stage.ProbabilityPercent)
 	return err
 }

@@ -7,6 +7,8 @@ import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { createReportDefinition, listReportDefinitions, updateReportDefinition } from '../lib/reports'
 import { usePageTitle } from '../lib/use_page_title'
+import { DataQualityPanel } from './data_quality_panel'
+import { SalesActivityReport } from './sales_activity_report'
 
 const sourceOptions = [
   { value: 'contacts', label: 'Contacts' },
@@ -323,12 +325,14 @@ export function ReportsRoute() {
 
   return (
     <section className="dashboard-grid settings-grid">
+      <SalesActivityReport />
+      <DataQualityPanel />
       <Card>
         <div className="card-stack">
           <div className="section-header">
             <div>
               <h2>Reports</h2>
-              <p>Build reusable analytics definitions for {session?.organization?.name || 'your team'} before query execution and dashboards ship.</p>
+              <p>Save reusable analytics definitions for {session?.organization?.name || 'your team'}. The focused quality reports above are live; custom definitions remain clearly labeled until the general report runner ships.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading report definitions...</p> : null}

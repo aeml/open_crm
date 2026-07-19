@@ -4,15 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const maxExportRows = 10000
+const MaxExportRows = 10000
+
+var (
+	ErrTooManyRows   = errors.New("export exceeds the 10,000-row synchronous limit; apply filters and export smaller sets")
+	ErrInvalidFilter = errors.New("invalid export filter")
+)
 
 type Service struct {
 	pool *pgxpool.Pool
@@ -24,11 +31,13 @@ type File struct {
 }
 
 type ContactsQuery struct {
-	Search string
+	Search      string
+	CustomField modulecustomfields.Filter
 }
 
 type CompaniesQuery struct {
-	Search string
+	Search      string
+	CustomField modulecustomfields.Filter
 }
 
 type DealsQuery struct {
@@ -38,6 +47,8 @@ type DealsQuery struct {
 	OwnerUserID      int64
 	CompanyID        int64
 	PrimaryContactID int64
+	CloseDateFrom    string
+	CloseDateTo      string
 }
 
 type TasksQuery struct {
@@ -60,31 +71,58 @@ func (s *Service) ContactsCSV(ctx context.Context, organizationID int64, query C
 
 	query.Search = strings.TrimSpace(query.Search)
 	filterSQL, args := buildContactFilters(organizationID, query.Search)
+	customFilter, err := modulecustomfields.ValidateFilter(ctx, s.pool, organizationID, "contact", query.CustomField)
+	if err != nil {
+		return File{}, err
+	}
+	customFilterSQL, customArgs := modulecustomfields.AppendFilterSQL("contacts", args, customFilter)
+	filterSQL += customFilterSQL
+	args = customArgs
+	definitions, err := modulecustomfields.LoadDefinitions(ctx, s.pool, organizationID, "contact", false)
+	if err != nil {
+		return File{}, err
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, first_name, last_name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(job_title, ''), COALESCE(status, ''), is_client,
-			COALESCE(lead_source, ''), COALESCE(first_source_url, ''), COALESCE(utm_source, ''), COALESCE(utm_medium, ''), COALESCE(utm_campaign, ''), COALESCE(utm_term, ''), COALESCE(utm_content, '')
+			COALESCE(lead_source, ''), COALESCE(first_source_url, ''), COALESCE(utm_source, ''), COALESCE(utm_medium, ''), COALESCE(utm_campaign, ''), COALESCE(utm_term, ''), COALESCE(utm_content, ''), COALESCE(custom_fields, '{}'::jsonb)
 		FROM contacts
 		WHERE organization_id = $1 AND archived_at IS NULL`+filterSQL+`
 		ORDER BY last_name ASC, first_name ASC, id ASC
-		LIMIT $`+strconv.Itoa(len(args)+1), append(args, maxExportRows)...)
+		LIMIT $`+strconv.Itoa(len(args)+1), append(args, MaxExportRows+1)...)
 	if err != nil {
 		return File{}, fmt.Errorf("export contacts: %w", err)
 	}
 	defer rows.Close()
 
-	records := [][]string{{"id", "first_name", "last_name", "email", "phone", "address_line1", "address_line2", "city", "state", "postal_code", "country", "job_title", "status", "is_client", "lead_source", "first_source_url", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"}}
+	header := []string{"id", "first_name", "last_name", "email", "phone", "address_line1", "address_line2", "city", "state", "postal_code", "country", "job_title", "status", "is_client", "lead_source", "first_source_url", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"}
+	for _, definition := range definitions {
+		header = append(header, "custom:"+definition.FieldKey)
+	}
+	records := [][]string{header}
 	for rows.Next() {
 		var id int64
 		var firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode, country, jobTitle, status string
 		var leadSource, firstSourceURL, utmSource, utmMedium, utmCampaign, utmTerm, utmContent string
 		var isClient bool
-		if err := rows.Scan(&id, &firstName, &lastName, &email, &phone, &addressLine1, &addressLine2, &city, &state, &postalCode, &country, &jobTitle, &status, &isClient, &leadSource, &firstSourceURL, &utmSource, &utmMedium, &utmCampaign, &utmTerm, &utmContent); err != nil {
+		var customFieldsJSON []byte
+		if err := rows.Scan(&id, &firstName, &lastName, &email, &phone, &addressLine1, &addressLine2, &city, &state, &postalCode, &country, &jobTitle, &status, &isClient, &leadSource, &firstSourceURL, &utmSource, &utmMedium, &utmCampaign, &utmTerm, &utmContent, &customFieldsJSON); err != nil {
 			return File{}, fmt.Errorf("scan contact export: %w", err)
 		}
-		records = append(records, []string{formatInt(id), firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode, country, jobTitle, status, formatBool(isClient), leadSource, firstSourceURL, utmSource, utmMedium, utmCampaign, utmTerm, utmContent})
+		record := []string{formatInt(id), firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode, country, jobTitle, status, formatBool(isClient), leadSource, firstSourceURL, utmSource, utmMedium, utmCampaign, utmTerm, utmContent}
+		customValues, err := modulecustomfields.DecodeValues(customFieldsJSON)
+		if err != nil {
+			return File{}, err
+		}
+		for _, definition := range definitions {
+			record = append(record, modulecustomfields.FormatValue(definition, customValues[definition.FieldKey]))
+		}
+		records = append(records, record)
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate contact export: %w", err)
+	}
+	if len(records)-1 > MaxExportRows {
+		return File{}, ErrTooManyRows
 	}
 
 	return csvFile("contacts", records)
@@ -97,28 +135,55 @@ func (s *Service) CompaniesCSV(ctx context.Context, organizationID int64, query 
 
 	query.Search = strings.TrimSpace(query.Search)
 	filterSQL, args := buildCompanyFilters(organizationID, query.Search)
+	customFilter, err := modulecustomfields.ValidateFilter(ctx, s.pool, organizationID, "company", query.CustomField)
+	if err != nil {
+		return File{}, err
+	}
+	customFilterSQL, customArgs := modulecustomfields.AppendFilterSQL("companies", args, customFilter)
+	filterSQL += customFilterSQL
+	args = customArgs
+	definitions, err := modulecustomfields.LoadDefinitions(ctx, s.pool, organizationID, "company", false)
+	if err != nil {
+		return File{}, err
+	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, client_type, COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, '')
+		SELECT id, name, client_type, COALESCE(address_line1, ''), COALESCE(address_line2, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(postal_code, ''), COALESCE(country, ''), COALESCE(industry, ''), COALESCE(phone, ''), COALESCE(website, ''), COALESCE(status, ''), COALESCE(custom_fields, '{}'::jsonb)
 		FROM companies
 		WHERE organization_id = $1 AND archived_at IS NULL`+filterSQL+`
 		ORDER BY name ASC, id ASC
-		LIMIT $`+strconv.Itoa(len(args)+1), append(args, maxExportRows)...)
+		LIMIT $`+strconv.Itoa(len(args)+1), append(args, MaxExportRows+1)...)
 	if err != nil {
 		return File{}, fmt.Errorf("export companies: %w", err)
 	}
 	defer rows.Close()
 
-	records := [][]string{{"id", "name", "client_type", "address_line1", "address_line2", "city", "state", "postal_code", "country", "industry", "phone", "website", "status"}}
+	header := []string{"id", "name", "client_type", "address_line1", "address_line2", "city", "state", "postal_code", "country", "industry", "phone", "website", "status"}
+	for _, definition := range definitions {
+		header = append(header, "custom:"+definition.FieldKey)
+	}
+	records := [][]string{header}
 	for rows.Next() {
 		var id int64
 		var name, clientType, addressLine1, addressLine2, city, state, postalCode, country, industry, phone, website, status string
-		if err := rows.Scan(&id, &name, &clientType, &addressLine1, &addressLine2, &city, &state, &postalCode, &country, &industry, &phone, &website, &status); err != nil {
+		var customFieldsJSON []byte
+		if err := rows.Scan(&id, &name, &clientType, &addressLine1, &addressLine2, &city, &state, &postalCode, &country, &industry, &phone, &website, &status, &customFieldsJSON); err != nil {
 			return File{}, fmt.Errorf("scan company export: %w", err)
 		}
-		records = append(records, []string{formatInt(id), name, clientType, addressLine1, addressLine2, city, state, postalCode, country, industry, phone, website, status})
+		record := []string{formatInt(id), name, clientType, addressLine1, addressLine2, city, state, postalCode, country, industry, phone, website, status}
+		customValues, err := modulecustomfields.DecodeValues(customFieldsJSON)
+		if err != nil {
+			return File{}, err
+		}
+		for _, definition := range definitions {
+			record = append(record, modulecustomfields.FormatValue(definition, customValues[definition.FieldKey]))
+		}
+		records = append(records, record)
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate company export: %w", err)
+	}
+	if len(records)-1 > MaxExportRows {
+		return File{}, ErrTooManyRows
 	}
 
 	return csvFile("clients", records)
@@ -129,7 +194,10 @@ func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query Deal
 		return File{}, fmt.Errorf("export service not configured")
 	}
 
-	query = normalizeDealsQuery(query)
+	query, err := normalizeDealsQuery(query)
+	if err != nil {
+		return File{}, err
+	}
 	filterSQL, args := buildDealFilters(organizationID, query)
 	rows, err := s.pool.Query(ctx, `
 		SELECT
@@ -157,7 +225,7 @@ func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query Deal
 		LEFT JOIN users owner_user ON owner_user.id = d.owner_user_id
 		WHERE d.organization_id = $1 AND d.archived_at IS NULL`+filterSQL+`
 		ORDER BY dp.position ASC, ds.position ASC, d.id DESC
-		LIMIT $`+strconv.Itoa(len(args)+1), append(args, maxExportRows)...)
+		LIMIT $`+strconv.Itoa(len(args)+1), append(args, MaxExportRows+1)...)
 	if err != nil {
 		return File{}, fmt.Errorf("export deals: %w", err)
 	}
@@ -174,6 +242,9 @@ func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query Deal
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate deal export: %w", err)
+	}
+	if len(records)-1 > MaxExportRows {
+		return File{}, ErrTooManyRows
 	}
 
 	return csvFile("deals", records)
@@ -214,7 +285,7 @@ func (s *Service) TasksCSV(ctx context.Context, organizationID int64, query Task
 		LEFT JOIN deals deal ON t.entity_type = 'deal' AND deal.organization_id = t.organization_id AND deal.id = t.entity_id AND deal.archived_at IS NULL
 		WHERE t.organization_id = $1 AND t.archived_at IS NULL`+filterSQL+`
 		ORDER BY CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END ASC, t.due_at ASC NULLS LAST, t.id DESC
-		LIMIT $`+strconv.Itoa(len(args)+1), append(args, maxExportRows)...)
+		LIMIT $`+strconv.Itoa(len(args)+1), append(args, MaxExportRows+1)...)
 	if err != nil {
 		return File{}, fmt.Errorf("export tasks: %w", err)
 	}
@@ -231,6 +302,9 @@ func (s *Service) TasksCSV(ctx context.Context, organizationID int64, query Task
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate task export: %w", err)
+	}
+	if len(records)-1 > MaxExportRows {
+		return File{}, ErrTooManyRows
 	}
 
 	return csvFile("tasks", records)
@@ -313,9 +387,25 @@ func buildCompanyFilters(organizationID int64, search string) (string, []any) {
 	return filterSQL, args
 }
 
-func normalizeDealsQuery(query DealsQuery) DealsQuery {
+func normalizeDealsQuery(query DealsQuery) (DealsQuery, error) {
 	query.Search = strings.TrimSpace(strings.ToLower(query.Search))
-	return query
+	query.CloseDateFrom = strings.TrimSpace(query.CloseDateFrom)
+	query.CloseDateTo = strings.TrimSpace(query.CloseDateTo)
+	var from time.Time
+	var err error
+	if query.CloseDateFrom != "" {
+		from, err = time.Parse("2006-01-02", query.CloseDateFrom)
+		if err != nil {
+			return DealsQuery{}, ErrInvalidFilter
+		}
+	}
+	if query.CloseDateTo != "" {
+		to, parseErr := time.Parse("2006-01-02", query.CloseDateTo)
+		if parseErr != nil || (!from.IsZero() && to.Before(from)) {
+			return DealsQuery{}, ErrInvalidFilter
+		}
+	}
+	return query, nil
 }
 
 func buildDealFilters(organizationID int64, query DealsQuery) (string, []any) {
@@ -344,6 +434,14 @@ func buildDealFilters(organizationID int64, query DealsQuery) (string, []any) {
 	if query.PrimaryContactID > 0 {
 		parts = append(parts, fmt.Sprintf(" AND d.primary_contact_id = $%d", len(args)+1))
 		args = append(args, query.PrimaryContactID)
+	}
+	if query.CloseDateFrom != "" {
+		parts = append(parts, fmt.Sprintf(" AND d.expected_close_date >= $%d::date", len(args)+1))
+		args = append(args, query.CloseDateFrom)
+	}
+	if query.CloseDateTo != "" {
+		parts = append(parts, fmt.Sprintf(" AND d.expected_close_date <= $%d::date", len(args)+1))
+		args = append(args, query.CloseDateTo)
 	}
 	return strings.Join(parts, ""), args
 }
@@ -398,11 +496,13 @@ func buildTaskFilters(organizationID int64, query TasksQuery) (string, []any) {
 	}
 	switch query.DueView {
 	case "overdue":
-		parts = append(parts, " AND t.due_at IS NOT NULL AND t.due_at < DATE_TRUNC('day', NOW())")
+		parts = append(parts, " AND t.due_at IS NOT NULL AND t.due_at < NOW()")
+	case "dueSoon":
+		parts = append(parts, " AND t.due_at IS NOT NULL AND t.due_at >= NOW() AND t.due_at < NOW() + INTERVAL '24 hours'")
 	case "dueToday":
 		parts = append(parts, " AND t.due_at IS NOT NULL AND t.due_at >= DATE_TRUNC('day', NOW()) AND t.due_at < DATE_TRUNC('day', NOW()) + INTERVAL '1 day'")
 	case "upcoming":
-		parts = append(parts, " AND t.due_at IS NOT NULL AND t.due_at >= DATE_TRUNC('day', NOW()) + INTERVAL '1 day'")
+		parts = append(parts, " AND t.due_at IS NOT NULL AND t.due_at >= NOW() + INTERVAL '24 hours'")
 	case "noDueDate":
 		parts = append(parts, " AND t.due_at IS NULL")
 	}

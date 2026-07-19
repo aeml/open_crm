@@ -44,7 +44,8 @@ describe('AppRouter', () => {
             openDealsCount: 3,
             wonDealsCount: 1,
             openTasksCount: 8,
-            dueTodayCount: 2,
+            dueSoonTasksCount: 2,
+            upcomingTasksCount: 6,
             newContactsCount: 5,
             forecast: {
               periodStart: '2026-04-01',
@@ -56,6 +57,7 @@ describe('AppRouter', () => {
               weightedForecastAmount: '49000.00',
               attainmentPct: '25.0',
               coveragePct: '49.0',
+              stages: [{ pipelineId: 1, pipelineName: 'Sales pipeline', stageId: 2, stageName: 'Qualified', probabilityPercent: 65, openDealsCount: 3, openPipelineAmount: '48000.00', weightedOpenAmount: '31200.00' }],
               members: [
                 { userId: 1, userName: 'Demo Owner', quotaAmount: '100000.00', wonAmount: '25000.00', openPipelineAmount: '48000.00', weightedForecastAmount: '49000.00', attainmentPct: '25.0', coveragePct: '49.0' }
               ]
@@ -105,9 +107,11 @@ describe('AppRouter', () => {
     expect(screen.getByRole('heading', { name: /task focus/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /quota coverage/i })).toBeInTheDocument()
     expect(screen.getAllByText(/49.0% coverage/i).length).toBeGreaterThan(0)
+    expect(screen.getByText('Sales pipeline · Qualified · 65%')).toBeInTheDocument()
+    expect(screen.getByText('$31,200.00 weighted')).toBeInTheDocument()
     expect(screen.getByDisplayValue('100000.00')).toBeInTheDocument()
-    expect(screen.getByText(/2 tasks due today/i)).toBeInTheDocument()
-    expect(screen.getByText(/6 upcoming tasks/i)).toBeInTheDocument()
+    expect(screen.getByText(/2 due within 24 hours/i)).toBeInTheDocument()
+    expect(screen.getByText(/6 later/i)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /pipeline touched recently/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /recently touched contacts and clients/i })).toBeInTheDocument()
     expect(screen.getByText(/^Contact #8$/i)).toBeInTheDocument()
@@ -129,6 +133,8 @@ describe('AppRouter', () => {
         return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
       }
       if (requestURL.pathname.endsWith('/api/dashboard/summary')) {
+        const periodStart = requestURL.searchParams.get('forecastStart') || '2026-04-01'
+        const periodEnd = requestURL.searchParams.get('forecastEnd') || '2026-06-30'
         return {
           ok: true,
           json: async () => ({
@@ -137,11 +143,11 @@ describe('AppRouter', () => {
               openDealsCount: 3,
               wonDealsCount: 1,
               openTasksCount: 8,
-              dueTodayCount: 2,
+              dueSoonTasksCount: 2,
               newContactsCount: 5,
               forecast: {
-                periodStart: '2026-04-01',
-                periodEnd: '2026-06-30',
+                periodStart,
+                periodEnd,
                 currency: 'USD',
                 teamQuota: '100000.00',
                 wonAmount: '25000.00',
@@ -149,6 +155,7 @@ describe('AppRouter', () => {
                 weightedForecastAmount: '49000.00',
                 attainmentPct: '25.0',
                 coveragePct: '49.0',
+                stages: [{ pipelineId: 1, pipelineName: 'Sales pipeline', stageId: 2, stageName: 'Qualified', probabilityPercent: 65, openDealsCount: 3, openPipelineAmount: '48000.00', weightedOpenAmount: '31200.00' }],
                 members: [{ userId: 2, userName: 'Alex Admin', quotaAmount: '100000.00', wonAmount: '25000.00', openPipelineAmount: '48000.00', weightedForecastAmount: '49000.00', attainmentPct: '25.0', coveragePct: '49.0' }]
               },
               recentActivities: []
@@ -165,7 +172,7 @@ describe('AppRouter', () => {
               openDealsCount: 3,
               wonDealsCount: 1,
               openTasksCount: 8,
-              dueTodayCount: 2,
+              dueSoonTasksCount: 2,
               newContactsCount: 5,
               forecast: {
                 periodStart: '2026-04-01',
@@ -193,6 +200,12 @@ describe('AppRouter', () => {
 
     render(<AppRouter />)
 
+    await screen.findByDisplayValue('100000.00')
+    fireEvent.change(screen.getByLabelText('Forecast start'), { target: { value: '2026-07-01' } })
+    fireEvent.change(screen.getByLabelText('Forecast end'), { target: { value: '2026-09-30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply forecast period' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/dashboard\/summary\?forecastStart=2026-07-01&forecastEnd=2026-09-30$/), expect.any(Object)))
+
     const quotaInput = await screen.findByDisplayValue('100000.00')
     fireEvent.change(quotaInput, { target: { value: '125000.00' } })
     fireEvent.click(screen.getByRole('button', { name: /save quota for alex admin/i }))
@@ -202,7 +215,7 @@ describe('AppRouter', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/dashboard\/sales-quotas\/2$/), expect.objectContaining({
         method: 'PUT',
-        body: expect.stringContaining('"quotaAmount":"125000.00"')
+        body: expect.stringMatching(/"periodStart":"2026-07-01".*"periodEnd":"2026-09-30".*"quotaAmount":"125000.00"/)
       }))
     })
   })
@@ -232,7 +245,7 @@ describe('AppRouter', () => {
             openDealsCount: 0,
             wonDealsCount: 0,
             openTasksCount: 0,
-            dueTodayCount: 0,
+            dueSoonTasksCount: 0,
             newContactsCount: 0,
             recentActivities: []
           }
@@ -289,7 +302,7 @@ describe('AppRouter', () => {
             openDealsCount: 4,
             wonDealsCount: 2,
             openTasksCount: 6,
-            dueTodayCount: 3,
+            dueSoonTasksCount: 3,
             newContactsCount: 2,
             recentActivities: [
               {
@@ -349,7 +362,7 @@ describe('AppRouter', () => {
             openDealsCount: 3,
             wonDealsCount: 1,
             openTasksCount: 8,
-            dueTodayCount: 2,
+            dueSoonTasksCount: 2,
             newContactsCount: 5,
             recentActivities: []
           }
@@ -408,13 +421,13 @@ describe('AppRouter', () => {
 
     expect(await screen.findByText('$48,000.00')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /review due today/i }))
+    fireEvent.click(screen.getByRole('button', { name: /review due soon/i }))
 
-    expect(await screen.findByRole('heading', { name: /^tasks due today$/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^tasks due within 24 hours$/i })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/tasks')
-    expect(window.location.search).toBe('?due=dueToday')
+    expect(window.location.search).toBe('?due=dueSoon')
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open$/), expect.any(Object))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/tasks\?status=open&due=dueSoon$/), expect.any(Object))
     })
   })
 
@@ -678,7 +691,7 @@ describe('AppRouter', () => {
             openDealsCount: 3,
             wonDealsCount: 1,
             openTasksCount: 8,
-            dueTodayCount: 2,
+            dueSoonTasksCount: 2,
             newContactsCount: 5,
             recentActivities: []
           }

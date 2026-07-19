@@ -4,7 +4,22 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
+
+type providerObservation struct {
+	provider  string
+	operation string
+	outcome   string
+	duration  time.Duration
+}
+
+func (o *providerObservation) ObserveProvider(provider, operation, outcome string, duration time.Duration) {
+	o.provider = provider
+	o.operation = operation
+	o.outcome = outcome
+	o.duration = duration
+}
 
 func TestNewProviderDefaultsToFake(t *testing.T) {
 	for _, name := range []string{"", "fake"} {
@@ -21,6 +36,18 @@ func TestNewProviderUnknownIsUnconfigured(t *testing.T) {
 	}
 	if err := provider.Send(context.Background(), Message{To: "a@b.test"}); err == nil {
 		t.Errorf("unconfigured provider should reject sends")
+	}
+}
+
+func TestObservedProviderRecordsFailureWithoutChangingError(t *testing.T) {
+	observer := &providerObservation{}
+	provider := WithObserver(NewProvider(ProviderConfig{Name: "unconfigured-test"}), observer)
+	err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Hello"})
+	if err == nil {
+		t.Fatal("expected the unconfigured provider to fail")
+	}
+	if observer.provider != "unconfigured-test" || observer.operation != "send" || observer.outcome != "error" || observer.duration < 0 {
+		t.Fatalf("unexpected provider observation: %+v", observer)
 	}
 }
 

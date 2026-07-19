@@ -1,0 +1,154 @@
+import { useState } from 'react'
+import { ActivityTimeline } from '../components/ui/activity_timeline'
+import { Button } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { Field } from '../components/ui/field'
+import { getRecordFollowers, setRecordFollowing } from '../lib/collaboration'
+
+export function RecordWorkCards({
+  activities,
+  activityAria = 'Activity list',
+  canWrite,
+  entityId,
+  entityType,
+  noteBody,
+  notes,
+  notesAria = 'Notes list',
+  onCreateNote,
+  onCreateTask,
+  onOpenTasks,
+  onSetNoteBody,
+  onSetTaskForm,
+  taskForm,
+  tasks,
+  tasksAria = 'Contact tasks list',
+  users
+}) {
+  const [followerState, setFollowerState] = useState({ following: false, followers: [] })
+  const [followersLoaded, setFollowersLoaded] = useState(false)
+  const [followError, setFollowError] = useState('')
+  const [isUpdatingFollow, setIsUpdatingFollow] = useState(false)
+
+  async function toggleFollowing() {
+    setIsUpdatingFollow(true)
+    try {
+      if (!followersLoaded) {
+        const result = await getRecordFollowers({ entityType, entityId })
+        setFollowerState(result)
+        setFollowersLoaded(true)
+        setFollowError('')
+        return
+      }
+      const result = await setRecordFollowing({ entityType, entityId, following: !followerState.following })
+      setFollowerState(result)
+      setFollowError('')
+    } catch (error) {
+      setFollowError(error.message || 'Unable to update following.')
+    } finally {
+      setIsUpdatingFollow(false)
+    }
+  }
+
+  function insertMention(email) {
+    const separator = noteBody && !noteBody.endsWith(' ') ? ' ' : ''
+    onSetNoteBody(`${noteBody}${separator}@${email} `)
+  }
+
+  return (
+    <>
+      <Card>
+        <div className="card-stack">
+          <div className="section-header">
+            <div>
+              <h3>Notes</h3>
+              <p className="field-hint">
+                {!followersLoaded
+                  ? 'Follow this record to receive note updates'
+                  : followerState.followers.length === 0
+                  ? 'No active followers'
+                  : `${followerState.followers.length} active follower${followerState.followers.length === 1 ? '' : 's'}`}
+              </p>
+            </div>
+            <Button className="button-secondary" type="button" onClick={toggleFollowing} disabled={isUpdatingFollow || !entityId}>
+              {isUpdatingFollow ? 'Loading…' : !followersLoaded ? 'Followers' : followerState.following ? 'Following' : 'Follow'}
+            </Button>
+          </div>
+          {followError ? <p className="field-hint" role="alert">{followError}</p> : null}
+          {canWrite ? (
+            <form className="auth-form" onSubmit={onCreateNote}>
+              <Field label="New note">
+                <textarea className="text-input" value={noteBody} onChange={(event) => onSetNoteBody(event.target.value)} rows={4} />
+              </Field>
+              {users.length > 0 ? (
+                <div>
+                  <p className="field-hint">Mention a teammate</p>
+                  <div className="button-row" aria-label="Mention a teammate">
+                    {users.map((user) => (
+                      <button className="button-ghost" key={user.id} type="button" onClick={() => insertMention(user.email)}>
+                        @{user.email}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <Button type="submit">Add note</Button>
+            </form>
+          ) : null}
+          <div className="record-list" role="list" aria-label={notesAria}>
+            {notes.map((note) => (
+              <article className="record-row" key={note.id} role="listitem">
+                <div>
+                  <p>{note.body}</p>
+                  <p className="field-hint">{note.createdByUserName || 'Unknown author'}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </Card>
+      <Card>
+        <div className="card-stack">
+          <div className="section-header">
+            <h3>Tasks</h3>
+            <Button className="button-secondary" type="button" onClick={onOpenTasks}>Open in tasks</Button>
+          </div>
+          {canWrite ? (
+            <form className="auth-form" onSubmit={onCreateTask}>
+              <Field label="Task title">
+                <input className="text-input" value={taskForm.title} onChange={(event) => onSetTaskForm((current) => ({ ...current, title: event.target.value }))} required />
+              </Field>
+              <Field label="Task description">
+                <textarea className="text-input" value={taskForm.description} onChange={(event) => onSetTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
+              </Field>
+              <Field label="Assigned to">
+                <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => onSetTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
+                  {users.map((user) => <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>)}
+                </select>
+              </Field>
+              <Field label="Due at">
+                <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => onSetTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
+              </Field>
+              <Button type="submit">Save task</Button>
+            </form>
+          ) : null}
+          <div className="record-list" role="list" aria-label={tasksAria}>
+            {tasks.map((task) => (
+              <article className="record-row" key={task.id} role="listitem">
+                <div>
+                  <p>{task.title}</p>
+                  <p className="field-hint">{task.assignedToUserName || 'Unassigned'}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </Card>
+      <Card>
+        <div className="card-stack">
+          <h3>Activity</h3>
+          <ActivityTimeline activities={activities} ariaLabel={activityAria} />
+        </div>
+      </Card>
+    </>
+  )
+}

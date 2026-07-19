@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -18,8 +17,6 @@ const (
 	defaultFetchLimit = 25
 	defaultTimeout    = 30 * time.Second
 	defaultBatchLimit = 10
-	defaultInterval   = 15 * time.Minute
-	startupDelay      = time.Minute
 )
 
 var ErrNotConfigured = errors.New("mailbox sync service not configured")
@@ -202,36 +199,6 @@ func (s *Service) SyncDue(ctx context.Context, limit int) (Summary, error) {
 		}
 	}
 	return summary, nil
-}
-
-func (s *Service) RunWorker(ctx context.Context, logger *slog.Logger, interval time.Duration, limit int) {
-	if !s.Configured() {
-		return
-	}
-	if interval <= 0 {
-		interval = defaultInterval
-	}
-	if limit <= 0 || limit > 100 {
-		limit = defaultBatchLimit
-	}
-	timer := time.NewTimer(startupDelay)
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-			summary, err := s.SyncDue(ctx, limit)
-			if err != nil {
-				if logger != nil {
-					logger.Warn("mailbox sync worker failed", "error", err)
-				}
-			} else if summary.Attempted > 0 && logger != nil {
-				logger.Info("mailbox sync worker completed", "attempted", summary.Attempted, "imported", summary.Imported, "failed", summary.Failed)
-			}
-			timer.Reset(interval)
-		}
-	}
 }
 
 func (s *Service) refreshOAuthTokenIfNeeded(ctx context.Context, organizationID, userID int64, creds moduleuseremail.SyncCredentials) (moduleuseremail.SyncCredentials, error) {

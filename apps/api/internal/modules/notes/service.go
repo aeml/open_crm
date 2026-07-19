@@ -3,11 +3,11 @@ package notes
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -43,6 +43,8 @@ type CreateResult struct {
 type Service struct {
 	pool *pgxpool.Pool
 }
+
+var mentionPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9._%+\-])@([a-z0-9._%+\-]+@[a-z0-9.-]+\.[a-z]{2,})`)
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
@@ -116,8 +118,20 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	}
 	defer tx.Rollback(ctx)
 
-	if err := ensureEntityExists(ctx, tx, organizationID, input.EntityType, input.EntityID); err != nil {
+	entityLabel, err := entityLabel(ctx, tx, organizationID, input.EntityType, input.EntityID)
+	if err != nil {
 		return CreateResult{}, err
+	}
+	var actorName string
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.email)
+		FROM users u
+		JOIN organization_memberships om ON om.user_id = u.id
+		WHERE u.id = $1 AND om.organization_id = $2
+		  AND COALESCE(om.membership_status, 'active') = 'active'
+		FOR SHARE OF om
+	`, actorUserID, organizationID).Scan(&actorName); err != nil {
+		return CreateResult{}, fmt.Errorf("load note actor: %w", err)
 	}
 
 	var noteID int64
@@ -137,6 +151,33 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		RETURNING id, created_at
 	`, organizationID, input.EntityType, input.EntityID, actorUserID).Scan(&activityID, &activityCreatedAt); err != nil {
 		return CreateResult{}, fmt.Errorf("insert note activity: %w", err)
+	}
+
+	mentionedUserIDs, err := resolveMentionedUsers(ctx, tx, organizationID, input.Body)
+	if err != nil {
+		return CreateResult{}, err
+	}
+	followUserIDs := append([]int64{actorUserID}, mentionedUserIDs...)
+	for _, userID := range followUserIDs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO record_followers (organization_id, entity_type, entity_id, user_id, created_by_user_id)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (organization_id, entity_type, entity_id, user_id) DO NOTHING
+		`, organizationID, input.EntityType, input.EntityID, userID, actorUserID); err != nil {
+			return CreateResult{}, fmt.Errorf("follow note record: %w", err)
+		}
+	}
+	for _, userID := range mentionedUserIDs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO note_mentions (organization_id, note_id, mentioned_user_id)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (organization_id, note_id, mentioned_user_id) DO NOTHING
+		`, organizationID, noteID, userID); err != nil {
+			return CreateResult{}, fmt.Errorf("create note mention: %w", err)
+		}
+	}
+	if err := createCollaborationNotifications(ctx, tx, organizationID, actorUserID, noteID, input.EntityType, input.EntityID, actorName, entityLabel, mentionedUserIDs); err != nil {
+		return CreateResult{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -213,27 +254,127 @@ func isSupportedEntityType(entityType string) bool {
 
 type activityExecutor interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }
 
-func ensureEntityExists(ctx context.Context, executor activityExecutor, organizationID int64, entityType string, entityID int64) error {
-	var exists bool
-	query := ""
-	switch entityType {
-	case "contact":
-		query = `SELECT EXISTS (SELECT 1 FROM contacts WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL)`
-	case "company":
-		query = `SELECT EXISTS (SELECT 1 FROM companies WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL)`
-	case "deal":
-		query = `SELECT EXISTS (SELECT 1 FROM deals WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL)`
-	default:
-		return fmt.Errorf("unsupported entity type")
+func resolveMentionedUsers(ctx context.Context, tx pgx.Tx, organizationID int64, body string) ([]int64, error) {
+	emails := mentionedEmails(body)
+	if len(emails) == 0 {
+		return []int64{}, nil
 	}
-	if err := executor.QueryRow(ctx, query, organizationID, entityID).Scan(&exists); err != nil {
-		return fmt.Errorf("verify %s exists: %w", entityType, err)
+	rows, err := tx.Query(ctx, `
+		SELECT u.id
+		FROM users u
+		JOIN organization_memberships om ON om.user_id = u.id
+		WHERE om.organization_id = $1
+		  AND COALESCE(om.membership_status, 'active') = 'active'
+		  AND LOWER(u.email) = ANY($2::text[])
+		ORDER BY u.id
+		FOR SHARE OF om
+	`, organizationID, emails)
+	if err != nil {
+		return nil, fmt.Errorf("resolve note mentions: %w", err)
 	}
-	if !exists {
-		return fmt.Errorf("%s not found", entityType)
+	defer rows.Close()
+	result := make([]int64, 0, len(emails))
+	for rows.Next() {
+		var userID int64
+		if err := rows.Scan(&userID); err != nil {
+			return nil, fmt.Errorf("scan note mention: %w", err)
+		}
+		result = append(result, userID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate note mentions: %w", err)
+	}
+	return result, nil
+}
+
+func mentionedEmails(body string) []string {
+	matches := mentionPattern.FindAllStringSubmatch(body, -1)
+	seen := make(map[string]struct{}, len(matches))
+	result := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		email := strings.ToLower(strings.TrimSpace(match[1]))
+		if _, ok := seen[email]; ok {
+			continue
+		}
+		seen[email] = struct{}{}
+		result = append(result, email)
+	}
+	return result
+}
+
+func createCollaborationNotifications(ctx context.Context, tx pgx.Tx, organizationID, actorUserID, noteID int64, entityType string, entityID int64, actorName, entityLabel string, mentionedUserIDs []int64) error {
+	mentioned := make(map[int64]struct{}, len(mentionedUserIDs))
+	for _, userID := range mentionedUserIDs {
+		mentioned[userID] = struct{}{}
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT rf.user_id
+		FROM record_followers rf
+		JOIN organization_memberships om
+		  ON om.organization_id = rf.organization_id
+		 AND om.user_id = rf.user_id
+		 AND COALESCE(om.membership_status, 'active') = 'active'
+		WHERE rf.organization_id = $1 AND rf.entity_type = $2 AND rf.entity_id = $3
+		  AND rf.user_id <> $4
+		ORDER BY rf.user_id
+	`, organizationID, entityType, entityID, actorUserID)
+	if err != nil {
+		return fmt.Errorf("list note followers: %w", err)
+	}
+	defer rows.Close()
+	followerIDs := make([]int64, 0)
+	for rows.Next() {
+		var userID int64
+		if err := rows.Scan(&userID); err != nil {
+			return fmt.Errorf("scan note follower: %w", err)
+		}
+		followerIDs = append(followerIDs, userID)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate note followers: %w", err)
+	}
+
+	for _, userID := range followerIDs {
+		eventType := "record.activity"
+		summary := fmt.Sprintf("%s added a note on %s", actorName, entityLabel)
+		if _, ok := mentioned[userID]; ok {
+			eventType = "record.mentioned"
+			summary = fmt.Sprintf("%s mentioned you on %s", actorName, entityLabel)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO notifications (organization_id, user_id, event_type, entity_type, entity_id, summary, idempotency_key)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (organization_id, user_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+		`, organizationID, userID, eventType, entityType, entityID, summary, fmt.Sprintf("note:%d:%s", noteID, eventType)); err != nil {
+			return fmt.Errorf("create collaboration notification: %w", err)
+		}
 	}
 	return nil
+}
+
+func entityLabel(ctx context.Context, executor activityExecutor, organizationID int64, entityType string, entityID int64) (string, error) {
+	var label string
+	var query string
+	switch entityType {
+	case "contact":
+		query = `SELECT TRIM(first_name || ' ' || last_name) FROM contacts WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL`
+	case "company":
+		query = `SELECT name FROM companies WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL`
+	case "deal":
+		query = `SELECT name FROM deals WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL`
+	default:
+		return "", fmt.Errorf("unsupported entity type")
+	}
+	if err := executor.QueryRow(ctx, query, organizationID, entityID).Scan(&label); err != nil {
+		if err == pgx.ErrNoRows {
+			return "", fmt.Errorf("%s not found", entityType)
+		}
+		return "", fmt.Errorf("load %s label: %w", entityType, err)
+	}
+	return label, nil
 }

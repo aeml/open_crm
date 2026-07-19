@@ -22,7 +22,7 @@ type healthzResponse struct {
 }
 
 func TestNewServerHealthz(t *testing.T) {
-	server := NewServer(config.Env{})
+	server := NewServer(config.Env{ReleaseID: "release-test-123"})
 
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	recorder := httptest.NewRecorder()
@@ -39,6 +39,9 @@ func TestNewServerHealthz(t *testing.T) {
 
 	if got := recorder.Header().Get("X-Request-Id"); got == "" {
 		t.Fatal("expected X-Request-Id header to be set")
+	}
+	if got := recorder.Header().Get("X-Open-CRM-Release"); got != "release-test-123" {
+		t.Fatalf("expected release identity header, got %q", got)
 	}
 
 	var response healthzResponse
@@ -66,7 +69,7 @@ func TestNewServerLogsRequestsWithRequestID(t *testing.T) {
 	server.ServeHTTP(recorder, request)
 
 	logLine := output.String()
-	for _, expected := range []string{`"msg":"http_request"`, `"method":"GET"`, `"path":"/healthz"`, `"status":200`, `"request_id":"req_`} {
+	for _, expected := range []string{`"msg":"http_request"`, `"method":"GET"`, `"route":"/healthz"`, `"status":200`, `"request_id":"req_`} {
 		if !strings.Contains(logLine, expected) {
 			t.Fatalf("expected log to contain %s, got %s", expected, logLine)
 		}

@@ -4,6 +4,16 @@
   grid-template-columns: 260px 1fr;
 }
 
+.route-loading {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-6);
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
 .side-nav {
   padding: var(--space-5) var(--space-4);
   background: #101828;

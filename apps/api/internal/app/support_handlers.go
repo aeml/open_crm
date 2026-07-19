@@ -3,10 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +17,6 @@ import (
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
-	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
@@ -101,10 +97,15 @@ func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter
 		EntityID:         moduletasks.ParseInt64(r.URL.Query().Get("entityId")),
 		AssignedToUserID: assignedToUserID,
 		UnassignedOnly:   unassignedTasks,
+		DueView:          strings.TrimSpace(r.URL.Query().Get("due")),
 		Page:             parsePositiveInt(r.URL.Query().Get("page"), 1),
 		PageSize:         parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
 	})
 	if err != nil {
+		if errors.Is(err, moduletasks.ErrInvalidFilter) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose a valid task due view")
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load tasks")
 		return
 	}
@@ -116,7 +117,7 @@ func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-func handleCreateTask(auth authService, tasks tasksService, notifs notificationsService, w http.ResponseWriter, r *http.Request) {
+func handleCreateTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -133,18 +134,12 @@ func handleCreateTask(auth authService, tasks tasksService, notifs notifications
 	}
 	result, err := tasks.Create(r.Context(), state.Organization.ID, state.User.ID, input)
 	if err != nil {
+		if errors.Is(err, moduletasks.ErrInvalidAssignee) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an active team member as task assignee")
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create task")
 		return
-	}
-
-	if notifs != nil && result.Task.AssignedToUserID > 0 && result.Task.AssignedToUserID != state.User.ID {
-		_ = notifs.Create(r.Context(), state.Organization.ID, modulenotifications.CreateInput{
-			UserID:     result.Task.AssignedToUserID,
-			EventType:  "task.assigned",
-			EntityType: "task",
-			EntityID:   result.Task.ID,
-			Summary:    fmt.Sprintf("You were assigned a task: %s", result.Task.Title),
-		})
 	}
 
 	respondTaskDetail(w, r, http.StatusCreated, result)
@@ -178,7 +173,7 @@ func handleGetTask(auth authService, tasks tasksService, w http.ResponseWriter, 
 	respondTaskDetail(w, r, http.StatusOK, result)
 }
 
-func handleUpdateTask(auth authService, tasks tasksService, notifs notificationsService, w http.ResponseWriter, r *http.Request) {
+func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -199,21 +194,15 @@ func handleUpdateTask(auth authService, tasks tasksService, notifs notifications
 	}
 	result, err := tasks.Update(r.Context(), state.Organization.ID, taskID, state.User.ID, input)
 	if err != nil {
+		if errors.Is(err, moduletasks.ErrInvalidAssignee) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an active team member as task assignee")
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update task")
 		return
-	}
-
-	if notifs != nil && input.AssignedToUserID > 0 && input.AssignedToUserID != state.User.ID {
-		_ = notifs.Create(r.Context(), state.Organization.ID, modulenotifications.CreateInput{
-			UserID:     result.Task.AssignedToUserID,
-			EventType:  "task.assigned",
-			EntityType: "task",
-			EntityID:   result.Task.ID,
-			Summary:    fmt.Sprintf("You were assigned a task: %s", result.Task.Title),
-		})
 	}
 
 	respondTaskDetail(w, r, http.StatusOK, result)
@@ -256,8 +245,15 @@ func handleDashboardSummary(auth authService, dashboard dashboardService, w http
 		return
 	}
 
-	summary, err := dashboard.SummaryByOrganization(r.Context(), state.Organization.ID)
+	summary, err := dashboard.SummaryByOrganization(r.Context(), state.Organization.ID, moduledashboard.ForecastQuery{
+		PeriodStart: strings.TrimSpace(r.URL.Query().Get("forecastStart")),
+		PeriodEnd:   strings.TrimSpace(r.URL.Query().Get("forecastEnd")),
+	})
 	if err != nil {
+		if errors.Is(err, moduledashboard.ErrInvalidForecastPeriod) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose a valid forecast period no longer than one year")
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load dashboard summary")
 		return
 	}
@@ -447,7 +443,7 @@ func decodeContactRequest(w http.ResponseWriter, r *http.Request) (modulecontact
 	if !decodeJSONRequest(w, r, requestID, &request) {
 		return modulecontacts.CreateInput{}, false
 	}
-	input := modulecontacts.CreateInput{FirstName: strings.TrimSpace(request.FirstName), LastName: strings.TrimSpace(request.LastName), Email: strings.TrimSpace(request.Email), Phone: strings.TrimSpace(request.Phone), AddressLine1: strings.TrimSpace(request.AddressLine1), AddressLine2: strings.TrimSpace(request.AddressLine2), City: strings.TrimSpace(request.City), State: strings.TrimSpace(request.State), PostalCode: strings.TrimSpace(request.PostalCode), Country: strings.TrimSpace(request.Country), JobTitle: strings.TrimSpace(request.JobTitle), Status: strings.TrimSpace(request.Status), IsClient: request.IsClient}
+	input := modulecontacts.CreateInput{FirstName: strings.TrimSpace(request.FirstName), LastName: strings.TrimSpace(request.LastName), Email: strings.TrimSpace(request.Email), Phone: strings.TrimSpace(request.Phone), AddressLine1: strings.TrimSpace(request.AddressLine1), AddressLine2: strings.TrimSpace(request.AddressLine2), City: strings.TrimSpace(request.City), State: strings.TrimSpace(request.State), PostalCode: strings.TrimSpace(request.PostalCode), Country: strings.TrimSpace(request.Country), JobTitle: strings.TrimSpace(request.JobTitle), Status: strings.TrimSpace(request.Status), IsClient: request.IsClient, CustomFields: request.CustomFields}
 	if input.FirstName == "" || input.LastName == "" {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "First name and last name are required")
 		return modulecontacts.CreateInput{}, false
@@ -461,7 +457,7 @@ func decodeCompanyRequest(w http.ResponseWriter, r *http.Request) (modulecompani
 	if !decodeJSONRequest(w, r, requestID, &request) {
 		return modulecompanies.CreateInput{}, false
 	}
-	input := modulecompanies.CreateInput{Name: strings.TrimSpace(request.Name), ClientType: normalizeCompanyClientType(request.ClientType), AddressLine1: strings.TrimSpace(request.AddressLine1), AddressLine2: strings.TrimSpace(request.AddressLine2), City: strings.TrimSpace(request.City), State: strings.TrimSpace(request.State), PostalCode: strings.TrimSpace(request.PostalCode), Country: strings.TrimSpace(request.Country), Industry: strings.TrimSpace(request.Industry), Phone: strings.TrimSpace(request.Phone), Website: strings.TrimSpace(request.Website), Status: strings.TrimSpace(request.Status), LinkedContactIDs: request.LinkedContactIDs}
+	input := modulecompanies.CreateInput{Name: strings.TrimSpace(request.Name), ClientType: normalizeCompanyClientType(request.ClientType), AddressLine1: strings.TrimSpace(request.AddressLine1), AddressLine2: strings.TrimSpace(request.AddressLine2), City: strings.TrimSpace(request.City), State: strings.TrimSpace(request.State), PostalCode: strings.TrimSpace(request.PostalCode), Country: strings.TrimSpace(request.Country), Industry: strings.TrimSpace(request.Industry), Phone: strings.TrimSpace(request.Phone), Website: strings.TrimSpace(request.Website), Status: strings.TrimSpace(request.Status), LinkedContactIDs: request.LinkedContactIDs, CustomFields: request.CustomFields}
 	if input.Name == "" {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Company name is required")
 		return modulecompanies.CreateInput{}, false
@@ -767,180 +763,4 @@ func readSessionCookie(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return cookie.Value, true
-}
-
-func newAuthRateLimiter() *authRateLimiter {
-	return &authRateLimiter{clients: make(map[string]rateLimitBucket)}
-}
-
-func (l *authRateLimiter) allow(key string) bool {
-	if l == nil {
-		return true
-	}
-	now := time.Now()
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if len(l.clients) > 1024 {
-		for clientKey, bucket := range l.clients {
-			if now.Sub(bucket.windowStart) >= authRateWindow {
-				delete(l.clients, clientKey)
-			}
-		}
-	}
-	bucket := l.clients[key]
-	if bucket.windowStart.IsZero() || now.Sub(bucket.windowStart) >= authRateWindow {
-		l.clients[key] = rateLimitBucket{windowStart: now, count: 1}
-		return true
-	}
-	if bucket.count >= authRateLimit {
-		return false
-	}
-	bucket.count++
-	l.clients[key] = bucket
-	return true
-}
-
-func authRateLimitKey(r *http.Request) string {
-	if r == nil {
-		return "unknown"
-	}
-	if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
-		if before, _, found := strings.Cut(forwardedFor, ","); found {
-			return strings.TrimSpace(before)
-		}
-		return forwardedFor
-	}
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && host != "" {
-		return host
-	}
-	if r.RemoteAddr != "" {
-		return r.RemoteAddr
-	}
-	return "unknown"
-}
-
-func normalizePassword(password string) string {
-	if password == "opencr...word" {
-		return "opencrm-demo-password"
-	}
-	return password
-}
-
-func withSecurityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "same-origin")
-		next.ServeHTTP(w, r)
-	})
-}
-
-func withCSRFProtection(env config.Env, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if requiresCSRFCheck(r) && !isSameSiteRequest(env, r) {
-			platformweb.WriteError(w, http.StatusForbidden, platformweb.RequestIDFromContext(r.Context()), "FORBIDDEN", "Cross-site request blocked")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func requiresCSRFCheck(r *http.Request) bool {
-	if r == nil || isSafeMethod(r.Method) {
-		return false
-	}
-	_, hasSessionCookie := readSessionCookie(r)
-	return hasSessionCookie
-}
-
-func isSafeMethod(method string) bool {
-	switch method {
-	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
-		return true
-	default:
-		return false
-	}
-}
-
-func isSameSiteRequest(env config.Env, r *http.Request) bool {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin != "" {
-		return isSameOrigin(r, origin) || isAllowedOrigin(origin, env.AllowedOrigins)
-	}
-	referer := strings.TrimSpace(r.Header.Get("Referer"))
-	if referer != "" {
-		return isSameOrigin(r, referer) || isAllowedOrigin(originFromURL(referer), env.AllowedOrigins)
-	}
-	fetchSite := strings.TrimSpace(strings.ToLower(r.Header.Get("Sec-Fetch-Site")))
-	if fetchSite == "same-origin" || fetchSite == "none" {
-		return true
-	}
-	if fetchSite == "cross-site" || fetchSite == "same-site" {
-		return false
-	}
-	return !isProduction(env)
-}
-
-func isSameOrigin(r *http.Request, rawURL string) bool {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return false
-	}
-	return strings.EqualFold(parsed.Scheme, requestScheme(r)) && strings.EqualFold(parsed.Host, r.Host)
-}
-
-func originFromURL(rawURL string) string {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return ""
-	}
-	return parsed.Scheme + "://" + parsed.Host
-}
-
-func requestScheme(r *http.Request) string {
-	if forwardedProto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
-		if before, _, found := strings.Cut(forwardedProto, ","); found {
-			return strings.TrimSpace(before)
-		}
-		return forwardedProto
-	}
-	if r.TLS != nil {
-		return "https"
-	}
-	return "http"
-}
-
-func withCORS(env config.Env, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := strings.TrimSpace(r.Header.Get("Origin"))
-		if isAllowedOrigin(origin, env.AllowedOrigins) {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
-			w.Header().Add("Vary", "Origin")
-			w.Header().Add("Vary", "Access-Control-Request-Method")
-			w.Header().Add("Vary", "Access-Control-Request-Headers")
-		}
-		if r.Method == http.MethodOptions {
-			if isAllowedOrigin(origin, env.AllowedOrigins) {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func isAllowedOrigin(origin string, allowedOrigins []string) bool {
-	if origin == "" || len(allowedOrigins) == 0 {
-		return false
-	}
-	return slices.Contains(allowedOrigins, origin)
-}
-
-func isProduction(env config.Env) bool {
-	return strings.EqualFold(strings.TrimSpace(env.GOEnv), "production")
 }

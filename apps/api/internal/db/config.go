@@ -3,10 +3,12 @@ package db
 import (
 	"errors"
 	"os"
+	"strings"
 )
 
 type Config struct {
-	DatabaseURL string
+	DatabaseURL             string
+	AllowContractMigrations bool
 }
 
 func LoadConfigFromEnv() (Config, error) {
@@ -15,5 +17,8 @@ func LoadConfigFromEnv() (Config, error) {
 		return Config{}, errors.New("DATABASE_URL is required")
 	}
 
-	return Config{DatabaseURL: databaseURL}, nil
+	return Config{
+		DatabaseURL:             databaseURL,
+		AllowContractMigrations: strings.EqualFold(strings.TrimSpace(os.Getenv("ALLOW_CONTRACT_MIGRATIONS")), "true"),
+	}, nil
 }

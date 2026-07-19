@@ -19,14 +19,16 @@ type fakeDashboardService struct {
 	upsertResult         moduledashboard.Summary
 	upsertErr            error
 	lastSummaryOrgID     int64
+	lastForecastQuery    moduledashboard.ForecastQuery
 	lastUpsertOrgID      int64
 	lastUpsertUserID     int64
 	lastUpsertActorID    int64
 	lastUpsertQuotaInput moduledashboard.QuotaInput
 }
 
-func (f *fakeDashboardService) SummaryByOrganization(_ context.Context, organizationID int64) (moduledashboard.Summary, error) {
+func (f *fakeDashboardService) SummaryByOrganization(_ context.Context, organizationID int64, query moduledashboard.ForecastQuery) (moduledashboard.Summary, error) {
 	f.lastSummaryOrgID = organizationID
+	f.lastForecastQuery = query
 	return f.summaryResult, f.summaryErr
 }
 
@@ -54,12 +56,12 @@ func authenticatedDashboardServer(service *fakeDashboardService) http.Handler {
 func TestDashboardSummaryUsesCurrentOrganization(t *testing.T) {
 	service := &fakeDashboardService{
 		summaryResult: moduledashboard.Summary{
-			PipelineValue:    "48000.00",
-			OpenDealsCount:   3,
-			WonDealsCount:    1,
-			OpenTasksCount:   8,
-			DueTodayCount:    2,
-			NewContactsCount: 5,
+			PipelineValue:     "48000.00",
+			OpenDealsCount:    3,
+			WonDealsCount:     1,
+			OpenTasksCount:    8,
+			DueSoonTasksCount: 2,
+			NewContactsCount:  5,
 			Forecast: moduledashboard.Forecast{
 				PeriodStart:            "2026-04-01",
 				PeriodEnd:              "2026-06-30",
@@ -94,7 +96,7 @@ func TestDashboardSummaryUsesCurrentOrganization(t *testing.T) {
 	}
 	server := authenticatedDashboardServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/dashboard/summary", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/dashboard/summary?forecastStart=2026-04-01&forecastEnd=2026-06-30", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -105,6 +107,9 @@ func TestDashboardSummaryUsesCurrentOrganization(t *testing.T) {
 	}
 	if service.lastSummaryOrgID != 42 {
 		t.Fatalf("expected org id 42, got %d", service.lastSummaryOrgID)
+	}
+	if service.lastForecastQuery.PeriodStart != "2026-04-01" || service.lastForecastQuery.PeriodEnd != "2026-06-30" {
+		t.Fatalf("unexpected forecast query: %#v", service.lastForecastQuery)
 	}
 
 	var response struct {
@@ -161,5 +166,18 @@ func TestUpsertDashboardSalesQuotaUsesCurrentOrganization(t *testing.T) {
 	}
 	if response.Data.Forecast.TeamQuota != "125000.00" || len(response.Data.Forecast.Members) != 1 {
 		t.Fatalf("unexpected quota response: %#v", response.Data.Forecast)
+	}
+}
+
+func TestDashboardSummaryRejectsInvalidForecastPeriod(t *testing.T) {
+	service := &fakeDashboardService{summaryErr: moduledashboard.ErrInvalidForecastPeriod}
+	request := httptest.NewRequest(http.MethodGet, "/api/dashboard/summary?forecastStart=2026-09-30&forecastEnd=2026-07-01", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	authenticatedDashboardServer(service).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "valid forecast period") {
+		t.Fatalf("unexpected invalid-period response: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

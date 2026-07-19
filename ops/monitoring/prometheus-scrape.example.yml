@@ -1,0 +1,15 @@
+# Merge this job and rule file into an existing Prometheus configuration. Keep
+# the token file outside the repository and chmod 600 for the Prometheus user.
+scrape_configs:
+  - job_name: open-crm
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/open_crm_metrics_token
+    static_configs:
+      - targets: [127.0.0.1:18089]
+
+rule_files:
+  - /etc/prometheus/rules/open-crm-alerts.yml

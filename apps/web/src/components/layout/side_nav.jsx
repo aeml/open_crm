@@ -27,7 +27,13 @@ const baseLinks = [
   { to: '/settings/calendar', labelKey: 'calendar', fallback: 'Booking Links' },
   { to: '/settings/email-log', labelKey: 'emailLog', fallback: 'Email Log' },
   { to: '/settings/billing', labelKey: 'billing', fallback: 'Plan & Billing' },
-  { to: '/settings/audit', labelKey: 'audit', fallback: 'Audit Trail' }
+  { to: '/settings/audit', labelKey: 'audit', fallback: 'Audit Trail' },
+  { to: '/settings/imports', labelKey: 'imports', fallback: 'Data Imports', adminOnly: true },
+  { to: '/settings/data-quality', labelKey: 'dataQuality', fallback: 'Data Quality', adminOnly: true },
+  { to: '/settings/custom-fields', labelKey: 'customFields', fallback: 'Custom Fields', adminOnly: true },
+  { to: '/settings/pipelines', labelKey: 'pipelines', fallback: 'Pipelines', adminOnly: true },
+  { to: '/settings/archived-records', labelKey: 'archivedRecords', fallback: 'Archived Records' },
+  { to: '/settings/operations', labelKey: 'operations', fallback: 'Operations', adminOnly: true }
 ]
 
 function defaultLabelsForBusinessType(businessType) {
@@ -78,13 +84,14 @@ export function SideNav() {
     ...(businessProfile?.labels || {})
   }
   const fallbacks = defaultFallbacksForBusinessType(businessType)
+  const isAdmin = ['owner', 'admin'].includes(session?.membership?.role || '')
 
   return (
     <aside className="side-nav" aria-label="Main navigation">
       <div className="brand-mark" aria-hidden="true">OC</div>
       <nav aria-label="Primary">
         <ul>
-          {baseLinks.map((link) => (
+          {baseLinks.filter((link) => !link.adminOnly || isAdmin).map((link) => (
             <li key={link.to}>
               <NavLink to={link.to} className="side-nav-link">
                 {labels[link.labelKey] || fallbacks[link.labelKey] || link.fallback}

@@ -276,13 +276,24 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		isActive = *input.IsActive
 	}
 
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return Automation{}, fmt.Errorf("begin create workflow automation: %w", err)
+	}
+	defer tx.Rollback(ctx)
 	var automationID int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := tx.QueryRow(ctx, `
 		INSERT INTO workflow_automations (organization_id, name, description, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, actions_json, is_active, position, created_by_user_id, updated_by_user_id)
 		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $12)
 		RETURNING id
 	`, organizationID, input.Name, input.Description, input.TriggerType, input.TargetEntityType, string(configJSON), input.ConditionLogic, string(conditionsJSON), string(actionsJSON), isActive, input.Position, actorUserID).Scan(&automationID); err != nil {
 		return Automation{}, mapSaveError(err)
+	}
+	if err := auditAutomationDefinition(ctx, tx, organizationID, actorUserID, automationID, "workflow_automation.created", "Workflow automation created", input, isActive); err != nil {
+		return Automation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Automation{}, fmt.Errorf("commit create workflow automation: %w", err)
 	}
 	return s.getByID(ctx, organizationID, automationID)
 }
@@ -312,7 +323,12 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 		isActive = *input.IsActive
 	}
 
-	updated, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return Automation{}, fmt.Errorf("begin update workflow automation: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	updated, err := tx.Exec(ctx, `
 		UPDATE workflow_automations
 		SET name = $3,
 		    description = $4,
@@ -334,7 +350,26 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 	if updated.RowsAffected() == 0 {
 		return Automation{}, ErrNotFound
 	}
+	if err := auditAutomationDefinition(ctx, tx, organizationID, actorUserID, automationID, "workflow_automation.updated", "Workflow automation updated", input, isActive); err != nil {
+		return Automation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Automation{}, fmt.Errorf("commit update workflow automation: %w", err)
+	}
 	return s.getByID(ctx, organizationID, automationID)
+}
+
+func auditAutomationDefinition(ctx context.Context, tx pgx.Tx, organizationID, actorUserID, automationID int64, eventType, summary string, input Input, isActive any) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
+		VALUES ($1,$2,$3,'workflow_automation',$4,$5,
+		        jsonb_build_object('name',$6::text,'triggerType',$7::text,'targetEntityType',$8::text,
+		                           'active',$9::boolean,'actionCount',$10::int,'conditionCount',$11::int))
+	`, organizationID, actorUserID, eventType, automationID, summary, input.Name, input.TriggerType, input.TargetEntityType, isActive, len(input.Actions), len(input.Conditions))
+	if err != nil {
+		return fmt.Errorf("audit workflow automation definition: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) getByID(ctx context.Context, organizationID, automationID int64) (Automation, error) {

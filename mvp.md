@@ -7,7 +7,7 @@ Goal: ship a production-capable CRM MVP for managing organizations, users, conta
 Architecture: one Go API service, one JavaScript web app, one Postgres database. Keep the backend modular inside one process. Keep the frontend simple, fast, and visually polished with hand-rolled design primitives instead of a massive component stack.
 
 Tech stack:
-- Backend language: Go 1.23+
+- Backend language: Go 1.26+
 - Backend HTTP: Go stdlib `net/http` with `ServeMux`
 - Backend DB access: `pgx/v5` with explicit SQL and small repositories
 - Auth: server-side sessions stored in Postgres, signed opaque session cookie, Argon2id password hashing
@@ -251,6 +251,8 @@ Notes:
 ## 4. Dependency budget
 
 Minimal dependencies is a hard requirement here, not a suggestion.
+The executable support and security gates for this budget are maintained in
+[`docs/dependency-policy.md`](docs/dependency-policy.md).
 
 ### Backend dependency budget
 

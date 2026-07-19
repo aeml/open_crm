@@ -1,12 +1,7 @@
 name: Deploy frontend to GitHub Pages
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/web/**'
-      - '.github/workflows/frontend-pages.yml'
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -30,7 +25,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
@@ -70,3 +65,11 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Verify deployed frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent \
+            --retry 12 --retry-all-errors --retry-delay 5 \
+            "${{ steps.deployment.outputs.page_url }}" > /dev/null

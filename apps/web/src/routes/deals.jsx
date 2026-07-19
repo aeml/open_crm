@@ -5,10 +5,10 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
-import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { InlineError } from '../components/ui/inline_error'
+import { BulkActions, bulkStatusOptions } from '../components/ui/bulk_actions'
 import { RecordEmailComposer } from '../components/record_email_composer'
-import { archiveDeal, createDeal, createDealPipeline, createDealSignatureRequest, dealsExportURL, getDeal, listDeals, listDealPipelines, quotePDFURL, replaceDealLineItems, sendDealEmail, updateDeal, updateDealSignatureRequestStatus, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, createDealSignatureRequest, dealsExportURL, getDeal, listDeals, listDealPipelines, quotePDFURL, replaceDealLineItems, sendDealEmail, updateDeal, updateDealSignatureRequestStatus, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -18,6 +18,24 @@ import { listOrganizationUsers } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
+import {
+  dealFormValues,
+  emptyDealMeta,
+  emptyDealsDescription,
+  emptyDealsMessage,
+  emptyLineItemForm,
+  emptyLineTotals,
+  emptySignatureForm,
+  flattenPipelineStages,
+  formatMoney,
+  lineItemFormFromCatalogItem,
+  lineItemPayload,
+  pipelineLabels,
+  stageLabel,
+  stagesForPipeline
+} from './deal_view'
+import { DealLineItemsCard, DealSignatureCard } from './deal_quote'
+import { RecordWorkCards } from './record_work'
 
 const emptyForm = {
   name: '',
@@ -38,187 +56,6 @@ const emptyTaskForm = {
   assignedToUserId: ''
 }
 
-const emptyLineItemForm = {
-  productCatalogItemId: '',
-  name: '',
-  sku: '',
-  itemType: 'product',
-  quantity: '1',
-  unitName: 'unit',
-  unitPrice: '0.00',
-  discountAmount: '0.00',
-  taxRate: '0',
-  currency: 'USD'
-}
-
-const emptyLineTotals = { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: 'USD' }
-
-const emptyDealMeta = { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0', currency: 'USD', missingRateCurrencies: [] }
-
-const emptySignatureForm = {
-  signerName: '',
-  signerEmail: ''
-}
-
-function formatMoney(value, currency = 'USD') {
-  const amount = Number.parseFloat(value || '0')
-  if (!Number.isFinite(amount)) {
-    return '$0.00'
-  }
-  const normalizedCurrency = String(currency || 'USD').toUpperCase()
-  const safeCurrency = /^[A-Z]{3}$/.test(normalizedCurrency) ? normalizedCurrency : 'USD'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: safeCurrency }).format(amount)
-}
-
-function formatSignatureTime(value) {
-  if (!value) {
-    return 'Not recorded'
-  }
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleString()
-}
-
-function signatureStatusLabel(status) {
-  if (status === 'voided') return 'Voided'
-  if (status === 'declined') return 'Declined'
-  if (status === 'signed') return 'Signed'
-  if (status === 'sent') return 'Sent'
-  return 'Draft'
-}
-
-function flattenPipelineStages(pipelines) {
-  return pipelines.flatMap((pipeline) => (pipeline.stages || []).map((stage) => ({ ...stage, pipelineId: stage.pipelineId || pipeline.id, pipelineName: pipeline.name })))
-}
-
-function stagesForPipeline(stages, pipelineFilter) {
-  if (pipelineFilter === 'all') {
-    return stages
-  }
-  return stages.filter((stage) => String(stage.pipelineId) === String(pipelineFilter))
-}
-
-function stageLabel(stage, pipelineFilter) {
-  if (pipelineFilter === 'all' && stage.pipelineName) {
-    return `${stage.pipelineName}: ${stage.name}`
-  }
-  return stage.name
-}
-
-function dealFormValues(deal) {
-  return {
-    name: deal.name || '',
-    stageId: deal.stageId ? String(deal.stageId) : '',
-    companyId: deal.companyId ? String(deal.companyId) : '',
-    primaryContactId: deal.primaryContactId ? String(deal.primaryContactId) : '',
-    status: deal.status || 'open',
-    valueAmount: deal.valueAmount || '',
-    valueCurrency: deal.valueCurrency || 'USD',
-    expectedCloseDate: deal.expectedCloseDate || '',
-    ownerUserId: deal.ownerUserId ? String(deal.ownerUserId) : ''
-  }
-}
-
-function lineItemFormFromCatalogItem(item) {
-  if (!item) {
-    return emptyLineItemForm
-  }
-  return {
-    productCatalogItemId: String(item.id),
-    name: item.name || '',
-    sku: item.sku || '',
-    itemType: item.itemType || 'product',
-    quantity: '1',
-    unitName: item.unitName || 'unit',
-    unitPrice: item.unitPrice || '0.00',
-    discountAmount: '0.00',
-    taxRate: '0',
-    currency: item.currency || 'USD'
-  }
-}
-
-function lineItemPayload(item, index) {
-  return {
-    productCatalogItemId: Number.parseInt(item.productCatalogItemId, 10) || 0,
-    name: item.name,
-    sku: item.sku,
-    itemType: item.itemType,
-    quantity: item.quantity,
-    unitName: item.unitName,
-    unitPrice: item.unitPrice,
-    discountAmount: item.discountAmount,
-    taxRate: item.taxRate,
-    currency: item.currency,
-    position: index + 1
-  }
-}
-
-function pipelineLabels(businessType) {
-  if (businessType === 'services' || businessType === 'construction-services') {
-    return {
-      collection: 'Jobs',
-      singular: 'Job',
-      createHeading: 'New job',
-      createDescription: 'Create jobs against the real org stage list.',
-      summaryOpen: 'Open jobs',
-      summaryWon: 'Won jobs',
-      searchLabel: 'Search jobs',
-      companyLabel: 'Client',
-      companyEmpty: 'No client linked',
-      contactLabel: 'Primary contact',
-      contactEmpty: 'No primary contact',
-      valueLabel: 'Job value',
-      dateLabel: 'Target date',
-      showingLabel: 'jobs',
-      listAria: 'Jobs list',
-      notesAria: 'Job notes list',
-      tasksAria: 'Job tasks list',
-      activityAria: 'Job activity list',
-      archiveAction: 'Archive job',
-      moveAction: 'Move job to stage',
-      moveLabel: 'Move job stage'
-    }
-  }
-
-  return {
-    collection: 'Deals',
-    singular: 'Deal',
-    createHeading: 'New deal',
-    createDescription: 'Create pipeline entries against the real org stage list.',
-    summaryOpen: 'Open deals',
-    summaryWon: 'Won deals',
-    searchLabel: 'Search deals',
-    companyLabel: 'Company',
-    companyEmpty: 'No company linked',
-    contactLabel: 'Primary contact',
-    contactEmpty: 'No primary contact',
-    valueLabel: 'Value amount',
-    dateLabel: 'Expected close date',
-    showingLabel: 'deals',
-    listAria: 'Deals list',
-    notesAria: 'Deal notes list',
-    tasksAria: 'Deal tasks list',
-    activityAria: 'Deal activity list',
-    archiveAction: 'Archive deal',
-    moveAction: 'Move to stage',
-    moveLabel: 'Move stage'
-  }
-}
-
-function emptyDealsMessage(search, pipelineFilter, stageFilter, ownerFilter, labels) {
-  if (search.trim() || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all') {
-    return `No ${labels.showingLabel} match the current filters.`
-  }
-
-  return `No ${labels.showingLabel} yet.`
-}
-
-function emptyDealsDescription(search, pipelineFilter, stageFilter, ownerFilter, labels) {
-  if (search.trim() || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all') {
-    return 'Clear a filter or try a broader search to see more pipeline records.'
-  }
-
-  return `Create the first ${labels.singular.toLowerCase()} once you have a real opportunity, job, or follow-up conversation to track.`
-}
 
 export function DealsRoute() {
   const navigate = useNavigate()
@@ -235,11 +72,14 @@ export function DealsRoute() {
   const initialPipelineFilter = searchParams.get('pipeline') || 'all'
   const initialStageFilter = searchParams.get('stage') || 'all'
   const initialOwnerFilter = searchParams.get('owner') || 'all'
+  const initialCloseFrom = searchParams.get('closeFrom') || ''
+  const initialCloseTo = searchParams.get('closeTo') || ''
   const initialCompanyId = searchParams.get('companyId') || ''
   const initialPrimaryContactId = searchParams.get('primaryContactId') || ''
   const [pipelines, setPipelines] = useState([])
   const [stages, setStages] = useState([])
   const [deals, setDeals] = useState([])
+  const [selectedDealIds, setSelectedDealIds] = useState([])
   const [meta, setMeta] = useState(emptyDealMeta)
   const [form, setForm] = useState({
     ...emptyForm,
@@ -251,6 +91,8 @@ export function DealsRoute() {
   const [pipelineFilter, setPipelineFilter] = useState(initialPipelineFilter)
   const [stageFilter, setStageFilter] = useState(initialStageFilter)
   const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
+  const [closeFrom, setCloseFrom] = useState(initialCloseFrom)
+  const [closeTo, setCloseTo] = useState(initialCloseTo)
   const [companyOptions, setCompanyOptions] = useState([])
   const [contactOptions, setContactOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
@@ -266,21 +108,19 @@ export function DealsRoute() {
   const [lineTotals, setLineTotals] = useState(emptyLineTotals)
   const [signatureRequests, setSignatureRequests] = useState([])
   const [signatureForm, setSignatureForm] = useState(emptySignatureForm)
-  const [pipelineFormName, setPipelineFormName] = useState('')
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isSavingLineItems, setIsSavingLineItems] = useState(false)
-  const [isCreatingPipeline, setIsCreatingPipeline] = useState(false)
   const [isCreatingSignatureRequest, setIsCreatingSignatureRequest] = useState(false)
   const [updatingSignatureRequestId, setUpdatingSignatureRequestId] = useState(null)
   const [pipelineReady, setPipelineReady] = useState(false)
   const listControllerRef = useRef(null)
   const filteredStages = stagesForPipeline(stages, pipelineFilter)
-  const hasDealFilters = search.trim() !== '' || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all'
+  const hasDealFilters = search.trim() !== '' || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all' || closeFrom !== '' || closeTo !== ''
 
-  function buildDealsPath(nextDealId = routeDealId, nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
+  function buildDealsPath(nextDealId = routeDealId, nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, nextCloseFrom = closeFrom, nextCloseTo = closeTo) {
     const params = new URLSearchParams()
     if (nextSearch) {
       params.set('q', nextSearch)
@@ -294,25 +134,30 @@ export function DealsRoute() {
     if (nextOwnerFilter !== 'all') {
       params.set('owner', nextOwnerFilter)
     }
+    if (nextCloseFrom) params.set('closeFrom', nextCloseFrom)
+    if (nextCloseTo) params.set('closeTo', nextCloseTo)
     const suffix = params.toString() ? `?${params.toString()}` : ''
     const pathname = nextDealId ? `/deals/${nextDealId}` : '/deals'
     return `${pathname}${suffix}`
   }
 
-  async function loadDeals(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
+  async function loadDeals(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal, nextCloseFrom = closeFrom, nextCloseTo = closeTo } = {}) {
     const isUnassigned = nextOwnerFilter === 'unassigned'
     const loadedDeals = await listDeals({
       search: nextSearch,
       pipelineId: nextPipelineFilter === 'all' ? 0 : Number.parseInt(nextPipelineFilter, 10) || 0,
       stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
       unassigned: isUnassigned,
-      ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
+      ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0,
+      closeFrom: nextCloseFrom,
+      closeTo: nextCloseTo
     }, { signal })
     setDeals(loadedDeals.deals || [])
+    setSelectedDealIds([])
     setMeta(loadedDeals.meta || emptyDealMeta)
   }
 
-  async function loadPipeline(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal } = {}) {
+  async function loadPipeline(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal, nextCloseFrom = closeFrom, nextCloseTo = closeTo } = {}) {
     const isUnassigned = nextOwnerFilter === 'unassigned'
     const [loadedPipelines, loadedDeals, loadedCompanies, loadedContacts, loadedUsers] = await Promise.all([
       listDealPipelines({ signal }),
@@ -321,7 +166,9 @@ export function DealsRoute() {
         pipelineId: nextPipelineFilter === 'all' ? 0 : Number.parseInt(nextPipelineFilter, 10) || 0,
         stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
         unassigned: isUnassigned,
-        ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0
+        ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0,
+        closeFrom: nextCloseFrom,
+        closeTo: nextCloseTo
       }, { signal }),
       listCompanies('', { signal }),
       listContacts('', { signal }),
@@ -331,6 +178,7 @@ export function DealsRoute() {
     setStages(loadedStages)
     setPipelines(loadedPipelines)
     setDeals(loadedDeals.deals || [])
+    setSelectedDealIds([])
     setCompanyOptions(loadedCompanies.companies || [])
     setContactOptions(loadedContacts.contacts || [])
     setUserOptions(loadedUsers)
@@ -361,7 +209,7 @@ export function DealsRoute() {
     async function run() {
       setIsListLoading(true)
       try {
-        await loadPipeline(initialSearch, initialPipelineFilter, initialStageFilter, initialOwnerFilter, { signal: controller.signal })
+        await loadPipeline(initialSearch, initialPipelineFilter, initialStageFilter, initialOwnerFilter, { signal: controller.signal, nextCloseFrom: initialCloseFrom, nextCloseTo: initialCloseTo })
         setError('')
       } catch (loadError) {
         if (!isAbortError(loadError)) {
@@ -379,7 +227,7 @@ export function DealsRoute() {
     return () => {
       controller.abort()
     }
-  }, [initialCompanyId, initialOwnerFilter, initialPipelineFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
+  }, [initialCloseFrom, initialCloseTo, initialCompanyId, initialOwnerFilter, initialPipelineFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
 
   const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
   const dealEmailRecipients = useMemo(() => {
@@ -484,13 +332,13 @@ export function DealsRoute() {
     }
   }, [deals, pipelineReady, routeDealId, selectedDealId])
 
-  async function reloadDeals(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter) {
+  async function reloadDeals(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, nextCloseFrom = closeFrom, nextCloseTo = closeTo) {
     listControllerRef.current?.abort()
     const controller = new AbortController()
     listControllerRef.current = controller
     setIsListLoading(true)
     try {
-      await loadDeals(nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, { signal: controller.signal })
+      await loadDeals(nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, { signal: controller.signal, nextCloseFrom, nextCloseTo })
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -545,9 +393,10 @@ export function DealsRoute() {
         expectedCloseDate: form.expectedCloseDate,
         ownerUserId: Number.parseInt(form.ownerUserId, 10) || 0
       })
+      const taskData = await listTasks({ status: 'open', entityType: 'deal', entityId: data.deal.id })
       setDeals((current) => [...current, data.deal])
       setNotes(data.notes || [])
-      setTasks(data.tasks || [])
+      setTasks(taskData.tasks || [])
       setLineItems(data.lineItems || [])
       setLineTotals(data.totals || emptyLineTotals)
       setLineItemForm(emptyLineItemForm)
@@ -831,32 +680,6 @@ export function DealsRoute() {
     }
   }
 
-  async function handleCreatePipeline(event) {
-    event.preventDefault()
-    if (!pipelineFormName.trim()) {
-      return
-    }
-    setIsCreatingPipeline(true)
-    try {
-      const pipeline = await createDealPipeline({ name: pipelineFormName.trim() })
-      const nextPipelines = [...pipelines, pipeline].sort((a, b) => (a.position - b.position) || (a.id - b.id))
-      const nextStages = flattenPipelineStages(nextPipelines)
-      setPipelines(nextPipelines)
-      setStages(nextStages)
-      setPipelineFormName('')
-      setPipelineFilter(String(pipeline.id))
-      setStageFilter('all')
-      setForm((current) => ({ ...current, stageId: pipeline.stages?.[0] ? String(pipeline.stages[0].id) : current.stageId }))
-      navigate(buildDealsPath(null, search, String(pipeline.id), 'all', ownerFilter), { replace: true })
-      await reloadDeals(search, String(pipeline.id), 'all', ownerFilter)
-      setError('')
-    } catch (pipelineError) {
-      setError(pipelineError.message || 'Unable to create pipeline.')
-    } finally {
-      setIsCreatingPipeline(false)
-    }
-  }
-
   async function applyOwnerFilter(value) {
     setOwnerFilter(value)
     navigate(buildDealsPath(selectedDealId, search, pipelineFilter, stageFilter, value), { replace: true })
@@ -867,20 +690,30 @@ export function DealsRoute() {
     await applyOwnerFilter(event.target.value)
   }
 
+  async function handleCloseDateFilter(event) {
+    event.preventDefault()
+    navigate(buildDealsPath(selectedDealId, search, pipelineFilter, stageFilter, ownerFilter, closeFrom, closeTo), { replace: true })
+    await reloadDeals(search, pipelineFilter, stageFilter, ownerFilter, closeFrom, closeTo)
+  }
+
   async function handleApplySavedView(filters) {
     const nextSearch = filters.q || ''
     const nextPipelineFilter = filters.pipeline || 'all'
     const nextStageFilter = filters.stage || 'all'
     const nextOwnerFilter = filters.owner || 'all'
+    const nextCloseFrom = filters.closeFrom || ''
+    const nextCloseTo = filters.closeTo || ''
     const nextStages = stagesForPipeline(stages, nextPipelineFilter)
     setSearch(nextSearch)
     setPipelineFilter(nextPipelineFilter)
     setStageFilter(nextStageFilter)
     setOwnerFilter(nextOwnerFilter)
+    setCloseFrom(nextCloseFrom)
+    setCloseTo(nextCloseTo)
     setForm((current) => ({ ...current, stageId: nextStages[0] ? String(nextStages[0].id) : current.stageId }))
     setSelectedDealId(null)
-    navigate(buildDealsPath(null, nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter), { replace: true })
-    await reloadDeals(nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter)
+    navigate(buildDealsPath(null, nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, nextCloseFrom, nextCloseTo), { replace: true })
+    await reloadDeals(nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, nextCloseFrom, nextCloseTo)
   }
 
   function handleOpenDealTasks() {
@@ -899,7 +732,7 @@ export function DealsRoute() {
                 <h2>{labels.collection}</h2>
                 <p>Real pipeline, real stages, no fake dashboard filler.</p>
               </div>
-              <a className="button button-secondary" href={dealsExportURL({ search, pipelineId: pipelineFilter === 'all' ? 0 : Number.parseInt(pipelineFilter, 10) || 0, stageId: stageFilter === 'all' ? 0 : Number.parseInt(stageFilter, 10) || 0, ownerUserId: ownerFilter === 'all' ? 0 : Number.parseInt(ownerFilter, 10) || 0 })}>
+              <a className="button button-secondary" href={dealsExportURL({ search, pipelineId: pipelineFilter === 'all' ? 0 : Number.parseInt(pipelineFilter, 10) || 0, stageId: stageFilter === 'all' ? 0 : Number.parseInt(stageFilter, 10) || 0, ownerUserId: ownerFilter === 'all' ? 0 : Number.parseInt(ownerFilter, 10) || 0, closeFrom, closeTo })}>
                 Export CSV
               </a>
             </div>
@@ -933,7 +766,7 @@ export function DealsRoute() {
           <Field label={labels.searchLabel}>
             <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
-          <SavedViews entityType="deals" currentFilters={{ q: search, pipeline: pipelineFilter, stage: stageFilter, owner: ownerFilter }} onApply={handleApplySavedView} defaultName={`${labels.singular} view`} />
+          <SavedViews entityType="deals" currentFilters={{ q: search, pipeline: pipelineFilter, stage: stageFilter, owner: ownerFilter, closeFrom, closeTo }} onApply={handleApplySavedView} defaultName={`${labels.singular} view`} />
           <Field label="Pipeline filter">
             <select className="text-input" value={pipelineFilter} onChange={handlePipelineFilterChange}>
               <option value="all">All pipelines</option>
@@ -950,14 +783,6 @@ export function DealsRoute() {
               ))}
             </select>
           </Field>
-          {canWrite ? (
-            <form className="auth-form" onSubmit={handleCreatePipeline}>
-              <Field label="New pipeline name">
-                <input className="text-input" value={pipelineFormName} onChange={(event) => setPipelineFormName(event.target.value)} placeholder="Enterprise, Renewals, Services" />
-              </Field>
-              <Button type="submit" disabled={isCreatingPipeline}>{isCreatingPipeline ? 'Creating pipeline...' : 'Create pipeline'}</Button>
-            </form>
-          ) : null}
           <Field label="Owner filter">
             <div className="button-row">
               <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
@@ -977,15 +802,21 @@ export function DealsRoute() {
               </Button>
             </div>
           </Field>
+          <form className="auth-form" onSubmit={handleCloseDateFilter}>
+            <Field label="Expected close from"><input className="text-input" type="date" value={closeFrom} onChange={(event) => setCloseFrom(event.target.value)} /></Field>
+            <Field label="Expected close to"><input className="text-input" type="date" value={closeTo} onChange={(event) => setCloseTo(event.target.value)} /></Field>
+            <Button className="button-secondary" type="submit">Apply close dates</Button>
+          </form>
           {isListLoading ? <p className="field-hint">Loading {labels.showingLabel}...</p> : null}
           {error ? (
             <InlineError message={error} onRetry={() => reloadDeals(search, pipelineFilter, stageFilter, ownerFilter)} retryLabel={`Retry ${labels.showingLabel}`} />
           ) : null}
+          {canWrite ? <BulkActions entityType="deal" selectedIds={selectedDealIds} visibleIds={deals.map((deal) => deal.id)} onSelectionChange={setSelectedDealIds} onChanged={() => reloadDeals(search, pipelineFilter, stageFilter, ownerFilter)} statuses={bulkStatusOptions.deal} userOptions={userOptions} /> : null}
           <div className="record-list" role="list" aria-label={labels.listAria}>
             {!isListLoading && deals.length === 0 ? (
               <EmptyState
-                title={emptyDealsMessage(search, pipelineFilter, stageFilter, ownerFilter, labels)}
-                description={emptyDealsDescription(search, pipelineFilter, stageFilter, ownerFilter, labels)}
+                title={emptyDealsMessage(search, pipelineFilter, stageFilter, ownerFilter, labels, closeFrom, closeTo)}
+                description={emptyDealsDescription(search, pipelineFilter, stageFilter, ownerFilter, labels, closeFrom, closeTo)}
                 actionLabel={hasDealFilters ? 'Clear filters' : ''}
                 onAction={() => {
                   if (hasDealFilters) {
@@ -993,14 +824,17 @@ export function DealsRoute() {
                     setPipelineFilter('all')
                     setStageFilter('all')
                     setOwnerFilter('all')
-                    navigate(buildDealsPath(null, '', 'all', 'all', 'all'), { replace: true })
-                    reloadDeals('', 'all', 'all', 'all')
+                    setCloseFrom('')
+                    setCloseTo('')
+                    navigate(buildDealsPath(null, '', 'all', 'all', 'all', '', ''), { replace: true })
+                    reloadDeals('', 'all', 'all', 'all', '', '')
                   }
                 }}
               />
             ) : deals.map((deal) => (
               <article className="record-row" key={deal.id} role="listitem">
                 <div>
+                  {canWrite ? <input type="checkbox" aria-label={`Select ${deal.name}`} checked={selectedDealIds.includes(deal.id)} onChange={() => setSelectedDealIds((current) => current.includes(deal.id) ? current.filter((id) => id !== deal.id) : [...current, deal.id])} /> : null}
                   <button className="button button-ghost contact-link" type="button" onClick={() => handleSelectDeal(deal)}>
                     {deal.name}
                   </button>
@@ -1137,135 +971,31 @@ export function DealsRoute() {
               </Field>
               {canWrite ? <Button type="submit">{`Update ${labels.singular.toLowerCase()}`}</Button> : null}
             </form>
-            <Card>
-              <div className="card-stack">
-                <div className="section-header">
-                  <div>
-                    <h3>Line items</h3>
-                    <p className="field-hint">Use catalog items or custom entries. Saving line items updates the {labels.singular.toLowerCase()} value.</p>
-                  </div>
-                  <div>
-                    <p>{formatMoney(lineTotals.total, lineTotals.currency || selectedDeal.valueCurrency)}</p>
-                    <p className="field-hint">Subtotal {formatMoney(lineTotals.subtotal, lineTotals.currency || selectedDeal.valueCurrency)} · Discount {formatMoney(lineTotals.discountTotal, lineTotals.currency || selectedDeal.valueCurrency)} · Tax {formatMoney(lineTotals.taxTotal, lineTotals.currency || selectedDeal.valueCurrency)}</p>
-                  </div>
-                </div>
-                <div className="record-list" role="list" aria-label="Deal line items">
-                  {lineItems.length === 0 ? (
-                    <article className="record-row" role="listitem">
-                      <div>
-                        <p>No line items yet.</p>
-                        <p className="field-hint">Add products or services to calculate the deal value from quote-ready details.</p>
-                      </div>
-                    </article>
-                  ) : lineItems.map((item, index) => (
-                    <article className="record-row" key={`${item.id || 'draft'}-${index}`} role="listitem">
-                      <div>
-                        <h4>{item.name}</h4>
-                        <p className="field-hint">{item.sku || 'No SKU'} · {item.quantity} {item.unitName || 'unit'} x {formatMoney(item.unitPrice, item.currency)} · Discount {formatMoney(item.discountAmount, item.currency)} · Tax {item.taxRate || '0'}%</p>
-                      </div>
-                      <div>
-                        <p>{item.total ? formatMoney(item.total, item.currency) : 'Unsaved'}</p>
-                        {canWrite ? <Button className="button-secondary" type="button" onClick={() => handleRemoveLineItem(index)}>Remove</Button> : null}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-                {canWrite ? (
-                  <>
-                    <form className="auth-form" onSubmit={handleAddLineItem}>
-                      <Field label="Catalog item">
-                        <select className="text-input" value={lineItemForm.productCatalogItemId} onChange={handleCatalogLineItemChange}>
-                          <option value="">Custom line item</option>
-                          {productCatalogItems.map((item) => (
-                            <option key={item.id} value={item.id}>{item.sku ? `${item.name} (${item.sku})` : item.name}</option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="Line item name">
-                        <input className="text-input" value={lineItemForm.name} onChange={(event) => setLineItemForm((current) => ({ ...current, name: event.target.value }))} required />
-                      </Field>
-                      <Field label="Line item type">
-                        <select className="text-input" value={lineItemForm.itemType} onChange={(event) => setLineItemForm((current) => ({ ...current, itemType: event.target.value }))}>
-                          <option value="product">Product</option>
-                          <option value="service">Service</option>
-                        </select>
-                      </Field>
-                      <Field label="Line item quantity">
-                        <input className="text-input" inputMode="decimal" value={lineItemForm.quantity} onChange={(event) => setLineItemForm((current) => ({ ...current, quantity: event.target.value }))} required />
-                      </Field>
-                      <Field label="Line item unit">
-                        <input className="text-input" value={lineItemForm.unitName} onChange={(event) => setLineItemForm((current) => ({ ...current, unitName: event.target.value }))} required />
-                      </Field>
-                      <Field label="Line item unit price">
-                        <input className="text-input" inputMode="decimal" value={lineItemForm.unitPrice} onChange={(event) => setLineItemForm((current) => ({ ...current, unitPrice: event.target.value }))} required />
-                      </Field>
-                      <Field label="Line item discount">
-                        <input className="text-input" inputMode="decimal" value={lineItemForm.discountAmount} onChange={(event) => setLineItemForm((current) => ({ ...current, discountAmount: event.target.value }))} />
-                      </Field>
-                      <Field label="Line item tax rate">
-                        <input className="text-input" inputMode="decimal" value={lineItemForm.taxRate} onChange={(event) => setLineItemForm((current) => ({ ...current, taxRate: event.target.value }))} />
-                      </Field>
-                      <Field label="Line item currency">
-                        <input className="text-input" maxLength={3} value={lineItemForm.currency} onChange={(event) => setLineItemForm((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} required />
-                      </Field>
-                      <Button type="submit">Add line item</Button>
-                    </form>
-                    <Button type="button" onClick={handleSaveLineItems} disabled={isSavingLineItems}>{isSavingLineItems ? 'Saving...' : 'Save line items'}</Button>
-                  </>
-                ) : null}
-              </div>
-            </Card>
-            <Card>
-              <div className="card-stack">
-                <div className="section-header">
-                  <div>
-                    <h3>Signature tracking</h3>
-                    <p className="field-hint">Track quote signature requests while native e-signature and provider integrations are built out.</p>
-                  </div>
-                </div>
-                <div className="record-list" role="list" aria-label="Deal signature requests">
-                  {signatureRequests.length === 0 ? (
-                    <article className="record-row" role="listitem">
-                      <div>
-                        <p>No signature requests yet.</p>
-                        <p className="field-hint">Create a request when a quote is ready for customer review and signature.</p>
-                      </div>
-                    </article>
-                  ) : signatureRequests.map((request) => (
-                    <article className="record-row" key={request.id} role="listitem">
-                      <div>
-                        <h4>{request.signerName}</h4>
-                        <p className="field-hint">{request.signerEmail} · {signatureStatusLabel(request.status)} · {request.provider || 'native_tracking'}</p>
-                        <p className="field-hint">Quote file: {request.quoteFileName || 'Current quote PDF'}</p>
-                      </div>
-                      <div>
-                        <p>{request.status === 'signed' ? `Signed ${formatSignatureTime(request.signedAt)}` : `Updated ${formatSignatureTime(request.updatedAt)}`}</p>
-                        {canWrite ? (
-                          <select className="text-input" aria-label={`Signature status for ${request.signerName}`} value={request.status} disabled={updatingSignatureRequestId === request.id} onChange={(event) => handleUpdateSignatureRequestStatus(request.id, event.target.value)}>
-                            <option value="draft">Draft</option>
-                            <option value="sent">Sent</option>
-                            <option value="signed">Signed</option>
-                            <option value="declined">Declined</option>
-                            <option value="voided">Voided</option>
-                          </select>
-                        ) : null}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-                {canWrite ? (
-                  <form className="auth-form" onSubmit={handleCreateSignatureRequest}>
-                    <Field label="Signer name">
-                      <input className="text-input" value={signatureForm.signerName} onChange={(event) => setSignatureForm((current) => ({ ...current, signerName: event.target.value }))} required />
-                    </Field>
-                    <Field label="Signer email">
-                      <input className="text-input" type="email" value={signatureForm.signerEmail} onChange={(event) => setSignatureForm((current) => ({ ...current, signerEmail: event.target.value }))} required />
-                    </Field>
-                    <Button type="submit" disabled={isCreatingSignatureRequest}>{isCreatingSignatureRequest ? 'Creating...' : 'Create signature request'}</Button>
-                  </form>
-                ) : null}
-              </div>
-            </Card>
+            <DealLineItemsCard
+              canWrite={canWrite}
+              deal={selectedDeal}
+              form={lineItemForm}
+              isSaving={isSavingLineItems}
+              items={lineItems}
+              labels={labels}
+              onAdd={handleAddLineItem}
+              onCatalogChange={handleCatalogLineItemChange}
+              onRemove={handleRemoveLineItem}
+              onSave={handleSaveLineItems}
+              onSetForm={setLineItemForm}
+              products={productCatalogItems}
+              totals={lineTotals}
+            />
+            <DealSignatureCard
+              canWrite={canWrite}
+              form={signatureForm}
+              isCreating={isCreatingSignatureRequest}
+              onCreate={handleCreateSignatureRequest}
+              onSetForm={setSignatureForm}
+              onUpdate={handleUpdateSignatureRequestStatus}
+              requests={signatureRequests}
+              updatingID={updatingSignatureRequestId}
+            />
             {canWrite ? (
               <>
                 <Field label={labels.moveLabel}>
@@ -1287,76 +1017,25 @@ export function DealsRoute() {
               emptyMessage="Set a primary contact with an email address before sending email from this deal."
               mergeFieldHint="Merge fields like {{first_name}}, {{deal_name}}, {{deal_stage}}, and {{company_name}} are filled in when the email is sent."
             />
-            <Card>
-              <div className="card-stack">
-                <h3>Notes</h3>
-                {canWrite ? (
-                  <form className="auth-form" onSubmit={handleCreateNote}>
-                    <Field label="New note">
-                      <textarea className="text-input" value={noteBody} onChange={(event) => setNoteBody(event.target.value)} rows={4} />
-                    </Field>
-                    <Button type="submit">Add note</Button>
-                  </form>
-                ) : null}
-                <div className="record-list" role="list" aria-label={labels.notesAria}>
-                  {notes.map((note) => (
-                    <article className="record-row" key={note.id} role="listitem">
-                      <div>
-                        <p>{note.body}</p>
-                        <p className="field-hint">{note.createdByUserName || 'Unknown author'}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </Card>
-            <Card>
-              <div className="card-stack">
-                <div className="section-header">
-                  <h3>Tasks</h3>
-                  <Button className="button-secondary" type="button" onClick={handleOpenDealTasks}>
-                    Open in tasks
-                  </Button>
-                </div>
-                {canWrite ? (
-                  <form className="auth-form" onSubmit={handleCreateTask}>
-                    <Field label="Task title">
-                      <input className="text-input" value={taskForm.title} onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} required />
-                    </Field>
-                    <Field label="Task description">
-                      <textarea className="text-input" value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
-                    </Field>
-                    <Field label="Assigned to">
-                      <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => setTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
-                        {userOptions.map((user) => (
-                          <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Due at">
-                      <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => setTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
-                    </Field>
-                    <Button type="submit">Save task</Button>
-                  </form>
-                ) : null}
-                <div className="record-list" role="list" aria-label={labels.tasksAria}>
-                  {tasks.map((task) => (
-                    <article className="record-row" key={task.id} role="listitem">
-                      <div>
-                        <p>{task.title}</p>
-                        <p className="field-hint">{task.assignedToUserName || 'Unassigned'}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </Card>
-            <Card>
-              <div className="card-stack">
-                <h3>Activity</h3>
-                <ActivityTimeline activities={activities} ariaLabel={labels.activityAria} />
-              </div>
-            </Card>
+            <RecordWorkCards
+              activities={activities}
+              activityAria={labels.activityAria}
+              canWrite={canWrite}
+              entityId={selectedDealId}
+              entityType="deal"
+              noteBody={noteBody}
+              notes={notes}
+              notesAria={labels.notesAria}
+              onCreateNote={handleCreateNote}
+              onCreateTask={handleCreateTask}
+              onOpenTasks={handleOpenDealTasks}
+              onSetNoteBody={setNoteBody}
+              onSetTaskForm={setTaskForm}
+              taskForm={taskForm}
+              tasks={tasks}
+              tasksAria={labels.tasksAria}
+              users={userOptions}
+            />
           </div>
         </Card>
       ) : null}

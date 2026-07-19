@@ -3,7 +3,7 @@ package calendar
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,8 +12,7 @@ import (
 const (
 	defaultReminderMinutes = 15
 	defaultReminderLimit   = 25
-	reminderWorkerInterval = time.Minute
-	reminderStartupDelay   = time.Minute
+	ReminderJobType        = "calendar.reminder"
 )
 
 type ReminderSummary struct {
@@ -70,36 +69,6 @@ func (s *Service) SendDueReminders(ctx context.Context, now time.Time, limit int
 	return summary, nil
 }
 
-func (s *Service) RunReminderWorker(ctx context.Context, logger *slog.Logger, interval time.Duration, limit int) {
-	if !s.Configured() {
-		return
-	}
-	if interval <= 0 {
-		interval = reminderWorkerInterval
-	}
-	if limit <= 0 || limit > 100 {
-		limit = defaultReminderLimit
-	}
-	timer := time.NewTimer(reminderStartupDelay)
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-			summary, err := s.SendDueReminders(ctx, time.Now(), limit)
-			if err != nil {
-				if logger != nil {
-					logger.Warn("calendar reminder worker failed", "error", err)
-				}
-			} else if summary.Attempted > 0 && logger != nil {
-				logger.Info("calendar reminder worker completed", "attempted", summary.Attempted, "sent", summary.Sent)
-			}
-			timer.Reset(interval)
-		}
-	}
-}
-
 func createDefaultReminder(ctx context.Context, tx pgx.Tx, organizationID, eventID, userID int64, startAt time.Time) error {
 	if organizationID <= 0 || eventID <= 0 || userID <= 0 || startAt.IsZero() {
 		return ErrInvalidInput
@@ -112,7 +81,61 @@ func createDefaultReminder(ctx context.Context, tx pgx.Tx, organizationID, event
 	if err != nil {
 		return fmt.Errorf("create calendar reminder: %w", err)
 	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO background_jobs (organization_id, job_type, idempotency_key, payload_json, max_attempts, run_at)
+		SELECT organization_id, $4, 'reminder:' || id::text, jsonb_build_object('reminderId', id::text), 5, remind_at
+		FROM calendar_event_reminders
+		WHERE organization_id = $1 AND calendar_event_id = $2 AND user_id = $3 AND reminder_minutes = 15
+		ON CONFLICT (organization_id, job_type, idempotency_key) DO NOTHING
+	`, organizationID, eventID, userID, ReminderJobType)
+	if err != nil {
+		return fmt.Errorf("enqueue calendar reminder job: %w", err)
+	}
 	return nil
+}
+
+// DeliverReminderJob performs one idempotent reminder delivery. A duplicate or
+// stale job is a successful no-op because the reminder row is the effect ledger.
+func (s *Service) DeliverReminderJob(ctx context.Context, organizationID int64, payload map[string]any) (map[string]any, error) {
+	if !s.Configured() {
+		return nil, fmt.Errorf("calendar service not configured")
+	}
+	reminderID, err := reminderIDFromPayload(payload)
+	if err != nil || organizationID <= 0 {
+		return nil, fmt.Errorf("%w: invalid calendar reminder job payload", ErrInvalidInput)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin calendar reminder job: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reminder, err := selectReminderByID(ctx, tx, organizationID, reminderID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return map[string]any{"delivered": false, "reminderId": strconv.FormatInt(reminderID, 10)}, nil
+		}
+		return nil, err
+	}
+	if err := deliverReminder(ctx, tx, reminder, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit calendar reminder job: %w", err)
+	}
+	return map[string]any{"delivered": true, "reminderId": strconv.FormatInt(reminderID, 10)}, nil
+}
+
+func reminderIDFromPayload(payload map[string]any) (int64, error) {
+	value, ok := payload["reminderId"].(string)
+	if !ok {
+		return 0, fmt.Errorf("calendar reminder id is missing")
+	}
+	reminderID, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || reminderID <= 0 {
+		return 0, fmt.Errorf("calendar reminder id is invalid")
+	}
+	return reminderID, nil
 }
 
 func skipPendingReminders(ctx context.Context, tx pgx.Tx, organizationID, eventID int64) error {
@@ -158,6 +181,22 @@ func selectDueReminders(ctx context.Context, tx pgx.Tx, now time.Time, limit int
 		return nil, fmt.Errorf("iterate due calendar reminders: %w", err)
 	}
 	return reminders, nil
+}
+
+func selectReminderByID(ctx context.Context, tx pgx.Tx, organizationID, reminderID int64) (dueReminder, error) {
+	var reminder dueReminder
+	err := tx.QueryRow(ctx, `
+		SELECT r.id, r.organization_id, r.calendar_event_id, r.user_id, e.entity_type, e.entity_id, e.title, e.start_at
+		FROM calendar_event_reminders r
+		JOIN calendar_events e ON e.organization_id = r.organization_id AND e.id = r.calendar_event_id
+		WHERE r.organization_id = $1 AND r.id = $2
+		  AND r.status = 'pending' AND r.remind_at <= NOW() AND e.status = 'scheduled'
+		FOR UPDATE OF r
+	`, organizationID, reminderID).Scan(&reminder.ID, &reminder.OrganizationID, &reminder.EventID, &reminder.UserID, &reminder.EntityType, &reminder.EntityID, &reminder.Title, &reminder.StartAt)
+	if err != nil {
+		return dueReminder{}, err
+	}
+	return reminder, nil
 }
 
 func deliverReminder(ctx context.Context, tx pgx.Tx, reminder dueReminder, deliveredAt time.Time) error {

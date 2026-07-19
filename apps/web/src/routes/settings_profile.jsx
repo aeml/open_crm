@@ -29,6 +29,7 @@ export function SettingsProfileRoute() {
   const [defaultLandingView, setDefaultLandingView] = useState('')
   const [notifyOnTaskAssigned, setNotifyOnTaskAssigned] = useState(true)
   const [notifyOnDealAssigned, setNotifyOnDealAssigned] = useState(true)
+  const [notifyOnTaskReminders, setNotifyOnTaskReminders] = useState(true)
   const [prefsError, setPrefsError] = useState('')
   const [prefsSaved, setPrefsSaved] = useState(false)
   const [isPrefsLoading, setIsPrefsLoading] = useState(true)
@@ -43,6 +44,7 @@ export function SettingsProfileRoute() {
         setDefaultLandingView(prefs?.defaultLandingView || '')
         setNotifyOnTaskAssigned(prefs?.notifyOnTaskAssigned !== false)
         setNotifyOnDealAssigned(prefs?.notifyOnDealAssigned !== false)
+        setNotifyOnTaskReminders(prefs?.notifyOnTaskReminders !== false)
         setIsPrefsLoading(false)
       })
       .catch((err) => {
@@ -79,7 +81,7 @@ export function SettingsProfileRoute() {
     setPrefsSaved(false)
 
     try {
-      await updatePreferences({ defaultLandingView, notifyOnTaskAssigned, notifyOnDealAssigned })
+      await updatePreferences({ defaultLandingView, notifyOnTaskAssigned, notifyOnDealAssigned, notifyOnTaskReminders })
       setPrefsSaved(true)
     } catch (err) {
       setPrefsError(err.message || 'Unable to save preferences.')
@@ -170,7 +172,8 @@ export function SettingsProfileRoute() {
                   ))}
                 </select>
               </Field>
-              <Field label="In-app notifications">
+              <div className="field">
+                <span className="field-label">In-app notifications</span>
                 <label className="checkbox-label">
                   <input
                     type="checkbox"
@@ -187,7 +190,15 @@ export function SettingsProfileRoute() {
                   />
                   Notify me when a deal is assigned to me
                 </label>
-              </Field>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={notifyOnTaskReminders}
+                    onChange={(event) => { setNotifyOnTaskReminders(event.target.checked); setPrefsSaved(false) }}
+                  />
+                  Notify me when an assigned task is due soon or overdue
+                </label>
+              </div>
               <Button type="submit" disabled={isPrefsSaving}>
                 {isPrefsSaving ? 'Saving…' : 'Save preferences'}
               </Button>

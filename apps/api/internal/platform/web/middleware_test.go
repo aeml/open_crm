@@ -8,7 +8,20 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+type requestObservation struct {
+	method string
+	route  string
+	status int
+}
+
+func (o *requestObservation) ObserveHTTPRequest(method, route string, status int, _ time.Duration) {
+	o.method = method
+	o.route = route
+	o.status = status
+}
 
 func TestRequestLoggerLogsRequestFields(t *testing.T) {
 	var output bytes.Buffer
@@ -25,10 +38,28 @@ func TestRequestLoggerLogsRequestFields(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 
 	logLine := output.String()
-	for _, expected := range []string{`"msg":"http_request"`, `"method":"POST"`, `"path":"/api/things"`, `"status":201`, `"request_id":"req_`} {
+	for _, expected := range []string{`"msg":"http_request"`, `"method":"POST"`, `"route":"unmatched"`, `"status":201`, `"request_id":"req_`} {
 		if !strings.Contains(logLine, expected) {
 			t.Fatalf("expected log to contain %s, got %s", expected, logLine)
 		}
+	}
+	if strings.Contains(logLine, "/api/things") || strings.Contains(logLine, "198.51.100.7") {
+		t.Fatalf("request log exposed raw path or client address: %s", logLine)
+	}
+}
+
+func TestRequestTelemetryUsesBoundedServeMuxPattern(t *testing.T) {
+	observation := &requestObservation{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/contacts/{contactID}", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := RequestTelemetry(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), observation, mux)
+	request := httptest.NewRequest(http.MethodGet, "/api/contacts/123456", nil)
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	if observation.method != http.MethodGet || observation.route != "/api/contacts/{contactID}" || observation.status != http.StatusNoContent {
+		t.Fatalf("unexpected request observation: %+v", observation)
 	}
 }
 

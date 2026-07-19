@@ -5,21 +5,417 @@ This runbook covers the production Docker Compose deployment used by `scripts/re
 ## Request Tracing
 
 - Every API response includes `X-Request-Id`.
-- API request logs include `request_id`, `method`, `path`, `status`, `duration_ms`, `remote_addr`, and response `bytes`.
+- API request logs include `request_id`, `method`, bounded route pattern,
+  `status`, `duration_ms`, and response `bytes`.
 - In production (`GO_ENV=production`), API logs are JSON so request IDs can be searched directly in log tooling.
+- Raw URLs, query strings, client addresses, recipients, subjects, phone numbers,
+  meeting titles, and provider IDs are intentionally excluded from global and
+  provider success logs. Never add tenant, record, message, or credential data
+  as a metric label.
+
+## Monitoring And Alerts
+
+`GET /metrics` exposes dependency-free Prometheus text metrics for bounded HTTP
+route/status/latency, PostgreSQL readiness, aggregate (not tenant-labeled)
+durable queue state/lag, worker outcomes, Postmark/SMTP outcomes, and verified
+backup/restore evidence. The route is hidden with `404` unless
+`METRICS_BEARER_TOKEN` contains at least 32 characters; invalid credentials
+receive `401`. The deployment Compose port is loopback-bound, and the token is
+still required because a reverse proxy could otherwise expose the route.
+
+Generate and store one token outside the checkout, then copy the same value to
+the protected deployment environment and the monitoring system's credentials
+file:
+
+```sh
+install -d -m 700 ~/.config/open-crm
+openssl rand -hex 32 > ~/.config/open-crm/metrics-token
+chmod 600 ~/.config/open-crm/metrics-token
+# Add: METRICS_BEARER_TOKEN=<the generated value> to .env.production.
+```
+
+After restarting the API, verify a scrape without putting the token in curl's
+process arguments:
+
+```bash
+metrics_token="$(< ~/.config/open-crm/metrics-token)"
+curl --fail --silent --show-error \
+  --config <(printf 'header = "Authorization: Bearer %s"\n' "$metrics_token") \
+  http://127.0.0.1:18089/metrics | head
+unset metrics_token
+```
+
+Merge `ops/monitoring/prometheus-scrape.example.yml` into an existing
+Prometheus configuration and install
+`ops/monitoring/prometheus-alerts.yml` as its rule file. Update the host/port if
+`API_PORT` differs. Validate before reload:
+
+```sh
+promtool check rules /etc/prometheus/rules/open-crm-alerts.yml
+promtool check config /etc/prometheus/prometheus.yml
+```
+
+The reference rules alert on metrics collection or database failure, sustained
+5xx ratio/p95 latency, queue collection/lag/dead letters/worker errors,
+provider failures, backup evidence/failure/freshness, and restore-drill
+failure/freshness. They do not choose an Alertmanager destination. Before a
+pilot, the operator must route critical and warning alerts to an approved
+on-call destination, send a synthetic test alert, and record its receipt. Do
+not place destination credentials in this repository.
+
+### Initial pilot SLOs
+
+Repository regression thresholds and fixture scope are defined separately in
+[`performance-and-failure-budgets.md`](performance-and-failure-budgets.md); do
+not reinterpret CI timings as production SLO evidence.
+
+These are starting operational targets, not claims backed by pilot history:
+
+- API readiness availability: at least 99.5% over a rolling 30 days, excluding
+  announced maintenance.
+- API 5xx ratio: below 1% over 30 days; p95 server duration below 1 second for
+  ordinary JSON routes. The early-warning rules intentionally trigger at 5%
+  and 2 seconds over shorter windows to avoid low-traffic noise.
+- Runnable background-job lag: below 5 minutes, with no dead job unreviewed for
+  more than 15 minutes during supported hours.
+- Verified encrypted backup recovery point: less than 30 hours old; successful
+  isolated restore drill: less than 8 days old.
+
+Measure these during the pilot and tighten or revise them from actual traffic;
+do not silently relabel a missed target as success.
+
+### Database or API incident
+
+1. Confirm `/healthz`, `/readyz`, `open_crm_database_up`, request error ratio,
+   and p95 latency. A healthy process with failed readiness points to PostgreSQL
+   or its connection path.
+2. Correlate the alert window with request IDs and bounded routes in API logs.
+   Do not paste `.env.production`, database URLs, or provider errors containing
+   secrets into an incident channel.
+3. Inspect Compose service state/logs and PostgreSQL disk/connections before
+   restarting. Preserve evidence if the failure repeats.
+4. Use **Deploy Recovery** below for a release regression and **Deliberate
+   Production Restore** only after explicit incident authorization.
+
+### Provider incident
+
+1. Identify `provider` and `operation` from
+   `open_crm_provider_operations_total{outcome="error"}`; inspect HTTP errors and
+   background-job outcomes in the same window.
+2. Confirm provider configuration/status outside Open CRM without exposing
+   credentials. Correct configuration or wait for provider recovery.
+3. Review dead/retryable work in **Settings > Operations**. Never replay an
+   uncertain SMTP delivery until the recipient/provider evidence is checked as
+   described below.
+4. Confirm the counter stops increasing and the next controlled provider
+   operation succeeds before resolving the alert.
+
+### Import interruption or recovery
+
+1. Open **Settings > Data Imports** and inspect the batch counts. Completed
+   batches need no replay; an idempotent repeat returns the existing result.
+2. If a batch remains `processing` after the request ended, select the exact
+   original CSV and use **Resume with selected file**. The stored source digest,
+   mapping, and idempotency key reject a different file and continue after the
+   last committed 50-row checkpoint.
+3. Download the error CSV for skipped rows. It contains row numbers and issues,
+   not retained source values; use the operator's original file to correct and
+   submit those rows as a new batch.
+4. To reverse a bad batch, use **Roll back import**. Rollback archives only
+   records unchanged since import. Changed/already archived records are reported
+   as skipped and must be reviewed rather than overwritten.
+5. Correlate completion/rollback audit events and request IDs if counts disagree.
+   Do not delete batch rows or CRM records with manual SQL during normal recovery.
+
+### Core CSV export ceiling
+
+1. Contacts, Clients, Deals, and Tasks export the active records matching the
+   visible supported filters. Task due filters use the same exact saved-time
+   boundaries as the UI: overdue, next rolling 24 hours, later, or no due date.
+   Contact/client files include every active custom
+   definition as a stable `custom:<key>` column. Only owners and admins can
+   export.
+2. The synchronous download is deliberately bounded at 10,000 matching rows.
+   The service queries row 10,001 and returns `422 EXPORT_TOO_LARGE` instead of
+   writing a partial file. Never treat that response as a completed export.
+3. For an operational subset, apply a search, pipeline/stage/owner, task, or
+   custom-field filter and export the smaller result; retain the filter and time
+   with the file. Filters are not a substitute for a complete tenant package
+   unless they form reviewed, non-overlapping sets.
+4. A tenant requiring more than 10,000 rows in one record type must use the
+   future durable tenant-offboarding export once Phase 3 provides it. Do not
+   raise the in-memory ceiling, run ad hoc production SQL, or assume several
+   informal filtered downloads prove completeness.
+
+### Pipeline configuration and recovery
+
+1. Only owners and admins can change pipeline configuration under **Settings >
+   Pipelines**. Capture the current pipeline and stage order before a broad
+   process change; every successful create, update, and reorder also emits an
+   audit event.
+2. Renaming a stage is safe for existing deals because they retain the same
+   stage ID. Reordering likewise changes display position only. Verify the
+   updated label/order in Deals after the change rather than editing database
+   rows.
+3. Changing a stage between open, won, and lost is rejected with
+   `409 STAGE_IN_USE` if any active or archived deal uses it. Move active deals
+   deliberately and account for archived history before retrying. Do not use
+   SQL to bypass this protection: outcome changes affect status and forecast
+   interpretation.
+4. Stage deletion is intentionally unavailable. If an obsolete unused stage
+   should disappear, record that limitation and retain it until a reviewed
+   archive/replacement workflow exists. Restore a mistaken label or order from
+   the captured configuration and confirm the corresponding audit trail.
+
+### Forecast interpretation and recovery
+
+1. Open-stage probability is an organization-owned assumption from 0% to 100%
+   under **Settings > Pipelines**. Won and lost stages are fixed at 100% and 0%.
+   Changing probability immediately changes the live weighted forecast without
+   moving attached deals; use the pipeline audit event to recover the previous
+   value after a mistaken edit.
+2. Dashboard periods require an inclusive start and end date, in order, and may
+   span at most one year. Open deals with no expected close date remain included
+   so incomplete data cannot disappear from the forecast. Won deals with no
+   expected close date use their last update date. The stage-assumption list is
+   the reconciliation source for probability, unweighted value, and weighted
+   value.
+3. The owner breakdown includes an explicit **Unassigned** row. Assigning a deal
+   moves it between owner rows but does not change the team total. Quotas apply
+   only to active members for the exact selected period.
+4. Values are converted to the organization base currency using the latest
+   configured rate. Any missing currency is listed in the UI and omitted from
+   value totals; add or correct the rate and reload rather than substituting an
+   undocumented estimate. Use matching expected-close filters on Deals and its
+   CSV export to reconcile the dated records behind a period.
+
+### Sales activity reporting and reconciliation
+
+1. Open **Reports > Sales activity**. Every active member, including a viewer,
+   may run it. From/to are inclusive UTC calendar dates and may span no more
+   than 366 days. **Teammate** includes disabled members so historical work does
+   not disappear when access is removed.
+2. Deals created, moved, won, and lost use the deal owner saved on each event.
+   Notes and tasks use the teammate who performed that activity. The UI states
+   this mixed but deliberate meaning beside the teammate rows; do not compare it
+   with current assignment or treat it as employee-adoption measurement.
+3. Win rate is won outcomes divided by won plus lost outcomes in the window.
+   Each is a real transition into an outcome; a deal reopened and closed again
+   contributes another outcome. A stage's forward-exit rate is forward moves within the same pipeline, plus
+   exits to a won stage, divided by every exit from that stage in the window.
+   It is event-based and is not a cohort funnel or stage-to-stage velocity.
+4. Deal create/change writes the ordinary activity and an event-time snapshot
+   in one transaction. Pipeline, stage, outcome, deal-name, and owner edits do
+   not rewrite an older event. Use **Recent deal events** and its deal link when
+   reconciling a count; a repeated same-stage request creates no event.
+5. **Partial event history** means the requested window starts before the shown
+   tracking time for a workspace that already existed when the ledger shipped.
+   Older deal events are deliberately not inferred from mutable current records.
+   A newly provisioned workspace is fully covered from its creation, even when
+   the selected calendar window begins earlier because no workspace records
+   could predate it. Shorten a partial window to the coverage boundary or
+   disclose the limitation; never backfill or edit `deal_stage_events` manually.
+   Record the filters, coverage time, generated time, and request ID when
+   escalating a mismatch.
+
+### Deal task automation and recovery
+
+1. Owners and admins manage the pilot-safe subset under **Settings >
+   Automations**: deal created, a real stage change (optionally to one stage),
+   or deal archived creates exactly one literal follow-up task due in 0–365
+   whole days. Other stored workflow definitions are deliberately hidden and do
+   not gain partial execution merely because their schema exists.
+2. Deal event, task, activity, run record, and audit event commit together. A
+   timed-out direct request can be retried normally; a repeated same-stage move
+   is a no-op, and stable activity/bulk event keys prevent a completed event
+   from creating the same rule task twice.
+3. The task goes to the active deal owner. If that membership is inactive at
+   event time, it goes to the active teammate who caused the event. Inspect
+   **Recent task automation runs**, the task's `task.automated` activity, and
+   the `workflow_automation.executed` audit event when reconciling an outcome.
+   A `skipped` run means a matching legacy rule shape was unsupported and made
+   no task; edit or disable it through a reviewed API repair rather than assuming
+   it ran.
+4. To stop future work, deactivate the rule. Deactivation does not remove tasks
+   already created; edit, complete, archive, or reassign those through normal
+   task controls so the operational history remains honest. Restoring a directly
+   or bulk-archived deal likewise does not delete its archive follow-up task.
+   Review that task explicitly during rollback; never delete run/audit rows or
+   task history with ad hoc SQL.
+
+### Bulk change recovery
+
+1. Open the affected Contacts, Clients, Deals, or Tasks list and expand
+   **Recent bulk changes**. History is tenant scoped and remains available even
+   when an archive removed every selected record from the active list.
+2. Confirm the operation type, affected count, actor, and time. An idempotent
+   retry of the original request returns the same operation rather than applying
+   it twice.
+3. Select **Undo** and confirm. Rollback restores only records whose version still
+   matches the bulk write. Later teammate edits are left intact and reported as
+   skipped; `partially_rolled_back` is therefore a safe review state, not a reason
+   to force database changes.
+4. Correlate `bulk_operation.completed` / `bulk_operation.rolled_back` audit
+   events with the per-record `*.bulk_*` activity entries if counts disagree.
+   Resolve skipped records individually after reviewing their current values.
+5. Do not update `bulk_operations`, `bulk_operation_rows`, or CRM records with
+   manual SQL during normal recovery.
+
+### Duplicate merge review and recovery
+
+1. Before confirming a merge in **Settings > Data Quality**, verify the match
+   reasons, linked-work counts, chosen survivor, and each differing field. A
+   merge is permanent and has no automatic undo. The source record is archived,
+   not deleted, and the confirmation repeats this consequence.
+2. If the merge request times out, retry from the unchanged review. The UI
+   reuses the same idempotency key and request body, so a completed merge is
+   returned rather than applied twice. If either record changed after review,
+   the API rejects the stale version; refresh and review the current values.
+3. Inspect **Recent permanent merges**, the survivor's
+   `duplicate.merged` activity, and the matching audit event before escalating.
+   Import, bulk-operation, and audit ledgers intentionally keep their original
+   record IDs; this is historical accuracy, not an orphaned relationship.
+4. If an operator chose the wrong survivor or field, stop further edits to the
+   survivor and record the affected merge, actor, and time. The archived source
+   still retains its record row, but linked work and selected values have been
+   consolidated. Recovery therefore requires deliberate record-by-record
+   reconciliation, or an approved database restore into an isolated environment
+   for comparison; do not unarchive or rewrite merge/history rows with ad hoc SQL.
+
+### Archived-record recovery and retention
+
+1. Open **Settings > Archived Records**. Every active member can inspect the
+   tenant-scoped history; owners, admins, and members can restore, while viewers
+   are intentionally read-only. Filter by record type or search a name, title,
+   or exact record ID before changing anything.
+2. Confirm the record label, type, owner, and archive time, then select
+   **Restore**. A successful restore returns the same record ID to normal active
+   views and records both a `*.restored` activity and `record.restored` audit
+   event in the same transaction.
+3. A `409` naming an archived dependency is recoverable: restore the linked
+   company/contact before its deal, or the linked contact/company/deal before its
+   independently archived task, then retry. Existing related notes, tasks,
+   activity, and links are retained during archive; active related work is not
+   cascaded into archive, and separately archived work must be restored itself.
+4. A duplicate-merge source is visible for historical diagnosis but cannot be
+   restored. Its relationships and chosen values belong to the survivor; follow
+   the permanent merge recovery procedure above instead of modifying either row
+   directly.
+5. Core lists, exports, and report inputs omit the archived core record. Open CRM
+   currently performs no automatic hard delete or time-based purge: archived
+   rows and their history remain in PostgreSQL and encrypted backups until a
+   future, explicitly approved tenant-offboarding retention/deletion workflow.
+   Do not use ad hoc SQL to bypass these rules during normal recovery.
+
+### Data-quality review
+
+1. Open **Reports > Data quality**. These are live read-only queries, not the
+   custom report definitions farther down the page. Every member can review the
+   queues; no record is changed automatically.
+2. Select a 14, 30, 60, or 90 day stale-deal window. The API accepts only 7–365
+   days. Each queue states its rule, shows the exact current tenant count, and
+   lists up to 25 affected records with the specific reason and a direct link.
+3. Review missing owners, missing contact details, stale or incomplete open
+   deals, and open tasks without due dates. The final queue follows the current
+   business profile: service clients need a linked person, construction clients
+   need a location, and product-sales organization accounts need an industry.
+4. Open each linked record, correct it through the normal editor, then return to
+   Reports or refresh for the next bounded batch. Archived records are excluded;
+   restore one through **Settings > Archived Records** before quality review if
+   it needs to re-enter normal operations.
+5. If a count appears wrong, record the workspace, rule, selected stale window,
+   and displayed generated time; capture the request ID from the API response or
+   correlated request log. Compare only active records matching the displayed
+   criterion; do not repair report counts or CRM rows with manual SQL.
+
+### Custom-field change and recovery
+
+1. Only owners and admins can change definitions in **Settings > Custom
+   Fields**. Before creating a required field, tell record editors which value is
+   expected. Existing records may remain blank, but the next create or edit of
+   each record must satisfy every active required field.
+2. Treat the displayed `custom:<key>` as a permanent integration contract. A
+   field key and type cannot be changed; labels, order, list visibility,
+   required state, and select options can. Removing a select option that is
+   still stored is rejected, so update affected records before removing it.
+3. Archiving asks for explicit confirmation and removes the definition from
+   normal forms, lists, filters, saved-view selection, imports, and exports. The
+   underlying contact/company JSON value and audit history remain in PostgreSQL
+   and therefore in backups. There is no definition-restore UI in this release.
+4. After an accidental archive, stop recreating fields or editing affected
+   records. Record the organization, definition key, actor, and audit-event time.
+   Compare values in an isolated restore if needed; any production definition
+   recovery requires an approved, reviewed data repair. Do not edit JSONB values
+   or definition rows ad hoc during normal operation.
+5. For unexpected validation or filter results, confirm record type, active
+   definition, exact operator/value, and request ID. Contact definitions never
+   apply to organization-client queries, and a company-field filter intentionally
+   excludes individual clients. Export the same filtered list to compare the
+   stable custom column before escalating.
+
+## Public Endpoint Abuse Controls
+
+Authentication, workspace bootstrap, password setup, public lead submissions,
+public landing/widget reads, unsubscribe links, and email open/click tracking use
+separate fixed-window per-client limits. Rate-limited responses return `429`, a
+stable `RATE_LIMITED` error code, and `Retry-After`. Forwarded client addresses
+are trusted only when the direct peer is a loopback or private reverse proxy.
+
+The limiters are process-local and intentionally bounded. Multi-instance global
+limits, bot challenges, and reputation-based spam controls remain part of the
+durable production edge work; do not treat these application limits as a WAF.
 
 ## Deploy
+
+Production deploy workflows are reusable workflows called only by
+`.github/workflows/ci.yml` after backend, frontend, real-PostgreSQL browser, and
+encrypted backup/restore jobs pass on `main`. A failed test, vet, format, lint,
+audit, build, migration-integrity, browser, or recovery check prevents both
+deploy jobs from starting. The backend deploy also verifies the public
+`/healthz` and `/readyz` endpoints; the frontend deploy verifies the published
+Pages URL.
+
+Do not invoke the reusable deploy workflows directly. For a manual redeploy,
+rerun the successful CI workflow for the intended `main` commit so the same
+quality gates remain attached to the release.
 
 From the remote host:
 
 ```sh
 cd ~/open_crm
-scripts/remote-deploy.sh
+scripts/remote-deploy.sh "$PWD" "<git-commit-sha>"
 ```
 
-The deploy script builds the API image, starts Postgres, runs migrations once, and then restarts the API service.
+The workflow supplies the full Git commit SHA as the release ID. The deploy
+script builds one immutable `open-crm-api:<release>` image for both migration
+and API processes, starts PostgreSQL, applies compatible migrations, recreates
+the API, and accepts the release only when the container is healthy and
+`/readyz` reports the exact expected `X-Open-CRM-Release` header. Atomic state
+and per-release manifests are retained under `var/deploy/`.
+
+Every migration from `056` onward must begin with one of these classifications:
+
+```sql
+-- open-crm-deploy: expand
+-- open-crm-deploy: contract
+```
+
+Ordinary deploys allow only backward-compatible expand migrations. The guard
+rejects destructive DDL, required new columns, and new constraints mislabeled
+as expand. A contract migration is blocked unless
+`ALLOW_CONTRACT_MIGRATIONS=true`; use that setting only for an approved
+maintenance window after a fresh backup and restore drill. Contract deploys
+disable automatic application rollback because the previous binary may not be
+compatible with the changed schema. Remove the setting immediately afterward.
 
 ## Deploy Recovery
+
+If a normal expand deployment fails its post-migration readiness check,
+`remote-deploy.sh` automatically recreates the previously accepted immutable
+image, verifies its release header and health, records `rolled_back` in
+`var/deploy/last-deploy.json`, and exits nonzero so CI remains failed. The
+disposable CI acceptance test proves both failed-readiness recovery and a
+manual rollback without reversing database migrations.
 
 Check service state:
 
@@ -27,46 +423,231 @@ Check service state:
 docker compose -f docker-compose.deploy.yml --env-file .env.production ps
 docker compose -f docker-compose.deploy.yml --env-file .env.production logs --tail=200 api
 docker compose -f docker-compose.deploy.yml --env-file .env.production logs --tail=200 migrate
+cat var/deploy/last-deploy.json
+cat var/deploy/current-release
+cat var/deploy/previous-release
 ```
 
-Restart the API without rerunning migrations:
+To deliberately restore the recorded previous application release after an
+expand-only deploy, use the guarded helper. It refuses arbitrary image tags,
+missing manifests, unavailable images, and rollback across a contract release:
 
 ```sh
-docker compose -f docker-compose.deploy.yml --env-file .env.production up -d api
+scripts/rollback-release.sh "$PWD"
 ```
 
-Rerun migrations after fixing a migration/dependency issue:
+The helper does not reverse migrations; expand migrations are deliberately
+compatible with the previous binary. If the current manifest has
+`"rollbackSafe":false`, deploy a forward fix or perform the deliberate database
+restore procedure after explicit incident authorization. Never set
+`ALLOW_CONTRACT_MIGRATIONS=true` merely to bypass a failed ordinary deploy.
+
+## Background Jobs And Dead-Letter Recovery
+
+Open CRM runs calendar and task reminders, automatic mailbox sync, and sequence sends on
+the tenant-scoped PostgreSQL queue. Claims use expiring leases and
+`FOR UPDATE SKIP LOCKED`, so multiple API instances can share work. Ordinary
+failures retry with capped exponential backoff; exhausted or permanent failures
+remain `dead` until an administrator reviews them.
+
+Use **Settings > Operations** as an owner or admin to:
+
+1. Review pending, running, retryable, and dead counts plus the oldest ready job.
+2. Filter by job type or status and read the last failure.
+3. Correct the underlying provider or configuration failure.
+4. Replay a safe dead job. Replay resets the same job and idempotency key; it
+   does not create an unrelated copy.
+
+Every replay is tenant-scoped and written to the admin audit trail. Job payloads
+contain internal identifiers, not mailbox credentials or message bodies.
+
+### Task reminder behavior
+
+Each assigned, open task with a due time has a versioned reminder ledger. A
+`task.reminder` job becomes runnable at the start of the rolling 24-hour window
+and another at the exact due time. Task create/edit, automatic deal tasks, bulk
+changes and rollback, archive/restore, completion/reopen, and member reassignment
+refresh that generation in the same transaction as the task change.
+
+Delivery revalidates the tenant, current version, due time, open/archive state,
+active assignee, and the recipient's **My Profile > Notify me when an assigned
+task is due soon or overdue** choice. A stale or opted-out job succeeds as a
+recorded no-op; a delivered reminder produces one notification plus task
+activity. Replaying the same successful job cannot create another notification.
+If a task reminder is dead, correct the database/configuration cause, verify the
+task is still open and assigned, then use the ordinary Operations replay. Do not
+edit `task_reminders`, its version, or its job payload manually. Email task
+reminders are intentionally not enabled.
+
+### Uncertain sequence email
+
+SMTP can accept a message before a connection failure reaches Open CRM. Those
+jobs are marked `dead` and their delivery is marked `uncertain`; automatic and
+generic replay cannot send them a second time.
+
+From **Settings > Operations**:
+
+1. Check the enrolling user's Sent folder/provider log for the recipient,
+   subject, and approximate attempt time shown by the job.
+2. If the message is present, choose **Confirm already sent**. Open CRM advances
+   the enrollment and schedules the next step without another SMTP call.
+3. If the message is absent, choose **Retry email** and accept the duplicate-risk
+   warning. This re-arms the same delivery/job for one operator-approved attempt.
+4. Recheck the Operations and Audit Trail pages after the decision.
+
+Both choices update the delivery ledger, enrollment/next-step state, and queue
+state in one database transaction. Never repair an uncertain sequence by
+editing `background_jobs` alone.
+
+For read-only diagnosis from the database host:
+
+```sh
+source .env.production
+docker compose -f docker-compose.deploy.yml --env-file .env.production exec -T postgres \
+  psql -U "${POSTGRES_USER:-open_crm}" -d "${POSTGRES_DB:-open_crm}" \
+  -c "SELECT organization_id, job_type, status, attempts, max_attempts, run_at, lease_expires_at, left(last_error, 200) AS last_error FROM background_jobs WHERE status IN ('running', 'retryable', 'dead') ORDER BY updated_at DESC LIMIT 100;"
+```
+
+Do not mutate job or delivery tables manually while an API worker is running.
+
+Rerun an expand migration after fixing a migration/dependency issue:
 
 ```sh
 docker compose -f docker-compose.deploy.yml --env-file .env.production run --rm migrate
 docker compose -f docker-compose.deploy.yml --env-file .env.production up -d api
 ```
 
-## Backup Postgres
+## Encrypted Off-Host PostgreSQL Backups
 
-Create a timestamped logical backup on the remote host:
+Open CRM creates a PostgreSQL custom-format dump, validates its catalog, records
+its checksum and source revision, and sends it through pinned Restic `0.19.1` to
+a client-side encrypted repository. A successful run applies retention and runs
+`restic check`. The scripts reject local repositories outside the disposable
+acceptance test; production must use an off-host Restic backend.
+
+Provision an object-storage bucket/repository and credentials before enabling
+the schedule. Keep the repository password and backend credentials outside the
+checkout and readable only by the deployment user:
 
 ```sh
-mkdir -p backups
-source .env.production
-docker compose -f docker-compose.deploy.yml --env-file .env.production exec -T postgres pg_dump -U "${POSTGRES_USER:-open_crm}" -d "${POSTGRES_DB:-open_crm}" --format=custom > "backups/open_crm_$(date +%Y%m%d_%H%M%S).dump"
+install -d -m 700 ~/.config/open-crm
+openssl rand -base64 48 > ~/.config/open-crm/restic-password
+chmod 600 ~/.config/open-crm/restic-password
+touch ~/.config/open-crm/restic-backend.env
+chmod 600 ~/.config/open-crm/restic-backend.env
 ```
 
-Copy the backup off-host after creation. Treat backups as sensitive because they contain customer CRM data and password/session metadata.
+Put only the provider variables required by the selected [Restic
+backend](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html)
+in `restic-backend.env` (for example, scoped object-store access keys). Add this
+configuration to `.env.production`; never commit the files or their contents:
 
-## Restore Postgres
+```env
+RESTIC_REPOSITORY=s3:https://s3.us-east-1.amazonaws.com/EXAMPLE/open-crm
+RESTIC_PASSWORD_FILE=/home/DEPLOY_USER/.config/open-crm/restic-password
+RESTIC_BACKEND_ENV_FILE=/home/DEPLOY_USER/.config/open-crm/restic-backend.env
+RESTIC_IMAGE=restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510
+BACKUP_HOST_TAG=open-crm-production
+BACKUP_TAG=open-crm-postgres
+BACKUP_KEEP_DAILY=7
+BACKUP_KEEP_WEEKLY=5
+BACKUP_KEEP_MONTHLY=12
+```
 
-Restores replace current database contents. Take a fresh backup before restoring unless the database is already known to be disposable.
+Initialize the repository once, then run and inspect the first backup:
+
+```sh
+cd ~/open_crm
+scripts/init-backup-repository.sh "$PWD"
+scripts/backup-postgres.sh "$PWD"
+python3 -m json.tool var/backup-status/last-backup.json
+python3 -m json.tool var/backup-status/last-backup-attempt.json
+```
+
+`last-backup.json` is the last verified success and therefore the source for
+freshness monitoring. `last-backup-attempt.json` records the latest success or
+failure. Script output is structured as stable `backup_succeeded` or
+`backup_failed` lines for journal/log alerts. Database dumps contain customer
+data and authentication/session metadata; Restic encryption does not make a
+copied plaintext dump safe.
+
+### Schedule backups and drills
+
+The repository includes systemd user-unit templates for a daily backup and
+weekly isolated restore drill. They are intentionally not enabled by a deploy:
+the operator must first configure and test a real off-host repository.
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp ops/systemd/open-crm-backup.{service,timer} ~/.config/systemd/user/
+cp ops/systemd/open-crm-restore-drill.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now open-crm-backup.timer open-crm-restore-drill.timer
+systemctl --user list-timers 'open-crm-*'
+```
+
+The units assume the deployed checkout is `%h/open_crm` and that the deployment
+user can reach Docker. Adjust both service files before installation if the
+path differs. User timers require a persistent user manager; on hosts that do
+not keep one after logout, an administrator must enable lingering or install
+equivalent system units. Inspect failures with:
+
+```sh
+journalctl --user -u open-crm-backup.service -u open-crm-restore-drill.service --since '14 days ago'
+systemctl --user status open-crm-backup.service open-crm-restore-drill.service
+```
+
+## Restore Drill
+
+The drill downloads a selected snapshot, validates the recorded checksum,
+restores into a new disposable PostgreSQL 16 container on the deployment
+network, runs current forward migrations, performs schema/data sanity checks,
+records duration and counts, and removes the disposable database. It never
+changes the live database.
+
+```sh
+cd ~/open_crm
+scripts/restore-drill.sh "$PWD"
+python3 -m json.tool var/backup-status/last-restore-drill.json
+python3 -m json.tool var/backup-status/last-restore-drill-attempt.json
+```
+
+Set `RESTORE_SNAPSHOT=<snapshot-id>` for a historical snapshot. A drill is not
+successful merely because a snapshot exists: the checksum, `pg_restore`,
+forward migration, and sanity queries must all pass. CI exercises the same
+workflow against disposable PostgreSQL and a temporary encrypted repository.
+
+## Deliberate Production Restore
+
+This operation destroys the current live database contents. Confirm the target
+host, incident authorization, snapshot ID, recovery point, and a fresh backup
+before continuing. Keep the API stopped throughout the destructive portion.
+First extract and verify a snapshot to a protected path without overwriting an
+existing file:
+
+```sh
+cd ~/open_crm
+install -d -m 700 var/restore
+RESTORE_SNAPSHOT=SNAPSHOT_ID scripts/extract-backup.sh "$PWD" "$PWD/var/restore/open_crm.dump"
+```
+
+Run `scripts/restore-drill.sh` against that same snapshot before replacing live
+data. Then, after explicit incident approval:
 
 ```sh
 docker compose -f docker-compose.deploy.yml --env-file .env.production stop api
 source .env.production
 docker compose -f docker-compose.deploy.yml --env-file .env.production exec -T postgres dropdb -U "${POSTGRES_USER:-open_crm}" --if-exists "${POSTGRES_DB:-open_crm}"
 docker compose -f docker-compose.deploy.yml --env-file .env.production exec -T postgres createdb -U "${POSTGRES_USER:-open_crm}" "${POSTGRES_DB:-open_crm}"
-docker compose -f docker-compose.deploy.yml --env-file .env.production exec -T postgres pg_restore -U "${POSTGRES_USER:-open_crm}" -d "${POSTGRES_DB:-open_crm}" --clean --if-exists < backups/open_crm_YYYYMMDD_HHMMSS.dump
+docker compose -f docker-compose.deploy.yml --env-file .env.production exec -T postgres pg_restore -U "${POSTGRES_USER:-open_crm}" -d "${POSTGRES_DB:-open_crm}" --no-owner --no-acl < var/restore/open_crm.dump
 docker compose -f docker-compose.deploy.yml --env-file .env.production run --rm migrate
 docker compose -f docker-compose.deploy.yml --env-file .env.production up -d api
+curl --fail --show-error --silent http://127.0.0.1:18089/readyz
 ```
+
+Move the extracted plaintext dump to an approved encrypted incident store or
+securely remove it according to the host policy after recovery evidence is
+captured. Do not automate production database replacement.
 
 ## Health Checks
 

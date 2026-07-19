@@ -7,6 +7,7 @@ import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { InlineError } from '../components/ui/inline_error'
+import { BulkActions, bulkStatusOptions } from '../components/ui/bulk_actions'
 import { archiveTask, createTask, getTask, listTasks, tasksExportURL, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
@@ -15,6 +16,25 @@ import { listOrganizationUsers } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
+import {
+  emptyTaskListDescription,
+  emptyTaskListMessage,
+  formatDueLabel,
+  matchesAssignee,
+  matchesEntityType,
+  matchesStatus,
+  normalizeAssigneeFilter,
+  normalizeDueView,
+  normalizeEntityIdFilter,
+  normalizeEntityTypeFilter,
+  normalizeTaskStatusFilter,
+  sortCompletedTasks,
+  sortOpenTasks,
+  taskCountLabel,
+  taskLabels,
+  taskListHeading,
+  unassignedAssigneeFilter
+} from './task_view'
 
 const emptyForm = {
   title: '',
@@ -27,287 +47,6 @@ const emptyForm = {
   assignedToUserId: ''
 }
 
-const unassignedAssigneeFilter = 'unassigned'
-
-function normalizeTaskStatusFilter(value) {
-  return value === 'completed' ? 'completed' : 'open'
-}
-
-function normalizeDueView(value) {
-  return ['all', 'overdue', 'dueToday', 'upcoming', 'noDueDate'].includes(value) ? value : 'all'
-}
-
-function normalizeAssigneeFilter(value) {
-  if (value === unassignedAssigneeFilter) {
-    return value
-  }
-
-  return /^\d+$/.test(String(value || '')) ? String(value) : 'all'
-}
-
-function normalizeEntityTypeFilter(value) {
-  return ['all', 'deal', 'company', 'contact'].includes(value) ? value : 'all'
-}
-
-function normalizeEntityIdFilter(value) {
-  return /^\d+$/.test(String(value || '')) ? String(value) : ''
-}
-
-function formatDueLabel(task) {
-  if (task.completedAt) {
-    return `Completed ${new Date(task.completedAt).toLocaleString()}`
-  }
-  if (!task.dueAt) {
-    return 'No due date'
-  }
-  return `Due ${new Date(task.dueAt).toLocaleString()}`
-}
-
-function taskLabels(businessType) {
-  if (businessType === 'services' || businessType === 'construction-services') {
-    return {
-      collection: 'Service Tasks',
-      createHeading: 'New service task',
-      createDescription: 'Assign work against a contact, client, or job.',
-      summaryOpen: 'Open service tasks',
-      summaryCompleted: 'Completed service tasks',
-      searchLabel: 'Search service tasks',
-      openHeading: 'Open service tasks',
-      completedHeading: 'Completed service tasks',
-      showingSuffix: 'service tasks',
-      entityTypeLabel: 'Linked record type',
-      entityTypeFilterLabel: 'Linked record filter',
-      dealOption: 'Job',
-      dealLabel: 'Job',
-      companyLabel: 'Client',
-      viewLabel: 'Service task view',
-      overdueHeading: 'Overdue service tasks',
-      dueTodayHeading: 'Service tasks due today',
-      upcomingHeading: 'Upcoming service tasks',
-      noDueDateHeading: 'Service tasks without due dates',
-      activityAria: 'Service task activity list'
-    }
-  }
-
-  return {
-    collection: 'Tasks',
-    createHeading: 'New task',
-    createDescription: 'Assign work against a contact, company, or deal.',
-    summaryOpen: 'Open tasks',
-    summaryCompleted: 'Completed tasks',
-    searchLabel: 'Search tasks',
-    openHeading: 'Open tasks',
-    completedHeading: 'Completed tasks',
-    showingSuffix: 'tasks',
-    entityTypeLabel: 'Entity type',
-    entityTypeFilterLabel: 'Record type filter',
-    dealOption: 'Deal',
-    dealLabel: 'Deal',
-    companyLabel: 'Company',
-    viewLabel: 'Task view',
-    overdueHeading: 'Overdue tasks',
-    dueTodayHeading: 'Tasks due today',
-    upcomingHeading: 'Upcoming tasks',
-    noDueDateHeading: 'Tasks without due dates',
-    activityAria: 'Task activity list'
-  }
-}
-
-function taskCountLabel(statusFilter, dueView, labels) {
-  if (statusFilter === 'completed') {
-    return labels.summaryCompleted.toLowerCase()
-  }
-
-  if (dueView === 'overdue') {
-    return labels.overdueHeading.toLowerCase()
-  }
-  if (dueView === 'dueToday') {
-    return labels.dueTodayHeading.toLowerCase()
-  }
-  if (dueView === 'upcoming') {
-    return labels.upcomingHeading.toLowerCase()
-  }
-  if (dueView === 'noDueDate') {
-    return labels.noDueDateHeading.toLowerCase()
-  }
-
-  return labels.summaryOpen.toLowerCase()
-}
-
-function taskListHeading(statusFilter, dueView, labels) {
-  if (statusFilter === 'completed') {
-    return labels.completedHeading
-  }
-
-  if (dueView === 'overdue') {
-    return labels.overdueHeading
-  }
-  if (dueView === 'dueToday') {
-    return labels.dueTodayHeading
-  }
-  if (dueView === 'upcoming') {
-    return labels.upcomingHeading
-  }
-  if (dueView === 'noDueDate') {
-    return labels.noDueDateHeading
-  }
-
-  return labels.openHeading
-}
-
-function startOfToday(now) {
-  const next = new Date(now)
-  next.setHours(0, 0, 0, 0)
-  return next
-}
-
-function endOfToday(now) {
-  const next = new Date(now)
-  next.setHours(23, 59, 59, 999)
-  return next
-}
-
-function matchesDueView(task, dueView) {
-  if (dueView === 'all') {
-    return true
-  }
-
-  if (!task.dueAt) {
-    return dueView === 'noDueDate'
-  }
-
-  const dueAt = new Date(task.dueAt)
-  if (Number.isNaN(dueAt.getTime())) {
-    return dueView === 'noDueDate'
-  }
-
-  const now = new Date()
-  const dayStart = startOfToday(now)
-  const dayEnd = endOfToday(now)
-
-  if (dueView === 'overdue') {
-    return dueAt < dayStart
-  }
-  if (dueView === 'dueToday') {
-    return dueAt >= dayStart && dueAt <= dayEnd
-  }
-  if (dueView === 'upcoming') {
-    return dueAt > dayEnd
-  }
-
-  return false
-}
-
-function taskDueSortValue(task) {
-  if (!task.dueAt) {
-    return Number.POSITIVE_INFINITY
-  }
-
-  const dueAt = new Date(task.dueAt)
-  if (Number.isNaN(dueAt.getTime())) {
-    return Number.POSITIVE_INFINITY
-  }
-
-  return dueAt.getTime()
-}
-
-function sortOpenTasks(tasks) {
-  return [...tasks].sort((left, right) => {
-    const leftDue = taskDueSortValue(left)
-    const rightDue = taskDueSortValue(right)
-
-    if (leftDue === rightDue) {
-      return (left.id || 0) - (right.id || 0)
-    }
-
-    return leftDue - rightDue
-  })
-}
-
-function taskCompletedSortValue(task) {
-  if (!task.completedAt) {
-    return Number.NEGATIVE_INFINITY
-  }
-
-  const completedAt = new Date(task.completedAt)
-  if (Number.isNaN(completedAt.getTime())) {
-    return Number.NEGATIVE_INFINITY
-  }
-
-  return completedAt.getTime()
-}
-
-function sortCompletedTasks(tasks) {
-  return [...tasks].sort((left, right) => {
-    const leftCompleted = taskCompletedSortValue(left)
-    const rightCompleted = taskCompletedSortValue(right)
-
-    if (leftCompleted === rightCompleted) {
-      return (left.id || 0) - (right.id || 0)
-    }
-
-    return rightCompleted - leftCompleted
-  })
-}
-
-function matchesAssignee(task, assigneeFilter) {
-  if (assigneeFilter === 'all') {
-    return true
-  }
-
-  if (assigneeFilter === unassignedAssigneeFilter) {
-    return !task.assignedToUserId
-  }
-
-  return String(task.assignedToUserId || '') === assigneeFilter
-}
-
-function matchesEntityType(task, entityTypeFilter) {
-  if (entityTypeFilter === 'all') {
-    return true
-  }
-
-  return task.entityType === entityTypeFilter
-}
-
-function matchesStatus(task, statusFilter) {
-  if (statusFilter === 'completed') {
-    return task.status === 'completed'
-  }
-
-  return task.status !== 'completed'
-}
-
-function emptyTaskListMessage(statusFilter, dueView, labels, hasFilteredTasks = false) {
-  if (statusFilter !== 'open') {
-    return `No ${labels.summaryCompleted.toLowerCase()} match the current filters.`
-  }
-
-  if (dueView === 'overdue') {
-    return `No ${labels.overdueHeading.toLowerCase()} match the current filters.`
-  }
-  if (dueView === 'dueToday') {
-    return `No ${labels.dueTodayHeading.toLowerCase()} match the current filters.`
-  }
-  if (dueView === 'upcoming') {
-    return `No ${labels.upcomingHeading.toLowerCase()} match the current filters.`
-  }
-  if (dueView === 'noDueDate') {
-    return `No ${labels.noDueDateHeading.toLowerCase()} match the current filters.`
-  }
-
-  return hasFilteredTasks ? `No ${labels.summaryOpen.toLowerCase()} match the current filters.` : `No ${labels.summaryOpen.toLowerCase()} yet.`
-}
-
-function emptyTaskListDescription(statusFilter, dueView, labels, hasFilteredTasks = false) {
-  if (statusFilter !== 'open') {
-    return `Completed ${labels.showingSuffix} will appear here after work is closed.`
-  }
-  if (dueView !== 'all' || hasFilteredTasks) {
-    return 'Change the task view or clear filters to see more work.'
-  }
-  return `Create the first ${labels.showingSuffix.slice(0, -1)} once there is a real follow-up to track.`
-}
 
 export function TasksRoute() {
   const navigate = useNavigate()
@@ -327,7 +66,8 @@ export function TasksRoute() {
   const initialEntityTypeFilter = normalizeEntityTypeFilter(searchParams.get('entityType'))
   const initialEntityIdFilter = initialEntityTypeFilter === 'all' ? '' : normalizeEntityIdFilter(searchParams.get('entityId'))
   const [tasks, setTasks] = useState([])
-  const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
+  const [selectedTaskIds, setSelectedTaskIds] = useState([])
+  const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0, overdueCount: 0, dueSoonCount: 0, upcomingCount: 0, noDueDateCount: 0 })
   const [search, setSearch] = useState(initialSearch)
   const [statusFilter, setStatusFilter] = useState(initialStatusFilter)
   const [dueView, setDueView] = useState(initialDueView)
@@ -371,7 +111,7 @@ export function TasksRoute() {
       return sortCompletedTasks(filteredTasks)
     }
 
-    return sortOpenTasks(filteredTasks.filter((task) => matchesDueView(task, dueView)))
+    return sortOpenTasks(filteredTasks)
   }, [assigneeFilter, dueView, entityIdFilter, entityTypeFilter, statusFilter, statusTasks])
   const hasFilteredTasks = statusTasks.length > 0 || assigneeFilter !== 'all'
   const emptyMessage = useMemo(() => emptyTaskListMessage(statusFilter, dueView, labels, hasFilteredTasks), [dueView, hasFilteredTasks, labels, statusFilter])
@@ -403,7 +143,7 @@ export function TasksRoute() {
     return `${pathname}${suffix}`
   }
 
-  async function loadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, nextAssigneeFilter = assigneeFilter, { signal } = {}) {
+  async function loadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, nextAssigneeFilter = assigneeFilter, { signal } = {}, nextDueView = dueView) {
     const isUnassigned = nextAssigneeFilter === unassignedAssigneeFilter
     const assignedToUserId = isUnassigned ? 0 : (Number.parseInt(nextAssigneeFilter, 10) || 0)
     const data = await listTasks({
@@ -412,10 +152,12 @@ export function TasksRoute() {
       entityType: nextEntityTypeFilter === 'all' ? '' : nextEntityTypeFilter,
       entityId: nextEntityTypeFilter === 'all' ? 0 : Number.parseInt(nextEntityIdFilter, 10) || 0,
       unassigned: isUnassigned,
-      assignedToUserId
+      assignedToUserId,
+      due: nextStatus === 'open' ? nextDueView : 'all'
     }, { signal })
     setTasks(data.tasks || [])
-    setMeta(data.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 })
+    setSelectedTaskIds([])
+    setMeta(data.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0, overdueCount: 0, dueSoonCount: 0, upcomingCount: 0, noDueDateCount: 0 })
   }
 
   async function loadDealOptions({ signal } = {}) {
@@ -472,7 +214,7 @@ export function TasksRoute() {
       setIsListLoading(true)
       try {
         await Promise.all([
-          loadTasks(initialSearch, initialStatusFilter, initialEntityTypeFilter, initialEntityIdFilter, initialAssigneeFilter, { signal: controller.signal }),
+          loadTasks(initialSearch, initialStatusFilter, initialEntityTypeFilter, initialEntityIdFilter, initialAssigneeFilter, { signal: controller.signal }, initialDueView),
           loadDealOptions({ signal: controller.signal }),
           loadCompanyOptions({ signal: controller.signal }),
           loadContactOptions({ signal: controller.signal }),
@@ -554,13 +296,13 @@ export function TasksRoute() {
     }
   }, [detail, detailCache, routeTaskId, selectedTaskId, tasks])
 
-  async function reloadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, nextAssigneeFilter = assigneeFilter) {
+  async function reloadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, nextAssigneeFilter = assigneeFilter, nextDueView = dueView) {
     listControllerRef.current?.abort()
     const controller = new AbortController()
     listControllerRef.current = controller
     setIsListLoading(true)
     try {
-      await loadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, nextAssigneeFilter, { signal: controller.signal })
+      await loadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, nextAssigneeFilter, { signal: controller.signal }, nextDueView)
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -588,7 +330,7 @@ export function TasksRoute() {
     setStatusFilter(nextStatus)
     setDueView(nextDueView)
     navigate(buildTasksPath(selectedTaskId, search, nextStatus, nextDueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
-    await reloadTasks(search, nextStatus, entityTypeFilter, entityIdFilter, assigneeFilter)
+    await reloadTasks(search, nextStatus, entityTypeFilter, entityIdFilter, assigneeFilter, nextDueView)
   }
 
   async function handleAssigneeFilterChange(nextAssigneeFilter) {
@@ -605,9 +347,10 @@ export function TasksRoute() {
     await reloadTasks(search, statusFilter, nextEntityTypeFilter, nextEntityIdFilter)
   }
 
-  function handleDueViewChange(nextDueView) {
+  async function handleDueViewChange(nextDueView) {
     setDueView(nextDueView)
     navigate(buildTasksPath(selectedTaskId, search, statusFilter, nextDueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
+    await reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter, nextDueView)
   }
 
   async function handleEntityIdFilterChange(nextEntityIdFilter) {
@@ -632,7 +375,7 @@ export function TasksRoute() {
     setEntityIdFilter(nextEntityIdFilter)
     clearSelectedTask()
     navigate(buildTasksPath(null, nextSearch, nextStatus, nextDueView, nextAssigneeFilter, nextEntityTypeFilter, nextEntityIdFilter), { replace: true })
-    await reloadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, nextAssigneeFilter)
+    await reloadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, nextAssigneeFilter, nextDueView)
   }
 
   function getDefaultEntityId(nextEntityType) {
@@ -905,14 +648,15 @@ export function TasksRoute() {
             </Field>
           ) : null}
           {statusFilter === 'open' ? (
-            <Field label={labels.viewLabel}>
+            <Field label={labels.viewLabel} hint="Due soon is the next 24 hours.">
               <select className="text-input" value={dueView} onChange={(event) => handleDueViewChange(event.target.value)}>
                 <option value="all">All open</option>
                 <option value="overdue">Overdue</option>
-                <option value="dueToday">Due today</option>
-                <option value="upcoming">Upcoming</option>
+                <option value="dueSoon">Due within 24 hours</option>
+                <option value="upcoming">Later</option>
                 <option value="noDueDate">No due date</option>
               </select>
+              <p className="field-hint">Overdue {meta.overdueCount || 0} · Due soon {meta.dueSoonCount || 0}</p>
             </Field>
           ) : null}
           {isListLoading ? <p className="field-hint">Loading {labels.showingSuffix}...</p> : null}
@@ -921,6 +665,7 @@ export function TasksRoute() {
           ) : null}
           <h3>{summaryLabel}</h3>
           <p className="field-hint">Showing {visibleTasks.length} of {statusTasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>
+          {canWrite ? <BulkActions entityType="task" selectedIds={selectedTaskIds} visibleIds={visibleTasks.map((task) => task.id)} onSelectionChange={setSelectedTaskIds} onChanged={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter)} statuses={bulkStatusOptions.task} userOptions={userOptions} /> : null}
           <div className="record-list" role="list" aria-label="Tasks list">
             {visibleTasks.length === 0 && (!isListLoading || statusTasks.length > 0) ? (
               <EmptyState
@@ -935,12 +680,13 @@ export function TasksRoute() {
                   setEntityTypeFilter('all')
                   setEntityIdFilter('')
                   navigate(buildTasksPath(null, '', 'open', 'all', 'all', 'all', ''), { replace: true })
-                  reloadTasks('', 'open', 'all', '', 'all')
+                  reloadTasks('', 'open', 'all', '', 'all', 'all')
                 }}
               />
             ) : visibleTasks.map((task) => (
               <article className="record-row" key={task.id} role="listitem">
                 <div>
+                  {canWrite ? <input type="checkbox" aria-label={`Select ${task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={() => setSelectedTaskIds((current) => current.includes(task.id) ? current.filter((id) => id !== task.id) : [...current, task.id])} /> : null}
                   <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenTask(task)}>
                     {task.title}
                   </button>

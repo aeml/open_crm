@@ -35,4 +35,7 @@ func TestLoadDefaultsPortWhenUnset(t *testing.T) {
 	if len(env.AllowedOrigins) != 0 {
 		t.Fatalf("expected no default allowed origins, got %v", env.AllowedOrigins)
 	}
+	if env.BackupStatusPath != "/run/open-crm/backup-status" {
+		t.Fatalf("unexpected backup status path %q", env.BackupStatusPath)
+	}
 }

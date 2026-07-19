@@ -1,4 +1,5 @@
 .card {
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -118,6 +119,7 @@
 
 .card-stack {
   display: grid;
+  min-width: 0;
   gap: var(--space-4);
 }
 
@@ -189,6 +191,52 @@
   word-break: break-all;
 }
 
+.bulk-actions {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.bulk-actions .form-grid-two {
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+}
+
+.bulk-actions .record-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.bulk-actions .record-row > div {
+  overflow-wrap: anywhere;
+}
+
+.duplicate-candidate-row {
+  align-items: start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.duplicate-candidate-row > div:last-child {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.contacts-grid .card-stack > *,
+.contacts-grid .record-list,
+.contacts-grid .record-row {
+  min-width: 0;
+}
+
+.contacts-grid .record-row > div {
+  overflow-wrap: anywhere;
+}
+
+.contacts-grid .record-row > div:last-child {
+  flex-shrink: 1;
+}
+
 .empty-state {
   display: grid;
   gap: var(--space-3);
@@ -215,6 +263,54 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+.input-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+}
+
+.quality-record-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.sales-activity-card {
+  grid-column: 1 / -1;
+}
+
+.sales-report-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.sales-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-2);
+}
+
+.sales-report-metric {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.sales-report-coverage-warning {
+  border-color: rgba(180, 35, 24, 0.35);
+  background: rgba(180, 35, 24, 0.06);
+}
+
+@media (max-width: 820px) {
+  .sales-report-filters {
+    grid-template-columns: 1fr;
+  }
 }
 
 .checkbox-row {
@@ -337,11 +433,13 @@
 
 .record-list {
   display: grid;
+  min-width: 0;
   gap: var(--space-2);
 }
 
 .record-row {
   display: flex;
+  min-width: 0;
   justify-content: space-between;
   align-items: center;
   gap: var(--space-3);
@@ -353,6 +451,7 @@
 
 .record-row > div {
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .record-row > div:last-child {
@@ -523,4 +622,34 @@
 
 .button-ghost:hover {
   text-decoration: underline;
+}
+
+.custom-fields-group {
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.custom-fields-group legend {
+  padding: 0 var(--space-1);
+  font-weight: 700;
+}
+
+.custom-field-filter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  align-items: end;
+}
+
+.custom-field-filter .button-row {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .custom-field-filter {
+    grid-template-columns: 1fr;
+  }
 }

@@ -47,7 +47,7 @@ func (p *FakeProvider) SendSMS(_ context.Context, req SendRequest) (SendResult, 
 	p.sends = append(p.sends, req)
 	p.mu.Unlock()
 	if p.logger != nil {
-		p.logger.Info("fake sms send", "entity_type", req.EntityType, "entity_id", req.EntityID, "phone_number", req.PhoneNumber)
+		p.logger.Info("fake sms send")
 	}
 	return SendResult{ProviderMessageID: fmt.Sprintf("fake_sms_%d_%d", req.OrganizationID, time.Now().UnixNano())}, nil
 }

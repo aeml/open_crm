@@ -28,13 +28,25 @@ func TestCSVFileWritesHeadersAndEscapesValues(t *testing.T) {
 func TestBuildTaskFiltersIncludesExportOnlyFilters(t *testing.T) {
 	filterSQL, args := buildTaskFilters(42, TasksQuery{Status: "open", DueView: "overdue", AssigneeFilter: "unassigned", EntityType: "contact", EntityID: 7})
 
-	for _, expected := range []string{"t.status = $2", "t.entity_type = $3", "t.entity_id = $4", "t.assigned_to_user_id IS NULL", "t.due_at < DATE_TRUNC"} {
+	for _, expected := range []string{"t.status = $2", "t.entity_type = $3", "t.entity_id = $4", "t.assigned_to_user_id IS NULL", "t.due_at < NOW()"} {
 		if !strings.Contains(filterSQL, expected) {
 			t.Fatalf("expected filter SQL to contain %q, got %s", expected, filterSQL)
 		}
 	}
 	if len(args) != 4 || args[0] != int64(42) || args[1] != "open" || args[2] != "contact" || args[3] != int64(7) {
 		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestBuildTaskFiltersUsesTheSameRollingReminderWindowsAsTheTaskList(t *testing.T) {
+	dueSoonSQL, _ := buildTaskFilters(42, TasksQuery{DueView: "dueSoon"})
+	if !strings.Contains(dueSoonSQL, "t.due_at >= NOW()") || !strings.Contains(dueSoonSQL, "NOW() + INTERVAL '24 hours'") {
+		t.Fatalf("expected rolling due-soon filter, got %s", dueSoonSQL)
+	}
+
+	upcomingSQL, _ := buildTaskFilters(42, TasksQuery{DueView: "upcoming"})
+	if !strings.Contains(upcomingSQL, "t.due_at >= NOW() + INTERVAL '24 hours'") {
+		t.Fatalf("expected rolling upcoming filter, got %s", upcomingSQL)
 	}
 }
 

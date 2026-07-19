@@ -16,21 +16,48 @@ import (
 )
 
 var (
-	ErrInvalidSetupToken = errors.New("invalid setup token")
-	ErrNotFound          = errors.New("user not found")
+	ErrInvalidSetupToken     = errors.New("invalid setup token")
+	ErrNotFound              = errors.New("user not found")
+	ErrInvalidRole           = errors.New("invalid membership role")
+	ErrInvalidStatus         = errors.New("invalid membership status")
+	ErrCannotChangeOwnStatus = errors.New("cannot change own membership status")
+	ErrLastActiveOwner       = errors.New("cannot remove the last active owner")
+	ErrInvalidReassignment   = errors.New("reassignment user must be another active organization member")
 )
 
 const setupTokenTTL = 7 * 24 * time.Hour
 
+const (
+	MembershipStatusActive   = "active"
+	MembershipStatusDisabled = "disabled"
+)
+
+type WorkCounts struct {
+	Contacts         int64 `json:"contacts"`
+	Companies        int64 `json:"companies"`
+	Deals            int64 `json:"deals"`
+	Tasks            int64 `json:"tasks"`
+	SharedInbox      int64 `json:"sharedInbox"`
+	LeadRoutingRules int64 `json:"leadRoutingRules"`
+	CalendarEvents   int64 `json:"calendarEvents"`
+}
+
+func (c WorkCounts) Total() int64 {
+	return c.Contacts + c.Companies + c.Deals + c.Tasks + c.SharedInbox + c.LeadRoutingRules + c.CalendarEvents
+}
+
 type UserSummary struct {
-	ID           int64  `json:"id"`
-	Email        string `json:"email"`
-	FirstName    string `json:"firstName"`
-	LastName     string `json:"lastName"`
-	Role         string `json:"role"`
-	SetupPending bool   `json:"setupPending,omitempty"`
-	SetupToken   string `json:"setupToken,omitempty"`
-	SetupLink    string `json:"setupLink,omitempty"`
+	ID              int64      `json:"id"`
+	Email           string     `json:"email"`
+	FirstName       string     `json:"firstName"`
+	LastName        string     `json:"lastName"`
+	Role            string     `json:"role"`
+	Status          string     `json:"status"`
+	StatusChangedAt *time.Time `json:"statusChangedAt,omitempty"`
+	OwnedWork       WorkCounts `json:"ownedWork"`
+	SetupPending    bool       `json:"setupPending,omitempty"`
+	SetupToken      string     `json:"setupToken,omitempty"`
+	SetupLink       string     `json:"setupLink,omitempty"`
 }
 
 type CreateUserInput struct {
@@ -59,9 +86,10 @@ type UserProfile struct {
 }
 
 type UserPreferences struct {
-	DefaultLandingView   string `json:"defaultLandingView"`
-	NotifyOnTaskAssigned bool   `json:"notifyOnTaskAssigned"`
-	NotifyOnDealAssigned bool   `json:"notifyOnDealAssigned"`
+	DefaultLandingView    string `json:"defaultLandingView"`
+	NotifyOnTaskAssigned  bool   `json:"notifyOnTaskAssigned"`
+	NotifyOnDealAssigned  bool   `json:"notifyOnDealAssigned"`
+	NotifyOnTaskReminders bool   `json:"notifyOnTaskReminders"`
 }
 
 type UpdateProfileInput struct {
@@ -84,6 +112,14 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT u.id, u.email, u.first_name, u.last_name, om.role,
+			COALESCE(om.membership_status, 'active'), om.status_changed_at,
+			(SELECT COUNT(*) FROM contacts record WHERE record.organization_id = om.organization_id AND record.owner_user_id = u.id AND record.archived_at IS NULL),
+			(SELECT COUNT(*) FROM companies record WHERE record.organization_id = om.organization_id AND record.owner_user_id = u.id AND record.archived_at IS NULL),
+			(SELECT COUNT(*) FROM deals record WHERE record.organization_id = om.organization_id AND record.owner_user_id = u.id AND record.archived_at IS NULL),
+			(SELECT COUNT(*) FROM tasks record WHERE record.organization_id = om.organization_id AND record.assigned_to_user_id = u.id AND record.archived_at IS NULL),
+			(SELECT COUNT(*) FROM email_messages record WHERE record.organization_id = om.organization_id AND record.shared_inbox_assigned_to_user_id = u.id AND record.direction = 'inbound' AND record.visibility = 'shared' AND record.shared_inbox_status = 'open'),
+			(SELECT COUNT(*) FROM lead_scoring_rules record WHERE record.organization_id = om.organization_id AND record.assign_to_user_id = u.id AND record.is_active = TRUE),
+			(SELECT COUNT(*) FROM calendar_events record WHERE record.organization_id = om.organization_id AND record.calendar_user_id = u.id AND record.status = 'scheduled' AND record.end_at > NOW()),
 			(u.password_setup_token_hash IS NOT NULL AND u.password_setup_consumed_at IS NULL) AS setup_pending
 		FROM organization_memberships om
 		JOIN users u ON u.id = om.user_id
@@ -98,7 +134,13 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 	users := make([]UserSummary, 0)
 	for rows.Next() {
 		var entry UserSummary
-		if err := rows.Scan(&entry.ID, &entry.Email, &entry.FirstName, &entry.LastName, &entry.Role, &entry.SetupPending); err != nil {
+		if err := rows.Scan(
+			&entry.ID, &entry.Email, &entry.FirstName, &entry.LastName, &entry.Role,
+			&entry.Status, &entry.StatusChangedAt,
+			&entry.OwnedWork.Contacts, &entry.OwnedWork.Companies, &entry.OwnedWork.Deals,
+			&entry.OwnedWork.Tasks, &entry.OwnedWork.SharedInbox, &entry.OwnedWork.LeadRoutingRules,
+			&entry.OwnedWork.CalendarEvents, &entry.SetupPending,
+		); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		users = append(users, entry)
@@ -171,36 +213,14 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 		FirstName:  input.FirstName,
 		LastName:   input.LastName,
 		Role:       input.Role,
+		Status:     MembershipStatusActive,
 		SetupToken: setupToken,
 		SetupLink:  "/setup-password?token=" + setupToken,
 	}, nil
 }
 
 func (s *Service) UpdateRole(ctx context.Context, organizationID, userID, _ int64, role string) (UserSummary, error) {
-	if s == nil || s.pool == nil {
-		return UserSummary{}, fmt.Errorf("users service not configured")
-	}
-
-	role = strings.TrimSpace(strings.ToLower(role))
-	if role == "" {
-		return UserSummary{}, fmt.Errorf("role is required")
-	}
-
-	var updated UserSummary
-	err := s.pool.QueryRow(ctx, `
-		UPDATE organization_memberships om
-		SET role = $3
-		FROM users u
-		WHERE om.organization_id = $1 AND om.user_id = $2 AND u.id = om.user_id
-		RETURNING u.id, u.email, u.first_name, u.last_name, om.role
-	`, organizationID, userID, role).Scan(&updated.ID, &updated.Email, &updated.FirstName, &updated.LastName, &updated.Role)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return UserSummary{}, ErrNotFound
-		}
-		return UserSummary{}, fmt.Errorf("update user role: %w", err)
-	}
-	return updated, nil
+	return s.updateRole(ctx, organizationID, userID, role)
 }
 
 func (s *Service) CompleteSetup(ctx context.Context, input CompleteSetupInput) (SetupCompletion, error) {
@@ -231,6 +251,11 @@ func (s *Service) CompleteSetup(ctx context.Context, input CompleteSetupInput) (
 			WHERE password_setup_token_hash = $1
 			  AND password_setup_expires_at > NOW()
 			  AND password_setup_consumed_at IS NULL
+			  AND EXISTS (
+				SELECT 1 FROM organization_memberships active_membership
+				WHERE active_membership.user_id = users.id
+				  AND COALESCE(active_membership.membership_status, 'active') = 'active'
+			  )
 			RETURNING id, email
 		)
 		SELECT u.id, om.organization_id, u.email
@@ -301,7 +326,7 @@ func (s *Service) GetPreferences(ctx context.Context, userID int64) (UserPrefere
 		return UserPreferences{}, fmt.Errorf("get preferences: %w", err)
 	}
 
-	var prefs UserPreferences
+	prefs := defaultUserPreferences()
 	if len(prefsJSON) > 0 {
 		if err := json.Unmarshal(prefsJSON, &prefs); err != nil {
 			return UserPreferences{}, fmt.Errorf("decode preferences: %w", err)
@@ -334,11 +359,15 @@ func (s *Service) UpdatePreferences(ctx context.Context, userID int64, prefs Use
 		return UserPreferences{}, fmt.Errorf("update preferences: %w", err)
 	}
 
-	var result UserPreferences
+	result := defaultUserPreferences()
 	if len(updatedJSON) > 0 {
 		if err := json.Unmarshal(updatedJSON, &result); err != nil {
 			return UserPreferences{}, fmt.Errorf("decode updated preferences: %w", err)
 		}
 	}
 	return result, nil
+}
+
+func defaultUserPreferences() UserPreferences {
+	return UserPreferences{NotifyOnTaskAssigned: true, NotifyOnDealAssigned: true, NotifyOnTaskReminders: true}
 }

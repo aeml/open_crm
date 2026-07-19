@@ -5,15 +5,19 @@
   "type": "module",
   "packageManager": "npm@10",
   "engines": {
-    "node": "18.x",
-    "npm": ">=9 <11"
+    "node": "24.x",
+    "npm": ">=10 <12"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:checked": "vite build && npm run check:bundle",
     "build:pages": "vite build",
-    "lint": "eslint src --ext .js,.jsx",
-    "test": "vitest run"
+    "check:bundle": "node scripts/check-bundle-budget.mjs",
+    "check:source": "node scripts/check-source-budget.mjs",
+    "lint": "eslint src e2e playwright.config.js --ext .js,.jsx",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -21,12 +25,15 @@
     "react-router-dom": "^6.30.4"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "6.6.3",
-    "@testing-library/react": "16.0.1",
-    "@vitejs/plugin-react": "4.3.3",
-    "eslint": "^8.57.1",
-    "jsdom": "25.0.1",
-    "vite": "5.4.11",
-    "vitest": "2.1.5"
+    "@eslint/js": "9.39.5",
+    "@playwright/test": "1.61.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@vitejs/plugin-react": "4.7.0",
+    "eslint": "9.39.5",
+    "globals": "16.5.0",
+    "jsdom": "29.1.1",
+    "vite": "7.3.6",
+    "vitest": "4.1.10"
   }
 }

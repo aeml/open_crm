@@ -70,6 +70,14 @@ describe('entity task visibility', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { definitions: [] } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { definitions: [] } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             company: { id: 5, name: 'Northstar Logistics', clientType: 'organization', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' },

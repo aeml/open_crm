@@ -176,6 +176,7 @@ func (s *Service) ensureBookingLinkMembers(ctx context.Context, organizationID i
 		SELECT COUNT(*)
 		FROM organization_memberships
 		WHERE organization_id = $1 AND user_id = ANY($2::bigint[])
+		  AND COALESCE(membership_status, 'active') = 'active'
 	`, organizationID, userIDs).Scan(&count); err != nil {
 		return fmt.Errorf("verify calendar booking link members: %w", err)
 	}

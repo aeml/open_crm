@@ -14,6 +14,8 @@ import (
 
 var ErrAlreadyEnrolled = errors.New("contact already enrolled in email sequence")
 
+const SequenceSendJobType = "email_sequence.send"
+
 type Enrollment struct {
 	ID               int64      `json:"id"`
 	SequenceID       int64      `json:"sequenceId"`
@@ -109,8 +111,14 @@ func (s *Service) EnrollContact(ctx context.Context, organizationID int64, input
 		return Enrollment{}, ErrInvalidInput
 	}
 
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Enrollment{}, fmt.Errorf("begin email sequence enrollment: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	var delayDays int
-	err := s.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT step.delay_days
 		FROM email_sequences seq
 		JOIN email_sequence_steps step ON step.sequence_id = seq.id AND step.step_order = 1
@@ -130,7 +138,7 @@ func (s *Service) EnrollContact(ctx context.Context, organizationID int64, input
 		enrolledBy = &input.EnrolledByUserID
 	}
 	var enrollmentID int64
-	err = s.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO email_sequence_enrollments (organization_id, sequence_id, contact_id, enrolled_by_user_id, status, current_step_order, next_send_at)
 		VALUES ($1, $2, $3, $4, 'active', 1, $5)
 		RETURNING id
@@ -138,7 +146,26 @@ func (s *Service) EnrollContact(ctx context.Context, organizationID int64, input
 	if err != nil {
 		return Enrollment{}, mapEnrollmentSaveError(err)
 	}
+	if err := enqueueSequenceSendJob(ctx, tx, organizationID, enrollmentID, 1, nextSendAt); err != nil {
+		return Enrollment{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Enrollment{}, fmt.Errorf("commit email sequence enrollment: %w", err)
+	}
 	return s.GetEnrollmentByID(ctx, organizationID, enrollmentID)
+}
+
+func enqueueSequenceSendJob(ctx context.Context, tx pgx.Tx, organizationID, enrollmentID int64, stepOrder int, runAt time.Time) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO background_jobs (organization_id, job_type, idempotency_key, payload_json, max_attempts, run_at)
+		VALUES ($1, $2, 'enrollment:' || $3::bigint::text || ':step:' || $4::int::text,
+		        jsonb_build_object('enrollmentId', $3::bigint::text, 'stepOrder', $4::int::text), 5, $5)
+		ON CONFLICT (organization_id, job_type, idempotency_key) DO NOTHING
+	`, organizationID, SequenceSendJobType, enrollmentID, stepOrder, runAt)
+	if err != nil {
+		return fmt.Errorf("enqueue email sequence send job: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) CancelEnrollment(ctx context.Context, organizationID, enrollmentID int64) error {

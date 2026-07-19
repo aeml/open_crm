@@ -7,8 +7,86 @@ import (
 
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
+
+type contactRequest struct {
+	FirstName    string                    `json:"firstName"`
+	LastName     string                    `json:"lastName"`
+	Email        string                    `json:"email"`
+	Phone        string                    `json:"phone"`
+	AddressLine1 string                    `json:"addressLine1"`
+	AddressLine2 string                    `json:"addressLine2"`
+	City         string                    `json:"city"`
+	State        string                    `json:"state"`
+	PostalCode   string                    `json:"postalCode"`
+	Country      string                    `json:"country"`
+	JobTitle     string                    `json:"jobTitle"`
+	Status       string                    `json:"status"`
+	IsClient     bool                      `json:"isClient"`
+	CustomFields modulecustomfields.Values `json:"customFields"`
+}
+
+type contactsListResponse struct {
+	Data struct {
+		Contacts []modulecontacts.Summary `json:"contacts"`
+		Meta     modulecontacts.ListMeta  `json:"meta"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type contactDetailResponse struct {
+	Data struct {
+		Contact    modulecontacts.Summary         `json:"contact"`
+		Notes      []modulecontacts.NoteEntry     `json:"notes"`
+		Tasks      []modulecontacts.TaskEntry     `json:"tasks"`
+		Activities []modulecontacts.ActivityEntry `json:"activities"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type companyRequest struct {
+	Name             string                    `json:"name"`
+	ClientType       string                    `json:"clientType"`
+	AddressLine1     string                    `json:"addressLine1"`
+	AddressLine2     string                    `json:"addressLine2"`
+	City             string                    `json:"city"`
+	State            string                    `json:"state"`
+	PostalCode       string                    `json:"postalCode"`
+	Country          string                    `json:"country"`
+	Industry         string                    `json:"industry"`
+	Phone            string                    `json:"phone"`
+	Website          string                    `json:"website"`
+	Status           string                    `json:"status"`
+	LinkedContactIDs []int64                   `json:"linkedContactIDs"`
+	CustomFields     modulecustomfields.Values `json:"customFields"`
+}
+
+type companiesListResponse struct {
+	Data struct {
+		Companies []modulecompanies.Summary `json:"companies"`
+		Meta      modulecompanies.ListMeta  `json:"meta"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type companyDetailResponse struct {
+	Data struct {
+		Company        modulecompanies.Summary         `json:"company"`
+		LinkedContacts []modulecompanies.LinkedContact `json:"linkedContacts"`
+		Activities     []modulecompanies.ActivityEntry `json:"activities"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
 
 func handleListContacts(auth authService, contacts contactsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
@@ -32,9 +110,18 @@ func handleListContacts(auth authService, contacts contactsService, w http.Respo
 		PageSize:       parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
 		OwnerUserID:    contactOwnerUserID,
 		UnassignedOnly: unassignedContacts,
+		CustomField: modulecustomfields.Filter{
+			FieldKey: strings.TrimSpace(r.URL.Query().Get("customField")),
+			Operator: strings.TrimSpace(r.URL.Query().Get("customOperator")),
+			Value:    strings.TrimSpace(r.URL.Query().Get("customValue")),
+		},
 	}
 	result, err := contacts.ListByOrganization(r.Context(), state.Organization.ID, query)
 	if err != nil {
+		if errors.Is(err, modulecustomfields.ErrInvalidInput) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load contacts")
 		return
 	}
@@ -104,6 +191,10 @@ func handleCreateContact(auth authService, contacts contactsService, billing bil
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
 			return
 		}
+		if errors.Is(err, modulecustomfields.ErrInvalidInput) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create contact")
 		return
 	}
@@ -140,6 +231,10 @@ func handleUpdateContact(auth authService, contacts contactsService, w http.Resp
 			return
 		}
 		if err.Error() == "first name and last name are required" {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+			return
+		}
+		if errors.Is(err, modulecustomfields.ErrInvalidInput) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
 			return
 		}
@@ -198,9 +293,18 @@ func handleListCompanies(auth authService, companies companiesService, w http.Re
 		PageSize:       parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
 		OwnerUserID:    companyOwnerUserID,
 		UnassignedOnly: unassignedCompanies,
+		CustomField: modulecustomfields.Filter{
+			FieldKey: strings.TrimSpace(r.URL.Query().Get("customField")),
+			Operator: strings.TrimSpace(r.URL.Query().Get("customOperator")),
+			Value:    strings.TrimSpace(r.URL.Query().Get("customValue")),
+		},
 	}
 	result, err := companies.ListByOrganization(r.Context(), state.Organization.ID, query)
 	if err != nil {
+		if errors.Is(err, modulecustomfields.ErrInvalidInput) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load companies")
 		return
 	}
@@ -264,6 +368,10 @@ func handleCreateCompany(auth authService, companies companiesService, w http.Re
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
 			return
 		}
+		if errors.Is(err, modulecustomfields.ErrInvalidInput) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create company")
 		return
 	}
@@ -300,6 +408,10 @@ func handleUpdateCompany(auth authService, companies companiesService, w http.Re
 			return
 		}
 		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "must") {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
+			return
+		}
+		if errors.Is(err, modulecustomfields.ErrInvalidInput) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
 			return
 		}

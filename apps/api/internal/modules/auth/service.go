@@ -27,7 +27,7 @@ const sessionStateByUserSQL = `
 	FROM organization_memberships om
 	JOIN users u ON u.id = om.user_id
 	JOIN organizations o ON o.id = om.organization_id
-	WHERE om.user_id = $1
+	WHERE om.user_id = $1 AND COALESCE(om.membership_status, 'active') = 'active'
 	ORDER BY om.id ASC
 	LIMIT 1
 `
@@ -137,7 +137,9 @@ func (s *Service) CurrentSession(ctx context.Context, sessionToken string) (Sess
 		JOIN users u ON u.id = s.user_id
 		JOIN organizations o ON o.id = s.organization_id
 		JOIN organization_memberships om ON om.user_id = u.id AND om.organization_id = o.id
-		WHERE s.token_hash = $1 AND s.expires_at > NOW()
+		WHERE s.token_hash = $1
+		  AND s.expires_at > NOW()
+		  AND COALESCE(om.membership_status, 'active') = 'active'
 		ORDER BY s.id DESC
 		LIMIT 1
 	`, tokenHash).Scan(

@@ -40,6 +40,9 @@ func TestSessionStateLookupSQLLoadsContextAfterPasswordValidation(t *testing.T) 
 	if !strings.Contains(sql, "WHERE om.user_id = $1") {
 		t.Fatalf("expected session state lookup to filter by user id, got %q", sql)
 	}
+	if !strings.Contains(sql, "membership_status") {
+		t.Fatalf("expected session state lookup to reject disabled memberships, got %q", sql)
+	}
 }
 
 func TestCurrentSessionPrunesExpiredSessions(t *testing.T) {

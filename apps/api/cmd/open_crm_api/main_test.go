@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
@@ -24,5 +25,12 @@ func TestNewHTTPServerConfiguresProductionTimeouts(t *testing.T) {
 	}
 	if server.IdleTimeout != serverIdleTimeout {
 		t.Fatalf("expected idle timeout %s, got %s", serverIdleTimeout, server.IdleTimeout)
+	}
+}
+
+func TestBackgroundWorkerIDIncludesProcessIdentity(t *testing.T) {
+	workerID := backgroundWorkerID()
+	if workerID == "" || !strings.Contains(workerID, ":") {
+		t.Fatalf("expected host and process worker identity, got %q", workerID)
 	}
 }

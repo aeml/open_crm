@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	ErrInvalidQuota = errors.New("invalid sales quota")
-	ErrNotFound     = errors.New("dashboard resource not found")
+	ErrInvalidQuota          = errors.New("invalid sales quota")
+	ErrInvalidForecastPeriod = errors.New("invalid forecast period")
+	ErrNotFound              = errors.New("dashboard resource not found")
 )
 
 const (
@@ -40,7 +41,9 @@ type Summary struct {
 	OpenDealsCount        int        `json:"openDealsCount"`
 	WonDealsCount         int        `json:"wonDealsCount"`
 	OpenTasksCount        int        `json:"openTasksCount"`
-	DueTodayCount         int        `json:"dueTodayCount"`
+	OverdueTasksCount     int        `json:"overdueTasksCount"`
+	DueSoonTasksCount     int        `json:"dueSoonTasksCount"`
+	UpcomingTasksCount    int        `json:"upcomingTasksCount"`
 	NewContactsCount      int        `json:"newContactsCount"`
 	Forecast              Forecast   `json:"forecast"`
 	RecentActivities      []Activity `json:"recentActivities"`
@@ -58,6 +61,7 @@ type Forecast struct {
 	CoveragePct            string           `json:"coveragePct"`
 	MissingRateCurrencies  []string         `json:"missingRateCurrencies"`
 	Members                []ForecastMember `json:"members"`
+	Stages                 []ForecastStage  `json:"stages"`
 }
 
 type ForecastMember struct {
@@ -69,6 +73,22 @@ type ForecastMember struct {
 	WeightedForecastAmount string `json:"weightedForecastAmount"`
 	AttainmentPct          string `json:"attainmentPct"`
 	CoveragePct            string `json:"coveragePct"`
+}
+
+type ForecastStage struct {
+	PipelineID         int64  `json:"pipelineId"`
+	PipelineName       string `json:"pipelineName"`
+	StageID            int64  `json:"stageId"`
+	StageName          string `json:"stageName"`
+	ProbabilityPercent int    `json:"probabilityPercent"`
+	OpenDealsCount     int    `json:"openDealsCount"`
+	OpenPipelineAmount string `json:"openPipelineAmount"`
+	WeightedOpenAmount string `json:"weightedOpenAmount"`
+}
+
+type ForecastQuery struct {
+	PeriodStart string `json:"periodStart"`
+	PeriodEnd   string `json:"periodEnd"`
 }
 
 type QuotaInput struct {
@@ -130,10 +150,10 @@ func (s *Service) UpsertSalesQuota(ctx context.Context, organizationID, userID, 
 		return Summary{}, fmt.Errorf("upsert sales quota: %w", err)
 	}
 
-	return s.SummaryByOrganization(ctx, organizationID)
+	return s.SummaryByOrganization(ctx, organizationID, ForecastQuery{PeriodStart: normalized.PeriodStart, PeriodEnd: normalized.PeriodEnd})
 }
 
-func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int64) (Summary, error) {
+func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int64, forecastQuery ForecastQuery) (Summary, error) {
 	if s == nil || s.pool == nil {
 		return Summary{}, fmt.Errorf("dashboard service not configured")
 	}
@@ -179,22 +199,22 @@ func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int6
 	}
 	summary.MissingRateCurrencies = splitCurrencyList(missingRateCurrencies)
 
-	forecast, err := s.forecastByOrganization(ctx, organizationID, time.Now().UTC())
+	forecast, err := s.forecastByOrganization(ctx, organizationID, forecastQuery, time.Now().UTC())
 	if err != nil {
 		return Summary{}, err
 	}
 	summary.Forecast = forecast
 	summary.MissingRateCurrencies = mergeCurrencyLists(summary.MissingRateCurrencies, forecast.MissingRateCurrencies)
 
-	todayStart := time.Now().UTC().Truncate(24 * time.Hour)
-	tomorrowStart := todayStart.Add(24 * time.Hour)
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
 			COUNT(*) FILTER (WHERE status <> 'completed'),
-			COUNT(*) FILTER (WHERE status <> 'completed' AND due_at >= $2 AND due_at < $3)
+			COUNT(*) FILTER (WHERE status <> 'completed' AND due_at IS NOT NULL AND due_at < NOW()),
+			COUNT(*) FILTER (WHERE status <> 'completed' AND due_at IS NOT NULL AND due_at >= NOW() AND due_at < NOW() + INTERVAL '24 hours'),
+			COUNT(*) FILTER (WHERE status <> 'completed' AND due_at IS NOT NULL AND due_at >= NOW() + INTERVAL '24 hours')
 		FROM tasks
-		WHERE organization_id = $1
-	`, organizationID, todayStart, tomorrowStart).Scan(&summary.OpenTasksCount, &summary.DueTodayCount); err != nil {
+		WHERE organization_id = $1 AND archived_at IS NULL
+	`, organizationID).Scan(&summary.OpenTasksCount, &summary.OverdueTasksCount, &summary.DueSoonTasksCount, &summary.UpcomingTasksCount); err != nil {
 		return Summary{}, fmt.Errorf("load task summary: %w", err)
 	}
 
@@ -250,13 +270,17 @@ func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int6
 	return summary, nil
 }
 
-func (s *Service) forecastByOrganization(ctx context.Context, organizationID int64, now time.Time) (Forecast, error) {
-	periodStart, periodEnd := currentForecastPeriod(now)
+func (s *Service) forecastByOrganization(ctx context.Context, organizationID int64, query ForecastQuery, now time.Time) (Forecast, error) {
+	periodStart, periodEnd, err := normalizeForecastPeriod(query, now)
+	if err != nil {
+		return Forecast{}, err
+	}
 	forecast := Forecast{
 		PeriodStart: periodStart,
 		PeriodEnd:   periodEnd,
 		Currency:    "USD",
 		Members:     []ForecastMember{},
+		Stages:      []ForecastStage{},
 	}
 	baseCurrency, err := s.baseCurrencyByOrganization(ctx, organizationID)
 	if err != nil {
@@ -281,17 +305,26 @@ func (s *Service) forecastByOrganization(ctx context.Context, organizationID int
 			FROM organization_memberships om
 			JOIN users u ON u.id = om.user_id
 			WHERE om.organization_id = $1
+			  AND COALESCE(om.membership_status, 'active') = 'active'
+		), forecast_members AS (
+			SELECT user_id, user_name FROM members
+			UNION ALL
+			SELECT 0, 'Unassigned'
+			WHERE EXISTS (
+				SELECT 1 FROM deals
+				WHERE organization_id = $1 AND archived_at IS NULL AND owner_user_id IS NULL
+			)
 		), stage_weights AS (
 			SELECT ds.id AS stage_id,
 			       CASE
 			         WHEN ds.is_closed AND ds.is_won THEN 1::numeric
 			         WHEN ds.is_closed THEN 0::numeric
-			         ELSE LEAST(0.90, GREATEST(0.10, ds.position::numeric / NULLIF((MAX(ds.position) FILTER (WHERE ds.is_closed = FALSE) OVER (PARTITION BY ds.organization_id, ds.pipeline_id) + 1), 0)))
+			         ELSE COALESCE(ds.probability_percent, 50)::numeric / 100
 			       END AS probability
 			FROM deal_stages ds
 			WHERE ds.organization_id = $1
 		), deal_values AS (
-			SELECT d.owner_user_id AS user_id,
+			SELECT COALESCE(d.owner_user_id, 0) AS user_id,
 			       ds.is_won,
 			       ds.is_closed,
 			       d.status,
@@ -311,7 +344,6 @@ func (s *Service) forecastByOrganization(ctx context.Context, organizationID int
 			LEFT JOIN latest_rates lr ON lr.quote_currency = COALESCE(NULLIF(d.value_currency, ''), os.base_currency)
 			WHERE d.organization_id = $1
 			  AND d.archived_at IS NULL
-			  AND d.owner_user_id IS NOT NULL
 		), deal_rollup AS (
 			SELECT user_id,
 			       COALESCE(SUM(CASE
@@ -361,7 +393,7 @@ func (s *Service) forecastByOrganization(ctx context.Context, organizationID int
 		         WHEN q.id IS NOT NULL AND COALESCE(q.currency, os.base_currency) <> os.base_currency AND qr.rate_to_base IS NULL THEN q.currency
 		         ELSE ''
 		       END AS missing_quota_currency
-		FROM members m
+		FROM forecast_members m
 		CROSS JOIN org_settings os
 		LEFT JOIN sales_quotas q ON q.organization_id = $1
 		                        AND q.user_id = m.user_id
@@ -411,6 +443,11 @@ func (s *Service) forecastByOrganization(ctx context.Context, organizationID int
 	if err := rows.Err(); err != nil {
 		return Forecast{}, fmt.Errorf("iterate forecast summary: %w", err)
 	}
+	rows.Close()
+	stages, err := s.forecastStages(ctx, organizationID, periodStart, periodEnd)
+	if err != nil {
+		return Forecast{}, err
+	}
 
 	forecast.TeamQuota = formatAmount(teamQuota)
 	forecast.WonAmount = formatAmount(teamWon)
@@ -419,7 +456,79 @@ func (s *Service) forecastByOrganization(ctx context.Context, organizationID int
 	forecast.AttainmentPct = formatPercent(percent(teamWon, teamQuota))
 	forecast.CoveragePct = formatPercent(percent(teamWeighted, teamQuota))
 	forecast.MissingRateCurrencies = sortedCurrencies(missingCurrencySet)
+	forecast.Stages = stages
 	return forecast, nil
+}
+
+func (s *Service) forecastStages(ctx context.Context, organizationID int64, periodStart, periodEnd string) ([]ForecastStage, error) {
+	rows, err := s.pool.Query(ctx, `
+		WITH org_settings AS (
+			SELECT COALESCE(NULLIF(base_currency, ''), 'USD') AS base_currency
+			FROM organizations
+			WHERE id = $1
+		), latest_rates AS (
+			SELECT DISTINCT ON (er.quote_currency) er.quote_currency, er.rate_to_base
+			FROM organization_exchange_rates er
+			JOIN org_settings os ON os.base_currency = er.base_currency
+			WHERE er.organization_id = $1
+			ORDER BY er.quote_currency, er.effective_date DESC, er.id DESC
+		), stage_deals AS (
+			SELECT dp.id AS pipeline_id,
+			       dp.name AS pipeline_name,
+			       dp.position AS pipeline_position,
+			       ds.id AS stage_id,
+			       ds.name AS stage_name,
+			       ds.position AS stage_position,
+			       COALESCE(ds.probability_percent, 50)::int AS probability_percent,
+			       d.id AS deal_id,
+			       CASE
+			         WHEN COALESCE(NULLIF(d.value_currency, ''), os.base_currency) = os.base_currency THEN COALESCE(d.value_amount, 0)
+			         WHEN lr.rate_to_base IS NOT NULL THEN COALESCE(d.value_amount, 0) * lr.rate_to_base
+			         ELSE NULL
+			       END AS converted_value
+			FROM deal_stages ds
+			JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
+			CROSS JOIN org_settings os
+			LEFT JOIN deals d ON d.organization_id = ds.organization_id
+			                 AND d.stage_id = ds.id
+			                 AND d.archived_at IS NULL
+			                 AND (d.expected_close_date IS NULL OR d.expected_close_date BETWEEN $2::date AND $3::date)
+			LEFT JOIN latest_rates lr ON lr.quote_currency = COALESCE(NULLIF(d.value_currency, ''), os.base_currency)
+			WHERE ds.organization_id = $1 AND ds.is_closed = FALSE
+		)
+		SELECT pipeline_id,
+		       pipeline_name,
+		       stage_id,
+		       stage_name,
+		       probability_percent,
+		       COUNT(deal_id)::int,
+		       COALESCE(SUM(converted_value), 0)::text,
+		       COALESCE(SUM(converted_value * probability_percent / 100.0), 0)::text
+		FROM stage_deals
+		GROUP BY pipeline_id, pipeline_name, pipeline_position, stage_id, stage_name, stage_position, probability_percent
+		HAVING COUNT(deal_id) > 0
+		ORDER BY pipeline_position, stage_position, stage_id
+	`, organizationID, periodStart, periodEnd)
+	if err != nil {
+		return nil, fmt.Errorf("load forecast stage assumptions: %w", err)
+	}
+	defer rows.Close()
+
+	stages := make([]ForecastStage, 0)
+	for rows.Next() {
+		var stage ForecastStage
+		var openAmount, weightedAmount string
+		if err := rows.Scan(&stage.PipelineID, &stage.PipelineName, &stage.StageID, &stage.StageName, &stage.ProbabilityPercent, &stage.OpenDealsCount, &openAmount, &weightedAmount); err != nil {
+			return nil, fmt.Errorf("scan forecast stage assumption: %w", err)
+		}
+		stage.OpenPipelineAmount = formatAmount(parseAmount(openAmount))
+		stage.WeightedOpenAmount = formatAmount(parseAmount(weightedAmount))
+		stages = append(stages, stage)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate forecast stage assumptions: %w", err)
+	}
+	return stages, nil
 }
 
 func normalizeQuotaInput(input QuotaInput, now time.Time) (QuotaInput, error) {
@@ -450,6 +559,25 @@ func normalizeQuotaInput(input QuotaInput, now time.Time) (QuotaInput, error) {
 	}
 	input.QuotaAmount = formatAmount(quota)
 	return input, nil
+}
+
+func normalizeForecastPeriod(query ForecastQuery, now time.Time) (string, string, error) {
+	startValue := strings.TrimSpace(query.PeriodStart)
+	endValue := strings.TrimSpace(query.PeriodEnd)
+	if startValue == "" && endValue == "" {
+		startValue, endValue = currentForecastPeriod(now)
+	} else if startValue == "" || endValue == "" {
+		return "", "", ErrInvalidForecastPeriod
+	}
+	start, err := time.Parse(dateLayout, startValue)
+	if err != nil {
+		return "", "", ErrInvalidForecastPeriod
+	}
+	end, err := time.Parse(dateLayout, endValue)
+	if err != nil || end.Before(start) || end.Sub(start) > 366*24*time.Hour {
+		return "", "", ErrInvalidForecastPeriod
+	}
+	return startValue, endValue, nil
 }
 
 func currentForecastPeriod(now time.Time) (string, string) {

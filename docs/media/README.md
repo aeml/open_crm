@@ -1,10 +1,12 @@
 # README Media Plan
 
-Drop README-facing visual assets here.
+These files are archived visual assets from the early core-CRM UI. They are not
+the canonical preview of the current, broader route surface and are intentionally
+not embedded in the root README during product convergence.
 
-Current README assets:
-- `dashboard-summary.png` — live authenticated dashboard capture
-- `record-detail-workflow.png` — live contact detail capture showing notes, tasks, and activity
+Archived assets:
+- `dashboard-summary.png` — early authenticated dashboard capture
+- `record-detail-workflow.png` — early contact detail capture showing notes, tasks, and activity
 - `dashboard-summary.svg` — fallback placeholder illustration
 - `record-detail-workflow.svg` — fallback placeholder illustration
 

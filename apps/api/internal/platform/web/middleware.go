@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -33,6 +34,10 @@ type statusRecorder struct {
 	bytes      int
 }
 
+type HTTPRequestObserver interface {
+	ObserveHTTPRequest(method, route string, status int, duration time.Duration)
+}
+
 func (r *statusRecorder) WriteHeader(statusCode int) {
 	if r.statusCode != 0 {
 		return
@@ -51,6 +56,10 @@ func (r *statusRecorder) Write(body []byte) (int, error) {
 }
 
 func RequestLogger(logger *slog.Logger, next http.Handler) http.Handler {
+	return RequestTelemetry(logger, nil, next)
+}
+
+func RequestTelemetry(logger *slog.Logger, observer HTTPRequestObserver, next http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -66,14 +75,30 @@ func RequestLogger(logger *slog.Logger, next http.Handler) http.Handler {
 			statusCode = http.StatusOK
 		}
 
+		duration := time.Since(start)
+		route := boundedRoutePattern(r.Method, r.Pattern)
+		if observer != nil {
+			observer.ObserveHTTPRequest(r.Method, route, statusCode, duration)
+		}
+
 		logger.InfoContext(r.Context(), "http_request",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"route", route,
 			"status", statusCode,
-			"duration_ms", time.Since(start).Milliseconds(),
+			"duration_ms", duration.Milliseconds(),
 			"request_id", RequestIDFromContext(r.Context()),
-			"remote_addr", r.RemoteAddr,
 			"bytes", recorder.bytes,
 		)
 	})
+}
+
+func boundedRoutePattern(method, pattern string) string {
+	pattern = strings.TrimSpace(pattern)
+	if prefix := strings.ToUpper(strings.TrimSpace(method)) + " "; strings.HasPrefix(pattern, prefix) {
+		pattern = strings.TrimSpace(strings.TrimPrefix(pattern, prefix))
+	}
+	if pattern == "" {
+		return "unmatched"
+	}
+	return pattern
 }

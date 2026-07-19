@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,7 +99,7 @@ func TestListTasksUsesCurrentOrganizationAndFilters(t *testing.T) {
 	}
 	server := authenticatedTasksServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/tasks?q=morgan&status=open&entityType=deal&entityId=12&page=2&pageSize=10", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/tasks?q=morgan&status=open&due=dueSoon&entityType=deal&entityId=12&page=2&pageSize=10", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -110,7 +111,7 @@ func TestListTasksUsesCurrentOrganizationAndFilters(t *testing.T) {
 	if service.lastListOrgID != 42 {
 		t.Fatalf("expected org id 42, got %d", service.lastListOrgID)
 	}
-	if service.lastListQuery.Search != "morgan" || service.lastListQuery.Status != "open" || service.lastListQuery.EntityType != "deal" || service.lastListQuery.EntityID != 12 || service.lastListQuery.Page != 2 || service.lastListQuery.PageSize != 10 {
+	if service.lastListQuery.Search != "morgan" || service.lastListQuery.Status != "open" || service.lastListQuery.DueView != "dueSoon" || service.lastListQuery.EntityType != "deal" || service.lastListQuery.EntityID != 12 || service.lastListQuery.Page != 2 || service.lastListQuery.PageSize != 10 {
 		t.Fatalf("unexpected list query: %#v", service.lastListQuery)
 	}
 
@@ -128,6 +129,20 @@ func TestListTasksUsesCurrentOrganizationAndFilters(t *testing.T) {
 	}
 	if response.Data.Meta.Total != 1 || response.Data.Meta.OpenCount != 1 {
 		t.Fatalf("unexpected tasks meta: %#v", response.Data.Meta)
+	}
+}
+
+func TestListTasksRejectsInvalidDueView(t *testing.T) {
+	service := &fakeTasksService{listErr: moduletasks.ErrInvalidFilter}
+	server := authenticatedTasksServer(service)
+	request := httptest.NewRequest(http.MethodGet, "/api/tasks?status=open&due=whenever", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "valid task due view") {
+		t.Fatalf("expected invalid due view bad request, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -158,6 +173,30 @@ func TestCreateTaskUsesCurrentOrganization(t *testing.T) {
 	}
 	if service.lastCreateInput.EntityType != "deal" || service.lastCreateInput.EntityID != 12 || service.lastCreateInput.AssignedToUserID != 2 {
 		t.Fatalf("unexpected create input: %#v", service.lastCreateInput)
+	}
+}
+
+func TestTaskWritesRejectInactiveAssigneeAsBadRequest(t *testing.T) {
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		service *fakeTasksService
+	}{
+		{name: "create", method: http.MethodPost, path: "/api/tasks", service: &fakeTasksService{createErr: moduletasks.ErrInvalidAssignee}},
+		{name: "update", method: http.MethodPatch, path: "/api/tasks/77", service: &fakeTasksService{updateErr: moduletasks.ErrInvalidAssignee}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, test.path, bytes.NewBufferString(`{"entityType":"deal","entityId":12,"title":"Protected assignee","assignedToUserId":9}`))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			authenticatedTasksServer(test.service).ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "active team member") {
+				t.Fatalf("expected inactive assignee bad request, got %d: %s", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 

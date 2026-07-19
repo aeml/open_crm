@@ -3,7 +3,7 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
-import { createOrganizationUser, listOrganizationUsers, updateOrganizationUserRole } from '../lib/users'
+import { createOrganizationUser, listOrganizationUsers, updateOrganizationUserRole, updateOrganizationUserStatus } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
@@ -14,6 +14,23 @@ const emptyForm = {
   lastName: '',
   email: '',
   role: 'member'
+}
+
+const workLabels = [
+  ['contacts', 'contacts'],
+  ['companies', 'companies'],
+  ['deals', 'deals'],
+  ['tasks', 'tasks'],
+  ['sharedInbox', 'inbox conversations'],
+  ['leadRoutingRules', 'routing rules'],
+  ['calendarEvents', 'future meetings']
+]
+
+function ownedWorkSummary(ownedWork = {}) {
+  const items = workLabels
+    .filter(([key]) => Number(ownedWork[key] || 0) > 0)
+    .map(([key, label]) => `${ownedWork[key]} ${label}`)
+  return items.length > 0 ? items.join(', ') : 'No active assigned work'
 }
 
 export function SettingsUsersRoute() {
@@ -27,6 +44,10 @@ export function SettingsUsersRoute() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [savingRoleUserId, setSavingRoleUserId] = useState(0)
+  const [changingStatusUserId, setChangingStatusUserId] = useState(0)
+  const [deactivatingUserId, setDeactivatingUserId] = useState(0)
+  const [replacementUserId, setReplacementUserId] = useState('')
+  const [lifecycleStatus, setLifecycleStatus] = useState('')
   const [latestSetupLink, setLatestSetupLink] = useState('')
 
   async function loadUsers({ signal } = {}) {
@@ -38,7 +59,7 @@ export function SettingsUsersRoute() {
 
     setIsLoading(true)
     try {
-      const entries = await listOrganizationUsers({ signal })
+      const entries = await listOrganizationUsers({ signal, includeDisabled: true })
       setUsers(entries)
       setError('')
     } catch (loadError) {
@@ -92,6 +113,33 @@ export function SettingsUsersRoute() {
     }
   }
 
+  async function handleStatusChange(user, status) {
+    setChangingStatusUserId(user.id)
+    setError('')
+    setLifecycleStatus('')
+    try {
+      const result = await updateOrganizationUserStatus(user.id, {
+        status,
+        reassignToUserId: status === 'disabled' ? Number(replacementUserId) || 0 : 0
+      })
+      setUsers((current) => current.map((entry) => (entry.id === user.id ? result.user : entry)))
+      if (status === 'disabled') {
+        const reassigned = Object.values(result.reassigned || {}).reduce((total, count) => total + Number(count || 0), 0)
+        setLifecycleStatus(`${user.firstName} ${user.lastName} was deactivated. ${reassigned} active work item${reassigned === 1 ? '' : 's'} reassigned; ${result.sessionsInvalidated || 0} session${result.sessionsInvalidated === 1 ? '' : 's'} ended.`)
+      } else {
+        setLifecycleStatus(`${user.firstName} ${user.lastName} was reactivated. They can sign in again; mailbox sync remains off until it is reviewed.`)
+      }
+      setDeactivatingUserId(0)
+      setReplacementUserId('')
+    } catch (submitError) {
+      setError(submitError.message || 'Unable to update user access.')
+    } finally {
+      setChangingStatusUserId(0)
+    }
+  }
+
+  const activeUsers = users.filter((user) => (user.status || 'active') === 'active')
+
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
@@ -106,6 +154,7 @@ export function SettingsUsersRoute() {
           {error ? (
             <InlineError message={error} onRetry={canManageUsers ? () => loadUsers() : undefined} retryLabel="Retry users" />
           ) : null}
+          {lifecycleStatus ? <p className="inline-note" role="status">{lifecycleStatus}</p> : null}
           <div className="record-list" role="list" aria-label="Organization users">
             {!isLoading && users.length === 0 ? (
               <article className="record-row" role="listitem">
@@ -113,27 +162,63 @@ export function SettingsUsersRoute() {
                   <p>No users found.</p>
                 </div>
               </article>
-            ) : users.map((user) => (
-              <article className="record-row" key={user.email} role="listitem">
+            ) : users.map((user) => {
+              const status = user.status || 'active'
+              const isSelf = user.id === session?.user?.id
+              const isDeactivating = deactivatingUserId === user.id
+              return (
+              <article className={`record-row${status === 'disabled' ? ' record-row-alert' : ''}`} key={user.id} role="listitem">
                 <div>
                   <h3>
                     {user.firstName} {user.lastName}
                   </h3>
                   <p>{user.email}</p>
                   {user.setupPending ? <p className="field-hint">Pending setup</p> : null}
+                  <p className="field-hint"><span className="chip">{status === 'disabled' ? 'Disabled' : 'Active'}</span> · {ownedWorkSummary(user.ownedWork)}</p>
                 </div>
-                <div>
+                <div className="card-stack">
                   {canManageUsers ? (
-                    <select className="text-input" aria-label={`Role for ${user.email}`} value={user.role} onChange={(event) => handleRoleChange(user.id, event.target.value)} disabled={savingRoleUserId === user.id}>
+                    <select className="text-input" aria-label={`Role for ${user.email}`} value={user.role} onChange={(event) => handleRoleChange(user.id, event.target.value)} disabled={savingRoleUserId === user.id || status === 'disabled'}>
                       <option value="member">Member</option>
                       <option value="admin">Admin</option>
                       <option value="viewer">Viewer</option>
                       <option value="owner">Owner</option>
                     </select>
                   ) : <p>{user.role}</p>}
+                  {status === 'disabled' ? (
+                    <Button className="button-secondary" type="button" onClick={() => handleStatusChange(user, 'active')} disabled={changingStatusUserId === user.id}>
+                      {changingStatusUserId === user.id ? 'Reactivating…' : 'Reactivate'}
+                    </Button>
+                  ) : !isSelf && !isDeactivating ? (
+                    <Button className="button-danger" type="button" onClick={() => { setDeactivatingUserId(user.id); setReplacementUserId(''); setLifecycleStatus('') }}>
+                      Deactivate
+                    </Button>
+                  ) : null}
+                  {isDeactivating ? (
+                    <div className="inline-note">
+                      <p><strong>Deactivate this member?</strong></p>
+                      <p>Their sessions will end immediately. Choose where their active work should go; historical authorship is preserved.</p>
+                      <label>
+                        <span className="field-label">Reassign active work</span>
+                        <select className="text-input" aria-label={`Reassign work from ${user.email}`} value={replacementUserId} onChange={(event) => setReplacementUserId(event.target.value)}>
+                          <option value="">Leave unassigned</option>
+                          {activeUsers.filter((candidate) => candidate.id !== user.id).map((candidate) => (
+                            <option key={candidate.id} value={candidate.id}>{candidate.firstName} {candidate.lastName} ({candidate.email})</option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="button-row">
+                        <Button className="button-danger" type="button" onClick={() => handleStatusChange(user, 'disabled')} disabled={changingStatusUserId === user.id}>
+                          {changingStatusUserId === user.id ? 'Deactivating…' : 'Confirm deactivation'}
+                        </Button>
+                        <Button className="button-secondary" type="button" onClick={() => { setDeactivatingUserId(0); setReplacementUserId('') }} disabled={changingStatusUserId === user.id}>Cancel</Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </article>
-            ))}
+              )
+            })}
           </div>
         </div>
       </Card>
@@ -194,7 +279,7 @@ export function SettingsUsersRoute() {
           </div>
         </Card>
       ) : null}
-      {canManageUsers ? <AdminMemberEmail users={users} /> : null}
+      {canManageUsers ? <AdminMemberEmail users={activeUsers} /> : null}
     </section>
   )
 }

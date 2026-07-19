@@ -27,7 +27,7 @@ func TestPreviewContactsReportsRowLevelErrors(t *testing.T) {
 
 func TestPreviewCompaniesDefaultsClientType(t *testing.T) {
 	service := NewService()
-	csvBody := "name,client_type,address_line1,address_line2,city,state,postal_code,country,industry,phone,website,status\nAtlas Manufacturing,,,,Detroit,MI,48201,US,Manufacturing,555-0100,atlas.example,active\nBad Co,partner,,,,,,,,,,\n"
+	csvBody := "name,client_type,address_line1,address_line2,city,state,postal_code,country,industry,phone,website,status\nAtlas Manufacturing,,,,Detroit,MI,48201,US,Manufacturing,555-0100,atlas.example,customer\nBad Co,partner,,,,,,,,,,\n"
 
 	result, err := service.Preview(context.Background(), PreviewInput{EntityType: "companies", Reader: strings.NewReader(csvBody)})
 	if err != nil {

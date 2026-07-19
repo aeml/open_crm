@@ -82,3 +82,15 @@ func TestCalendarServiceConfiguredRequiresPool(t *testing.T) {
 		t.Fatal("service without pool should not be configured")
 	}
 }
+
+func TestReminderIDFromPayloadRequiresStringID(t *testing.T) {
+	reminderID, err := reminderIDFromPayload(map[string]any{"reminderId": "42"})
+	if err != nil || reminderID != 42 {
+		t.Fatalf("expected reminder id 42, got id=%d err=%v", reminderID, err)
+	}
+	for _, payload := range []map[string]any{{}, {"reminderId": float64(42)}, {"reminderId": "0"}, {"reminderId": "invalid"}} {
+		if _, err := reminderIDFromPayload(payload); err == nil {
+			t.Fatalf("expected invalid reminder payload %#v to fail", payload)
+		}
+	}
+}

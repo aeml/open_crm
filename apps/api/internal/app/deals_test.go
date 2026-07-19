@@ -20,6 +20,8 @@ type fakeDealsService struct {
 	listPipelinesErr           error
 	createPipelineResult       moduledeals.Pipeline
 	createPipelineErr          error
+	configurePipelineResult    moduledeals.Pipeline
+	configurePipelineErr       error
 	listStagesResult           []moduledeals.Stage
 	listStagesErr              error
 	listResult                 moduledeals.ListResult
@@ -75,6 +77,14 @@ type fakeDealsService struct {
 	lastCreatePipelineOrgID    int64
 	lastCreatePipelineActorID  int64
 	lastCreatePipelineInput    moduledeals.PipelineInput
+	lastConfigureOperation     string
+	lastConfigureOrgID         int64
+	lastConfigurePipelineID    int64
+	lastConfigureStageID       int64
+	lastConfigureActorID       int64
+	lastPipelineUpdateInput    moduledeals.PipelineUpdateInput
+	lastStageDefinitionInput   moduledeals.StageDefinitionInput
+	lastStageOrderInput        moduledeals.StageOrderInput
 }
 
 func (f *fakeDealsService) ListPipelinesByOrganization(_ context.Context, organizationID int64) ([]moduledeals.Pipeline, error) {
@@ -87,6 +97,26 @@ func (f *fakeDealsService) CreatePipeline(_ context.Context, organizationID, act
 	f.lastCreatePipelineActorID = actorUserID
 	f.lastCreatePipelineInput = input
 	return f.createPipelineResult, f.createPipelineErr
+}
+
+func (f *fakeDealsService) UpdatePipeline(_ context.Context, organizationID, pipelineID, actorUserID int64, input moduledeals.PipelineUpdateInput) (moduledeals.Pipeline, error) {
+	f.lastConfigureOperation, f.lastConfigureOrgID, f.lastConfigurePipelineID, f.lastConfigureActorID, f.lastPipelineUpdateInput = "update_pipeline", organizationID, pipelineID, actorUserID, input
+	return f.configurePipelineResult, f.configurePipelineErr
+}
+
+func (f *fakeDealsService) CreateStage(_ context.Context, organizationID, pipelineID, actorUserID int64, input moduledeals.StageDefinitionInput) (moduledeals.Pipeline, error) {
+	f.lastConfigureOperation, f.lastConfigureOrgID, f.lastConfigurePipelineID, f.lastConfigureActorID, f.lastStageDefinitionInput = "create_stage", organizationID, pipelineID, actorUserID, input
+	return f.configurePipelineResult, f.configurePipelineErr
+}
+
+func (f *fakeDealsService) UpdateStageDefinition(_ context.Context, organizationID, pipelineID, stageID, actorUserID int64, input moduledeals.StageDefinitionInput) (moduledeals.Pipeline, error) {
+	f.lastConfigureOperation, f.lastConfigureOrgID, f.lastConfigurePipelineID, f.lastConfigureStageID, f.lastConfigureActorID, f.lastStageDefinitionInput = "update_stage", organizationID, pipelineID, stageID, actorUserID, input
+	return f.configurePipelineResult, f.configurePipelineErr
+}
+
+func (f *fakeDealsService) ReorderStages(_ context.Context, organizationID, pipelineID, actorUserID int64, input moduledeals.StageOrderInput) (moduledeals.Pipeline, error) {
+	f.lastConfigureOperation, f.lastConfigureOrgID, f.lastConfigurePipelineID, f.lastConfigureActorID, f.lastStageOrderInput = "reorder_stages", organizationID, pipelineID, actorUserID, input
+	return f.configurePipelineResult, f.configurePipelineErr
 }
 
 func (f *fakeDealsService) ListStagesByOrganization(_ context.Context, organizationID int64) ([]moduledeals.Stage, error) {
@@ -284,7 +314,7 @@ func TestListDealsUsesCurrentOrganizationAndFilters(t *testing.T) {
 	}
 	server := authenticatedDealsServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/deals?q=northstar&pipelineId=8&stageId=3&ownerUserId=1&companyId=5&primaryContactId=7&page=1&pageSize=20", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/deals?q=northstar&pipelineId=8&stageId=3&ownerUserId=1&companyId=5&primaryContactId=7&closeFrom=2026-04-01&closeTo=2026-06-30&page=1&pageSize=20", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -296,8 +326,19 @@ func TestListDealsUsesCurrentOrganizationAndFilters(t *testing.T) {
 	if service.lastListOrgID != 42 {
 		t.Fatalf("expected org id 42, got %d", service.lastListOrgID)
 	}
-	if service.lastListQuery.Search != "northstar" || service.lastListQuery.PipelineID != 8 || service.lastListQuery.StageID != 3 || service.lastListQuery.OwnerUserID != 1 || service.lastListQuery.CompanyID != 5 || service.lastListQuery.PrimaryContactID != 7 {
+	if service.lastListQuery.Search != "northstar" || service.lastListQuery.PipelineID != 8 || service.lastListQuery.StageID != 3 || service.lastListQuery.OwnerUserID != 1 || service.lastListQuery.CompanyID != 5 || service.lastListQuery.PrimaryContactID != 7 || service.lastListQuery.CloseDateFrom != "2026-04-01" || service.lastListQuery.CloseDateTo != "2026-06-30" {
 		t.Fatalf("unexpected list query: %#v", service.lastListQuery)
+	}
+}
+
+func TestListDealsSurfacesInvalidCloseDateRange(t *testing.T) {
+	service := &fakeDealsService{listErr: moduledeals.ErrInvalidDealFilter}
+	request := httptest.NewRequest(http.MethodGet, "/api/deals?closeFrom=2026-06-30&closeTo=2026-04-01", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	authenticatedDealsServer(service).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "valid expected close date range") {
+		t.Fatalf("unexpected invalid close-date response: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -326,6 +367,30 @@ func TestCreateDealUsesCurrentOrganization(t *testing.T) {
 	}
 	if service.lastCreateInput.Name != "Bluebird Rollout" || service.lastCreateInput.StageID != 2 || service.lastCreateInput.CompanyID != 5 {
 		t.Fatalf("unexpected create input: %#v", service.lastCreateInput)
+	}
+}
+
+func TestDealWritesRejectInactiveOwnerAsBadRequest(t *testing.T) {
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		service *fakeDealsService
+	}{
+		{name: "create", method: http.MethodPost, path: "/api/deals", service: &fakeDealsService{createErr: moduledeals.ErrInvalidAssignee}},
+		{name: "update", method: http.MethodPatch, path: "/api/deals/12", service: &fakeDealsService{updateErr: moduledeals.ErrInvalidAssignee}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, test.path, bytes.NewBufferString(`{"name":"Protected owner","stageId":2,"ownerUserId":9}`))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			authenticatedDealsServer(test.service).ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "active team member") {
+				t.Fatalf("expected inactive owner bad request, got %d: %s", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 

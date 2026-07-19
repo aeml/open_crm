@@ -1,7 +1,11 @@
 import { apiRequest } from './api'
 
-export async function getDashboardSummary({ signal } = {}) {
-  const payload = await apiRequest('/api/dashboard/summary', { fallbackMessage: 'Unable to load dashboard summary.', signal })
+export async function getDashboardSummary({ forecastStart = '', forecastEnd = '', signal } = {}) {
+  const params = new URLSearchParams()
+  if (forecastStart) params.set('forecastStart', forecastStart)
+  if (forecastEnd) params.set('forecastEnd', forecastEnd)
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  const payload = await apiRequest(`/api/dashboard/summary${suffix}`, { fallbackMessage: 'Unable to load dashboard summary.', signal })
 
   return payload?.data || {
     pipelineValue: '0',
@@ -10,7 +14,9 @@ export async function getDashboardSummary({ signal } = {}) {
     openDealsCount: 0,
     wonDealsCount: 0,
     openTasksCount: 0,
-    dueTodayCount: 0,
+    overdueTasksCount: 0,
+    dueSoonTasksCount: 0,
+    upcomingTasksCount: 0,
     newContactsCount: 0,
     forecast: {
       periodStart: '',
@@ -23,7 +29,8 @@ export async function getDashboardSummary({ signal } = {}) {
       attainmentPct: '0',
       coveragePct: '0',
       missingRateCurrencies: [],
-      members: []
+      members: [],
+      stages: []
     },
     recentActivities: []
   }

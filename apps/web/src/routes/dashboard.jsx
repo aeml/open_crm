@@ -7,6 +7,7 @@ import { getDashboardSummary, upsertSalesQuota } from '../lib/dashboard'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
+import { DashboardForecast } from './dashboard_forecast'
 
 function formatMoney(value, currency = 'USD') {
   const amount = Number.parseFloat(value || '0')
@@ -16,23 +17,6 @@ function formatMoney(value, currency = 'USD') {
   const normalizedCurrency = String(currency || 'USD').toUpperCase()
   const safeCurrency = /^[A-Z]{3}$/.test(normalizedCurrency) ? normalizedCurrency : 'USD'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: safeCurrency }).format(amount)
-}
-
-function formatPercent(value) {
-  const amount = Number.parseFloat(value || '0')
-  if (!Number.isFinite(amount)) {
-    return '0.0%'
-  }
-  return `${amount.toFixed(1)}%`
-}
-
-function formatDate(value) {
-  if (!value) {
-    return 'Not set'
-  }
-  const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10))
-  const date = year && month && day ? new Date(year, month - 1, day) : new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString()
 }
 
 const emptyForecast = {
@@ -46,7 +30,8 @@ const emptyForecast = {
   attainmentPct: '0',
   coveragePct: '0',
   missingRateCurrencies: [],
-  members: []
+  members: [],
+  stages: []
 }
 
 const emptySummary = {
@@ -56,7 +41,9 @@ const emptySummary = {
   openDealsCount: 0,
   wonDealsCount: 0,
   openTasksCount: 0,
-  dueTodayCount: 0,
+  overdueTasksCount: 0,
+  dueSoonTasksCount: 0,
+  upcomingTasksCount: 0,
   newContactsCount: 0,
   forecast: emptyForecast,
   recentActivities: []
@@ -70,7 +57,8 @@ function normalizeDashboardSummary(summary) {
       ...emptyForecast,
       ...(summary?.forecast || {}),
       missingRateCurrencies: summary?.forecast?.missingRateCurrencies || [],
-      members: summary?.forecast?.members || []
+      members: summary?.forecast?.members || [],
+      stages: summary?.forecast?.stages || []
     },
     missingRateCurrencies: summary?.missingRateCurrencies || [],
     recentActivities: summary?.recentActivities || []
@@ -137,7 +125,6 @@ function dashboardLabels(businessType) {
   if (businessType === 'services' || businessType === 'construction-services') {
     return {
       pipelineLabel: 'Open jobs value',
-      dueTodayLabel: 'Due today',
       contactsLabel: 'New contacts',
       openRecordsLabel: 'Open jobs',
       wonRecordsLabel: 'Won jobs',
@@ -148,7 +135,6 @@ function dashboardLabels(businessType) {
 
   return {
     pipelineLabel: 'Open pipeline',
-    dueTodayLabel: 'Due today',
     contactsLabel: 'New contacts',
     openRecordsLabel: 'Open deals',
     wonRecordsLabel: 'Won deals',
@@ -167,16 +153,18 @@ export function DashboardRoute() {
   const [summary, setSummary] = useState(emptySummary)
   const [quotaDrafts, setQuotaDrafts] = useState({})
   const [savingQuotaUserId, setSavingQuotaUserId] = useState(null)
+  const [forecastPeriod, setForecastPeriod] = useState({ start: '', end: '' })
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
 
-  async function loadSummary({ signal } = {}) {
+  async function loadSummary({ signal, forecastStart = '', forecastEnd = '' } = {}) {
     setIsLoading(true)
     try {
-      const nextSummary = await getDashboardSummary({ signal })
+      const nextSummary = await getDashboardSummary({ forecastStart, forecastEnd, signal })
       const normalized = normalizeDashboardSummary(nextSummary)
       setSummary(normalized)
       setQuotaDrafts(quotaDraftsFromForecast(normalized.forecast))
+      setForecastPeriod({ start: normalized.forecast.periodStart, end: normalized.forecast.periodEnd })
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -219,15 +207,19 @@ export function DashboardRoute() {
     }
   }
 
+  async function handleForecastPeriod(event) {
+    event.preventDefault()
+    await loadSummary({ forecastStart: forecastPeriod.start, forecastEnd: forecastPeriod.end })
+  }
+
   const heroMetrics = useMemo(
     () => [
       { label: labels.pipelineLabel, value: formatMoney(summary.pipelineValue, summary.baseCurrency) },
-      { label: labels.dueTodayLabel, value: `${summary.dueTodayCount} tasks` },
+      { label: 'Due soon', value: `${summary.dueSoonTasksCount} tasks` },
       { label: labels.contactsLabel, value: `${summary.newContactsCount} this week` }
     ],
-    [labels.contactsLabel, labels.dueTodayLabel, labels.pipelineLabel, summary.baseCurrency, summary.dueTodayCount, summary.newContactsCount, summary.pipelineValue]
+    [labels.contactsLabel, labels.pipelineLabel, summary.baseCurrency, summary.dueSoonTasksCount, summary.newContactsCount, summary.pipelineValue]
   )
-  const upcomingTasksCount = Math.max(0, Number(summary.openTasksCount || 0) - Number(summary.dueTodayCount || 0))
   const latestPipelineActivity = latestActivityFor(summary.recentActivities, 'deal')
   const latestPipelineDays = daysSince(latestPipelineActivity?.createdAt)
   const touchedRecords = useMemo(() => recentlyTouchedRecords(summary.recentActivities), [summary.recentActivities])
@@ -267,7 +259,7 @@ export function DashboardRoute() {
       path: '/deals'
     }
   }, [labels.recordsLower, latestPipelineActivity, latestPipelineDays, summary.openDealsCount])
-  const hasWorkspaceData = Number.parseFloat(summary.pipelineValue || '0') > 0 || Number.parseFloat(forecast.teamQuota || '0') > 0 || summary.openDealsCount > 0 || summary.wonDealsCount > 0 || summary.openTasksCount > 0 || summary.dueTodayCount > 0 || summary.newContactsCount > 0 || summary.recentActivities.length > 0
+  const hasWorkspaceData = Number.parseFloat(summary.pipelineValue || '0') > 0 || Number.parseFloat(forecast.teamQuota || '0') > 0 || summary.openDealsCount > 0 || summary.wonDealsCount > 0 || summary.openTasksCount > 0 || summary.dueSoonTasksCount > 0 || summary.newContactsCount > 0 || summary.recentActivities.length > 0
   const setupSteps = useMemo(() => {
     const pipelineLabel = businessType === 'services' || businessType === 'construction-services' ? 'Create your first job' : 'Create your first deal'
     return [
@@ -327,21 +319,21 @@ export function DashboardRoute() {
             <div className="decision-list" role="list" aria-label="Task decision list">
               <article className="decision-row" role="listitem">
                 <div>
-                  <p>Overdue check</p>
+                  <p>{summary.overdueTasksCount} overdue</p>
                   <p className="field-hint">Review anything that slipped before scheduling new work.</p>
                 </div>
                 <Button className="button-secondary" type="button" onClick={() => navigate('/tasks?due=overdue')}>Review overdue</Button>
               </article>
               <article className="decision-row" role="listitem">
                 <div>
-                  <p>{summary.dueTodayCount === 1 ? '1 task due today' : `${summary.dueTodayCount} tasks due today`}</p>
-                  <p className="field-hint">Close or reschedule work that needs attention today.</p>
+                  <p>{summary.dueSoonTasksCount} due within 24 hours</p>
+                  <p className="field-hint">Close or reschedule work that needs attention next.</p>
                 </div>
-                <Button type="button" onClick={() => navigate('/tasks?due=dueToday')}>Review due today</Button>
+                <Button type="button" onClick={() => navigate('/tasks?due=dueSoon')}>Review due soon</Button>
               </article>
               <article className="decision-row" role="listitem">
                 <div>
-                  <p>{upcomingTasksCount === 1 ? '1 upcoming task' : `${upcomingTasksCount} upcoming tasks`}</p>
+                  <p>{summary.upcomingTasksCount} later</p>
                   <p className="field-hint">Protect the next few follow-ups before they become urgent.</p>
                 </div>
                 <Button className="button-secondary" type="button" onClick={() => navigate('/tasks?due=upcoming')}>Review upcoming</Button>
@@ -363,75 +355,19 @@ export function DashboardRoute() {
           </div>
         </Card>
 
-        <Card>
-          <div className="card-stack">
-            <div>
-              <p className="eyebrow">Forecast</p>
-              <h2>Quota coverage</h2>
-              <p>{`Current period: ${formatDate(forecast.periodStart)} to ${formatDate(forecast.periodEnd)}. Weighted forecast combines won revenue with stage-weighted open pipeline.`}</p>
-              {summary.missingRateCurrencies.length > 0 ? (
-                <p className="field-hint">Add exchange rates for {summary.missingRateCurrencies.join(', ')} to include those currencies in converted rollups.</p>
-              ) : null}
-            </div>
-            <div className="record-list" role="list" aria-label="Team forecast summary">
-              <article className="record-row" role="listitem">
-                <div>
-                  <p>Team quota</p>
-                  <p className="field-hint">Target revenue for this period.</p>
-                </div>
-                <div>
-                  <p>{formatMoney(forecast.teamQuota, forecast.currency)}</p>
-                </div>
-              </article>
-              <article className="record-row" role="listitem">
-                <div>
-                  <p>Won revenue</p>
-                  <p className="field-hint">Closed-won revenue credited to this period.</p>
-                </div>
-                <div>
-                  <p>{formatMoney(forecast.wonAmount, forecast.currency)}</p>
-                  <p className="field-hint">{formatPercent(forecast.attainmentPct)} attained</p>
-                </div>
-              </article>
-              <article className="record-row" role="listitem">
-                <div>
-                  <p>Weighted forecast</p>
-                  <p className="field-hint">Won revenue plus probability-weighted open pipeline.</p>
-                </div>
-                <div>
-                  <p>{formatMoney(forecast.weightedForecastAmount, forecast.currency)}</p>
-                  <p className="field-hint">{formatPercent(forecast.coveragePct)} coverage</p>
-                </div>
-              </article>
-            </div>
-            {forecast.members.length === 0 ? (
-              <p className="field-hint">Invite users and assign deals to start building a team forecast.</p>
-            ) : (
-              <div className="record-list" role="list" aria-label="Quota forecast by owner">
-                {forecast.members.map((member) => (
-                  <article className="record-row" key={member.userId} role="listitem">
-                    <div>
-                      <p>{member.userName}</p>
-                      <p className="field-hint">Won {formatMoney(member.wonAmount, forecast.currency)} · Open {formatMoney(member.openPipelineAmount, forecast.currency)} · Weighted {formatMoney(member.weightedForecastAmount, forecast.currency)}</p>
-                      <p className="field-hint">{formatPercent(member.attainmentPct)} attained · {formatPercent(member.coveragePct)} coverage</p>
-                    </div>
-                    {canManageQuotas ? (
-                      <div>
-                        <input className="text-input" aria-label={`Quota for ${member.userName}`} value={quotaDrafts[member.userId] ?? member.quotaAmount ?? ''} onChange={(event) => setQuotaDrafts((current) => ({ ...current, [member.userId]: event.target.value }))} />
-                        <Button className="button-secondary" type="button" aria-label={`Save quota for ${member.userName}`} disabled={savingQuotaUserId === member.userId} onClick={() => handleSaveQuota(member)}>{savingQuotaUserId === member.userId ? 'Saving...' : 'Save quota'}</Button>
-                      </div>
-                    ) : (
-                      <div>
-                        <p>{formatMoney(member.quotaAmount, forecast.currency)}</p>
-                        <p className="field-hint">Quota</p>
-                      </div>
-                    )}
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
-        </Card>
+        <DashboardForecast
+          forecast={forecast}
+          missingRateCurrencies={summary.missingRateCurrencies}
+          forecastPeriod={forecastPeriod}
+          setForecastPeriod={setForecastPeriod}
+          isLoading={isLoading}
+          onApplyPeriod={handleForecastPeriod}
+          canManageQuotas={canManageQuotas}
+          quotaDrafts={quotaDrafts}
+          setQuotaDrafts={setQuotaDrafts}
+          savingQuotaUserId={savingQuotaUserId}
+          onSaveQuota={handleSaveQuota}
+        />
 
         <Card>
           <div className="card-stack">

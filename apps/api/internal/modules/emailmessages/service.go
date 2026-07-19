@@ -396,6 +396,7 @@ func (s *Service) userBelongsToOrganization(ctx context.Context, organizationID,
 		  SELECT 1
 		  FROM organization_memberships
 		  WHERE organization_id = $1 AND user_id = $2
+		    AND COALESCE(membership_status, 'active') = 'active'
 		)
 	`, organizationID, userID).Scan(&exists)
 	if err != nil {

@@ -48,7 +48,7 @@ func (p *FakeProvider) StartCall(_ context.Context, req StartCallRequest) (Start
 	p.starts = append(p.starts, req)
 	p.mu.Unlock()
 	if p.logger != nil {
-		p.logger.Info("fake call start", "entity_type", req.EntityType, "entity_id", req.EntityID, "phone_number", req.PhoneNumber)
+		p.logger.Info("fake call start")
 	}
 	return StartCallResult{
 		ProviderCallID: fmt.Sprintf("fake_call_%d_%d", req.OrganizationID, time.Now().UnixNano()),

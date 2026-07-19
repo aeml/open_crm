@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,16 +14,22 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/app"
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	"github.com/aeml/open_crm/apps/api/internal/db"
+	modulearchiveoperations "github.com/aeml/open_crm/apps/api/internal/modules/archiveoperations"
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
+	modulebulkoperations "github.com/aeml/open_crm/apps/api/internal/modules/bulkoperations"
 	modulecalendar "github.com/aeml/open_crm/apps/api/internal/modules/calendar"
 	modulecalllogs "github.com/aeml/open_crm/apps/api/internal/modules/calllogs"
+	modulecollaboration "github.com/aeml/open_crm/apps/api/internal/modules/collaboration"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	modulecustomreports "github.com/aeml/open_crm/apps/api/internal/modules/customreports"
 	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
+	moduledataquality "github.com/aeml/open_crm/apps/api/internal/modules/dataquality"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	moduleduplicates "github.com/aeml/open_crm/apps/api/internal/modules/duplicateoperations"
 	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
@@ -30,6 +37,7 @@ import (
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
+	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
 	moduleleadaudiences "github.com/aeml/open_crm/apps/api/internal/modules/leadaudiences"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
 	moduleleadscoring "github.com/aeml/open_crm/apps/api/internal/modules/leadscoring"
@@ -41,15 +49,18 @@ import (
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduleproductcatalog "github.com/aeml/open_crm/apps/api/internal/modules/productcatalog"
+	modulesalesreports "github.com/aeml/open_crm/apps/api/internal/modules/salesreports"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	modulesequencerunner "github.com/aeml/open_crm/apps/api/internal/modules/sequencerunner"
 	modulesms "github.com/aeml/open_crm/apps/api/internal/modules/sms"
+	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
 	platformlogger "github.com/aeml/open_crm/apps/api/internal/platform/logger"
 	platformsecrets "github.com/aeml/open_crm/apps/api/internal/platform/secrets"
+	platformtelemetry "github.com/aeml/open_crm/apps/api/internal/platform/telemetry"
 )
 
 const (
@@ -63,6 +74,7 @@ const (
 func main() {
 	env := config.Load()
 	logger := platformlogger.New(env.GOEnv)
+	metrics := platformtelemetry.NewCollector()
 	dbConfig, dbConfigErr := db.LoadConfigFromEnv()
 	if dbConfigErr != nil {
 		log.Printf("database config warning: %v", dbConfigErr)
@@ -77,16 +89,21 @@ func main() {
 	var tasksService *moduletasks.Service
 	var exportsService *moduleexports.Service
 	var dashboardService *moduledashboard.Service
-	importsService := moduleimports.NewService()
-	emailProvider := moduleemail.NewProvider(moduleemail.ProviderConfig{
+	var importsService *moduleimports.Service
+	var bulkOperationsService *modulebulkoperations.Service
+	var archiveOperationsService *modulearchiveoperations.Service
+	var duplicateOperationsService *moduleduplicates.Service
+	var customFieldsService *modulecustomfields.Service
+	emailProvider := moduleemail.WithObserver(moduleemail.NewProvider(moduleemail.ProviderConfig{
 		Name:                  env.EmailProvider,
 		Logger:                logger,
 		PostmarkServerToken:   env.PostmarkServerToken,
 		PostmarkFromEmail:     env.PostmarkFromEmail,
 		PostmarkMessageStream: env.PostmarkMessageStream,
-	})
+	}), metrics)
 	emailService := moduleemail.NewService(emailProvider, env.EmailFromName, env.EmailFromAddress, env.WebBaseURL)
 	var notesService *modulenotes.Service
+	var collaborationService *modulecollaboration.Service
 	var callLogsService *modulecalllogs.Service
 	var smsService *modulesms.Service
 	var calendarService *modulecalendar.Service
@@ -104,12 +121,17 @@ func main() {
 	var leadScoringService *moduleleadscoring.Service
 	var workflowAutomationsService *moduleworkflowautomations.Service
 	var customReportsService *modulecustomreports.Service
+	var dataQualityService *moduledataquality.Service
+	var salesReportsService *modulesalesreports.Service
 	var emailSequencesService *moduleemailsequences.Service
 	var emailSuppressionsService *moduleemailsuppressions.Service
 	var userEmailService *moduleuseremail.Service
 	var emailMessagesService *moduleemailmessages.Service
 	var mailboxSyncService *modulemailboxsync.Service
 	var sequenceRunnerService *modulesequencerunner.Service
+	var jobsService *modulejobs.Service
+	var taskRemindersService *moduletaskreminders.Service
+	var databasePool *db.Pool
 	credentialCipher, cipherErr := platformsecrets.NewCipherFromBase64(env.CredentialEncryptionKey)
 	if cipherErr != nil {
 		log.Printf("credential encryption disabled: %v", cipherErr)
@@ -120,6 +142,7 @@ func main() {
 			log.Printf("auth service disabled: %v", err)
 		} else {
 			defer pool.Close()
+			databasePool = pool
 			authService = moduleauth.NewService(pool)
 			auditService = moduleaudit.NewService(pool)
 			usersService = moduleusers.NewService(pool)
@@ -127,9 +150,16 @@ func main() {
 			companiesService = modulecompanies.NewService(pool)
 			dealsService = moduledeals.NewService(pool)
 			tasksService = moduletasks.NewService(pool)
+			taskRemindersService = moduletaskreminders.NewService(pool)
 			exportsService = moduleexports.NewService(pool)
 			dashboardService = moduledashboard.NewService(pool)
+			importsService = moduleimports.NewService(pool)
+			bulkOperationsService = modulebulkoperations.NewService(pool)
+			archiveOperationsService = modulearchiveoperations.NewService(pool)
+			duplicateOperationsService = moduleduplicates.NewService(pool)
+			customFieldsService = modulecustomfields.NewService(pool)
 			notesService = modulenotes.NewService(pool)
+			collaborationService = modulecollaboration.NewService(pool)
 			callLogsService = modulecalllogs.NewService(pool, modulecalllogs.NewProvider(env.TelephonyProvider, logger))
 			smsService = modulesms.NewService(pool, modulesms.NewProvider(env.TelephonyProvider, logger))
 			calendarService = modulecalendar.NewService(pool, modulecalendar.NewProvider(env.CalendarProvider, logger))
@@ -147,9 +177,11 @@ func main() {
 			leadScoringService = moduleleadscoring.NewService(pool)
 			workflowAutomationsService = moduleworkflowautomations.NewService(pool)
 			customReportsService = modulecustomreports.NewService(pool)
+			dataQualityService = moduledataquality.NewService(pool)
+			salesReportsService = modulesalesreports.NewService(pool)
 			emailSequencesService = moduleemailsequences.NewService(pool)
 			emailSuppressionsService = moduleemailsuppressions.NewService(pool, env.CredentialEncryptionKey)
-			userEmailService = moduleuseremail.NewService(pool, credentialCipher)
+			userEmailService = moduleuseremail.NewServiceWithObserver(pool, credentialCipher, metrics)
 			emailMessagesService = moduleemailmessages.NewService(pool)
 			mailboxSyncService = modulemailboxsync.NewServiceWithOAuthRefresh(userEmailService, emailMessagesService, nil, modulemailboxsync.NewOAuthTokenRefresher(modulemailboxsync.OAuthTokenRefresherConfig{
 				GoogleClientID:        env.GoogleOAuthClientID,
@@ -158,31 +190,94 @@ func main() {
 				MicrosoftClientSecret: env.MicrosoftOAuthClientSecret,
 			}))
 			sequenceRunnerService = modulesequencerunner.NewServiceWithSuppressions(emailSequencesService, userEmailService, emailMessagesService, emailSuppressionsService, env.APIBaseURL)
+			jobsService = modulejobs.NewService(pool)
 		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if mailboxSyncService != nil && mailboxSyncService.Configured() {
-		go mailboxSyncService.RunWorker(ctx, logger, 0, 0)
+	if jobsService != nil {
+		jobHandlers := map[string]modulejobs.Handler{}
+		if calendarService != nil && calendarService.Configured() {
+			jobHandlers[modulecalendar.ReminderJobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
+				result, err := calendarService.DeliverReminderJob(ctx, job.OrganizationID, job.Payload)
+				if errors.Is(err, modulecalendar.ErrInvalidInput) {
+					return nil, modulejobs.Permanent(err)
+				}
+				return result, err
+			}
+		}
+		if taskRemindersService != nil {
+			jobHandlers[moduletaskreminders.JobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
+				result, err := taskRemindersService.DeliverJob(ctx, job.OrganizationID, job.Payload)
+				if errors.Is(err, moduletaskreminders.ErrInvalidInput) {
+					return nil, modulejobs.Permanent(err)
+				}
+				return result, err
+			}
+		}
+		if mailboxSyncService != nil && mailboxSyncService.Configured() {
+			jobHandlers[modulemailboxsync.MailboxSyncJobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
+				result, err := mailboxSyncService.HandleJob(ctx, job)
+				if errors.Is(err, modulemailboxsync.ErrInvalidJobPayload) {
+					return nil, modulejobs.Permanent(err)
+				}
+				return result, err
+			}
+			go mailboxSyncService.RunJobScheduler(ctx, jobsService, logger, 0, 0)
+		}
+		if sequenceRunnerService != nil && sequenceRunnerService.Configured() {
+			jobHandlers[moduleemailsequences.SequenceSendJobType] = sequenceRunnerService.HandleJob
+		}
+		if len(jobHandlers) > 0 {
+			jobWorker := modulejobs.NewWorker(jobsService, jobHandlers, backgroundWorkerID(), logger, metrics)
+			go jobWorker.Run(ctx)
+		}
 	}
-	if sequenceRunnerService != nil && sequenceRunnerService.Configured() {
-		go sequenceRunnerService.RunWorker(ctx, logger, 0, 0)
+
+	checkReadiness := func(ctx context.Context) error {
+		if dbConfigErr != nil {
+			return dbConfigErr
+		}
+		if databasePool == nil {
+			return fmt.Errorf("database pool unavailable")
+		}
+		return databasePool.Ping(ctx)
 	}
-	if calendarService != nil && calendarService.Configured() {
-		go calendarService.RunReminderWorker(ctx, logger, 0, 0)
+	operationalMetrics := func(ctx context.Context) platformtelemetry.RuntimeSnapshot {
+		snapshot := platformtelemetry.RuntimeSnapshot{CollectionSuccess: true}
+		if err := checkReadiness(ctx); err == nil {
+			snapshot.DatabaseUp = true
+		} else {
+			snapshot.CollectionSuccess = false
+		}
+		if jobsService == nil {
+			snapshot.CollectionSuccess = false
+		} else if stats, err := jobsService.OperationalStats(ctx); err != nil {
+			snapshot.CollectionSuccess = false
+		} else {
+			snapshot.JobsAvailable = true
+			snapshot.JobsPending = stats.Pending
+			snapshot.JobsRunning = stats.Running
+			snapshot.JobsRetryable = stats.Retryable
+			snapshot.JobsDead = stats.Dead
+			if !stats.OldestReadyAt.IsZero() {
+				snapshot.OldestReadyLag = time.Since(stats.OldestReadyAt)
+			}
+		}
+		snapshot.Backup = platformtelemetry.ReadBackupStatus(env.BackupStatusPath)
+		return snapshot
 	}
 
 	server := newHTTPServer(env, app.NewServer(env, app.Dependencies{
-		CheckReadiness: func(ctx context.Context) error {
-			if dbConfigErr != nil {
-				return dbConfigErr
-			}
-			return db.CheckReadiness(ctx, dbConfig)
-		},
+		CheckReadiness:                  checkReadiness,
+		Metrics:                         metrics,
+		OperationalMetrics:              operationalMetrics,
 		Logger:                          logger,
 		AuthService:                     authService,
 		AuditService:                    auditService,
+		BackgroundJobsService:           jobsService,
+		SequenceDeliveryOperations:      emailSequencesService,
 		UsersService:                    usersService,
 		ContactsService:                 contactsService,
 		CompaniesService:                companiesService,
@@ -191,10 +286,15 @@ func main() {
 		ExportsService:                  exportsService,
 		DashboardService:                dashboardService,
 		NotesService:                    notesService,
+		CollaborationService:            collaborationService,
 		CallLogsService:                 callLogsService,
 		SMSService:                      smsService,
 		CalendarService:                 calendarService,
 		ImportsService:                  importsService,
+		BulkOperationsService:           bulkOperationsService,
+		ArchiveOperationsService:        archiveOperationsService,
+		DuplicateOperationsService:      duplicateOperationsService,
+		CustomFieldsService:             customFieldsService,
 		SavedViewsService:               savedViewsService,
 		OnboardingService:               onboardingService,
 		OrgProfileService:               orgProfileService,
@@ -210,6 +310,8 @@ func main() {
 		LeadScoringService:              leadScoringService,
 		WorkflowAutomationsService:      workflowAutomationsService,
 		CustomReportsService:            customReportsService,
+		DataQualityService:              dataQualityService,
+		SalesReportsService:             salesReportsService,
 		EmailSequencesService:           emailSequencesService,
 		EmailSequenceEnrollmentsService: emailSequencesService,
 		EmailSuppressionsService:        emailSuppressionsService,
@@ -222,6 +324,14 @@ func main() {
 	if err := serveWithShutdown(ctx, server); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func backgroundWorkerID() string {
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		hostname = "open-crm"
+	}
+	return fmt.Sprintf("%s:%d", hostname, os.Getpid())
 }
 
 func newHTTPServer(env config.Env, handler http.Handler) *http.Server {

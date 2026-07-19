@@ -35,8 +35,12 @@ export async function apiRequest(path, { method = 'GET', body, headers = {}, fal
   }
 
   if (body !== undefined) {
-    requestHeaders['Content-Type'] = requestHeaders['Content-Type'] || 'application/json'
-    request.body = JSON.stringify(body)
+    if (typeof FormData !== 'undefined' && body instanceof FormData) {
+      request.body = body
+    } else {
+      requestHeaders['Content-Type'] = requestHeaders['Content-Type'] || 'application/json'
+      request.body = JSON.stringify(body)
+    }
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, request)

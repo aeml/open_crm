@@ -321,6 +321,7 @@ func (s *Service) ensureAssignee(ctx context.Context, organizationID, userID int
 			SELECT 1
 			FROM organization_memberships
 			WHERE organization_id = $1 AND user_id = $2
+			  AND COALESCE(membership_status, 'active') = 'active'
 		)
 	`, organizationID, userID).Scan(&exists); err != nil {
 		return fmt.Errorf("check lead scoring assignee: %w", err)

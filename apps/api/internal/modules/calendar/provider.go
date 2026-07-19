@@ -53,7 +53,7 @@ func (p *FakeProvider) ScheduleMeeting(_ context.Context, req ScheduleMeetingReq
 	p.schedules = append(p.schedules, req)
 	p.mu.Unlock()
 	if p.logger != nil {
-		p.logger.Info("fake calendar schedule", "entity_type", req.EntityType, "entity_id", req.EntityID, "title", req.Title)
+		p.logger.Info("fake calendar schedule")
 	}
 	return ScheduleMeetingResult{ProviderEventID: fmt.Sprintf("fake_event_%d_%d", req.OrganizationID, time.Now().UnixNano())}, nil
 }
@@ -63,7 +63,7 @@ func (p *FakeProvider) CancelMeeting(_ context.Context, providerEventID string) 
 	p.cancels = append(p.cancels, providerEventID)
 	p.mu.Unlock()
 	if p.logger != nil {
-		p.logger.Info("fake calendar cancel", "provider_event_id", providerEventID)
+		p.logger.Info("fake calendar cancel")
 	}
 	return nil
 }

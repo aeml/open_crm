@@ -37,7 +37,7 @@ func handleListDealPipelines(auth authService, deals dealsService, w http.Respon
 
 func handleCreateDealPipeline(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgWriter(auth, w, r)
+	state, ok := requireOrgAdmin(auth, w, r)
 	if !ok {
 		return
 	}
@@ -113,10 +113,16 @@ func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter
 		UnassignedOnly:   unassignedDeals,
 		CompanyID:        moduledeals.ParseInt64(r.URL.Query().Get("companyId")),
 		PrimaryContactID: moduledeals.ParseInt64(r.URL.Query().Get("primaryContactId")),
+		CloseDateFrom:    strings.TrimSpace(r.URL.Query().Get("closeFrom")),
+		CloseDateTo:      strings.TrimSpace(r.URL.Query().Get("closeTo")),
 		Page:             parsePositiveInt(r.URL.Query().Get("page"), 1),
 		PageSize:         parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
 	})
 	if err != nil {
+		if errors.Is(err, moduledeals.ErrInvalidDealFilter) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose a valid expected close date range")
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load deals")
 		return
 	}
@@ -162,6 +168,10 @@ func handleCreateDeal(auth authService, deals dealsService, notifs notifications
 		OwnerUserID:       request.OwnerUserID,
 	})
 	if err != nil {
+		if errors.Is(err, moduledeals.ErrInvalidAssignee) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an active team member as deal owner")
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}
@@ -279,6 +289,10 @@ func handleUpdateDeal(auth authService, deals dealsService, notifs notifications
 		OwnerUserID:       request.OwnerUserID,
 	})
 	if err != nil {
+		if errors.Is(err, moduledeals.ErrInvalidAssignee) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an active team member as deal owner")
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}

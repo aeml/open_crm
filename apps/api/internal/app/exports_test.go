@@ -9,6 +9,7 @@ import (
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 )
 
@@ -72,7 +73,7 @@ func TestExportContactsReturnsCSVDownload(t *testing.T) {
 	service := &fakeExportsService{contactsFile: moduleexports.File{Filename: "contacts-20260501.csv", Content: []byte("id,first_name\n7,Morgan\n")}}
 	server := authenticatedExportsServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/export/contacts?q=morgan", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/export/contacts?q=morgan&customField=region&customOperator=eq&customValue=West", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -83,6 +84,9 @@ func TestExportContactsReturnsCSVDownload(t *testing.T) {
 	}
 	if service.lastContactsOrgID != 42 || service.lastContactsQuery.Search != "morgan" {
 		t.Fatalf("unexpected export query: org=%d query=%#v", service.lastContactsOrgID, service.lastContactsQuery)
+	}
+	if service.lastContactsQuery.CustomField.FieldKey != "region" || service.lastContactsQuery.CustomField.Operator != "eq" || service.lastContactsQuery.CustomField.Value != "West" {
+		t.Fatalf("unexpected custom field export filter: %#v", service.lastContactsQuery.CustomField)
 	}
 	if got := recorder.Header().Get("Content-Type"); got != "text/csv; charset=utf-8" {
 		t.Fatalf("expected text/csv content type, got %q", got)
@@ -95,11 +99,33 @@ func TestExportContactsReturnsCSVDownload(t *testing.T) {
 	}
 }
 
+func TestExportCustomFieldValidationErrorIsBadRequest(t *testing.T) {
+	server := authenticatedExportsServer(&fakeExportsService{contactsErr: modulecustomfields.ErrInvalidInput})
+	request := httptest.NewRequest(http.MethodGet, "/api/export/contacts?customField=missing&customOperator=eq&customValue=x", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected bad request, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestExportRefusesSilentTruncation(t *testing.T) {
+	server := authenticatedExportsServer(&fakeExportsService{contactsErr: moduleexports.ErrTooManyRows})
+	request := httptest.NewRequest(http.MethodGet, "/api/export/contacts", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity || !strings.Contains(recorder.Body.String(), "EXPORT_TOO_LARGE") || !strings.Contains(recorder.Body.String(), "10,000") {
+		t.Fatalf("expected explicit export ceiling response, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestExportDealsPassesFilters(t *testing.T) {
 	service := &fakeExportsService{dealsFile: moduleexports.File{Filename: "deals-20260501.csv", Content: []byte("id,name\n12,Bluebird\n")}}
 	server := authenticatedExportsServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/export/deals?q=bluebird&pipelineId=8&stageId=2&ownerUserId=1&companyId=5&primaryContactId=7", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/export/deals?q=bluebird&pipelineId=8&stageId=2&ownerUserId=1&companyId=5&primaryContactId=7&closeFrom=2026-04-01&closeTo=2026-06-30", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -111,8 +137,19 @@ func TestExportDealsPassesFilters(t *testing.T) {
 	if service.lastDealsOrgID != 42 {
 		t.Fatalf("expected org id 42, got %d", service.lastDealsOrgID)
 	}
-	if service.lastDealsQuery.Search != "bluebird" || service.lastDealsQuery.PipelineID != 8 || service.lastDealsQuery.StageID != 2 || service.lastDealsQuery.OwnerUserID != 1 || service.lastDealsQuery.CompanyID != 5 || service.lastDealsQuery.PrimaryContactID != 7 {
+	if service.lastDealsQuery.Search != "bluebird" || service.lastDealsQuery.PipelineID != 8 || service.lastDealsQuery.StageID != 2 || service.lastDealsQuery.OwnerUserID != 1 || service.lastDealsQuery.CompanyID != 5 || service.lastDealsQuery.PrimaryContactID != 7 || service.lastDealsQuery.CloseDateFrom != "2026-04-01" || service.lastDealsQuery.CloseDateTo != "2026-06-30" {
 		t.Fatalf("unexpected deals query: %#v", service.lastDealsQuery)
+	}
+}
+
+func TestExportDealsSurfacesInvalidFilter(t *testing.T) {
+	server := authenticatedExportsServer(&fakeExportsService{dealsErr: moduleexports.ErrInvalidFilter})
+	request := httptest.NewRequest(http.MethodGet, "/api/export/deals?closeFrom=bad", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "invalid export filter") {
+		t.Fatalf("unexpected invalid export filter response: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 

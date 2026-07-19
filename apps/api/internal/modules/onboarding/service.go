@@ -99,9 +99,9 @@ func (s *Service) BootstrapOrganization(ctx context.Context, input BootstrapInpu
 
 	for _, stage := range db.DefaultDealStagesForBusinessType(input.BusinessType) {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO deal_stages (organization_id, pipeline_id, name, position, is_closed, is_won)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, organizationID, pipelineID, stage.Name, stage.Position, stage.IsClosed, stage.IsWon); err != nil {
+			INSERT INTO deal_stages (organization_id, pipeline_id, name, position, is_closed, is_won, probability_percent)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, organizationID, pipelineID, stage.Name, stage.Position, stage.IsClosed, stage.IsWon, stage.ProbabilityPercent); err != nil {
 			return moduleauth.LoginResult{}, fmt.Errorf("insert default stage %s: %w", stage.Name, err)
 		}
 	}

@@ -73,10 +73,14 @@ func RunMigrations(ctx context.Context, cfg Config) (MigrationResult, error) {
 	}
 	defer pool.Close()
 
-	return runMigrations(ctx, poolMigrationStore{pool: pool})
+	return runMigrationsWithPolicy(ctx, poolMigrationStore{pool: pool}, cfg.AllowContractMigrations)
 }
 
 func runMigrations(ctx context.Context, store migrationStore) (MigrationResult, error) {
+	return runMigrationsWithPolicy(ctx, store, false)
+}
+
+func runMigrationsWithPolicy(ctx context.Context, store migrationStore, allowContract bool) (MigrationResult, error) {
 	if err := store.EnsureTracking(ctx); err != nil {
 		return MigrationResult{}, fmt.Errorf("ensure migration tracking: %w", err)
 	}
@@ -89,6 +93,9 @@ func runMigrations(ctx context.Context, store migrationStore) (MigrationResult, 
 		migrationSQL := MigrationSQL(name)
 		if migrationSQL == "" {
 			return result, fmt.Errorf("missing SQL for migration %s", name)
+		}
+		if err := validateAutomaticMigration(name, migrationSQL, allowContract); err != nil {
+			return result, err
 		}
 
 		applied, err := store.IsApplied(ctx, name)

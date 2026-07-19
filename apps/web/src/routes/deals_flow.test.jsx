@@ -202,7 +202,7 @@ describe('deals flow', () => {
       })
 
     vi.stubGlobal('fetch', fetchMock)
-    window.history.pushState({}, '', '/deals?q=bluebird&pipeline=1&stage=2&owner=2')
+    window.history.pushState({}, '', '/deals?q=bluebird&pipeline=1&stage=2&owner=2&closeFrom=2026-04-01&closeTo=2026-06-30')
 
     render(<AppRouter />)
 
@@ -211,8 +211,10 @@ describe('deals flow', () => {
     expect(screen.getByLabelText(/pipeline filter/i)).toHaveValue('1')
     expect(screen.getByLabelText(/stage filter/i)).toHaveValue('2')
     expect(screen.getByLabelText(/owner filter/i)).toHaveValue('2')
+    expect(screen.getByLabelText(/expected close from/i)).toHaveValue('2026-04-01')
+    expect(screen.getByLabelText(/expected close to/i)).toHaveValue('2026-06-30')
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?q=bluebird&pipelineId=1&stageId=2&ownerUserId=2$/), expect.any(Object))
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\?q=bluebird&pipelineId=1&stageId=2&ownerUserId=2&closeFrom=2026-04-01&closeTo=2026-06-30$/), expect.any(Object))
     })
   })
 
@@ -293,7 +295,7 @@ describe('deals flow', () => {
     expect(screen.getByLabelText(/primary contact/i)).toHaveValue('7')
   })
 
-  it('creates a new pipeline and filters the deals view to it', async () => {
+  it('creates a pipeline in admin settings and filters the deals view to it', async () => {
     let pipelines = defaultPipelines
     const fetchMock = vi.fn(async (url, options = {}) => {
       const requestURL = new URL(String(url), 'http://localhost')
@@ -335,9 +337,14 @@ describe('deals flow', () => {
     render(<AppRouter />)
 
     expect(await screen.findByRole('heading', { name: /deals/i })).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText(/new pipeline name/i), { target: { value: 'Enterprise' } })
+    fireEvent.click(screen.getByRole('link', { name: 'Pipelines' }))
+    fireEvent.change(await screen.findByLabelText(/new pipeline name/i), { target: { value: 'Enterprise' } })
     fireEvent.click(screen.getByRole('button', { name: /create pipeline/i }))
 
+    expect(await screen.findByRole('heading', { name: 'Enterprise' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'Deals' }))
+    await screen.findByRole('heading', { name: /deals/i })
+    fireEvent.change(screen.getByLabelText(/pipeline filter/i), { target: { value: '9' } })
     expect(await screen.findByText(/no deals match the current filters/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/pipeline filter/i)).toHaveValue('9')
     expect(window.location.search).toBe('?pipeline=9')
@@ -665,8 +672,24 @@ describe('deals flow', () => {
       if (requestURL.pathname.endsWith('/api/tasks') && requestURL.searchParams.get('entityType') === 'deal' && requestURL.searchParams.get('entityId') === '12') {
         return jsonResponse({
           data: {
-            tasks: [],
-            meta: { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0 }
+            tasks: hasCreatedDeal ? [
+              {
+                id: 91,
+                entityType: 'deal',
+                entityId: 12,
+                entityLabel: 'Bluebird Rollout',
+                title: 'Prepare new-deal follow-up',
+                description: '',
+                status: 'open',
+                dueAt: '2026-04-11T12:00:00Z',
+                completedAt: '',
+                assignedToUserId: 2,
+                assignedToUserName: 'Alex Admin',
+                createdByUserId: 1,
+                createdByUserName: 'Demo Owner'
+              }
+            ] : [],
+            meta: { page: 1, pageSize: 20, total: hasCreatedDeal ? 1 : 0, openCount: hasCreatedDeal ? 1 : 0, completedCount: 0 }
           }
         })
       }
@@ -718,6 +741,7 @@ describe('deals flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /save deal/i }))
 
     expect((await screen.findAllByText(/bluebird rollout/i)).length).toBeGreaterThan(0)
+    expect(await screen.findByText(/prepare new-deal follow-up/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(window.location.pathname).toBe('/deals/12')
     })

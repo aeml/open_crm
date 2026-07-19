@@ -8,6 +8,7 @@ import (
 	"time"
 
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
+	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
 
@@ -18,6 +19,16 @@ type fakeAccountStore struct {
 	updates      []moduleuseremail.SyncStateInput
 	tokenUpdates []moduleuseremail.OAuthTokenUpdateInput
 	err          error
+}
+
+type fakeJobQueue struct {
+	inputs []modulejobs.EnqueueInput
+	err    error
+}
+
+func (f *fakeJobQueue) Enqueue(_ context.Context, input modulejobs.EnqueueInput) (modulejobs.Job, error) {
+	f.inputs = append(f.inputs, input)
+	return modulejobs.Job{ID: int64(len(f.inputs))}, f.err
 }
 
 func (f *fakeAccountStore) SyncCredentials(_ context.Context, _, _ int64) (moduleuseremail.SyncCredentials, error) {
@@ -340,6 +351,35 @@ func TestSyncDueImportsDueTargets(t *testing.T) {
 	}
 	if len(messages.inputs) != 2 {
 		t.Fatalf("expected one imported message per target, got %d", len(messages.inputs))
+	}
+}
+
+func TestScheduleDueJobsUsesStableCycleKeyAndStringPayload(t *testing.T) {
+	dueAt := time.Date(2026, 7, 19, 12, 30, 0, 123, time.UTC)
+	accounts := &fakeAccountStore{targets: []moduleuseremail.SyncTarget{{OrganizationID: 42, UserID: 7, DueAt: dueAt}}}
+	service := NewService(accounts, &fakeMessageStore{}, &fakeFetcher{})
+	queue := &fakeJobQueue{}
+
+	summary, err := service.ScheduleDueJobs(context.Background(), queue, 10)
+	if err != nil || summary.Due != 1 || summary.Scheduled != 1 || len(queue.inputs) != 1 {
+		t.Fatalf("unexpected mailbox scheduling result: summary=%#v inputs=%#v err=%v", summary, queue.inputs, err)
+	}
+	input := queue.inputs[0]
+	if input.OrganizationID != 42 || input.Type != MailboxSyncJobType || input.IdempotencyKey != "user:7:due:"+dueAt.Format(time.RFC3339Nano) || input.Payload["userId"] != "7" {
+		t.Fatalf("unexpected durable mailbox job input: %#v", input)
+	}
+}
+
+func TestHandleJobImportsMailboxAndRejectsInvalidPayload(t *testing.T) {
+	accounts := &fakeAccountStore{creds: readyIMAPCredentials()}
+	messages := &fakeMessageStore{}
+	service := NewService(accounts, messages, &fakeFetcher{messages: []FetchedMessage{{FromEmail: "customer@acme.test", ProviderMessageID: "10", ReceivedAt: time.Now()}}})
+	result, err := service.HandleJob(context.Background(), modulejobs.Job{OrganizationID: 42, Payload: map[string]any{"userId": "7"}})
+	if err != nil || result["status"] != "ready" || result["imported"] != 1 {
+		t.Fatalf("unexpected mailbox job result: result=%#v err=%v", result, err)
+	}
+	if _, err := service.HandleJob(context.Background(), modulejobs.Job{OrganizationID: 42, Payload: map[string]any{"userId": float64(7)}}); !errors.Is(err, ErrInvalidJobPayload) {
+		t.Fatalf("expected numeric mailbox job id to be rejected, got %v", err)
 	}
 }
 

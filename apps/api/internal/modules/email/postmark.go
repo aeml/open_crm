@@ -110,7 +110,7 @@ func (p *PostmarkProvider) Send(ctx context.Context, msg Message) error {
 	}
 
 	if p.logger != nil {
-		p.logger.Info("postmark email sent", "to", to, "subject", subject)
+		p.logger.Info("postmark email sent")
 	}
 	return nil
 }

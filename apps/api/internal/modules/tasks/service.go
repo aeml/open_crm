@@ -10,10 +10,18 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
+	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 )
 
-var ErrNotFound = errors.New("task not found")
+var (
+	ErrInvalidAssignee = moduleusers.ErrInvalidAssignee
+	ErrInvalidFilter   = errors.New("invalid task filter")
+	ErrNotFound        = errors.New("task not found")
+)
 
 type Summary struct {
 	ID                 int64  `json:"id"`
@@ -50,6 +58,7 @@ type ListQuery struct {
 	EntityID         int64
 	AssignedToUserID int64
 	UnassignedOnly   bool
+	DueView          string
 	Page             int
 	PageSize         int
 }
@@ -60,6 +69,10 @@ type ListMeta struct {
 	Total          int `json:"total"`
 	OpenCount      int `json:"openCount"`
 	CompletedCount int `json:"completedCount"`
+	OverdueCount   int `json:"overdueCount"`
+	DueSoonCount   int `json:"dueSoonCount"`
+	UpcomingCount  int `json:"upcomingCount"`
+	NoDueDateCount int `json:"noDueDateCount"`
 }
 
 type ListResult struct {
@@ -100,6 +113,9 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	}
 
 	query = normalizeListQuery(query)
+	if !validDueView(query.DueView) {
+		return ListResult{}, ErrInvalidFilter
+	}
 	filterSQL, args := buildTaskFilters(organizationID, query)
 
 	var total, openCount, completedCount int
@@ -116,6 +132,26 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 		WHERE t.organization_id = $1 AND t.archived_at IS NULL` + filterSQL
 	if err := s.pool.QueryRow(ctx, countSQL, args...).Scan(&total, &openCount, &completedCount); err != nil {
 		return ListResult{}, fmt.Errorf("count tasks: %w", err)
+	}
+	digestQuery := query
+	digestQuery.Status = "open"
+	digestQuery.DueView = ""
+	digestFilterSQL, digestArgs := buildTaskFilters(organizationID, digestQuery)
+	var overdueCount, dueSoonCount, upcomingCount, noDueDateCount int
+	if err := s.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE t.due_at IS NOT NULL AND t.due_at < NOW()),
+			COUNT(*) FILTER (WHERE t.due_at IS NOT NULL AND t.due_at >= NOW() AND t.due_at < NOW()+INTERVAL '24 hours'),
+			COUNT(*) FILTER (WHERE t.due_at IS NOT NULL AND t.due_at >= NOW()+INTERVAL '24 hours'),
+			COUNT(*) FILTER (WHERE t.due_at IS NULL)
+		FROM tasks t
+		LEFT JOIN users assigned_user ON assigned_user.id=t.assigned_to_user_id
+		LEFT JOIN contacts c ON t.entity_type='contact' AND c.organization_id=t.organization_id AND c.id=t.entity_id AND c.archived_at IS NULL
+		LEFT JOIN companies company ON t.entity_type='company' AND company.organization_id=t.organization_id AND company.id=t.entity_id AND company.archived_at IS NULL
+		LEFT JOIN deals deal ON t.entity_type='deal' AND deal.organization_id=t.organization_id AND deal.id=t.entity_id AND deal.archived_at IS NULL
+		WHERE t.organization_id=$1 AND t.archived_at IS NULL`+digestFilterSQL,
+		digestArgs...).Scan(&overdueCount, &dueSoonCount, &upcomingCount, &noDueDateCount); err != nil {
+		return ListResult{}, fmt.Errorf("count task reminder buckets: %w", err)
 	}
 
 	args = append(args, query.PageSize, (query.Page-1)*query.PageSize)
@@ -189,6 +225,10 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			Total:          total,
 			OpenCount:      openCount,
 			CompletedCount: completedCount,
+			OverdueCount:   overdueCount,
+			DueSoonCount:   dueSoonCount,
+			UpcomingCount:  upcomingCount,
+			NoDueDateCount: noDueDateCount,
 		},
 	}, nil
 }
@@ -208,18 +248,30 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		return Detail{}, fmt.Errorf("begin create task transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, input.AssignedToUserID); err != nil {
+		return Detail{}, err
+	}
 
 	if err := ensureEntityExists(ctx, tx, organizationID, input.EntityType, input.EntityID); err != nil {
 		return Detail{}, err
 	}
 
 	var taskID int64
+	var dueAt pgtype.Timestamptz
+	var reminderVersion int
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO tasks (organization_id, entity_type, entity_id, title, description, status, due_at, assigned_to_user_id, created_by_user_id)
 		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, NULLIF($7, '')::timestamptz, NULLIF($8, 0), $9)
-		RETURNING id
-	`, organizationID, input.EntityType, input.EntityID, input.Title, input.Description, input.Status, input.DueAt, input.AssignedToUserID, actorUserID).Scan(&taskID); err != nil {
+		RETURNING id,due_at,COALESCE(reminder_version,0)
+	`, organizationID, input.EntityType, input.EntityID, input.Title, input.Description, input.Status, input.DueAt, input.AssignedToUserID, actorUserID).Scan(&taskID, &dueAt, &reminderVersion); err != nil {
 		return Detail{}, fmt.Errorf("insert task: %w", err)
+	}
+	reminderState := taskReminderState(organizationID, taskID, input.Title, input.AssignedToUserID, input.Status, dueAt, false, reminderVersion)
+	if err := moduletaskreminders.Sync(ctx, tx, reminderState); err != nil {
+		return Detail{}, fmt.Errorf("schedule task reminders: %w", err)
+	}
+	if err := moduletaskreminders.RecordAssignment(ctx, tx, reminderState, actorUserID); err != nil {
+		return Detail{}, err
 	}
 
 	if err := insertActivity(ctx, tx, organizationID, taskID, actorUserID, "task.created", "Task created"); err != nil {
@@ -238,23 +290,27 @@ func (s *Service) Update(ctx context.Context, organizationID, taskID, actorUserI
 		return Detail{}, fmt.Errorf("tasks service not configured")
 	}
 
-	existing, err := s.GetByID(ctx, organizationID, taskID)
-	if err != nil {
-		return Detail{}, err
-	}
-
-	normalized, action, err := mergeUpdateInput(existing.Task, input)
-	if err != nil {
-		return Detail{}, err
-	}
-
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Detail{}, fmt.Errorf("begin update task transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	existing, existingVersion, _, err := lockTaskForUpdate(ctx, tx, organizationID, taskID)
+	if err != nil {
+		return Detail{}, err
+	}
+	normalized, action, err := mergeUpdateInput(existing, input)
+	if err != nil {
+		return Detail{}, err
+	}
+	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, normalized.AssignedToUserID); err != nil {
+		return Detail{}, err
+	}
 
-	updated, err := tx.Exec(ctx, `
+	scheduleChanged := existing.Status != normalized.Status || existing.DueAt != normalized.DueAt || existing.AssignedToUserID != normalized.AssignedToUserID
+	var dueAt pgtype.Timestamptz
+	var reminderVersion int
+	err = tx.QueryRow(ctx, `
 		UPDATE tasks
 		SET title = $3,
 		    description = NULLIF($4, ''),
@@ -262,14 +318,25 @@ func (s *Service) Update(ctx context.Context, organizationID, taskID, actorUserI
 		    due_at = NULLIF($6, '')::timestamptz,
 		    completed_at = NULLIF($7, '')::timestamptz,
 		    assigned_to_user_id = NULLIF($8, 0),
+		    reminder_version = COALESCE(reminder_version,0) + CASE WHEN $9::boolean THEN 1 ELSE 0 END,
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2
-	`, organizationID, taskID, normalized.Title, normalized.Description, normalized.Status, normalized.DueAt, normalized.CompletedAt, normalized.AssignedToUserID)
+		RETURNING due_at,COALESCE(reminder_version,0)
+	`, organizationID, taskID, normalized.Title, normalized.Description, normalized.Status, normalized.DueAt, normalized.CompletedAt, normalized.AssignedToUserID, scheduleChanged).Scan(&dueAt, &reminderVersion)
 	if err != nil {
 		return Detail{}, fmt.Errorf("update task: %w", err)
 	}
-	if updated.RowsAffected() == 0 {
-		return Detail{}, ErrNotFound
+	if !scheduleChanged {
+		reminderVersion = existingVersion
+	}
+	reminderState := taskReminderState(organizationID, taskID, normalized.Title, normalized.AssignedToUserID, normalized.Status, dueAt, false, reminderVersion)
+	if err := moduletaskreminders.Sync(ctx, tx, reminderState); err != nil {
+		return Detail{}, fmt.Errorf("refresh task reminders: %w", err)
+	}
+	if existing.AssignedToUserID != normalized.AssignedToUserID {
+		if err := moduletaskreminders.RecordAssignment(ctx, tx, reminderState, actorUserID); err != nil {
+			return Detail{}, err
+		}
 	}
 
 	if err := insertActivity(ctx, tx, organizationID, taskID, actorUserID, action, summaryForAction(action)); err != nil {
@@ -288,16 +355,39 @@ func (s *Service) Archive(ctx context.Context, organizationID, taskID, actorUser
 		return fmt.Errorf("tasks service not configured")
 	}
 
-	archived, err := s.pool.Exec(ctx, `
-		UPDATE tasks
-		SET archived_at = NOW(), updated_at = NOW()
-		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, taskID)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("archive task: %w", err)
+		return fmt.Errorf("begin archive task transaction: %w", err)
 	}
-	if archived.RowsAffected() == 0 {
-		return ErrNotFound
+	defer tx.Rollback(ctx)
+	existing, existingVersion, dueAt, err := lockTaskForUpdate(ctx, tx, organizationID, taskID)
+	if err != nil {
+		return err
+	}
+	var reminderVersion int
+	archived := tx.QueryRow(ctx, `
+		UPDATE tasks
+		SET archived_at = NOW(), reminder_version=COALESCE(reminder_version,0)+1, updated_at = NOW()
+		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
+		RETURNING COALESCE(reminder_version,0)
+	`, organizationID, taskID).Scan(&reminderVersion)
+	if archived != nil {
+		if errors.Is(archived, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("archive task: %w", archived)
+	}
+	if reminderVersion != existingVersion+1 {
+		return fmt.Errorf("archive task reminder version did not advance")
+	}
+	if err := moduletaskreminders.Sync(ctx, tx, taskReminderState(organizationID, taskID, existing.Title, existing.AssignedToUserID, existing.Status, dueAt, true, reminderVersion)); err != nil {
+		return fmt.Errorf("retire archived task reminders: %w", err)
+	}
+	if err := insertActivity(ctx, tx, organizationID, taskID, actorUserID, "task.archived", "Task archived"); err != nil {
+		return fmt.Errorf("insert task archive activity: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit archive task transaction: %w", err)
 	}
 
 	return nil
@@ -382,6 +472,48 @@ func (s *Service) GetByID(ctx context.Context, organizationID, taskID int64) (De
 	return detail, nil
 }
 
+func lockTaskForUpdate(ctx context.Context, tx pgx.Tx, organizationID, taskID int64) (Summary, int, pgtype.Timestamptz, error) {
+	var task Summary
+	var dueAt, completedAt pgtype.Timestamptz
+	var reminderVersion int
+	err := tx.QueryRow(ctx, `
+		SELECT id,title,COALESCE(description,''),status,due_at,completed_at,
+		       COALESCE(assigned_to_user_id,0),COALESCE(reminder_version,0)
+		FROM tasks
+		WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL
+		FOR UPDATE
+	`, organizationID, taskID).Scan(&task.ID, &task.Title, &task.Description, &task.Status, &dueAt, &completedAt, &task.AssignedToUserID, &reminderVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Summary{}, 0, pgtype.Timestamptz{}, ErrNotFound
+	}
+	if err != nil {
+		return Summary{}, 0, pgtype.Timestamptz{}, fmt.Errorf("lock task: %w", err)
+	}
+	if dueAt.Valid {
+		task.DueAt = dueAt.Time.UTC().Format(time.RFC3339)
+	}
+	if completedAt.Valid {
+		task.CompletedAt = completedAt.Time.UTC().Format(time.RFC3339)
+	}
+	return task, reminderVersion, dueAt, nil
+}
+
+func taskReminderState(organizationID, taskID int64, title string, userID int64, status string, dueAt pgtype.Timestamptz, archived bool, version int) moduletaskreminders.State {
+	state := moduletaskreminders.State{
+		OrganizationID: organizationID,
+		TaskID:         taskID,
+		Title:          title,
+		UserID:         userID,
+		Status:         status,
+		Archived:       archived,
+		Version:        version,
+	}
+	if dueAt.Valid {
+		state.DueAt = dueAt.Time
+	}
+	return state
+}
+
 type activityExecutor interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 	QueryRow(context.Context, string, ...any) pgx.Row
@@ -421,6 +553,7 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	query.Search = strings.TrimSpace(strings.ToLower(query.Search))
 	query.Status = normalizeStatus(query.Status)
 	query.EntityType = normalizeEntityType(query.EntityType)
+	query.DueView = strings.TrimSpace(query.DueView)
 	if query.EntityID < 0 {
 		query.EntityID = 0
 	}
@@ -580,7 +713,23 @@ func buildTaskFilters(organizationID int64, query ListQuery) (string, []any) {
 		parts = append(parts, fmt.Sprintf(" AND t.assigned_to_user_id = $%d", len(args)+1))
 		args = append(args, query.AssignedToUserID)
 	}
+	switch query.DueView {
+	case "overdue":
+		parts = append(parts, " AND t.due_at IS NOT NULL AND t.due_at < NOW()")
+	case "dueSoon":
+		parts = append(parts, " AND t.due_at IS NOT NULL AND t.due_at >= NOW() AND t.due_at < NOW()+INTERVAL '24 hours'")
+	case "dueToday":
+		parts = append(parts, " AND t.due_at IS NOT NULL AND t.due_at >= DATE_TRUNC('day',NOW()) AND t.due_at < DATE_TRUNC('day',NOW())+INTERVAL '1 day'")
+	case "upcoming":
+		parts = append(parts, " AND t.due_at IS NOT NULL AND t.due_at >= NOW()+INTERVAL '24 hours'")
+	case "noDueDate":
+		parts = append(parts, " AND t.due_at IS NULL")
+	}
 	return strings.Join(parts, ""), args
+}
+
+func validDueView(value string) bool {
+	return value == "" || value == "all" || value == "overdue" || value == "dueSoon" || value == "dueToday" || value == "upcoming" || value == "noDueDate"
 }
 
 func ParseInt64(value string) int64 {

@@ -2,13 +2,20 @@ x-api-env: &api-env
   API_PORT: 8080
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS is required}
   DATABASE_URL: "postgres://${POSTGRES_USER:-open_crm}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-open_crm}?sslmode=disable"
+  OPEN_CRM_RELEASE_ID: ${OPEN_CRM_RELEASE_ID:-development}
+
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api/Dockerfile
+  args:
+    OPEN_CRM_RELEASE_ID: ${OPEN_CRM_RELEASE_ID:-development}
 
 services:
   postgres:
-    image: postgres:16
+    image: postgres:16.14@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20
     restart: unless-stopped
     env_file:
-      - .env.production
+      - ${OPEN_CRM_ENV_FILE:-.env.production}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-open_crm}
       POSTGRES_USER: ${POSTGRES_USER:-open_crm}
@@ -22,11 +29,10 @@ services:
       retries: 5
 
   migrate:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
+    image: ${OPEN_CRM_API_IMAGE_REPOSITORY:-open-crm-api}:${OPEN_CRM_RELEASE_ID:-development}
+    build: *api-build
     env_file:
-      - .env.production
+      - ${OPEN_CRM_ENV_FILE:-.env.production}
     environment:
       <<: *api-env
     depends_on:
@@ -36,12 +42,11 @@ services:
     restart: "no"
 
   api:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
+    image: ${OPEN_CRM_API_IMAGE_REPOSITORY:-open-crm-api}:${OPEN_CRM_RELEASE_ID:-development}
+    build: *api-build
     restart: unless-stopped
     env_file:
-      - .env.production
+      - ${OPEN_CRM_ENV_FILE:-.env.production}
     environment:
       <<: *api-env
     depends_on:
@@ -49,6 +54,8 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${API_PORT:-18089}:8080"
+    volumes:
+      - ${BACKUP_STATUS_DIR:-./var/backup-status}:/run/open-crm/backup-status:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz"]
       interval: 30s

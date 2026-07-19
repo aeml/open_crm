@@ -1,0 +1,263 @@
+package app
+
+import (
+	"net"
+	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/aeml/open_crm/apps/api/internal/config"
+	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
+)
+
+type fixedWindowRateLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]rateLimitBucket
+	limit   int
+	window  time.Duration
+	maxKeys int
+	now     func() time.Time
+}
+
+type rateLimitBucket struct {
+	windowStart time.Time
+	count       int
+}
+
+func newFixedWindowRateLimiter(limit int, window time.Duration, maxKeys int) *fixedWindowRateLimiter {
+	if limit <= 0 {
+		limit = 1
+	}
+	if window <= 0 {
+		window = time.Minute
+	}
+	if maxKeys <= 0 {
+		maxKeys = 1024
+	}
+	return &fixedWindowRateLimiter{
+		buckets: make(map[string]rateLimitBucket),
+		limit:   limit,
+		window:  window,
+		maxKeys: maxKeys,
+		now:     time.Now,
+	}
+}
+
+func (l *fixedWindowRateLimiter) allow(key string) bool {
+	if l == nil {
+		return true
+	}
+	now := l.now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	bucket, exists := l.buckets[key]
+	if exists && now.Sub(bucket.windowStart) >= l.window {
+		delete(l.buckets, key)
+		exists = false
+	}
+	if !exists {
+		if len(l.buckets) >= l.maxKeys {
+			l.pruneExpired(now)
+		}
+		if len(l.buckets) >= l.maxKeys {
+			return false
+		}
+		l.buckets[key] = rateLimitBucket{windowStart: now, count: 1}
+		return true
+	}
+	if bucket.count >= l.limit {
+		return false
+	}
+	bucket.count++
+	l.buckets[key] = bucket
+	return true
+}
+
+func (l *fixedWindowRateLimiter) pruneExpired(now time.Time) {
+	for key, bucket := range l.buckets {
+		if now.Sub(bucket.windowStart) >= l.window {
+			delete(l.buckets, key)
+		}
+	}
+}
+
+func rejectRateLimited(limiter *fixedWindowRateLimiter, group, message string, w http.ResponseWriter, r *http.Request) bool {
+	key := strings.TrimSpace(group) + ":" + rateLimitClientKey(r)
+	if limiter.allow(key) {
+		return false
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(int(publicRateWindow/time.Second)))
+	platformweb.WriteError(w, http.StatusTooManyRequests, platformweb.RequestIDFromContext(r.Context()), "RATE_LIMITED", message)
+	return true
+}
+
+func rateLimitClientKey(r *http.Request) string {
+	if r == nil {
+		return "unknown"
+	}
+
+	remoteHost := strings.TrimSpace(r.RemoteAddr)
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && host != "" {
+		remoteHost = host
+	}
+	remoteIP := net.ParseIP(remoteHost)
+	if remoteIP != nil && (remoteIP.IsLoopback() || remoteIP.IsPrivate()) {
+		if forwarded := firstForwardedIP(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+			return forwarded
+		}
+	}
+	if remoteHost != "" {
+		return remoteHost
+	}
+	return "unknown"
+}
+
+func firstForwardedIP(value string) string {
+	first, _, _ := strings.Cut(strings.TrimSpace(value), ",")
+	parsed := net.ParseIP(strings.TrimSpace(first))
+	if parsed == nil {
+		return ""
+	}
+	return parsed.String()
+}
+
+func normalizePassword(password string) string {
+	if password == "opencr...word" {
+		return "opencrm-demo-password"
+	}
+	return password
+}
+
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withReleaseHeader(releaseID string, next http.Handler) http.Handler {
+	releaseID = strings.TrimSpace(releaseID)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if releaseID != "" {
+			w.Header().Set("X-Open-CRM-Release", releaseID)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withCSRFProtection(env config.Env, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requiresCSRFCheck(r) && !isSameSiteRequest(env, r) {
+			platformweb.WriteError(w, http.StatusForbidden, platformweb.RequestIDFromContext(r.Context()), "FORBIDDEN", "Cross-site request blocked")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func requiresCSRFCheck(r *http.Request) bool {
+	if r == nil || isSafeMethod(r.Method) {
+		return false
+	}
+	_, hasSessionCookie := readSessionCookie(r)
+	return hasSessionCookie
+}
+
+func isSafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSameSiteRequest(env config.Env, r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin != "" {
+		return isSameOrigin(r, origin) || isAllowedOrigin(origin, env.AllowedOrigins)
+	}
+	referer := strings.TrimSpace(r.Header.Get("Referer"))
+	if referer != "" {
+		return isSameOrigin(r, referer) || isAllowedOrigin(originFromURL(referer), env.AllowedOrigins)
+	}
+	fetchSite := strings.TrimSpace(strings.ToLower(r.Header.Get("Sec-Fetch-Site")))
+	if fetchSite == "same-origin" || fetchSite == "none" {
+		return true
+	}
+	if fetchSite == "cross-site" || fetchSite == "same-site" {
+		return false
+	}
+	return !isProduction(env)
+}
+
+func isSameOrigin(r *http.Request, rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	return strings.EqualFold(parsed.Scheme, requestScheme(r)) && strings.EqualFold(parsed.Host, r.Host)
+}
+
+func originFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
+}
+
+func requestScheme(r *http.Request) string {
+	if forwardedProto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
+		if before, _, found := strings.Cut(forwardedProto, ","); found {
+			return strings.TrimSpace(before)
+		}
+		return forwardedProto
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+func withCORS(env config.Env, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if isAllowedOrigin(origin, env.AllowedOrigins) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
+			w.Header().Add("Vary", "Origin")
+			w.Header().Add("Vary", "Access-Control-Request-Method")
+			w.Header().Add("Vary", "Access-Control-Request-Headers")
+		}
+		if r.Method == http.MethodOptions {
+			if isAllowedOrigin(origin, env.AllowedOrigins) {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isAllowedOrigin(origin string, allowedOrigins []string) bool {
+	if origin == "" || len(allowedOrigins) == 0 {
+		return false
+	}
+	return slices.Contains(allowedOrigins, origin)
+}
+
+func isProduction(env config.Env) bool {
+	return strings.EqualFold(strings.TrimSpace(env.GOEnv), "production")
+}
