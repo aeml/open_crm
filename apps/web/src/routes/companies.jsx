@@ -44,6 +44,7 @@ import {
 } from './company_view'
 import { CompanyForm } from './company_form'
 import { RecordWorkCards } from './record_work'
+import { TouchpointSummary } from './touchpoint_summary'
 
 const emptyForm = {
   name: '',
@@ -969,6 +970,7 @@ export function CompaniesRoute() {
                 </div>
               </div>
             </Card>
+            <TouchpointSummary entityType="company" entityId={selectedCompanyId} refreshKey={JSON.stringify({ selectedActivities, selectedNotes, selectedTasks, linkedContacts })} />
             <RecordWorkCards
               activities={selectedActivities}
               activityAria="Activity list"

@@ -26,7 +26,7 @@ describe('data quality reports', () => {
 
     expect(await screen.findByRole('heading', { name: /contacts without contact details · 1/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Ava Stone' })).toHaveAttribute('href', '/contacts/12')
-    expect(screen.getByText(/generated/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/generated/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/neither email nor phone/i)).toBeInTheDocument()
     expect(screen.getByText('No matching issues.')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Stale-deal window'), { target: { value: '60' } })

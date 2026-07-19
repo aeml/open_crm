@@ -69,17 +69,18 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 614 KiB | 196 KiB |
+| All JavaScript and CSS | 622 KiB | 199 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 176.81 KiB/57.62 KiB entry, 47.75 KiB/12.31 KiB largest lazy
-chunk, and 613.24 KiB/195.46 KiB total assets. The complete custom-field outcome
+Current evidence: 176.85 KiB/57.64 KiB entry, 47.97 KiB/12.39 KiB largest lazy
+chunk, and 621.39 KiB/197.88 KiB total assets. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget
-core record screens. Live data-quality queues plus snapshot-backed period,
-teammate, outcome, stage-movement, and drill-down reporting leave the Reports
-route at 22.85 KiB/6.31 KiB. Admin pipeline configuration and probability controls use an
+core record screens. Live data-quality, snapshot-backed sales activity, and
+traceable stale follow-up queues leave the Reports route at 27.15 KiB/7.08 KiB;
+the reusable record summary is a separate 6.42 KiB/2.21 KiB chunk shared by
+Contacts and Clients. Admin pipeline configuration and probability controls use an
 isolated 7.21 KiB/2.46 KiB route and remove pipeline creation from the core Deals
 route. Explainable period/stage forecasting and exact reminder buckets leave
 Dashboard isolated at 18.06 KiB/4.96 KiB and split its panel from the route
@@ -89,9 +90,9 @@ surface reduces its lazy route from 20.62 KiB/5.86 KiB to 10.17 KiB/3.56 KiB.
 The reminder workflow keeps its due counts and filter in the existing Tasks route
 at 22.38 KiB/5.95 KiB and removes redundant browser-side time filtering now that
 PostgreSQL owns those windows.
-The production-complete sales-activity outcome raised only the aggregate
-ratchets to 614/196 KiB after measurement, leaving less than 1 KiB raw and
-0.54 KiB gzip headroom. Entry, per-route, and CSS limits remain unchanged.
+The production-complete touchpoint outcome raised only the aggregate ratchets
+to 622/199 KiB after measurement, leaving less than 1 KiB raw while preserving
+more than 1 KiB gzip headroom. Entry, per-route, and CSS limits remain unchanged.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 
@@ -101,8 +102,8 @@ view model, calls, recording controls, SMS, meetings, email, sequences, lead
 scoring, attribution, related deals, notes, tasks, and activity into focused
 modules. Shared collaboration-aware record-work cards now serve contacts, companies, and deals;
 company editor/view helpers, deal quote/signature/view helpers, and task view
-logic are also separated. Bulk-action, custom-field, and reminder integration leave the
-parent routes at 1,296 contact lines, 996 company lines, 1,044 deal lines, and
+logic are also separated. Bulk-action, custom-field, reminder, and touchpoint integration leave the
+parent routes at 1,298 contact lines, 998 company lines, 1,044 deal lines, and
 839 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
@@ -118,12 +119,12 @@ the application composition package.
 
 | Existing hotspot | Current lines | Maximum until next split |
 | --- | ---: | ---: |
-| `contacts.jsx` | 1,296 | 1,300 |
-| `companies.jsx` | 996 | 1,000 |
+| `contacts.jsx` | 1,298 | 1,300 |
+| `companies.jsx` | 998 | 1,000 |
 | `deals.jsx` | 1,044 | 1,100 |
 | `tasks.jsx` | 839 | 850 |
 | `dashboard.jsx` | 468 | 550 |
-| backend `app.go` | 948 | 1,000 |
+| backend `app.go` | 954 | 1,000 |
 | backend `support_handlers.go` | 766 | 800 |
 
 All other production route and `internal/app` Go files are limited to 500

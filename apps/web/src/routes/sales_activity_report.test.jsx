@@ -43,9 +43,9 @@ describe('sales activity report', () => {
     expect(screen.getByText(/reopened and closed again/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Teammate'), { target: { value: '2' } })
-    fireEvent.click(screen.getByRole('button', { name: /run report/i }))
+    fireEvent.click(document.querySelector('.sales-activity-card').querySelector('button[type="submit"]'))
     await waitFor(() => expect(requests.some((request) => request.pathname.endsWith('/api/reports/sales-activity') && request.searchParams.get('ownerUserId') === '2')).toBe(true))
-    expect(await screen.findByText(/blake seller \(disabled\)/i, { selector: 'option' })).toBeInTheDocument()
+    expect((await screen.findAllByText(/blake seller \(disabled\)/i, { selector: 'option' })).length).toBeGreaterThan(0)
   })
 
   it('keeps the live report visible and retries teammate-filter loading independently', async () => {

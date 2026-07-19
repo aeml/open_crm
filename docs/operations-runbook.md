@@ -218,6 +218,39 @@ do not silently relabel a missed target as success.
    Record the filters, coverage time, generated time, and request ID when
    escalating a mismatch.
 
+### Contact/client touchpoints and follow-up reconciliation
+
+1. Open a Contact or Client and inspect **Follow-up** for its latest touch and
+   five most recent entries, or open **Reports > Follow-up queue** to find the
+   first 25 records older than 14, 30, 60, or 90 days. Every member, including
+   viewers, may read these surfaces. The owner filter includes disabled members
+   so retained work does not disappear when access is removed.
+2. A qualifying touch is a note, a durable task-completion event, a completed
+   call, a sent/received SMS, a scheduled meeting, or a sent/received email the
+   viewer may see. Ordinary record create/update/archive events, failed calls or
+   messages, cancelled meetings, reminders, open-task due dates, and future
+   meeting times do not move the clock. Scheduling the meeting is the touch, so
+   its creation time—not its future start time—is shown.
+3. A record with no qualifying touch uses its creation time. This prevents a new
+   lead from appearing stale immediately while keeping the absence of real
+   contact explicit. Client history includes direct Client work and work on
+   currently linked Contacts; **via** / **Source** links identify the person that
+   produced a rolled-up touch. Unlinking a person removes that person's work
+   from the current client rollup without deleting either record's own history.
+4. Private inbound email and private meetings are evaluated for the current
+   viewer, so two authorized teammates may legitimately see a different latest
+   touch or stale result. Shared email/meetings remain visible to all members;
+   mailbox/calendar owners and meeting creators retain their private view. Do
+   not disclose or copy a private source merely to reconcile another viewer's
+   queue.
+5. A CRM-sent email normally creates both a durable message and a fallback note.
+   When their same-record, same-actor timestamps are within 30 seconds, the
+   report counts the message once; if durable message logging failed, the note
+   remains an `email.sent` touch. Expand **How touchpoints are calculated** and
+   record the entity type/ID, viewer, threshold, source/action/time, generated
+   time, and request ID before escalating. Never repair a derived touch by
+   editing activity or message history with ad hoc SQL.
+
 ### Deal task automation and recovery
 
 1. Owners and admins manage the pilot-safe subset under **Settings >

@@ -593,6 +593,12 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("GET /api/reports/sales-activity", func(w http.ResponseWriter, r *http.Request) {
 		handleSalesActivityReport(dependencies.AuthService, dependencies.SalesReportsService, w, r)
 	})
+	mux.HandleFunc("GET /api/reports/follow-up", func(w http.ResponseWriter, r *http.Request) {
+		handleStaleTouchpoints(dependencies.AuthService, dependencies.TouchpointsService, w, r)
+	})
+	mux.HandleFunc("GET /api/touchpoints/{entityType}/{entityID}", func(w http.ResponseWriter, r *http.Request) {
+		handleTouchpointSummary(dependencies.AuthService, dependencies.TouchpointsService, w, r)
+	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
 	})

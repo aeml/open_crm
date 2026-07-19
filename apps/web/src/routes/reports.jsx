@@ -9,6 +9,7 @@ import { createReportDefinition, listReportDefinitions, updateReportDefinition }
 import { usePageTitle } from '../lib/use_page_title'
 import { DataQualityPanel } from './data_quality_panel'
 import { SalesActivityReport } from './sales_activity_report'
+import { FollowUpReport } from './follow_up_report'
 
 const sourceOptions = [
   { value: 'contacts', label: 'Contacts' },
@@ -326,6 +327,7 @@ export function ReportsRoute() {
   return (
     <section className="dashboard-grid settings-grid">
       <SalesActivityReport />
+      <FollowUpReport />
       <DataQualityPanel />
       <Card>
         <div className="card-stack">

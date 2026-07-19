@@ -6,6 +6,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+function withTouchpointSummary(fetchMock) {
+  return vi.fn((url, options = {}) => String(url).includes('/api/touchpoints/')
+    ? Promise.resolve({ ok: true, json: async () => ({ data: { staleDays: 30, isStale: false, createdAt: '2026-04-10T09:00:00Z', recent: [], semantics: [] } }) })
+    : fetchMock(url, options))
+}
+
 describe('companies flow', () => {
   it('loads searchable clients list and opens client detail with linked contacts', async () => {
     const jsonResponse = (payload, init = {}) => ({
@@ -185,7 +191,7 @@ describe('companies flow', () => {
       throw new Error(`Unexpected fetch: ${requestURL.pathname}${requestURL.search}`)
     })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/companies')
 
     render(<AppRouter />)
@@ -250,7 +256,7 @@ describe('companies flow', () => {
         })
       })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/companies')
 
     render(<AppRouter />)
@@ -393,7 +399,7 @@ describe('companies flow', () => {
         json: async () => ({})
       })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/companies')
 
     render(<AppRouter />)
@@ -588,7 +594,7 @@ describe('companies flow', () => {
       throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
     })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/companies/6')
 
     render(<AppRouter />)
@@ -720,7 +726,7 @@ describe('companies flow', () => {
       throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
     })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/companies')
 
     render(<AppRouter />)
@@ -872,7 +878,7 @@ describe('companies flow', () => {
       throw new Error(`Unexpected fetch: ${method} ${requestURL}`)
     })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/companies')
 
     render(<AppRouter />)
@@ -1006,7 +1012,7 @@ describe('companies flow', () => {
       throw new Error(`Unexpected fetch: ${method} ${requestURL}`)
     })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/companies')
 
     render(<AppRouter />)
@@ -1144,7 +1150,7 @@ describe('companies flow', () => {
       throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
     })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/companies/5')
 
     render(<AppRouter />)

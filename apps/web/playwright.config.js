@@ -4,6 +4,7 @@ const webURL = process.env.OPEN_CRM_E2E_WEB_URL || 'http://127.0.0.1:4173'
 const apiURL = process.env.OPEN_CRM_E2E_API_URL || 'http://127.0.0.1:8081'
 const databaseURL = process.env.OPEN_CRM_E2E_DATABASE_URL
 const reuseExistingServer = process.env.OPEN_CRM_E2E_REUSE_SERVER === 'true'
+const outputDir = process.env.OPEN_CRM_E2E_OUTPUT_DIR || 'test-results'
 
 if (!databaseURL) {
   throw new Error('OPEN_CRM_E2E_DATABASE_URL must point to a disposable PostgreSQL database')
@@ -11,10 +12,11 @@ if (!databaseURL) {
 
 export default defineConfig({
   testDir: './e2e',
+  outputDir,
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'line',
+  reporter: process.env.CI ? [['line'], ['html', { open: 'never', outputFolder: `${outputDir}-report` }]] : 'line',
   timeout: 60_000,
   expect: {
     timeout: 10_000

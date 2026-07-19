@@ -45,6 +45,7 @@ import {
   relatedPipelineLabels
 } from './contact_view'
 import { RecordWorkCards } from './record_work'
+import { TouchpointSummary } from './touchpoint_summary'
 
 export function ContactsRoute() {
   const navigate = useNavigate()
@@ -1272,6 +1273,7 @@ export function ContactsRoute() {
               options={sequenceOptions}
               status={sequenceStatus}
             />
+            <TouchpointSummary entityType="contact" entityId={selectedContactId} refreshKey={JSON.stringify({ selectedActivities, selectedNotes, selectedTasks, emailHistory, smsMessages, meetingEvents, callLogs })} />
             <RecordWorkCards
               activities={selectedActivities}
               canWrite={canWrite}

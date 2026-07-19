@@ -6,6 +6,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+function withTouchpointSummary(fetchMock) {
+  return vi.fn((url, options = {}) => String(url).includes('/api/touchpoints/')
+    ? Promise.resolve({ ok: true, json: async () => ({ data: { staleDays: 30, isStale: false, createdAt: '2026-04-10T09:00:00Z', recent: [], semantics: [] } }) })
+    : fetchMock(url, options))
+}
+
 describe('notes workflow', () => {
   it('loads contact detail notes and creates a new note from the detail pane', async () => {
     const fetchMock = vi
@@ -117,7 +123,7 @@ describe('notes workflow', () => {
         })
       })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/contacts/7')
 
     render(<AppRouter />)

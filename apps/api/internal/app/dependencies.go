@@ -41,6 +41,7 @@ import (
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	modulesms "github.com/aeml/open_crm/apps/api/internal/modules/sms"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
+	moduletouchpoints "github.com/aeml/open_crm/apps/api/internal/modules/touchpoints"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
@@ -319,6 +320,11 @@ type salesReportsService interface {
 	Activity(context.Context, int64, modulesalesreports.Query) (modulesalesreports.Report, error)
 }
 
+type touchpointsService interface {
+	Stale(context.Context, int64, int64, moduletouchpoints.Query) (moduletouchpoints.Report, error)
+	Summary(context.Context, int64, int64, string, int64, int) (moduletouchpoints.Summary, error)
+}
+
 type emailSequenceEnrollmentsService interface {
 	ListEnrollmentsByContact(context.Context, int64, int64) ([]moduleemailsequences.Enrollment, error)
 	EnrollContact(context.Context, int64, moduleemailsequences.EnrollmentInput) (moduleemailsequences.Enrollment, error)
@@ -401,6 +407,7 @@ type Dependencies struct {
 	CustomReportsService            customReportsService
 	DataQualityService              dataQualityService
 	SalesReportsService             salesReportsService
+	TouchpointsService              touchpointsService
 	EmailSequencesService           emailSequencesService
 	EmailSequenceEnrollmentsService emailSequenceEnrollmentsService
 	UserEmailService                userEmailAccountService

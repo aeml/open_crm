@@ -110,7 +110,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.6.3` Task Automation Rules: complete.
 - `0.6.4` Reminder Workflow: complete.
 - `0.6.5` Sales Activity Reporting: complete.
-- `0.6.6` Contact Touchpoint Tracking: planned.
+- `0.6.6` Contact Touchpoint Tracking: complete.
 - `0.6.7` Quote Or Proposal Placeholder Flow: planned.
 - `0.6.8` Win Loss Review: planned.
 - `0.6.9` Sales Workflow Review: planned.
@@ -379,13 +379,14 @@ Exit criteria:
 - Search and detail loading no longer leave unnecessary in-flight requests.
 
 Current convergence evidence: route-level loading and bundle budgets are
-CI-gated. Tested list, editor, view-model, communications, insights, and shared
-work extraction plus bulk/custom-field integration leave `contacts.jsx` at 1,296 lines, down from 2,038. Shared
-record-work cards plus company editor/view helpers reduced `companies.jsx` from
-1,364 to 996 lines after bulk/custom-field integration. Deal view, shared work, quote, signature, and bulk-action components
-leave `deals.jsx` at 1,016 lines, down from 1,365. Task filtering, sorting, labels,
-and due-date view logic live in a dependency-free module, reducing `tasks.jsx`
-from 1,093 to 837 lines after bulk-action integration. Tighter source ratchets preserve every reduction while
+CI-gated. Tested list, editor, view-model, communications, insights, shared
+work, and touchpoint extraction plus bulk/custom-field integration leave
+`contacts.jsx` at 1,298 lines, down from 2,038. Shared record-work cards,
+touchpoints, and company editor/view helpers leave `companies.jsx` at 998 lines,
+down from 1,364. Deal view, shared work, quote, signature, and bulk-action
+components leave `deals.jsx` at 1,044 lines, down from 1,365. Task filtering,
+sorting, labels, and due-date view logic leave `tasks.jsx` at 839 lines, down
+from 1,093. Tighter source ratchets preserve every reduction while
 holding other production routes to 500 lines. This remains in progress while
 the contact and deal orchestrators retain explicit exceptions.
 
@@ -1409,7 +1410,7 @@ Chromium pilot journey cover the complete slice.
 
 ## Version 0.6.6 - Contact Touchpoint Tracking
 
-Status: planned.
+Status: complete.
 
 Goal: make follow-up history clearer for contacts and companies.
 
@@ -1422,6 +1423,25 @@ Exit criteria:
 
 - Users can find contacts or companies that need follow-up.
 - Touchpoint dates are understandable and traceable.
+
+Completion evidence (2026-07-19): a tenant-scoped, viewer-aware read model now
+derives contact and client touches from notes, durable task-completion events,
+completed calls, sent/received SMS, scheduled meetings, and sent/received email.
+It deliberately excludes ordinary record changes, failed communications,
+cancelled meetings, reminders, and future task due dates; a record with no touch
+uses its creation time, so a newly created lead is not immediately stale.
+Client history combines direct client work with work on currently linked people
+and returns the exact source record. Email and meeting visibility is evaluated
+for the current viewer, CRM-sent email notes are deduplicated against their
+durable message row, and each response carries the inference rules. Contact and
+Client details expose the latest/recent history, while Reports adds bounded
+14/30/60/90-day queues with retained-owner filters, exact total counts, direct
+record links, and source attribution. Handler and focused UI suites plus a
+disposable-PostgreSQL acceptance test cover all six sources, creation fallback,
+deduplication, failed/cancelled exclusions, private mailbox/calendar behavior,
+disabled owners, client rollup, limits, and cross-tenant denial. The clean-67-
+migration Chromium journey covers detail refresh, client attribution, report
+loading, and a foreign-touchpoint `404`; no schema change was required.
 
 ## Version 0.6.7 - Quote Or Proposal Placeholder Flow
 
@@ -2000,10 +2020,10 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 176.80 KiB raw for the entry, 47.75 KiB for the largest
-lazy chunk, and 610.88 KiB total. Tested route splits plus bulk/custom-field
-integration leave contacts at 1,296 lines, companies at 996, deals at 1,016, and
-tasks at 837, down from 2,038,
+CSS. Current evidence is 176.85 KiB/57.64 KiB for the entry, 47.97 KiB/12.39 KiB
+for the largest lazy chunk, and 621.39 KiB/197.88 KiB total assets. Tested route
+splits plus bulk/custom-field/touchpoint integration leave contacts at 1,298
+lines, companies at 998, deals at 1,044, and tasks at 839, down from 2,038,
 1,364, 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.

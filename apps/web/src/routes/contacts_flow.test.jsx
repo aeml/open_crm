@@ -6,6 +6,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+function withTouchpointSummary(fetchMock) {
+  return vi.fn((url, options = {}) => String(url).includes('/api/touchpoints/')
+    ? Promise.resolve({ ok: true, json: async () => ({ data: { staleDays: 30, isStale: false, createdAt: '2026-04-10T09:00:00Z', recent: [], semantics: [] } }) })
+    : fetchMock(url, options))
+}
+
 describe('contacts flow', () => {
   it('loads a contact directly from a person detail route', async () => {
     const jsonResponse = (payload, init = {}) => ({
@@ -131,7 +137,7 @@ describe('contacts flow', () => {
       throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
     })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/contacts/7')
 
     render(<AppRouter />)
@@ -276,7 +282,7 @@ describe('contacts flow', () => {
         })
       })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/contacts/8')
 
     render(<AppRouter />)
@@ -349,7 +355,7 @@ describe('contacts flow', () => {
         })
       })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/contacts')
 
     render(<AppRouter />)
@@ -438,7 +444,7 @@ describe('contacts flow', () => {
       })
       .mockResolvedValueOnce({ ok: true, status: 204, json: async () => ({}) })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/contacts/8')
 
     render(<AppRouter />)
@@ -553,7 +559,7 @@ describe('contacts flow', () => {
       throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
     })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
     window.history.pushState({}, '', '/contacts/7')
 
     render(<AppRouter />)

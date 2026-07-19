@@ -55,6 +55,7 @@ import (
 	modulesms "github.com/aeml/open_crm/apps/api/internal/modules/sms"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
+	moduletouchpoints "github.com/aeml/open_crm/apps/api/internal/modules/touchpoints"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
@@ -123,6 +124,7 @@ func main() {
 	var customReportsService *modulecustomreports.Service
 	var dataQualityService *moduledataquality.Service
 	var salesReportsService *modulesalesreports.Service
+	var touchpointsService *moduletouchpoints.Service
 	var emailSequencesService *moduleemailsequences.Service
 	var emailSuppressionsService *moduleemailsuppressions.Service
 	var userEmailService *moduleuseremail.Service
@@ -179,6 +181,7 @@ func main() {
 			customReportsService = modulecustomreports.NewService(pool)
 			dataQualityService = moduledataquality.NewService(pool)
 			salesReportsService = modulesalesreports.NewService(pool)
+			touchpointsService = moduletouchpoints.NewService(pool)
 			emailSequencesService = moduleemailsequences.NewService(pool)
 			emailSuppressionsService = moduleemailsuppressions.NewService(pool, env.CredentialEncryptionKey)
 			userEmailService = moduleuseremail.NewServiceWithObserver(pool, credentialCipher, metrics)
@@ -312,6 +315,7 @@ func main() {
 		CustomReportsService:            customReportsService,
 		DataQualityService:              dataQualityService,
 		SalesReportsService:             salesReportsService,
+		TouchpointsService:              touchpointsService,
 		EmailSequencesService:           emailSequencesService,
 		EmailSequenceEnrollmentsService: emailSequencesService,
 		EmailSuppressionsService:        emailSuppressionsService,
