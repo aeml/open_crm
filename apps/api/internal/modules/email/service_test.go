@@ -110,3 +110,27 @@ func TestSendUserInviteDeliversActivationLink(t *testing.T) {
 		t.Errorf("invite should contain the setup link: %q", msg.TextBody)
 	}
 }
+
+func TestSendEmailVerificationDeliversExpiringTrialActivationLink(t *testing.T) {
+	provider := NewFakeProvider(nil)
+	service := NewService(provider, "Open CRM", "no-reply@example.com", "https://app.example.com/")
+
+	if err := service.SendEmailVerification(context.Background(), "owner@acme.test", "Morgan", "verify token+1"); err != nil {
+		t.Fatalf("send verification failed: %v", err)
+	}
+
+	sent := provider.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(sent))
+	}
+	msg := sent[0]
+	if msg.To != "owner@acme.test" || msg.Subject != "Verify your Open CRM workspace" {
+		t.Fatalf("unexpected verification envelope: %#v", msg)
+	}
+	if !strings.Contains(msg.TextBody, "Morgan") || !strings.Contains(msg.TextBody, "14-day trial") || !strings.Contains(msg.TextBody, "expires in 24 hours") {
+		t.Fatalf("verification message omitted required context: %q", msg.TextBody)
+	}
+	if !strings.Contains(msg.TextBody, "https://app.example.com/verify-email?token=verify+token%2B1") {
+		t.Fatalf("verification message omitted encoded link: %q", msg.TextBody)
+	}
+}

@@ -212,6 +212,22 @@ func TestLoginRejectsInvalidCredentials(t *testing.T) {
 	}
 }
 
+func TestLoginRequiresVerificationOnlyAfterValidPasswordCheck(t *testing.T) {
+	service := &fakeAuthService{loginErr: moduleauth.ErrEmailUnverified}
+	server := NewServer(config.Env{}, Dependencies{AuthService: service})
+	request := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(`{"email":"owner@acme.test","password":"correct-but-unverified"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "EMAIL_VERIFICATION_REQUIRED") {
+		t.Fatalf("expected verification-required response, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(recorder.Result().Cookies()) != 0 {
+		t.Fatalf("unverified login created a session cookie: %#v", recorder.Result().Cookies())
+	}
+}
+
 func TestLoginRateLimitsRepeatedAttempts(t *testing.T) {
 	service := &fakeAuthService{loginErr: moduleauth.ErrUnauthorized}
 	server := NewServer(config.Env{}, Dependencies{AuthService: service})

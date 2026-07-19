@@ -501,6 +501,13 @@ public landing/widget reads, unsubscribe links, and email open/click tracking us
 separate fixed-window per-client limits. Rate-limited responses return `429`, a
 stable `RATE_LIMITED` error code, and `Retry-After`. Forwarded client addresses
 are trusted only when the direct peer is a loopback or private reverse proxy.
+Workspace creation is capped at 3/client/hour; login, verification, resend, and
+password setup are capped at 10/client/minute. Verification resend also has a
+persisted one-minute recipient cooldown and always returns the same accepted
+shape for missing, verified, throttled, and pending accounts. Provider delivery
+failure leaves the tenant pending with no session or running trial; retry the
+same signup payload/key after correcting the sender, or use resend once its
+cooldown permits. Never mark the user verified or create a session manually.
 
 The limiters are process-local and intentionally bounded. Multi-instance global
 limits, bot challenges, and reputation-based spam controls remain part of the

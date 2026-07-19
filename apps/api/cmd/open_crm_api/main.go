@@ -170,7 +170,7 @@ func main() {
 			calendarService = modulecalendar.NewService(pool, modulecalendar.NewProvider(env.CalendarProvider, logger))
 			notificationsService = modulenotifications.NewService(pool)
 			savedViewsService = modulesavedviews.NewService(pool)
-			onboardingService = moduleonboarding.NewService(pool)
+			onboardingService = moduleonboarding.NewService(pool, emailService)
 			orgProfileService = moduleorgprofile.NewService(pool)
 			billingService = modulebilling.NewService(pool, modulebilling.NewProvider(env.BillingProvider))
 			emailTemplatesService = moduleemailtemplates.NewService(pool)

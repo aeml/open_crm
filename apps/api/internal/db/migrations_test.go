@@ -1208,3 +1208,18 @@ func TestMigrationFilesIncludeClientReviewSchedulesMigration(t *testing.T) {
 		t.Fatalf("expected client-review schedules migration to be expand-safe, got %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeVerifiedWorkspaceSignupMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "073_verified_workspace_signup.sql") {
+		t.Fatal("expected verified workspace signup migration to be registered")
+	}
+	sql := MigrationSQL("073_verified_workspace_signup.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "email_verified_at", "email_verification_token_hash", "trial_started_at", "workspace_bootstrap_requests", "request_sha256"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("verified workspace signup migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("073_verified_workspace_signup.sql"); class != "expand" {
+		t.Fatalf("verified workspace signup deployment class = %q", class)
+	}
+}

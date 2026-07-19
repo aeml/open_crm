@@ -30,7 +30,7 @@ Open CRM is a production-oriented modular monolith made up of:
 - Docker-based local and deployment workflows
 - GitHub Actions CI/CD for testing and rollout
 
-The production-capable core covers authentication, user roles and lifecycle, contacts, companies, deals, tasks, notes, record followers, teammate mentions, focused activity, admin-configurable pipelines with stable stages, explainable probability-weighted forecasting, snapshot-backed sales activity reporting, transactional won-deal client handoff and account context, traceable contact/client touchpoint history, stale follow-up queues, explainable derived client health, recurring client review/renewal tasks, bounded deal follow-up task rules, mapped CSV imports with rollback, reversible bulk maintenance, reviewed contact/client duplicate merge, bounded typed contact/client custom fields, explicit archived-record recovery, live explainable data-quality queues, saved views, exports, audit history, and organization-scoped access. The repository also contains broad post-MVP foundations for billing, mailbox sync, sequences, calling/SMS/calendar, quoting, lead generation, general-purpose workflows, and custom reporting. Those foundations have different maturity levels and are not all complete product outcomes; the capability matrix is authoritative.
+The production-capable core covers verified, idempotent workspace signup, authentication, user roles and lifecycle, contacts, companies, deals, tasks, notes, record followers, teammate mentions, focused activity, admin-configurable pipelines with stable stages, explainable probability-weighted forecasting, snapshot-backed sales activity reporting, transactional won-deal client handoff and account context, traceable contact/client touchpoint history, stale follow-up queues, explainable derived client health, recurring client review/renewal tasks, bounded deal follow-up task rules, mapped CSV imports with rollback, reversible bulk maintenance, reviewed contact/client duplicate merge, bounded typed contact/client custom fields, explicit archived-record recovery, live explainable data-quality queues, saved views, exports, audit history, and organization-scoped access. The repository also contains broad post-MVP foundations for billing, mailbox sync, sequences, calling/SMS/calendar, quoting, lead generation, general-purpose workflows, and custom reporting. Those foundations have different maturity levels and are not all complete product outcomes; the capability matrix is authoritative.
 
 ## Why This Project Matters
 
@@ -46,6 +46,7 @@ This repo is meant to demonstrate the kind of engineering used in practical busi
 
 Production-capable core:
 
+- Verified self-serve workspace provisioning with stable retry keys, one-time 24-hour email links, no pre-verification session, a verification-started 14-day trial, safe resend recovery, and bounded public auth/signup flows
 - Server-side session authentication, one-time password setup, CSRF/origin protection, and rate-limited auth flows
 - Organization-scoped owner/admin/member/viewer roles and tenant isolation
 - Contacts, companies, deals, tasks, notes, activity, ownership, filters, pagination, and saved views
@@ -202,7 +203,7 @@ Current automated checks in `.github/workflows/ci.yml`:
 - frontend `npm test`
 - frontend `npm run lint`
 - frontend `npm run build:checked` with entry/lazy/total/CSS raw+gzip budgets
-- Chromium pilot journey against a disposable PostgreSQL database, including workspace bootstrap, invited-user lifecycle, required typed custom-field administration, dynamic mapped import and safe rollback, client/contact creation and reviewed core/custom-field duplicate merge, admin stage/probability configuration with existing-deal continuity and forecast verification, deal/task work, won close review and transactional client handoff/account summary, client-health triage, recurring client review tasks, reversible bulk client changes, teammate mention and followed-digest navigation, session persistence, and cross-tenant denial
+- Chromium pilot journey against a disposable PostgreSQL database, including idempotent workspace bootstrap, mandatory owner-email verification and trial start, invited-user lifecycle, required typed custom-field administration, dynamic mapped import and safe rollback, client/contact creation and reviewed core/custom-field duplicate merge, admin stage/probability configuration with existing-deal continuity and forecast verification, deal/task work, won close review and transactional client handoff/account summary, client-health triage, recurring client review tasks, reversible bulk client changes, teammate mention and followed-digest navigation, session persistence, and cross-tenant denial
 - encrypted Restic snapshot, retention/integrity check, extraction, isolated PostgreSQL restore, forward migration, and plaintext-leak acceptance
 - immutable release, expand-migration, manual rollback, and failed-readiness recovery acceptance
 - protected bounded-cardinality operational metrics plus promtool-validated request/database/job/provider/backup alert rules

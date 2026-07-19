@@ -224,7 +224,9 @@ type savedViewsService interface {
 }
 
 type onboardingService interface {
-	BootstrapOrganization(context.Context, moduleonboarding.BootstrapInput) (moduleauth.LoginResult, error)
+	BootstrapOrganization(context.Context, moduleonboarding.BootstrapInput) (moduleonboarding.BootstrapResult, error)
+	VerifyEmail(context.Context, string) (moduleauth.LoginResult, error)
+	ResendVerification(context.Context, string) (moduleonboarding.ResendResult, error)
 }
 
 type notificationsService interface {

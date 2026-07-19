@@ -352,12 +352,12 @@ Exit criteria:
 - Handler files are easier to review in isolation.
 - No behavior changes beyond tested refactors.
 
-Current convergence evidence: CI now prevents `app.go` (948 lines),
-`support_handlers.go` (766 lines), or any smaller production application file
-from growing past its recorded ceiling. HTTP rate limiting, proxy-aware client
+Current convergence evidence: CI now caps `app.go` (994 lines) at 1,000,
+`support_handlers.go` (774 lines) at 800, and every smaller production
+application file at 500 lines. HTTP rate limiting, proxy-aware client
 identity, CSRF/CORS, and security/release headers now live in a focused 263-line
 policy file. Service contracts and dependency composition now live in a focused
-407-line file, while all 188 route registrations remain centralized and covered
+431-line file, while all 196 route registrations remain centralized and covered
 by the executable inventory digest. Existing tests are preserved. This is a
 no-regression ratchet, not completion; the remaining large files still need
 incremental domain splits where reviewability benefits.
@@ -2213,10 +2213,10 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 176.85 KiB/57.64 KiB for the entry, 46.80 KiB/12.17 KiB
-for the largest lazy chunk, and 633.51 KiB/201.13 KiB total assets. Tested route
+CSS. Current evidence is 177.98 KiB/57.83 KiB for the entry, 46.97 KiB/12.21 KiB
+for the largest lazy chunk, and 647.75 KiB/205.16 KiB total assets. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration leave contacts
-at 1,296 lines, companies at 979, deals at 1,065, and tasks at 839, down from 2,038,
+at 1,300 lines, companies at 985, deals at 1,065, and tasks at 839, down from 2,038,
 1,364, 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.
@@ -2295,11 +2295,11 @@ Candidate slices:
 Progress:
 
 - `1.0.9` (trial-expiry / cancellation enforcement): partial. Added `EnforceWritable` (and a pure `checkWritable` decision) to the billing service; contact, deal, and user-invite creates now return `402 SUBSCRIPTION_INACTIVE` when the subscription is canceled or the trial has expired. Active, in-period trial, and past-due (grace) states remain writable. Fails open on transient billing errors; the frontend surfaces the message via existing error handling and the billing-page banners. Backend tests cover the decision matrix and the contact-create block path. Remaining: read-only/suspended mode UX, broader write coverage (updates), and provider-driven status transitions.
-- `1.0.6`/`1.0.9` (subscription status + trial): partial. Added migration `015_subscription_lifecycle.sql` (`subscription_status` with CHECK + `trial_ends_at` on `organizations`); new signups start a 14-day `trialing` subscription, existing orgs are `active`. Entitlements now include a `subscription` block (status, trial end, computed days left, in-trial flag); the billing page shows a trial/status banner. Changing to a paid plan activates the subscription and ends the trial. Backend tests cover trial-day computation and active/expired states. Remaining: dunning, proration, real Stripe webhooks driving status, suspension enforcement on trial expiry.
-- `1.0.1` (invite email via fake provider): partial. Added an `email` module with a `Provider` seam, an in-memory `FakeProvider` outbox (default), and an unconfigured stub; `EMAIL_PROVIDER`/`EMAIL_FROM_*`/`WEB_BASE_URL` env wiring; and a templated `SendUserInvite` that emails new users an account-activation link. User invites now send this email best-effort (failures never block the invite). This also establishes the email foundation reused by `1.1`. Remaining: self-serve signup email verification, real delivery provider.
+- `1.0.6`/`1.0.9` (subscription status + trial): partial. Migration `015_subscription_lifecycle.sql` introduced bounded subscription states and trial end; migration `073_verified_workspace_signup.sql` adds an auditable trial start. New self-serve workspaces remain inaccessible with no running trial clock until the owner consumes the one-time email link, when verification atomically starts the 14-day period and first session. Entitlements expose status, end, days left, and in-trial state; the billing page shows that state. Changing to a paid plan activates the subscription and ends the trial. Backend and disposable-PostgreSQL tests cover pending, active, and expired timing. Remaining: dunning, proration, signed Stripe webhooks, and broad suspension enforcement.
+- `1.0.1` (verified self-serve signup): technically complete; approved live-provider validation pending. Public signup now provisions exactly one workspace, owner, membership, business-type pipeline, audit event, and pending trial in a serializable transaction protected by an advisory-locked idempotency key and secret-safe request fingerprint. It creates no session. Postmark or the fake local provider sends a one-time 24-hour verification link; only its atomic consumption records verification, starts the 14-day trial, and creates the owner session. Correct passwords remain gated until then. Same-key delivery failure is recoverable without duplicate tenants, same-name workspaces receive stable distinct slugs, conflicting retries fail closed, and resend is enumeration-safe with a persisted recipient cooldown. Signup has a stricter 3/client/hour limiter while verify/resend retain 10/client/minute. Handler, email-template, frontend, disposable-PostgreSQL, and clean-schema browser acceptance cover success, replay, conflict, delivery recovery, wrong/consumed token, trial timing, login gating, and duplicate prevention. Existing users were expand-safely backfilled as verified; invited users become verified only when their setup token is consumed. Remaining external evidence: run one approved live Postmark signup and move process-local public counters to shared edge/storage before multiple API replicas.
 - `1.0.4` (limit enforcement): complete. Added `EnforceCanCreate` to the billing service and a `CanCreateMore` decision helper; create handlers for contacts, deals, and user invites now reject over-limit writes with `402 PLAN_LIMIT_REACHED` and an upgrade message. Enforcement fails open on transient billing-read errors and is skipped when billing is unconfigured. Frontend surfaces the message through existing create-error handling. Backend tests cover the decision logic and the contact-create block/allow paths.
 - `1.0.2` (provider seam + fake default): complete. Added a `billing.Provider` interface with a `FakeProvider` (no external calls; default for tests and unconfigured deployments) and an unconfigured stub for real providers. `BILLING_PROVIDER` env selects the provider. Added `POST /api/billing/change-plan` (owner/admin only, audited) and a plan-switch UI on the billing settings page. A comprehensive `example.env` documents all provider configuration (billing, email, telephony, SSO, AI, storage), each defaulting to a fake/disabled provider. Remaining: real Stripe integration (checkout, webhooks, proration).
-- `1.0.3`/`1.0.4` (foundation): complete. Added migration `014_billing_plans.sql` (`plan` column on `organizations` with a CHECK constraint); a `billing` module with an in-code plan catalog (Free/Starter/Pro/Enterprise: seat/contact/deal limits + feature keys) and an entitlements service computing live usage; `GET /api/billing/plans` and `GET /api/billing/entitlements`; and a "Plan & Billing" settings page showing usage-against-limits and a plan comparison. Backend + frontend tests added. Remaining: Stripe integration (`1.0.2`), self-serve signup hardening (`1.0.1`), enforcement of limits on write paths, and SSO (`1.0.7`).
+- `1.0.3`/`1.0.4` (foundation): complete. Added migration `014_billing_plans.sql` (`plan` column on `organizations` with a CHECK constraint); a `billing` module with an in-code plan catalog (Free/Starter/Pro/Enterprise: seat/contact/deal limits + feature keys) and an entitlements service computing live usage; `GET /api/billing/plans` and `GET /api/billing/entitlements`; and a "Plan & Billing" settings page showing usage-against-limits and a plan comparison. Backend + frontend tests added. Remaining: Stripe integration (`1.0.2`), broader enforcement of limits and lifecycle states on write paths, and SSO (`1.0.7`).
 
 Exit criteria:
 

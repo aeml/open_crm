@@ -302,7 +302,7 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 func insertLifecycleUser(t *testing.T, ctx context.Context, pool *moduledb.Pool, email, passwordHash, firstName, lastName string) int64 {
 	t.Helper()
 	var userID int64
-	if err := pool.QueryRow(ctx, `INSERT INTO users (email, password_hash, first_name, last_name) VALUES ($1, $2, $3, $4) RETURNING id`, email, passwordHash, firstName, lastName).Scan(&userID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO users (email, password_hash, first_name, last_name, email_verified_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING id`, email, passwordHash, firstName, lastName).Scan(&userID); err != nil {
 		t.Fatalf("create lifecycle user %s: %v", email, err)
 	}
 	return userID

@@ -7,7 +7,7 @@ afterEach(() => {
 })
 
 describe('onboarding flow', () => {
-  it('creates a workspace, signs in the owner, and lands on the dashboard', async () => {
+  it('provisions idempotently, requires email verification, then starts the owner session', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
@@ -23,6 +23,18 @@ describe('onboarding flow', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 201,
+        json: async () => ({
+          data: {
+            email: 'owner@northstar.test',
+            verificationRequired: true,
+            verificationLink: '/verify-email?token=verification-token-123',
+            created: true
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
         json: async () => ({
           data: {
             user: {
@@ -73,9 +85,19 @@ describe('onboarding flow', () => {
       )
     })
 
+    const bootstrapBody = JSON.parse(fetchMock.mock.calls.find(([url]) => String(url).endsWith('/auth/bootstrap'))[1].body)
+    expect(bootstrapBody.idempotencyKey).toMatch(/^workspace-/)
+    expect(await screen.findByRole('heading', { name: /check your email/i })).toBeInTheDocument()
+    expect(screen.getByText(/trial starts only after verification/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: /verify email locally/i }))
+
     expect(await screen.findByText(/see what is live in the pipeline/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(window.location.pathname).toBe('/dashboard')
     })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/auth\/verify-email$/),
+      expect.objectContaining({ method: 'POST', credentials: 'include', body: JSON.stringify({ token: 'verification-token-123' }) })
+    )
   })
 })

@@ -27,6 +27,9 @@ async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Create workspace' }).click()
 
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
+  await expect(page.getByText('your 14-day trial starts only after verification', { exact: false })).toBeVisible()
+  await page.getByRole('link', { name: 'Verify email locally' }).click()
   await expect(page).toHaveURL(/\/dashboard$/)
   await expect(page.getByText(organizationName, { exact: true })).toBeVisible()
   return { email, password, organizationName }

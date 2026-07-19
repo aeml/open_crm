@@ -75,9 +75,9 @@ func (e postgresSeedExecutor) SeedUser(email, passwordHash string) error {
 	ctx := context.Background()
 	_, err := e.pool.Exec(ctx, `
 		WITH seeded_user AS (
-			INSERT INTO users (email, password_hash, first_name, last_name)
-			VALUES ($1, $2, 'Demo', 'User')
-			ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, updated_at = NOW()
+			INSERT INTO users (email, password_hash, first_name, last_name, email_verified_at)
+			VALUES ($1, $2, 'Demo', 'User', NOW())
+			ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, email_verified_at = COALESCE(users.email_verified_at, NOW()), updated_at = NOW()
 			RETURNING id
 		), resolved_user AS (
 			SELECT id FROM seeded_user

@@ -13,10 +13,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrUnauthorized = errors.New("unauthorized")
+var (
+	ErrUnauthorized    = errors.New("unauthorized")
+	ErrEmailUnverified = errors.New("email unverified")
+)
 
 const credentialLookupSQL = `
-	SELECT u.id, u.email, u.password_hash
+	SELECT u.id, u.email, u.password_hash, u.email_verified_at
 	FROM users u
 	WHERE u.email = $1
 	LIMIT 1
@@ -28,6 +31,7 @@ const sessionStateByUserSQL = `
 	JOIN users u ON u.id = om.user_id
 	JOIN organizations o ON o.id = om.organization_id
 	WHERE om.user_id = $1 AND COALESCE(om.membership_status, 'active') = 'active'
+	  AND u.email_verified_at IS NOT NULL
 	ORDER BY om.id ASC
 	LIMIT 1
 `
@@ -83,15 +87,19 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 		userID       int64
 		storedEmail  string
 		passwordHash string
+		verifiedAt   *time.Time
 	)
 
-	err := s.pool.QueryRow(ctx, credentialLookupSQL, email).Scan(&userID, &storedEmail, &passwordHash)
+	err := s.pool.QueryRow(ctx, credentialLookupSQL, email).Scan(&userID, &storedEmail, &passwordHash, &verifiedAt)
 	if err != nil {
 		return LoginResult{}, ErrUnauthorized
 	}
 
 	if !platformauth.CheckPassword(passwordHash, password) {
 		return LoginResult{}, ErrUnauthorized
+	}
+	if verifiedAt == nil {
+		return LoginResult{}, ErrEmailUnverified
 	}
 
 	state, err := s.loadSessionStateByUserID(ctx, userID)
@@ -139,6 +147,7 @@ func (s *Service) CurrentSession(ctx context.Context, sessionToken string) (Sess
 		JOIN organization_memberships om ON om.user_id = u.id AND om.organization_id = o.id
 		WHERE s.token_hash = $1
 		  AND s.expires_at > NOW()
+		  AND u.email_verified_at IS NOT NULL
 		  AND COALESCE(om.membership_status, 'active') = 'active'
 		ORDER BY s.id DESC
 		LIMIT 1

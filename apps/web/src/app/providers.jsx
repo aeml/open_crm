@@ -15,6 +15,12 @@ const AuthContext = createContext({
   bootstrap: async () => {
     throw new Error('Unable to create workspace.')
   },
+  verifyEmail: async () => {
+    throw new Error('Unable to verify workspace email.')
+  },
+  resendVerification: async () => {
+    throw new Error('Unable to send verification email.')
+  },
   refreshSession: async () => null,
   setBusinessProfile: () => {}
 })
@@ -118,6 +124,47 @@ export function AppProviders({ children }) {
     return payload.data
   }, [])
 
+  const verifyEmail = useCallback(async (token) => {
+    const response = await fetch(`${API_BASE_URL}/auth/verify-email`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    })
+    const payload = await response.json()
+    if (!response.ok) {
+      const message = getErrorMessage(payload, 'Unable to verify workspace email.')
+      setStatus('unauthenticated')
+      setSession(null)
+      setBusinessProfile(null)
+      setError(message)
+      throw new Error(message)
+    }
+    setSession(payload.data)
+    setBusinessProfile(null)
+    setStatus('authenticated')
+    setError('')
+    window.sessionStorage.removeItem('open-crm-bootstrap-key')
+    return payload.data
+  }, [])
+
+  const resendVerification = useCallback(async (email) => {
+    const response = await fetch(`${API_BASE_URL}/auth/resend-verification`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    })
+    const payload = await response.json()
+    if (!response.ok) {
+      const message = getErrorMessage(payload, 'Unable to send verification email.')
+      setError(message)
+      throw new Error(message)
+    }
+    setError('')
+    return payload.data
+  }, [])
+
   const logout = useCallback(async () => {
     const response = await fetch(`${API_BASE_URL}/auth/logout`, {
       method: 'POST',
@@ -159,9 +206,9 @@ export function AppProviders({ children }) {
       throw new Error(message)
     }
 
-    setSession(payload.data)
+    setSession(null)
     setBusinessProfile(null)
-    setStatus('authenticated')
+    setStatus('unauthenticated')
     setError('')
     return payload.data
   }, [])
@@ -175,10 +222,12 @@ export function AppProviders({ children }) {
       login,
       logout,
       bootstrap,
+      verifyEmail,
+      resendVerification,
       refreshSession,
       setBusinessProfile
     }),
-    [bootstrap, businessProfile, error, login, logout, refreshSession, session, status]
+    [bootstrap, businessProfile, error, login, logout, refreshSession, resendVerification, session, status, verifyEmail]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

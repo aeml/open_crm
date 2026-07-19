@@ -22,6 +22,7 @@ const LoginRoute = lazyRoute(() => import('../routes/login'), 'LoginRoute')
 const PublicLandingPageRoute = lazyRoute(() => import('../routes/public_landing_page'), 'PublicLandingPageRoute')
 const PublicLeadWidgetRoute = lazyRoute(() => import('../routes/public_lead_widget'), 'PublicLeadWidgetRoute')
 const BootstrapRoute = lazyRoute(() => import('../routes/bootstrap'), 'BootstrapRoute')
+const VerifyEmailRoute = lazyRoute(() => import('../routes/verify_email'), 'VerifyEmailRoute')
 const SetupPasswordRoute = lazyRoute(() => import('../routes/setup_password'), 'SetupPasswordRoute')
 const SettingsProfileRoute = lazyRoute(() => import('../routes/settings_profile'), 'SettingsProfileRoute')
 const SettingsUsersRoute = lazyRoute(() => import('../routes/settings_users'), 'SettingsUsersRoute')
@@ -64,6 +65,7 @@ export function AppRouter() {
             <Route path="/lp/:slug" element={<PublicLandingPageRoute />} />
             <Route path="/widget/:publicId" element={<PublicLeadWidgetRoute />} />
             <Route path="/bootstrap" element={<BootstrapRoute />} />
+            <Route path="/verify-email" element={<VerifyEmailRoute />} />
             <Route path="/setup-password" element={<SetupPasswordRoute />} />
             <Route path="/" element={<RootRoute />}>
               <Route index element={<Navigate to="/dashboard" replace />} />

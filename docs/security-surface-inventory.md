@@ -2,9 +2,9 @@
 
 Audit date: 2026-07-19
 
-Registered route count: `194`
+Registered route count: `196`
 
-Registered route digest: `ee29ab2ad60c4fd1b5551b05e1420d25608b8b20ece3122bba80e3a67d60244c`
+Registered route digest: `46ad7d34ff7fe4bee5bd2696fd15768998648cc8da16f105ea8735ad60789ee6`
 
 This is the Phase 0 map for every HTTP route and continuously running background operation. The route count and digest are derived from the `http.ServeMux` registrations in `apps/api/internal/app/app.go`; a backend test fails when that set changes so a new or renamed route cannot silently bypass this review.
 
@@ -29,7 +29,8 @@ Selectors below are mutually scoped by method and path. Braced names are Go `Ser
 
 | Surface and registered selectors | Authentication / role | Tenant boundary | Plan entitlement | Abuse controls | Observability | Current test evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| `POST /auth/login`, `POST /auth/bootstrap`, `POST /auth/setup-password` | Public credential or one-time-token flow | Organization is selected/created only after credential validation | None | Per-client in-memory fixed window: 10/minute; bounded JSON | Request telemetry | `auth_test.go`, `onboarding_test.go`, `rate_limit_test.go` |
+| `POST /auth/login`, `POST /auth/setup-password` | Public credential or one-time-token flow | Organization is selected only after credential validation | None | Per-client in-memory fixed window: 10/minute; bounded JSON | Request telemetry | `auth_test.go`, `users_test.go`, `rate_limit_test.go` |
+| `POST /auth/bootstrap`, `POST /auth/verify-email`, `POST /auth/resend-verification` | Public signup and one-time owner-verification flow; bootstrap creates no session, verification creates the first owner session | Provisioning writes one organization/owner/default pipeline transactionally; a SHA-256 request fingerprint and advisory-locked idempotency key prevent duplicate or conflicting tenants. Verification resolves the organization only from a 256-bit expiring token | Trial begins only after successful verification | Bootstrap is limited to 3/client/hour; verify and resend each use the 10/client/minute auth limit. Resend is generic, active-unverified-user only, and has a persisted one-minute recipient cooldown. JSON is bounded; correct passwords cannot log in before verification | Request/provider telemetry plus transactional provisioning and verification audit events | Handler mapping/rate-limit tests, onboarding disposable-PostgreSQL lifecycle acceptance, email-provider template tests, and the clean browser verified-signup journey |
 | `GET /auth/me` | Valid session | Session tenant | None | Cookie only | Request telemetry | `auth_test.go` covers valid, stale, and missing sessions |
 | `POST /auth/logout` | Session is used when present; stale/missing cookies are safely cleared | Session token only | None | CSRF/origin | Request telemetry | `auth_test.go` |
 | `GET /healthz`, `GET /readyz`, fallback `/` | Public | None; readiness checks database connectivity | None | Read-only, no dedicated limiter | Request telemetry | `app_test.go`, `readyz_test.go` |

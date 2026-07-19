@@ -244,6 +244,7 @@ func (s *Service) CompleteSetup(ctx context.Context, input CompleteSetupInput) (
 		WITH updated_user AS (
 			UPDATE users
 			SET password_hash = $2,
+			    email_verified_at = COALESCE(email_verified_at, NOW()),
 			    password_setup_token_hash = NULL,
 			    password_setup_expires_at = NULL,
 			    password_setup_consumed_at = NOW(),

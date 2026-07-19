@@ -87,22 +87,23 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 643 KiB | 204 KiB |
+| All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 176.85 KiB/57.64 KiB entry, 46.97 KiB/12.21 KiB largest lazy
-chunk, and 641.96 KiB/203.16 KiB total assets. The complete custom-field outcome
+Current evidence: 177.98 KiB/57.83 KiB entry, 46.97 KiB/12.21 KiB largest lazy
+chunk, and 647.75 KiB/205.16 KiB total assets. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget
 core record screens. Live data-quality, snapshot-backed sales activity, and
 traceable stale follow-up queues leave the Reports route at 28.38 KiB/7.27 KiB;
-reusable touchpoint, account, and client-health context shares an 11.53 KiB/3.46
-KiB chunk across Contacts and Clients; the complete Clients route is 30.53
-KiB/8.84 KiB. Admin pipeline configuration and probability controls use an
+reusable activity and touchpoint/account/client-health context remains outside
+the parent record routes in 16.61 KiB/4.99 KiB and 17.52 KiB/4.99 KiB shared
+chunks; the complete Clients route is 31.33 KiB/9.07 KiB. Admin pipeline
+configuration and probability controls use an
 isolated 7.21 KiB/2.46 KiB route and remove pipeline creation from the core Deals
 route. Explainable period/stage forecasting and exact reminder buckets leave
-Dashboard isolated at 18.06 KiB/4.95 KiB and split its panel from the route
+Dashboard isolated at 20.40 KiB/5.51 KiB and split its panels from the route
 orchestration source. Replacing
 the non-executing general workflow builder with the bounded executable deal-task
 surface reduces its lazy route from 20.62 KiB/5.86 KiB to 10.17 KiB/3.56 KiB.
@@ -121,7 +122,12 @@ client health then added the filtered client queue and task-health rollups while
 keeping record detail context shared. Task-backed client review/renewal
 scheduling then adds one reusable record component plus a focused dashboard
 panel; the measured 641.96/203.16 KiB build raises only the aggregate ceilings
-to 643/204 KiB. Entry, per-route, and CSS limits remain unchanged.
+to 643/204 KiB. Verified self-serve workspace creation then adds a lazy 1.37
+KiB/0.70 KiB verification route, recovery controls in the existing signup and
+login routes, and the shared client calls needed to establish the first owner
+session only after verification. Its measured 647.75/205.16 KiB build raises
+only the aggregate ceilings to 650/207 KiB. Entry, per-route, and CSS limits
+remain unchanged.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 

@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	expectedRegisteredRouteCount  = 194
-	expectedRegisteredRouteDigest = "ee29ab2ad60c4fd1b5551b05e1420d25608b8b20ece3122bba80e3a67d60244c"
+	expectedRegisteredRouteCount  = 196
+	expectedRegisteredRouteDigest = "46ad7d34ff7fe4bee5bd2696fd15768998648cc8da16f105ea8735ad60789ee6"
 )
 
 func TestSecuritySurfaceInventoryMatchesRegisteredRoutes(t *testing.T) {
@@ -44,7 +44,7 @@ func TestSecuritySurfaceInventoryMatchesRegisteredRoutes(t *testing.T) {
 		t.Fatalf("read security surface inventory: %v", err)
 	}
 	inventoryText := string(inventory)
-	if !strings.Contains(inventoryText, "Registered route count: `194`") ||
+	if !strings.Contains(inventoryText, "Registered route count: `196`") ||
 		!strings.Contains(inventoryText, "Registered route digest: `"+expectedRegisteredRouteDigest+"`") {
 		t.Fatal("security inventory count or digest does not match the executable inventory guard")
 	}

@@ -24,7 +24,7 @@ func TestCredentialLookupSQLUsesIndexedEmailEquality(t *testing.T) {
 	if strings.Contains(sql, "organization_memberships") || strings.Contains(sql, "JOIN organizations") {
 		t.Fatalf("expected credential lookup SQL to avoid organization joins, got %q", sql)
 	}
-	if !strings.Contains(sql, "SELECT u.id, u.email, u.password_hash") {
+	if !strings.Contains(sql, "SELECT u.id, u.email, u.password_hash, u.email_verified_at") {
 		t.Fatalf("expected credential lookup SQL to fetch only login credentials, got %q", sql)
 	}
 }
@@ -42,6 +42,9 @@ func TestSessionStateLookupSQLLoadsContextAfterPasswordValidation(t *testing.T) 
 	}
 	if !strings.Contains(sql, "membership_status") {
 		t.Fatalf("expected session state lookup to reject disabled memberships, got %q", sql)
+	}
+	if !strings.Contains(sql, "email_verified_at IS NOT NULL") {
+		t.Fatalf("expected session state lookup to reject unverified users, got %q", sql)
 	}
 }
 

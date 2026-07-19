@@ -8,7 +8,7 @@ import { usePageTitle } from '../lib/use_page_title'
 import { getPreferences } from '../lib/profile'
 
 export function LoginRoute() {
-  const { status, login, error: authError } = useAuth()
+  const { status, login, resendVerification, error: authError } = useAuth()
   const navigate = useNavigate()
   usePageTitle('Sign in')
   const location = useLocation()
@@ -16,6 +16,8 @@ export function LoginRoute() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [verificationRequired, setVerificationRequired] = useState(false)
+  const [verificationMessage, setVerificationMessage] = useState('')
 
   const redirectTo = location.state?.from?.pathname || '/dashboard'
 
@@ -27,6 +29,8 @@ export function LoginRoute() {
     event.preventDefault()
     setIsSubmitting(true)
     setError('')
+    setVerificationRequired(false)
+    setVerificationMessage('')
 
     try {
       await login({ email, password })
@@ -42,7 +46,23 @@ export function LoginRoute() {
       }
       navigate(destination, { replace: true })
     } catch (loginError) {
-      setError(loginError.message || 'Unable to sign in.')
+      const message = loginError.message || 'Unable to sign in.'
+      setError(message)
+      setVerificationRequired(message.toLowerCase().includes('verify your email'))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  async function handleResend() {
+    setIsSubmitting(true)
+    setError('')
+    setVerificationMessage('')
+    try {
+      await resendVerification(email)
+      setVerificationMessage('If this address is awaiting verification, another email is on its way. Requests are limited to protect recipients.')
+    } catch (resendError) {
+      setError(resendError.message || 'Unable to send verification email.')
     } finally {
       setIsSubmitting(false)
     }
@@ -85,6 +105,10 @@ export function LoginRoute() {
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Signing in…' : 'Sign in'}
             </Button>
+            {verificationRequired ? (
+              <Button className="button-secondary" type="button" onClick={handleResend} disabled={isSubmitting}>Resend verification email</Button>
+            ) : null}
+            {verificationMessage ? <p className="field-hint" role="status">{verificationMessage}</p> : null}
           </form>
         </div>
       </Card>

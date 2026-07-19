@@ -25,6 +25,8 @@ const (
 	maxImportBodyBytes   = 2 << 20
 	authRateLimit        = 10
 	authRateWindow       = time.Minute
+	bootstrapRateLimit   = 3
+	bootstrapRateWindow  = time.Hour
 	publicReadRateLimit  = 120
 	publicWriteRateLimit = 20
 	trackingRateLimit    = 300
@@ -60,6 +62,15 @@ type bootstrapRequest struct {
 	LastName         string `json:"lastName"`
 	Email            string `json:"email"`
 	Password         string `json:"password"`
+	IdempotencyKey   string `json:"idempotencyKey"`
+}
+
+type verifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
+type resendVerificationRequest struct {
+	Email string `json:"email"`
 }
 
 type completeUserSetupRequest struct {
@@ -340,6 +351,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		emailOAuthClient = defaultEmailOAuthClient{}
 	}
 	authLimiter := newFixedWindowRateLimiter(authRateLimit, authRateWindow, rateLimitMaxClients)
+	bootstrapLimiter := newFixedWindowRateLimiter(bootstrapRateLimit, bootstrapRateWindow, rateLimitMaxClients)
 	publicReadLimiter := newFixedWindowRateLimiter(publicReadRateLimit, publicRateWindow, rateLimitMaxClients)
 	publicWriteLimiter := newFixedWindowRateLimiter(publicWriteRateLimit, publicRateWindow, rateLimitMaxClients)
 	trackingLimiter := newFixedWindowRateLimiter(trackingRateLimit, publicRateWindow, rateLimitMaxClients)
@@ -352,10 +364,22 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleLogin(env, dependencies.AuthService, w, r)
 	})
 	mux.HandleFunc("POST /auth/bootstrap", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(authLimiter, "auth.bootstrap", "Too many workspace creation attempts", w, r) {
+		if rejectRateLimited(bootstrapLimiter, "auth.bootstrap", "Too many workspace creation attempts", w, r) {
 			return
 		}
-		handleBootstrap(env, dependencies.OnboardingService, w, r)
+		handleBootstrap(dependencies.OnboardingService, w, r)
+	})
+	mux.HandleFunc("POST /auth/verify-email", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(authLimiter, "auth.verify-email", "Too many email verification attempts", w, r) {
+			return
+		}
+		handleVerifyEmail(env, dependencies.OnboardingService, w, r)
+	})
+	mux.HandleFunc("POST /auth/resend-verification", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(authLimiter, "auth.resend-verification", "Too many verification email requests", w, r) {
+			return
+		}
+		handleResendVerification(dependencies.OnboardingService, w, r)
 	})
 	mux.HandleFunc("GET /auth/me", func(w http.ResponseWriter, r *http.Request) {
 		handleCurrentSession(env, dependencies.AuthService, w, r)
