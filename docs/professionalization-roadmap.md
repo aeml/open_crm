@@ -109,7 +109,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.6.2` Deal Probability And Forecasting: complete.
 - `0.6.3` Task Automation Rules: complete.
 - `0.6.4` Reminder Workflow: complete.
-- `0.6.5` Sales Activity Reporting: planned.
+- `0.6.5` Sales Activity Reporting: complete.
 - `0.6.6` Contact Touchpoint Tracking: planned.
 - `0.6.7` Quote Or Proposal Placeholder Flow: planned.
 - `0.6.8` Win Loss Review: planned.

@@ -379,6 +379,13 @@ Do not invoke the reusable deploy workflows directly. For a manual redeploy,
 rerun the successful CI workflow for the intended `main` commit so the same
 quality gates remain attached to the release.
 
+`.env.production` uses Docker Compose env-file syntax, not shell syntax. Values
+such as `EMAIL_FROM_NAME=Open CRM` may contain unquoted spaces. Deployment,
+rollback, backup, and restore scripts never execute that file; they load only
+their explicit operational allowlist and pass the complete file to Compose.
+Keep paths explicit rather than relying on shell expansion, and never add shell
+commands or command substitutions to the file.
+
 From the remote host:
 
 ```sh
