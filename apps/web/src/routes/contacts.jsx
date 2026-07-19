@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -134,7 +134,7 @@ export function ContactsRoute() {
   const hasFilter = search.trim() !== '' || ownerFilter !== 'all' || customFilter.fieldKey !== ''
   const selectedActivities = detail?.activities || []
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setCallsOpen(false)
     setCallLogs([])
     setActiveCall(null)

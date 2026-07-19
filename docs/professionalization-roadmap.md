@@ -2054,8 +2054,8 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 176.85 KiB/57.65 KiB for the entry, 48.01 KiB/12.41 KiB
-for the largest lazy chunk, and 625.52 KiB/198.98 KiB total assets. Tested route
+CSS. Current evidence is 176.85 KiB/57.66 KiB for the entry, 48.01 KiB/12.42 KiB
+for the largest lazy chunk, and 625.52 KiB/199.09 KiB total assets. Tested route
 splits plus bulk/custom-field/touchpoint/close-review integration leave contacts
 at 1,298 lines, companies at 998, deals at 1,065, and tasks at 839, down from 2,038,
 1,364, 1,365, and 1,093 respectively.
