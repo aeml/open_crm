@@ -16,7 +16,7 @@ jobs:
       DEPLOY_API_URL: https://crmserver.mendola.tech
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up SSH key and known hosts
         shell: bash
