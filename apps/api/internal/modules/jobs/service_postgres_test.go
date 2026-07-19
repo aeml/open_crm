@@ -115,12 +115,27 @@ func TestServiceLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("dead-letter uncertain delivery: %v", err)
 	}
 
+	deferredInput := EnqueueInput{OrganizationID: organizationID, Type: "test.deferred", IdempotencyKey: "deferred:1", MaxAttempts: 2}
+	deferredJob, err := service.Enqueue(ctx, deferredInput)
+	if err != nil {
+		t.Fatalf("enqueue deferred job: %v", err)
+	}
+	deferredClaims, err := service.Claim(ctx, "worker-policy", []string{"test.deferred"}, 1, time.Minute)
+	if err != nil || len(deferredClaims) != 1 || deferredClaims[0].ID != deferredJob.ID || deferredClaims[0].Attempts != 1 {
+		t.Fatalf("claim deferred job: jobs=%#v err=%v", deferredClaims, err)
+	}
+	deferredUntil := time.Now().Add(time.Hour)
+	deferredJob, err = service.Defer(ctx, deferredClaims[0], errors.New("workspace is read-only"), deferredUntil)
+	if err != nil || deferredJob.Status != "retryable" || deferredJob.Attempts != 0 || deferredJob.LastError != "workspace is read-only" || deferredJob.RunAt.Before(deferredUntil.Add(-time.Second)) {
+		t.Fatalf("expected policy deferral to preserve attempts: job=%#v err=%v", deferredJob, err)
+	}
+
 	if _, err := service.Enqueue(ctx, EnqueueInput{OrganizationID: otherOrganizationID, Type: "test.delivery", IdempotencyKey: "other:1"}); err != nil {
 		t.Fatalf("enqueue other-tenant job: %v", err)
 	}
 	listed, err := service.List(ctx, organizationID, ListQuery{Limit: 20})
-	if err != nil || len(listed) != 2 {
-		t.Fatalf("expected two jobs scoped to first tenant, got jobs=%#v err=%v", listed, err)
+	if err != nil || len(listed) != 3 {
+		t.Fatalf("expected three jobs scoped to first tenant, got jobs=%#v err=%v", listed, err)
 	}
 	for _, job := range listed {
 		if job.OrganizationID != organizationID {

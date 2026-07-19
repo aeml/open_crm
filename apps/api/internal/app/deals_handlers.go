@@ -144,9 +144,6 @@ func handleCreateDeal(auth authService, deals dealsService, notifs notifications
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
 		return
 	}
-	if !enforceActiveSubscription(billing, state.Organization.ID, w, r) {
-		return
-	}
 	if !enforcePlanLimit(billing, state.Organization.ID, "deals", w, r) {
 		return
 	}

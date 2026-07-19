@@ -33,6 +33,7 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 	collector.ObserveHTTPRequest(http.MethodGet, "GET /api/contacts/{contactID}", http.StatusCreated, 125*time.Millisecond)
 	collector.ObserveProvider("postmark", "send", "error", 25*time.Millisecond)
 	collector.ObserveJob("email_sequence.send", "retryable")
+	collector.ObserveJob("mailbox.sync", "deferred")
 
 	handler := collector.Handler("monitoring-token-that-is-at-least-32", func(context.Context) RuntimeSnapshot {
 		return RuntimeSnapshot{
@@ -66,6 +67,7 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 		`open_crm_http_request_duration_seconds_bucket{method="GET",route="/api/contacts/{contactID}",le="0.25"} 1`,
 		`open_crm_provider_operations_total{provider="postmark",operation="send",outcome="error"} 1`,
 		`open_crm_background_job_outcomes_total{job_type="email_sequence.send",outcome="retryable"} 1`,
+		`open_crm_background_job_outcomes_total{job_type="mailbox.sync",outcome="deferred"} 1`,
 		`open_crm_background_jobs{status="dead"} 1`,
 		`open_crm_background_job_oldest_ready_lag_seconds 180`,
 		`open_crm_backup_last_success_timestamp_seconds 100`,

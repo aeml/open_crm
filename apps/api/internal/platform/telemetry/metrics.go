@@ -286,7 +286,7 @@ func finiteMethod(value string) string {
 
 func finiteJobOutcome(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "succeeded", "retryable", "dead", "cycle_error":
+	case "succeeded", "deferred", "retryable", "dead", "cycle_error":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return "unknown"

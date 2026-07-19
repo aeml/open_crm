@@ -139,7 +139,16 @@ operating policy have been reviewed.
    URL is informational and never activates a plan. Confirm the portal opens,
    then exercise a failed payment, recovery, scheduled cancellation, and final
    cancellation using approved Stripe test controls.
-5. Correlate provider counters (`checkout_session`, `portal_session`,
+5. During suspension, verify an authorized CRM mutation returns
+   `402 SUBSCRIPTION_INACTIVE`, a viewer still receives `403` before billing is
+   disclosed, CSV exports and billing recovery remain available, and the
+   public lead form returns only `503 FORM_UNAVAILABLE`. Non-billing tenant jobs
+   should move to `retryable` with `subscription inactive`, a later
+   `run_at`, and no net increase in `attempts`; the `billing.reconcile` job must
+   continue. After payment recovery, the original jobs resume automatically.
+   A `503 BILLING_CHECK_UNAVAILABLE` means policy or usage could not be read;
+   treat it as a database/control-plane incident rather than bypassing it.
+6. Correlate provider counters (`checkout_session`, `portal_session`,
    `webhook_verify`, and `subscription_reconcile`), bounded webhook-route
    request metrics, tenant audit events, and the durable `billing_checkout_requests`,
    `billing_webhook_events`, `billing_invoices`, and `background_jobs` ledgers.
@@ -148,7 +157,7 @@ operating policy have been reviewed.
    retryable under the same Stripe event ID and payload; a duplicate processed
    event is a safe no-op. A changed payload for the same event ID and
    cross-tenant customer/subscription references fail closed.
-6. On an incident, preserve the Stripe event ID and Open CRM request ID, correct
+7. On an incident, preserve the Stripe event ID and Open CRM request ID, correct
    the configuration or data-reference cause, and use Stripe's signed event
    redelivery. Do not edit organization plans/statuses or mark receipt rows
    processed with SQL. A 15-minute discovery loop queues Stripe workspaces once

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -276,6 +277,8 @@ func writeLeadCaptureSubmissionError(w http.ResponseWriter, requestID string, er
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide all required lead capture fields")
 	case errors.Is(err, moduleleadforms.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
+	case errors.Is(err, modulebilling.ErrSubscriptionInactive), errors.Is(err, modulebilling.ErrLimitReached):
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "FORM_UNAVAILABLE", "This lead form is temporarily unavailable")
 	default:
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to submit lead capture form")
 	}

@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode"
 
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -584,6 +585,25 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 		return SubmissionResult{}, fmt.Errorf("begin lead capture submission transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	var planKey, subscriptionStatus, providerStatus string
+	var trialEndsAt *time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT plan, subscription_status, trial_ends_at, COALESCE(billing_provider_status, '')
+		FROM organizations WHERE id = $1 FOR UPDATE
+	`, organizationID).Scan(&planKey, &subscriptionStatus, &trialEndsAt, &providerStatus); err != nil {
+		return SubmissionResult{}, fmt.Errorf("load lead capture subscription policy: %w", err)
+	}
+	if err := modulebilling.CheckWritable(subscriptionStatus, trialEndsAt, providerStatus); err != nil {
+		return SubmissionResult{}, err
+	}
+	var activeContacts int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM contacts WHERE organization_id=$1 AND archived_at IS NULL`, organizationID).Scan(&activeContacts); err != nil {
+		return SubmissionResult{}, fmt.Errorf("load lead capture contact usage: %w", err)
+	}
+	if !modulebilling.CanCreateMore(modulebilling.LimitUsage{Used: activeContacts, Limit: modulebilling.PlanByKey(planKey).ContactLimit}) {
+		return SubmissionResult{}, modulebilling.ErrLimitReached
+	}
 
 	var contactID int64
 	if err := tx.QueryRow(ctx, `

@@ -218,6 +218,37 @@ func (s *Service) Fail(ctx context.Context, claimed Job, failure error, retryAt 
 	return s.finishFailure(ctx, claimed, failure, retryAt, false)
 }
 
+// Defer releases a running claim for a later policy retry without consuming
+// the attempt added by Claim. It preserves attempts already spent on genuine
+// execution failures.
+func (s *Service) Defer(ctx context.Context, claimed Job, reason error, retryAt time.Time) (Job, error) {
+	if s == nil || s.pool == nil {
+		return Job{}, fmt.Errorf("background jobs service not configured")
+	}
+	if claimed.ID <= 0 || strings.TrimSpace(claimed.LockToken) == "" || reason == nil {
+		return Job{}, ErrInvalidInput
+	}
+	if retryAt.IsZero() {
+		retryAt = s.now().Add(15 * time.Minute)
+	}
+	job, err := scanJob(s.pool.QueryRow(ctx, `
+		UPDATE background_jobs
+		SET status = 'retryable', attempts = GREATEST(attempts - 1, 0), run_at = $3,
+		    last_error = $4,
+		    locked_at = NULL, locked_by = NULL, lock_token = NULL, lease_expires_at = NULL,
+		    completed_at = NULL, updated_at = NOW()
+		WHERE id = $1 AND status = 'running' AND lock_token = $2
+		RETURNING `+jobColumns+`
+	`, claimed.ID, claimed.LockToken, retryAt, cleanError(reason)))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Job{}, ErrClaimLost
+	}
+	if err != nil {
+		return Job{}, fmt.Errorf("defer background job: %w", err)
+	}
+	return job, nil
+}
+
 func (s *Service) DeadLetter(ctx context.Context, claimed Job, failure error) (Job, error) {
 	return s.finishFailure(ctx, claimed, failure, time.Time{}, true)
 }

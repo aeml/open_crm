@@ -974,7 +974,8 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		platformweb.WriteNotFound(w, platformweb.RequestIDFromContext(r.Context()))
 	})
 
-	handler := withCSRFProtection(env, mux)
+	handler := withHostedWritePolicy(mux, dependencies.BillingService)
+	handler = withCSRFProtection(env, handler)
 	handler = withCORS(env, handler)
 	handler = withSecurityHeaders(handler)
 	handler = withReleaseHeader(env.ReleaseID, handler)

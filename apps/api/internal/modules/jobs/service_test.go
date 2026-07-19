@@ -41,6 +41,7 @@ type fakeQueueStore struct {
 	claimed      []Job
 	completed    int
 	failed       int
+	deferred     int
 	dead         int
 	failureState string
 }
@@ -71,6 +72,11 @@ func (f *fakeQueueStore) Fail(_ context.Context, _ Job, _ error, _ time.Time) (J
 		status = "retryable"
 	}
 	return Job{Status: status}, nil
+}
+
+func (f *fakeQueueStore) Defer(_ context.Context, _ Job, _ error, _ time.Time) (Job, error) {
+	f.deferred++
+	return Job{Status: "retryable"}, nil
 }
 
 func (f *fakeQueueStore) DeadLetter(_ context.Context, _ Job, _ error) (Job, error) {
@@ -114,6 +120,18 @@ func TestWorkerRetriesOrdinaryFailureAndDeadLettersPermanentFailure(t *testing.T
 				t.Fatalf("unexpected failure result: summary=%#v store=%#v err=%v", summary, store, err)
 			}
 		})
+	}
+}
+
+func TestWorkerDefersExpectedPolicyBlocksWithoutFailingTheJob(t *testing.T) {
+	store := &fakeQueueStore{claimed: []Job{{ID: 1, Type: "test", Attempts: 1, LockToken: "claim"}}}
+	worker := NewWorker(store, map[string]Handler{"test": func(context.Context, Job) (map[string]any, error) {
+		return nil, Deferred(errors.New("workspace is read-only"), time.Now().Add(time.Hour))
+	}}, "worker-1", nil)
+
+	summary, err := worker.RunOnce(context.Background())
+	if err != nil || summary.Deferred != 1 || store.deferred != 1 || store.failed != 0 || store.dead != 0 {
+		t.Fatalf("unexpected deferred worker result: summary=%#v store=%#v err=%v", summary, store, err)
 	}
 }
 

@@ -27,10 +27,11 @@ type hostedBillingService interface {
 
 const maxBillingWebhookBytes = 1 << 20
 
-// enforceActiveSubscription blocks writes for organizations whose subscription
-// is inactive (canceled or an expired trial). It returns true when the write
-// may proceed. A nil billing service skips the check; unexpected billing
-// errors fail open so a transient read does not lock an org out of its data.
+// enforceActiveSubscription blocks tenant writes when the hosted subscription
+// is inactive. Once a route is inside the centralized policy boundary,
+// unexpected entitlement failures fail closed so a billing outage cannot turn
+// into an authorization bypass. A nil service keeps isolated tests and
+// explicitly unconfigured self-hosted callers backwards compatible.
 func enforceActiveSubscription(billing billingService, organizationID int64, w http.ResponseWriter, r *http.Request) bool {
 	if billing == nil {
 		return true
@@ -44,14 +45,16 @@ func enforceActiveSubscription(billing billingService, organizationID int64, w h
 		platformweb.WriteError(w, http.StatusPaymentRequired, requestID, "SUBSCRIPTION_INACTIVE", "Your subscription is inactive. Renew or upgrade your plan to continue.")
 		return false
 	}
-	return true
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "BILLING_CHECK_UNAVAILABLE", "Workspace write access could not be verified. Retry shortly; read access and billing recovery remain available.")
+	return false
 }
 
 // enforcePlanLimit checks a metered resource limit before a create write. It
 // returns true when the write may proceed. A nil billing service (e.g. in
-// tests or when billing is disabled) skips enforcement. Unexpected billing
-// errors fail open so a transient billing read does not block legitimate CRM
-// writes; only a definitive ErrLimitReached blocks the request.
+// tests or when billing is disabled) skips enforcement. Once configured, an
+// unreadable limit fails closed so a transient billing error cannot become a
+// commercial entitlement bypass.
 func enforcePlanLimit(billing billingService, organizationID int64, resource string, w http.ResponseWriter, r *http.Request) bool {
 	if billing == nil {
 		return true
@@ -65,7 +68,9 @@ func enforcePlanLimit(billing billingService, organizationID int64, resource str
 		platformweb.WriteError(w, http.StatusPaymentRequired, requestID, "PLAN_LIMIT_REACHED", "Your plan limit for "+resource+" has been reached. Upgrade your plan to add more.")
 		return false
 	}
-	return true
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "BILLING_CHECK_UNAVAILABLE", "Workspace limits could not be verified. Retry shortly; read access and billing recovery remain available.")
+	return false
 }
 
 type changePlanRequest struct {

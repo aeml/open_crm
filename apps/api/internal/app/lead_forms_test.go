@@ -12,6 +12,7 @@ import (
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
 )
 
@@ -288,6 +289,20 @@ func TestSubmitPublicLeadCaptureFormDoesNotRequireAuth(t *testing.T) {
 	}
 	if response.Data.SuccessMessage != "Thanks" {
 		t.Fatalf("unexpected submission response: %#v", response.Data)
+	}
+}
+
+func TestSubmitPublicLeadCaptureFormHidesSuspendedTenant(t *testing.T) {
+	service := &fakeLeadFormsService{submitErr: modulebilling.ErrSubscriptionInactive}
+	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
+	request := httptest.NewRequest(http.MethodPost, "/api/public/lead-capture-forms/lf_public/submissions", bytes.NewBufferString(`{"values":{"firstName":"Ada"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"FORM_UNAVAILABLE"`)) {
+		t.Fatalf("expected a leak-safe suspended form response, got status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

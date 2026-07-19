@@ -23,6 +23,7 @@ type Handler func(context.Context, Job) (map[string]any, error)
 type queueStore interface {
 	Claim(context.Context, string, []string, int, time.Duration) ([]Job, error)
 	Complete(context.Context, Job, map[string]any) (Job, error)
+	Defer(context.Context, Job, error, time.Time) (Job, error)
 	Fail(context.Context, Job, error, time.Time) (Job, error)
 	DeadLetter(context.Context, Job, error) (Job, error)
 }
@@ -35,6 +36,11 @@ type permanentError struct {
 	err error
 }
 
+type deferredError struct {
+	err     error
+	retryAt time.Time
+}
+
 func (e permanentError) Error() string { return e.err.Error() }
 func (e permanentError) Unwrap() error { return e.err }
 
@@ -44,6 +50,19 @@ func Permanent(err error) error {
 	}
 	return permanentError{err: err}
 }
+
+// Deferred returns a worker result that safely releases a claimed job until
+// retryAt without consuming an attempt. Use it when policy or another expected
+// external state temporarily prevents execution rather than when work failed.
+func Deferred(err error, retryAt time.Time) error {
+	if err == nil {
+		return nil
+	}
+	return deferredError{err: err, retryAt: retryAt}
+}
+
+func (e deferredError) Error() string { return e.err.Error() }
+func (e deferredError) Unwrap() error { return e.err }
 
 type Worker struct {
 	store        queueStore
@@ -61,6 +80,7 @@ type Worker struct {
 type RunSummary struct {
 	Claimed   int
 	Succeeded int
+	Deferred  int
 	Retried   int
 	Dead      int
 }
@@ -110,6 +130,8 @@ func (w *Worker) RunOnce(ctx context.Context) (RunSummary, error) {
 		switch outcome {
 		case "succeeded":
 			summary.Succeeded++
+		case "deferred":
+			summary.Deferred++
 		case "retryable":
 			summary.Retried++
 		case "dead":
@@ -138,7 +160,7 @@ func (w *Worker) Run(ctx context.Context) {
 			if err != nil && !errors.Is(err, context.Canceled) {
 				w.log(slog.LevelWarn, "background job worker cycle failed", "error", err)
 			} else if summary.Claimed > 0 {
-				w.log(slog.LevelInfo, "background job worker cycle completed", "claimed", summary.Claimed, "succeeded", summary.Succeeded, "retried", summary.Retried, "dead", summary.Dead)
+				w.log(slog.LevelInfo, "background job worker cycle completed", "claimed", summary.Claimed, "succeeded", summary.Succeeded, "deferred", summary.Deferred, "retried", summary.Retried, "dead", summary.Dead)
 			}
 			timer.Reset(interval)
 		}
@@ -169,6 +191,17 @@ func (w *Worker) execute(ctx context.Context, job Job) (outcome string, err erro
 		// Leave the lease intact. Another worker can reclaim it after a graceful
 		// shutdown interrupted the handler.
 		return "", ctx.Err()
+	}
+	var deferred deferredError
+	if errors.As(handlerErr, &deferred) {
+		updated, err := w.store.Defer(ctx, job, handlerErr, deferred.retryAt)
+		if err != nil {
+			return "", err
+		}
+		if updated.Status == "dead" {
+			return "dead", nil
+		}
+		return "deferred", nil
 	}
 	var permanent permanentError
 	if errors.As(handlerErr, &permanent) {

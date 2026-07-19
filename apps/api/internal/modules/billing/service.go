@@ -497,8 +497,10 @@ func (s *Service) EnforceWritable(ctx context.Context, organizationID int64) err
 	return checkWritable(status, trialEndsAt, providerStatus)
 }
 
-// checkWritable is the pure write-permission decision for a subscription state.
-func checkWritable(status string, trialEndsAt *time.Time, providerStatus ...string) error {
+// CheckWritable is the shared pure write-permission decision for a subscription
+// state. Tenant-facing services with public write paths use it after locking
+// the owning organization so those paths cannot bypass hosted suspension.
+func CheckWritable(status string, trialEndsAt *time.Time, providerStatus ...string) error {
 	if len(providerStatus) > 0 && providerSuspendsWrites(providerStatus[0]) {
 		return ErrSubscriptionInactive
 	}
@@ -514,6 +516,10 @@ func checkWritable(status string, trialEndsAt *time.Time, providerStatus ...stri
 		// active, past_due (grace period), or unknown statuses remain writable.
 		return nil
 	}
+}
+
+func checkWritable(status string, trialEndsAt *time.Time, providerStatus ...string) error {
+	return CheckWritable(status, trialEndsAt, providerStatus...)
 }
 
 func providerSuspendsWrites(status string) bool {

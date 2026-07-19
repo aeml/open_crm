@@ -252,6 +252,13 @@ func main() {
 		if sequenceRunnerService != nil && sequenceRunnerService.Configured() {
 			jobHandlers[moduleemailsequences.SequenceSendJobType] = sequenceRunnerService.HandleJob
 		}
+		if billingService != nil {
+			for jobType, handler := range jobHandlers {
+				if jobType != modulebilling.ReconciliationJobType {
+					jobHandlers[jobType] = modulebilling.GuardJobHandler(billingService, handler)
+				}
+			}
+		}
 		if len(jobHandlers) > 0 {
 			jobWorker := modulejobs.NewWorker(jobsService, jobHandlers, backgroundWorkerID(), logger, metrics)
 			go jobWorker.Run(ctx)

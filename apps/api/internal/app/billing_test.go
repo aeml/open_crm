@@ -27,6 +27,7 @@ type fakeBillingService struct {
 	lastEnforce      string
 	writableErr      error
 	writableChecked  bool
+	writableOrgID    int64
 	checkoutResult   modulebilling.HostedSession
 	checkoutErr      error
 	checkoutInput    modulebilling.CheckoutInput
@@ -55,8 +56,9 @@ func (f *fakeBillingService) EnforceCanCreate(_ context.Context, _ int64, resour
 	return f.enforceErr
 }
 
-func (f *fakeBillingService) EnforceWritable(_ context.Context, _ int64) error {
+func (f *fakeBillingService) EnforceWritable(_ context.Context, organizationID int64) error {
 	f.writableChecked = true
+	f.writableOrgID = organizationID
 	return f.writableErr
 }
 
@@ -439,5 +441,29 @@ func TestCreateContactProceedsWhenWithinPlanLimit(t *testing.T) {
 	}
 	if contacts.lastCreateOrgID != 42 {
 		t.Fatalf("expected contact created for org 42, got %d", contacts.lastCreateOrgID)
+	}
+}
+
+func TestCreateContactFailsClosedWhenPlanCannotBeVerified(t *testing.T) {
+	contacts := &fakeContactsService{}
+	billing := &fakeBillingService{enforceErr: errors.New("billing read unavailable")}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User:         moduleauth.User{ID: 1},
+			Organization: moduleauth.Organization{ID: 42},
+			Membership:   moduleauth.Membership{Role: "owner"},
+		}},
+		ContactsService: contacts,
+		BillingService:  billing,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/contacts", bytes.NewBufferString(`{"firstName":"Ada","lastName":"Lovelace"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable || contacts.lastCreateOrgID != 0 || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"BILLING_CHECK_UNAVAILABLE"`)) {
+		t.Fatalf("expected fail-closed plan check, got status=%d createdOrg=%d body=%s", recorder.Code, contacts.lastCreateOrgID, recorder.Body.String())
 	}
 }
