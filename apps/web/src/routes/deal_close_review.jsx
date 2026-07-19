@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { Field } from '../components/ui/field'
 
 export const emptyCloseReview = { closeReasonCode: '', closeNotes: '' }
@@ -35,6 +36,7 @@ export function CloseReviewFields({ outcome, value, onChange }) {
       <div>
         <h3>{outcomeLabel} close review</h3>
         <p className="field-hint">Required at the stage transition so outcome reporting stays explainable.</p>
+        {outcome === 'won' ? <p className="field-hint">Won deals need a company or primary contact for customer handoff.</p> : null}
       </div>
       <Field label={`${outcomeLabel} reason`}>
         <select className="text-input" value={value.closeReasonCode} onChange={(event) => onChange({ ...value, closeReasonCode: event.target.value })} required>
@@ -60,6 +62,7 @@ export function DealCloseSummary({ deal }) {
     return <p className="inline-note" aria-label="Deal outcome">Open outcome · derived from {deal?.stageName || 'the current stage'}.</p>
   }
   const label = deal.closeReasonLabel || 'Not captured before close-reason tracking'
+  const accountPath = deal.companyId ? `/companies/${deal.companyId}` : deal.primaryContactId ? `/contacts/${deal.primaryContactId}` : ''
   return (
     <div className="inline-note card-stack" aria-label="Deal close review">
       <div>
@@ -68,6 +71,7 @@ export function DealCloseSummary({ deal }) {
         <p className="field-hint">Closed {closeTimestamp(deal.closedAt)}{deal.closedByUserName ? ` by ${deal.closedByUserName}` : ''}. Outcome is derived from the current stage.</p>
       </div>
       {deal.closeNotes ? <p>{deal.closeNotes}</p> : <p className="field-hint">No close notes were recorded.</p>}
+      {outcome === 'won' && accountPath ? <Link className="button button-secondary" to={accountPath}>Open customer account</Link> : null}
     </div>
   )
 }

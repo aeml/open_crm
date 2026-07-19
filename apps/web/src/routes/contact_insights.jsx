@@ -39,14 +39,6 @@ function safeHTTPURL(value = '') {
   }
 }
 
-function formatMoney(value, currency = 'USD') {
-  const amount = Number.parseFloat(value || '0')
-  if (!Number.isFinite(amount)) {
-    return '$0.00'
-  }
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(amount)
-}
-
 export function ContactLeadScoreCard({ canWrite, contact, isEvaluating, onEvaluate, status }) {
   return (
     <Card>
@@ -113,38 +105,5 @@ function AttributionRow({ label, value }) {
         <p className="field-hint">{value}</p>
       </div>
     </article>
-  )
-}
-
-export function ContactDealsCard({ canWrite, deals, labels, onCreate, onOpen }) {
-  const plural = labels.plural.toLowerCase()
-  return (
-    <Card>
-      <div className="card-stack">
-        <div className="section-header">
-          <div>
-            <h3>{`Related ${plural}`}</h3>
-            <p>{`See active ${plural} tied to this contact.`}</p>
-          </div>
-          {canWrite ? <Button className="button-secondary" onClick={onCreate}>{`Create ${labels.singular}`}</Button> : null}
-        </div>
-        <div className="record-list" role="list" aria-label="Related deals list">
-          {deals.length === 0 ? (
-            <article className="record-row" role="listitem"><div><p>{`No related ${plural} yet.`}</p></div></article>
-          ) : deals.map((deal) => (
-            <article className="record-row" key={deal.id} role="listitem">
-              <div>
-                <button className="button button-ghost contact-link" type="button" onClick={() => onOpen(deal.id)}>{deal.name}</button>
-                <p>{deal.stageName || deal.status || 'Unstaged'}</p>
-              </div>
-              <div>
-                <p>{formatMoney(deal.valueAmount, deal.valueCurrency)}</p>
-                <p>{deal.companyName || (deal.expectedCloseDate ? `Target ${deal.expectedCloseDate}` : 'No client linked')}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </div>
-    </Card>
   )
 }

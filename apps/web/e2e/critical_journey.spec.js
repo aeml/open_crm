@@ -163,6 +163,16 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(companyFollowUp.getByText(/Last touch:/)).toBeVisible()
   await expect(companyFollowUp.getByRole('link', { name: 'Avery Buyer' }).first()).toBeVisible()
 
+  const accountHandoffNote = `Kickoff context ${runID}`
+  const accountHandoffTask = `Confirm kickoff owner ${runID}`
+  const clientNoteForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Add note' }) })
+  await clientNoteForm.getByLabel('New note').fill(accountHandoffNote)
+  await clientNoteForm.getByRole('button', { name: 'Add note' }).click()
+  const clientTaskForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save task' }) })
+  await clientTaskForm.getByLabel('Task title').fill(accountHandoffTask)
+  await clientTaskForm.getByRole('button', { name: 'Save task' }).click()
+  await expect(page.getByRole('list', { name: 'Client tasks list' }).getByText(accountHandoffTask)).toBeVisible()
+
   await page.getByRole('button', { name: 'Add person' }).click()
   const duplicatePersonForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save person' }) })
   await duplicatePersonForm.getByLabel('First name').fill('Avery')
@@ -278,7 +288,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(salesActivityCard.getByText('Complete event coverage', { exact: false })).toBeVisible()
   const salesTotals = salesActivityCard.getByRole('list', { name: 'Sales activity totals' })
   await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Deals created' })).toContainText('1')
-  await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Tasks created' })).toContainText('2')
+  await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Tasks created' })).toContainText('3')
   await expect(salesActivityCard.getByRole('list', { name: 'Stage movement report' }).getByText(`Sales pipeline / ${discoveryStage}`)).toBeVisible()
   await expect(salesActivityCard.getByRole('list', { name: 'Recent deal events' }).getByText(`Created in Sales pipeline / ${discoveryStage}`)).toBeVisible()
   await expect(salesActivityCard.getByRole('link', { name: `Website renewal ${runID}` })).toBeVisible()
@@ -304,6 +314,16 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(closeReview.getByRole('heading', { name: 'Won outcome' })).toBeVisible()
   await expect(closeReview).toContainText('Best solution fit')
   await expect(closeReview).toContainText('Strong service fit and a clear implementation plan.')
+  await closeReview.getByRole('link', { name: 'Open customer account' }).click()
+  await expect(page).toHaveURL(/\/companies\/\d+$/)
+  const accountSummary = page.getByLabel('Client account summary')
+  await expect(accountSummary.getByRole('heading', { name: 'Account summary' })).toBeVisible()
+  await expect(accountSummary.getByRole('list', { name: 'Won account deals' }).getByText(`Website renewal ${runID}`)).toBeVisible()
+  await expect(accountSummary.getByRole('list', { name: 'Open account tasks' }).getByText(accountHandoffTask)).toBeVisible()
+  await expect(accountSummary.getByRole('list', { name: 'Recent account notes' }).getByText(accountHandoffNote)).toBeVisible()
+  await expect(accountSummary.getByRole('list', { name: 'Key account contacts' }).getByText('Avery Buyer')).toBeVisible()
+  const accountForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Update client' }) })
+  await expect(accountForm.getByLabel('Status')).toHaveValue('customer')
 
   await memberPage.goto('/notifications')
   const mentionNotification = memberPage.getByRole('listitem').filter({ hasText: `mentioned you on Website renewal ${runID}` })

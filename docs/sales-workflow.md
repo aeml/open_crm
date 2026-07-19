@@ -22,8 +22,15 @@ delivery or e-signature claim.
    each current stage and disclose excluded currency/date cases.
 5. Moving a deal into won or lost requires a fixed outcome-specific reason and
    accepts optional notes. Reopening clears the live close context but retains
-   the immutable event-time outcome history.
-6. **Reports** reconciles deal creation and movement, won/lost outcomes and
+   the immutable event-time outcome history. A win also requires a company or
+   primary contact. It promotes the explicitly linked organization to customer;
+   only a company-less win promotes its primary contact as an individual client.
+   The same transaction records the handoff, and reopening does not erase the
+   customer relationship.
+6. The won-deal link opens a compact account summary built from the existing
+   client, won deals, open client tasks, recent client notes, and key people;
+   the ordinary detail workflows remain the source of truth beneath it.
+7. **Reports** reconciles deal creation and movement, won/lost outcomes and
    reasons, notes, task work, teammate ownership/actors, and recent deal events
    over a bounded UTC date range. Deal exports retain the current close context.
 

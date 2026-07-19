@@ -23,7 +23,8 @@ import { usePageTitle } from '../lib/use_page_title'
 import { ContactCallsCard } from './contact_calls'
 import { ContactEmailCard, ContactMeetingsCard, ContactSMSCard, ContactSequencesCard, smsTemplates } from './contact_communications'
 import { ContactForm } from './contact_form'
-import { ContactAttributionCard, ContactDealsCard, ContactLeadScoreCard } from './contact_insights'
+import { ContactAttributionCard, ContactLeadScoreCard } from './contact_insights'
+import { ClientAccountContext } from './client_account_context'
 import { ContactListCard } from './contact_list'
 import {
   contactFormValues,
@@ -1177,12 +1178,9 @@ export function ContactsRoute() {
               submitLabel="Update contact"
             />
             <ContactAttributionCard contact={selectedContact} />
-            <ContactDealsCard
-              canWrite={canWrite}
-              deals={selectedDeals}
-              labels={pipelineLabels}
-              onCreate={handleCreateRelatedDeal}
-              onOpen={handleOpenDeal}
+            <ClientAccountContext canWrite={canWrite} deals={selectedDeals}
+              isCustomer={selectedContact.isClient || selectedContact.status === 'customer'} labels={pipelineLabels}
+              notes={selectedNotes} onCreateDeal={handleCreateRelatedDeal} onOpenDeal={handleOpenDeal} tasks={selectedTasks}
             />
             <ContactCallsCard
               activeCall={activeCall}

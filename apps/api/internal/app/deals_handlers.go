@@ -180,6 +180,10 @@ func handleCreateDeal(auth authService, deals dealsService, notifs notifications
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose a valid close reason for the selected won or lost stage; notes may be up to 2,000 characters")
 			return
 		}
+		if errors.Is(err, moduledeals.ErrWonDealAccountRequired) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Link a company or primary contact before marking a deal won")
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create deal")
 		return
 	}
@@ -298,6 +302,10 @@ func handleUpdateDeal(auth authService, deals dealsService, notifs notifications
 			return
 		}
 		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
+		if errors.Is(err, moduledeals.ErrWonDealAccountRequired) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Link a company or primary contact before marking a deal won")
 			return
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update deal")

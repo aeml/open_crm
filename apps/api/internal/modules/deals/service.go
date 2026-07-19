@@ -23,6 +23,7 @@ var (
 	ErrInvalidSignatureRequest = errors.New("invalid deal signature request")
 	ErrInvalidDealFilter       = errors.New("invalid deal filter")
 	ErrInvalidCloseReview      = errors.New("invalid deal close review")
+	ErrWonDealAccountRequired  = errors.New("won deal account required")
 	ErrInvalidAssignee         = moduleusers.ErrInvalidAssignee
 	ErrNotFound                = errors.New("deal not found")
 )
@@ -540,6 +541,9 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if err != nil {
 		return Detail{}, err
 	}
+	if stageSnapshot.Outcome == "won" && input.CompanyID <= 0 && input.PrimaryContactID <= 0 {
+		return Detail{}, ErrWonDealAccountRequired
+	}
 
 	var dealID int64
 	if err := tx.QueryRow(ctx, `
@@ -571,6 +575,11 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	}
 	if err := insertDealStageEvent(ctx, tx, organizationID, dealID, input.Name, "created", activityID, actorUserID, input.OwnerUserID, nil, stageSnapshot, review); err != nil {
 		return Detail{}, err
+	}
+	if stageSnapshot.Outcome == "won" {
+		if err := handoffWonDeal(ctx, tx, organizationID, dealID, actorUserID); err != nil {
+			return Detail{}, err
+		}
 	}
 	if err := moduleworkflowautomations.ExecuteDealTaskRules(ctx, tx, moduleworkflowautomations.DealTaskEvent{
 		OrganizationID: organizationID, ActorUserID: actorUserID, DealID: dealID, DealName: input.Name,
@@ -604,13 +613,13 @@ func (s *Service) UpdateStage(ctx context.Context, organizationID, dealID, actor
 		return Detail{}, err
 	}
 	var dealName string
-	var previousStageID, ownerUserID int64
+	var previousStageID, ownerUserID, companyID, primaryContactID int64
 	if err := tx.QueryRow(ctx, `
-		SELECT name, stage_id, COALESCE(owner_user_id, $3)
+		SELECT name, stage_id, COALESCE(owner_user_id, $3), COALESCE(company_id,0), COALESCE(primary_contact_id,0)
 		FROM deals
 		WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL
 		FOR UPDATE
-	`, organizationID, dealID, actorUserID).Scan(&dealName, &previousStageID, &ownerUserID); err != nil {
+	`, organizationID, dealID, actorUserID).Scan(&dealName, &previousStageID, &ownerUserID, &companyID, &primaryContactID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Detail{}, ErrNotFound
 		}
@@ -637,6 +646,17 @@ func (s *Service) UpdateStage(ctx context.Context, organizationID, dealID, actor
 	review, err := normalizeCloseReview(nextStage.Outcome, input.CloseReasonCode, input.CloseNotes)
 	if err != nil {
 		return Detail{}, err
+	}
+	if nextStage.Outcome == "won" && companyID <= 0 && primaryContactID <= 0 {
+		return Detail{}, ErrWonDealAccountRequired
+	}
+	if nextStage.Outcome == "won" {
+		if err := requireDealRelationships(ctx, tx, organizationID, companyID, primaryContactID); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return Detail{}, ErrWonDealAccountRequired
+			}
+			return Detail{}, err
+		}
 	}
 
 	updated, err := tx.Exec(ctx, `
@@ -665,6 +685,11 @@ func (s *Service) UpdateStage(ctx context.Context, organizationID, dealID, actor
 	}
 	if err := insertDealStageEvent(ctx, tx, organizationID, dealID, dealName, "stage_changed", activityID, actorUserID, ownerUserID, &previousStage, nextStage, review); err != nil {
 		return Detail{}, err
+	}
+	if nextStage.Outcome == "won" {
+		if err := handoffWonDeal(ctx, tx, organizationID, dealID, actorUserID); err != nil {
+			return Detail{}, err
+		}
 	}
 	if err := moduleworkflowautomations.ExecuteDealTaskRules(ctx, tx, moduleworkflowautomations.DealTaskEvent{
 		OrganizationID: organizationID, ActorUserID: actorUserID, DealID: dealID, DealName: dealName,
@@ -706,7 +731,8 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 		return Detail{}, err
 	}
 
-	updated, err := tx.Exec(ctx, `
+	var dealStatus string
+	row := tx.QueryRow(ctx, `
 		UPDATE deals
 		SET name = $3,
 		    company_id = NULLIF($4, 0),
@@ -717,16 +743,23 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 		    owner_user_id = COALESCE(NULLIF($9, 0), owner_user_id, $10),
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
+		RETURNING status
 	`, organizationID, dealID, input.Name, input.CompanyID, input.PrimaryContactID, input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, input.OwnerUserID, actorUserID)
-	if err != nil {
+	if err := row.Scan(&dealStatus); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
 		return Detail{}, fmt.Errorf("update deal: %w", err)
 	}
-	if updated.RowsAffected() == 0 {
-		return Detail{}, ErrNotFound
+	if dealStatus == "won" && input.CompanyID <= 0 && input.PrimaryContactID <= 0 {
+		return Detail{}, ErrWonDealAccountRequired
 	}
 
 	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.updated", "Deal updated"); err != nil {
 		return Detail{}, fmt.Errorf("insert deal update activity: %w", err)
+	}
+	if err := handoffWonDeal(ctx, tx, organizationID, dealID, actorUserID); err != nil {
+		return Detail{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

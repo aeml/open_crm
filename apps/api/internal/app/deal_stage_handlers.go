@@ -45,6 +45,10 @@ func handleUpdateDealStage(auth authService, deals dealsService, w http.Response
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose a valid close reason for the selected won or lost stage; notes may be up to 2,000 characters")
 			return
 		}
+		if errors.Is(err, moduledeals.ErrWonDealAccountRequired) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Link a company or primary contact before marking a deal won")
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update deal stage")
 		return
 	}

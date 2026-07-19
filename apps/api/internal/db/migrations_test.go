@@ -1160,3 +1160,19 @@ func TestMigrationFilesIncludeSalesReportQueryIndexesMigration(t *testing.T) {
 		t.Fatalf("expected sales report query indexes migration to be expand-safe, got %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeWonDealCustomerHandoffMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "070_won_deal_customer_handoff.sql") {
+		t.Fatal("expected won-deal customer handoff migration to be registered")
+	}
+
+	sql := MigrationSQL("070_won_deal_customer_handoff.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "idx_deals_org_company_active_updated", "idx_deals_org_primary_contact_active_updated", "UPDATE companies", "UPDATE contacts", "deal.company_id IS NULL"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected won-deal customer handoff migration to include %s", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("070_won_deal_customer_handoff.sql"); class != "expand" {
+		t.Fatalf("expected won-deal customer handoff migration to be expand-safe, got %q", class)
+	}
+}

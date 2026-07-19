@@ -452,7 +452,7 @@ describe('companies flow', () => {
 
     expect(await screen.findByText(/company updated/i)).toBeInTheDocument()
     expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
-    expect(screen.getByText('ava@acme.test')).toBeInTheDocument()
+    expect(screen.getAllByText('ava@acme.test').length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('button', { name: /archive client/i }))
 

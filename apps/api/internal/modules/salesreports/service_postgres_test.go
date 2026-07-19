@@ -90,8 +90,12 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 		stageIDs[stage.name] = stageID
 	}
 
+	var reportCompanyID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO companies (organization_id,name,status,owner_user_id) VALUES ($1,'Expansion account','prospect',$2) RETURNING id`, organizationID, ownerAID).Scan(&reportCompanyID); err != nil {
+		t.Fatalf("create won-deal report account: %v", err)
+	}
 	dealsService := moduledeals.NewService(pool)
-	dealA, err := dealsService.Create(ctx, organizationID, ownerAID, moduledeals.CreateInput{Name: "Expansion A", StageID: stageIDs["Open"], OwnerUserID: ownerAID})
+	dealA, err := dealsService.Create(ctx, organizationID, ownerAID, moduledeals.CreateInput{Name: "Expansion A", StageID: stageIDs["Open"], OwnerUserID: ownerAID, CompanyID: reportCompanyID})
 	if err != nil {
 		t.Fatalf("create owner A deal: %v", err)
 	}

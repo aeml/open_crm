@@ -114,8 +114,8 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.6.7` Quote Or Proposal Placeholder Flow: complete.
 - `0.6.8` Win Loss Review: complete.
 - `0.6.9` Sales Workflow Review: in progress (technical review complete; approved pilot usage evidence pending).
-- `0.7.0` Customer Operations: planned.
-- `0.7.1` Post-Sale Account View: planned.
+- `0.7.0` Customer Operations: in progress.
+- `0.7.1` Post-Sale Account View: complete.
 - `0.7.2` Client Health Signals: planned.
 - `0.7.3` Renewal And Follow-Up Tasks: planned.
 - `0.7.4` Service Or Job Tracking: planned.
@@ -381,10 +381,10 @@ Exit criteria:
 Current convergence evidence: route-level loading and bundle budgets are
 CI-gated. Tested list, editor, view-model, communications, insights, shared
 work, and touchpoint extraction plus bulk/custom-field integration leave
-`contacts.jsx` at 1,298 lines, down from 2,038. Shared record-work cards,
-touchpoints, and company editor/view helpers leave `companies.jsx` at 998 lines,
+`contacts.jsx` at 1,296 lines, down from 2,038. Shared record-work cards,
+touchpoints/account context, and company editor/view helpers leave `companies.jsx` at 973 lines,
 down from 1,364. Deal view, shared work, quote, signature, and bulk-action
-components leave `deals.jsx` at 1,044 lines, down from 1,365. Task filtering,
+components leave `deals.jsx` at 1,065 lines, down from 1,365. Task filtering,
 sorting, labels, and due-date view logic leave `tasks.jsx` at 839 lines, down
 from 1,093. Tighter source ratchets preserve every reduction while
 holding other production routes to 500 lines. This remains in progress while
@@ -1551,7 +1551,7 @@ won-deal client-handoff slice.
 
 ## Version 0.7.0 - Customer Operations
 
-Status: planned.
+Status: in progress.
 
 Goal: support the post-sale relationship after a deal becomes a customer account.
 
@@ -1567,7 +1567,7 @@ Exit criteria:
 
 ## Version 0.7.1 - Post-Sale Account View
 
-Status: planned.
+Status: complete.
 
 Goal: make customer accounts easier to review after conversion.
 
@@ -1580,6 +1580,29 @@ Exit criteria:
 
 - Users can understand account state from one page.
 - Post-sale context does not duplicate core CRM records.
+
+Completion evidence (2026-07-19): winning a deal now requires a live company or
+primary-contact relationship and promotes the existing explicit company to
+`customer` inside the stage transaction; only a win without a company promotes
+its primary contact to `customer` plus individual-client, so an organization
+sale does not create a duplicate person account. Create, stage transition, and
+later-edit paths enforce the relationship invariant with actionable API/UI
+feedback. Legacy won deals can still be repaired by adding an account through
+the same rule, repeated edits are idempotent, and reopening or a later loss
+never reverses the customer relationship. The changed account receives
+`client.handoff` activity and audit metadata naming the source deal. Expand-safe
+migration 70 reconciles legacy
+wins without inventing historical actors, gives explicit companies the same
+precedence, and adds tenant/company/contact account-list indexes with bounded
+lock and statement waits. A won deal links directly to the company or individual
+account. The existing company/contact detail page now provides a compact
+read-only summary of related won deals, open tasks on that client record, recent
+client notes, and key linked contacts, followed by the unchanged source-record
+workflows rather than a second account data model. Focused component tests,
+disposable-PostgreSQL transition/create/unlink/reopen/late-link/idempotency/
+backfill/tenant assertions, handler validation, and the clean Chromium journey
+through close, account link, customer status, won deal, task, note, and key
+contact cover the outcome.
 
 ## Version 0.7.2 - Client Health Signals
 
@@ -2077,10 +2100,10 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 176.85 KiB/57.66 KiB for the entry, 48.01 KiB/12.42 KiB
-for the largest lazy chunk, and 625.52 KiB/199.09 KiB total assets. Tested route
-splits plus bulk/custom-field/touchpoint/close-review integration leave contacts
-at 1,298 lines, companies at 998, deals at 1,065, and tasks at 839, down from 2,038,
+CSS. Current evidence is 176.85 KiB/57.63 KiB for the entry, 46.80 KiB/12.16 KiB
+for the largest lazy chunk, and 627.89 KiB/199.60 KiB total assets. Tested route
+splits plus bulk/custom-field/touchpoint/close-review/account integration leave contacts
+at 1,296 lines, companies at 973, deals at 1,065, and tasks at 839, down from 2,038,
 1,364, 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.

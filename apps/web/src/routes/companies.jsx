@@ -30,7 +30,6 @@ import {
   emailRecipientOptions,
   emptyLinkedPersonForm,
   formatAddress,
-  formatMoney,
   individualClientFromContact,
   isIndividualClient,
   linkedPersonFormValues,
@@ -43,6 +42,7 @@ import {
   splitFullName
 } from './company_view'
 import { CompanyForm } from './company_form'
+import { ClientAccountContext } from './client_account_context'
 import { RecordWorkCards } from './record_work'
 import { TouchpointSummary } from './touchpoint_summary'
 
@@ -933,43 +933,18 @@ export function CompaniesRoute() {
               emptyMessage="Add a linked person with an email address before sending email from this client."
               mergeFieldHint="Merge fields like {{first_name}}, {{company_name}}, and {{client_status}} are filled in when the email is sent."
             />
-            <Card>
-              <div className="card-stack">
-                <div className="section-header">
-                  <div>
-                    <h3>{`Related ${pipelineLabels.plural.toLowerCase()}`}</h3>
-                    <p>{`See active ${pipelineLabels.plural.toLowerCase()} tied to this client.`}</p>
-                  </div>
-                  {canWrite ? (
-                    <Button className="button-secondary" onClick={handleCreateRelatedDeal}>
-                      {`Create ${pipelineLabels.singular}`}
-                    </Button>
-                  ) : null}
-                </div>
-                <div className="record-list" role="list" aria-label="Related deals list">
-                  {selectedDeals.length === 0 ? (
-                    <article className="record-row" role="listitem">
-                      <div>
-                        <p>{`No related ${pipelineLabels.plural.toLowerCase()} yet.`}</p>
-                      </div>
-                    </article>
-                  ) : selectedDeals.map((deal) => (
-                    <article className="record-row" key={deal.id} role="listitem">
-                      <div>
-                        <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenDeal(deal.id)}>
-                          {deal.name}
-                        </button>
-                        <p>{deal.stageName || deal.status || 'Unstaged'}</p>
-                      </div>
-                      <div>
-                        <p>{formatMoney(deal.valueAmount, deal.valueCurrency)}</p>
-                        <p>{deal.primaryContactName || (deal.expectedCloseDate ? `Target ${deal.expectedCloseDate}` : 'No primary contact')}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </Card>
+            <ClientAccountContext
+              canWrite={canWrite}
+              contacts={linkedContacts}
+              deals={selectedDeals}
+              isCustomer={selectedCompany.status === 'customer'}
+              labels={pipelineLabels}
+              notes={selectedNotes}
+              onCreateDeal={handleCreateRelatedDeal}
+              onOpenContact={(contactID) => navigate(`/contacts/${contactID}`)}
+              onOpenDeal={handleOpenDeal}
+              tasks={selectedTasks}
+            />
             <TouchpointSummary entityType="company" entityId={selectedCompanyId} refreshKey={JSON.stringify({ selectedActivities, selectedNotes, selectedTasks, linkedContacts })} />
             <RecordWorkCards
               activities={selectedActivities}

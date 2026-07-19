@@ -580,6 +580,32 @@ func TestUpdateDealStageRejectsInvalidCloseReview(t *testing.T) {
 	}
 }
 
+func TestDealWritesRequireAnAccountForWonDeals(t *testing.T) {
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		body    string
+		service *fakeDealsService
+	}{
+		{name: "create", method: http.MethodPost, path: "/api/deals", body: `{"name":"Unlinked win","stageId":5}`, service: &fakeDealsService{createErr: moduledeals.ErrWonDealAccountRequired}},
+		{name: "update", method: http.MethodPatch, path: "/api/deals/12", body: `{"name":"Unlinked win"}`, service: &fakeDealsService{updateErr: moduledeals.ErrWonDealAccountRequired}},
+		{name: "stage", method: http.MethodPatch, path: "/api/deals/12/stage", body: `{"stageId":5,"closeReasonCode":"solution_fit"}`, service: &fakeDealsService{updateStageErr: moduledeals.ErrWonDealAccountRequired}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, test.path, bytes.NewBufferString(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			authenticatedDealsServer(test.service).ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "company or primary contact") {
+				t.Fatalf("expected actionable won-account error, status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestReplaceDealLineItemsUsesCurrentOrganization(t *testing.T) {
 	service := &fakeDealsService{
 		replaceLineItemsResult: moduledeals.Detail{
