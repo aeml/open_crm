@@ -251,6 +251,31 @@ do not silently relabel a missed target as success.
    time, and request ID before escalating. Never repair a derived touch by
    editing activity or message history with ad hoc SQL.
 
+### Proposal tracking and current-PDF reconciliation
+
+1. The deal's **Line items** are saved CRM data. A catalog selection copies its
+   name, SKU, type, unit, price, and currency into the line item, so later
+   catalog edits do not rewrite an existing proposal. Saving the complete list
+   replaces the prior list, calculates subtotal/discount/tax/total, updates the
+   deal value, and adds `deal.line_items_updated` activity in one transaction.
+2. **Download current quote PDF** renders the deal and saved line items at
+   request time. It is not an immutable quote version, attachment, approval, or
+   delivery receipt. Regenerating after a deal, relationship, stage, or line-item
+   edit may produce different content and filename. Save and deliver a reviewed
+   copy outside Open CRM when a fixed customer document is required.
+3. **Proposal tracking** records a recipient, filename reference, and a manual
+   draft/sent/signed/declined/voided status. Creating or updating it does not
+   send a message, contact a provider, expose a signer page, or prove a legal
+   signature. Operators should change status only after confirming the matching
+   external event; `sentAt`, outcome timestamps, and deal activity help
+   reconcile who recorded what.
+4. If totals appear wrong, inspect quantity, unit price, discount, tax rate,
+   currency, and saved activity before editing. A failed cross-tenant or invalid
+   catalog reference changes nothing. Correct through the deal UI and download
+   a new current PDF; do not edit line items, proposal tracking rows, timestamps,
+   or activity with ad hoc SQL. Versioned delivery, approvals, provider
+   webhooks, and an audit certificate remain the Phase 4 quote/signature family.
+
 ### Deal task automation and recovery
 
 1. Owners and admins manage the pilot-safe subset under **Settings >

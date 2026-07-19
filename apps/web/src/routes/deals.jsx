@@ -653,7 +653,7 @@ export function DealsRoute() {
       setActivities(data.activities || [])
       setError('')
     } catch (signatureError) {
-      setError(signatureError.message || 'Unable to create signature request.')
+      setError(signatureError.message || 'Unable to create proposal tracking.')
     } finally {
       setIsCreatingSignatureRequest(false)
     }
@@ -674,7 +674,7 @@ export function DealsRoute() {
       setActivities(data.activities || [])
       setError('')
     } catch (signatureError) {
-      setError(signatureError.message || 'Unable to update signature request.')
+      setError(signatureError.message || 'Unable to update proposal tracking.')
     } finally {
       setUpdatingSignatureRequestId(null)
     }
@@ -918,7 +918,7 @@ export function DealsRoute() {
                 <p>{selectedDeal.companyName || labels.companyEmpty}</p>
               </div>
               <div className="button-row">
-                <a className="button button-secondary" href={quotePDFURL(selectedDealId)}>Download quote PDF</a>
+                <a className="button button-secondary" href={quotePDFURL(selectedDealId)}>Download current quote PDF</a>
                 {canWrite ? (
                   <Button className="button-danger" onClick={handleArchive}>
                     {labels.archiveAction}

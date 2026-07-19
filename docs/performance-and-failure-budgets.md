@@ -72,8 +72,8 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 622 KiB | 199 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 176.85 KiB/57.64 KiB entry, 47.97 KiB/12.39 KiB largest lazy
-chunk, and 621.39 KiB/197.88 KiB total assets. The complete custom-field outcome
+Current evidence: 176.85 KiB/57.64 KiB entry, 48.01 KiB/12.41 KiB largest lazy
+chunk, and 621.51 KiB/197.92 KiB total assets. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget

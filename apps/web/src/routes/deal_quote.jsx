@@ -106,16 +106,16 @@ export function DealSignatureCard({ canWrite, form, isCreating, onCreate, onSetF
       <div className="card-stack">
         <div className="section-header">
           <div>
-            <h3>Signature tracking</h3>
-            <p className="field-hint">Track quote signature requests while native e-signature and provider integrations are built out.</p>
+            <h3>Proposal tracking</h3>
+            <p className="field-hint">Manual CRM tracking only. Open CRM does not send this proposal or collect a legal e-signature yet.</p>
           </div>
         </div>
-        <div className="record-list" role="list" aria-label="Deal signature requests">
+        <div className="record-list" role="list" aria-label="Deal proposal tracking records">
           {requests.length === 0 ? (
             <article className="record-row" role="listitem">
               <div>
-                <p>No signature requests yet.</p>
-                <p className="field-hint">Create a request when a quote is ready for customer review and signature.</p>
+                <p>No tracked proposals yet.</p>
+                <p className="field-hint">Create a tracking record after you deliver a proposal outside Open CRM.</p>
               </div>
             </article>
           ) : requests.map((request) => (
@@ -123,12 +123,12 @@ export function DealSignatureCard({ canWrite, form, isCreating, onCreate, onSetF
               <div>
                 <h4>{request.signerName}</h4>
                 <p className="field-hint">{request.signerEmail} · {signatureStatusLabel(request.status)} · {request.provider || 'native_tracking'}</p>
-                <p className="field-hint">Quote file: {request.quoteFileName || 'Current quote PDF'}</p>
+                <p className="field-hint">Filename reference: {request.quoteFileName || 'Current quote PDF'} · PDF content remains live</p>
               </div>
               <div>
                 <p>{request.status === 'signed' ? `Signed ${formatSignatureTime(request.signedAt)}` : `Updated ${formatSignatureTime(request.updatedAt)}`}</p>
                 {canWrite ? (
-                  <select className="text-input" aria-label={`Signature status for ${request.signerName}`} value={request.status} disabled={updatingID === request.id} onChange={(event) => onUpdate(request.id, event.target.value)}>
+                  <select className="text-input" aria-label={`Proposal status for ${request.signerName}`} value={request.status} disabled={updatingID === request.id} onChange={(event) => onUpdate(request.id, event.target.value)}>
                     <option value="draft">Draft</option>
                     <option value="sent">Sent</option>
                     <option value="signed">Signed</option>
@@ -142,13 +142,13 @@ export function DealSignatureCard({ canWrite, form, isCreating, onCreate, onSetF
         </div>
         {canWrite ? (
           <form className="auth-form" onSubmit={onCreate}>
-            <Field label="Signer name">
+            <Field label="Recipient name">
               <input className="text-input" value={form.signerName} onChange={(event) => onSetForm((current) => ({ ...current, signerName: event.target.value }))} required />
             </Field>
-            <Field label="Signer email">
+            <Field label="Recipient email">
               <input className="text-input" type="email" value={form.signerEmail} onChange={(event) => onSetForm((current) => ({ ...current, signerEmail: event.target.value }))} required />
             </Field>
-            <Button type="submit" disabled={isCreating}>{isCreating ? 'Creating...' : 'Create signature request'}</Button>
+            <Button type="submit" disabled={isCreating}>{isCreating ? 'Creating...' : 'Create proposal tracking'}</Button>
           </form>
         ) : null}
       </div>

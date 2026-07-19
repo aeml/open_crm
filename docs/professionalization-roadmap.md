@@ -111,7 +111,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.6.4` Reminder Workflow: complete.
 - `0.6.5` Sales Activity Reporting: complete.
 - `0.6.6` Contact Touchpoint Tracking: complete.
-- `0.6.7` Quote Or Proposal Placeholder Flow: planned.
+- `0.6.7` Quote Or Proposal Placeholder Flow: complete.
 - `0.6.8` Win Loss Review: planned.
 - `0.6.9` Sales Workflow Review: planned.
 - `0.7.0` Customer Operations: planned.
@@ -1445,19 +1445,35 @@ loading, and a foreign-touchpoint `404`; no schema change was required.
 
 ## Version 0.6.7 - Quote Or Proposal Placeholder Flow
 
-Status: planned.
+Status: complete.
 
 Goal: leave room for proposal tracking without building a full quoting system prematurely.
 
-- Add optional proposal/quote status fields on deals if validated by usage.
-- Add attachment/link placeholders if needed.
-- Document explicit non-goals for quoting.
-- Avoid payment, catalog, and document-generation complexity.
+- Use the existing line-item/current-PDF foundation for a narrow proposal flow.
+- Track an external proposal's manual status without claiming in-product delivery.
+- Document explicit non-goals for quoting and signature.
+- Avoid payment, approval, versioning, and legal-signature complexity.
 
 Exit criteria:
 
 - Sales users can track whether a proposal exists.
 - The feature does not pretend to be a full CPQ system.
+
+Completion evidence (2026-07-19): the existing tenant-scoped catalog/custom
+line-item flow snapshots catalog values when saved, calculates subtotal,
+discount, tax, and total, and updates the deal value in the same transaction.
+Authenticated users can download a deliberately current-data PDF; its footer
+and the deal UI state that terms, approval, delivery, immutable versioning, and
+legal signature remain future work. Writers can record a recipient and manually
+move an externally delivered proposal through draft/sent/signed/declined/voided
+states with timestamped deal activity, while the UI explicitly says that Open
+CRM neither sends the proposal nor collects an e-signature. Handler/unit and
+focused UI tests plus fresh disposable-PostgreSQL acceptance cover calculations,
+catalog snapshots, normalization, invalid data, activity history, PDF contents,
+and cross-tenant rejection. The clean-67-migration Chromium pilot journey saves
+a priced proposal, tracks it as sent, downloads the PDF, and proves a second
+tenant receives `404`. This completes the intentionally narrow Phase 2
+placeholder; versioned quote delivery and real signing remain Phase 4.
 
 ## Version 0.6.8 - Win Loss Review
 
@@ -2020,8 +2036,8 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 176.85 KiB/57.64 KiB for the entry, 47.97 KiB/12.39 KiB
-for the largest lazy chunk, and 621.39 KiB/197.88 KiB total assets. Tested route
+CSS. Current evidence is 176.85 KiB/57.64 KiB for the entry, 48.01 KiB/12.41 KiB
+for the largest lazy chunk, and 621.51 KiB/197.92 KiB total assets. Tested route
 splits plus bulk/custom-field/touchpoint integration leave contacts at 1,298
 lines, companies at 998, deals at 1,044, and tasks at 839, down from 2,038,
 1,364, 1,365, and 1,093 respectively.

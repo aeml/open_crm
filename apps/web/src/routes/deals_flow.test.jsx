@@ -562,7 +562,7 @@ describe('deals flow', () => {
             totals: { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: currentDeal.valueCurrency || 'USD' },
             signatureRequests,
             activities: [
-              { id: 104, action: 'deal.signature_request_created', summary: 'Signature request created for Ava Stone' }
+              { id: 104, action: 'deal.signature_request_created', summary: 'Proposal tracking created for Ava Stone' }
             ]
           }
         }, { status: 201 })
@@ -577,7 +577,7 @@ describe('deals flow', () => {
             totals: { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: currentDeal.valueCurrency || 'USD' },
             signatureRequests,
             activities: [
-              { id: 105, action: 'deal.signature_request_updated', summary: 'Signature request for Ava Stone marked signed' }
+              { id: 105, action: 'deal.signature_request_updated', summary: 'Proposal tracking for Ava Stone marked signed' }
             ]
           }
         })
@@ -789,13 +789,13 @@ describe('deals flow', () => {
     expect(await screen.findByText(/showing 2 of 2 deals/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /bluebird rollout/i }))
     const detailForm = await screen.findByRole('form', { name: /deal details form/i })
-    expect(screen.getByRole('link', { name: /download quote pdf/i })).toHaveAttribute('href', 'https://crmserver.mendola.tech/api/deals/12/quote.pdf')
+    expect(screen.getByRole('link', { name: /download current quote pdf/i })).toHaveAttribute('href', 'https://crmserver.mendola.tech/api/deals/12/quote.pdf')
 
-    fireEvent.change(screen.getByLabelText(/signer name/i), { target: { value: 'Ava Stone' } })
-    fireEvent.change(screen.getByLabelText(/signer email/i), { target: { value: 'ava@bluebird.example' } })
-    fireEvent.click(screen.getByRole('button', { name: /create signature request/i }))
+    fireEvent.change(screen.getByLabelText(/recipient name/i), { target: { value: 'Ava Stone' } })
+    fireEvent.change(screen.getByLabelText(/recipient email/i), { target: { value: 'ava@bluebird.example' } })
+    fireEvent.click(screen.getByRole('button', { name: /create proposal tracking/i }))
 
-    expect(await screen.findByText(/signature request created for ava stone/i, { selector: '.activity-summary' })).toBeInTheDocument()
+    expect(await screen.findByText(/proposal tracking created for ava stone/i, { selector: '.activity-summary' })).toBeInTheDocument()
     expect(screen.getByText(/ava@bluebird.example/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/signature-requests$/), expect.objectContaining({
@@ -804,9 +804,9 @@ describe('deals flow', () => {
       }))
     })
 
-    fireEvent.change(screen.getByLabelText(/signature status for ava stone/i), { target: { value: 'signed' } })
-    expect(await screen.findByText(/signature request for ava stone marked signed/i, { selector: '.activity-summary' })).toBeInTheDocument()
-    expect(screen.getByLabelText(/signature status for ava stone/i)).toHaveValue('signed')
+    fireEvent.change(screen.getByLabelText(/proposal status for ava stone/i), { target: { value: 'signed' } })
+    expect(await screen.findByText(/proposal tracking for ava stone marked signed/i, { selector: '.activity-summary' })).toBeInTheDocument()
+    expect(screen.getByLabelText(/proposal status for ava stone/i)).toHaveValue('signed')
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/signature-requests\/41$/), expect.objectContaining({
         method: 'PATCH',

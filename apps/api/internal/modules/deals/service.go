@@ -851,7 +851,7 @@ func (s *Service) CreateSignatureRequest(ctx context.Context, organizationID, de
 		return Detail{}, mapSignatureRequestSaveError(err)
 	}
 
-	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.signature_request_created", fmt.Sprintf("Signature request created for %s", input.SignerName)); err != nil {
+	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.signature_request_created", fmt.Sprintf("Proposal tracking created for %s", input.SignerName)); err != nil {
 		return Detail{}, fmt.Errorf("insert signature request activity: %w", err)
 	}
 
@@ -909,7 +909,7 @@ func (s *Service) UpdateSignatureRequestStatus(ctx context.Context, organization
 		return Detail{}, ErrNotFound
 	}
 
-	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.signature_request_updated", fmt.Sprintf("Signature request for %s marked %s", signerName, status)); err != nil {
+	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.signature_request_updated", fmt.Sprintf("Proposal tracking for %s marked %s", signerName, status)); err != nil {
 		return Detail{}, fmt.Errorf("insert signature status activity: %w", err)
 	}
 

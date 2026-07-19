@@ -637,7 +637,7 @@ func TestCreateDealSignatureRequestUsesCurrentOrganization(t *testing.T) {
 				CreatedAt:     "2026-06-20T21:00:00Z",
 				UpdatedAt:     "2026-06-20T21:00:00Z",
 			}},
-			Activities: []moduledeals.ActivityEntry{{ID: 95, Action: "deal.signature_request_created", Summary: "Signature request created for Ava Stone", CreatedAt: time.Date(2026, 6, 20, 21, 0, 0, 0, time.UTC)}},
+			Activities: []moduledeals.ActivityEntry{{ID: 95, Action: "deal.signature_request_created", Summary: "Proposal tracking created for Ava Stone", CreatedAt: time.Date(2026, 6, 20, 21, 0, 0, 0, time.UTC)}},
 		},
 	}
 	server := authenticatedDealsServer(service)
@@ -687,7 +687,7 @@ func TestUpdateDealSignatureRequestStatusUsesCurrentOrganization(t *testing.T) {
 				CreatedAt:   "2026-06-20T21:00:00Z",
 				UpdatedAt:   "2026-06-20T21:30:00Z",
 			}},
-			Activities: []moduledeals.ActivityEntry{{ID: 96, Action: "deal.signature_request_updated", Summary: "Signature request for Ava Stone marked signed", CreatedAt: time.Date(2026, 6, 20, 21, 30, 0, 0, time.UTC)}},
+			Activities: []moduledeals.ActivityEntry{{ID: 96, Action: "deal.signature_request_updated", Summary: "Proposal tracking for Ava Stone marked signed", CreatedAt: time.Date(2026, 6, 20, 21, 30, 0, 0, time.UTC)}},
 		},
 	}
 	server := authenticatedDealsServer(service)

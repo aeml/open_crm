@@ -447,10 +447,10 @@ func handleCreateDealSignatureRequest(auth authService, deals dealsService, w ht
 			return
 		}
 		if errors.Is(err, moduledeals.ErrInvalidSignatureRequest) {
-			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a signer name and valid signer email")
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a recipient name and valid recipient email")
 			return
 		}
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create signature request")
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create proposal tracking")
 		return
 	}
 
@@ -487,10 +487,10 @@ func handleUpdateDealSignatureRequestStatus(auth authService, deals dealsService
 			return
 		}
 		if errors.Is(err, moduledeals.ErrInvalidSignatureRequest) {
-			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a signature status of draft, sent, signed, declined, or voided")
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a proposal status of draft, sent, signed, declined, or voided")
 			return
 		}
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update signature request")
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update proposal tracking")
 		return
 	}
 

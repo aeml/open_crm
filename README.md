@@ -52,6 +52,7 @@ Production-capable core:
 - Explainable period forecasts with unweighted, won, stage-weighted, owner, unassigned, and stage-assumption rollups plus close-date filter parity across deal lists, saved views, and CSV exports
 - Snapshot-backed sales activity reports with bounded UTC date/teammate filters, exact deal and follow-up counts, outcome win rate, event-based stage movement, honest history coverage, and deal drill-down
 - Viewer-aware contact/client touchpoint summaries and stale follow-up queues with explicit source, creation-fallback, linked-person, and privacy semantics
+- Tenant-scoped deal line items and totals, current-data quote PDFs, and explicitly manual proposal status tracking that does not claim delivery or legal e-signature
 - Admin-managed deal rules that create one assigned, auditable, idempotent follow-up task on deal creation, a real stage change, or archive
 - Exact overdue and rolling-24-hour task surfaces with preference-aware assignment events and durable, replay-safe in-app reminders
 - Record following, explicit teammate mentions, relevant notification links, and followed/team activity digests
@@ -67,7 +68,7 @@ In convergence:
 - Billing plans and limits currently use a fake provider; Stripe is not implemented
 - Email has real Postmark, SMTP, IMAP, Gmail, and Microsoft Graph adapters; sequence delivery now uses the durable PostgreSQL runner, while reply detection, bounce/complaint handling, and production deliverability controls remain incomplete
 - Calling, SMS, and calendar workflows currently use fake providers
-- Quote/signature, marketing, general-purpose workflow, and report-builder foundations still need their real runtime or provider outcome; the narrower deal task automation surface is executable
+- Versioned quote delivery/legal signature, marketing, general-purpose workflow, and report-builder foundations still need their real runtime or provider outcome; current-data quote PDFs, manual proposal tracking, and the narrower deal task automation surface are executable
 
 ## Architecture
 

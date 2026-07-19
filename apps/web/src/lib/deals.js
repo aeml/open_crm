@@ -81,13 +81,13 @@ export async function replaceDealLineItems(dealID, input, { signal } = {}) {
 }
 
 export async function createDealSignatureRequest(dealID, input, { signal } = {}) {
-  const payload = await apiRequest(`/api/deals/${dealID}/signature-requests`, { method: 'POST', body: input, fallbackMessage: 'Unable to create signature request.', signal })
+  const payload = await apiRequest(`/api/deals/${dealID}/signature-requests`, { method: 'POST', body: input, fallbackMessage: 'Unable to create proposal tracking.', signal })
 
   return payload?.data
 }
 
 export async function updateDealSignatureRequestStatus(dealID, requestID, status, { signal } = {}) {
-  const payload = await apiRequest(`/api/deals/${dealID}/signature-requests/${requestID}`, { method: 'PATCH', body: { status }, fallbackMessage: 'Unable to update signature request.', signal })
+  const payload = await apiRequest(`/api/deals/${dealID}/signature-requests/${requestID}`, { method: 'PATCH', body: { status }, fallbackMessage: 'Unable to update proposal tracking.', signal })
 
   return payload?.data
 }
