@@ -68,7 +68,7 @@ func TestGetBusinessProfileUsesCurrentOrganization(t *testing.T) {
 			BusinessType:   "services",
 			BaseCurrency:   "EUR",
 			DisplayName:    "Services",
-			Modules:        []string{"contacts", "companies", "deals", "tasks", "projects"},
+			Modules:        []string{"contacts", "companies", "deals", "tasks"},
 			Labels: map[string]string{
 				"companies": "Clients",
 				"deals":     "Jobs",

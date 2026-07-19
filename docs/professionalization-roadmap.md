@@ -114,16 +114,16 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.6.7` Quote Or Proposal Placeholder Flow: complete.
 - `0.6.8` Win Loss Review: complete.
 - `0.6.9` Sales Workflow Review: in progress (technical review complete; approved pilot usage evidence pending).
-- `0.7.0` Customer Operations: in progress.
+- `0.7.0` Customer Operations: in progress (technical outcome complete; approved pilot usage evidence pending).
 - `0.7.1` Post-Sale Account View: complete.
 - `0.7.2` Client Health Signals: complete.
 - `0.7.3` Renewal And Follow-Up Tasks: complete.
-- `0.7.4` Service Or Job Tracking: planned.
-- `0.7.5` Account Notes And Internal Handoff: planned.
-- `0.7.6` Customer Segment Views: planned.
-- `0.7.7` Customer Activity Reports: planned.
-- `0.7.8` Customer Data Review: planned.
-- `0.7.9` Customer Operations Review: planned.
+- `0.7.4` Service Or Job Tracking: complete.
+- `0.7.5` Account Notes And Internal Handoff: complete.
+- `0.7.6` Customer Segment Views: complete.
+- `0.7.7` Customer Activity Reports: planned (deferred to Phase 4 reporting convergence).
+- `0.7.8` Customer Data Review: complete.
+- `0.7.9` Customer Operations Review: in progress (technical review complete; approved pilot usage evidence pending).
 - `0.8.0` Integrations Foundation: planned.
 - `0.8.1` Public API Shape: planned.
 - `0.8.2` API Token Management: planned.
@@ -919,7 +919,7 @@ Completion notes:
 
 ## Version 0.4.8 - Team Usage Reporting
 
-Status: in progress.
+Status: in progress (technical outcome complete; approved pilot usage evidence pending).
 
 Goal: give admins basic visibility into whether the CRM is being used.
 
@@ -1551,7 +1551,7 @@ won-deal client-handoff slice.
 
 ## Version 0.7.0 - Customer Operations
 
-Status: in progress.
+Status: in progress (technical outcome complete; approved pilot usage evidence pending).
 
 Goal: support the post-sale relationship after a deal becomes a customer account.
 
@@ -1675,7 +1675,7 @@ event.
 
 ## Version 0.7.4 - Service Or Job Tracking
 
-Status: planned.
+Status: complete.
 
 Goal: support business profiles that need jobs/projects connected to clients.
 
@@ -1689,9 +1689,23 @@ Exit criteria:
 - Service businesses can track active work against clients.
 - The feature remains lighter than a project management system.
 
+Completion evidence (2026-07-19): no approved pilot evidence exists to justify
+a second job or project data model. For Services and Construction Services profiles, the
+existing production-capable deal/pipeline record is adaptively presented as a
+Job and retains its client, primary contact, owner, value, target date, stage
+status, notes, assigned tasks, activity, archive/restore, saved-view, export,
+tenant, and permission behavior. Delivery work remains an ordinary linked
+Service Task or Site Task. Profile responses no longer advertise nonexistent
+`projects` or `estimates` modules. Focused frontend tests cover the adaptive
+job and task vocabulary, backend profile tests pin the supported module list,
+and the PostgreSQL browser journey covers the same underlying relationships,
+status transitions, task work, notes, and recovery. This is intentionally a
+terminology and workflow adaptation of the mature core records, not a hidden
+project-management foundation.
+
 ## Version 0.7.5 - Account Notes And Internal Handoff
 
-Status: planned.
+Status: complete.
 
 Goal: make sales-to-service context transfer clearer.
 
@@ -1705,9 +1719,24 @@ Exit criteria:
 - Team members can pick up customer context quickly.
 - Handoff information is explicit and reviewable.
 
+Completion evidence (2026-07-19): the won transition records a durable
+`client.handoff` account activity and audit event naming the source deal, while
+the resulting account summary keeps won records, close reasons, open account
+tasks, recent team-visible account notes, and key contacts together with direct
+drill-down. Notes remain ordinary shared record notes rather than private
+handoff storage. Direct company/contact status transitions now add exact
+before/after activity alongside the ordinary edit activity; bulk ownership and
+status changes retain per-record activity plus reversible aggregate audit
+history, and member deactivation retains its audited reassignment summary.
+Disposable-PostgreSQL assertions cover explicit status activity and the existing
+handoff suite covers idempotency, tenant isolation, late linking, reopening,
+and account context. A separate handoff-note object or next-owner field remains
+a pilot decision because current notes, ownership, and assigned tasks already
+provide one reviewable source of truth.
+
 ## Version 0.7.6 - Customer Segment Views
 
-Status: planned.
+Status: complete.
 
 Goal: let users group customer records for follow-up and reporting.
 
@@ -1721,9 +1750,20 @@ Exit criteria:
 - Users can find meaningful groups of customer accounts.
 - Segment views are reusable.
 
+Completion evidence (2026-07-19): ordinary client views already persist search,
+retained-owner, unassigned-owner, and typed company custom-field filters. The
+bounded client-health queue now saves and reapplies separately scoped customer
+segments by organization/individual type, Healthy/Watch/Needs attention state,
+14/30/60/90-day stale threshold, and retained owner. Scoped health segments do
+not appear in ordinary client-list saved views and deliberately cannot displace
+that list's default view. Existing tenant/user-scoped saved-view persistence,
+the health query's tenant and owner validation, focused UI acceptance, and the
+client-health PostgreSQL suite cover the reusable outcome. Tags and marketing
+audience behavior are not inferred or added.
+
 ## Version 0.7.7 - Customer Activity Reports
 
-Status: planned.
+Status: planned (deferred to Phase 4 reporting convergence).
 
 Goal: show post-sale work and customer engagement patterns.
 
@@ -1737,9 +1777,19 @@ Exit criteria:
 - Customer operations activity is visible by period.
 - Reports help operators decide where to focus.
 
+Deferral decision (2026-07-19): the live follow-up queue, client-health report,
+account touchpoint history, and period/teammate sales-activity report already
+provide safe operational evidence and source links. They do not constitute the
+promised customer-only period report, and derived health intentionally has no
+fabricated change history. Building another overlapping report now would widen
+the reporting family while its general runtime is still incomplete. The
+customer-only period view, exact client-rollup semantics, and any persisted
+health snapshots therefore remain part of the required Phase 4 reporting
+convergence; current surfaces keep their narrower production-capable labels.
+
 ## Version 0.7.8 - Customer Data Review
 
-Status: planned.
+Status: complete.
 
 Goal: verify that post-sale data additions remain coherent.
 
@@ -1753,9 +1803,22 @@ Exit criteria:
 - Customer operations data is consistent and recoverable.
 - New workflows do not create orphaned or ambiguous records.
 
+Completion evidence (2026-07-19): migrations 70-72 add tenant/account lookup,
+health-query, review-schedule, and generated-task integrity without introducing
+a duplicate account or job model. Won handoff, account context, adaptive jobs,
+notes/tasks/activity, health rollup, recurring reviews, archive/restore, bulk
+changes, duplicate merge blockers, and cross-tenant denial are exercised across
+focused handlers/UI tests, disposable PostgreSQL, and the clean Chromium
+lead-to-client journey. Recurring obligations cannot be orphaned by client/task
+archive, demotion, merge, or bulk mutation; supported recovery is explicit.
+Whole-database backup/restore includes the new state and is CI-gated. Filtered
+core CSV exports remain intentionally record-focused; the portable full-tenant
+package, including configuration, audit/activity, and review schedules, is a
+Phase 3 offboarding requirement rather than an undocumented partial export.
+
 ## Version 0.7.9 - Customer Operations Review
 
-Status: planned.
+Status: in progress (technical review complete; approved pilot usage evidence pending).
 
 Goal: close the customer operations milestone before integration work.
 
@@ -1763,6 +1826,19 @@ Goal: close the customer operations milestone before integration work.
 - Re-run the tenant isolation suite against post-sale and job/service paths.
 - Review customer workflow feedback.
 - Update docs and roadmap for integration priorities.
+
+Technical review evidence (2026-07-19): the clean PostgreSQL browser journey
+now covers won close context, idempotent client handoff, account summary, health
+triage, review scheduling, dashboard visibility, recurring completion, and the
+next generated task. The disposable-PostgreSQL suites cover the same records'
+tenant, status, archive, merge, reminder, and replay paths. The capability
+matrix and roadmap now distinguish adaptive Jobs from a project system, remove
+unsupported module claims, and defer the distinct customer-period report to the
+required Phase 4 reporting family. No approved pilot team/session or anonymized
+customer-operations feedback exists in the repository, so thresholds, cadence,
+handoff wording, segment usefulness, and whether a richer delivery record is
+warranted cannot honestly be validated yet. That external evidence keeps this
+review in progress but does not block Phase 3 engineering.
 - Confirm product boundaries remain clear.
 
 Exit criteria:

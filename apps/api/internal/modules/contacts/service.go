@@ -423,7 +423,8 @@ func (s *Service) Update(ctx context.Context, organizationID, contactID, actorUs
 	}
 	defer tx.Rollback(ctx)
 	var existingCustomFieldsJSON []byte
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(custom_fields, '{}'::jsonb) FROM contacts WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE`, organizationID, contactID).Scan(&existingCustomFieldsJSON); err != nil {
+	var existingStatus string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(custom_fields, '{}'::jsonb),COALESCE(status,'') FROM contacts WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE`, organizationID, contactID).Scan(&existingCustomFieldsJSON, &existingStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Detail{}, ErrNotFound
 		}
@@ -477,6 +478,12 @@ func (s *Service) Update(ctx context.Context, organizationID, contactID, actorUs
 
 	if err := insertActivity(ctx, tx, organizationID, contactID, actorUserID, "contact.updated", "Contact updated"); err != nil {
 		return Detail{}, fmt.Errorf("insert update activity: %w", err)
+	}
+	if existingStatus != input.Status {
+		summary := fmt.Sprintf("Contact status changed from %s to %s", statusName(existingStatus), statusName(input.Status))
+		if err := insertActivity(ctx, tx, organizationID, contactID, actorUserID, "contact.status_changed", summary); err != nil {
+			return Detail{}, fmt.Errorf("insert contact status activity: %w", err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -638,4 +645,11 @@ func duplicateContactReason(reason string) string {
 	default:
 		return "possible duplicate"
 	}
+}
+
+func statusName(status string) string {
+	if status = strings.TrimSpace(status); status != "" {
+		return status
+	}
+	return "unset"
 }

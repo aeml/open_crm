@@ -35,4 +35,51 @@ describe('client health report', () => {
     fireEvent.click(screen.getByText('How client health is calculated'))
     expect(screen.getByText(/without a due date/i)).toBeInTheDocument()
   })
+
+  it('reuses scoped health segments without mixing ordinary client-list views', async () => {
+    const requests = []
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const request = new URL(String(url), 'http://localhost')
+      requests.push(request)
+      if (request.pathname === '/api/saved-views') {
+        if (options.method === 'POST') {
+          return { ok: true, json: async () => ({ data: { view: { id: 13, name: 'Renewal watch', filters: JSON.parse(options.body).filters } } }) }
+        }
+        return { ok: true, json: async () => ({ data: { views: [
+          { id: 11, name: 'Needs attention', filters: { savedViewScope: 'client-health', entityType: 'contact', status: 'needs_attention', staleDays: '60', ownerUserId: '4' } },
+          { id: 13, name: 'Renewal watch', filters: { savedViewScope: 'client-health', entityType: 'contact', status: 'needs_attention', staleDays: '60', ownerUserId: '4' } },
+          { id: 12, name: 'Ordinary client list', filters: { q: 'Acme' } }
+        ] } }) }
+      }
+      return { ok: true, json: async () => ({ data: { entityType: request.searchParams.get('entityType') || 'company', status: request.searchParams.get('status') || 'all', count: 0, totals: { total: 0, healthy: 0, watch: 0, needsAttention: 0 }, records: [], semantics: [] } }) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<ClientHealthReport onOpen={vi.fn()} owners={[{ id: 4, firstName: 'Ari', lastName: 'Owner' }]} />)
+
+    await screen.findByText(/0 of 0 organization clients/i)
+    fireEvent.click(screen.getByRole('button', { name: 'Load segments' }))
+    expect(await screen.findByRole('option', { name: 'Needs attention' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Ordinary client list' })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Saved segments'), { target: { value: '11' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply segment' }))
+
+    await waitFor(() => expect(requests.some((request) => request.pathname.endsWith('/client-health') && request.searchParams.get('entityType') === 'contact' && request.searchParams.get('status') === 'needs_attention' && request.searchParams.get('staleDays') === '60' && request.searchParams.get('ownerUserId') === '4')).toBe(true))
+    expect(screen.getByLabelText('Client type')).toHaveValue('contact')
+    expect(screen.getByLabelText('Health')).toHaveValue('needs_attention')
+
+    fireEvent.change(screen.getByLabelText('Save current segment as'), { target: { value: 'Renewal watch' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save segment' }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, options]) => {
+      if (!String(url).endsWith('/api/saved-views') || options?.method !== 'POST') return false
+      const body = JSON.parse(options.body)
+      return body.entityType === 'companies' &&
+        body.isDefault === false &&
+        body.filters?.savedViewScope === 'client-health' &&
+        body.filters?.entityType === 'contact' &&
+        body.filters?.status === 'needs_attention' &&
+        body.filters?.staleDays === '60' &&
+        body.filters?.ownerUserId === '4'
+    })).toBe(true))
+  })
 })

@@ -54,7 +54,8 @@ Production-capable core:
 - Snapshot-backed sales activity reports with bounded UTC date/teammate filters, exact deal and follow-up counts, outcome win rate, event-based stage movement, fixed won/lost reason breakdowns with close-note context, honest history coverage, and deal drill-down
 - Transactional won-deal handoff that requires an account relationship, promotes the explicit organization—or a company-less primary contact—into the existing client model, records activity/audit evidence, and links to a one-page rollup of won deals, open account tasks, recent notes, and key people
 - Viewer-aware contact/client touchpoint summaries and stale follow-up queues with explicit source, creation-fallback, linked-person, and privacy semantics
-- Derived Healthy, Watch, and Needs attention client signals with exact stale-follow-up and open-task reasons, customer/individual and status filters, company-linked-person rollup, and no fabricated issue claim
+- Derived Healthy, Watch, and Needs attention client signals with exact stale-follow-up and open-task reasons, reusable scoped customer segments, organization/individual and health filters, company-linked-person rollup, and no fabricated issue claim
+- Adaptive service profiles that present the mature pipeline record as a Job and linked delivery tasks as Service/Site Tasks without advertising a separate project module
 - Task-backed client review and renewal schedules with assigned ownership, one-time or recurring cadence, durable reminders, late-period skip semantics, dashboard visibility, and recovery-safe client/task guards
 - Tenant-scoped deal line items and totals, current-data quote PDFs, and explicitly manual proposal status tracking that does not claim delivery or legal e-signature
 - Admin-managed deal rules that create one assigned, auditable, idempotent follow-up task on deal creation, a real stage change, or archive
@@ -201,7 +202,7 @@ Current automated checks in `.github/workflows/ci.yml`:
 - frontend `npm test`
 - frontend `npm run lint`
 - frontend `npm run build:checked` with entry/lazy/total/CSS raw+gzip budgets
-- Chromium pilot journey against a disposable PostgreSQL database, including workspace bootstrap, invited-user lifecycle, required typed custom-field administration, dynamic mapped import and safe rollback, client/contact creation and reviewed core/custom-field duplicate merge, admin stage/probability configuration with existing-deal continuity and forecast verification, deal/task work, won close review and transactional client handoff/account summary, reversible bulk client changes, teammate mention and followed-digest navigation, session persistence, and cross-tenant denial
+- Chromium pilot journey against a disposable PostgreSQL database, including workspace bootstrap, invited-user lifecycle, required typed custom-field administration, dynamic mapped import and safe rollback, client/contact creation and reviewed core/custom-field duplicate merge, admin stage/probability configuration with existing-deal continuity and forecast verification, deal/task work, won close review and transactional client handoff/account summary, client-health triage, recurring client review tasks, reversible bulk client changes, teammate mention and followed-digest navigation, session persistence, and cross-tenant denial
 - encrypted Restic snapshot, retention/integrity check, extraction, isolated PostgreSQL restore, forward migration, and plaintext-leak acceptance
 - immutable release, expand-migration, manual rollback, and failed-readiness recovery acceptance
 - protected bounded-cardinality operational metrics plus promtool-validated request/database/job/provider/backup alert rules

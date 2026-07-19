@@ -31,3 +31,24 @@ func TestNormalizeExchangeRateInputRejectsInvalidValues(t *testing.T) {
 		}
 	}
 }
+
+func TestServiceProfilesExposeOnlyImplementedModules(t *testing.T) {
+	for _, businessType := range []string{"services", "construction-services"} {
+		detail, err := BuildDetailForBusinessType(42, businessType)
+		if err != nil {
+			t.Fatalf("build %s profile: %v", businessType, err)
+		}
+		want := []string{"contacts", "companies", "deals", "tasks"}
+		if len(detail.Modules) != len(want) {
+			t.Fatalf("%s profile advertised unsupported modules: %#v", businessType, detail.Modules)
+		}
+		for index := range want {
+			if detail.Modules[index] != want[index] {
+				t.Fatalf("%s modules = %#v, want %#v", businessType, detail.Modules, want)
+			}
+		}
+		if detail.Labels["deals"] != "Jobs" {
+			t.Fatalf("%s profile lost its adaptive pipeline label: %#v", businessType, detail.Labels)
+		}
+	}
+}

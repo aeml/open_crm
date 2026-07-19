@@ -424,7 +424,8 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 	}
 	defer tx.Rollback(ctx)
 	var existingCustomFieldsJSON []byte
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(custom_fields, '{}'::jsonb) FROM companies WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE`, organizationID, companyID).Scan(&existingCustomFieldsJSON); err != nil {
+	var existingStatus string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(custom_fields, '{}'::jsonb),COALESCE(status,'') FROM companies WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE`, organizationID, companyID).Scan(&existingCustomFieldsJSON, &existingStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Detail{}, ErrNotFound
 		}
@@ -481,6 +482,12 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 	}
 	if err := insertActivity(ctx, tx, organizationID, companyID, actorUserID, "company.updated", companyActivitySummary(input.ClientType, "updated")); err != nil {
 		return Detail{}, fmt.Errorf("insert company activity: %w", err)
+	}
+	if existingStatus != input.Status {
+		summary := fmt.Sprintf("%s status changed from %s to %s", companyActivityNoun(input.ClientType), statusName(existingStatus), statusName(input.Status))
+		if err := insertActivity(ctx, tx, organizationID, companyID, actorUserID, "company.status_changed", summary); err != nil {
+			return Detail{}, fmt.Errorf("insert company status activity: %w", err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -730,8 +737,19 @@ func duplicateCompanyReason(reason string) string {
 }
 
 func companyActivitySummary(clientType, verb string) string {
+	return companyActivityNoun(clientType) + " " + verb
+}
+
+func companyActivityNoun(clientType string) string {
 	if normalizeClientType(clientType) == "individual" {
-		return "Individual client " + verb
+		return "Individual client"
 	}
-	return "Company " + verb
+	return "Company"
+}
+
+func statusName(status string) string {
+	if status = strings.TrimSpace(status); status != "" {
+		return status
+	}
+	return "unset"
 }

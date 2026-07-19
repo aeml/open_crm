@@ -45,6 +45,12 @@ A pilot customer must be able to complete this journey end to end:
 - Keep the self-hosted path operable without requiring the hosted billing stack.
 - Let pilot evidence, not competitor checklists, determine expansion.
 
+For Services and Construction Services profiles, a “Job” is the adaptive name
+for the existing pipeline record and delivery work is tracked with linked
+Service Tasks or Site Tasks. Open CRM does not claim a separate project/job
+module; adding one requires pilot evidence that stages, tasks, notes, and
+activity cannot express the delivery workflow.
+
 ## Current distribution position
 
 The repository is MIT licensed. During convergence, the working commercial model is managed hosting and support around the same open codebase; plan entitlements describe the hosted service and must not make self-hosted core data inaccessible. No proprietary/open-core source boundary has been approved. Any future licensing or source-availability change requires an explicit business and legal decision outside this engineering goal.

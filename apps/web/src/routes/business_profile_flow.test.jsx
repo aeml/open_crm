@@ -33,7 +33,7 @@ describe('business profile flow', () => {
               businessType: 'construction-services',
               baseCurrency: 'USD',
               displayName: 'Construction Services',
-              modules: ['contacts', 'companies', 'deals', 'tasks', 'estimates'],
+              modules: ['contacts', 'companies', 'deals', 'tasks'],
               exchangeRates: [],
               labels: {
                 companies: 'Clients',

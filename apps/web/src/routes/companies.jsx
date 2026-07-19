@@ -782,7 +782,7 @@ export function CompaniesRoute() {
             {!isListLoading && companies.length === 0 ? (
               <EmptyState
                 title={hasFilter ? 'No clients match the current filters.' : 'No clients yet.'}
-                description={hasFilter ? 'Try a different client, website, or contact name, or change the owner filter.' : 'Create an organization or individual client so your contacts, deals, jobs, notes, and tasks have a home.'}
+                description={hasFilter ? 'Try a different client, website, or contact name, or change the owner filter.' : 'Create an organization or individual client so your contacts, pipeline records, notes, and tasks have a home.'}
                 actionLabel={hasFilter ? 'Clear filters' : (canWrite ? 'Create first client' : '')}
                 onAction={() => {
                   if (hasFilter) {

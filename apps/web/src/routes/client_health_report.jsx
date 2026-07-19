@@ -3,6 +3,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
+import { SavedViews } from '../components/ui/saved_views'
 import { isAbortError } from '../lib/api'
 import { getClientHealthReport } from '../lib/touchpoints'
 
@@ -10,6 +11,14 @@ const thresholds = [14, 30, 60, 90]
 
 function healthClass(status) {
   return status === 'needs_attention' ? 'record-row-alert' : ''
+}
+
+function filtersFromSavedView(filters = {}) {
+  const entityType = filters.entityType === 'contact' ? 'contact' : 'company'
+  const status = ['all', 'healthy', 'watch', 'needs_attention'].includes(filters.status) ? filters.status : 'all'
+  const staleDays = thresholds.includes(Number(filters.staleDays)) ? Number(filters.staleDays) : 30
+  const ownerUserId = /^\d+$/.test(String(filters.ownerUserId || '')) ? String(filters.ownerUserId) : ''
+  return { entityType, status, staleDays, ownerUserId }
 }
 
 export function ClientHealthReport({ onOpen, owners = [] }) {
@@ -30,8 +39,14 @@ export function ClientHealthReport({ onOpen, owners = [] }) {
   }, [query])
 
   function applyFilters(event) {
-    event.preventDefault()
+    event?.preventDefault()
     setQuery({ ...draft, run: query.run + 1 })
+  }
+
+  function applySavedView(filters) {
+    const next = filtersFromSavedView(filters)
+    setDraft(next)
+    setQuery({ ...next, run: query.run + 1 })
   }
 
   return (
@@ -48,6 +63,15 @@ export function ClientHealthReport({ onOpen, owners = [] }) {
             <span className="chip">Healthy: {report.totals.healthy}</span>
           </div>
         ) : null}
+        <SavedViews
+          entityType="companies"
+          viewScope="client-health"
+          allowDefault={false}
+          noun="segment"
+          currentFilters={{ entityType: draft.entityType, status: draft.status, staleDays: String(draft.staleDays), ownerUserId: draft.ownerUserId }}
+          onApply={applySavedView}
+          defaultName="Client segment"
+        />
         <form className="sales-report-filters" onSubmit={applyFilters}>
           <Field label="Client type">
             <select className="text-input" value={draft.entityType} onChange={(event) => setDraft({ ...draft, entityType: event.target.value })}>

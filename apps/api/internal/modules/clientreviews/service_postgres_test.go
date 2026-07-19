@@ -212,6 +212,26 @@ func TestClientReviewSchedulesOwnARecoverableTenantSafeTaskLifecycleAgainstPostg
 	if err != nil || cleared.Exists {
 		t.Fatalf("cleared schedule still exists: schedule=%#v err=%v", cleared, err)
 	}
+	if _, err := companies.Update(ctx, organizationID, prospectCompanyID, actorID, modulecompanies.UpdateInput{Name: "Future Prospect", ClientType: "organization", Status: "customer"}); err != nil {
+		t.Fatalf("change company account status: %v", err)
+	}
+	if _, err := contacts.Update(ctx, organizationID, contactID, actorID, modulecontacts.UpdateInput{FirstName: "Indy", LastName: "Client", Status: "prospect"}); err != nil {
+		t.Fatalf("change individual client status after clearing schedule: %v", err)
+	}
+	for _, transition := range []struct {
+		entityType string
+		entityID   int64
+		action     string
+		summary    string
+	}{
+		{"company", prospectCompanyID, "company.status_changed", "Company status changed from prospect to customer"},
+		{"contact", contactID, "contact.status_changed", "Contact status changed from customer to prospect"},
+	} {
+		var count int
+		if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE organization_id=$1 AND entity_type=$2 AND entity_id=$3 AND action=$4 AND summary=$5`, organizationID, transition.entityType, transition.entityID, transition.action, transition.summary).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("missing explicit client status activity %#v: count=%d err=%v", transition, count, err)
+		}
+	}
 	if err := contacts.Archive(ctx, organizationID, contactID, actorID); err != nil {
 		t.Fatalf("archive client after clearing review schedule: %v", err)
 	}

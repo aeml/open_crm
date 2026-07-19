@@ -294,7 +294,7 @@ func profileDefinitions() map[string]profileDefinition {
 		},
 		"services": {
 			DisplayName: "Services",
-			Modules:     []string{"contacts", "companies", "deals", "tasks", "projects"},
+			Modules:     []string{"contacts", "companies", "deals", "tasks"},
 			Labels: map[string]string{
 				"contacts":  "Contacts",
 				"companies": "Clients",
@@ -314,7 +314,7 @@ func profileDefinitions() map[string]profileDefinition {
 		},
 		"construction-services": {
 			DisplayName: "Construction Services",
-			Modules:     []string{"contacts", "companies", "deals", "tasks", "estimates"},
+			Modules:     []string{"contacts", "companies", "deals", "tasks"},
 			Labels: map[string]string{
 				"contacts":  "Contacts",
 				"companies": "Clients",

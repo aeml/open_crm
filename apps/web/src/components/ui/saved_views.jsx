@@ -3,25 +3,31 @@ import { Button } from './button'
 import { Field } from './field'
 import { createSavedView, deleteSavedView, listSavedViews, updateSavedView } from '../../lib/saved_views'
 
-export function SavedViews({ entityType, currentFilters, onApply, defaultName = 'My view' }) {
+export function SavedViews({ entityType, currentFilters, onApply, defaultName = 'My view', viewScope = '', allowDefault = true, noun = 'view' }) {
   const [views, setViews] = useState([])
   const [selectedViewId, setSelectedViewId] = useState('')
   const [name, setName] = useState(defaultName)
   const [message, setMessage] = useState('')
   const [isDefault, setIsDefault] = useState(false)
+  const pluralNoun = `${noun}s`
+  const actionSuffix = noun === 'view' ? '' : ` ${noun}`
 
   async function refreshViews(nextSelectedId = selectedViewId) {
     const nextViews = await listSavedViews(entityType)
-    setViews(nextViews)
+    setViews(nextViews.filter((view) => (view.filters?.savedViewScope || '') === viewScope))
     setSelectedViewId(nextSelectedId)
+  }
+
+  function filtersForSave() {
+    return viewScope ? { ...currentFilters, savedViewScope: viewScope } : currentFilters
   }
 
   async function handleLoad() {
     try {
       await refreshViews(selectedViewId)
-      setMessage('Saved views loaded.')
+      setMessage(`Saved ${pluralNoun} loaded.`)
     } catch (error) {
-      setMessage(error.message || 'Unable to load saved views.')
+      setMessage(error.message || `Unable to load saved ${pluralNoun}.`)
     }
   }
 
@@ -32,12 +38,12 @@ export function SavedViews({ entityType, currentFilters, onApply, defaultName = 
   async function handleSave() {
     const trimmedName = name.trim()
     if (!trimmedName) {
-      setMessage('Name the view before saving it.')
+      setMessage(`Name the ${noun} before saving it.`)
       return
     }
 
     try {
-      const view = await createSavedView({ entityType, name: trimmedName, filters: currentFilters, isDefault })
+      const view = await createSavedView({ entityType, name: trimmedName, filters: filtersForSave(), isDefault: allowDefault && isDefault })
       await refreshViews(String(view.id))
       setMessage(`Saved ${view.name}.`)
     } catch (error) {
@@ -48,12 +54,12 @@ export function SavedViews({ entityType, currentFilters, onApply, defaultName = 
   async function handleUpdate() {
     const view = selectedView()
     if (!view) {
-      setMessage('Choose a saved view to update.')
+      setMessage(`Choose a saved ${noun} to update.`)
       return
     }
 
     try {
-      const updated = await updateSavedView(view.id, { entityType, name: view.name, filters: currentFilters, isDefault: view.isDefault })
+      const updated = await updateSavedView(view.id, { entityType, name: view.name, filters: filtersForSave(), isDefault: allowDefault && view.isDefault })
       await refreshViews(String(updated.id))
       setMessage(`Updated ${updated.name}.`)
     } catch (error) {
@@ -64,7 +70,7 @@ export function SavedViews({ entityType, currentFilters, onApply, defaultName = 
   async function handleMakeDefault() {
     const view = selectedView()
     if (!view) {
-      setMessage('Choose a saved view to make default.')
+      setMessage(`Choose a saved ${noun} to make default.`)
       return
     }
 
@@ -80,7 +86,7 @@ export function SavedViews({ entityType, currentFilters, onApply, defaultName = 
   async function handleDelete() {
     const view = selectedView()
     if (!view) {
-      setMessage('Choose a saved view to delete.')
+      setMessage(`Choose a saved ${noun} to delete.`)
       return
     }
 
@@ -96,7 +102,7 @@ export function SavedViews({ entityType, currentFilters, onApply, defaultName = 
   function handleApply() {
     const view = selectedView()
     if (!view) {
-      setMessage('Choose a saved view to apply.')
+      setMessage(`Choose a saved ${noun} to apply.`)
       return
     }
     onApply(view.filters || {})
@@ -105,30 +111,32 @@ export function SavedViews({ entityType, currentFilters, onApply, defaultName = 
 
   return (
     <div className="saved-views-panel">
-      <Field label="Saved views">
+      <Field label={`Saved ${pluralNoun}`}>
         <select className="text-input" value={selectedViewId} onChange={(event) => setSelectedViewId(event.target.value)}>
-          <option value="">Choose a saved view</option>
+          <option value="">{`Choose a saved ${noun}`}</option>
           {views.map((view) => (
             <option key={view.id} value={view.id}>{view.name}{view.isDefault ? ' (default)' : ''}</option>
           ))}
         </select>
       </Field>
       <div className="button-row">
-        <Button className="button-secondary" type="button" onClick={handleLoad}>Load views</Button>
-        <Button className="button-secondary" type="button" onClick={handleApply}>Apply</Button>
-        <Button className="button-secondary" type="button" onClick={handleUpdate}>Update</Button>
-        <Button className="button-secondary" type="button" onClick={handleMakeDefault}>Make default</Button>
-        <Button className="button-danger" type="button" onClick={handleDelete}>Delete</Button>
+        <Button className="button-secondary" type="button" onClick={handleLoad}>{`Load ${pluralNoun}`}</Button>
+        <Button className="button-secondary" type="button" onClick={handleApply}>{`Apply${actionSuffix}`}</Button>
+        <Button className="button-secondary" type="button" onClick={handleUpdate}>{`Update${actionSuffix}`}</Button>
+        {allowDefault ? <Button className="button-secondary" type="button" onClick={handleMakeDefault}>Make default</Button> : null}
+        <Button className="button-danger" type="button" onClick={handleDelete}>{`Delete${actionSuffix}`}</Button>
       </div>
-      <Field label="Save current filters as">
+      <Field label={`Save current ${noun === 'view' ? 'filters' : noun} as`}>
         <input className="text-input" value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
-      <label className="checkbox-row">
-        <input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} />
-        <span>Make this my default view</span>
-      </label>
+      {allowDefault ? (
+        <label className="checkbox-row">
+          <input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} />
+          <span>Make this my default view</span>
+        </label>
+      ) : null}
       <div>
-        <Button type="button" onClick={handleSave}>Save view</Button>
+        <Button type="button" onClick={handleSave}>{`Save ${noun}`}</Button>
       </div>
       {message ? <p className="field-hint" role="status">{message}</p> : null}
     </div>
