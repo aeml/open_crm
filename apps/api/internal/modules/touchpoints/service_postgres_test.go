@@ -88,15 +88,33 @@ func TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres(t *testi
 			t.Fatalf("create %s contact: %v", contact.first, err)
 		}
 	}
-	var linkedCompanyID, staleCompanyID int64
+	if _, err := pool.Exec(ctx, `UPDATE contacts SET status='customer',is_client=TRUE WHERE id IN ($1,$2,$3,$4)`, staleContactID, freshContactID, privateContactID, foreignContactID); err != nil {
+		t.Fatalf("mark individual clients: %v", err)
+	}
+	var linkedCompanyID, staleCompanyID, healthyCompanyID, foreignCompanyID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO companies (organization_id,name,status,owner_user_id,created_at) VALUES ($1,'Linked client','customer',$2,$3) RETURNING id`, organizationID, ownerID, old).Scan(&linkedCompanyID); err != nil {
 		t.Fatalf("create linked company: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `INSERT INTO companies (organization_id,name,status,owner_user_id,created_at) VALUES ($1,'Stale client','customer',$2,$3) RETURNING id`, organizationID, ownerID, old).Scan(&staleCompanyID); err != nil {
 		t.Fatalf("create stale company: %v", err)
 	}
+	if err := pool.QueryRow(ctx, `INSERT INTO companies (organization_id,name,status,owner_user_id,created_at) VALUES ($1,'Healthy client','customer',$2,$3) RETURNING id`, organizationID, ownerID, now.Add(-2*24*time.Hour)).Scan(&healthyCompanyID); err != nil {
+		t.Fatalf("create healthy company: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO companies (organization_id,name,status,owner_user_id,created_at) VALUES ($1,'Foreign health client','customer',$2,$3) RETURNING id`, foreignOrganizationID, foreignUserID, old).Scan(&foreignCompanyID); err != nil {
+		t.Fatalf("create foreign health company: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO contact_company_links (organization_id,contact_id,company_id,is_primary) VALUES ($1,$2,$3,TRUE)`, organizationID, touchedContactID, linkedCompanyID); err != nil {
 		t.Fatalf("link contact to company: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO tasks (organization_id,entity_type,entity_id,title,status,due_at,assigned_to_user_id,created_by_user_id)
+		VALUES ($1,'company',$2,'Recover account','open',$3,$4,$4),
+		       ($1,'contact',$5,'Prepare account review','open',$6,$4,$4),
+		       ($1,'company',$7,'Unscheduled account work','open',NULL,$4,$4),
+		       ($8,'company',$9,'Foreign overdue work','open',$3,$10,$10)
+	`, organizationID, staleCompanyID, now.Add(-2*24*time.Hour), ownerID, touchedContactID, now.Add(2*24*time.Hour), healthyCompanyID, foreignOrganizationID, foreignCompanyID, foreignUserID); err != nil {
+		t.Fatalf("create client-health task signals: %v", err)
 	}
 
 	if _, err := pool.Exec(ctx, `INSERT INTO notes (organization_id,entity_type,entity_id,body,created_by_user_id,created_at) VALUES ($1,'contact',$2,'Customer context',$3,$4)`, organizationID, touchedContactID, ownerID, now.Add(-10*24*time.Hour)); err != nil {
@@ -182,11 +200,11 @@ func TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres(t *testi
 	}
 
 	viewerPrivateSummary, err := service.Summary(ctx, organizationID, viewerID, "contact", privateContactID, 30)
-	if err != nil || !viewerPrivateSummary.IsStale || len(viewerPrivateSummary.Recent) != 0 || viewerPrivateSummary.LastTouch != nil {
+	if err != nil || !viewerPrivateSummary.IsStale || viewerPrivateSummary.HealthStatus != "needs_attention" || len(viewerPrivateSummary.Recent) != 0 || viewerPrivateSummary.LastTouch != nil {
 		t.Fatalf("private email leaked to viewer or changed staleness: summary=%#v err=%v", viewerPrivateSummary, err)
 	}
 	ownerPrivateSummary, err := service.Summary(ctx, organizationID, ownerID, "contact", privateContactID, 30)
-	if err != nil || ownerPrivateSummary.IsStale || ownerPrivateSummary.LastTouch == nil || ownerPrivateSummary.LastTouch.Action != "email.received" {
+	if err != nil || ownerPrivateSummary.IsStale || ownerPrivateSummary.HealthStatus != "healthy" || ownerPrivateSummary.LastTouch == nil || ownerPrivateSummary.LastTouch.Action != "email.received" {
 		t.Fatalf("mailbox owner could not see private email: summary=%#v err=%v", ownerPrivateSummary, err)
 	}
 
@@ -203,12 +221,44 @@ func TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres(t *testi
 	}
 
 	companySummary, err := service.Summary(ctx, organizationID, viewerID, "company", linkedCompanyID, 30)
-	if err != nil || companySummary.IsStale || companySummary.LastTouch == nil || companySummary.LastTouch.RecordEntityType != "contact" || companySummary.LastTouch.RecordEntityID != touchedContactID || companySummary.LastTouch.RecordLabel != "Touched Contact" {
+	if err != nil || companySummary.IsStale || companySummary.HealthStatus != "watch" || companySummary.DueSoonTaskCount != 1 || companySummary.OpenTaskCount != 1 || companySummary.LastTouch == nil || companySummary.LastTouch.RecordEntityType != "contact" || companySummary.LastTouch.RecordEntityID != touchedContactID || companySummary.LastTouch.RecordLabel != "Touched Contact" {
 		t.Fatalf("linked contact work did not roll up traceably: summary=%#v err=%v", companySummary, err)
 	}
 	companyReport, err := service.Stale(ctx, organizationID, viewerID, moduletouchpoints.Query{EntityType: "company", StaleDays: 30})
 	if err != nil || companyReport.Count != 1 || len(companyReport.Records) != 1 || companyReport.Records[0].EntityID != staleCompanyID || companyReport.Records[0].LastTouch != nil {
 		t.Fatalf("unexpected stale companies: report=%#v err=%v", companyReport, err)
+	}
+
+	companyHealth, err := service.Health(ctx, organizationID, viewerID, moduletouchpoints.HealthQuery{EntityType: "company", StaleDays: 30})
+	if err != nil || companyHealth.Count != 3 || companyHealth.Totals != (moduletouchpoints.HealthTotals{Total: 3, Healthy: 1, Watch: 1, NeedsAttention: 1}) || len(companyHealth.Records) != 3 {
+		t.Fatalf("unexpected company health totals: report=%#v err=%v", companyHealth, err)
+	}
+	staleHealth := healthRecordByID(t, companyHealth.Records, staleCompanyID)
+	if staleHealth.HealthStatus != "needs_attention" || staleHealth.OverdueTaskCount != 1 || !staleHealth.IsStale || len(staleHealth.HealthReasons) != 2 {
+		t.Fatalf("stale overdue company health is not explainable: %#v", staleHealth)
+	}
+	linkedHealth := healthRecordByID(t, companyHealth.Records, linkedCompanyID)
+	if linkedHealth.HealthStatus != "watch" || linkedHealth.DueSoonTaskCount != 1 || linkedHealth.LastTouch == nil || linkedHealth.LastTouch.RecordEntityID != touchedContactID {
+		t.Fatalf("linked-contact health signals did not roll up: %#v", linkedHealth)
+	}
+	healthyHealth := healthRecordByID(t, companyHealth.Records, healthyCompanyID)
+	if healthyHealth.HealthStatus != "healthy" || healthyHealth.OpenTaskCount != 1 || healthyHealth.DueSoonTaskCount != 0 || len(healthyHealth.HealthReasons) != 1 {
+		t.Fatalf("unscheduled work incorrectly changed health: %#v", healthyHealth)
+	}
+	watchHealth, err := service.Health(ctx, organizationID, viewerID, moduletouchpoints.HealthQuery{EntityType: "company", Status: "watch", OwnerUserID: ownerID, StaleDays: 30, Limit: 1})
+	if err != nil || watchHealth.Count != 1 || len(watchHealth.Records) != 1 || watchHealth.Records[0].EntityID != linkedCompanyID || watchHealth.Totals != companyHealth.Totals {
+		t.Fatalf("health status/retained-owner filter lost totals: report=%#v err=%v", watchHealth, err)
+	}
+	viewerContactHealth, err := service.Health(ctx, organizationID, viewerID, moduletouchpoints.HealthQuery{EntityType: "contact", StaleDays: 30})
+	if err != nil || viewerContactHealth.Totals != (moduletouchpoints.HealthTotals{Total: 3, Healthy: 1, NeedsAttention: 2}) || healthRecordByID(t, viewerContactHealth.Records, privateContactID).HealthStatus != "needs_attention" {
+		t.Fatalf("viewer-private client health leaked: report=%#v err=%v", viewerContactHealth, err)
+	}
+	ownerContactHealth, err := service.Health(ctx, organizationID, ownerID, moduletouchpoints.HealthQuery{EntityType: "contact", StaleDays: 30})
+	if err != nil || ownerContactHealth.Totals != (moduletouchpoints.HealthTotals{Total: 3, Healthy: 2, NeedsAttention: 1}) || healthRecordByID(t, ownerContactHealth.Records, privateContactID).HealthStatus != "healthy" {
+		t.Fatalf("mailbox-owner client health lost private context: report=%#v err=%v", ownerContactHealth, err)
+	}
+	if hasHealthRecord(companyHealth.Records, foreignCompanyID) || len(companyHealth.Semantics) == 0 {
+		t.Fatalf("foreign client leaked or health rules were omitted: %#v", companyHealth)
 	}
 
 	if _, err := service.Summary(ctx, organizationID, viewerID, "contact", foreignContactID, 30); !errors.Is(err, moduletouchpoints.ErrNotFound) {
@@ -219,9 +269,34 @@ func TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres(t *testi
 			t.Fatalf("invalid query %#v returned %v", query, err)
 		}
 	}
+	for _, query := range []moduletouchpoints.HealthQuery{{EntityType: "deal"}, {EntityType: "company", Status: "critical"}, {EntityType: "company", StaleDays: 6}, {EntityType: "company", Limit: 101}, {EntityType: "company", OwnerUserID: foreignUserID}} {
+		if _, err := service.Health(ctx, organizationID, viewerID, query); !errors.Is(err, moduletouchpoints.ErrInvalidInput) {
+			t.Fatalf("invalid health query %#v returned %v", query, err)
+		}
+	}
 	if len(contactReport.Semantics) == 0 || len(companySummary.Semantics) == 0 {
 		t.Fatalf("touchpoint inference was not explained: report=%#v summary=%#v", contactReport, companySummary)
 	}
+}
+
+func healthRecordByID(t *testing.T, records []moduletouchpoints.HealthRecord, entityID int64) moduletouchpoints.HealthRecord {
+	t.Helper()
+	for _, record := range records {
+		if record.EntityID == entityID {
+			return record
+		}
+	}
+	t.Fatalf("health record %d missing from %#v", entityID, records)
+	return moduletouchpoints.HealthRecord{}
+}
+
+func hasHealthRecord(records []moduletouchpoints.HealthRecord, entityID int64) bool {
+	for _, record := range records {
+		if record.EntityID == entityID {
+			return true
+		}
+	}
+	return false
 }
 
 func hasTouchpointRecord(records []moduletouchpoints.Record, entityID int64) bool {

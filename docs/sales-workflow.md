@@ -30,14 +30,19 @@ delivery or e-signature claim.
 6. The won-deal link opens a compact account summary built from the existing
    client, won deals, open client tasks, recent client notes, and key people;
    the ordinary detail workflows remain the source of truth beneath it.
-7. **Reports** reconciles deal creation and movement, won/lost outcomes and
+7. **Clients** triages organizations and individual clients as **Healthy**,
+   **Watch**, or **Needs attention** from viewer-visible follow-up and open-task
+   timing. Exact reasons, thresholds, client type, health state, and owner
+   filters explain every result; no issue state is inferred without an issue
+   record.
+8. **Reports** reconciles deal creation and movement, won/lost outcomes and
    reasons, notes, task work, teammate ownership/actors, and recent deal events
    over a bounded UTC date range. Deal exports retain the current close context.
 
 The clean PostgreSQL-backed Chromium journey performs this sequence as one
 workflow, including a pipeline rename after deal creation, forecast continuity,
 automated-task creation, reminder visibility, report reconciliation, close
-review, and cross-tenant denial.
+review, post-sale health triage, and cross-tenant denial.
 
 ## Reporting semantics and scale boundary
 

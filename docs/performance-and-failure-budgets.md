@@ -87,18 +87,19 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 628 KiB | 200 KiB |
+| All JavaScript and CSS | 634 KiB | 202 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 176.85 KiB/57.63 KiB entry, 46.80 KiB/12.16 KiB largest lazy
-chunk, and 627.89 KiB/199.60 KiB total assets. The complete custom-field outcome
+Current evidence: 176.85 KiB/57.64 KiB entry, 46.80 KiB/12.17 KiB largest lazy
+chunk, and 633.51 KiB/201.13 KiB total assets. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget
 core record screens. Live data-quality, snapshot-backed sales activity, and
 traceable stale follow-up queues leave the Reports route at 28.38 KiB/7.27 KiB;
-reusable touchpoint and account context shares a 10.87 KiB/3.33 KiB chunk across
-Contacts and Clients. Admin pipeline configuration and probability controls use an
+reusable touchpoint, account, and client-health context shares an 11.53 KiB/3.46
+KiB chunk across Contacts and Clients; the complete Clients route is 30.53
+KiB/8.84 KiB. Admin pipeline configuration and probability controls use an
 isolated 7.21 KiB/2.46 KiB route and remove pipeline creation from the core Deals
 route. Explainable period/stage forecasting and exact reminder buckets leave
 Dashboard isolated at 18.06 KiB/4.95 KiB and split its panel from the route
@@ -115,8 +116,11 @@ measurement. Making per-contact communication-state resets interaction-safe
 raised the gzip aggregate ceiling by 1 KiB to 200 KiB after a measured 199.09
 KiB build. The post-sale account outcome then moved shared account/touchpoint
 context out of both parent record routes, reduced Contacts and Companies, and
-raised only the measured aggregate raw ceiling by 2 KiB to 628 KiB. Entry,
-per-route, aggregate gzip, and CSS limits remain unchanged.
+raised only the measured aggregate raw ceiling by 2 KiB to 628 KiB. Explainable
+client health then added the filtered client queue and task-health rollups while
+keeping record detail context shared; the measured 633.51/201.13 KiB build raises
+only the aggregate ceilings to 634/202 KiB. Entry, per-route, and CSS limits
+remain unchanged.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 
@@ -126,8 +130,8 @@ view model, calls, recording controls, SMS, meetings, email, sequences, lead
 scoring, attribution, related deals, notes, tasks, and activity into focused
 modules. Shared collaboration-aware record-work cards now serve contacts, companies, and deals;
 company editor/view helpers, deal quote/signature/view helpers, and task view
-logic are also separated. Bulk-action, custom-field, reminder, and touchpoint integration leave the
-parent routes at 1,296 contact lines, 973 company lines, 1,065 deal lines, and
+logic are also separated. Bulk-action, custom-field, reminder, and touchpoint/health integration leave the
+parent routes at 1,296 contact lines, 979 company lines, 1,065 deal lines, and
 839 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
@@ -144,11 +148,11 @@ the application composition package.
 | Existing hotspot | Current lines | Maximum until next split |
 | --- | ---: | ---: |
 | `contacts.jsx` | 1,296 | 1,300 |
-| `companies.jsx` | 973 | 1,000 |
+| `companies.jsx` | 979 | 1,000 |
 | `deals.jsx` | 1,065 | 1,100 |
 | `tasks.jsx` | 839 | 850 |
 | `dashboard.jsx` | 468 | 550 |
-| backend `app.go` | 958 | 1,000 |
+| backend `app.go` | 961 | 1,000 |
 | backend `support_handlers.go` | 766 | 800 |
 
 All other production route and `internal/app` Go files are limited to 500

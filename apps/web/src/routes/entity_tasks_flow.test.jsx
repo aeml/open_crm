@@ -129,7 +129,11 @@ describe('entity task visibility', () => {
         })
       })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', vi.fn((url, options = {}) => {
+      if (String(url).includes('/api/reports/client-health')) return Promise.resolve({ ok: true, json: async () => ({ data: { entityType: 'company', status: 'all', count: 0, totals: { total: 0, healthy: 0, watch: 0, needsAttention: 0 }, records: [], semantics: [] } }) })
+      if (String(url).includes('/api/touchpoints/')) return Promise.resolve({ ok: true, json: async () => ({ data: { staleDays: 30, isStale: false, createdAt: '2026-04-10T09:00:00Z', recent: [], semantics: [] } }) })
+      return fetchMock(url, options)
+    }))
     window.history.pushState({}, '', '/companies')
 
     render(<AppRouter />)

@@ -43,6 +43,7 @@ import {
 } from './company_view'
 import { CompanyForm } from './company_form'
 import { ClientAccountContext } from './client_account_context'
+import { ClientHealthReport } from './client_health_report'
 import { RecordWorkCards } from './record_work'
 import { TouchpointSummary } from './touchpoint_summary'
 
@@ -99,6 +100,7 @@ export function CompaniesRoute() {
   const [detailCache, setDetailCache] = useState({})
   const [contactOptions, setContactOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
+  const [ownerOptions, setOwnerOptions] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [companyCustomDefinitions, setCompanyCustomDefinitions] = useState([])
   const [contactCustomDefinitions, setContactCustomDefinitions] = useState([])
@@ -176,7 +178,9 @@ export function CompaniesRoute() {
   }
 
   async function loadUserOptions({ signal } = {}) {
-    const nextUsers = await listOrganizationUsers({ signal })
+    const nextOwners = await listOrganizationUsers({ includeDisabled: true, signal })
+    const nextUsers = nextOwners.filter((user) => (user.status || 'active') === 'active')
+    setOwnerOptions(nextOwners)
     setUserOptions(nextUsers)
     setTaskForm((current) => {
       if (current.assignedToUserId || nextUsers.length === 0) {
@@ -730,8 +734,8 @@ export function CompaniesRoute() {
               <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
                 <option value="all">All owners</option>
                 <option value="unassigned">Unassigned</option>
-                {userOptions.map((user) => (
-                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
+                {ownerOptions.map((user) => (
+                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}{user.status === 'disabled' ? ' (disabled)' : ''}</option>
                 ))}
               </select>
               {currentUserId ? (
@@ -818,6 +822,8 @@ export function CompaniesRoute() {
           <p className="field-hint">Showing {companies.length} of {meta.total} clients.</p>
         </div>
       </Card>
+
+      {mode === 'list' ? <ClientHealthReport owners={ownerOptions} onOpen={(record) => navigate(`/${record.entityType === 'contact' ? 'contacts' : 'companies'}/${record.entityId}`)} /> : null}
 
       {canWrite && mode === 'create' ? (
         <Card>

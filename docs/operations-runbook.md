@@ -251,6 +251,34 @@ do not silently relabel a missed target as success.
    time, and request ID before escalating. Never repair a derived touch by
    editing activity or message history with ad hoc SQL.
 
+### Client health reconciliation
+
+1. Open **Clients > Client health** and select organization or individual,
+   **All**, **Needs attention**, **Watch**, or **Healthy**, and the 14-, 30-,
+   60-, or 90-day stale window. Results are limited to active customer
+   companies and active individual clients. The optional owner includes a
+   disabled teammate with retained records; a foreign owner is rejected.
+2. **Needs attention** means at least one overdue open task or a latest
+   viewer-visible qualifying touch older than the selected threshold. **Watch**
+   means follow-up is current and an open task is due within seven days.
+   **Healthy** means neither. An open task without a due date is counted but
+   cannot change the state. The queue and detail summary show the exact reasons
+   and task counts used.
+3. Organization health includes work linked directly to the client and to its
+   currently linked contacts. Individual-client health is contact-scoped.
+   Archived/completed tasks and archived records are excluded. Unlinking a
+   contact removes its current rollup without deleting history.
+4. Private email and meetings follow the touchpoint visibility rules above, so
+   authorized viewers can legitimately receive different health results for
+   the same client. Do not copy or expose private content to force agreement.
+   Open CRM has no issue record, so health deliberately makes no open-issue
+   claim.
+5. Reconcile a surprising row through its displayed touch source and task list,
+   then record entity type/ID, viewer, filters, reasons, counts, generated time,
+   and request ID. Correct the source task, relationship, or follow-up record
+   through normal application workflows; the derived health value is not a
+   mutable status and must not be patched with ad hoc SQL.
+
 ### Proposal tracking and current-PDF reconciliation
 
 1. The deal's **Line items** are saved CRM data. A catalog selection copies its

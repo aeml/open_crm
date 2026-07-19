@@ -52,7 +52,7 @@ export function TouchpointSummary({ entityType, entityId, refreshKey = '' }) {
             <p>Traceable customer touches; routine record edits do not reset this clock.</p>
           </div>
           <div>
-            {summary ? <span className="chip">{summary.isStale ? `Needs follow-up · ${summary.staleDays}+ days` : 'Current'}</span> : null}
+            {summary ? <span className="chip">{summary.healthLabel || (summary.isStale ? `Needs follow-up · ${summary.staleDays}+ days` : 'Current')}</span> : null}
             <Button className="button-secondary" type="button" onClick={() => setRun((current) => current + 1)} disabled={isLoading}>Refresh</Button>
           </div>
         </div>
@@ -65,6 +65,12 @@ export function TouchpointSummary({ entityType, entityId, refreshKey = '' }) {
             ) : (
               <p>No qualifying touch yet. Follow-up age starts from record creation on {formatTimestamp(summary.createdAt)}.</p>
             )}
+            {summary.healthReasons.length > 0 ? <div aria-label="Health reasons">{summary.healthReasons.map((reason) => <p key={reason}>{reason}</p>)}</div> : null}
+            <div className="button-row" aria-label="Account task health">
+              <span className="chip">Open tasks: {summary.openTaskCount || 0}</span>
+              <span className="chip">Overdue: {summary.overdueTaskCount || 0}</span>
+              <span className="chip">Due soon: {summary.dueSoonTaskCount || 0}</span>
+            </div>
             <div className="record-list" role="list" aria-label="Recent touchpoints">
               {summary.recent.length === 0 ? <article className="record-row" role="listitem"><p>No touchpoints recorded.</p></article> : summary.recent.slice(0, 5).map((touch) => (
                 <article className="record-row" role="listitem" key={`${touch.sourceType}-${touch.sourceId}-${touch.action}`}>
@@ -80,6 +86,7 @@ export function TouchpointSummary({ entityType, entityId, refreshKey = '' }) {
               <summary>How touchpoints are calculated</summary>
               <ul>{summary.semantics.map((rule) => <li key={rule}>{rule}</li>)}</ul>
             </details>
+            {summary.healthSemantics.length > 0 ? <details><summary>How health is calculated</summary><ul>{summary.healthSemantics.map((rule) => <li key={rule}>{rule}</li>)}</ul></details> : null}
           </>
         ) : null}
       </div>

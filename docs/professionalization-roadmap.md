@@ -116,7 +116,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.6.9` Sales Workflow Review: in progress (technical review complete; approved pilot usage evidence pending).
 - `0.7.0` Customer Operations: in progress.
 - `0.7.1` Post-Sale Account View: complete.
-- `0.7.2` Client Health Signals: planned.
+- `0.7.2` Client Health Signals: complete.
 - `0.7.3` Renewal And Follow-Up Tasks: planned.
 - `0.7.4` Service Or Job Tracking: planned.
 - `0.7.5` Account Notes And Internal Handoff: planned.
@@ -382,7 +382,7 @@ Current convergence evidence: route-level loading and bundle budgets are
 CI-gated. Tested list, editor, view-model, communications, insights, shared
 work, and touchpoint extraction plus bulk/custom-field integration leave
 `contacts.jsx` at 1,296 lines, down from 2,038. Shared record-work cards,
-touchpoints/account context, and company editor/view helpers leave `companies.jsx` at 973 lines,
+touchpoints/account/health context, and company editor/view helpers leave `companies.jsx` at 979 lines,
 down from 1,364. Deal view, shared work, quote, signature, and bulk-action
 components leave `deals.jsx` at 1,065 lines, down from 1,365. Task filtering,
 sorting, labels, and due-date view logic leave `tasks.jsx` at 839 lines, down
@@ -1606,7 +1606,7 @@ contact cover the outcome.
 
 ## Version 0.7.2 - Client Health Signals
 
-Status: planned.
+Status: complete.
 
 Goal: provide lightweight health indicators for customer relationships.
 
@@ -1619,6 +1619,24 @@ Exit criteria:
 
 - Users can quickly identify accounts that may need attention.
 - Health indicators are explainable and editable where appropriate.
+
+Completion evidence (2026-07-19): the Clients view now derives three transparent
+states rather than adding another mutable status. **Needs attention** means an
+overdue open task or a viewer-visible follow-up older than the selected 14-, 30-,
+60-, or 90-day threshold; **Watch** means current follow-up plus an open task due
+within seven days; **Healthy** means neither. Exact reasons and open/overdue/
+due-soon counts appear in the queue and record summary. Operators can filter by
+organization or individual client, health state, threshold, and retained owner.
+Company health rolls up direct account and currently linked-person work while an
+individual client remains contact-scoped. Private email and meeting touches stay
+viewer-specific, archived work is excluded, and no issue signal is invented
+because the product has no issue record. Migration 71 adds lock- and
+statement-bounded partial query indexes. Handler validation, focused component
+tests, disposable-PostgreSQL owner/privacy/company/task/cross-tenant acceptance,
+and the clean Chromium won-account journey cover the outcome. The derived state
+is intentionally not editable; the underlying follow-up and task records are the
+auditable source of truth. A persisted override remains a pilot-validation
+decision, not an incomplete implementation.
 
 ## Version 0.7.3 - Renewal And Follow-Up Tasks
 
@@ -2100,10 +2118,10 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 176.85 KiB/57.63 KiB for the entry, 46.80 KiB/12.16 KiB
-for the largest lazy chunk, and 627.89 KiB/199.60 KiB total assets. Tested route
-splits plus bulk/custom-field/touchpoint/close-review/account integration leave contacts
-at 1,296 lines, companies at 973, deals at 1,065, and tasks at 839, down from 2,038,
+CSS. Current evidence is 176.85 KiB/57.64 KiB for the entry, 46.80 KiB/12.17 KiB
+for the largest lazy chunk, and 633.51 KiB/201.13 KiB total assets. Tested route
+splits plus bulk/custom-field/touchpoint/close-review/account/health integration leave contacts
+at 1,296 lines, companies at 979, deals at 1,065, and tasks at 839, down from 2,038,
 1,364, 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.

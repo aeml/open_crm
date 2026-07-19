@@ -322,6 +322,7 @@ type salesReportsService interface {
 
 type touchpointsService interface {
 	Stale(context.Context, int64, int64, moduletouchpoints.Query) (moduletouchpoints.Report, error)
+	Health(context.Context, int64, int64, moduletouchpoints.HealthQuery) (moduletouchpoints.HealthReport, error)
 	Summary(context.Context, int64, int64, string, int64, int) (moduletouchpoints.Summary, error)
 }
 

@@ -73,17 +73,25 @@ type Report struct {
 }
 
 type Summary struct {
-	EntityType  string       `json:"entityType"`
-	EntityID    int64        `json:"entityId"`
-	Label       string       `json:"label"`
-	CreatedAt   time.Time    `json:"createdAt"`
-	StaleDays   int          `json:"staleDays"`
-	CutoffAt    time.Time    `json:"cutoffAt"`
-	ReferenceAt time.Time    `json:"referenceAt"`
-	IsStale     bool         `json:"isStale"`
-	LastTouch   *Touchpoint  `json:"lastTouch,omitempty"`
-	Recent      []Touchpoint `json:"recent"`
-	Semantics   []string     `json:"semantics"`
+	EntityType         string       `json:"entityType"`
+	EntityID           int64        `json:"entityId"`
+	Label              string       `json:"label"`
+	CreatedAt          time.Time    `json:"createdAt"`
+	StaleDays          int          `json:"staleDays"`
+	CutoffAt           time.Time    `json:"cutoffAt"`
+	ReferenceAt        time.Time    `json:"referenceAt"`
+	DaysSinceReference int          `json:"daysSinceReference"`
+	IsStale            bool         `json:"isStale"`
+	LastTouch          *Touchpoint  `json:"lastTouch,omitempty"`
+	Recent             []Touchpoint `json:"recent"`
+	OpenTaskCount      int          `json:"openTaskCount"`
+	OverdueTaskCount   int          `json:"overdueTaskCount"`
+	DueSoonTaskCount   int          `json:"dueSoonTaskCount"`
+	HealthStatus       string       `json:"healthStatus"`
+	HealthLabel        string       `json:"healthLabel"`
+	HealthReasons      []string     `json:"healthReasons"`
+	Semantics          []string     `json:"semantics"`
+	HealthSemantics    []string     `json:"healthSemantics"`
 }
 
 type Service struct{ pool *pgxpool.Pool }
@@ -170,18 +178,20 @@ func (s *Service) Summary(ctx context.Context, organizationID, viewerUserID int6
 		lastTouch = &recent[0]
 		referenceAt = recent[0].OccurredAt
 	}
+	signals, err := s.loadTaskSignals(ctx, organizationID, entityID, query.EntityType)
+	if err != nil {
+		return Summary{}, err
+	}
+	daysSinceReference := max(0, int(generatedAt.Sub(referenceAt).Hours()/24))
+	isStale := referenceAt.Before(cutoffAt)
+	healthStatus, healthLabel, healthReasons := classifyHealth(isStale, daysSinceReference, signals)
 	return Summary{
-		EntityType:  query.EntityType,
-		EntityID:    entityID,
-		Label:       label,
-		CreatedAt:   createdAt,
-		StaleDays:   query.StaleDays,
-		CutoffAt:    cutoffAt,
-		ReferenceAt: referenceAt,
-		IsStale:     referenceAt.Before(cutoffAt),
-		LastTouch:   lastTouch,
-		Recent:      recent,
-		Semantics:   append([]string(nil), Semantics...),
+		EntityType: query.EntityType, EntityID: entityID, Label: label, CreatedAt: createdAt,
+		StaleDays: query.StaleDays, CutoffAt: cutoffAt, ReferenceAt: referenceAt, DaysSinceReference: daysSinceReference,
+		IsStale: isStale, LastTouch: lastTouch, Recent: recent,
+		OpenTaskCount: signals.Open, OverdueTaskCount: signals.Overdue, DueSoonTaskCount: signals.DueSoon,
+		HealthStatus: healthStatus, HealthLabel: healthLabel, HealthReasons: healthReasons,
+		Semantics: append([]string(nil), Semantics...), HealthSemantics: append([]string(nil), HealthSemantics...),
 	}, nil
 }
 

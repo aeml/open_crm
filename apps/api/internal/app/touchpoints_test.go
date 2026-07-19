@@ -14,13 +14,20 @@ import (
 )
 
 type fakeTouchpointsService struct {
-	report       moduletouchpoints.Report
-	summary      moduletouchpoints.Summary
-	err          error
-	lastOrgID    int64
-	lastViewerID int64
-	lastQuery    moduletouchpoints.Query
-	lastEntityID int64
+	report          moduletouchpoints.Report
+	health          moduletouchpoints.HealthReport
+	summary         moduletouchpoints.Summary
+	err             error
+	lastOrgID       int64
+	lastViewerID    int64
+	lastQuery       moduletouchpoints.Query
+	lastHealthQuery moduletouchpoints.HealthQuery
+	lastEntityID    int64
+}
+
+func (f *fakeTouchpointsService) Health(_ context.Context, organizationID, viewerUserID int64, query moduletouchpoints.HealthQuery) (moduletouchpoints.HealthReport, error) {
+	f.lastOrgID, f.lastViewerID, f.lastHealthQuery = organizationID, viewerUserID, query
+	return f.health, f.err
 }
 
 func (f *fakeTouchpointsService) Stale(_ context.Context, organizationID, viewerUserID int64, query moduletouchpoints.Query) (moduletouchpoints.Report, error) {
@@ -65,11 +72,26 @@ func TestTouchpointSummaryScopesViewerAndRecord(t *testing.T) {
 	}
 }
 
+func TestClientHealthAllowsViewerAndScopesFilters(t *testing.T) {
+	service := &fakeTouchpointsService{health: moduletouchpoints.HealthReport{Count: 2, Totals: moduletouchpoints.HealthTotals{NeedsAttention: 2}}}
+	request := httptest.NewRequest(http.MethodGet, "/api/reports/client-health?entityType=company&status=needs_attention&staleDays=60&ownerUserId=9&limit=50", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	touchpointsServer(service).ServeHTTP(recorder, request)
+	want := moduletouchpoints.HealthQuery{EntityType: "company", Status: "needs_attention", StaleDays: 60, OwnerUserID: 9, Limit: 50}
+	if recorder.Code != http.StatusOK || service.lastOrgID != 42 || service.lastViewerID != 7 || service.lastHealthQuery != want || !strings.Contains(recorder.Body.String(), `"needsAttention":2`) {
+		t.Fatalf("unexpected client health report: status=%d service=%#v body=%s", recorder.Code, service, recorder.Body.String())
+	}
+}
+
 func TestTouchpointsRejectMalformedInputWithoutCallingService(t *testing.T) {
 	tests := []string{
 		"/api/reports/follow-up?entityType=contact&ownerUserId=invalid",
 		"/api/reports/follow-up?entityType=contact&staleDays=6",
 		"/api/reports/follow-up?entityType=contact&limit=101",
+		"/api/reports/client-health?entityType=company&staleDays=invalid",
+		"/api/reports/client-health?entityType=company&ownerUserId=invalid",
+		"/api/reports/client-health?entityType=company&limit=101",
 		"/api/touchpoints/contact/not-an-id",
 		"/api/touchpoints/contact/1?staleDays=invalid",
 	}
@@ -92,7 +114,7 @@ func TestTouchpointErrorsAreBounded(t *testing.T) {
 		body   string
 	}{{moduletouchpoints.ErrInvalidInput, http.StatusBadRequest, "invalid touchpoint query"}, {moduletouchpoints.ErrNotFound, http.StatusNotFound, "NOT_FOUND"}, {errors.New("database secret"), http.StatusInternalServerError, "Unable to load"}} {
 		service := &fakeTouchpointsService{err: testCase.err}
-		for _, target := range []string{"/api/reports/follow-up?entityType=contact", "/api/touchpoints/contact/1"} {
+		for _, target := range []string{"/api/reports/follow-up?entityType=contact", "/api/reports/client-health?entityType=company", "/api/touchpoints/contact/1"} {
 			request := httptest.NewRequest(http.MethodGet, target, nil)
 			addSessionCookie(request)
 			recorder := httptest.NewRecorder()
@@ -105,16 +127,18 @@ func TestTouchpointErrorsAreBounded(t *testing.T) {
 }
 
 func TestTouchpointsRequireSessionBeforeConfiguredService(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "/api/reports/follow-up?entityType=contact", nil)
-	recorder := httptest.NewRecorder()
-	touchpointsServer(nil).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusUnauthorized {
-		t.Fatalf("expected authentication before service access, got %d", recorder.Code)
-	}
-	addSessionCookie(request)
-	recorder = httptest.NewRecorder()
-	touchpointsServer(nil).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected unavailable service, got %d body=%s", recorder.Code, recorder.Body.String())
+	for _, target := range []string{"/api/reports/follow-up?entityType=contact", "/api/reports/client-health?entityType=company", "/api/touchpoints/contact/1"} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		recorder := httptest.NewRecorder()
+		touchpointsServer(nil).ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("%s: expected authentication before service access, got %d", target, recorder.Code)
+		}
+		addSessionCookie(request)
+		recorder = httptest.NewRecorder()
+		touchpointsServer(nil).ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s: expected unavailable service, got %d body=%s", target, recorder.Code, recorder.Body.String())
+		}
 	}
 }
