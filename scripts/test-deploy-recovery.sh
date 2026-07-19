@@ -29,6 +29,7 @@ POSTGRES_PASSWORD=open_crm
 ALLOWED_ORIGINS=http://localhost:5173
 API_PORT=0
 GO_ENV=production
+EMAIL_FROM_NAME=Open CRM
 OPEN_CRM_ENV_FILE=$test_root/test.env
 BACKUP_STATUS_DIR=$test_root/status
 EOF

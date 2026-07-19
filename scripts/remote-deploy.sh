@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=scripts/lib/env-file.sh
+source "$SCRIPT_DIR/lib/env-file.sh"
+
 DEPLOY_PATH="${1:-$HOME/open_crm}"
 requested_release="${2:-${OPEN_CRM_RELEASE_ID:-}}"
 DEPLOY_ENV_FILE="${DEPLOY_ENV_FILE:-$DEPLOY_PATH/.env.production}"
@@ -25,10 +29,10 @@ for command_name in curl docker flock install; do
   command -v "$command_name" >/dev/null 2>&1 || deploy_error "$command_name is required"
 done
 
-set -a
-# shellcheck disable=SC1090
-source "$DEPLOY_ENV_FILE"
-set +a
+open_crm_load_env_keys "$DEPLOY_ENV_FILE" \
+  OPEN_CRM_API_IMAGE_REPOSITORY \
+  BACKUP_STATUS_DIR \
+  ALLOW_CONTRACT_MIGRATIONS
 export OPEN_CRM_RELEASE_ID="$requested_release"
 export OPEN_CRM_ENV_FILE="$DEPLOY_ENV_FILE"
 OPEN_CRM_API_IMAGE_REPOSITORY="${OPEN_CRM_API_IMAGE_REPOSITORY:-open-crm-api}"

@@ -21,6 +21,7 @@ POSTGRES_DB=open_crm_backup_test
 POSTGRES_USER=open_crm
 POSTGRES_PASSWORD=open_crm
 ALLOWED_ORIGINS=http://localhost:5173
+EMAIL_FROM_NAME=Open CRM
 OPEN_CRM_ENV_FILE=$test_root/test.env
 RESTIC_REPOSITORY=/repository
 RESTIC_LOCAL_REPOSITORY_PATH=$test_root/restic-repository

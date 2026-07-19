@@ -3,6 +3,10 @@
 # Shared helpers for encrypted PostgreSQL backup and restore-drill scripts.
 # The caller must enable `set -euo pipefail` before sourcing this file.
 
+BACKUP_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=scripts/lib/env-file.sh
+source "$BACKUP_COMMON_DIR/env-file.sh"
+
 RESTIC_IMAGE_DEFAULT="restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510"
 BACKUP_TAG_DEFAULT="open-crm-postgres"
 
@@ -35,10 +39,23 @@ backup_load_environment() {
   [[ -f "$BACKUP_ENV_FILE" ]] || backup_error "missing environment file: $BACKUP_ENV_FILE"
   [[ -f "$BACKUP_COMPOSE_FILE" ]] || backup_error "missing compose file: $BACKUP_COMPOSE_FILE"
 
-  set -a
-  # shellcheck disable=SC1090
-  source "$BACKUP_ENV_FILE"
-  set +a
+  open_crm_load_env_keys "$BACKUP_ENV_FILE" \
+    POSTGRES_USER \
+    POSTGRES_DB \
+    RESTIC_IMAGE \
+    RESTIC_REPOSITORY \
+    RESTIC_PASSWORD_FILE \
+    RESTIC_BACKEND_ENV_FILE \
+    RESTIC_LOCAL_REPOSITORY_PATH \
+    BACKUP_ALLOW_LOCAL_REPOSITORY \
+    BACKUP_TAG \
+    BACKUP_HOST_TAG \
+    BACKUP_STATUS_DIR \
+    BACKUP_KEEP_DAILY \
+    BACKUP_KEEP_WEEKLY \
+    BACKUP_KEEP_MONTHLY \
+    RESTORE_SNAPSHOT \
+    RESTORE_DRILL_SKIP_MIGRATIONS
 
   : "${POSTGRES_USER:=open_crm}"
   : "${POSTGRES_DB:=open_crm}"

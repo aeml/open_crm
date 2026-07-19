@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=scripts/lib/env-file.sh
+source "$SCRIPT_DIR/lib/env-file.sh"
+
 DEPLOY_PATH="${1:-$HOME/open_crm}"
 requested_target="${2:-}"
 DEPLOY_ENV_FILE="${DEPLOY_ENV_FILE:-$DEPLOY_PATH/.env.production}"
@@ -46,10 +50,7 @@ target_manifest="$DEPLOY_STATE_DIR/releases/$target_release/manifest.json"
 grep -Fq '"rollbackSafe":true' "$current_manifest" || \
   rollback_error "current release applied contract migrations; deploy a forward fix or restore the database instead of rolling the app back"
 
-set -a
-# shellcheck disable=SC1090
-source "$DEPLOY_ENV_FILE"
-set +a
+open_crm_load_env_keys "$DEPLOY_ENV_FILE" OPEN_CRM_API_IMAGE_REPOSITORY
 OPEN_CRM_API_IMAGE_REPOSITORY="${OPEN_CRM_API_IMAGE_REPOSITORY:-open-crm-api}"
 export OPEN_CRM_API_IMAGE_REPOSITORY
 export OPEN_CRM_RELEASE_ID="$target_release"
