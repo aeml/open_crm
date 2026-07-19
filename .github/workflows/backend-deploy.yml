@@ -9,6 +9,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       DEPLOY_HOST: ssh.mendola.tech
       DEPLOY_USER: aeml
@@ -115,15 +116,48 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --show-error --silent \
-            --retry 12 --retry-all-errors --retry-delay 5 \
-            "${DEPLOY_API_URL}/healthz" > /dev/null
-          curl --fail --show-error --silent \
-            --retry 12 --retry-all-errors --retry-delay 5 \
-            --dump-header /tmp/open-crm-ready.headers \
-            "${DEPLOY_API_URL}/readyz" > /dev/null
-          if ! grep -Fqi "X-Open-CRM-Release: ${GITHUB_SHA}" /tmp/open-crm-ready.headers; then
+          headers="$(mktemp)"
+          trap 'rm -f "$headers"' EXIT
+          curl_options=(
+            --fail --show-error --silent
+            --connect-timeout 5 --max-time 20
+            --retry 2 --retry-all-errors --retry-delay 3 --retry-max-time 70
+          )
+
+          probe_from_runner() {
+            curl "${curl_options[@]}" "${DEPLOY_API_URL}/healthz" > /dev/null || return 1
+            : > "$headers"
+            curl "${curl_options[@]}" --dump-header "$headers" "${DEPLOY_API_URL}/readyz" > /dev/null || return 1
+            grep -Fqi "X-Open-CRM-Release: ${GITHUB_SHA}" "$headers" || return 2
+          }
+
+          runner_probe_status=0
+          probe_from_runner || runner_probe_status=$?
+          if [[ "$runner_probe_status" -eq 0 ]]; then
+            echo "Public health and exact-release readiness passed from the GitHub-hosted runner."
+          elif [[ "$runner_probe_status" -eq 2 ]]; then
             echo "Public readiness endpoint does not report expected release ${GITHUB_SHA}." >&2
             exit 1
+          else
+            echo "::warning::The GitHub-hosted runner could not reach the public API after bounded retries; repeating the public-hostname probe from the production host."
+            echo "Hosted-runner public probe failed; production-host public fallback required." >> "$GITHUB_STEP_SUMMARY"
+            ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o ConnectTimeout=10 \
+              ${DEPLOY_USER}@${DEPLOY_HOST} bash -s -- "${DEPLOY_API_URL}" "${GITHUB_SHA}" <<'REMOTE'
+          set -euo pipefail
+          api_url="$1"
+          expected_release="$2"
+          headers="$(mktemp)"
+          trap 'rm -f "$headers"' EXIT
+          curl_options=(
+            --fail --show-error --silent
+            --connect-timeout 5 --max-time 20
+            --retry 2 --retry-all-errors --retry-delay 3 --retry-max-time 70
+          )
+          curl "${curl_options[@]}" "${api_url}/healthz" > /dev/null
+          curl "${curl_options[@]}" --dump-header "$headers" "${api_url}/readyz" > /dev/null
+          if ! grep -Fqi "X-Open-CRM-Release: ${expected_release}" "$headers"; then
+            echo "Public readiness endpoint does not report expected release ${expected_release}." >&2
+            exit 1
           fi
-          rm -f /tmp/open-crm-ready.headers
+          REMOTE
+          fi

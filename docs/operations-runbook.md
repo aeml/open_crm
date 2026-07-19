@@ -461,8 +461,12 @@ Production deploy workflows are reusable workflows called only by
 encrypted backup/restore jobs pass on `main`. A failed test, vet, format, lint,
 audit, build, migration-integrity, browser, or recovery check prevents both
 deploy jobs from starting. The backend deploy also verifies the public
-`/healthz` and `/readyz` endpoints; the frontend deploy verifies the published
-Pages URL.
+`/healthz` and `/readyz` endpoints with bounded transport retries and exact
+release matching; the frontend deploy verifies the published Pages URL. If the
+GitHub-hosted runner cannot reach the origin through its Cloudflare region, the
+backend job emits a visible warning and repeats the same public-hostname health
+and exact-release checks from the production host. A reachable but wrong release
+never falls back and always fails the deployment.
 
 Do not invoke the reusable deploy workflows directly. For a manual redeploy,
 rerun the successful CI workflow for the intended `main` commit so the same
