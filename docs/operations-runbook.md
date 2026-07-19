@@ -110,6 +110,57 @@ do not silently relabel a missed target as success.
 4. Confirm the counter stops increasing and the next controlled provider
    operation succeeds before resolving the alert.
 
+### Stripe hosted-billing setup and recovery
+
+The fake billing provider is the safe self-host/development default. Enabling
+Stripe makes external payment and subscription state authoritative, so do it
+only with explicit approval and an account whose products, tax, portal, and
+operating policy have been reviewed.
+
+1. In one Stripe mode (test first, live only after approval), create recurring
+   Prices for each offered plan. Configure the customer portal for the approved
+   payment-method, invoice, plan-change, and cancellation behavior. Open CRM
+   does not silently choose proration or resubscription policy.
+2. Register the public endpoint
+   `${API_BASE_URL}/api/billing/webhooks/stripe` and subscribe it to
+   `checkout.session.completed`, `customer.subscription.created`,
+   `customer.subscription.updated`, `customer.subscription.deleted`,
+   `invoice.finalized`, `invoice.updated`, `invoice.paid`,
+   `invoice.payment_succeeded`, and `invoice.payment_failed`. Copy that
+   endpoint's signing secret—not an API key—into the deployment secret store.
+3. Set `BILLING_PROVIDER=stripe`, `STRIPE_SECRET_KEY`,
+   `STRIPE_WEBHOOK_SECRET`, the offered `STRIPE_PRICE_*` values, and the exact
+   public `WEB_BASE_URL`. No browser publishable key is used: Checkout and the
+   portal are server-created hosted sessions. Never mix test and live keys,
+   secrets, Prices, or events; the API rejects a mode mismatch.
+4. Deploy through the ordinary CI-gated workflow. In a disposable workspace,
+   open **Settings > Plan & Billing**, complete hosted Checkout, and wait for
+   the signed subscription event before expecting access to change. The return
+   URL is informational and never activates a plan. Confirm the portal opens,
+   then exercise a failed payment, recovery, scheduled cancellation, and final
+   cancellation using approved Stripe test controls.
+5. Correlate provider counters (`checkout_session`, `portal_session`, and
+   `webhook_verify`), bounded webhook-route request metrics, tenant audit
+   events, and the durable `billing_checkout_requests`,
+   `billing_webhook_events`, and `billing_invoices` ledgers. A failed receipt is
+   retryable under the same Stripe event ID and payload; a duplicate processed
+   event is a safe no-op. A changed payload for the same event ID and
+   cross-tenant customer/subscription references fail closed.
+6. On an incident, preserve the Stripe event ID and Open CRM request ID, correct
+   the configuration or data-reference cause, and use Stripe's signed event
+   redelivery. Do not edit organization plans/statuses or mark receipt rows
+   processed with SQL. If Stripe and Open CRM still disagree after redelivery,
+   leave the tenant in the safer restricted state and escalate: periodic
+   provider-API reconciliation and an operator replay screen remain required
+   before this capability can be promoted beyond a foundation.
+
+Stripe API behavior used by this boundary is documented in the official
+[Checkout](https://docs.stripe.com/api/checkout/sessions/create),
+[customer portal](https://docs.stripe.com/api/customer_portal/sessions/create),
+[webhook](https://docs.stripe.com/webhooks), and
+[subscription webhook](https://docs.stripe.com/billing/subscriptions/webhooks)
+references.
+
 ### Import interruption or recovery
 
 1. Open **Settings > Data Imports** and inspect the batch counts. Completed
@@ -497,17 +548,20 @@ do not silently relabel a missed target as success.
 ## Public Endpoint Abuse Controls
 
 Authentication, workspace bootstrap, password setup, public lead submissions,
-public landing/widget reads, unsubscribe links, and email open/click tracking use
-separate fixed-window per-client limits. Rate-limited responses return `429`, a
-stable `RATE_LIMITED` error code, and `Retry-After`. Forwarded client addresses
-are trusted only when the direct peer is a loopback or private reverse proxy.
+public landing/widget reads, Stripe webhook delivery, unsubscribe links, and
+email open/click tracking use separate fixed-window per-client limits.
+Rate-limited responses return `429`, a stable `RATE_LIMITED` error code, and
+`Retry-After`. Forwarded client addresses are trusted only when the direct peer
+is a loopback or private reverse proxy.
 Workspace creation is capped at 3/client/hour; login, verification, resend, and
 password setup are capped at 10/client/minute. Verification resend also has a
 persisted one-minute recipient cooldown and always returns the same accepted
 shape for missing, verified, throttled, and pending accounts. Provider delivery
 failure leaves the tenant pending with no session or running trial; retry the
 same signup payload/key after correcting the sender, or use resend once its
-cooldown permits. Never mark the user verified or create a session manually.
+cooldown permits. Stripe delivery uses a separate 120/client/minute read-class
+window plus its HMAC and body limit. Never mark a user verified, create a
+session, or change a subscription manually.
 
 The limiters are process-local and intentionally bounded. Multi-instance global
 limits, bot challenges, and reputation-based spam controls remain part of the

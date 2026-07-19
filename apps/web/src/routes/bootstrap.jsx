@@ -4,6 +4,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
 import { useAuth } from '../app/providers'
+import { createIdempotencyKey } from '../lib/idempotency'
 import { usePageTitle } from '../lib/use_page_title'
 
 const businessTypeOptions = [
@@ -29,8 +30,7 @@ export function BootstrapRoute() {
   const [idempotencyKey] = useState(() => {
     const existing = window.sessionStorage.getItem('open-crm-bootstrap-key')
     if (existing) return existing
-    const suffix = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
-    const created = `workspace-${suffix}`
+    const created = createIdempotencyKey('workspace')
     window.sessionStorage.setItem('open-crm-bootstrap-key', created)
     return created
   })

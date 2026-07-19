@@ -10,6 +10,11 @@ type Env struct {
 	AllowedOrigins             []string
 	GOEnv                      string
 	BillingProvider            string
+	StripeSecretKey            string
+	StripeWebhookSecret        string
+	StripePriceStarter         string
+	StripePricePro             string
+	StripePriceEnterprise      string
 	TelephonyProvider          string
 	CalendarProvider           string
 	EmailProvider              string
@@ -70,6 +75,11 @@ func Load() Env {
 		AllowedOrigins:             parseAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")),
 		GOEnv:                      os.Getenv("GO_ENV"),
 		BillingProvider:            billingProvider,
+		StripeSecretKey:            os.Getenv("STRIPE_SECRET_KEY"),
+		StripeWebhookSecret:        os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		StripePriceStarter:         os.Getenv("STRIPE_PRICE_STARTER"),
+		StripePricePro:             os.Getenv("STRIPE_PRICE_PRO"),
+		StripePriceEnterprise:      os.Getenv("STRIPE_PRICE_ENTERPRISE"),
 		TelephonyProvider:          telephonyProvider,
 		CalendarProvider:           calendarProvider,
 		EmailProvider:              emailProvider,

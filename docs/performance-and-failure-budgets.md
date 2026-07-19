@@ -90,16 +90,21 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.98 KiB/57.83 KiB entry, 46.97 KiB/12.21 KiB largest lazy
-chunk, and 647.75 KiB/205.16 KiB total assets. The complete custom-field outcome
+Current evidence: 178.03 KiB/57.86 KiB entry, 47.00 KiB/12.23 KiB largest lazy
+chunk, and 649.89 KiB/205.98 KiB total assets. The Stripe hosted-billing
+foundation remains isolated in a 7.30 KiB/2.66 KiB settings route, while one
+0.15 KiB shared helper keeps retry-key generation consistent across billing,
+signup, import, merge, and bulk recovery paths. The aggregate raw ceiling is
+now effectively full; the next frontend slice must reduce or replace existing
+code before adding bundle weight. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget
 core record screens. Live data-quality, snapshot-backed sales activity, and
 traceable stale follow-up queues leave the Reports route at 28.38 KiB/7.27 KiB;
 reusable activity and touchpoint/account/client-health context remains outside
-the parent record routes in 16.61 KiB/4.99 KiB and 17.52 KiB/4.99 KiB shared
-chunks; the complete Clients route is 31.33 KiB/9.07 KiB. Admin pipeline
+the parent record routes in 16.51 KiB/4.95 KiB and 17.52 KiB/4.99 KiB shared
+chunks; the complete Clients route is 31.36 KiB/9.09 KiB. Admin pipeline
 configuration and probability controls use an
 isolated 7.21 KiB/2.46 KiB route and remove pipeline creation from the core Deals
 route. Explainable period/stage forecasting and exact reminder buckets leave
@@ -108,7 +113,7 @@ orchestration source. Replacing
 the non-executing general workflow builder with the bounded executable deal-task
 surface reduces its lazy route from 20.62 KiB/5.86 KiB to 10.17 KiB/3.56 KiB.
 The reminder workflow keeps its due counts and filter in the existing Tasks route
-at 22.38 KiB/5.95 KiB and removes redundant browser-side time filtering now that
+at 22.42 KiB/5.97 KiB and removes redundant browser-side time filtering now that
 PostgreSQL owns those windows.
 The production-complete touchpoint outcome raised the aggregate ratchets to
 622/199 KiB. The stage-authoritative win/loss close review, reporting, and

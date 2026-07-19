@@ -1223,3 +1223,18 @@ func TestMigrationFilesIncludeVerifiedWorkspaceSignupMigration(t *testing.T) {
 		t.Fatalf("verified workspace signup deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeStripeBillingLifecycleMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "074_stripe_billing_lifecycle.sql") {
+		t.Fatal("expected Stripe billing lifecycle migration to be registered")
+	}
+	sql := MigrationSQL("074_stripe_billing_lifecycle.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "stripe_customer_id", "billing_checkout_requests", "billing_webhook_events", "billing_invoices", "payload_sha256"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("Stripe billing lifecycle migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("074_stripe_billing_lifecycle.sql"); class != "expand" {
+		t.Fatalf("Stripe billing lifecycle deployment class = %q", class)
+	}
+}

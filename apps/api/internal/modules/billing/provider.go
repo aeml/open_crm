@@ -2,65 +2,147 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 )
 
-// ChangeRequest describes a requested subscription/plan transition for an
-// organization. Real providers (Stripe) use it to create or update a
-// subscription; the fake provider records it without external calls.
+var (
+	ErrProviderNotConfigured = errors.New("billing provider not configured")
+	ErrCheckoutRequired      = errors.New("hosted checkout required")
+	ErrInvalidWebhook        = errors.New("invalid billing webhook")
+)
+
 type ChangeRequest struct {
 	OrganizationID int64
 	FromPlan       string
 	ToPlan         string
 }
 
-// ChangeResult is returned by a provider after a successful plan change.
 type ChangeResult struct {
-	// Reference is a provider-side identifier (e.g. a Stripe subscription ID).
 	Reference string
 }
 
-// Provider abstracts the external billing system. It is intentionally narrow
-// so the rest of the application never depends on a specific vendor. A fake
-// provider is used for tests and for deployments that have not yet wired a
-// real payment processor.
-type Provider interface {
-	Name() string
-	ChangeSubscription(ctx context.Context, req ChangeRequest) (ChangeResult, error)
+type CheckoutRequest struct {
+	OrganizationID int64
+	ActorUserID    int64
+	Email          string
+	Plan           string
+	CustomerID     string
+	IdempotencyKey string
 }
 
-// FakeProvider is an in-process provider that approves every plan change and
-// returns a synthetic reference. It performs no network calls, so it is safe
-// for tests and for environments without payment credentials.
+type HostedSession struct {
+	ID        string `json:"id"`
+	URL       string `json:"url"`
+	ExpiresAt int64  `json:"expiresAt,omitempty"`
+}
+
+type PortalRequest struct {
+	OrganizationID int64
+	CustomerID     string
+	IdempotencyKey string
+}
+
+type WebhookEvent struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Created  int64            `json:"created"`
+	Livemode bool             `json:"livemode"`
+	Data     WebhookEventData `json:"data"`
+}
+
+type WebhookEventData struct {
+	Object json.RawMessage `json:"object"`
+}
+
+type Provider interface {
+	Name() string
+	CheckoutAvailable(plan string) bool
+	PortalAvailable() bool
+	ChangeSubscription(context.Context, ChangeRequest) (ChangeResult, error)
+	CreateCheckoutSession(context.Context, CheckoutRequest) (HostedSession, error)
+	CreatePortalSession(context.Context, PortalRequest) (HostedSession, error)
+	ParseWebhook(payload []byte, signature string) (WebhookEvent, error)
+}
+
+type ProviderConfig struct {
+	SecretKey       string
+	WebhookSecret   string
+	PriceStarter    string
+	PricePro        string
+	PriceEnterprise string
+	WebBaseURL      string
+	APIBaseURL      string
+	HTTPClient      *http.Client
+}
+
 type FakeProvider struct{}
 
 func (FakeProvider) Name() string { return "fake" }
+
+func (FakeProvider) CheckoutAvailable(string) bool { return false }
+
+func (FakeProvider) PortalAvailable() bool { return false }
 
 func (FakeProvider) ChangeSubscription(_ context.Context, req ChangeRequest) (ChangeResult, error) {
 	return ChangeResult{Reference: fmt.Sprintf("fake_sub_%d_%s", req.OrganizationID, req.ToPlan)}, nil
 }
 
-// unconfiguredProvider stands in for a real provider whose credentials are not
-// present. It rejects plan changes so misconfiguration fails loudly rather
-// than silently behaving like the fake provider.
+func (FakeProvider) CreateCheckoutSession(context.Context, CheckoutRequest) (HostedSession, error) {
+	return HostedSession{}, ErrCheckoutRequired
+}
+
+func (FakeProvider) CreatePortalSession(context.Context, PortalRequest) (HostedSession, error) {
+	return HostedSession{}, ErrCheckoutRequired
+}
+
+func (FakeProvider) ParseWebhook([]byte, string) (WebhookEvent, error) {
+	return WebhookEvent{}, ErrInvalidWebhook
+}
+
 type unconfiguredProvider struct {
 	name string
 }
 
 func (p unconfiguredProvider) Name() string { return p.name }
 
-func (p unconfiguredProvider) ChangeSubscription(_ context.Context, _ ChangeRequest) (ChangeResult, error) {
-	return ChangeResult{}, fmt.Errorf("billing provider %q is not configured", p.name)
+func (p unconfiguredProvider) CheckoutAvailable(string) bool { return false }
+
+func (p unconfiguredProvider) PortalAvailable() bool { return false }
+
+func (p unconfiguredProvider) ChangeSubscription(context.Context, ChangeRequest) (ChangeResult, error) {
+	return ChangeResult{}, fmt.Errorf("%w: %s", ErrProviderNotConfigured, p.name)
 }
 
-// NewProvider selects a billing provider by name. Unknown or empty names, and
-// the explicit "fake" name, resolve to the FakeProvider so tests and
-// unconfigured deployments work out of the box. Real providers (e.g. "stripe")
-// resolve to an unconfigured stub until their integration is wired.
-func NewProvider(name string) Provider {
+func (p unconfiguredProvider) CreateCheckoutSession(context.Context, CheckoutRequest) (HostedSession, error) {
+	return HostedSession{}, fmt.Errorf("%w: %s", ErrProviderNotConfigured, p.name)
+}
+
+func (p unconfiguredProvider) CreatePortalSession(context.Context, PortalRequest) (HostedSession, error) {
+	return HostedSession{}, fmt.Errorf("%w: %s", ErrProviderNotConfigured, p.name)
+}
+
+func (p unconfiguredProvider) ParseWebhook([]byte, string) (WebhookEvent, error) {
+	return WebhookEvent{}, fmt.Errorf("%w: %s", ErrProviderNotConfigured, p.name)
+}
+
+func NewProvider(name string, configs ...ProviderConfig) Provider {
+	name = strings.ToLower(strings.TrimSpace(name))
 	switch name {
 	case "", "fake":
 		return FakeProvider{}
+	case "stripe":
+		config := ProviderConfig{}
+		if len(configs) > 0 {
+			config = configs[0]
+		}
+		if strings.TrimSpace(config.SecretKey) == "" || strings.TrimSpace(config.WebhookSecret) == "" {
+			return unconfiguredProvider{name: name}
+		}
+		return newStripeProvider(config)
 	default:
 		return unconfiguredProvider{name: name}
 	}

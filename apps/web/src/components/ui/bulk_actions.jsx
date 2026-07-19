@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { executeBulkOperation, listBulkOperations, rollbackBulkOperation } from '../../lib/bulk_operations'
 import { isAbortError } from '../../lib/api'
+import { createIdempotencyKey } from '../../lib/idempotency'
 import { Button } from './button'
 import { Field } from './field'
 
@@ -25,11 +26,6 @@ function operationOutcome(operation) {
 function operationTime(value) {
   const timestamp = new Date(value)
   return Number.isNaN(timestamp.getTime()) ? 'time unavailable' : timestamp.toLocaleString()
-}
-
-function requestKey() {
-  if (globalThis.crypto?.randomUUID) return `bulk-${globalThis.crypto.randomUUID()}`
-  return `bulk-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 export function BulkActions({ entityType, selectedIds, visibleIds, onSelectionChange, onChanged, statuses, userOptions = [] }) {
@@ -68,7 +64,7 @@ export function BulkActions({ entityType, selectedIds, visibleIds, onSelectionCh
     }
     if (action === 'reassign') request.targetUserId = Number.parseInt(targetUserId, 10) || 0
     const signature = JSON.stringify(request)
-    if (requestRef.current.signature !== signature) requestRef.current = { signature, key: requestKey() }
+    if (requestRef.current.signature !== signature) requestRef.current = { signature, key: createIdempotencyKey('bulk') }
     setIsApplying(true)
     setError('')
     setNotice('')

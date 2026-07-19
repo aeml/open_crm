@@ -6,6 +6,7 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { isAbortError } from '../lib/api'
 import { executeImport, importErrorsURL, listImports, previewImport, rollbackImport } from '../lib/imports'
+import { createIdempotencyKey } from '../lib/idempotency'
 import { usePageTitle } from '../lib/use_page_title'
 
 function formatTimestamp(value) {
@@ -19,10 +20,7 @@ function statusLabel(status) {
 }
 
 function newIdempotencyKey() {
-  if (globalThis.crypto?.randomUUID) {
-    return `import-${globalThis.crypto.randomUUID()}`
-  }
-  return `import-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return createIdempotencyKey('import')
 }
 
 function mappingHasErrors(preview) {

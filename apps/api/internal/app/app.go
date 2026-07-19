@@ -7,11 +7,9 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
-	moduledashboard "github.com/aeml/open_crm/apps/api/internal/modules/dashboard"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleleadaudiences "github.com/aeml/open_crm/apps/api/internal/modules/leadaudiences"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
-	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
@@ -325,22 +323,6 @@ type taskDetailResponse struct {
 	} `json:"meta"`
 }
 
-type organizationProfileResponse struct {
-	Data struct {
-		Profile moduleorgprofile.Detail `json:"profile"`
-	} `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
-}
-
-type dashboardSummaryResponse struct {
-	Data moduledashboard.Summary `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
-}
-
 func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	dependencies := Dependencies{}
 	if len(deps) > 0 {
@@ -459,14 +441,22 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("POST /api/admin/background-jobs/{jobID}/resolve-sequence-delivery", func(w http.ResponseWriter, r *http.Request) {
 		handleResolveSequenceDelivery(dependencies.AuthService, dependencies.SequenceDeliveryOperations, dependencies.AuditService, w, r)
 	})
-	mux.HandleFunc("GET /api/billing/plans", func(w http.ResponseWriter, r *http.Request) {
-		handleListPlans(dependencies.AuthService, w, r)
-	})
-	mux.HandleFunc("GET /api/billing/entitlements", func(w http.ResponseWriter, r *http.Request) {
-		handleGetEntitlements(dependencies.AuthService, dependencies.BillingService, w, r)
-	})
+	billingAuth, billingService := dependencies.AuthService, dependencies.BillingService
+	mux.HandleFunc("GET /api/billing/plans", func(w http.ResponseWriter, r *http.Request) { handleListPlans(billingAuth, w, r) })
+	mux.HandleFunc("GET /api/billing/entitlements", func(w http.ResponseWriter, r *http.Request) { handleGetEntitlements(billingAuth, billingService, w, r) })
 	mux.HandleFunc("POST /api/billing/change-plan", func(w http.ResponseWriter, r *http.Request) {
-		handleChangePlan(dependencies.AuthService, dependencies.BillingService, dependencies.AuditService, w, r)
+		handleChangePlan(billingAuth, billingService, dependencies.AuditService, w, r)
+	})
+	mux.HandleFunc("POST /api/billing/checkout-session", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateCheckoutSession(billingAuth, billingService, w, r)
+	})
+	mux.HandleFunc("POST /api/billing/portal-session", func(w http.ResponseWriter, r *http.Request) {
+		handleCreatePortalSession(billingAuth, billingService, w, r)
+	})
+	mux.HandleFunc("POST /api/billing/webhooks/stripe", func(w http.ResponseWriter, r *http.Request) {
+		if !rejectRateLimited(publicReadLimiter, "billing.stripe-webhook", "Too many billing webhook deliveries", w, r) {
+			handleStripeWebhook(billingService, w, r)
+		}
 	})
 	mux.HandleFunc("GET /api/email-templates", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailTemplates(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)

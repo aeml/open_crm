@@ -6,12 +6,8 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { isAbortError } from '../lib/api'
 import { mergeDuplicate, reviewDuplicates } from '../lib/duplicates'
+import { createIdempotencyKey } from '../lib/idempotency'
 import { usePageTitle } from '../lib/use_page_title'
-
-function requestKey() {
-  if (globalThis.crypto?.randomUUID) return `merge-${globalThis.crypto.randomUUID()}`
-  return `merge-${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
 
 function fieldMap(record) {
   return Object.fromEntries((record?.fields || []).map((field) => [field.key, field]))
@@ -109,7 +105,7 @@ export function SettingsDuplicatesRoute() {
       targetUpdatedAt: target.updatedAt
     }
     const signature = JSON.stringify(input)
-    if (requestRef.current.signature !== signature) requestRef.current = { signature, key: requestKey() }
+    if (requestRef.current.signature !== signature) requestRef.current = { signature, key: createIdempotencyKey('merge') }
     if (!window.confirm(`Permanently merge “${source.label}” into “${target.label}”? The duplicate will be archived and linked work will move to the survivor. This merge cannot be automatically undone.`)) return
     setIsMerging(true)
     setError('')

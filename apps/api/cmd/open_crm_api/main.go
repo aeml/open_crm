@@ -172,7 +172,14 @@ func main() {
 			savedViewsService = modulesavedviews.NewService(pool)
 			onboardingService = moduleonboarding.NewService(pool, emailService)
 			orgProfileService = moduleorgprofile.NewService(pool)
-			billingService = modulebilling.NewService(pool, modulebilling.NewProvider(env.BillingProvider))
+			billingService = modulebilling.NewService(pool, modulebilling.WithObserver(modulebilling.NewProvider(env.BillingProvider, modulebilling.ProviderConfig{
+				SecretKey:       env.StripeSecretKey,
+				WebhookSecret:   env.StripeWebhookSecret,
+				PriceStarter:    env.StripePriceStarter,
+				PricePro:        env.StripePricePro,
+				PriceEnterprise: env.StripePriceEnterprise,
+				WebBaseURL:      env.WebBaseURL,
+			}), metrics))
 			emailTemplatesService = moduleemailtemplates.NewService(pool)
 			productCatalogService = moduleproductcatalog.NewService(pool)
 			leadFormsService = moduleleadforms.NewService(pool)

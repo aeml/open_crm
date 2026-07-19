@@ -2,7 +2,16 @@ package billing
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -33,6 +42,89 @@ func TestFakeProviderApprovesAndReferences(t *testing.T) {
 	if result.Reference != "fake_sub_7_pro" {
 		t.Errorf("unexpected reference: %q", result.Reference)
 	}
+}
+
+func TestStripeProviderCreatesIdempotentCheckoutAndPortalSessions(t *testing.T) {
+	t.Parallel()
+	requests := make(chan *http.Request, 2)
+	bodies := make(chan url.Values, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		parsed, _ := url.ParseQuery(string(body))
+		requests <- r.Clone(r.Context())
+		bodies <- parsed
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "billing_portal") {
+			_, _ = io.WriteString(w, `{"id":"bps_test","url":"https://billing.stripe.test/portal"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"id":"cs_test","url":"https://checkout.stripe.test/session","expires_at":1784490000}`)
+	}))
+	defer server.Close()
+
+	provider := NewProvider("stripe", ProviderConfig{
+		SecretKey: "sk_test_secret", WebhookSecret: "whsec_secret", PricePro: "price_pro",
+		WebBaseURL: "https://crm.example.test", APIBaseURL: server.URL, HTTPClient: server.Client(),
+	})
+	checkout, err := provider.CreateCheckoutSession(context.Background(), CheckoutRequest{
+		OrganizationID: 42, ActorUserID: 7, Email: "owner@example.test", Plan: "pro", IdempotencyKey: "checkout-key",
+	})
+	if err != nil || checkout.ID != "cs_test" || checkout.URL == "" || checkout.ExpiresAt != 1784490000 {
+		t.Fatalf("create Stripe checkout: session=%#v err=%v", checkout, err)
+	}
+	checkoutRequest, checkoutBody := <-requests, <-bodies
+	if checkoutRequest.Header.Get("Authorization") != "Bearer sk_test_secret" || checkoutRequest.Header.Get("Stripe-Version") != stripeAPIVersion || checkoutRequest.Header.Get("Idempotency-Key") != "checkout-key" {
+		t.Fatalf("unexpected checkout headers: %#v", checkoutRequest.Header)
+	}
+	for key, expected := range map[string]string{
+		"mode": "subscription", "client_reference_id": "42", "line_items[0][price]": "price_pro",
+		"customer_email": "owner@example.test", "metadata[organization_id]": "42", "metadata[plan_key]": "pro",
+		"subscription_data[metadata][organization_id]": "42", "subscription_data[metadata][plan_key]": "pro",
+		"success_url": "https://crm.example.test/settings/billing?checkout=success",
+	} {
+		if checkoutBody.Get(key) != expected {
+			t.Errorf("checkout field %s=%q, want %q", key, checkoutBody.Get(key), expected)
+		}
+	}
+
+	portal, err := provider.CreatePortalSession(context.Background(), PortalRequest{OrganizationID: 42, CustomerID: "cus_test", IdempotencyKey: "portal-key"})
+	if err != nil || portal.ID != "bps_test" || portal.URL == "" {
+		t.Fatalf("create Stripe portal: session=%#v err=%v", portal, err)
+	}
+	portalRequest, portalBody := <-requests, <-bodies
+	if portalRequest.Header.Get("Idempotency-Key") != "portal-key" || portalBody.Get("customer") != "cus_test" || portalBody.Get("return_url") != "https://crm.example.test/settings/billing" {
+		t.Fatalf("unexpected portal request: headers=%#v body=%#v", portalRequest.Header, portalBody)
+	}
+}
+
+func TestStripeProviderVerifiesSignedWebhookAndRejectsReplayWindow(t *testing.T) {
+	t.Parallel()
+	provider := newStripeProvider(ProviderConfig{SecretKey: "sk_test_secret", WebhookSecret: "whsec_test"})
+	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
+	provider.now = func() time.Time { return now }
+	payload := []byte(`{"id":"evt_123","type":"customer.subscription.updated","created":1784462400,"livemode":false,"data":{"object":{"id":"sub_123"}}}`)
+	signature := stripeTestSignature(payload, now.Unix(), "whsec_test")
+	event, err := provider.ParseWebhook(payload, signature)
+	if err != nil || event.ID != "evt_123" || event.Type != "customer.subscription.updated" {
+		t.Fatalf("verify Stripe webhook: event=%#v err=%v", event, err)
+	}
+	if _, err := provider.ParseWebhook(payload, stripeTestSignature(payload, now.Add(-6*time.Minute).Unix(), "whsec_test")); !errors.Is(err, ErrInvalidWebhook) {
+		t.Fatalf("expected stale webhook rejection, got %v", err)
+	}
+	if _, err := provider.ParseWebhook(payload, stripeTestSignature(payload, now.Unix(), "wrong-secret")); !errors.Is(err, ErrInvalidWebhook) {
+		t.Fatalf("expected invalid signature rejection, got %v", err)
+	}
+	livePayload := []byte(`{"id":"evt_live","type":"customer.subscription.updated","created":1784462400,"livemode":true,"data":{"object":{"id":"sub_123"}}}`)
+	if _, err := provider.ParseWebhook(livePayload, stripeTestSignature(livePayload, now.Unix(), "whsec_test")); !errors.Is(err, ErrInvalidWebhook) {
+		t.Fatalf("expected test/live mode mismatch rejection, got %v", err)
+	}
+}
+
+func stripeTestSignature(payload []byte, timestamp int64, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = io.WriteString(mac, fmt.Sprintf("%d.", timestamp))
+	_, _ = mac.Write(payload)
+	return fmt.Sprintf("t=%d,v1=%s", timestamp, hex.EncodeToString(mac.Sum(nil)))
 }
 
 func TestBuildSubscriptionTrialDaysLeft(t *testing.T) {
@@ -92,6 +184,18 @@ func TestCheckWritable(t *testing.T) {
 		if c.wantErr && !errors.Is(err, ErrSubscriptionInactive) {
 			t.Errorf("%s: expected ErrSubscriptionInactive, got %v", c.name, err)
 		}
+	}
+	if err := checkWritable("past_due", nil, "unpaid"); !errors.Is(err, ErrSubscriptionInactive) {
+		t.Errorf("Stripe unpaid state should suspend writes, got %v", err)
+	}
+	if err := checkWritable("trialing", nil, "incomplete"); !errors.Is(err, ErrSubscriptionInactive) {
+		t.Errorf("Stripe incomplete state should suspend writes, got %v", err)
+	}
+}
+
+func TestMapStripeSubscriptionStatusPreservesProviderTrial(t *testing.T) {
+	if got := mapStripeSubscriptionStatus("trialing", "customer.subscription.updated"); got != "trialing" {
+		t.Fatalf("trialing provider state mapped to %q", got)
 	}
 }
 

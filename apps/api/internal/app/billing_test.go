@@ -16,17 +16,27 @@ import (
 )
 
 type fakeBillingService struct {
-	result          modulebilling.Entitlements
-	err             error
-	lastOrgID       int64
-	changeResult    modulebilling.Entitlements
-	changeErr       error
-	lastChangeOrgID int64
-	lastChangePlan  string
-	enforceErr      error
-	lastEnforce     string
-	writableErr     error
-	writableChecked bool
+	result           modulebilling.Entitlements
+	err              error
+	lastOrgID        int64
+	changeResult     modulebilling.Entitlements
+	changeErr        error
+	lastChangeOrgID  int64
+	lastChangePlan   string
+	enforceErr       error
+	lastEnforce      string
+	writableErr      error
+	writableChecked  bool
+	checkoutResult   modulebilling.HostedSession
+	checkoutErr      error
+	checkoutInput    modulebilling.CheckoutInput
+	portalResult     modulebilling.HostedSession
+	portalErr        error
+	portalOrgID      int64
+	webhookResult    modulebilling.WebhookResult
+	webhookErr       error
+	webhookPayload   []byte
+	webhookSignature string
 }
 
 func (f *fakeBillingService) Entitlements(_ context.Context, organizationID int64) (modulebilling.Entitlements, error) {
@@ -48,6 +58,22 @@ func (f *fakeBillingService) EnforceCanCreate(_ context.Context, _ int64, resour
 func (f *fakeBillingService) EnforceWritable(_ context.Context, _ int64) error {
 	f.writableChecked = true
 	return f.writableErr
+}
+
+func (f *fakeBillingService) CreateCheckoutSession(_ context.Context, input modulebilling.CheckoutInput) (modulebilling.HostedSession, error) {
+	f.checkoutInput = input
+	return f.checkoutResult, f.checkoutErr
+}
+
+func (f *fakeBillingService) CreatePortalSession(_ context.Context, organizationID int64) (modulebilling.HostedSession, error) {
+	f.portalOrgID = organizationID
+	return f.portalResult, f.portalErr
+}
+
+func (f *fakeBillingService) HandleWebhook(_ context.Context, payload []byte, signature string) (modulebilling.WebhookResult, error) {
+	f.webhookPayload = append([]byte(nil), payload...)
+	f.webhookSignature = signature
+	return f.webhookResult, f.webhookErr
 }
 
 func authenticatedBillingServer(service *fakeBillingService) http.Handler {
@@ -214,6 +240,109 @@ func TestChangePlanInvalidPlanReturns400(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+}
+
+func TestChangePlanStripeRequiresHostedCheckout(t *testing.T) {
+	service := &fakeBillingService{changeErr: modulebilling.ErrCheckoutRequired}
+	server := authenticatedBillingServer(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/billing/change-plan", bytes.NewBufferString(`{"plan":"pro"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"BILLING_CHECKOUT_REQUIRED"`)) {
+		t.Fatalf("Stripe direct plan change mapping: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestCreateCheckoutSessionScopesOwnerAndRetryKey(t *testing.T) {
+	service := &fakeBillingService{checkoutResult: modulebilling.HostedSession{ID: "cs_test", URL: "https://checkout.stripe.test/session"}}
+	server := authenticatedBillingServer(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/billing/checkout-session", bytes.NewBufferString(`{"plan":"pro","idempotencyKey":"checkout-request-123"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, recorder.Code, recorder.Body.String())
+	}
+	if service.checkoutInput.OrganizationID != 42 || service.checkoutInput.ActorUserID != 1 || service.checkoutInput.Plan != "pro" || service.checkoutInput.IdempotencyKey != "checkout-request-123" {
+		t.Fatalf("unexpected checkout input: %#v", service.checkoutInput)
+	}
+	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"url":"https://checkout.stripe.test/session"`)) {
+		t.Fatalf("unexpected checkout response: %s", recorder.Body.String())
+	}
+}
+
+func TestHostedBillingRejectsMemberAndMapsProviderErrors(t *testing.T) {
+	memberService := &fakeBillingService{}
+	memberServer := authenticatedBillingServerWithRole(memberService, "member")
+	memberRequest := httptest.NewRequest(http.MethodPost, "/api/billing/checkout-session", bytes.NewBufferString(`{"plan":"pro","idempotencyKey":"checkout-request-123"}`))
+	memberRequest.Header.Set("Content-Type", "application/json")
+	addSessionCookie(memberRequest)
+	memberRecorder := httptest.NewRecorder()
+	memberServer.ServeHTTP(memberRecorder, memberRequest)
+	if memberRecorder.Code != http.StatusForbidden || memberService.checkoutInput.OrganizationID != 0 {
+		t.Fatalf("member checkout should be forbidden: status=%d input=%#v", memberRecorder.Code, memberService.checkoutInput)
+	}
+
+	errorServer := authenticatedBillingServer(&fakeBillingService{checkoutErr: modulebilling.ErrBillingUnavailable})
+	errorRequest := httptest.NewRequest(http.MethodPost, "/api/billing/checkout-session", bytes.NewBufferString(`{"plan":"pro","idempotencyKey":"checkout-request-123"}`))
+	errorRequest.Header.Set("Content-Type", "application/json")
+	addSessionCookie(errorRequest)
+	errorRecorder := httptest.NewRecorder()
+	errorServer.ServeHTTP(errorRecorder, errorRequest)
+	if errorRecorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected unavailable checkout status, got %d: %s", errorRecorder.Code, errorRecorder.Body.String())
+	}
+}
+
+func TestCreatePortalSessionScopesCurrentOrganization(t *testing.T) {
+	service := &fakeBillingService{portalResult: modulebilling.HostedSession{ID: "bps_test", URL: "https://billing.stripe.test/portal"}}
+	server := authenticatedBillingServer(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/billing/portal-session", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated || service.portalOrgID != 42 {
+		t.Fatalf("unexpected portal result: status=%d org=%d body=%s", recorder.Code, service.portalOrgID, recorder.Body.String())
+	}
+}
+
+func TestStripeWebhookIsPublicBoundedAndReturnsIdempotencyResult(t *testing.T) {
+	service := &fakeBillingService{webhookResult: modulebilling.WebhookResult{EventID: "evt_123", Applied: true, Duplicate: true}}
+	server := authenticatedBillingServer(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/billing/webhooks/stripe", bytes.NewBufferString(`{"id":"evt_123"}`))
+	request.Header.Set("Stripe-Signature", "t=123,v1=signature")
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || service.webhookSignature != "t=123,v1=signature" || string(service.webhookPayload) != `{"id":"evt_123"}` {
+		t.Fatalf("unexpected webhook result: status=%d signature=%q payload=%s body=%s", recorder.Code, service.webhookSignature, service.webhookPayload, recorder.Body.String())
+	}
+	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"duplicate":true`)) {
+		t.Fatalf("webhook idempotency result missing: %s", recorder.Body.String())
+	}
+}
+
+func TestStripeWebhookRejectsInvalidSignatureAndOversizedPayload(t *testing.T) {
+	invalidService := &fakeBillingService{webhookErr: modulebilling.ErrInvalidWebhook}
+	invalidServer := authenticatedBillingServer(invalidService)
+	invalidRequest := httptest.NewRequest(http.MethodPost, "/api/billing/webhooks/stripe", bytes.NewBufferString(`{"id":"evt_invalid"}`))
+	invalidRecorder := httptest.NewRecorder()
+	invalidServer.ServeHTTP(invalidRecorder, invalidRequest)
+	if invalidRecorder.Code != http.StatusBadRequest || !bytes.Contains(invalidRecorder.Body.Bytes(), []byte(`"code":"INVALID_WEBHOOK_SIGNATURE"`)) {
+		t.Fatalf("invalid webhook signature mapping: status=%d body=%s", invalidRecorder.Code, invalidRecorder.Body.String())
+	}
+
+	oversizedService := &fakeBillingService{}
+	oversizedServer := authenticatedBillingServer(oversizedService)
+	oversizedRequest := httptest.NewRequest(http.MethodPost, "/api/billing/webhooks/stripe", bytes.NewReader(bytes.Repeat([]byte("x"), maxBillingWebhookBytes+1)))
+	oversizedRecorder := httptest.NewRecorder()
+	oversizedServer.ServeHTTP(oversizedRecorder, oversizedRequest)
+	if oversizedRecorder.Code != http.StatusBadRequest || oversizedService.webhookPayload != nil {
+		t.Fatalf("oversized webhook was not rejected before service: status=%d payload=%d", oversizedRecorder.Code, len(oversizedService.webhookPayload))
 	}
 }
 

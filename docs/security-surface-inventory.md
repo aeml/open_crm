@@ -2,9 +2,9 @@
 
 Audit date: 2026-07-19
 
-Registered route count: `196`
+Registered route count: `199`
 
-Registered route digest: `46ad7d34ff7fe4bee5bd2696fd15768998648cc8da16f105ea8735ad60789ee6`
+Registered route digest: `6049155ae8121dede301daae2c7ef9e1297149e7dd91ef1f15270506a36bdb27`
 
 This is the Phase 0 map for every HTTP route and continuously running background operation. The route count and digest are derived from the `http.ServeMux` registrations in `apps/api/internal/app/app.go`; a backend test fails when that set changes so a new or renamed route cannot silently bypass this review.
 
@@ -18,7 +18,7 @@ This is the Phase 0 map for every HTTP route and continuously running background
 | Admin | `requireOrgAdmin`: owner and admin may proceed; member/viewer receive `403`. |
 | Session tenant | The handler passes the organization ID from the server-side session. Resource services must include it in SQL predicates; callers cannot select an organization ID. |
 | Token tenant | A public identifier or token resolves the organization/resource in the service. Invalid or cross-resource tokens do not expose tenant data. |
-| Plan create | The route checks both subscription writability and the named seat/record limit. This currently uses the fake billing provider and is not commercial SaaS enforcement. |
+| Plan create | The route checks both subscription writability and the named seat/record limit. State may come from the fake provider or signed Stripe events, but enforcement is still limited to named create paths rather than centralized commercial SaaS policy. |
 | Request telemetry | Request ID and structured completion logs plus bounded-route Prometheus counters/histograms are emitted by global middleware. Metrics never label tenants, record IDs, addresses, or request bodies. |
 
 Unless a row says otherwise, private routes have no endpoint-specific rate limit; they rely on the authenticated session, CSRF/origin checks for unsafe methods, the 1 MiB JSON body limit (2 MiB import upload), server timeouts, and global request telemetry. This is a map of current behavior, not a claim that every control is sufficient.
@@ -46,7 +46,9 @@ Selectors below are mutually scoped by method and path. Braced names are Go `Ser
 | `GET /api/admin/background-jobs`; `POST /api/admin/background-jobs/{jobID}/replay`, `/resolve-sequence-delivery` | Admin | Session tenant plus tenant-scoped job claim/update | None | Private defaults; replay is state-checked/idempotent | Request telemetry, audit event on recovery, structured worker logs, operator UI | `background_jobs_test.go`, job/sequence PostgreSQL tests |
 | `GET /api/billing/plans` | Member | Plans are global/static | None | Private defaults | Request telemetry | `billing_test.go` |
 | `GET /api/billing/entitlements` | Member | Session tenant | None | Private defaults | Request telemetry | `billing_test.go` |
-| `POST /api/billing/change-plan` | Admin | Session tenant | Fake-provider plan mutation; no Stripe | Private defaults | Request telemetry plus audit event | `billing_test.go` covers roles and errors |
+| `POST /api/billing/change-plan` | Admin | Session tenant | Fake-provider plan mutation for self-host/development; Stripe mode rejects direct activation and requires Checkout | Private defaults | Request telemetry plus audit event | `billing_test.go` covers roles and errors |
+| `POST /api/billing/checkout-session`, `POST /api/billing/portal-session` | Admin | Session tenant; server supplies organization/customer metadata and owner email | Paid plans require a configured Stripe price; no plan/status changes occur from the browser redirect | Private defaults; durable request fingerprint and Stripe idempotency key for Checkout | Request/provider telemetry; durable checkout attempt ledger | Handler tests plus Stripe HTTP-contract and disposable-PostgreSQL lifecycle acceptance |
+| `POST /api/billing/webhooks/stripe` | Public; raw-body Stripe HMAC signature and five-minute replay window required | Signed provider references resolve one organization; mismatched metadata/customer/subscription fail closed | Webhook subscription/invoice state is authoritative | 1 MiB raw body; 120/client/minute; provider event ID and payload hash are durable/idempotent | Request telemetry, webhook receipt/failure ledger, invoice records, and subscription/payment audit events | Signature/HTTP handler tests plus duplicate, tamper, ordering, cross-tenant, subscription, and invoice PostgreSQL acceptance |
 | Email templates/snippets: collection `GET`, `POST`; item `PATCH`, `DELETE`; `GET /api/email-templates/merge-fields` | Member read; Writer mutation | Session tenant and tenant-scoped item SQL | None | Private defaults | Request telemetry | `email_templates_test.go` includes handler/role/error paths; newer item paths need broader explicit cross-tenant cases |
 | Product catalog: collection `GET`, `POST`; item `PATCH`, `DELETE` | Member read; Writer mutation | Session tenant and tenant-scoped item SQL | None | Private defaults | Request telemetry | `product_catalog_test.go`; explicit cross-tenant handler coverage is incomplete |
 | Lead capture forms, landing pages, and chat widgets under authenticated `/api/lead-*`: collection `GET`, `POST`; item `PATCH` | Member read; Admin mutation | Session tenant and tenant-scoped item SQL | None | Private defaults | Request telemetry | `lead_forms_test.go` covers handlers/roles/public IDs; explicit cross-tenant matrix is incomplete |
@@ -101,7 +103,7 @@ Database migrations execute as an explicit deploy/startup command, not as an unb
 ## Findings that constrain maturity claims
 
 - Authentication and role helpers are consistent, but explicit forbidden-role and cross-tenant handler tests are concentrated in the core CRM. Newer Part II foundations need a systematic negative-path matrix before promotion.
-- Hosted entitlement enforcement currently covers only seat, contact, and deal creation. It is neither centralized across all writes/workers nor backed by Stripe, so hosted SaaS remains a foundation.
+- Hosted entitlement enforcement currently covers only seat, contact, and deal creation. Signed Stripe status now drives these checks, but policy is not centralized across all writes/workers, so hosted SaaS remains a foundation.
 - Private endpoints have no per-tenant/session request budget. Public limits are process-local and do not coordinate across replicas. Before a horizontally scaled hosted pilot, move abuse counters to shared storage or the edge and add bot/consent controls to lead submission.
 - Global logs provide request correlation; protected time-series request/database/provider/job/backup metrics and reference alert rules now exist. Production scrape credentials, an alert destination, redaction verification, SLO validation, and retention policies remain operator/pilot work.
 - Sensitive writes are not uniformly represented in audit events. Each converged feature slice must add audit coverage before its maturity is promoted.

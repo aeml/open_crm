@@ -18,6 +18,25 @@ export async function changePlan(plan, { signal } = {}) {
   return payload?.data?.entitlements || null
 }
 
+export async function createCheckoutSession(plan, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest('/api/billing/checkout-session', {
+    method: 'POST',
+    body: { plan, idempotencyKey },
+    fallbackMessage: 'Unable to open secure checkout.',
+    signal
+  })
+  return payload?.data || null
+}
+
+export async function createBillingPortalSession({ signal } = {}) {
+  const payload = await apiRequest('/api/billing/portal-session', {
+    method: 'POST',
+    fallbackMessage: 'Unable to open the billing portal.',
+    signal
+  })
+  return payload?.data || null
+}
+
 const featureLabels = {
   saved_views: 'Saved views',
   csv_import: 'CSV import',
@@ -61,6 +80,9 @@ export function trialBanner(subscription) {
   if (!subscription) {
     return ''
   }
+  if (subscription.suspended) {
+    return 'Your hosted subscription is suspended. Use the billing portal to resolve payment or subscription status.'
+  }
   if (subscription.inTrial) {
     const days = subscription.trialDaysLeft
     return `${days} day${days === 1 ? '' : 's'} left in your trial`
@@ -73,6 +95,10 @@ export function trialBanner(subscription) {
   }
   if (subscription.status === 'canceled') {
     return 'Your subscription is canceled.'
+  }
+  if (subscription.cancelAtPeriodEnd) {
+    const ending = subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd).toLocaleDateString() : 'the current period end'
+    return `Your subscription is scheduled to cancel on ${ending}.`
   }
   return ''
 }

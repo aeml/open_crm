@@ -22,6 +22,22 @@ import (
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
+type organizationProfileResponse struct {
+	Data struct {
+		Profile moduleorgprofile.Detail `json:"profile"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type dashboardSummaryResponse struct {
+	Data moduledashboard.Summary `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 func handleListNotes(auth authService, notes notesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgMember(auth, w, r)
