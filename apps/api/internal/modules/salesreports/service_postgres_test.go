@@ -98,14 +98,14 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 	if _, err := dealsService.UpdateStage(ctx, organizationID, dealA.Summary.ID, ownerAID, moduledeals.UpdateStageInput{StageID: stageIDs["Proposal"]}); err != nil {
 		t.Fatalf("move owner A deal forward: %v", err)
 	}
-	if _, err := dealsService.UpdateStage(ctx, organizationID, dealA.Summary.ID, ownerAID, moduledeals.UpdateStageInput{StageID: stageIDs["Won"]}); err != nil {
+	if _, err := dealsService.UpdateStage(ctx, organizationID, dealA.Summary.ID, ownerAID, moduledeals.UpdateStageInput{StageID: stageIDs["Won"], CloseReasonCode: "solution_fit", CloseNotes: "Clear implementation plan."}); err != nil {
 		t.Fatalf("win owner A deal: %v", err)
 	}
 	dealB, err := dealsService.Create(ctx, organizationID, ownerBID, moduledeals.CreateInput{Name: "Expansion B", StageID: stageIDs["Proposal"], OwnerUserID: ownerBID})
 	if err != nil {
 		t.Fatalf("create owner B deal: %v", err)
 	}
-	if _, err := dealsService.UpdateStage(ctx, organizationID, dealB.Summary.ID, ownerBID, moduledeals.UpdateStageInput{StageID: stageIDs["Lost"]}); err != nil {
+	if _, err := dealsService.UpdateStage(ctx, organizationID, dealB.Summary.ID, ownerBID, moduledeals.UpdateStageInput{StageID: stageIDs["Lost"], CloseReasonCode: "competitor", CloseNotes: "Incumbent retained."}); err != nil {
 		t.Fatalf("lose owner B deal: %v", err)
 	}
 	dealC, err := dealsService.Create(ctx, organizationID, ownerAID, moduledeals.CreateInput{Name: "Expansion C", StageID: stageIDs["Proposal"], OwnerUserID: ownerAID})
@@ -163,12 +163,15 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 	if err != nil {
 		t.Fatalf("load sales activity report: %v", err)
 	}
-	if report.HistoryComplete || report.CoverageStartedAt.IsZero() || report.OwnerFilterMeaning == "" || report.OutcomeMeaning == "" || report.StageConversionMeaning == "" {
+	if report.HistoryComplete || report.CloseReasonHistoryComplete || report.CoverageStartedAt.IsZero() || report.CloseReasonCoverageStartedAt.IsZero() || report.OwnerFilterMeaning == "" || report.OutcomeMeaning == "" || report.CloseReasonMeaning == "" || report.StageConversionMeaning == "" {
 		t.Fatalf("missing honest report coverage or definitions: %#v", report)
 	}
 	wantTotals := modulesalesreports.Totals{DealsCreated: 3, StageMoves: 4, DealsWon: 1, DealsLost: 1, ClosedOutcomes: 2, WinRatePercent: "50.0", NotesAdded: 1, TasksCreated: 1, TasksCompleted: 1}
 	if report.Totals != wantTotals {
 		t.Fatalf("unexpected report totals: got=%#v want=%#v", report.Totals, wantTotals)
+	}
+	if len(report.CloseReasons) != 2 || closeReasonCount(report, "won", "solution_fit") != 1 || closeReasonCount(report, "lost", "competitor") != 1 {
+		t.Fatalf("unexpected close reason summaries: %#v", report.CloseReasons)
 	}
 	if len(report.Owners) != 2 || salesOwner(t, report, ownerAID).DealsCreated != 2 || salesOwner(t, report, ownerAID).StageMoves != 3 || salesOwner(t, report, ownerAID).DealsWon != 1 || salesOwner(t, report, ownerAID).TasksCreated != 1 || salesOwner(t, report, ownerAID).TasksCompleted != 1 {
 		t.Fatalf("unexpected owner A report: %#v", report.Owners)
@@ -188,6 +191,15 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 		if event.DealName == "Foreign hidden deal" || event.ToPipelineName == "Renamed sales" || event.ToStageName == "Qualified later" || event.DealName == "Expansion A renamed" {
 			t.Fatalf("mutable live data leaked into immutable event history: %#v", event)
 		}
+	}
+	closedContextFound := false
+	for _, event := range report.DealEvents {
+		if event.CloseReasonLabel == "Best solution fit" && event.CloseNotes == "Clear implementation plan." {
+			closedContextFound = true
+		}
+	}
+	if !closedContextFound {
+		t.Fatalf("closed event context missing from durable event snapshots: %#v", report.DealEvents)
 	}
 
 	filtered, err := service.Activity(ctx, organizationID, modulesalesreports.Query{OwnerUserID: ownerBID})
@@ -221,6 +233,15 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 	`, organizationID).Scan(&eventCount, &linkedActivityCount); err != nil || eventCount != 7 || linkedActivityCount != 7 {
 		t.Fatalf("stage event ledger lost activity linkage: events=%d linked=%d err=%v", eventCount, linkedActivityCount, err)
 	}
+}
+
+func closeReasonCount(report modulesalesreports.Report, outcome, code string) int {
+	for _, reason := range report.CloseReasons {
+		if reason.Outcome == outcome && reason.ReasonCode == code {
+			return reason.Count
+		}
+	}
+	return 0
 }
 
 func salesOwner(t *testing.T, report modulesalesreports.Report, userID int64) modulesalesreports.OwnerSummary {

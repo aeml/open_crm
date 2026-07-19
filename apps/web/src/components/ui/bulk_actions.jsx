@@ -7,7 +7,6 @@ import { Field } from './field'
 export const bulkStatusOptions = {
   contact: [{ value: 'lead', label: 'Lead' }, { value: 'prospect', label: 'Prospect' }, { value: 'customer', label: 'Customer' }],
   company: [{ value: 'lead', label: 'Lead' }, { value: 'prospect', label: 'Prospect' }, { value: 'customer', label: 'Customer' }],
-  deal: [{ value: 'open', label: 'Open' }, { value: 'won', label: 'Won' }, { value: 'lost', label: 'Lost' }],
   task: [{ value: 'open', label: 'Open' }, { value: 'completed', label: 'Completed' }]
 }
 
@@ -117,7 +116,7 @@ export function BulkActions({ entityType, selectedIds, visibleIds, onSelectionCh
         <Field label="Bulk change">
           <select className="text-input" value={action} onChange={(event) => setAction(event.target.value)}>
             <option value="reassign">Reassign owner</option>
-            <option value="set_status">Change status</option>
+            {statuses.length > 0 ? <option value="set_status">Change status</option> : null}
             <option value="archive">Archive</option>
           </select>
         </Field>
@@ -145,7 +144,8 @@ export function BulkActions({ entityType, selectedIds, visibleIds, onSelectionCh
             {operations === null ? <p className="field-hint">Loading recent changes...</p> : operations.length === 0 ? <p className="field-hint">No bulk changes recorded yet.</p> : operations.map((operation) => (
               <article className="record-row" key={operation.id} role="listitem">
                 <div><p>{operationLabel(operation)}</p><p className="field-hint">{operationOutcome(operation)} · {operationTime(operation.createdAt)}</p></div>
-                {operation.status === 'completed' ? <Button className="button-secondary" type="button" onClick={() => handleRollback(operation)} disabled={rollingBackId === operation.id}>{rollingBackId === operation.id ? 'Undoing...' : 'Undo'}</Button> : null}
+                {operation.status === 'completed' && !(entityType === 'deal' && operation.action === 'set_status') ? <Button className="button-secondary" type="button" onClick={() => handleRollback(operation)} disabled={rollingBackId === operation.id}>{rollingBackId === operation.id ? 'Undoing...' : 'Undo'}</Button> : null}
+                {entityType === 'deal' && operation.action === 'set_status' ? <span className="chip">Use a stage transition</span> : null}
               </article>
             ))}
           </div>

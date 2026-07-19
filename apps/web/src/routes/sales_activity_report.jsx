@@ -128,6 +128,11 @@ export function SalesActivityReport() {
                 ? `Complete event coverage for this window. Tracking began ${formatTimestamp(report.coverageStartedAt)}.`
                 : `Partial event history: tracking began ${formatTimestamp(report.coverageStartedAt)}. Deal events before that moment are not inferred.`}
             </p>
+            <p className={report.closeReasonHistoryComplete ? 'inline-note' : 'inline-note sales-report-coverage-warning'}>
+              {report.closeReasonHistoryComplete
+                ? `Complete close-reason coverage for this window. Tracking began ${formatTimestamp(report.closeReasonCoverageStartedAt)}.`
+                : `Partial close-reason history: tracking began ${formatTimestamp(report.closeReasonCoverageStartedAt)}. Earlier outcomes are labeled not captured.`}
+            </p>
             <div className="sales-report-metrics" role="list" aria-label="Sales activity totals">
               {metrics.map(([label, value]) => (
                 <div className="sales-report-metric" role="listitem" key={label}>
@@ -137,6 +142,20 @@ export function SalesActivityReport() {
               ))}
             </div>
             <p className="field-hint">{report.outcomeMeaning}</p>
+            <div className="card-stack">
+              <div>
+                <h3>Win/loss reasons</h3>
+                <p className="field-hint">{report.closeReasonMeaning}</p>
+              </div>
+              <div className="record-list" role="list" aria-label="Win and loss reasons">
+                {(report.closeReasons || []).length === 0 ? <article className="record-row" role="listitem"><p>No closed outcomes in this window.</p></article> : report.closeReasons.map((reason) => (
+                  <article className="record-row" role="listitem" key={`${reason.outcome}-${reason.reasonCode}`}>
+                    <div><h4>{reason.reasonLabel}</h4><p>{reason.outcome === 'won' ? 'Won' : 'Lost'} outcomes</p></div>
+                    <span className="chip">{metricValue(reason.count)}</span>
+                  </article>
+                ))}
+              </div>
+            </div>
             <div className="card-stack">
               <div>
                 <h3>By teammate</h3>
@@ -183,6 +202,7 @@ export function SalesActivityReport() {
                     <div>
                       <h4><Link to={`/deals/${event.dealId}`}>{event.dealName}</Link></h4>
                       <p>{eventSummary(event)} · now {outcomeLabel(event.toStageOutcome)}</p>
+                      {event.closeReasonLabel ? <p>{event.closeReasonLabel}{event.closeNotes ? ` · ${event.closeNotes}` : ''}</p> : null}
                       <p>{event.actorName || 'Unknown actor'} · owner {event.ownerName || 'Unassigned'} · {formatTimestamp(event.occurredAt)}</p>
                     </div>
                   </article>

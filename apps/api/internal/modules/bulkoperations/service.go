@@ -330,7 +330,7 @@ func entityConfiguration(entityType string) (entityConfig, bool) {
 	case "company":
 		return entityConfig{table: "companies", ownerColumn: "owner_user_id", allowedStatuses: statuses}, true
 	case "deal":
-		return entityConfig{table: "deals", ownerColumn: "owner_user_id", allowedStatuses: map[string]bool{"open": true, "won": true, "lost": true}}, true
+		return entityConfig{table: "deals", ownerColumn: "owner_user_id", allowedStatuses: map[string]bool{}}, true
 	case "task":
 		return entityConfig{table: "tasks", ownerColumn: "assigned_to_user_id", hasCompletedAt: true, hasTaskReminders: true, allowedStatuses: map[string]bool{"open": true, "completed": true}}, true
 	default:

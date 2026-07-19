@@ -37,7 +37,7 @@ func loadStageEventSnapshot(ctx context.Context, tx pgx.Tx, organizationID, stag
 	return snapshot, nil
 }
 
-func insertDealStageEvent(ctx context.Context, tx pgx.Tx, organizationID, dealID int64, dealName, eventType string, activityID, actorUserID, ownerUserID int64, from *stageEventSnapshot, to stageEventSnapshot) error {
+func insertDealStageEvent(ctx context.Context, tx pgx.Tx, organizationID, dealID int64, dealName, eventType string, activityID, actorUserID, ownerUserID int64, from *stageEventSnapshot, to stageEventSnapshot, review closeReview) error {
 	var fromPipelineID, fromStageID any
 	var fromPipelineName, fromStageName, fromOutcome any
 	var fromPosition any
@@ -53,12 +53,14 @@ func insertDealStageEvent(ctx context.Context, tx pgx.Tx, organizationID, dealID
 		INSERT INTO deal_stage_events (
 			organization_id,deal_id,deal_name,event_type,activity_id,actor_user_id,owner_user_id,
 			from_pipeline_id,from_pipeline_name,from_stage_id,from_stage_name,from_stage_position,from_stage_outcome,
-			to_pipeline_id,to_pipeline_name,to_stage_id,to_stage_name,to_stage_position,to_stage_outcome
+			to_pipeline_id,to_pipeline_name,to_stage_id,to_stage_name,to_stage_position,to_stage_outcome,
+			close_reason_code,close_reason_label,close_notes
 		)
-		VALUES ($1,$2,$3,$4,$5,NULLIF($6,0),NULLIF($7,0),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		VALUES ($1,$2,$3,$4,$5,NULLIF($6,0),NULLIF($7,0),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
 	`, organizationID, dealID, dealName, eventType, activityID, actorUserID, ownerUserID,
 		fromPipelineID, fromPipelineName, fromStageID, fromStageName, fromPosition, fromOutcome,
-		to.PipelineID, to.PipelineName, to.StageID, to.StageName, to.Position, to.Outcome); err != nil {
+		to.PipelineID, to.PipelineName, to.StageID, to.StageName, to.Position, to.Outcome,
+		review.Code, review.Label, review.Notes); err != nil {
 		return fmt.Errorf("insert deal stage event: %w", err)
 	}
 	return nil

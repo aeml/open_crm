@@ -153,19 +153,29 @@ func TestBulkOperationsAreIdempotentTenantSafeAndChangeAwareAgainstPostgres(t *t
 		t.Fatalf("company rollback did not restore active record: active=%v err=%v", companyActive, err)
 	}
 
-	dealStatus, err := service.Execute(ctx, modulebulkoperations.ExecuteInput{
+	_, err = service.Execute(ctx, modulebulkoperations.ExecuteInput{
 		OrganizationID: organizationID, ActorUserID: ownerID, EntityType: "deal", Action: "set_status", ActionValue: "won",
 		EntityIDs: []int64{dealID}, IdempotencyKey: "bulk-deal-status-001",
 	})
-	if err != nil || dealStatus.ChangedCount != 1 {
-		t.Fatalf("set deal status: operation=%#v err=%v", dealStatus, err)
-	}
-	if _, err := service.Rollback(ctx, organizationID, ownerID, dealStatus.ID); err != nil {
-		t.Fatalf("rollback deal status: %v", err)
+	if !errors.Is(err, modulebulkoperations.ErrInvalidInput) {
+		t.Fatalf("deal outcome must require a stage transition with close context, got %v", err)
 	}
 	var restoredDealStatus string
 	if err := pool.QueryRow(ctx, `SELECT status FROM deals WHERE organization_id = $1 AND id = $2`, organizationID, dealID).Scan(&restoredDealStatus); err != nil || restoredDealStatus != "open" {
-		t.Fatalf("expected restored deal status, status=%q err=%v", restoredDealStatus, err)
+		t.Fatalf("invalid bulk outcome changed deal status, status=%q err=%v", restoredDealStatus, err)
+	}
+	var legacyDealStatusOperationID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO bulk_operations (
+			organization_id,created_by_user_id,entity_type,action,action_value,
+			idempotency_key,request_sha256,target_count,changed_count
+		) VALUES ($1,$2,'deal','set_status','won','legacy-deal-status',repeat('a',64),1,1)
+		RETURNING id
+	`, organizationID, ownerID).Scan(&legacyDealStatusOperationID); err != nil {
+		t.Fatalf("record legacy deal-status operation: %v", err)
+	}
+	if _, err := service.Rollback(ctx, organizationID, ownerID, legacyDealStatusOperationID); !errors.Is(err, modulebulkoperations.ErrConflict) {
+		t.Fatalf("legacy deal-status rollback bypassed stage outcome controls: %v", err)
 	}
 
 	taskStatus, err := service.Execute(ctx, modulebulkoperations.ExecuteInput{
@@ -192,10 +202,10 @@ func TestBulkOperationsAreIdempotentTenantSafeAndChangeAwareAgainstPostgres(t *t
 		t.Fatalf("unexpected entity-filtered bulk history: history=%#v err=%v", contactHistory, err)
 	}
 	var activityCount, auditCount int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE organization_id = $1 AND action LIKE '%.bulk_%'`, organizationID).Scan(&activityCount); err != nil || activityCount != 9 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE organization_id = $1 AND action LIKE '%.bulk_%'`, organizationID).Scan(&activityCount); err != nil || activityCount != 7 {
 		t.Fatalf("expected per-record apply/rollback activity, count=%d err=%v", activityCount, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id = $1 AND event_type IN ('bulk_operation.completed', 'bulk_operation.rolled_back')`, organizationID).Scan(&auditCount); err != nil || auditCount != 8 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id = $1 AND event_type IN ('bulk_operation.completed', 'bulk_operation.rolled_back')`, organizationID).Scan(&auditCount); err != nil || auditCount != 6 {
 		t.Fatalf("expected aggregate bulk audit events, count=%d err=%v", auditCount, err)
 	}
 }

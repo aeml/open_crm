@@ -16,7 +16,9 @@ const defaultPipelines = [
       { id: 1, pipelineId: 1, name: 'Lead', position: 1, isClosed: false, isWon: false },
       { id: 2, pipelineId: 1, name: 'Qualified', position: 2, isClosed: false, isWon: false },
       { id: 3, pipelineId: 1, name: 'Proposal', position: 3, isClosed: false, isWon: false },
-      { id: 4, pipelineId: 1, name: 'Negotiation', position: 4, isClosed: false, isWon: false }
+      { id: 4, pipelineId: 1, name: 'Negotiation', position: 4, isClosed: false, isWon: false },
+      { id: 5, pipelineId: 1, name: 'Closed Won', position: 5, isClosed: true, isWon: true },
+      { id: 6, pipelineId: 1, name: 'Closed Lost', position: 6, isClosed: true, isWon: false }
     ]
   }
 ]
@@ -601,7 +603,7 @@ describe('deals flow', () => {
       }
 
       if (requestURL.pathname.endsWith('/api/deals/12') && method === 'PATCH') {
-        currentDeal = { id: 12, name: 'Bluebird Expansion', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'won', valueAmount: '72000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-14', ownerUserId: 2 }
+        currentDeal = { id: 12, name: 'Bluebird Expansion', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '72000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-14', ownerUserId: 2 }
         return jsonResponse({
           data: {
             deal: currentDeal,
@@ -695,13 +697,17 @@ describe('deals flow', () => {
       }
 
       if (requestURL.pathname.endsWith('/api/deals/12/stage') && method === 'PATCH') {
-        currentDeal = { ...currentDeal, stageId: 3, stageName: 'Proposal' }
+        const input = JSON.parse(options.body)
+        const isWon = input.stageId === 5
+        currentDeal = isWon
+          ? { ...currentDeal, stageId: 5, stageName: 'Closed Won', status: 'won', closeReasonCode: 'solution_fit', closeReasonLabel: 'Best solution fit', closeNotes: 'Strong implementation fit.', closedAt: '2026-07-19T17:00:00Z', closedByUserId: 1, closedByUserName: 'Demo Owner' }
+          : { ...currentDeal, stageId: 3, stageName: 'Proposal', status: 'open' }
         return jsonResponse({
           data: {
             deal: currentDeal,
             signatureRequests,
             activities: [
-              { id: 99, action: 'deal.stage_changed', summary: 'Deal moved to Proposal' }
+              { id: 99, action: 'deal.stage_changed', summary: isWon ? 'Deal moved to Closed Won — won: Best solution fit' : 'Deal moved to Proposal' }
             ]
           }
         })
@@ -835,7 +841,6 @@ describe('deals flow', () => {
     })
 
     fireEvent.change(within(detailForm).getByLabelText(/deal name/i), { target: { value: 'Bluebird Expansion' } })
-    fireEvent.change(within(detailForm).getByLabelText(/status/i), { target: { value: 'won' } })
     fireEvent.change(within(detailForm).getByLabelText(/value amount/i), { target: { value: '72000.00' } })
     fireEvent.change(within(detailForm).getByLabelText(/expected close date/i), { target: { value: '2026-05-14' } })
     fireEvent.change(within(detailForm).getByLabelText(/^owner$/i), { target: { value: '2' } })
@@ -844,12 +849,7 @@ describe('deals flow', () => {
     expect(await screen.findByText(/deal updated/i)).toBeInTheDocument()
     expect(screen.getByText(/time unavailable/i)).toBeInTheDocument()
     expect(screen.getAllByText(/bluebird expansion/i).length).toBeGreaterThan(0)
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12$/), expect.objectContaining({
-        method: 'PATCH',
-        body: expect.stringContaining('"status":"won"')
-      }))
-    })
+    expect(within(detailForm).queryByLabelText(/status/i)).not.toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12$/), expect.objectContaining({
         method: 'PATCH',
@@ -889,6 +889,20 @@ describe('deals flow', () => {
     expect(await screen.findByText(/deal moved to proposal/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/stage$/), expect.objectContaining({ method: 'PATCH' }))
+    })
+
+    fireEvent.change(screen.getByLabelText(/move stage/i), { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText(/won reason/i), { target: { value: 'solution_fit' } })
+    fireEvent.change(screen.getByLabelText(/close notes/i), { target: { value: 'Strong implementation fit.' } })
+    fireEvent.click(screen.getByRole('button', { name: /move to stage/i }))
+
+    expect(await screen.findByRole('heading', { name: /won outcome/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/deal close review/i)).toHaveTextContent(/best solution fit/i)
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/stage$/), expect.objectContaining({
+        method: 'PATCH',
+        body: expect.stringContaining('"closeReasonCode":"solution_fit"')
+      }))
     })
 
     fireEvent.click(screen.getByRole('button', { name: /archive deal/i }))

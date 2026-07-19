@@ -6,7 +6,7 @@ import { Field } from '../components/ui/field'
 import { EmptyState } from '../components/ui/empty_state'
 import { SavedViews } from '../components/ui/saved_views'
 import { InlineError } from '../components/ui/inline_error'
-import { BulkActions, bulkStatusOptions } from '../components/ui/bulk_actions'
+import { BulkActions } from '../components/ui/bulk_actions'
 import { RecordEmailComposer } from '../components/record_email_composer'
 import { archiveDeal, createDeal, createDealSignatureRequest, dealsExportURL, getDeal, listDeals, listDealPipelines, quotePDFURL, replaceDealLineItems, sendDealEmail, updateDeal, updateDealSignatureRequestStatus, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
@@ -35,6 +35,7 @@ import {
   stagesForPipeline
 } from './deal_view'
 import { DealLineItemsCard, DealSignatureCard } from './deal_quote'
+import { CloseReviewFields, DealCloseSummary, emptyCloseReview, stageOutcome } from './deal_close_review'
 import { RecordWorkCards } from './record_work'
 
 const emptyForm = {
@@ -42,11 +43,11 @@ const emptyForm = {
   stageId: '',
   companyId: '',
   primaryContactId: '',
-  status: 'open',
   valueAmount: '',
   valueCurrency: 'USD',
   expectedCloseDate: '',
-  ownerUserId: ''
+  ownerUserId: '',
+  ...emptyCloseReview
 }
 
 const emptyTaskForm = {
@@ -98,6 +99,7 @@ export function DealsRoute() {
   const [userOptions, setUserOptions] = useState([])
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [selectedStageId, setSelectedStageId] = useState('')
+  const [stageCloseReview, setStageCloseReview] = useState(emptyCloseReview)
   const [notes, setNotes] = useState([])
   const [tasks, setTasks] = useState([])
   const [noteBody, setNoteBody] = useState('')
@@ -230,6 +232,8 @@ export function DealsRoute() {
   }, [initialCloseFrom, initialCloseTo, initialCompanyId, initialOwnerFilter, initialPipelineFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
 
   const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
+  const createStage = stages.find((stage) => String(stage.id) === String(form.stageId))
+  const moveStage = stages.find((stage) => String(stage.id) === String(selectedStageId))
   const dealEmailRecipients = useMemo(() => {
     if (!selectedDeal?.primaryContactId) {
       return []
@@ -254,6 +258,7 @@ export function DealsRoute() {
         if (selectedDealId) {
           setSelectedDealId(null)
           setSelectedStageId('')
+          setStageCloseReview(emptyCloseReview)
           setNotes([])
           setTasks([])
           setActivities([])
@@ -387,11 +392,12 @@ export function DealsRoute() {
         stageId: Number.parseInt(form.stageId, 10),
         companyId: Number.parseInt(form.companyId, 10) || 0,
         primaryContactId: Number.parseInt(form.primaryContactId, 10) || 0,
-        status: form.status,
         valueAmount: form.valueAmount,
         valueCurrency: form.valueCurrency,
         expectedCloseDate: form.expectedCloseDate,
-        ownerUserId: Number.parseInt(form.ownerUserId, 10) || 0
+        ownerUserId: Number.parseInt(form.ownerUserId, 10) || 0,
+        closeReasonCode: form.closeReasonCode,
+        closeNotes: form.closeNotes
       })
       const taskData = await listTasks({ status: 'open', entityType: 'deal', entityId: data.deal.id })
       setDeals((current) => [...current, data.deal])
@@ -411,7 +417,8 @@ export function DealsRoute() {
       setMeta((current) => ({
         ...current,
         total: current.total + 1,
-        openCount: current.openCount + 1
+        openCount: current.openCount + (data.deal.status === 'open' ? 1 : 0),
+        wonCount: current.wonCount + (data.deal.status === 'won' ? 1 : 0)
       }))
       setForm((current) => ({ ...emptyForm, stageId: current.stageId || form.stageId || (filteredStages[0] ? String(filteredStages[0].id) : stages[0] ? String(stages[0].id) : '') }))
       navigate(buildDealsPath(data.deal.id))
@@ -426,10 +433,27 @@ export function DealsRoute() {
       return
     }
 
+    const nextOutcome = stageOutcome(moveStage)
+    if ((nextOutcome === 'won' || nextOutcome === 'lost') && !stageCloseReview.closeReasonCode) {
+      setError(`Choose a ${nextOutcome} reason before closing this deal.`)
+      return
+    }
+
     try {
-      const data = await updateDealStage(selectedDealId, Number.parseInt(selectedStageId, 10))
+      const previousStatus = selectedDeal?.status || 'open'
+      const data = await updateDealStage(selectedDealId, {
+        stageId: Number.parseInt(selectedStageId, 10),
+        closeReasonCode: stageCloseReview.closeReasonCode,
+        closeNotes: stageCloseReview.closeNotes
+      })
       setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
+      setMeta((current) => ({
+        ...current,
+        openCount: current.openCount + (data.deal.status === 'open' ? 1 : 0) - (previousStatus === 'open' ? 1 : 0),
+        wonCount: current.wonCount + (data.deal.status === 'won' ? 1 : 0) - (previousStatus === 'won' ? 1 : 0)
+      }))
       setSelectedStageId(String(data.deal.stageId))
+      setStageCloseReview(emptyCloseReview)
       setDetailForm(dealFormValues(data.deal))
       setActivities(data.activities || [])
       setLineItems(data.lineItems || [])
@@ -444,6 +468,7 @@ export function DealsRoute() {
   async function handleSelectDeal(deal, { signal } = {}) {
     setSelectedDealId(deal.id)
     setSelectedStageId(String(deal.stageId))
+    setStageCloseReview(emptyCloseReview)
     setDetailForm(dealFormValues(deal))
     setActivities([])
     setLineItems([])
@@ -494,7 +519,6 @@ export function DealsRoute() {
         name: detailForm.name,
         companyId: Number.parseInt(detailForm.companyId, 10) || 0,
         primaryContactId: Number.parseInt(detailForm.primaryContactId, 10) || 0,
-        status: detailForm.status,
         valueAmount: detailForm.valueAmount,
         valueCurrency: detailForm.valueCurrency,
         expectedCloseDate: detailForm.expectedCloseDate,
@@ -527,6 +551,7 @@ export function DealsRoute() {
       }))
       setSelectedDealId(null)
       setSelectedStageId('')
+      setStageCloseReview(emptyCloseReview)
       setDetailForm(emptyForm)
       setNotes([])
       setTasks([])
@@ -811,7 +836,7 @@ export function DealsRoute() {
           {error ? (
             <InlineError message={error} onRetry={() => reloadDeals(search, pipelineFilter, stageFilter, ownerFilter)} retryLabel={`Retry ${labels.showingLabel}`} />
           ) : null}
-          {canWrite ? <BulkActions entityType="deal" selectedIds={selectedDealIds} visibleIds={deals.map((deal) => deal.id)} onSelectionChange={setSelectedDealIds} onChanged={() => reloadDeals(search, pipelineFilter, stageFilter, ownerFilter)} statuses={bulkStatusOptions.deal} userOptions={userOptions} /> : null}
+          {canWrite ? <BulkActions entityType="deal" selectedIds={selectedDealIds} visibleIds={deals.map((deal) => deal.id)} onSelectionChange={setSelectedDealIds} onChanged={() => reloadDeals(search, pipelineFilter, stageFilter, ownerFilter)} statuses={[]} userOptions={userOptions} /> : null}
           <div className="record-list" role="list" aria-label={labels.listAria}>
             {!isListLoading && deals.length === 0 ? (
               <EmptyState
@@ -864,12 +889,13 @@ export function DealsRoute() {
                 <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
               </Field>
               <Field label="Stage">
-                <select className="text-input" value={form.stageId} onChange={(event) => setForm((current) => ({ ...current, stageId: event.target.value }))}>
+                <select className="text-input" value={form.stageId} onChange={(event) => setForm((current) => ({ ...current, stageId: event.target.value, ...emptyCloseReview }))}>
                   {filteredStages.map((stage) => (
                     <option key={stage.id} value={stage.id}>{stageLabel(stage, pipelineFilter)}</option>
                   ))}
                 </select>
               </Field>
+              <CloseReviewFields outcome={stageOutcome(createStage)} value={form} onChange={setForm} />
               <Field label={labels.companyLabel}>
                 <select className="text-input" value={form.companyId} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}>
                   <option value="">{labels.companyEmpty}</option>
@@ -926,6 +952,7 @@ export function DealsRoute() {
                 ) : null}
               </div>
             </div>
+            <DealCloseSummary deal={selectedDeal} />
             <form className="auth-form" aria-label="Deal details form" onSubmit={handleUpdate}>
               <Field label={`${labels.singular} name`}>
                 <input className="text-input" value={detailForm.name} onChange={(event) => setDetailForm((current) => ({ ...current, name: event.target.value }))} required />
@@ -944,13 +971,6 @@ export function DealsRoute() {
                   {contactOptions.map((contact) => (
                     <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
                   ))}
-                </select>
-              </Field>
-              <Field label="Status">
-                <select className="text-input" value={detailForm.status} onChange={(event) => setDetailForm((current) => ({ ...current, status: event.target.value }))}>
-                  <option value="open">Open</option>
-                  <option value="won">Won</option>
-                  <option value="lost">Lost</option>
                 </select>
               </Field>
               <Field label={labels.valueLabel}>
@@ -999,13 +1019,14 @@ export function DealsRoute() {
             {canWrite ? (
               <>
                 <Field label={labels.moveLabel}>
-                  <select className="text-input" value={selectedStageId} onChange={(event) => setSelectedStageId(event.target.value)}>
+                  <select className="text-input" value={selectedStageId} onChange={(event) => { setSelectedStageId(event.target.value); setStageCloseReview(emptyCloseReview) }}>
                     {stages.map((stage) => (
                       <option key={stage.id} value={stage.id}>{stageLabel(stage, 'all')}</option>
                     ))}
                   </select>
                 </Field>
-                <Button onClick={handleMoveStage}>{labels.moveAction}</Button>
+                <CloseReviewFields outcome={stageOutcome(moveStage)} value={stageCloseReview} onChange={setStageCloseReview} />
+                <Button type="button" onClick={handleMoveStage}>{labels.moveAction}</Button>
               </>
             ) : null}
             <RecordEmailComposer

@@ -215,6 +215,11 @@ func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query Deal
 			COALESCE(d.value_amount::text, ''),
 			COALESCE(d.value_currency, ''),
 			COALESCE(TO_CHAR(d.expected_close_date, 'YYYY-MM-DD'), ''),
+			COALESCE(d.close_reason_code, ''),
+			COALESCE(d.close_reason_label, ''),
+			COALESCE(d.close_notes, ''),
+			COALESCE(TO_CHAR(d.closed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+			TRIM(COALESCE(closed_by.first_name, '') || ' ' || COALESCE(closed_by.last_name, '')),
 			COALESCE(d.owner_user_id, 0),
 			TRIM(COALESCE(owner_user.first_name, '') || ' ' || COALESCE(owner_user.last_name, ''))
 		FROM deals d
@@ -222,6 +227,7 @@ func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query Deal
 		JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
 		LEFT JOIN companies c ON c.id = d.company_id AND c.organization_id = d.organization_id
 		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id AND pc.organization_id = d.organization_id
+		LEFT JOIN users closed_by ON closed_by.id = d.closed_by_user_id
 		LEFT JOIN users owner_user ON owner_user.id = d.owner_user_id
 		WHERE d.organization_id = $1 AND d.archived_at IS NULL`+filterSQL+`
 		ORDER BY dp.position ASC, ds.position ASC, d.id DESC
@@ -231,14 +237,14 @@ func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query Deal
 	}
 	defer rows.Close()
 
-	records := [][]string{{"id", "name", "pipeline_id", "pipeline_name", "stage_id", "stage_name", "company_id", "company_name", "primary_contact_id", "primary_contact_name", "status", "value_amount", "value_currency", "expected_close_date", "owner_user_id", "owner_user_name"}}
+	records := [][]string{{"id", "name", "pipeline_id", "pipeline_name", "stage_id", "stage_name", "company_id", "company_name", "primary_contact_id", "primary_contact_name", "status", "value_amount", "value_currency", "expected_close_date", "close_reason_code", "close_reason_label", "close_notes", "closed_at", "closed_by_user_name", "owner_user_id", "owner_user_name"}}
 	for rows.Next() {
 		var id, pipelineID, stageID, companyID, primaryContactID, ownerUserID int64
-		var name, pipelineName, stageName, companyName, primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, ownerUserName string
-		if err := rows.Scan(&id, &name, &pipelineID, &pipelineName, &stageID, &stageName, &companyID, &companyName, &primaryContactID, &primaryContactName, &status, &valueAmount, &valueCurrency, &expectedCloseDate, &ownerUserID, &ownerUserName); err != nil {
+		var name, pipelineName, stageName, companyName, primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, closeReasonCode, closeReasonLabel, closeNotes, closedAt, closedByUserName, ownerUserName string
+		if err := rows.Scan(&id, &name, &pipelineID, &pipelineName, &stageID, &stageName, &companyID, &companyName, &primaryContactID, &primaryContactName, &status, &valueAmount, &valueCurrency, &expectedCloseDate, &closeReasonCode, &closeReasonLabel, &closeNotes, &closedAt, &closedByUserName, &ownerUserID, &ownerUserName); err != nil {
 			return File{}, fmt.Errorf("scan deal export: %w", err)
 		}
-		records = append(records, []string{formatInt(id), name, formatInt(pipelineID), pipelineName, formatInt(stageID), stageName, formatOptionalInt(companyID), companyName, formatOptionalInt(primaryContactID), primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, formatOptionalInt(ownerUserID), ownerUserName})
+		records = append(records, []string{formatInt(id), name, formatInt(pipelineID), pipelineName, formatInt(stageID), stageName, formatOptionalInt(companyID), companyName, formatOptionalInt(primaryContactID), primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, closeReasonCode, closeReasonLabel, closeNotes, closedAt, closedByUserName, formatOptionalInt(ownerUserID), ownerUserName})
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate deal export: %w", err)

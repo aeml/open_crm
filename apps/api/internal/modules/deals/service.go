@@ -22,6 +22,7 @@ var (
 	ErrInvalidLineItems        = errors.New("invalid deal line items")
 	ErrInvalidSignatureRequest = errors.New("invalid deal signature request")
 	ErrInvalidDealFilter       = errors.New("invalid deal filter")
+	ErrInvalidCloseReview      = errors.New("invalid deal close review")
 	ErrInvalidAssignee         = moduleusers.ErrInvalidAssignee
 	ErrNotFound                = errors.New("deal not found")
 )
@@ -64,6 +65,12 @@ type Summary struct {
 	ValueAmount        string `json:"valueAmount"`
 	ValueCurrency      string `json:"valueCurrency"`
 	ExpectedCloseDate  string `json:"expectedCloseDate"`
+	CloseReasonCode    string `json:"closeReasonCode"`
+	CloseReasonLabel   string `json:"closeReasonLabel"`
+	CloseNotes         string `json:"closeNotes"`
+	ClosedAt           string `json:"closedAt"`
+	ClosedByUserID     int64  `json:"closedByUserId"`
+	ClosedByUserName   string `json:"closedByUserName"`
 	OwnerUserID        int64  `json:"ownerUserId"`
 	OwnerUserName      string `json:"ownerUserName"`
 }
@@ -194,18 +201,18 @@ type CreateInput struct {
 	StageID           int64  `json:"stageId"`
 	CompanyID         int64  `json:"companyId"`
 	PrimaryContactID  int64  `json:"primaryContactId"`
-	Status            string `json:"status"`
 	ValueAmount       string `json:"valueAmount"`
 	ValueCurrency     string `json:"valueCurrency"`
 	ExpectedCloseDate string `json:"expectedCloseDate"`
 	OwnerUserID       int64  `json:"ownerUserId"`
+	CloseReasonCode   string `json:"closeReasonCode"`
+	CloseNotes        string `json:"closeNotes"`
 }
 
 type UpdateInput struct {
 	Name              string `json:"name"`
 	CompanyID         int64  `json:"companyId"`
 	PrimaryContactID  int64  `json:"primaryContactId"`
-	Status            string `json:"status"`
 	ValueAmount       string `json:"valueAmount"`
 	ValueCurrency     string `json:"valueCurrency"`
 	ExpectedCloseDate string `json:"expectedCloseDate"`
@@ -213,7 +220,9 @@ type UpdateInput struct {
 }
 
 type UpdateStageInput struct {
-	StageID int64 `json:"stageId"`
+	StageID         int64  `json:"stageId"`
+	CloseReasonCode string `json:"closeReasonCode"`
+	CloseNotes      string `json:"closeNotes"`
 }
 
 type Service struct {
@@ -385,8 +394,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			FROM deals d
 			JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
 			JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
-			LEFT JOIN companies c ON c.id = d.company_id
-			LEFT JOIN contacts pc ON pc.id = d.primary_contact_id
+			LEFT JOIN companies c ON c.id = d.company_id AND c.organization_id = d.organization_id
+			LEFT JOIN contacts pc ON pc.id = d.primary_contact_id AND pc.organization_id = d.organization_id
 			CROSS JOIN org_settings os
 			LEFT JOIN latest_rates lr ON lr.quote_currency = COALESCE(NULLIF(d.value_currency, ''), os.base_currency)
 			WHERE d.organization_id = $1 AND d.archived_at IS NULL` + filterSQL + `
@@ -422,13 +431,20 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			COALESCE(d.value_amount::text, ''),
 			COALESCE(d.value_currency, ''),
 			COALESCE(TO_CHAR(d.expected_close_date, 'YYYY-MM-DD'), ''),
+			COALESCE(d.close_reason_code, ''),
+			COALESCE(d.close_reason_label, ''),
+			COALESCE(d.close_notes, ''),
+			COALESCE(TO_CHAR(d.closed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+			COALESCE(d.closed_by_user_id, 0),
+			TRIM(COALESCE(cu.first_name, '') || ' ' || COALESCE(cu.last_name, '')),
 			COALESCE(d.owner_user_id, 0),
 			TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, ''))
 		FROM deals d
 		JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
 		JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
-		LEFT JOIN companies c ON c.id = d.company_id
-		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id
+		LEFT JOIN companies c ON c.id = d.company_id AND c.organization_id = d.organization_id
+		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id AND pc.organization_id = d.organization_id
+		LEFT JOIN users cu ON cu.id = d.closed_by_user_id
 		LEFT JOIN users ou ON ou.id = d.owner_user_id
 		WHERE d.organization_id = $1 AND d.archived_at IS NULL`+filterSQL+`
 		ORDER BY dp.position ASC, ds.position ASC, d.id DESC
@@ -456,6 +472,12 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 			&deal.ValueAmount,
 			&deal.ValueCurrency,
 			&deal.ExpectedCloseDate,
+			&deal.CloseReasonCode,
+			&deal.CloseReasonLabel,
+			&deal.CloseNotes,
+			&deal.ClosedAt,
+			&deal.ClosedByUserID,
+			&deal.ClosedByUserName,
 			&deal.OwnerUserID,
 			&deal.OwnerUserName,
 		); err != nil {
@@ -497,7 +519,13 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		return Detail{}, fmt.Errorf("begin create deal transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
+		return Detail{}, err
+	}
 	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, input.OwnerUserID); err != nil {
+		return Detail{}, err
+	}
+	if err := requireDealRelationships(ctx, tx, organizationID, input.CompanyID, input.PrimaryContactID); err != nil {
 		return Detail{}, err
 	}
 
@@ -508,21 +536,40 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		}
 		return Detail{}, fmt.Errorf("lookup create deal stage: %w", err)
 	}
+	review, err := normalizeCloseReview(stageSnapshot.Outcome, input.CloseReasonCode, input.CloseNotes)
+	if err != nil {
+		return Detail{}, err
+	}
 
 	var dealID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO deals (organization_id, company_id, primary_contact_id, stage_id, name, status, value_amount, value_currency, expected_close_date, owner_user_id)
-		VALUES ($1, NULLIF($2, 0), NULLIF($3, 0), $4, $5, NULLIF($6, ''), NULLIF($7, '')::numeric, NULLIF($8, ''), NULLIF($9, '')::date, $10)
+		INSERT INTO deals (
+			organization_id, company_id, primary_contact_id, stage_id, name, status,
+			value_amount, value_currency, expected_close_date, owner_user_id,
+			close_reason_code, close_reason_label, close_notes, closed_at, closed_by_user_id
+		)
+		VALUES (
+			$1, NULLIF($2, 0), NULLIF($3, 0), $4, $5, $6,
+			NULLIF($7, '')::numeric, NULLIF($8, ''), NULLIF($9, '')::date, $10,
+			$11, $12, $13, CASE WHEN $6 IN ('won','lost') THEN NOW() END,
+			CASE WHEN $6 IN ('won','lost') THEN NULLIF($14,0) END
+		)
 		RETURNING id
-	`, organizationID, input.CompanyID, input.PrimaryContactID, input.StageID, input.Name, input.Status, input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, input.OwnerUserID).Scan(&dealID); err != nil {
+	`, organizationID, input.CompanyID, input.PrimaryContactID, input.StageID, input.Name, stageSnapshot.Outcome,
+		input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, input.OwnerUserID,
+		review.Code, review.Label, review.Notes, actorUserID).Scan(&dealID); err != nil {
 		return Detail{}, fmt.Errorf("insert deal: %w", err)
 	}
 
-	activityID, err := insertActivityID(ctx, tx, organizationID, dealID, actorUserID, "deal.created", "Deal created")
+	createdSummary := "Deal created"
+	if stageSnapshot.Outcome == "won" || stageSnapshot.Outcome == "lost" {
+		createdSummary = fmt.Sprintf("Deal created as %s — %s", stageSnapshot.Outcome, review.Label)
+	}
+	activityID, err := insertActivityID(ctx, tx, organizationID, dealID, actorUserID, "deal.created", createdSummary)
 	if err != nil {
 		return Detail{}, fmt.Errorf("insert deal activity: %w", err)
 	}
-	if err := insertDealStageEvent(ctx, tx, organizationID, dealID, input.Name, "created", activityID, actorUserID, input.OwnerUserID, nil, stageSnapshot); err != nil {
+	if err := insertDealStageEvent(ctx, tx, organizationID, dealID, input.Name, "created", activityID, actorUserID, input.OwnerUserID, nil, stageSnapshot, review); err != nil {
 		return Detail{}, err
 	}
 	if err := moduleworkflowautomations.ExecuteDealTaskRules(ctx, tx, moduleworkflowautomations.DealTaskEvent{
@@ -553,6 +600,9 @@ func (s *Service) UpdateStage(ctx context.Context, organizationID, dealID, actor
 		return Detail{}, fmt.Errorf("begin update stage transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
+		return Detail{}, err
+	}
 	var dealName string
 	var previousStageID, ownerUserID int64
 	if err := tx.QueryRow(ctx, `
@@ -584,14 +634,24 @@ func (s *Service) UpdateStage(ctx context.Context, organizationID, dealID, actor
 		}
 		return s.GetByID(ctx, organizationID, dealID)
 	}
+	review, err := normalizeCloseReview(nextStage.Outcome, input.CloseReasonCode, input.CloseNotes)
+	if err != nil {
+		return Detail{}, err
+	}
 
 	updated, err := tx.Exec(ctx, `
 		UPDATE deals
 		SET stage_id = $3,
+		    status = $5,
+		    close_reason_code = $6,
+		    close_reason_label = $7,
+		    close_notes = $8,
+		    closed_at = CASE WHEN $5 IN ('won','lost') THEN NOW() END,
+		    closed_by_user_id = CASE WHEN $5 IN ('won','lost') THEN NULLIF($9,0) END,
 		    updated_at = NOW(),
 		    owner_user_id = COALESCE(owner_user_id, $4)
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, dealID, input.StageID, actorUserID)
+	`, organizationID, dealID, input.StageID, actorUserID, nextStage.Outcome, review.Code, review.Label, review.Notes, actorUserID)
 	if err != nil {
 		return Detail{}, fmt.Errorf("update deal stage: %w", err)
 	}
@@ -599,11 +659,11 @@ func (s *Service) UpdateStage(ctx context.Context, organizationID, dealID, actor
 		return Detail{}, ErrNotFound
 	}
 
-	activityID, err := insertActivityID(ctx, tx, organizationID, dealID, actorUserID, "deal.stage_changed", fmt.Sprintf("Deal moved to %s", nextStage.StageName))
+	activityID, err := insertActivityID(ctx, tx, organizationID, dealID, actorUserID, "deal.stage_changed", closeActivitySummary(nextStage.StageName, nextStage.Outcome, review))
 	if err != nil {
 		return Detail{}, fmt.Errorf("insert stage activity: %w", err)
 	}
-	if err := insertDealStageEvent(ctx, tx, organizationID, dealID, dealName, "stage_changed", activityID, actorUserID, ownerUserID, &previousStage, nextStage); err != nil {
+	if err := insertDealStageEvent(ctx, tx, organizationID, dealID, dealName, "stage_changed", activityID, actorUserID, ownerUserID, &previousStage, nextStage, review); err != nil {
 		return Detail{}, err
 	}
 	if err := moduleworkflowautomations.ExecuteDealTaskRules(ctx, tx, moduleworkflowautomations.DealTaskEvent{
@@ -636,7 +696,13 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 		return Detail{}, fmt.Errorf("begin update deal transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
+		return Detail{}, err
+	}
 	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, input.OwnerUserID); err != nil {
+		return Detail{}, err
+	}
+	if err := requireDealRelationships(ctx, tx, organizationID, input.CompanyID, input.PrimaryContactID); err != nil {
 		return Detail{}, err
 	}
 
@@ -645,14 +711,13 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 		SET name = $3,
 		    company_id = NULLIF($4, 0),
 		    primary_contact_id = NULLIF($5, 0),
-		    status = NULLIF($6, ''),
-		    value_amount = NULLIF($7, '')::numeric,
-		    value_currency = NULLIF($8, ''),
-		    expected_close_date = NULLIF($9, '')::date,
-		    owner_user_id = COALESCE(NULLIF($10, 0), owner_user_id, $11),
+		    value_amount = NULLIF($6, '')::numeric,
+		    value_currency = NULLIF($7, ''),
+		    expected_close_date = NULLIF($8, '')::date,
+		    owner_user_id = COALESCE(NULLIF($9, 0), owner_user_id, $10),
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, dealID, input.Name, input.CompanyID, input.PrimaryContactID, input.Status, input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, input.OwnerUserID, actorUserID)
+	`, organizationID, dealID, input.Name, input.CompanyID, input.PrimaryContactID, input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, input.OwnerUserID, actorUserID)
 	if err != nil {
 		return Detail{}, fmt.Errorf("update deal: %w", err)
 	}
@@ -942,12 +1007,21 @@ func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (De
 			COALESCE(d.value_amount::text, ''),
 			COALESCE(d.value_currency, ''),
 			COALESCE(TO_CHAR(d.expected_close_date, 'YYYY-MM-DD'), ''),
-			COALESCE(d.owner_user_id, 0)
+			COALESCE(d.close_reason_code, ''),
+			COALESCE(d.close_reason_label, ''),
+			COALESCE(d.close_notes, ''),
+			COALESCE(TO_CHAR(d.closed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+			COALESCE(d.closed_by_user_id, 0),
+			TRIM(COALESCE(cu.first_name, '') || ' ' || COALESCE(cu.last_name, '')),
+			COALESCE(d.owner_user_id, 0),
+			TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, ''))
 		FROM deals d
 		JOIN deal_stages ds ON ds.id = d.stage_id AND ds.organization_id = d.organization_id
 		JOIN deal_pipelines dp ON dp.id = ds.pipeline_id AND dp.organization_id = ds.organization_id
-		LEFT JOIN companies c ON c.id = d.company_id
-		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id
+		LEFT JOIN companies c ON c.id = d.company_id AND c.organization_id = d.organization_id
+		LEFT JOIN contacts pc ON pc.id = d.primary_contact_id AND pc.organization_id = d.organization_id
+		LEFT JOIN users cu ON cu.id = d.closed_by_user_id
+		LEFT JOIN users ou ON ou.id = d.owner_user_id
 		WHERE d.organization_id = $1 AND d.id = $2 AND d.archived_at IS NULL
 	`, organizationID, dealID).Scan(
 		&detail.Summary.ID,
@@ -964,7 +1038,14 @@ func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (De
 		&detail.Summary.ValueAmount,
 		&detail.Summary.ValueCurrency,
 		&detail.Summary.ExpectedCloseDate,
+		&detail.Summary.CloseReasonCode,
+		&detail.Summary.CloseReasonLabel,
+		&detail.Summary.CloseNotes,
+		&detail.Summary.ClosedAt,
+		&detail.Summary.ClosedByUserID,
+		&detail.Summary.ClosedByUserName,
 		&detail.Summary.OwnerUserID,
+		&detail.Summary.OwnerUserName,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Detail{}, ErrNotFound
@@ -1471,7 +1552,6 @@ func normalizeListQuery(query ListQuery) (ListQuery, error) {
 
 func normalizeCreateInput(input CreateInput, actorUserID int64) CreateInput {
 	input.Name = strings.TrimSpace(input.Name)
-	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	input.ValueAmount = strings.TrimSpace(input.ValueAmount)
 	input.ValueCurrency = strings.TrimSpace(strings.ToUpper(input.ValueCurrency))
 	input.ExpectedCloseDate = strings.TrimSpace(input.ExpectedCloseDate)
@@ -1483,7 +1563,6 @@ func normalizeCreateInput(input CreateInput, actorUserID int64) CreateInput {
 
 func normalizeUpdateInput(input UpdateInput) UpdateInput {
 	input.Name = strings.TrimSpace(input.Name)
-	input.Status = strings.TrimSpace(strings.ToLower(input.Status))
 	input.ValueAmount = strings.TrimSpace(input.ValueAmount)
 	input.ValueCurrency = strings.TrimSpace(strings.ToUpper(input.ValueCurrency))
 	input.ExpectedCloseDate = strings.TrimSpace(input.ExpectedCloseDate)

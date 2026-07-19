@@ -51,6 +51,9 @@ func (s *Service) Rollback(ctx context.Context, organizationID, actorUserID, ope
 	if operation.Status != "completed" {
 		return Operation{}, ErrConflict
 	}
+	if operation.EntityType == "deal" && operation.Action == "set_status" {
+		return Operation{}, fmt.Errorf("%w: legacy deal-status changes cannot be restored outside an audited stage transition", ErrConflict)
+	}
 	config, ok := entityConfiguration(operation.EntityType)
 	if !ok {
 		return Operation{}, ErrConflict

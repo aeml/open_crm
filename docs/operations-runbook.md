@@ -276,6 +276,34 @@ do not silently relabel a missed target as success.
    or activity with ad hoc SQL. Versioned delivery, approvals, provider
    webhooks, and an audit certificate remain the Phase 4 quote/signature family.
 
+### Deal close review and outcome reconciliation
+
+1. A deal's `open`, `won`, or `lost` outcome is derived only from its current
+   pipeline stage. General deal edits and bulk changes do not change outcomes.
+   Move the deal to a won or lost stage and choose the required reason; optional
+   notes should record concise decision context, not secrets or regulated data.
+2. A successful close commits the stage, derived status, reason label/code,
+   notes, closing actor/time, activity, stage-event snapshot, and matching task
+   automation in one transaction. The live deal and its latest close event
+   should therefore agree. Sales reporting counts real transitions; reopening
+   and closing again creates another outcome rather than rewriting history.
+3. To correct a mistaken close, move the deal back to an open stage. This clears
+   current close context while preserving the original event. Then move it to
+   the correct closed stage with the corrected reason/notes. Reports retain both
+   events intentionally; explain the correction in close notes instead of
+   editing `deal_stage_events` or close timestamps with ad hoc SQL.
+4. Existing outcomes from before migration 68 show **Not captured before
+   close-reason tracking**. Do not invent a historical reason. Use the separate
+   close-reason coverage timestamp in Sales activity when reconciling totals,
+   and use the deal CSV columns for reviewed external analysis. If a current
+   post-migration close lacks context, capture the deal ID, stage, actor,
+   activity, event, request ID, and release before escalating; do not patch the
+   database directly.
+5. Close reasons are a fixed pilot vocabulary. Record pilot feedback when no
+   option fits and use `Other` plus notes. Do not add organization-configurable
+   reasons until observed usage justifies the migration, reporting, and rename/
+   retirement semantics.
+
 ### Deal task automation and recovery
 
 1. Owners and admins manage the pilot-safe subset under **Settings >
@@ -306,6 +334,9 @@ do not silently relabel a missed target as success.
 1. Open the affected Contacts, Clients, Deals, or Tasks list and expand
    **Recent bulk changes**. History is tenant scoped and remains available even
    when an archive removed every selected record from the active list.
+   Legacy deal-status operations remain visible but cannot be applied or undone;
+   migration 68 reconciled live status from the current stage, and all later
+   outcome corrections must use the close-review stage transition above.
 2. Confirm the operation type, affected count, actor, and time. An idempotent
    retry of the original request returns the same operation rather than applying
    it twice.

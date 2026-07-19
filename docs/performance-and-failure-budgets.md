@@ -69,11 +69,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 622 KiB | 199 KiB |
+| All JavaScript and CSS | 626 KiB | 199 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 176.85 KiB/57.64 KiB entry, 48.01 KiB/12.41 KiB largest lazy
-chunk, and 621.51 KiB/197.92 KiB total assets. The complete custom-field outcome
+Current evidence: 176.85 KiB/57.65 KiB entry, 48.01 KiB/12.41 KiB largest lazy
+chunk, and 625.52 KiB/198.98 KiB total assets. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget
@@ -90,9 +90,11 @@ surface reduces its lazy route from 20.62 KiB/5.86 KiB to 10.17 KiB/3.56 KiB.
 The reminder workflow keeps its due counts and filter in the existing Tasks route
 at 22.38 KiB/5.95 KiB and removes redundant browser-side time filtering now that
 PostgreSQL owns those windows.
-The production-complete touchpoint outcome raised only the aggregate ratchets
-to 622/199 KiB after measurement, leaving less than 1 KiB raw while preserving
-more than 1 KiB gzip headroom. Entry, per-route, and CSS limits remain unchanged.
+The production-complete touchpoint outcome raised the aggregate ratchets to
+622/199 KiB. The stage-authoritative win/loss close review, reporting, and
+export outcome then raised only the raw aggregate ceiling to 626 KiB after
+measurement; gzip remains under the existing 199 KiB ceiling. Entry, per-route,
+and CSS limits remain unchanged.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 

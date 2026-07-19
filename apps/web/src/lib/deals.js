@@ -102,8 +102,8 @@ export async function sendDealEmail(dealID, input, { signal } = {}) {
   return payload?.data
 }
 
-export async function updateDealStage(dealID, stageId, { signal } = {}) {
-  const payload = await apiRequest(`/api/deals/${dealID}/stage`, { method: 'PATCH', body: { stageId }, fallbackMessage: 'Unable to move deal.', signal })
+export async function updateDealStage(dealID, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/deals/${dealID}/stage`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to move deal.', signal })
 
   return payload?.data
 }

@@ -63,6 +63,13 @@ type StageConversion struct {
 	ForwardExitRatePercent string `json:"forwardExitRatePercent"`
 }
 
+type CloseReasonSummary struct {
+	Outcome     string `json:"outcome"`
+	ReasonCode  string `json:"reasonCode"`
+	ReasonLabel string `json:"reasonLabel"`
+	Count       int    `json:"count"`
+}
+
 type DealEvent struct {
 	ID               int64     `json:"id"`
 	DealID           int64     `json:"dealId"`
@@ -76,23 +83,30 @@ type DealEvent struct {
 	ToPipelineName   string    `json:"toPipelineName"`
 	ToStageName      string    `json:"toStageName"`
 	ToStageOutcome   string    `json:"toStageOutcome"`
+	CloseReasonCode  string    `json:"closeReasonCode"`
+	CloseReasonLabel string    `json:"closeReasonLabel"`
+	CloseNotes       string    `json:"closeNotes"`
 	OccurredAt       time.Time `json:"occurredAt"`
 }
 
 type Report struct {
-	FromDate               string            `json:"fromDate"`
-	ToDate                 string            `json:"toDate"`
-	OwnerUserID            int64             `json:"ownerUserId"`
-	GeneratedAt            time.Time         `json:"generatedAt"`
-	CoverageStartedAt      time.Time         `json:"coverageStartedAt"`
-	HistoryComplete        bool              `json:"historyComplete"`
-	OwnerFilterMeaning     string            `json:"ownerFilterMeaning"`
-	OutcomeMeaning         string            `json:"outcomeMeaning"`
-	StageConversionMeaning string            `json:"stageConversionMeaning"`
-	Totals                 Totals            `json:"totals"`
-	Owners                 []OwnerSummary    `json:"owners"`
-	Stages                 []StageConversion `json:"stages"`
-	DealEvents             []DealEvent       `json:"dealEvents"`
+	FromDate                     string               `json:"fromDate"`
+	ToDate                       string               `json:"toDate"`
+	OwnerUserID                  int64                `json:"ownerUserId"`
+	GeneratedAt                  time.Time            `json:"generatedAt"`
+	CoverageStartedAt            time.Time            `json:"coverageStartedAt"`
+	HistoryComplete              bool                 `json:"historyComplete"`
+	CloseReasonCoverageStartedAt time.Time            `json:"closeReasonCoverageStartedAt"`
+	CloseReasonHistoryComplete   bool                 `json:"closeReasonHistoryComplete"`
+	OwnerFilterMeaning           string               `json:"ownerFilterMeaning"`
+	OutcomeMeaning               string               `json:"outcomeMeaning"`
+	CloseReasonMeaning           string               `json:"closeReasonMeaning"`
+	StageConversionMeaning       string               `json:"stageConversionMeaning"`
+	Totals                       Totals               `json:"totals"`
+	Owners                       []OwnerSummary       `json:"owners"`
+	Stages                       []StageConversion    `json:"stages"`
+	CloseReasons                 []CloseReasonSummary `json:"closeReasons"`
+	DealEvents                   []DealEvent          `json:"dealEvents"`
 }
 
 type Service struct{ pool *pgxpool.Pool }
@@ -117,8 +131,12 @@ func (s *Service) Activity(ctx context.Context, organizationID int64, query Quer
 		}
 	}
 
-	var coverageStartedAt, organizationCreatedAt time.Time
-	if err := s.pool.QueryRow(ctx, `SELECT COALESCE(sales_activity_tracking_started_at,created_at),created_at FROM organizations WHERE id=$1`, organizationID).Scan(&coverageStartedAt, &organizationCreatedAt); err != nil {
+	var coverageStartedAt, closeReasonCoverageStartedAt, organizationCreatedAt time.Time
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(sales_activity_tracking_started_at,created_at),
+		       COALESCE(deal_close_reason_tracking_started_at,created_at),created_at
+		FROM organizations WHERE id=$1
+	`, organizationID).Scan(&coverageStartedAt, &closeReasonCoverageStartedAt, &organizationCreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Report{}, ErrInvalidInput
 		}
@@ -127,11 +145,14 @@ func (s *Service) Activity(ctx context.Context, organizationID int64, query Quer
 	report := Report{
 		FromDate: query.FromDate, ToDate: query.ToDate, OwnerUserID: query.OwnerUserID,
 		GeneratedAt: time.Now().UTC(), CoverageStartedAt: coverageStartedAt,
-		HistoryComplete:        !coverageStartedAt.After(organizationCreatedAt) || !from.Before(coverageStartedAt),
-		OwnerFilterMeaning:     "Deal metrics use the owner saved on the event; notes and tasks use the teammate who performed the activity.",
-		OutcomeMeaning:         "A won or lost outcome is a real transition into that outcome; a deal reopened and closed again contributes another outcome.",
-		StageConversionMeaning: "Forward exit rate is forward-or-won stage exits divided by every exit from that stage during the selected period; it is event-based, not a deal-cohort funnel.",
-		Owners:                 []OwnerSummary{}, Stages: []StageConversion{}, DealEvents: []DealEvent{},
+		HistoryComplete:              !coverageStartedAt.After(organizationCreatedAt) || !from.Before(coverageStartedAt),
+		CloseReasonCoverageStartedAt: closeReasonCoverageStartedAt,
+		CloseReasonHistoryComplete:   !closeReasonCoverageStartedAt.After(organizationCreatedAt) || !from.Before(closeReasonCoverageStartedAt),
+		OwnerFilterMeaning:           "Deal metrics use the owner saved on the event; notes and tasks use the teammate who performed the activity.",
+		OutcomeMeaning:               "A won or lost outcome is a real transition into that outcome; a deal reopened and closed again contributes another outcome.",
+		CloseReasonMeaning:           "Close reasons are fixed pilot options captured at the outcome transition. Not-captured rows predate close-reason tracking; notes remain event-time context.",
+		StageConversionMeaning:       "Forward exit rate is forward-or-won stage exits divided by every exit from that stage during the selected period; it is event-based, not a deal-cohort funnel.",
+		Owners:                       []OwnerSummary{}, Stages: []StageConversion{}, CloseReasons: []CloseReasonSummary{}, DealEvents: []DealEvent{},
 	}
 	endExclusive := to.AddDate(0, 0, 1)
 	if err := s.loadTotals(ctx, organizationID, from, endExclusive, query.OwnerUserID, &report); err != nil {
@@ -147,12 +168,49 @@ func (s *Service) Activity(ctx context.Context, organizationID int64, query Quer
 		return Report{}, err
 	}
 	report.Stages = stages
+	closeReasons, err := s.loadCloseReasons(ctx, organizationID, from, endExclusive, query.OwnerUserID)
+	if err != nil {
+		return Report{}, err
+	}
+	report.CloseReasons = closeReasons
 	events, err := s.loadEvents(ctx, organizationID, from, endExclusive, query.OwnerUserID)
 	if err != nil {
 		return Report{}, err
 	}
 	report.DealEvents = events
 	return report, nil
+}
+
+func (s *Service) loadCloseReasons(ctx context.Context, organizationID int64, from, to time.Time, ownerUserID int64) ([]CloseReasonSummary, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT to_stage_outcome,
+		       CASE WHEN COALESCE(close_reason_code,'')='' THEN 'not_captured' ELSE close_reason_code END,
+		       CASE WHEN COALESCE(close_reason_label,'')='' THEN 'Not captured before tracking' ELSE close_reason_label END,
+		       COUNT(*)
+		FROM deal_stage_events
+		WHERE organization_id=$1 AND occurred_at >= $2 AND occurred_at < $3
+		  AND ($4::bigint=0 OR owner_user_id=$4)
+		  AND to_stage_outcome IN ('won','lost')
+		  AND COALESCE(from_stage_outcome,'')<>to_stage_outcome
+		GROUP BY to_stage_outcome,2,3
+		ORDER BY CASE WHEN to_stage_outcome='won' THEN 0 ELSE 1 END,COUNT(*) DESC,3
+	`, organizationID, from, to, ownerUserID)
+	if err != nil {
+		return nil, fmt.Errorf("load close reason summaries: %w", err)
+	}
+	defer rows.Close()
+	result := []CloseReasonSummary{}
+	for rows.Next() {
+		var item CloseReasonSummary
+		if err := rows.Scan(&item.Outcome, &item.ReasonCode, &item.ReasonLabel, &item.Count); err != nil {
+			return nil, fmt.Errorf("scan close reason summary: %w", err)
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate close reason summaries: %w", err)
+	}
+	return result, nil
 }
 
 func (s *Service) loadTotals(ctx context.Context, organizationID int64, from, to time.Time, ownerUserID int64, report *Report) error {
@@ -284,7 +342,8 @@ func (s *Service) loadEvents(ctx context.Context, organizationID int64, from, to
 		       TRIM(COALESCE(actor.first_name,'')||' '||COALESCE(actor.last_name,'')),
 		       TRIM(COALESCE(owner_user.first_name,'')||' '||COALESCE(owner_user.last_name,'')),
 		       COALESCE(e.from_pipeline_name,''),COALESCE(e.from_stage_name,''),COALESCE(e.from_stage_outcome,''),
-		       e.to_pipeline_name,e.to_stage_name,e.to_stage_outcome,e.occurred_at
+		       e.to_pipeline_name,e.to_stage_name,e.to_stage_outcome,
+		       COALESCE(e.close_reason_code,''),COALESCE(e.close_reason_label,''),COALESCE(e.close_notes,''),e.occurred_at
 		FROM deal_stage_events e
 		LEFT JOIN users actor ON actor.id=e.actor_user_id
 		LEFT JOIN users owner_user ON owner_user.id=e.owner_user_id
@@ -300,7 +359,7 @@ func (s *Service) loadEvents(ctx context.Context, organizationID int64, from, to
 	result := []DealEvent{}
 	for rows.Next() {
 		var item DealEvent
-		if err := rows.Scan(&item.ID, &item.DealID, &item.DealName, &item.EventType, &item.ActorName, &item.OwnerName, &item.FromPipelineName, &item.FromStageName, &item.FromStageOutcome, &item.ToPipelineName, &item.ToStageName, &item.ToStageOutcome, &item.OccurredAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.DealID, &item.DealName, &item.EventType, &item.ActorName, &item.OwnerName, &item.FromPipelineName, &item.FromStageName, &item.FromStageOutcome, &item.ToPipelineName, &item.ToStageName, &item.ToStageOutcome, &item.CloseReasonCode, &item.CloseReasonLabel, &item.CloseNotes, &item.OccurredAt); err != nil {
 			return nil, fmt.Errorf("scan sales deal event: %w", err)
 		}
 		result = append(result, item)

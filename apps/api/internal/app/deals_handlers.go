@@ -161,11 +161,12 @@ func handleCreateDeal(auth authService, deals dealsService, notifs notifications
 		StageID:           request.StageID,
 		CompanyID:         request.CompanyID,
 		PrimaryContactID:  request.PrimaryContactID,
-		Status:            strings.TrimSpace(request.Status),
 		ValueAmount:       strings.TrimSpace(request.ValueAmount),
 		ValueCurrency:     strings.TrimSpace(request.ValueCurrency),
 		ExpectedCloseDate: strings.TrimSpace(request.ExpectedCloseDate),
 		OwnerUserID:       request.OwnerUserID,
+		CloseReasonCode:   strings.TrimSpace(request.CloseReasonCode),
+		CloseNotes:        strings.TrimSpace(request.CloseNotes),
 	})
 	if err != nil {
 		if errors.Is(err, moduledeals.ErrInvalidAssignee) {
@@ -173,6 +174,10 @@ func handleCreateDeal(auth authService, deals dealsService, notifs notifications
 			return
 		}
 		if writeResourceNotFound(w, requestID, err) {
+			return
+		}
+		if errors.Is(err, moduledeals.ErrInvalidCloseReview) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose a valid close reason for the selected won or lost stage; notes may be up to 2,000 characters")
 			return
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create deal")
@@ -282,7 +287,6 @@ func handleUpdateDeal(auth authService, deals dealsService, notifs notifications
 		Name:              strings.TrimSpace(request.Name),
 		CompanyID:         request.CompanyID,
 		PrimaryContactID:  request.PrimaryContactID,
-		Status:            strings.TrimSpace(request.Status),
 		ValueAmount:       strings.TrimSpace(request.ValueAmount),
 		ValueCurrency:     strings.TrimSpace(request.ValueCurrency),
 		ExpectedCloseDate: strings.TrimSpace(request.ExpectedCloseDate),
@@ -346,43 +350,6 @@ func handleArchiveDeal(auth authService, deals dealsService, w http.ResponseWrit
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func handleUpdateDealStage(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
-	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgWriter(auth, w, r)
-	if !ok {
-		return
-	}
-	if deals == nil {
-		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
-		return
-	}
-
-	dealID, ok := parsePathInt64(w, r, "dealID")
-	if !ok {
-		return
-	}
-
-	var request dealStageUpdateRequest
-	if !decodeJSONRequest(w, r, requestID, &request) {
-		return
-	}
-	if request.StageID <= 0 {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Stage is required")
-		return
-	}
-
-	result, err := deals.UpdateStage(r.Context(), state.Organization.ID, dealID, state.User.ID, moduledeals.UpdateStageInput{StageID: request.StageID})
-	if err != nil {
-		if writeResourceNotFound(w, requestID, err) {
-			return
-		}
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update deal stage")
-		return
-	}
-
-	respondDealDetail(w, r, http.StatusOK, result)
 }
 
 func handleReplaceDealLineItems(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {

@@ -513,7 +513,7 @@ func TestUpdateDealUsesCurrentOrganization(t *testing.T) {
 	if service.lastUpdateOrgID != 42 || service.lastUpdateDealID != 12 || service.lastUpdateActorID != 1 {
 		t.Fatalf("unexpected update routing: org=%d deal=%d actor=%d", service.lastUpdateOrgID, service.lastUpdateDealID, service.lastUpdateActorID)
 	}
-	if service.lastUpdateInput.Name != "Bluebird Expansion" || service.lastUpdateInput.Status != "won" || service.lastUpdateInput.CompanyID != 6 {
+	if service.lastUpdateInput.Name != "Bluebird Expansion" || service.lastUpdateInput.CompanyID != 6 {
 		t.Fatalf("unexpected update input: %#v", service.lastUpdateInput)
 	}
 }
@@ -545,7 +545,7 @@ func TestUpdateDealStageUsesCurrentOrganization(t *testing.T) {
 	}
 	server := authenticatedDealsServer(service)
 
-	body := bytes.NewBufferString(`{"stageId":4}`)
+	body := bytes.NewBufferString(`{"stageId":4,"closeReasonCode":"solution_fit","closeNotes":"Strong fit."}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/deals/12/stage", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -559,8 +559,24 @@ func TestUpdateDealStageUsesCurrentOrganization(t *testing.T) {
 	if service.lastUpdateStageOrgID != 42 || service.lastUpdateStageDealID != 12 || service.lastUpdateStageActorID != 1 {
 		t.Fatalf("unexpected stage update routing: org=%d deal=%d actor=%d", service.lastUpdateStageOrgID, service.lastUpdateStageDealID, service.lastUpdateStageActorID)
 	}
-	if service.lastUpdateStageInput.StageID != 4 {
+	if service.lastUpdateStageInput.StageID != 4 || service.lastUpdateStageInput.CloseReasonCode != "solution_fit" || service.lastUpdateStageInput.CloseNotes != "Strong fit." {
 		t.Fatalf("unexpected stage update input: %#v", service.lastUpdateStageInput)
+	}
+}
+
+func TestUpdateDealStageRejectsInvalidCloseReview(t *testing.T) {
+	service := &fakeDealsService{updateStageErr: moduledeals.ErrInvalidCloseReview}
+	server := authenticatedDealsServer(service)
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/deals/12/stage", bytes.NewBufferString(`{"stageId":5}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "valid close reason") {
+		t.Fatalf("expected actionable close-review error, status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

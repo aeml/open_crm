@@ -137,6 +137,14 @@ func TestAutomaticMigrationCompatibilityPolicy(t *testing.T) {
 	if err := validateAutomaticMigration("999_unsafe.sql", unsafeExpand, false); err == nil || !strings.Contains(err.Error(), "unsafe drop") {
 		t.Fatalf("unsafe expand migration was not rejected: %v", err)
 	}
+	safeConstraint := "-- open-crm-deploy: expand\nALTER TABLE contacts ADD CONSTRAINT contacts_future_check CHECK (email <> '') NOT VALID;"
+	if err := validateAutomaticMigration("999_safe_constraint.sql", safeConstraint, false); err != nil {
+		t.Fatalf("safe not-valid expand constraint was rejected: %v", err)
+	}
+	unsafeConstraint := "-- open-crm-deploy: expand\nALTER TABLE contacts ADD CONSTRAINT contacts_blocking_check CHECK (email <> '');"
+	if err := validateAutomaticMigration("999_unsafe_constraint.sql", unsafeConstraint, false); err == nil || !strings.Contains(err.Error(), "unsafe new constraint") {
+		t.Fatalf("blocking expand constraint was not rejected: %v", err)
+	}
 	contract := "-- open-crm-deploy: contract\nALTER TABLE contacts DROP COLUMN email;"
 	if err := validateAutomaticMigration("999_contract.sql", contract, false); err == nil || !strings.Contains(err.Error(), "maintenance window") {
 		t.Fatalf("unapproved contract migration was not rejected: %v", err)
@@ -1112,6 +1120,27 @@ func TestMigrationFilesIncludeSalesActivityReportingMigration(t *testing.T) {
 	for _, expected := range []string{"sales_activity_tracking_started_at", "deal_stage_events", "from_stage_outcome", "to_stage_outcome", "idx_deal_stage_events_org_owner_occurred"} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("expected sales activity reporting migration to include %s", expected)
+		}
+	}
+}
+
+func TestMigrationFilesIncludeDealCloseReviewsMigration(t *testing.T) {
+	files := MigrationFiles()
+	found := false
+	for _, file := range files {
+		if file == "068_deal_close_reviews.sql" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected deal close reviews migration to be registered")
+	}
+
+	sql := MigrationSQL("068_deal_close_reviews.sql")
+	for _, expected := range []string{"deal_close_reason_tracking_started_at", "close_reason_code", "closed_by_user_id", "idx_deal_stage_events_org_outcome_reason"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected deal close reviews migration to include %s", expected)
 		}
 	}
 }

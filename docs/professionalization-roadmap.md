@@ -112,7 +112,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.6.5` Sales Activity Reporting: complete.
 - `0.6.6` Contact Touchpoint Tracking: complete.
 - `0.6.7` Quote Or Proposal Placeholder Flow: complete.
-- `0.6.8` Win Loss Review: planned.
+- `0.6.8` Win Loss Review: complete.
 - `0.6.9` Sales Workflow Review: planned.
 - `0.7.0` Customer Operations: planned.
 - `0.7.1` Post-Sale Account View: planned.
@@ -1477,7 +1477,7 @@ placeholder; versioned quote delivery and real signing remain Phase 4.
 
 ## Version 0.6.8 - Win Loss Review
 
-Status: planned.
+Status: complete.
 
 Goal: capture useful outcome context when deals close.
 
@@ -1490,6 +1490,24 @@ Exit criteria:
 
 - Closed deals explain why they closed.
 - Win/loss reporting has useful context.
+
+Completion evidence (2026-07-19): pipeline-stage outcome is now the sole deal
+outcome write path. Moving into a won or lost stage requires one fixed,
+outcome-specific pilot reason and accepts bounded optional notes; the same
+transaction derives deal status, records close time/actor, writes human-readable
+activity, and snapshots the reason and notes into the durable stage-event
+ledger. Reopening clears the live close context without rewriting historical
+events. General edit and bulk-operation paths can no longer manufacture an
+outcome outside a stage transition. The detail view explains the derived
+outcome, the sales report groups exact won/lost reason counts with honest
+pre-tracking coverage, recent events retain close notes, and deal CSV exports
+carry the close context. Expand-safe migration 68 reconciles legacy status from
+stage definitions and adds `NOT VALID` allowlist/length/actor constraints that
+enforce new writes without scanning or rejecting explicitly uncaptured legacy
+rows. Unit, handler, focused UI, disposable-PostgreSQL transition/reopen/
+constraint/snapshot/report/tenant tests and the clean-schema Chromium journey
+cover the vertical flow. Reason configuration remains deliberately absent until
+pilot usage demonstrates that fixed choices are insufficient.
 
 ## Version 0.6.9 - Sales Workflow Review
 
@@ -2036,10 +2054,10 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 176.85 KiB/57.64 KiB for the entry, 48.01 KiB/12.41 KiB
-for the largest lazy chunk, and 621.51 KiB/197.92 KiB total assets. Tested route
-splits plus bulk/custom-field/touchpoint integration leave contacts at 1,298
-lines, companies at 998, deals at 1,044, and tasks at 839, down from 2,038,
+CSS. Current evidence is 176.85 KiB/57.65 KiB for the entry, 48.01 KiB/12.41 KiB
+for the largest lazy chunk, and 625.52 KiB/198.98 KiB total assets. Tested route
+splits plus bulk/custom-field/touchpoint/close-review integration leave contacts
+at 1,298 lines, companies at 998, deals at 1,065, and tasks at 839, down from 2,038,
 1,364, 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.

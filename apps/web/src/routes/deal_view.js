@@ -70,7 +70,6 @@ export function dealFormValues(deal) {
     stageId: deal.stageId ? String(deal.stageId) : '',
     companyId: deal.companyId ? String(deal.companyId) : '',
     primaryContactId: deal.primaryContactId ? String(deal.primaryContactId) : '',
-    status: deal.status || 'open',
     valueAmount: deal.valueAmount || '',
     valueCurrency: deal.valueCurrency || 'USD',
     expectedCloseDate: deal.expectedCloseDate || '',

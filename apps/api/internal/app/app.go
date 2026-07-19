@@ -125,6 +125,8 @@ type dealRequest struct {
 	ValueCurrency     string `json:"valueCurrency"`
 	ExpectedCloseDate string `json:"expectedCloseDate"`
 	OwnerUserID       int64  `json:"ownerUserId"`
+	CloseReasonCode   string `json:"closeReasonCode"`
+	CloseNotes        string `json:"closeNotes"`
 }
 
 type dealPipelineRequest struct {
@@ -151,7 +153,9 @@ type taskUpdateRequest struct {
 }
 
 type dealStageUpdateRequest struct {
-	StageID int64 `json:"stageId"`
+	StageID         int64  `json:"stageId"`
+	CloseReasonCode string `json:"closeReasonCode"`
+	CloseNotes      string `json:"closeNotes"`
 }
 
 type dealStagesResponse struct {

@@ -296,6 +296,15 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await noteForm.getByRole('button', { name: 'Add note' }).click()
   await expect(page.getByRole('list', { name: 'Deal notes list' }).getByText(`@${invitedEmail}`, { exact: false })).toBeVisible()
 
+  await page.getByLabel('Move stage').selectOption({ label: 'Sales pipeline: Closed Won' })
+  await page.getByLabel('Won reason').selectOption('solution_fit')
+  await page.getByLabel('Close notes').fill('Strong service fit and a clear implementation plan.')
+  await page.getByRole('button', { name: 'Move to stage' }).click()
+  const closeReview = page.getByLabel('Deal close review')
+  await expect(closeReview.getByRole('heading', { name: 'Won outcome' })).toBeVisible()
+  await expect(closeReview).toContainText('Best solution fit')
+  await expect(closeReview).toContainText('Strong service fit and a clear implementation plan.')
+
   await memberPage.goto('/notifications')
   const mentionNotification = memberPage.getByRole('listitem').filter({ hasText: `mentioned you on Website renewal ${runID}` })
   await expect(mentionNotification).toBeVisible()
@@ -306,6 +315,12 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await memberPage.getByRole('button', { name: 'Followers' }).click()
   await expect(memberPage.getByRole('button', { name: 'Following' })).toBeVisible()
   await memberContext.close()
+
+  await page.getByRole('link', { name: 'Reports', exact: true }).click()
+  await expect(salesActivityCard.getByRole('list', { name: 'Sales activity totals' }).getByRole('listitem').filter({ hasText: 'Won outcomes' })).toContainText('1')
+  const closeReasonReport = salesActivityCard.getByRole('list', { name: 'Win and loss reasons' })
+  await expect(closeReasonReport.getByRole('listitem').filter({ hasText: 'Best solution fit' })).toContainText('1')
+  await expect(salesActivityCard.getByRole('list', { name: 'Recent deal events' }).getByText('Strong service fit and a clear implementation plan.', { exact: false })).toBeVisible()
 
   await page.getByRole('link', { name: 'Tasks', exact: true }).click()
   await expect(page.getByText(/Overdue \d+ · Due soon [1-9]\d*/)).toBeVisible()
@@ -334,7 +349,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   const exportExpectations = [
     { path: 'contacts', includes: [`avery-${runID}@example.test`, 'custom:relationship_segment', 'Partner'], excludes: [`avery-duplicate-${runID}@example.test`, `imported-${runID}@example.test`] },
     { path: 'companies', includes: [`Northstar Advisory ${runID}`, 'custom:service_tier', 'Gold'], excludes: [importedClientName] },
-    { path: 'deals', includes: [`Website renewal ${runID}`], excludes: [] },
+    { path: 'deals', includes: [`Website renewal ${runID}`, 'close_reason_label', 'Best solution fit', 'Strong service fit and a clear implementation plan.'], excludes: [] },
     { path: 'tasks', includes: [`Prepare proposal ${runID}`], excludes: [] }
   ]
   for (const exportExpectation of exportExpectations) {
@@ -381,6 +396,10 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     expect(crossTenantTouchpoints.status()).toBe(404)
     const crossTenantQuote = await otherContext.request.get(`${apiURL}/api/deals/${configuredDealID}/quote.pdf`)
     expect(crossTenantQuote.status()).toBe(404)
+    const crossTenantClose = await otherContext.request.patch(`${apiURL}/api/deals/${configuredDealID}/stage`, {
+      data: { stageId: 1, closeReasonCode: 'solution_fit', closeNotes: 'Must remain hidden.' }
+    })
+    expect(crossTenantClose.status()).toBe(404)
   } finally {
     await otherContext.close()
   }

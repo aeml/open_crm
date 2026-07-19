@@ -50,13 +50,13 @@ Production-capable core:
 - Contacts, companies, deals, tasks, notes, activity, ownership, filters, pagination, and saved views
 - Admin-managed pipelines with bounded stage creation, renaming, outcome classification, configurable open-stage probability, exact reordering, default selection, and stable stage identities for existing deals
 - Explainable period forecasts with unweighted, won, stage-weighted, owner, unassigned, and stage-assumption rollups plus close-date filter parity across deal lists, saved views, and CSV exports
-- Snapshot-backed sales activity reports with bounded UTC date/teammate filters, exact deal and follow-up counts, outcome win rate, event-based stage movement, honest history coverage, and deal drill-down
+- Snapshot-backed sales activity reports with bounded UTC date/teammate filters, exact deal and follow-up counts, outcome win rate, event-based stage movement, fixed won/lost reason breakdowns with close-note context, honest history coverage, and deal drill-down
 - Viewer-aware contact/client touchpoint summaries and stale follow-up queues with explicit source, creation-fallback, linked-person, and privacy semantics
 - Tenant-scoped deal line items and totals, current-data quote PDFs, and explicitly manual proposal status tracking that does not claim delivery or legal e-signature
 - Admin-managed deal rules that create one assigned, auditable, idempotent follow-up task on deal creation, a real stage change, or archive
 - Exact overdue and rolling-24-hour task surfaces with preference-aware assignment events and durable, replay-safe in-app reminders
 - Record following, explicit teammate mentions, relevant notification links, and followed/team activity digests
-- Dry-run CSV mapping, idempotent tracked imports, row error downloads, bounded bulk archive/reassignment/status changes with safe rollback, field-resolved contact/client duplicate merge, and admin-defined typed contact/client fields carried through forms, filters, saved views, imports, exports, and duplicate review
+- Dry-run CSV mapping, idempotent tracked imports, row error downloads, bounded bulk archive/reassignment plus contact/client status and task-completion changes with safe rollback, field-resolved contact/client duplicate merge, and admin-defined typed contact/client fields carried through forms, filters, saved views, imports, exports, and duplicate review
 - Searchable contact/client/deal/task archive history with role-aware restore, dependency safeguards, permanent merge-source protection, retained relationships, and transactional activity/audit evidence
 - Live data-quality queues for missing ownership/contact details, stale or incomplete deals, unscheduled tasks, and business-profile-specific client/account gaps, with explainable counts and direct cleanup links
 - Tenant-scoped CSV exports for all four core record types, with custom columns, visible-filter parity, a tested 10,000-row synchronous ceiling, and explicit refusal instead of silent truncation
