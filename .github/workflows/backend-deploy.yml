@@ -121,14 +121,21 @@ jobs:
           curl_options=(
             --fail --show-error --silent
             --connect-timeout 5 --max-time 20
-            --retry 2 --retry-all-errors --retry-delay 3 --retry-max-time 70
           )
 
           probe_from_runner() {
-            curl "${curl_options[@]}" "${DEPLOY_API_URL}/healthz" > /dev/null || return 1
-            : > "$headers"
-            curl "${curl_options[@]}" --dump-header "$headers" "${DEPLOY_API_URL}/readyz" > /dev/null || return 1
-            grep -Fqi "X-Open-CRM-Release: ${GITHUB_SHA}" "$headers" || return 2
+            local deadline=$((SECONDS + 240))
+            while (( SECONDS < deadline )); do
+              if curl "${curl_options[@]}" "${DEPLOY_API_URL}/healthz" > /dev/null; then
+                : > "$headers"
+                if curl "${curl_options[@]}" --dump-header "$headers" "${DEPLOY_API_URL}/readyz" > /dev/null; then
+                  grep -Fqi "X-Open-CRM-Release: ${GITHUB_SHA}" "$headers" || return 2
+                  return 0
+                fi
+              fi
+              sleep 5
+            done
+            return 1
           }
 
           runner_probe_status=0
@@ -151,13 +158,22 @@ jobs:
           curl_options=(
             --fail --show-error --silent
             --connect-timeout 5 --max-time 20
-            --retry 2 --retry-all-errors --retry-delay 3 --retry-max-time 70
           )
-          curl "${curl_options[@]}" "${api_url}/healthz" > /dev/null
-          curl "${curl_options[@]}" --dump-header "$headers" "${api_url}/readyz" > /dev/null
-          if ! grep -Fqi "X-Open-CRM-Release: ${expected_release}" "$headers"; then
-            echo "Public readiness endpoint does not report expected release ${expected_release}." >&2
-            exit 1
-          fi
+          deadline=$((SECONDS + 240))
+          while (( SECONDS < deadline )); do
+            if curl "${curl_options[@]}" "${api_url}/healthz" > /dev/null; then
+              : > "$headers"
+              if curl "${curl_options[@]}" --dump-header "$headers" "${api_url}/readyz" > /dev/null; then
+                if ! grep -Fqi "X-Open-CRM-Release: ${expected_release}" "$headers"; then
+                  echo "Public readiness endpoint does not report expected release ${expected_release}." >&2
+                  exit 2
+                fi
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          echo "Public API did not recover within the bounded readiness window." >&2
+          exit 1
           REMOTE
           fi

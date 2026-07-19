@@ -577,9 +577,11 @@ deploy jobs from starting. The backend deploy also verifies the public
 `/healthz` and `/readyz` endpoints with bounded transport retries and exact
 release matching; the frontend deploy verifies the published Pages URL. If the
 GitHub-hosted runner cannot reach the origin through its Cloudflare region, the
-backend job emits a visible warning and repeats the same public-hostname health
-and exact-release checks from the production host. A reachable but wrong release
-never falls back and always fails the deployment.
+backend job allows a four-minute public recovery window, emits a visible warning,
+and repeats the same bounded public-hostname health and exact-release checks from
+the production host. The window covers observed Cloudflare `522` recovery after
+a healthy container replacement without accepting local-only readiness. A
+reachable but wrong release never falls back and always fails the deployment.
 
 Do not invoke the reusable deploy workflows directly. For a manual redeploy,
 rerun the successful CI workflow for the intended `main` commit so the same
