@@ -71,7 +71,7 @@ Production-capable core:
 
 In convergence:
 
-- Billing retains a fake provider for self-hosted/development plan switching. Stripe mode now has backend-hosted Checkout and customer-portal sessions, raw-body signed/idempotent webhooks, authoritative subscription/trial/dunning/cancellation state, an invoice ledger, provider metrics, and limited write suspension. It remains a foundation until a real Stripe test-mode run, periodic reconciliation, proration/plan-change policy, centralized API/worker enforcement, metering, and tenant offboarding are complete
+- Billing retains a fake provider for self-hosted/development plan switching. Stripe mode now has backend-hosted Checkout and customer-portal sessions, raw-body signed/idempotent webhooks, authoritative subscription/trial/dunning/cancellation state, an invoice ledger, six-hour provider reconciliation through the durable job queue, admin replay, provider metrics, and limited write suspension. It remains a foundation until a real Stripe test-mode run, proration/plan-change policy, centralized API/worker enforcement, metering, and tenant offboarding are complete
 - Email has real Postmark, SMTP, IMAP, Gmail, and Microsoft Graph adapters; sequence delivery now uses the durable PostgreSQL runner, while reply detection, bounce/complaint handling, and production deliverability controls remain incomplete
 - Calling, SMS, and calendar workflows currently use fake providers
 - Versioned quote delivery/legal signature, marketing, general-purpose workflow, and report-builder foundations still need their real runtime or provider outcome; current-data quote PDFs, manual proposal tracking, and the narrower deal task automation surface are executable

@@ -91,8 +91,9 @@ level-9-gzip bytes using only Node's standard library.
 | All CSS | 20 KiB | 5 KiB |
 
 Current evidence: 178.03 KiB/57.86 KiB entry, 47.00 KiB/12.23 KiB largest lazy
-chunk, and 649.89 KiB/205.98 KiB total assets. The Stripe hosted-billing
-foundation remains isolated in a 7.30 KiB/2.66 KiB settings route, while one
+chunk, and 649.99 KiB/205.95 KiB total assets. The Stripe hosted-billing
+foundation remains isolated in a 7.30 KiB/2.66 KiB settings route. Its
+7.36 KiB/2.66 KiB background-operations route includes labeled replay, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
 signup, import, merge, and bulk recovery paths. The aggregate raw ceiling is
 now effectively full; the next frontend slice must reduce or replace existing

@@ -1238,3 +1238,18 @@ func TestMigrationFilesIncludeStripeBillingLifecycleMigration(t *testing.T) {
 		t.Fatalf("Stripe billing lifecycle deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeBillingReconciliationMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "075_billing_reconciliation.sql") {
+		t.Fatal("expected billing reconciliation migration to be registered")
+	}
+	sql := MigrationSQL("075_billing_reconciliation.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "billing_last_reconciliation_attempt_at", "billing_last_reconciled_at", "billing_last_reconciliation_error", "idx_organizations_billing_reconciliation_due", "lock_timeout", "statement_timeout"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("billing reconciliation migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("075_billing_reconciliation.sql"); class != "expand" {
+		t.Fatalf("billing reconciliation deployment class = %q", class)
+	}
+}

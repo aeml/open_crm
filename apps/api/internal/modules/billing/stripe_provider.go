@@ -68,6 +68,8 @@ func (p *stripeProvider) CheckoutAvailable(plan string) bool {
 
 func (p *stripeProvider) PortalAvailable() bool { return true }
 
+func (p *stripeProvider) ReconciliationAvailable() bool { return true }
+
 func (p *stripeProvider) ChangeSubscription(context.Context, ChangeRequest) (ChangeResult, error) {
 	return ChangeResult{}, ErrCheckoutRequired
 }
@@ -128,6 +130,35 @@ func (p *stripeProvider) CreatePortalSession(ctx context.Context, req PortalRequ
 	return response, nil
 }
 
+func (p *stripeProvider) ReconcileSubscription(ctx context.Context, req ReconciliationRequest) (ReconciliationSnapshot, error) {
+	req.CustomerID = strings.TrimSpace(req.CustomerID)
+	req.SubscriptionID = strings.TrimSpace(req.SubscriptionID)
+	if req.OrganizationID <= 0 || req.CustomerID == "" || req.SubscriptionID == "" {
+		return ReconciliationSnapshot{}, fmt.Errorf("Stripe reconciliation references are incomplete")
+	}
+	snapshot := ReconciliationSnapshot{ObservedAt: p.now().UTC()}
+	if err := p.getJSON(ctx, "/v1/subscriptions/"+url.PathEscape(req.SubscriptionID), nil, &snapshot.Subscription); err != nil {
+		return ReconciliationSnapshot{}, err
+	}
+	if snapshot.Subscription.ID != req.SubscriptionID || snapshot.Subscription.Customer != req.CustomerID {
+		return ReconciliationSnapshot{}, fmt.Errorf("%w: Stripe subscription reconciliation reference mismatch", ErrInvalidReconciliationJob)
+	}
+	query := url.Values{"subscription": {req.SubscriptionID}, "limit": {"25"}}
+	var invoices struct {
+		Data []ProviderInvoice `json:"data"`
+	}
+	if err := p.getJSON(ctx, "/v1/invoices", query, &invoices); err != nil {
+		return ReconciliationSnapshot{}, err
+	}
+	for _, invoice := range invoices.Data {
+		if strings.TrimSpace(invoice.ID) == "" || invoice.Customer != req.CustomerID || invoice.Subscription != req.SubscriptionID {
+			return ReconciliationSnapshot{}, fmt.Errorf("%w: Stripe invoice reconciliation reference mismatch", ErrInvalidReconciliationJob)
+		}
+	}
+	snapshot.Invoices = invoices.Data
+	return snapshot, nil
+}
+
 func (p *stripeProvider) postForm(ctx context.Context, path string, values url.Values, idempotencyKey string, target any) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiBaseURL+path, strings.NewReader(values.Encode()))
 	if err != nil {
@@ -143,6 +174,28 @@ func (p *stripeProvider) postForm(ctx context.Context, path string, values url.V
 	if err != nil {
 		return fmt.Errorf("call Stripe: %w", err)
 	}
+	return decodeStripeResponse(response, target)
+}
+
+func (p *stripeProvider) getJSON(ctx context.Context, path string, query url.Values, target any) error {
+	endpoint := p.apiBaseURL + path
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("build Stripe request: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+p.secretKey)
+	request.Header.Set("Stripe-Version", stripeAPIVersion)
+	response, err := p.client.Do(request)
+	if err != nil {
+		return fmt.Errorf("call Stripe: %w", err)
+	}
+	return decodeStripeResponse(response, target)
+}
+
+func decodeStripeResponse(response *http.Response, target any) error {
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, stripeResponseMaxBytes+1))
 	if err != nil {

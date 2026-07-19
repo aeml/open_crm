@@ -67,4 +67,22 @@ describe('settings operations route', () => {
     })
     expect(await screen.findByText(/operator-approved retry/i)).toBeInTheDocument()
   })
+
+  it('labels failed billing reconciliation for safe operator replay', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { user: { id: 1 }, organization: { id: 1, name: 'Acme' }, membership: { role: 'owner' } } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { jobs: [{ id: 9, type: 'billing.reconcile', status: 'dead', attempts: 5, maxAttempts: 5, lastError: 'Stripe request failed' }], stats: { dead: 1 } } })
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/operations')
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /billing reconciliation · dead/i })).toBeInTheDocument()
+    expect(screen.getByText(/re-reads ordered, tenant-matched Stripe state/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /replay job/i })).toBeEnabled()
+  })
 })

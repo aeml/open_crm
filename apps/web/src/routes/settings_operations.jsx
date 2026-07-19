@@ -29,6 +29,7 @@ function jobLabel(type) {
   if (type === 'calendar.reminder') return 'Calendar reminder'
   if (type === 'mailbox.sync') return 'Mailbox sync'
   if (type === 'email_sequence.send') return 'Email sequence send'
+  if (type === 'billing.reconcile') return 'Billing reconciliation'
   return type || 'Background job'
 }
 
@@ -126,7 +127,7 @@ export function SettingsOperationsRoute() {
           <div className="section-header">
             <div>
               <h2>Background operations</h2>
-              <p>Inspect durable reminders, mailbox sync, and sequence delivery work for {session?.organization?.name || 'your workspace'}.</p>
+              <p>Inspect durable reminders, mailbox sync, billing reconciliation, and sequence delivery work for {session?.organization?.name || 'your workspace'}.</p>
             </div>
             <Button className="button-secondary" type="button" onClick={() => load()} disabled={!canOperate || isLoading}>Refresh</Button>
           </div>
@@ -151,6 +152,7 @@ export function SettingsOperationsRoute() {
                 <option value="">All job types</option>
                 <option value="calendar.reminder">Calendar reminders</option>
                 <option value="mailbox.sync">Mailbox sync</option>
+                <option value="billing.reconcile">Billing reconciliation</option>
                 <option value="email_sequence.send">Email sequence sends</option>
               </select>
             </Field>
@@ -193,7 +195,7 @@ export function SettingsOperationsRoute() {
 
       <Card>
         <div className="card-stack">
-          <div><h2>Safe recovery</h2><p>Replay only after correcting the underlying configuration or provider failure. Job idempotency prevents a second queue record, while each handler verifies its own effect state.</p></div>
+          <div><h2>Safe recovery</h2><p>Fix configuration or provider failures before replay. Billing reconciliation re-reads ordered, tenant-matched Stripe state.</p></div>
           <div className="inline-note"><strong>Email safety:</strong> an uncertain sequence send is never retried automatically because SMTP may have accepted it before the connection failed.</div>
         </div>
       </Card>

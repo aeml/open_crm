@@ -45,6 +45,12 @@ func (p observedProvider) ParseWebhook(payload []byte, signature string) (event 
 	return p.Provider.ParseWebhook(payload, signature)
 }
 
+func (p observedProvider) ReconcileSubscription(ctx context.Context, request ReconciliationRequest) (result ReconciliationSnapshot, err error) {
+	startedAt := time.Now()
+	defer func() { p.observe("subscription_reconcile", err, startedAt) }()
+	return p.Provider.ReconcileSubscription(ctx, request)
+}
+
 func (p observedProvider) observe(operation string, err error, startedAt time.Time) {
 	outcome := "success"
 	if err != nil {

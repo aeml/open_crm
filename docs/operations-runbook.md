@@ -139,26 +139,34 @@ operating policy have been reviewed.
    URL is informational and never activates a plan. Confirm the portal opens,
    then exercise a failed payment, recovery, scheduled cancellation, and final
    cancellation using approved Stripe test controls.
-5. Correlate provider counters (`checkout_session`, `portal_session`, and
-   `webhook_verify`), bounded webhook-route request metrics, tenant audit
-   events, and the durable `billing_checkout_requests`,
-   `billing_webhook_events`, and `billing_invoices` ledgers. A failed receipt is
+5. Correlate provider counters (`checkout_session`, `portal_session`,
+   `webhook_verify`, and `subscription_reconcile`), bounded webhook-route
+   request metrics, tenant audit events, and the durable `billing_checkout_requests`,
+   `billing_webhook_events`, `billing_invoices`, and `background_jobs` ledgers.
+   The tenant row records the last reconciliation attempt, successful provider
+   observation, and bounded error. A failed receipt is
    retryable under the same Stripe event ID and payload; a duplicate processed
    event is a safe no-op. A changed payload for the same event ID and
    cross-tenant customer/subscription references fail closed.
 6. On an incident, preserve the Stripe event ID and Open CRM request ID, correct
    the configuration or data-reference cause, and use Stripe's signed event
    redelivery. Do not edit organization plans/statuses or mark receipt rows
-   processed with SQL. If Stripe and Open CRM still disagree after redelivery,
-   leave the tenant in the safer restricted state and escalate: periodic
-   provider-API reconciliation and an operator replay screen remain required
-   before this capability can be promoted beyond a foundation.
+   processed with SQL. A 15-minute discovery loop queues Stripe workspaces once
+   six-hour provider evidence is stale. The retrieval-start watermark prevents
+   its current subscription and recent 25 invoices from overwriting a newer
+   webhook. A transient failure retries automatically. After correcting a dead job's
+   provider connectivity or tenant-reference cause, open **Settings >
+   Operations**, filter **Billing reconciliation**, inspect the bounded error,
+   and replay it. Cross-tenant metadata/customer/subscription disagreement must
+   be corrected at the provider before replay; never bypass the check in SQL.
 
 Stripe API behavior used by this boundary is documented in the official
 [Checkout](https://docs.stripe.com/api/checkout/sessions/create),
 [customer portal](https://docs.stripe.com/api/customer_portal/sessions/create),
 [webhook](https://docs.stripe.com/webhooks), and
-[subscription webhook](https://docs.stripe.com/billing/subscriptions/webhooks)
+[subscription webhook](https://docs.stripe.com/billing/subscriptions/webhooks),
+[subscription retrieval](https://docs.stripe.com/api/subscriptions/retrieve),
+and [invoice listing](https://docs.stripe.com/api/invoices/list?api-version=2024-06-20)
 references.
 
 ### Import interruption or recovery

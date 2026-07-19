@@ -97,6 +97,65 @@ func TestStripeProviderCreatesIdempotentCheckoutAndPortalSessions(t *testing.T) 
 	}
 }
 
+func TestStripeProviderReconcilesSubscriptionAndRecentInvoices(t *testing.T) {
+	t.Parallel()
+	observedAt := time.Date(2026, 7, 19, 12, 30, 0, 0, time.UTC)
+	requests := make(chan *http.Request, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- r.Clone(r.Context())
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/subscriptions/sub_test":
+			_, _ = io.WriteString(w, `{"id":"sub_test","customer":"cus_test","status":"active","current_period_end":1787000000,"metadata":{"organization_id":"42","plan_key":"pro"}}`)
+		case "/v1/invoices":
+			_, _ = io.WriteString(w, `{"data":[{"id":"in_test","customer":"cus_test","subscription":"sub_test","status":"paid","currency":"usd","amount_due":4900,"amount_paid":4900,"created":1784490000,"status_transitions":{"paid_at":1784490010}}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	provider := newStripeProvider(ProviderConfig{
+		SecretKey: "sk_test_secret", WebhookSecret: "whsec_secret",
+		APIBaseURL: server.URL, HTTPClient: server.Client(),
+	})
+	provider.now = func() time.Time { return observedAt }
+	snapshot, err := provider.ReconcileSubscription(context.Background(), ReconciliationRequest{
+		OrganizationID: 42, CustomerID: "cus_test", SubscriptionID: "sub_test",
+	})
+	if err != nil {
+		t.Fatalf("reconcile Stripe subscription: %v", err)
+	}
+	if !snapshot.ObservedAt.Equal(observedAt) || snapshot.Subscription.Status != "active" || len(snapshot.Invoices) != 1 || snapshot.Invoices[0].AmountPaid != 4900 {
+		t.Fatalf("unexpected reconciliation snapshot: %#v", snapshot)
+	}
+	for index := 0; index < 2; index++ {
+		request := <-requests
+		if request.Method != http.MethodGet || request.Header.Get("Authorization") != "Bearer sk_test_secret" || request.Header.Get("Stripe-Version") != stripeAPIVersion {
+			t.Fatalf("unexpected reconciliation request: method=%s headers=%#v", request.Method, request.Header)
+		}
+		if request.URL.Path == "/v1/invoices" && (request.URL.Query().Get("subscription") != "sub_test" || request.URL.Query().Get("limit") != "25") {
+			t.Fatalf("unexpected invoice reconciliation query: %s", request.URL.RawQuery)
+		}
+	}
+}
+
+func TestStripeProviderRejectsReconciliationReferenceMismatch(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"sub_test","customer":"cus_other","status":"active","metadata":{"organization_id":"42","plan_key":"pro"}}`)
+	}))
+	defer server.Close()
+	provider := newStripeProvider(ProviderConfig{
+		SecretKey: "sk_test_secret", WebhookSecret: "whsec_secret",
+		APIBaseURL: server.URL, HTTPClient: server.Client(),
+	})
+	if _, err := provider.ReconcileSubscription(context.Background(), ReconciliationRequest{OrganizationID: 42, CustomerID: "cus_test", SubscriptionID: "sub_test"}); err == nil || !strings.Contains(err.Error(), "reference mismatch") {
+		t.Fatalf("expected provider reference mismatch, got %v", err)
+	}
+}
+
 func TestStripeProviderVerifiesSignedWebhookAndRejectsReplayWindow(t *testing.T) {
 	t.Parallel()
 	provider := newStripeProvider(ProviderConfig{SecretKey: "sk_test_secret", WebhookSecret: "whsec_test"})

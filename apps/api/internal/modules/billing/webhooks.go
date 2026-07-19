@@ -27,34 +27,9 @@ type stripeCheckoutSession struct {
 	Metadata          map[string]string `json:"metadata"`
 }
 
-type stripeSubscription struct {
-	ID                string            `json:"id"`
-	Customer          string            `json:"customer"`
-	Status            string            `json:"status"`
-	CurrentPeriodEnd  int64             `json:"current_period_end"`
-	TrialEnd          int64             `json:"trial_end"`
-	CancelAtPeriodEnd bool              `json:"cancel_at_period_end"`
-	Metadata          map[string]string `json:"metadata"`
-}
+type stripeSubscription = ProviderSubscription
 
-type stripeInvoice struct {
-	ID                 string `json:"id"`
-	Customer           string `json:"customer"`
-	Subscription       string `json:"subscription"`
-	Status             string `json:"status"`
-	Currency           string `json:"currency"`
-	AmountDue          int64  `json:"amount_due"`
-	AmountPaid         int64  `json:"amount_paid"`
-	HostedInvoiceURL   string `json:"hosted_invoice_url"`
-	InvoicePDF         string `json:"invoice_pdf"`
-	Attempted          bool   `json:"attempted"`
-	AttemptCount       int    `json:"attempt_count"`
-	NextPaymentAttempt int64  `json:"next_payment_attempt"`
-	Created            int64  `json:"created"`
-	StatusTransitions  struct {
-		PaidAt int64 `json:"paid_at"`
-	} `json:"status_transitions"`
-}
+type stripeInvoice = ProviderInvoice
 
 func (s *Service) HandleWebhook(ctx context.Context, payload []byte, signature string) (WebhookResult, error) {
 	if s == nil || s.pool == nil || s.provider == nil || s.provider.Name() != "stripe" {
@@ -261,40 +236,9 @@ func applyStripeInvoice(ctx context.Context, tx pgx.Tx, event WebhookEvent) (int
 	if strings.TrimSpace(invoice.ID) == "" {
 		return organizationID, false, fmt.Errorf("Stripe invoice missing identity")
 	}
-	invoiceResult, err := tx.Exec(ctx, `
-		INSERT INTO billing_invoices (
-			organization_id, provider, provider_invoice_id, provider_subscription_id,
-			status, currency, amount_due, amount_paid, hosted_invoice_url, invoice_pdf_url,
-			attempted, attempt_count, next_payment_attempt, paid_at, provider_created_at,
-			last_event_created, last_event_id
-		) VALUES ($1, 'stripe', $2, NULLIF($3, ''), $4, $5, $6, $7, NULLIF($8, ''), NULLIF($9, ''), $10, $11, $12, $13, $14, $15, $16)
-		ON CONFLICT (provider_invoice_id) DO UPDATE SET
-			status=EXCLUDED.status, currency=EXCLUDED.currency,
-			amount_due=EXCLUDED.amount_due, amount_paid=EXCLUDED.amount_paid,
-			hosted_invoice_url=EXCLUDED.hosted_invoice_url, invoice_pdf_url=EXCLUDED.invoice_pdf_url,
-			attempted=EXCLUDED.attempted, attempt_count=EXCLUDED.attempt_count,
-			next_payment_attempt=EXCLUDED.next_payment_attempt, paid_at=EXCLUDED.paid_at,
-			last_event_created=EXCLUDED.last_event_created, last_event_id=EXCLUDED.last_event_id,
-			updated_at=NOW()
-		WHERE billing_invoices.organization_id=EXCLUDED.organization_id
-		  AND billing_invoices.provider=EXCLUDED.provider
-		  AND billing_invoices.last_event_created <= EXCLUDED.last_event_created
-	`, organizationID, invoice.ID, invoice.Subscription, invoice.Status, invoice.Currency,
-		invoice.AmountDue, invoice.AmountPaid, invoice.HostedInvoiceURL, invoice.InvoicePDF,
-		invoice.Attempted, invoice.AttemptCount, nullableStripeTime(invoice.NextPaymentAttempt),
-		nullableStripeTime(invoice.StatusTransitions.PaidAt), nullableStripeTime(invoice.Created), event.Created, event.ID)
+	invoiceApplied, err := upsertStripeInvoice(ctx, tx, organizationID, invoice, event.Created, event.ID)
 	if err != nil {
-		return organizationID, false, fmt.Errorf("reconcile Stripe invoice: %w", err)
-	}
-	invoiceApplied := invoiceResult.RowsAffected() > 0
-	if !invoiceApplied {
-		var invoiceOrganizationID int64
-		if err := tx.QueryRow(ctx, `SELECT organization_id FROM billing_invoices WHERE provider_invoice_id=$1`, invoice.ID).Scan(&invoiceOrganizationID); err != nil {
-			return organizationID, false, fmt.Errorf("verify Stripe invoice ordering: %w", err)
-		}
-		if invoiceOrganizationID != organizationID {
-			return organizationID, false, fmt.Errorf("Stripe invoice reference conflict")
-		}
+		return organizationID, false, err
 	}
 
 	statusExpression := ""
@@ -334,6 +278,48 @@ func applyStripeInvoice(ctx context.Context, tx pgx.Tx, event WebhookEvent) (int
 		}
 	}
 	return organizationID, invoiceApplied || statusApplied, nil
+}
+
+func upsertStripeInvoice(ctx context.Context, tx pgx.Tx, organizationID int64, invoice ProviderInvoice, eventCreated int64, eventID string) (bool, error) {
+	if organizationID <= 0 || strings.TrimSpace(invoice.ID) == "" || eventCreated <= 0 || strings.TrimSpace(eventID) == "" {
+		return false, fmt.Errorf("Stripe invoice reconciliation identity is incomplete")
+	}
+	invoiceResult, err := tx.Exec(ctx, `
+		INSERT INTO billing_invoices (
+			organization_id, provider, provider_invoice_id, provider_subscription_id,
+			status, currency, amount_due, amount_paid, hosted_invoice_url, invoice_pdf_url,
+			attempted, attempt_count, next_payment_attempt, paid_at, provider_created_at,
+			last_event_created, last_event_id
+		) VALUES ($1, 'stripe', $2, NULLIF($3, ''), $4, $5, $6, $7, NULLIF($8, ''), NULLIF($9, ''), $10, $11, $12, $13, $14, $15, $16)
+		ON CONFLICT (provider_invoice_id) DO UPDATE SET
+			status=EXCLUDED.status, currency=EXCLUDED.currency,
+			amount_due=EXCLUDED.amount_due, amount_paid=EXCLUDED.amount_paid,
+			hosted_invoice_url=EXCLUDED.hosted_invoice_url, invoice_pdf_url=EXCLUDED.invoice_pdf_url,
+			attempted=EXCLUDED.attempted, attempt_count=EXCLUDED.attempt_count,
+			next_payment_attempt=EXCLUDED.next_payment_attempt, paid_at=EXCLUDED.paid_at,
+			last_event_created=EXCLUDED.last_event_created, last_event_id=EXCLUDED.last_event_id,
+			updated_at=NOW()
+		WHERE billing_invoices.organization_id=EXCLUDED.organization_id
+		  AND billing_invoices.provider=EXCLUDED.provider
+		  AND billing_invoices.last_event_created <= EXCLUDED.last_event_created
+	`, organizationID, invoice.ID, invoice.Subscription, invoice.Status, invoice.Currency,
+		invoice.AmountDue, invoice.AmountPaid, invoice.HostedInvoiceURL, invoice.InvoicePDF,
+		invoice.Attempted, invoice.AttemptCount, nullableStripeTime(invoice.NextPaymentAttempt),
+		nullableStripeTime(invoice.StatusTransitions.PaidAt), nullableStripeTime(invoice.Created), eventCreated, eventID)
+	if err != nil {
+		return false, fmt.Errorf("reconcile Stripe invoice: %w", err)
+	}
+	invoiceApplied := invoiceResult.RowsAffected() > 0
+	if !invoiceApplied {
+		var invoiceOrganizationID int64
+		if err := tx.QueryRow(ctx, `SELECT organization_id FROM billing_invoices WHERE provider_invoice_id=$1`, invoice.ID).Scan(&invoiceOrganizationID); err != nil {
+			return false, fmt.Errorf("verify Stripe invoice ordering: %w", err)
+		}
+		if invoiceOrganizationID != organizationID {
+			return false, fmt.Errorf("Stripe invoice reference conflict")
+		}
+	}
+	return invoiceApplied, nil
 }
 
 func stripeOrganizationID(metadata map[string]string, clientReference string) (int64, error) {

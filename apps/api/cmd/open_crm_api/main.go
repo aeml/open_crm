@@ -239,6 +239,16 @@ func main() {
 			}
 			go mailboxSyncService.RunJobScheduler(ctx, jobsService, logger, 0, 0)
 		}
+		if billingService != nil && billingService.ReconciliationConfigured() {
+			jobHandlers[modulebilling.ReconciliationJobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
+				result, err := billingService.HandleReconciliationJob(ctx, job)
+				if errors.Is(err, modulebilling.ErrInvalidReconciliationJob) {
+					return nil, modulejobs.Permanent(err)
+				}
+				return result, err
+			}
+			go billingService.RunReconciliationScheduler(ctx, jobsService, logger, 0, 0)
+		}
 		if sequenceRunnerService != nil && sequenceRunnerService.Configured() {
 			jobHandlers[moduleemailsequences.SequenceSendJobType] = sequenceRunnerService.HandleJob
 		}

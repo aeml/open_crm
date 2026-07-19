@@ -35,4 +35,10 @@ func TestObservedProviderReportsBoundedOperationOutcome(t *testing.T) {
 	if observation.provider != "fake" || observation.operation != "webhook_verify" || observation.outcome != "error" {
 		t.Fatalf("unexpected failed provider observation: %#v", observation)
 	}
+	if _, err := provider.ReconcileSubscription(context.Background(), ReconciliationRequest{OrganizationID: 7}); err == nil {
+		t.Fatal("fake reconciliation should fail")
+	}
+	if observation.provider != "fake" || observation.operation != "subscription_reconcile" || observation.outcome != "error" {
+		t.Fatalf("unexpected reconciliation observation: %#v", observation)
+	}
 }
