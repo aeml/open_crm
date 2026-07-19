@@ -35,14 +35,19 @@ delivery or e-signature claim.
    timing. Exact reasons, thresholds, client type, health state, and owner
    filters explain every result; no issue state is inferred without an issue
    record.
-8. **Reports** reconciles deal creation and movement, won/lost outcomes and
+8. On the customer record, a teammate can schedule one assigned review or
+   renewal task, either once or every 1, 3, 6, or 12 months. Dashboard exposes
+   the obligation, and completing a recurring task creates exactly the next
+   future task without replay duplicates or missed-period bursts.
+9. **Reports** reconciles deal creation and movement, won/lost outcomes and
    reasons, notes, task work, teammate ownership/actors, and recent deal events
    over a bounded UTC date range. Deal exports retain the current close context.
 
 The clean PostgreSQL-backed Chromium journey performs this sequence as one
 workflow, including a pipeline rename after deal creation, forecast continuity,
 automated-task creation, reminder visibility, report reconciliation, close
-review, post-sale health triage, and cross-tenant denial.
+review, post-sale health triage, recurring renewal advancement, and cross-tenant
+denial.
 
 ## Reporting semantics and scale boundary
 
@@ -71,6 +76,8 @@ review, post-sale health triage, and cross-tenant denial.
   remain hidden foundations.
 - Reminder delivery is in-app. Email reminder delivery is deferred until pilot
   evidence shows the in-app signal is useful and appropriately quiet.
+- Review/renewal schedules are task-backed follow-up metadata, not billing,
+  contract management, or proof of legal notice.
 - Stage deletion, custom close-reason administration, cohort/velocity analytics,
   and immutable forecast snapshots remain deferred pending observed need.
 
@@ -90,8 +97,9 @@ frequency, and anonymized evidence. Review these questions before changing scope
 | Report interpretation | UTC-day confusion, disputed owner/actor attribution, rate questions, and missing drill-down |
 | Close review quality | Repeated use of `other`, unclear fixed reasons, missing context, and reopen/reclose confusion |
 | Proposal-to-handoff gap | Manual status errors, external delivery/signing tools used, and information re-entered after a win |
+| Client review cadence | Missed reviews, duplicate task expectations, ownership changes, dashboard horizon, and demand for calendar linkage |
 
 Prioritize a change only from repeated evidence or one severe workflow failure;
-retain a session note when the current behavior needs no change. Until that
-evidence exists, the next convergence work is the already-planned won-deal
-client handoff rather than speculative sales breadth.
+retain a session note when the current behavior needs no change. Continue the
+planned customer-operations convergence rather than adding speculative sales
+breadth.

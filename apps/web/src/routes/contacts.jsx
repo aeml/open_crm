@@ -25,6 +25,7 @@ import { ContactEmailCard, ContactMeetingsCard, ContactSMSCard, ContactSequences
 import { ContactForm } from './contact_form'
 import { ContactAttributionCard, ContactLeadScoreCard } from './contact_insights'
 import { ClientAccountContext } from './client_account_context'
+import { ClientReviewSchedule, refreshClientReviewTasks } from './client_review_schedule'
 import { ContactListCard } from './contact_list'
 import {
   contactFormValues,
@@ -349,6 +350,8 @@ export function ContactsRoute() {
     }
     navigate(`/tasks?entityType=contact&entityId=${selectedContactId}`)
   }
+
+  const handleClientReviewChanged = () => refreshClientReviewTasks('contact', selectedContactId, setDetail, setDetailCache)
 
   async function handleOpenContact(contact) {
     const contactID = contact.id
@@ -1182,6 +1185,7 @@ export function ContactsRoute() {
               isCustomer={selectedContact.isClient || selectedContact.status === 'customer'} labels={pipelineLabels}
               notes={selectedNotes} onCreateDeal={handleCreateRelatedDeal} onOpenDeal={handleOpenDeal} tasks={selectedTasks}
             />
+            <ClientReviewSchedule entityType="contact" entityId={selectedContactId} isClient={selectedContact.isClient || selectedContact.status === 'customer'} canWrite={canWrite} users={userOptions} onChanged={handleClientReviewChanged} />
             <ContactCallsCard
               activeCall={activeCall}
               callForm={callForm}

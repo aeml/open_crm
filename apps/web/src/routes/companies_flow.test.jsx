@@ -397,6 +397,10 @@ describe('companies flow', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { exists: false, semantics: [] } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         status: 204,
         json: async () => ({})
       })

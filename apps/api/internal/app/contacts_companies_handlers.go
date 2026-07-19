@@ -223,6 +223,10 @@ func handleUpdateContact(auth authService, contacts contactsService, w http.Resp
 	}
 	result, err := contacts.Update(r.Context(), state.Organization.ID, contactID, state.User.ID, modulecontacts.UpdateInput(input))
 	if err != nil {
+		if errors.Is(err, modulecontacts.ErrActiveReviewSchedule) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}
@@ -261,6 +265,10 @@ func handleArchiveContact(auth authService, contacts contactsService, w http.Res
 		return
 	}
 	if err := contacts.Archive(r.Context(), state.Organization.ID, contactID, state.User.ID); err != nil {
+		if errors.Is(err, modulecontacts.ErrActiveReviewSchedule) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}
@@ -400,6 +408,10 @@ func handleUpdateCompany(auth authService, companies companiesService, w http.Re
 	}
 	result, err := companies.Update(r.Context(), state.Organization.ID, companyID, state.User.ID, modulecompanies.UpdateInput(input))
 	if err != nil {
+		if errors.Is(err, modulecompanies.ErrActiveReviewSchedule) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}
@@ -438,6 +450,10 @@ func handleArchiveCompany(auth authService, companies companiesService, w http.R
 		return
 	}
 	if err := companies.Archive(r.Context(), state.Organization.ID, companyID, state.User.ID); err != nil {
+		if errors.Is(err, modulecompanies.ErrActiveReviewSchedule) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}

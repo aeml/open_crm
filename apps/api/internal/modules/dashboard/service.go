@@ -35,18 +35,43 @@ type Activity struct {
 }
 
 type Summary struct {
-	PipelineValue         string     `json:"pipelineValue"`
-	BaseCurrency          string     `json:"baseCurrency"`
-	MissingRateCurrencies []string   `json:"missingRateCurrencies"`
-	OpenDealsCount        int        `json:"openDealsCount"`
-	WonDealsCount         int        `json:"wonDealsCount"`
-	OpenTasksCount        int        `json:"openTasksCount"`
-	OverdueTasksCount     int        `json:"overdueTasksCount"`
-	DueSoonTasksCount     int        `json:"dueSoonTasksCount"`
-	UpcomingTasksCount    int        `json:"upcomingTasksCount"`
-	NewContactsCount      int        `json:"newContactsCount"`
-	Forecast              Forecast   `json:"forecast"`
-	RecentActivities      []Activity `json:"recentActivities"`
+	PipelineValue         string              `json:"pipelineValue"`
+	BaseCurrency          string              `json:"baseCurrency"`
+	MissingRateCurrencies []string            `json:"missingRateCurrencies"`
+	OpenDealsCount        int                 `json:"openDealsCount"`
+	WonDealsCount         int                 `json:"wonDealsCount"`
+	OpenTasksCount        int                 `json:"openTasksCount"`
+	OverdueTasksCount     int                 `json:"overdueTasksCount"`
+	DueSoonTasksCount     int                 `json:"dueSoonTasksCount"`
+	UpcomingTasksCount    int                 `json:"upcomingTasksCount"`
+	NewContactsCount      int                 `json:"newContactsCount"`
+	Forecast              Forecast            `json:"forecast"`
+	ClientReviews         ClientReviewSummary `json:"clientReviews"`
+	RecentActivities      []Activity          `json:"recentActivities"`
+}
+
+type ClientReviewSummary struct {
+	Total           int                  `json:"total"`
+	Overdue         int                  `json:"overdue"`
+	DueWithin30Days int                  `json:"dueWithin30Days"`
+	Later           int                  `json:"later"`
+	Records         []ClientReviewRecord `json:"records"`
+	Semantics       []string             `json:"semantics"`
+}
+
+type ClientReviewRecord struct {
+	EntityType         string    `json:"entityType"`
+	EntityID           int64     `json:"entityId"`
+	EntityLabel        string    `json:"entityLabel"`
+	ReviewType         string    `json:"reviewType"`
+	ReviewLabel        string    `json:"reviewLabel"`
+	NextReviewAt       time.Time `json:"nextReviewAt"`
+	CadenceMonths      int       `json:"cadenceMonths"`
+	CadenceLabel       string    `json:"cadenceLabel"`
+	CurrentTaskID      int64     `json:"currentTaskId"`
+	AssignedToUserID   int64     `json:"assignedToUserId"`
+	AssignedToUserName string    `json:"assignedToUserName"`
+	IsOverdue          bool      `json:"isOverdue"`
 }
 
 type Forecast struct {
@@ -158,7 +183,14 @@ func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int6
 		return Summary{}, fmt.Errorf("dashboard service not configured")
 	}
 
-	summary := Summary{}
+	summary := Summary{ClientReviews: ClientReviewSummary{
+		Records: []ClientReviewRecord{},
+		Semantics: []string{
+			"Upcoming client reviews and renewals are ordinary assigned tasks and remain visible in the task workflow.",
+			"Due within 30 days excludes overdue obligations; later starts at 30 days.",
+			"These schedules track customer follow-up and do not represent subscription billing or a legal renewal event.",
+		},
+	}}
 	var missingRateCurrencies string
 	if err := s.pool.QueryRow(ctx, `
 		WITH org_settings AS (
@@ -218,6 +250,10 @@ func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int6
 		return Summary{}, fmt.Errorf("load task summary: %w", err)
 	}
 
+	if err := s.loadClientReviews(ctx, organizationID, &summary.ClientReviews); err != nil {
+		return Summary{}, err
+	}
+
 	weekStart := time.Now().UTC().AddDate(0, 0, -7)
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*)
@@ -268,6 +304,88 @@ func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int6
 	}
 
 	return summary, nil
+}
+
+func (s *Service) loadClientReviews(ctx context.Context, organizationID int64, summary *ClientReviewSummary) error {
+	const validSchedules = `
+		FROM client_review_schedules schedule
+		JOIN tasks task
+		  ON task.organization_id=schedule.organization_id AND task.id=schedule.current_task_id
+		LEFT JOIN contacts contact
+		  ON schedule.entity_type='contact' AND contact.organization_id=schedule.organization_id
+		 AND contact.id=schedule.entity_id AND contact.archived_at IS NULL
+		 AND (contact.is_client=TRUE OR contact.status='customer')
+		LEFT JOIN companies company
+		  ON schedule.entity_type='company' AND company.organization_id=schedule.organization_id
+		 AND company.id=schedule.entity_id AND company.archived_at IS NULL AND company.status='customer'
+		LEFT JOIN organization_memberships membership
+		  ON membership.organization_id=schedule.organization_id AND membership.user_id=task.assigned_to_user_id
+		LEFT JOIN users assigned ON assigned.id=membership.user_id
+		WHERE schedule.organization_id=$1 AND schedule.completed_at IS NULL
+		  AND task.archived_at IS NULL AND task.status='open'
+		  AND ((schedule.entity_type='contact' AND contact.id IS NOT NULL)
+		    OR (schedule.entity_type='company' AND company.id IS NOT NULL))`
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE schedule.next_review_at<NOW()),
+		       COUNT(*) FILTER (WHERE schedule.next_review_at>=NOW() AND schedule.next_review_at<NOW()+INTERVAL '30 days'),
+		       COUNT(*) FILTER (WHERE schedule.next_review_at>=NOW()+INTERVAL '30 days')
+	`+validSchedules, organizationID).Scan(&summary.Total, &summary.Overdue, &summary.DueWithin30Days, &summary.Later); err != nil {
+		return fmt.Errorf("load client review counts: %w", err)
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT schedule.entity_type,schedule.entity_id,
+		       CASE WHEN schedule.entity_type='contact'
+		            THEN COALESCE(NULLIF(trim(contact.first_name||' '||contact.last_name),''),'Contact #'||contact.id::text)
+		            ELSE company.name END,
+		       schedule.review_type,schedule.next_review_at,schedule.cadence_months,schedule.current_task_id,
+		       COALESCE(task.assigned_to_user_id,0),
+		       COALESCE(NULLIF(trim(COALESCE(assigned.first_name,'')||' '||COALESCE(assigned.last_name,'')),''),COALESCE(assigned.email,'')),
+		       schedule.next_review_at<NOW()
+	`+validSchedules+`
+		ORDER BY schedule.next_review_at,schedule.entity_type,schedule.entity_id
+		LIMIT 6
+	`, organizationID)
+	if err != nil {
+		return fmt.Errorf("load client review records: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var record ClientReviewRecord
+		if err := rows.Scan(
+			&record.EntityType,
+			&record.EntityID,
+			&record.EntityLabel,
+			&record.ReviewType,
+			&record.NextReviewAt,
+			&record.CadenceMonths,
+			&record.CurrentTaskID,
+			&record.AssignedToUserID,
+			&record.AssignedToUserName,
+			&record.IsOverdue,
+		); err != nil {
+			return fmt.Errorf("scan client review record: %w", err)
+		}
+		if record.ReviewType == "renewal" {
+			record.ReviewLabel = "Client renewal"
+		} else {
+			record.ReviewLabel = "Client review"
+		}
+		switch record.CadenceMonths {
+		case 1:
+			record.CadenceLabel = "Every month"
+		case 3, 6, 12:
+			record.CadenceLabel = fmt.Sprintf("Every %d months", record.CadenceMonths)
+		default:
+			record.CadenceLabel = "One time"
+		}
+		summary.Records = append(summary.Records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate client review records: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) forecastByOrganization(ctx context.Context, organizationID int64, query ForecastQuery, now time.Time) (Forecast, error) {

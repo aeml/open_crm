@@ -10,6 +10,7 @@ import (
 	modulebulkoperations "github.com/aeml/open_crm/apps/api/internal/modules/bulkoperations"
 	modulecalendar "github.com/aeml/open_crm/apps/api/internal/modules/calendar"
 	modulecalllogs "github.com/aeml/open_crm/apps/api/internal/modules/calllogs"
+	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	modulecollaboration "github.com/aeml/open_crm/apps/api/internal/modules/collaboration"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
@@ -139,6 +140,12 @@ type orgProfileService interface {
 type dashboardService interface {
 	SummaryByOrganization(context.Context, int64, moduledashboard.ForecastQuery) (moduledashboard.Summary, error)
 	UpsertSalesQuota(context.Context, int64, int64, int64, moduledashboard.QuotaInput) (moduledashboard.Summary, error)
+}
+
+type clientReviewsService interface {
+	Get(context.Context, int64, string, int64) (moduleclientreviews.Schedule, error)
+	Upsert(context.Context, int64, int64, string, int64, moduleclientreviews.Input) (moduleclientreviews.Schedule, error)
+	Delete(context.Context, int64, int64, string, int64) error
 }
 
 type notesService interface {
@@ -382,6 +389,7 @@ type Dependencies struct {
 	ExportsService                  dataExportsService
 	OrgProfileService               orgProfileService
 	DashboardService                dashboardService
+	ClientReviewsService            clientReviewsService
 	NotesService                    notesService
 	CollaborationService            collaborationService
 	CallLogsService                 callLogsService

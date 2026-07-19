@@ -1192,3 +1192,19 @@ func TestMigrationFilesIncludeClientHealthQueryIndexesMigration(t *testing.T) {
 		t.Fatalf("expected client-health query indexes migration to be expand-safe, got %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeClientReviewSchedulesMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "072_client_review_schedules.sql") {
+		t.Fatal("expected client-review schedules migration to be registered")
+	}
+
+	sql := MigrationSQL("072_client_review_schedules.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "client_review_schedules", "client_review_schedules_entity_unique", "client_review_schedules_task_org_fk", "idx_client_review_schedules_org_active_due", "lock_timeout", "statement_timeout"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected client-review schedules migration to include %s", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("072_client_review_schedules.sql"); class != "expand" {
+		t.Fatalf("expected client-review schedules migration to be expand-safe, got %q", class)
+	}
+}

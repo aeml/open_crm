@@ -8,6 +8,7 @@ import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
 import { DashboardForecast } from './dashboard_forecast'
+import { DashboardClientReviews } from './dashboard_client_reviews'
 
 function formatMoney(value, currency = 'USD') {
   const amount = Number.parseFloat(value || '0')
@@ -46,6 +47,7 @@ const emptySummary = {
   upcomingTasksCount: 0,
   newContactsCount: 0,
   forecast: emptyForecast,
+  clientReviews: { total: 0, overdue: 0, dueWithin30Days: 0, later: 0, records: [], semantics: [] },
   recentActivities: []
 }
 
@@ -61,6 +63,12 @@ function normalizeDashboardSummary(summary) {
       stages: summary?.forecast?.stages || []
     },
     missingRateCurrencies: summary?.missingRateCurrencies || [],
+    clientReviews: {
+      ...emptySummary.clientReviews,
+      ...(summary?.clientReviews || {}),
+      records: summary?.clientReviews?.records || [],
+      semantics: summary?.clientReviews?.semantics || []
+    },
     recentActivities: summary?.recentActivities || []
   }
 }
@@ -341,6 +349,8 @@ export function DashboardRoute() {
             </div>
           </div>
         </Card>
+
+        <DashboardClientReviews summary={summary.clientReviews} isLoading={isLoading} />
 
         <Card>
           <div className="card-stack">

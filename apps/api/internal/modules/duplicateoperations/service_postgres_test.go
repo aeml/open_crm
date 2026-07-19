@@ -11,6 +11,7 @@ import (
 	"time"
 
 	moduledb "github.com/aeml/open_crm/apps/api/internal/db"
+	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	moduleduplicates "github.com/aeml/open_crm/apps/api/internal/modules/duplicateoperations"
 )
 
@@ -192,6 +193,33 @@ func TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres(t *testing.
 		SourceUpdatedAt: staleSource.UpdatedAt, TargetUpdatedAt: staleTarget.UpdatedAt, IdempotencyKey: "duplicate-stale-merge-001",
 	}); !errors.Is(err, moduleduplicates.ErrConflict) {
 		t.Fatalf("expected stale duplicate merge conflict, got %v", err)
+	}
+
+	scheduledSourceID := duplicateInsertContact(t, ctx, pool, organizationID, ownerID, "Scheduled", "Source", "scheduled-pair@example.test")
+	scheduledTargetID := duplicateInsertContact(t, ctx, pool, organizationID, ownerID, "Scheduled", "Target", "scheduled-pair@example.test")
+	if _, err := pool.Exec(ctx, `UPDATE contacts SET status='customer',is_client=TRUE WHERE organization_id=$1 AND id=$2`, organizationID, scheduledSourceID); err != nil {
+		t.Fatalf("promote scheduled duplicate source: %v", err)
+	}
+	scheduledReview, err := service.Review(ctx, organizationID, "contact", 20)
+	if err != nil {
+		t.Fatalf("review scheduled duplicate pair: %v", err)
+	}
+	scheduledCandidate := findCandidate(t, scheduledReview, scheduledSourceID, scheduledTargetID)
+	scheduledSource, scheduledTarget := scheduledCandidate.First, scheduledCandidate.Second
+	if scheduledSource.ID != scheduledSourceID {
+		scheduledSource, scheduledTarget = scheduledTarget, scheduledSource
+	}
+	reviews := moduleclientreviews.NewService(pool)
+	if _, err := reviews.Upsert(ctx, organizationID, ownerID, "contact", scheduledSourceID, moduleclientreviews.Input{
+		ReviewType: "review", NextReviewAt: time.Now().UTC().Add(7 * 24 * time.Hour).Format(time.RFC3339), CadenceMonths: 1, AssignedToUserID: ownerID,
+	}); err != nil {
+		t.Fatalf("schedule duplicate source review: %v", err)
+	}
+	if _, err := service.Merge(ctx, moduleduplicates.MergeInput{
+		OrganizationID: organizationID, ActorUserID: ownerID, EntityType: "contact", SourceEntityID: scheduledSourceID, TargetEntityID: scheduledTargetID,
+		SourceUpdatedAt: scheduledSource.UpdatedAt, TargetUpdatedAt: scheduledTarget.UpdatedAt, IdempotencyKey: "duplicate-scheduled-merge-001",
+	}); !errors.Is(err, moduleduplicates.ErrConflict) {
+		t.Fatalf("expected scheduled duplicate merge conflict, got %v", err)
 	}
 
 	testCompanyMerge(t, ctx, pool, service, organizationID, ownerID, stageID)

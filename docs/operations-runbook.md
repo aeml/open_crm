@@ -279,6 +279,30 @@ do not silently relabel a missed target as success.
    through normal application workflows; the derived health value is not a
    mutable status and must not be patched with ad hoc SQL.
 
+### Client review and renewal task recovery
+
+1. An active customer company or individual client may have one review or
+   renewal schedule. Its current obligation is an ordinary assigned task, and
+   Dashboard groups it as overdue, due within 30 days, or later. The schedule is
+   follow-up metadata only; it is not subscription billing, a contract renewal,
+   or evidence that a legal notice was delivered.
+2. Editing the current task's due time or assignee updates the schedule in the
+   same transaction. Completing a one-time task marks the schedule completed;
+   reopening it restores the obligation. Completing a recurring task creates
+   exactly one next task from the original 1-, 3-, 6-, or 12-month cadence and
+   skips missed periods until the due time is future. Replaying the old
+   completion must not create another task.
+3. Direct archive and bulk mutation of a managed task are rejected. Client
+   archive, demotion from customer, and duplicate merge are likewise rejected
+   while a schedule is active. Use **Clear schedule** on the client first; this
+   archives an open generated task, removes its pending reminder state, and
+   records client activity/audit evidence. Then retry the intended operation.
+4. If the dashboard, client, and task disagree, record the tenant-safe client
+   type/ID, schedule task link, due time, assignee, cadence, task status, request
+   ID, and related activity/audit/job evidence. Retry the normal update after
+   checking the assignee remains active. Do not edit `client_review_schedules`,
+   tasks, reminders, or jobs directly in production.
+
 ### Proposal tracking and current-PDF reconciliation
 
 1. The deal's **Line items** are saved CRM data. A catalog selection copies its

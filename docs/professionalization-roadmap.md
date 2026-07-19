@@ -117,7 +117,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.7.0` Customer Operations: in progress.
 - `0.7.1` Post-Sale Account View: complete.
 - `0.7.2` Client Health Signals: complete.
-- `0.7.3` Renewal And Follow-Up Tasks: planned.
+- `0.7.3` Renewal And Follow-Up Tasks: complete.
 - `0.7.4` Service Or Job Tracking: planned.
 - `0.7.5` Account Notes And Internal Handoff: planned.
 - `0.7.6` Customer Segment Views: planned.
@@ -1640,7 +1640,7 @@ decision, not an incomplete implementation.
 
 ## Version 0.7.3 - Renewal And Follow-Up Tasks
 
-Status: planned.
+Status: complete.
 
 Goal: support recurring customer follow-up without calendar complexity.
 
@@ -1653,6 +1653,25 @@ Exit criteria:
 
 - Users can track future customer follow-up obligations.
 - Renewal/review tasks appear in existing task workflows.
+
+Completion evidence (2026-07-19): every active customer company or individual
+client can own one explicit review or renewal schedule. Saving it creates or
+reschedules an ordinary assigned task and its durable due-soon/overdue reminder
+state in the same serializable transaction. Operators can choose one time or a
+1-, 3-, 6-, or 12-month cadence. Completing a recurring task advances from the
+original due time until exactly one future obligation remains, so downtime or a
+late completion cannot create a burst; replaying completion is a no-op. The
+client page shows the schedule and current task, while Dashboard separates
+overdue, due-within-30-days, and later obligations with client/task drill-down.
+Direct task due-time or assignee changes reconcile the schedule, but archive,
+bulk mutation, client demotion/archive, and duplicate merge are blocked until
+the schedule is deliberately cleared. Clearing archives only an open generated
+task; one-time completion and reopen remain recoverable. Migration 72 adds
+tenant/entity and task integrity constraints. Handler and focused UI tests plus
+disposable-PostgreSQL lifecycle, tenant, reminder, audit, bulk/archive, replay,
+dashboard, and clean Chromium lead-to-client recurrence acceptance cover the
+outcome. This is follow-up metadata, not subscription billing or a legal renewal
+event.
 
 ## Version 0.7.4 - Service Or Job Tracking
 

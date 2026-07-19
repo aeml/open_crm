@@ -6,6 +6,12 @@ function uniqueRunID() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+function datetimeLocalDaysFromNow(days) {
+  const value = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+  value.setSeconds(0, 0)
+  return value.toISOString().slice(0, 16)
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -328,6 +334,43 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   const accountHealth = page.locator('.touchpoint-summary-card')
   await expect(accountHealth.getByText('Needs attention', { exact: true })).toBeVisible()
   await expect(accountHealth.getByText('Overdue: 1')).toBeVisible()
+
+  const renewalTaskTitle = `Client renewal: Northstar Advisory ${runID}`
+  const reviewSchedule = page.locator('.client-review-card')
+  await expect(reviewSchedule.getByRole('heading', { name: 'Client review schedule' })).toBeVisible()
+  await reviewSchedule.getByLabel('Follow-up type').selectOption('renewal')
+  await reviewSchedule.getByLabel('Next due time').fill(datetimeLocalDaysFromNow(20))
+  await reviewSchedule.getByLabel('Cadence').selectOption('3')
+  await reviewSchedule.getByLabel('Assignee').selectOption({ label: 'Pilot Owner' })
+  await reviewSchedule.getByRole('button', { name: 'Schedule task' }).click()
+  await expect(reviewSchedule.getByText('Client renewal task scheduled.', { exact: true })).toBeVisible()
+  const currentRenewal = reviewSchedule.getByRole('listitem')
+  const firstRenewalTaskPath = await currentRenewal.getByRole('link', { name: 'Open task' }).getAttribute('href')
+  expect(firstRenewalTaskPath).toMatch(/^\/tasks\/\d+$/)
+
+  await page.getByRole('link', { name: 'Dashboard', exact: true }).click()
+  const clientObligations = page.locator('.card').filter({ has: page.getByRole('heading', { name: 'Reviews and renewals' }) })
+  await expect(clientObligations.getByText('1 due within 30 days', { exact: true })).toBeVisible()
+  const renewalObligation = clientObligations.getByRole('listitem').filter({ hasText: `Northstar Advisory ${runID}` })
+  await expect(renewalObligation).toContainText('Client renewal')
+  await renewalObligation.getByRole('link', { name: 'Open task' }).click()
+  await expect(page).toHaveURL(new RegExp(`${firstRenewalTaskPath}$`))
+  const renewalTaskForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Update task' }) })
+  await expect(renewalTaskForm.getByLabel('Task title')).toHaveValue(renewalTaskTitle)
+  await renewalTaskForm.getByLabel('Status').selectOption('completed')
+  await renewalTaskForm.getByRole('button', { name: 'Update task' }).click()
+  await expect(renewalTaskForm.getByLabel('Status')).toHaveValue('completed')
+
+  await page.getByRole('link', { name: 'Dashboard', exact: true }).click()
+  await expect(clientObligations.getByText('1 later', { exact: true })).toBeVisible()
+  const nextRenewal = clientObligations.getByRole('listitem').filter({ hasText: `Northstar Advisory ${runID}` })
+  const nextRenewalTaskPath = await nextRenewal.getByRole('link', { name: 'Open task' }).getAttribute('href')
+  expect(nextRenewalTaskPath).toMatch(/^\/tasks\/\d+$/)
+  expect(nextRenewalTaskPath).not.toBe(firstRenewalTaskPath)
+  await nextRenewal.getByRole('link', { name: `Northstar Advisory ${runID}` }).click()
+  await expect(page).toHaveURL(/\/companies\/\d+$/)
+  await expect(reviewSchedule.getByRole('listitem').getByText('Every 3 months', { exact: false })).toBeVisible()
+
   await page.getByRole('link', { name: 'Clients', exact: true }).click()
   const clientHealth = page.getByLabel('Client health')
   await expect(clientHealth.getByText('Needs attention: 1')).toBeVisible()

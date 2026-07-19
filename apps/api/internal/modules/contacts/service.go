@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -15,8 +16,9 @@ import (
 )
 
 var (
-	ErrDuplicateContact = errors.New("duplicate contact")
-	ErrNotFound         = errors.New("contact not found")
+	ErrDuplicateContact     = errors.New("duplicate contact")
+	ErrNotFound             = errors.New("contact not found")
+	ErrActiveReviewSchedule = moduleclientreviews.ErrActiveSchedule
 )
 
 type DuplicateError struct {
@@ -427,6 +429,13 @@ func (s *Service) Update(ctx context.Context, organizationID, contactID, actorUs
 		}
 		return Detail{}, fmt.Errorf("lock contact custom fields: %w", err)
 	}
+	managed, err := moduleclientreviews.LockForEntity(ctx, tx, organizationID, "contact", contactID)
+	if err != nil {
+		return Detail{}, err
+	}
+	if err := moduleclientreviews.EnsureClientMutation(managed, input.IsClient || input.Status == "customer"); err != nil {
+		return Detail{}, err
+	}
 	existingCustomFields, err := modulecustomfields.DecodeValues(existingCustomFieldsJSON)
 	if err != nil {
 		return Detail{}, err
@@ -482,7 +491,26 @@ func (s *Service) Archive(ctx context.Context, organizationID, contactID, actorU
 		return fmt.Errorf("contacts service not configured")
 	}
 
-	archived, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin archive contact transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	var lockedID int64
+	if err := tx.QueryRow(ctx, `SELECT id FROM contacts WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE`, organizationID, contactID).Scan(&lockedID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("lock archived contact: %w", err)
+	}
+	managed, err := moduleclientreviews.LockForEntity(ctx, tx, organizationID, "contact", contactID)
+	if err != nil {
+		return err
+	}
+	if err := moduleclientreviews.EnsureClientMutation(managed, false); err != nil {
+		return err
+	}
+	archived, err := tx.Exec(ctx, `
 		UPDATE contacts
 		SET archived_at = NOW(), updated_at = NOW(), owner_user_id = COALESCE(owner_user_id, $3)
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
@@ -492,6 +520,9 @@ func (s *Service) Archive(ctx context.Context, organizationID, contactID, actorU
 	}
 	if archived.RowsAffected() == 0 {
 		return ErrNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit archive contact transaction: %w", err)
 	}
 	return nil
 }

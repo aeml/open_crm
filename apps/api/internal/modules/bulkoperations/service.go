@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
@@ -110,6 +111,14 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (Operation, e
 			return Operation{}, err
 		}
 	}
+	if normalized.EntityType == "task" {
+		if err := moduleclientreviews.RejectManagedTasks(ctx, tx, normalized.OrganizationID, normalized.EntityIDs); err != nil {
+			if errors.Is(err, moduleclientreviews.ErrManagedTask) {
+				return Operation{}, fmt.Errorf("%w: update recurring client review tasks one at a time or clear their schedules", ErrConflict)
+			}
+			return Operation{}, err
+		}
+	}
 
 	operationID, created, err := createOrFindOperation(ctx, tx, normalized, requestSHA)
 	if err != nil {
@@ -136,6 +145,15 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (Operation, e
 	}
 	if len(snapshots) != len(normalized.EntityIDs) {
 		return Operation{}, ErrNotFound
+	}
+	if (normalized.EntityType == "contact" || normalized.EntityType == "company") &&
+		(normalized.Action == "archive" || (normalized.Action == "set_status" && normalized.ActionValue != "customer")) {
+		if err := moduleclientreviews.RejectScheduledEntities(ctx, tx, normalized.OrganizationID, normalized.EntityType, normalized.EntityIDs); err != nil {
+			if errors.Is(err, moduleclientreviews.ErrActiveSchedule) {
+				return Operation{}, fmt.Errorf("%w: clear client review schedules before bulk status or archive changes", ErrConflict)
+			}
+			return Operation{}, err
+		}
 	}
 	applied, err := applyOperation(ctx, tx, config, normalized)
 	if err != nil {

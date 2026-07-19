@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	"github.com/jackc/pgx/v5"
 )
@@ -126,6 +127,12 @@ func (s *Service) Merge(ctx context.Context, rawInput MergeInput) (MergeOperatio
 	}
 	records, err := lockMergeRecords(ctx, tx, input)
 	if err != nil {
+		return MergeOperation{}, err
+	}
+	if err := moduleclientreviews.RejectScheduledEntities(ctx, tx, input.OrganizationID, input.EntityType, []int64{input.SourceEntityID, input.TargetEntityID}); err != nil {
+		if errors.Is(err, moduleclientreviews.ErrActiveSchedule) {
+			return MergeOperation{}, fmt.Errorf("%w: clear client review schedules before merging either record", ErrConflict)
+		}
 		return MergeOperation{}, err
 	}
 	source := records[input.SourceEntityID]

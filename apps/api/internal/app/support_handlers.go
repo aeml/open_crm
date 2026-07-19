@@ -194,6 +194,10 @@ func handleUpdateTask(auth authService, tasks tasksService, w http.ResponseWrite
 	}
 	result, err := tasks.Update(r.Context(), state.Organization.ID, taskID, state.User.ID, input)
 	if err != nil {
+		if errors.Is(err, moduletasks.ErrManagedTask) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			return
+		}
 		if errors.Is(err, moduletasks.ErrInvalidAssignee) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an active team member as task assignee")
 			return
@@ -224,6 +228,10 @@ func handleArchiveTask(auth authService, tasks tasksService, w http.ResponseWrit
 		return
 	}
 	if err := tasks.Archive(r.Context(), state.Organization.ID, taskID, state.User.ID); err != nil {
+		if errors.Is(err, moduletasks.ErrManagedTask) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}

@@ -32,6 +32,7 @@ export async function getDashboardSummary({ forecastStart = '', forecastEnd = ''
       members: [],
       stages: []
     },
+    clientReviews: { total: 0, overdue: 0, dueWithin30Days: 0, later: 0, records: [], semantics: [] },
     recentActivities: []
   }
 }

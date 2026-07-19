@@ -87,11 +87,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 634 KiB | 202 KiB |
+| All JavaScript and CSS | 643 KiB | 204 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 176.85 KiB/57.64 KiB entry, 46.80 KiB/12.17 KiB largest lazy
-chunk, and 633.51 KiB/201.13 KiB total assets. The complete custom-field outcome
+Current evidence: 176.85 KiB/57.64 KiB entry, 46.97 KiB/12.21 KiB largest lazy
+chunk, and 641.96 KiB/203.16 KiB total assets. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget
@@ -118,9 +118,10 @@ KiB build. The post-sale account outcome then moved shared account/touchpoint
 context out of both parent record routes, reduced Contacts and Companies, and
 raised only the measured aggregate raw ceiling by 2 KiB to 628 KiB. Explainable
 client health then added the filtered client queue and task-health rollups while
-keeping record detail context shared; the measured 633.51/201.13 KiB build raises
-only the aggregate ceilings to 634/202 KiB. Entry, per-route, and CSS limits
-remain unchanged.
+keeping record detail context shared. Task-backed client review/renewal
+scheduling then adds one reusable record component plus a focused dashboard
+panel; the measured 641.96/203.16 KiB build raises only the aggregate ceilings
+to 643/204 KiB. Entry, per-route, and CSS limits remain unchanged.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 
@@ -130,8 +131,9 @@ view model, calls, recording controls, SMS, meetings, email, sequences, lead
 scoring, attribution, related deals, notes, tasks, and activity into focused
 modules. Shared collaboration-aware record-work cards now serve contacts, companies, and deals;
 company editor/view helpers, deal quote/signature/view helpers, and task view
-logic are also separated. Bulk-action, custom-field, reminder, and touchpoint/health integration leave the
-parent routes at 1,296 contact lines, 979 company lines, 1,065 deal lines, and
+logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health,
+and client-review integration leave the parent routes at 1,300 contact lines,
+985 company lines, 1,065 deal lines, and
 839 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
@@ -147,11 +149,11 @@ the application composition package.
 
 | Existing hotspot | Current lines | Maximum until next split |
 | --- | ---: | ---: |
-| `contacts.jsx` | 1,296 | 1,300 |
-| `companies.jsx` | 979 | 1,000 |
+| `contacts.jsx` | 1,300 | 1,300 |
+| `companies.jsx` | 985 | 1,000 |
 | `deals.jsx` | 1,065 | 1,100 |
 | `tasks.jsx` | 839 | 850 |
-| `dashboard.jsx` | 468 | 550 |
+| `dashboard.jsx` | 478 | 550 |
 | backend `app.go` | 961 | 1,000 |
 | backend `support_handlers.go` | 766 | 800 |
 

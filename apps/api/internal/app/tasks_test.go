@@ -200,6 +200,26 @@ func TestTaskWritesRejectInactiveAssigneeAsBadRequest(t *testing.T) {
 	}
 }
 
+func TestManagedClientReviewTaskMutationsReturnConflict(t *testing.T) {
+	for _, testCase := range []struct {
+		method  string
+		path    string
+		service *fakeTasksService
+	}{
+		{http.MethodPatch, "/api/tasks/77", &fakeTasksService{updateErr: moduletasks.ErrManagedTask}},
+		{http.MethodDelete, "/api/tasks/77", &fakeTasksService{archiveErr: moduletasks.ErrManagedTask}},
+	} {
+		request := httptest.NewRequest(testCase.method, testCase.path, bytes.NewBufferString(`{"status":"completed"}`))
+		request.Header.Set("Content-Type", "application/json")
+		addSessionCookie(request)
+		recorder := httptest.NewRecorder()
+		authenticatedTasksServer(testCase.service).ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "managed") {
+			t.Fatalf("%s managed task mutation: status=%d body=%s", testCase.method, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
 func TestGetTaskUsesCurrentOrganization(t *testing.T) {
 	service := &fakeTasksService{
 		getResult: moduletasks.Detail{

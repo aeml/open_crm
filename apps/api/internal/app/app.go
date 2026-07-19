@@ -606,6 +606,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("GET /api/touchpoints/{entityType}/{entityID}", func(w http.ResponseWriter, r *http.Request) {
 		handleTouchpointSummary(dependencies.AuthService, dependencies.TouchpointsService, w, r)
 	})
+	mux.HandleFunc("GET /api/client-reviews/{entityType}/{entityID}", func(w http.ResponseWriter, r *http.Request) {
+		handleGetClientReview(dependencies.AuthService, dependencies.ClientReviewsService, w, r)
+	})
+	mux.HandleFunc("PUT /api/client-reviews/{entityType}/{entityID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpsertClientReview(dependencies.AuthService, dependencies.ClientReviewsService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/client-reviews/{entityType}/{entityID}", func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteClientReview(dependencies.AuthService, dependencies.ClientReviewsService, w, r)
+	})
 	mux.HandleFunc("GET /api/email-sequences", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequences(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
 	})

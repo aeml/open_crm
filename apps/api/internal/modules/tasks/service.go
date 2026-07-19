@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 )
@@ -21,6 +22,7 @@ var (
 	ErrInvalidAssignee = moduleusers.ErrInvalidAssignee
 	ErrInvalidFilter   = errors.New("invalid task filter")
 	ErrNotFound        = errors.New("task not found")
+	ErrManagedTask     = moduleclientreviews.ErrManagedTask
 )
 
 type Summary struct {
@@ -295,6 +297,10 @@ func (s *Service) Update(ctx context.Context, organizationID, taskID, actorUserI
 		return Detail{}, fmt.Errorf("begin update task transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	managed, err := moduleclientreviews.LockForTask(ctx, tx, organizationID, taskID)
+	if err != nil {
+		return Detail{}, err
+	}
 	existing, existingVersion, _, err := lockTaskForUpdate(ctx, tx, organizationID, taskID)
 	if err != nil {
 		return Detail{}, err
@@ -304,6 +310,17 @@ func (s *Service) Update(ctx context.Context, organizationID, taskID, actorUserI
 		return Detail{}, err
 	}
 	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, normalized.AssignedToUserID); err != nil {
+		return Detail{}, err
+	}
+	previousManagedState, err := managedTaskState(existing, existingVersion)
+	if err != nil {
+		return Detail{}, err
+	}
+	nextManagedState, err := managedTaskStateFromUpdate(normalized, existingVersion)
+	if err != nil {
+		return Detail{}, err
+	}
+	if err := moduleclientreviews.ValidateManagedUpdate(managed, nextManagedState, time.Now().UTC()); err != nil {
 		return Detail{}, err
 	}
 
@@ -342,6 +359,10 @@ func (s *Service) Update(ctx context.Context, organizationID, taskID, actorUserI
 	if err := insertActivity(ctx, tx, organizationID, taskID, actorUserID, action, summaryForAction(action)); err != nil {
 		return Detail{}, fmt.Errorf("insert task activity: %w", err)
 	}
+	nextManagedState.ReminderVersion = reminderVersion
+	if err := moduleclientreviews.ReconcileTaskUpdate(ctx, tx, organizationID, taskID, actorUserID, previousManagedState, nextManagedState, managed, time.Now().UTC()); err != nil {
+		return Detail{}, err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return Detail{}, fmt.Errorf("commit update task transaction: %w", err)
@@ -360,6 +381,13 @@ func (s *Service) Archive(ctx context.Context, organizationID, taskID, actorUser
 		return fmt.Errorf("begin archive task transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	managed, err := moduleclientreviews.LockForTask(ctx, tx, organizationID, taskID)
+	if err != nil {
+		return err
+	}
+	if err := moduleclientreviews.EnsureArchivable(managed); err != nil {
+		return err
+	}
 	existing, existingVersion, dueAt, err := lockTaskForUpdate(ctx, tx, organizationID, taskID)
 	if err != nil {
 		return err
@@ -512,6 +540,29 @@ func taskReminderState(organizationID, taskID int64, title string, userID int64,
 		state.DueAt = dueAt.Time
 	}
 	return state
+}
+
+func managedTaskState(task Summary, reminderVersion int) (moduleclientreviews.ManagedTaskState, error) {
+	state := moduleclientreviews.ManagedTaskState{
+		Title:            task.Title,
+		Status:           task.Status,
+		AssignedToUserID: task.AssignedToUserID,
+		ReminderVersion:  reminderVersion,
+	}
+	if task.DueAt != "" {
+		parsed, err := time.Parse(time.RFC3339, task.DueAt)
+		if err != nil {
+			return moduleclientreviews.ManagedTaskState{}, fmt.Errorf("parse task due time: %w", err)
+		}
+		state.DueAt = parsed.UTC()
+	}
+	return state, nil
+}
+
+func managedTaskStateFromUpdate(input UpdateInput, reminderVersion int) (moduleclientreviews.ManagedTaskState, error) {
+	return managedTaskState(Summary{
+		Title: input.Title, Status: input.Status, DueAt: input.DueAt, AssignedToUserID: input.AssignedToUserID,
+	}, reminderVersion)
 }
 
 type activityExecutor interface {

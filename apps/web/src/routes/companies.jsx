@@ -43,6 +43,7 @@ import {
 } from './company_view'
 import { CompanyForm } from './company_form'
 import { ClientAccountContext } from './client_account_context'
+import { ClientReviewSchedule, refreshClientReviewTasks } from './client_review_schedule'
 import { ClientHealthReport } from './client_health_report'
 import { RecordWorkCards } from './record_work'
 import { TouchpointSummary } from './touchpoint_summary'
@@ -342,6 +343,8 @@ export function CompaniesRoute() {
     }
     navigate(`/tasks?entityType=company&entityId=${selectedCompanyId}`)
   }
+
+  const handleClientReviewChanged = () => refreshClientReviewTasks('company', selectedCompanyId, setDetail, setDetailCache)
 
   async function handleOpenCompany(company) {
     if (company.entityType === 'contact') {
@@ -951,6 +954,9 @@ export function CompaniesRoute() {
               onOpenDeal={handleOpenDeal}
               tasks={selectedTasks}
             />
+            <ClientReviewSchedule entityType="company" entityId={selectedCompanyId}
+              isClient={selectedCompany.status === 'customer'} canWrite={canWrite}
+              users={userOptions} onChanged={handleClientReviewChanged} />
             <TouchpointSummary entityType="company" entityId={selectedCompanyId} refreshKey={JSON.stringify({ selectedActivities, selectedNotes, selectedTasks, linkedContacts })} />
             <RecordWorkCards
               activities={selectedActivities}

@@ -21,6 +21,7 @@ import (
 	modulebulkoperations "github.com/aeml/open_crm/apps/api/internal/modules/bulkoperations"
 	modulecalendar "github.com/aeml/open_crm/apps/api/internal/modules/calendar"
 	modulecalllogs "github.com/aeml/open_crm/apps/api/internal/modules/calllogs"
+	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	modulecollaboration "github.com/aeml/open_crm/apps/api/internal/modules/collaboration"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
@@ -90,6 +91,7 @@ func main() {
 	var tasksService *moduletasks.Service
 	var exportsService *moduleexports.Service
 	var dashboardService *moduledashboard.Service
+	var clientReviewsService *moduleclientreviews.Service
 	var importsService *moduleimports.Service
 	var bulkOperationsService *modulebulkoperations.Service
 	var archiveOperationsService *modulearchiveoperations.Service
@@ -155,6 +157,7 @@ func main() {
 			taskRemindersService = moduletaskreminders.NewService(pool)
 			exportsService = moduleexports.NewService(pool)
 			dashboardService = moduledashboard.NewService(pool)
+			clientReviewsService = moduleclientreviews.NewService(pool)
 			importsService = moduleimports.NewService(pool)
 			bulkOperationsService = modulebulkoperations.NewService(pool)
 			archiveOperationsService = modulearchiveoperations.NewService(pool)
@@ -288,6 +291,7 @@ func main() {
 		TasksService:                    tasksService,
 		ExportsService:                  exportsService,
 		DashboardService:                dashboardService,
+		ClientReviewsService:            clientReviewsService,
 		NotesService:                    notesService,
 		CollaborationService:            collaborationService,
 		CallLogsService:                 callLogsService,
