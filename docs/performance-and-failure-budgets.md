@@ -53,6 +53,24 @@ Current local evidence was 806,068 export bytes in approximately 35 ms and a
 52,937-byte/1,000-row import in approximately 512 ms. Test failure output
 includes observed latency or the query plan/budget that regressed.
 
+`apps/api/internal/modules/salesreports/query_plans_postgres_test.go` adds the
+sales-milestone plan gate. It seeds roughly ten months of mixed stage events and
+sales/non-sales activity across organizations and owners, analyzes the tables,
+and requires the four report access paths to use:
+
+- `idx_deal_stage_events_org_occurred` for tenant/date event reads;
+- `idx_deal_stage_events_org_owner_occurred` for owner/date event reads;
+- `idx_activities_sales_report_org_created` for tenant/date work totals;
+- `idx_activities_sales_report_org_actor_created` for owner/date work totals.
+
+The activity indexes are partial to the four actions the fixed report actually
+aggregates and cover the actor/action values. Migration 69 bounds lock
+acquisition at five seconds and index construction at two minutes, so a busy or
+oversized installation fails the deployment safely instead of waiting without
+limit. The ordinary sales-report PostgreSQL acceptance test remains the semantic
+gate for exact totals, durable snapshots, disabled-user filters, and
+cross-tenant denial.
+
 The Postmark adapter is covered for provider `503`, later caller-controlled
 recovery, and context deadlines. Durable sequence acceptance separately proves
 that an ambiguous SMTP result is quarantined without an automatic duplicate send
@@ -106,7 +124,7 @@ scoring, attribution, related deals, notes, tasks, and activity into focused
 modules. Shared collaboration-aware record-work cards now serve contacts, companies, and deals;
 company editor/view helpers, deal quote/signature/view helpers, and task view
 logic are also separated. Bulk-action, custom-field, reminder, and touchpoint integration leave the
-parent routes at 1,298 contact lines, 998 company lines, 1,044 deal lines, and
+parent routes at 1,298 contact lines, 998 company lines, 1,065 deal lines, and
 839 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
@@ -124,10 +142,10 @@ the application composition package.
 | --- | ---: | ---: |
 | `contacts.jsx` | 1,298 | 1,300 |
 | `companies.jsx` | 998 | 1,000 |
-| `deals.jsx` | 1,044 | 1,100 |
+| `deals.jsx` | 1,065 | 1,100 |
 | `tasks.jsx` | 839 | 850 |
 | `dashboard.jsx` | 468 | 550 |
-| backend `app.go` | 954 | 1,000 |
+| backend `app.go` | 958 | 1,000 |
 | backend `support_handlers.go` | 766 | 800 |
 
 All other production route and `internal/app` Go files are limited to 500

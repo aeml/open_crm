@@ -19,6 +19,7 @@ Product direction and current maturity are documented in:
 - [`docs/capability-matrix.md`](docs/capability-matrix.md) — canonical evidence-backed capability status
 - [`docs/security-surface-inventory.md`](docs/security-surface-inventory.md) — route/background-operation controls and known evidence gaps
 - [`docs/project-convergence-goal.md`](docs/project-convergence-goal.md) — execution order and definition of done
+- [`docs/sales-workflow.md`](docs/sales-workflow.md) — supported pilot sales path, semantics, boundaries, and feedback record
 
 ## Overview
 

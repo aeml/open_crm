@@ -233,6 +233,7 @@ func (s *Service) loadTotals(ctx context.Context, organizationID int64, from, to
 			COUNT(*) FILTER (WHERE action='task.completed')
 		FROM activities
 		WHERE organization_id=$1 AND created_at >= $2 AND created_at < $3
+		  AND action IN ('note.created','task.created','task.automated','task.completed')
 		  AND ($4::bigint=0 OR actor_user_id=$4)
 	`, organizationID, from, to, ownerUserID).Scan(&report.Totals.NotesAdded, &report.Totals.TasksCreated, &report.Totals.TasksCompleted); err != nil {
 		return fmt.Errorf("load sales work totals: %w", err)
@@ -252,6 +253,7 @@ func (s *Service) loadOwners(ctx context.Context, organizationID int64, from, to
 				COUNT(*) FILTER (WHERE to_stage_outcome='lost' AND COALESCE(from_stage_outcome,'')<>'lost') AS deals_lost
 			FROM deal_stage_events
 			WHERE organization_id=$1 AND occurred_at >= $2 AND occurred_at < $3 AND owner_user_id IS NOT NULL
+			  AND ($4::bigint=0 OR owner_user_id=$4)
 			GROUP BY owner_user_id
 		), work_metrics AS (
 			SELECT actor_user_id AS user_id,
@@ -260,6 +262,8 @@ func (s *Service) loadOwners(ctx context.Context, organizationID int64, from, to
 				COUNT(*) FILTER (WHERE action='task.completed') AS tasks_completed
 			FROM activities
 			WHERE organization_id=$1 AND created_at >= $2 AND created_at < $3 AND actor_user_id IS NOT NULL
+			  AND action IN ('note.created','task.created','task.automated','task.completed')
+			  AND ($4::bigint=0 OR actor_user_id=$4)
 			GROUP BY actor_user_id
 		)
 		SELECT u.id,TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')),u.email,

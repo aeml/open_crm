@@ -113,7 +113,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.6.6` Contact Touchpoint Tracking: complete.
 - `0.6.7` Quote Or Proposal Placeholder Flow: complete.
 - `0.6.8` Win Loss Review: complete.
-- `0.6.9` Sales Workflow Review: planned.
+- `0.6.9` Sales Workflow Review: in progress (technical review complete; approved pilot usage evidence pending).
 - `0.7.0` Customer Operations: planned.
 - `0.7.1` Post-Sale Account View: planned.
 - `0.7.2` Client Health Signals: planned.
@@ -1511,7 +1511,7 @@ pilot usage demonstrates that fixed choices are insufficient.
 
 ## Version 0.6.9 - Sales Workflow Review
 
-Status: planned.
+Status: in progress (technical review complete; approved pilot usage evidence pending).
 
 Goal: close the sales workflow milestone before expanding customer operations.
 
@@ -1525,6 +1525,29 @@ Exit criteria:
 
 - Sales workflows are coherent end-to-end.
 - Remaining sales work is prioritized from usage data.
+
+Technical completion evidence (2026-07-19): the clean-schema Chromium journey
+already composes admin pipeline/probability setup, a bounded deal-task rule,
+deal creation, exactly-once automated follow-up, due-task visibility, stage
+rename/forecast continuity, sales activity totals and event history, required
+won close review, and export reconciliation in one workflow. The real-PostgreSQL
+automation, reminder, and sales-report suites separately prove transactional
+idempotency, durable replay, retained-user semantics, and foreign-tenant denial.
+Migration 69 adds lock- and statement-bounded partial covering indexes for the
+exact sales activity set. Report SQL now eliminates unrelated audit actions and
+applies teammate filters inside both aggregates; a mixed-history PostgreSQL
+planner test requires the tenant/date and owner/date stage-event and activity
+paths to use their reviewed organization-scoped indexes. The supported operator
+flow, definitions, deliberate gaps, and structured pilot feedback record are in
+[`sales-workflow.md`](sales-workflow.md).
+
+External evidence blocker: no approved pilot team/session or anonymized usage
+observations are available in the repository, so terminology, probability,
+reminder-noise, automation, report, and close-reason product decisions cannot
+honestly be prioritized from real usage yet. This milestone remains in progress
+until that evidence is recorded. In accordance with the convergence brief,
+that external dependency does not block the already-prioritized `0.7.1`
+won-deal client-handoff slice.
 
 ## Version 0.7.0 - Customer Operations
 

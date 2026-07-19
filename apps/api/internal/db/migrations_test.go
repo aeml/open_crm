@@ -1144,3 +1144,19 @@ func TestMigrationFilesIncludeDealCloseReviewsMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeSalesReportQueryIndexesMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "069_sales_report_query_indexes.sql") {
+		t.Fatal("expected sales report query indexes migration to be registered")
+	}
+
+	sql := MigrationSQL("069_sales_report_query_indexes.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "idx_activities_sales_report_org_created", "idx_activities_sales_report_org_actor_created", "WHERE action IN"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected sales report query indexes migration to include %s", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("069_sales_report_query_indexes.sql"); class != "expand" {
+		t.Fatalf("expected sales report query indexes migration to be expand-safe, got %q", class)
+	}
+}
