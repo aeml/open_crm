@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"strings"
 	"time"
@@ -35,8 +36,10 @@ func SendSMTP(creds SMTPCredentials, msg Message) error {
 
 	addr := net.JoinHostPort(creds.Host, fmt.Sprintf("%d", creds.Port))
 	auth := smtp.PlainAuth("", creds.Username, creds.Password, creds.Host)
-	from := formatFrom(creds.FromName, creds.FromEmail)
-	raw := buildMessage(from, to, msg.Subject, msg.TextBody, msg.HTMLBody)
+	raw, err := BuildRFC822Message(creds.FromName, creds.FromEmail, msg)
+	if err != nil {
+		return fmt.Errorf("smtp: %w", err)
+	}
 
 	// Implicit TLS (typically port 465).
 	if creds.Port == 465 {
@@ -63,6 +66,34 @@ func SendSMTP(creds SMTPCredentials, msg Message) error {
 		}
 	}
 	return writeMessage(client, creds.FromEmail, to, raw)
+}
+
+// BuildRFC822Message creates the same bounded single-recipient MIME message for
+// SMTP, Gmail API, and Microsoft Graph delivery. Rejecting line breaks in
+// address and subject headers prevents a CRM field from injecting new headers.
+func BuildRFC822Message(fromName, fromEmail string, msg Message) ([]byte, error) {
+	fromName = strings.TrimSpace(fromName)
+	fromEmail = strings.TrimSpace(fromEmail)
+	to := strings.TrimSpace(msg.To)
+	subject := strings.TrimSpace(msg.Subject)
+	if fromEmail == "" || to == "" || subject == "" {
+		return nil, fmt.Errorf("missing from/to/subject")
+	}
+	for label, value := range map[string]string{"from name": fromName, "from email": fromEmail, "to": to, "subject": subject} {
+		if strings.ContainsAny(value, "\r\n") {
+			return nil, fmt.Errorf("invalid %s header", label)
+		}
+	}
+	fromAddress, err := mail.ParseAddress(fromEmail)
+	if err != nil || !strings.EqualFold(fromAddress.Address, fromEmail) {
+		return nil, fmt.Errorf("invalid from address")
+	}
+	toAddress, err := mail.ParseAddress(to)
+	if err != nil || !strings.EqualFold(toAddress.Address, to) {
+		return nil, fmt.Errorf("invalid recipient address")
+	}
+	from := (&mail.Address{Name: fromName, Address: fromAddress.Address}).String()
+	return buildMessage(from, toAddress.Address, subject, msg.TextBody, msg.HTMLBody), nil
 }
 
 func sendImplicitTLS(addr, host string, auth smtp.Auth, from, to string, raw []byte) error {
@@ -99,14 +130,6 @@ func writeMessage(client *smtp.Client, from, to string, raw []byte) error {
 		return fmt.Errorf("smtp: close data: %w", err)
 	}
 	return client.Quit()
-}
-
-func formatFrom(name, email string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return email
-	}
-	return fmt.Sprintf("%s <%s>", name, email)
 }
 
 func buildMessage(from, to, subject, textBody, htmlBody string) []byte {

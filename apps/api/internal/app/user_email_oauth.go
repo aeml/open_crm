@@ -47,6 +47,7 @@ type emailOAuthTokenSet struct {
 	RefreshToken string
 	Subject      string
 	ExpiresAt    *time.Time
+	Scopes       []string
 }
 
 type defaultEmailOAuthClient struct {
@@ -98,6 +99,10 @@ func handleStartMyEmailOAuth(env config.Env, auth authService, accounts userEmai
 			return
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load email account")
+		return
+	}
+	if account.Provider != provider.Provider || account.AuthMethod != "oauth" || !account.SyncEnabled {
+		platformweb.WriteError(w, http.StatusConflict, requestID, "EMAIL_OAUTH_SETTINGS_REQUIRED", "Save this OAuth provider in My Email before connecting it")
 		return
 	}
 
@@ -158,6 +163,7 @@ func handleMyEmailOAuthCallback(env config.Env, auth authService, accounts userE
 		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
 		ExpiresAt:    tokens.ExpiresAt,
+		Scopes:       tokens.Scopes,
 	})
 	if err != nil {
 		if errors.Is(err, moduleuseremail.ErrNotFound) {
@@ -166,6 +172,10 @@ func handleMyEmailOAuthCallback(env config.Env, auth authService, accounts userE
 		}
 		if errors.Is(err, moduleuseremail.ErrEncryptionUnavailable) {
 			redirectEmailOAuthResult(w, r, env, "oauth_not_configured")
+			return
+		}
+		if errors.Is(err, moduleuseremail.ErrOAuthReconnectRequired) {
+			redirectEmailOAuthResult(w, r, env, "oauth_scope_missing")
 			return
 		}
 		redirectEmailOAuthResult(w, r, env, "oauth_error")
@@ -209,6 +219,7 @@ func (c defaultEmailOAuthClient) Exchange(ctx context.Context, provider emailOAu
 		RefreshToken     string `json:"refresh_token"`
 		ExpiresIn        int64  `json:"expires_in"`
 		IDToken          string `json:"id_token"`
+		Scope            string `json:"scope"`
 		Error            string `json:"error"`
 		ErrorDescription string `json:"error_description"`
 	}
@@ -230,11 +241,16 @@ func (c defaultEmailOAuthClient) Exchange(ctx context.Context, provider emailOAu
 		value := time.Now().Add(time.Duration(payload.ExpiresIn) * time.Second)
 		expiresAt = &value
 	}
+	scopes := strings.Fields(payload.Scope)
+	if len(scopes) == 0 {
+		scopes = append([]string(nil), provider.Scopes...)
+	}
 	return emailOAuthTokenSet{
 		AccessToken:  payload.AccessToken,
 		RefreshToken: payload.RefreshToken,
 		Subject:      emailOAuthSubjectFromIDToken(payload.IDToken),
 		ExpiresAt:    expiresAt,
+		Scopes:       scopes,
 	}, nil
 }
 
@@ -258,7 +274,7 @@ func emailOAuthProviderConfigs(env config.Env) []emailOAuthProvider {
 			ClientSecret: env.GoogleOAuthClientSecret,
 			AuthURL:      "https://accounts.google.com/o/oauth2/v2/auth",
 			TokenURL:     "https://oauth2.googleapis.com/token",
-			Scopes:       []string{"openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly"},
+			Scopes:       []string{"openid", "email", "profile", moduleuseremail.GoogleReadScope, moduleuseremail.GoogleSendScope},
 		},
 		// #nosec G101 -- client credentials come from the environment; endpoints and scopes are public provider metadata.
 		{
@@ -268,7 +284,7 @@ func emailOAuthProviderConfigs(env config.Env) []emailOAuthProvider {
 			ClientSecret: env.MicrosoftOAuthClientSecret,
 			AuthURL:      "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
 			TokenURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-			Scopes:       []string{"openid", "email", "profile", "offline_access", "https://graph.microsoft.com/Mail.Read"},
+			Scopes:       []string{"openid", "email", "profile", "offline_access", moduleuseremail.MicrosoftReadScope, moduleuseremail.MicrosoftSendScope},
 		},
 	}
 }

@@ -17,7 +17,8 @@ This runbook covers the production Docker Compose deployment used by `scripts/re
 
 `GET /metrics` exposes dependency-free Prometheus text metrics for bounded HTTP
 route/status/latency, PostgreSQL readiness, aggregate (not tenant-labeled)
-durable queue state/lag, worker outcomes, Postmark/SMTP outcomes, and verified
+durable queue state/lag, worker outcomes, Postmark/SMTP/Gmail/Microsoft send and
+OAuth-refresh outcomes, and verified
 backup/restore evidence. It also reports aggregate notification backlog, age,
 reviewed event mix, per-recipient concentration, and retention outcomes without
 tenant, recipient, or record labels. Password-recovery gauges report current
@@ -117,6 +118,36 @@ do not silently relabel a missed target as success.
    described below.
 4. Confirm the counter stops increasing and the next controlled provider
    operation succeeds before resolving the alert.
+
+### Per-user Gmail and Microsoft OAuth delivery
+
+Set the Google or Microsoft client ID/secret only in the protected deployment
+environment, and register the exact callback
+`${API_BASE_URL}/api/me/email-sync/oauth/{provider}/callback`. Google connections
+request delegated `gmail.readonly` and `gmail.send`; Microsoft connections
+request delegated `Mail.Read` and `Mail.Send` plus `offline_access`. These are
+the least-privilege read/send contracts used by Open CRM. The authoritative
+provider references are the [Gmail send method](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send)
+and [Microsoft Graph sendMail method](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0).
+
+Migration 86 deliberately leaves earlier read-only OAuth connections intact,
+but their stored grant has no send evidence. **Settings > My Email** labels them
+for reconnection; do not edit `oauth_scopes` or encrypted token columns in SQL.
+After reconnecting, confirm the page says **Connected for sending and sync**,
+send one controlled record email, run one manual sync, and then observe a
+scheduled `mailbox.sync` cycle. Retain the provider's sent item, received test
+reply, Open CRM mailbox entry, and bounded `provider=google|microsoft`
+`operation=send|oauth_refresh` metric evidence without copying tokens or message
+content into the runbook.
+
+Token refresh is serialized per workspace/user in PostgreSQL and committed
+before a send begins. Gmail returns a message resource; Microsoft `202` means
+the request was accepted but does not prove final delivery. Open CRM never
+automatically retries a provider send after the request starts. Treat a timeout
+or connection loss as ambiguous: inspect the provider Sent folder and recipient
+before approving any sequence retry in **Settings > Operations**. A
+`EMAIL_OAUTH_RECONNECT_REQUIRED` response means the grant is missing send
+permission or predates migration 86; reconnect it instead of replaying.
 
 ### Password recovery
 

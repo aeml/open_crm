@@ -38,6 +38,28 @@ func TestValidateInputRejectsBadValues(t *testing.T) {
 	}
 }
 
+func TestValidateInputAllowsOAuthAccountWithoutSMTPSecret(t *testing.T) {
+	input := normalizeInput(UpsertInput{FromEmail: "rep@acme.test", Provider: "google", AuthMethod: "oauth", SyncEnabled: true})
+	if err := validateInput(input); err != nil {
+		t.Fatalf("expected OAuth-only account to be valid, got %v", err)
+	}
+	if input.SMTPHost != "" || input.SMTPUsername != "" || input.SMTPPassword != "" || input.SMTPPort != 587 || input.IMAPHost != "" || input.IMAPUsername != "" || input.IMAPPassword != "" || input.IMAPPort != 0 {
+		t.Fatalf("expected secret-free inert SMTP fields, got %#v", input)
+	}
+}
+
+func TestOAuthSendScopeGrantedUsesProviderSpecificPermission(t *testing.T) {
+	if !OAuthSendScopeGranted("google", "openid "+GoogleSendScope) {
+		t.Fatal("expected Gmail send scope to be accepted")
+	}
+	if !OAuthSendScopeGranted("microsoft", "Mail.Read Mail.Send") {
+		t.Fatal("expected Microsoft short-form send scope to be accepted")
+	}
+	if OAuthSendScopeGranted("google", GoogleReadScope) || OAuthSendScopeGranted("microsoft", MicrosoftReadScope) {
+		t.Fatal("read-only OAuth scope must not authorize sending")
+	}
+}
+
 func TestUnconfiguredServiceReportsNotConfigured(t *testing.T) {
 	if (&Service{}).Configured() {
 		t.Fatalf("service without pool/cipher should not be configured")

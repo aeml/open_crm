@@ -15,14 +15,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 )
 
 var (
-	ErrNotFound              = errors.New("user email account not found")
-	ErrInvalidInput          = errors.New("invalid user email account")
-	ErrEncryptionUnavailable = errors.New("email account encryption is not configured")
+	ErrNotFound                 = errors.New("user email account not found")
+	ErrInvalidInput             = errors.New("invalid user email account")
+	ErrEncryptionUnavailable    = errors.New("email account encryption is not configured")
+	ErrOAuthReconnectRequired   = errors.New("mailbox oauth must be reconnected with send permission")
+	ErrOAuthDeliveryUnavailable = errors.New("oauth mail delivery is not configured")
+	ErrOAuthDeliveryUncertain   = errors.New("oauth mail delivery outcome is uncertain")
 )
 
 // Account is the sanitized view of a user's email connection. It never
@@ -47,6 +48,7 @@ type Account struct {
 	LastSyncAt      *time.Time `json:"lastSyncAt,omitempty"`
 	LastSyncError   string     `json:"lastSyncError,omitempty"`
 	OAuthConnected  bool       `json:"oauthConnected"`
+	OAuthSendReady  bool       `json:"oauthSendReady"`
 	UpdatedAt       time.Time  `json:"updatedAt"`
 }
 
@@ -78,6 +80,7 @@ type OAuthConnectionInput struct {
 	AccessToken  string
 	RefreshToken string
 	ExpiresAt    *time.Time
+	Scopes       []string
 }
 
 // SyncStateInput records sync orchestration state. Cursor and LastSyncAt are
@@ -105,6 +108,7 @@ type Credentials struct {
 // serialized to clients.
 type SyncCredentials struct {
 	FromEmail    string
+	FromName     string
 	Provider     string
 	AuthMethod   string
 	SyncEnabled  bool
@@ -116,6 +120,7 @@ type SyncCredentials struct {
 	OAuthAccess  string
 	OAuthRefresh string
 	OAuthExpires *time.Time
+	OAuthScopes  string
 	SyncCursor   string
 	SyncStatus   string
 }
@@ -136,9 +141,11 @@ type SyncTarget struct {
 }
 
 type Service struct {
-	pool     *pgxpool.Pool
-	cipher   *secrets.Cipher
-	observer ProviderObserver
+	pool      *pgxpool.Pool
+	cipher    *secrets.Cipher
+	observer  ProviderObserver
+	refresher OAuthTokenRefresher
+	sender    OAuthSender
 }
 
 type ProviderObserver interface {
@@ -151,6 +158,10 @@ func NewService(pool *pgxpool.Pool, cipher *secrets.Cipher) *Service {
 
 func NewServiceWithObserver(pool *pgxpool.Pool, cipher *secrets.Cipher, observer ProviderObserver) *Service {
 	return &Service{pool: pool, cipher: cipher, observer: observer}
+}
+
+func NewServiceWithProviders(pool *pgxpool.Pool, cipher *secrets.Cipher, observer ProviderObserver, refresher OAuthTokenRefresher, sender OAuthSender) *Service {
+	return &Service{pool: pool, cipher: cipher, observer: observer, refresher: refresher, sender: sender}
 }
 
 // Configured reports whether secret encryption is available. Without it, email
@@ -184,7 +195,7 @@ const selectAccountSQL = `
 	       smtp_password_enc, smtp_use_tls,
 	       imap_host, imap_port, imap_username, imap_password_enc, imap_use_tls,
 	       provider, auth_method, sync_enabled, sync_status, last_sync_at, last_sync_error,
-	       oauth_refresh_token_enc, updated_at
+	       oauth_refresh_token_enc, COALESCE(oauth_scopes, ''), updated_at
 	FROM user_email_accounts
 	WHERE organization_id = $1 AND user_id = $2
 `
@@ -199,9 +210,10 @@ const selectCredentialsSQL = `
 
 // #nosec G101 -- this query names encrypted credential columns but contains no credential literal.
 const selectSyncCredentialsSQL = `
-	SELECT from_email, imap_host, imap_port, imap_username, imap_password_enc,
+	SELECT from_email, from_name, imap_host, imap_port, imap_username, imap_password_enc,
 	       imap_use_tls, provider, auth_method, sync_enabled, sync_cursor, sync_status,
-	       oauth_access_token_enc, oauth_refresh_token_enc, oauth_token_expires_at
+	       oauth_access_token_enc, oauth_refresh_token_enc, oauth_token_expires_at,
+	       COALESCE(oauth_scopes, '')
 	FROM user_email_accounts
 	WHERE organization_id = $1 AND user_id = $2
 `
@@ -232,6 +244,7 @@ func (s *Service) GetForUser(ctx context.Context, organizationID, userID int64) 
 		passwordEnc  string
 		imapPassword string
 		oauthRefresh string
+		oauthScopes  string
 		lastSyncAt   pgtype.Timestamptz
 	)
 	err := s.pool.QueryRow(ctx, selectAccountSQL, organizationID, userID).Scan(
@@ -239,7 +252,7 @@ func (s *Service) GetForUser(ctx context.Context, organizationID, userID int64) 
 		&account.SMTPUsername, &passwordEnc, &account.SMTPUseTLS,
 		&account.IMAPHost, &account.IMAPPort, &account.IMAPUsername, &imapPassword, &account.IMAPUseTLS,
 		&account.Provider, &account.AuthMethod, &account.SyncEnabled, &account.SyncStatus, &lastSyncAt, &account.LastSyncError,
-		&oauthRefresh, &account.UpdatedAt,
+		&oauthRefresh, &oauthScopes, &account.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, ErrNotFound
@@ -250,6 +263,7 @@ func (s *Service) GetForUser(ctx context.Context, organizationID, userID int64) 
 	account.HasPassword = passwordEnc != ""
 	account.HasIMAPPassword = imapPassword != ""
 	account.OAuthConnected = oauthRefresh != "" && account.AuthMethod == "oauth" && (account.Provider == "google" || account.Provider == "microsoft")
+	account.OAuthSendReady = account.OAuthConnected && OAuthSendScopeGranted(account.Provider, oauthScopes)
 	if lastSyncAt.Valid {
 		value := lastSyncAt.Time
 		account.LastSyncAt = &value
@@ -290,6 +304,14 @@ func (s *Service) SyncCredentials(ctx context.Context, organizationID, userID in
 	if !s.Configured() {
 		return SyncCredentials{}, ErrEncryptionUnavailable
 	}
+	return s.syncCredentials(ctx, s.pool, organizationID, userID)
+}
+
+type queryRower interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func (s *Service) syncCredentials(ctx context.Context, source queryRower, organizationID, userID int64) (SyncCredentials, error) {
 	var (
 		creds        SyncCredentials
 		imapEnc      string
@@ -297,10 +319,10 @@ func (s *Service) SyncCredentials(ctx context.Context, organizationID, userID in
 		oauthRefresh string
 		oauthExpires pgtype.Timestamptz
 	)
-	err := s.pool.QueryRow(ctx, selectSyncCredentialsSQL, organizationID, userID).Scan(
-		&creds.FromEmail, &creds.IMAPHost, &creds.IMAPPort, &creds.IMAPUsername, &imapEnc,
+	err := source.QueryRow(ctx, selectSyncCredentialsSQL, organizationID, userID).Scan(
+		&creds.FromEmail, &creds.FromName, &creds.IMAPHost, &creds.IMAPPort, &creds.IMAPUsername, &imapEnc,
 		&creds.IMAPUseTLS, &creds.Provider, &creds.AuthMethod, &creds.SyncEnabled, &creds.SyncCursor, &creds.SyncStatus,
-		&oauthAccess, &oauthRefresh, &oauthExpires,
+		&oauthAccess, &oauthRefresh, &oauthExpires, &creds.OAuthScopes,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SyncCredentials{}, ErrNotFound
@@ -389,7 +411,10 @@ func (s *Service) Upsert(ctx context.Context, organizationID, userID int64, inpu
 		}
 		passwordEnc = encrypted
 	}
-	if passwordEnc == "" {
+	if input.AuthMethod == "oauth" {
+		passwordEnc = ""
+	}
+	if input.AuthMethod == "password" && passwordEnc == "" {
 		return Account{}, ErrInvalidInput
 	}
 	imapPasswordEnc := existingIMAPEnc
@@ -399,6 +424,9 @@ func (s *Service) Upsert(ctx context.Context, organizationID, userID int64, inpu
 			return Account{}, fmt.Errorf("encrypt imap password: %w", err)
 		}
 		imapPasswordEnc = encrypted
+	}
+	if input.AuthMethod == "oauth" {
+		imapPasswordEnc = ""
 	}
 	syncStatus := "disabled"
 	if input.SyncEnabled {
@@ -433,6 +461,7 @@ func (s *Service) Upsert(ctx context.Context, organizationID, userID int64, inpu
 			oauth_access_token_enc = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_access_token_enc ELSE '' END,
 			oauth_refresh_token_enc = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_refresh_token_enc ELSE '' END,
 			oauth_token_expires_at = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_token_expires_at ELSE NULL END,
+			oauth_scopes = CASE WHEN EXCLUDED.sync_enabled = TRUE AND EXCLUDED.auth_method = 'oauth' AND EXCLUDED.provider = user_email_accounts.provider THEN user_email_accounts.oauth_scopes ELSE NULL END,
 			updated_at = NOW()
 	`, organizationID, userID, input.FromEmail, input.FromName, input.SMTPHost, input.SMTPPort, input.SMTPUsername, passwordEnc, input.SMTPUseTLS,
 		input.IMAPHost, input.IMAPPort, input.IMAPUsername, imapPasswordEnc, input.IMAPUseTLS, input.Provider, input.AuthMethod, input.SyncEnabled, syncStatus); err != nil {
@@ -452,8 +481,12 @@ func (s *Service) SaveOAuthConnection(ctx context.Context, organizationID, userI
 	input.Subject = strings.TrimSpace(input.Subject)
 	input.AccessToken = strings.TrimSpace(input.AccessToken)
 	input.RefreshToken = strings.TrimSpace(input.RefreshToken)
-	if (input.Provider != "google" && input.Provider != "microsoft") || input.AccessToken == "" || input.RefreshToken == "" {
+	scopes, err := normalizeOAuthScopes(input.Scopes)
+	if err != nil || (input.Provider != "google" && input.Provider != "microsoft") || input.AccessToken == "" || input.RefreshToken == "" {
 		return Account{}, ErrInvalidInput
+	}
+	if !OAuthSendScopeGranted(input.Provider, strings.Join(scopes, " ")) {
+		return Account{}, ErrOAuthReconnectRequired
 	}
 
 	accessTokenEnc, err := s.cipher.Encrypt(input.AccessToken)
@@ -467,7 +500,15 @@ func (s *Service) SaveOAuthConnection(ctx context.Context, organizationID, userI
 
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE user_email_accounts
-		SET provider = $3,
+		SET smtp_host = '',
+		    smtp_port = 587,
+		    smtp_username = '',
+		    smtp_password_enc = '',
+		    imap_host = '',
+		    imap_port = 0,
+		    imap_username = '',
+		    imap_password_enc = '',
+		    provider = $3,
 		    auth_method = 'oauth',
 		    sync_enabled = TRUE,
 		    sync_status = 'pending',
@@ -475,11 +516,16 @@ func (s *Service) SaveOAuthConnection(ctx context.Context, organizationID, userI
 		    oauth_access_token_enc = $5,
 		    oauth_refresh_token_enc = $6,
 		    oauth_token_expires_at = $7,
+		    oauth_scopes = $8,
 		    last_sync_error = '',
 		    next_sync_at = NOW(),
 		    updated_at = NOW()
-		WHERE organization_id = $1 AND user_id = $2
-	`, organizationID, userID, input.Provider, input.Subject, accessTokenEnc, refreshTokenEnc, input.ExpiresAt)
+		WHERE organization_id = $1
+		  AND user_id = $2
+		  AND provider = $3
+		  AND auth_method = 'oauth'
+		  AND sync_enabled = TRUE
+	`, organizationID, userID, input.Provider, input.Subject, accessTokenEnc, refreshTokenEnc, input.ExpiresAt, strings.Join(scopes, " "))
 	if err != nil {
 		return Account{}, fmt.Errorf("save oauth connection: %w", err)
 	}
@@ -575,35 +621,6 @@ func (s *Service) UpdateSyncState(ctx context.Context, organizationID, userID in
 	return s.GetForUser(ctx, organizationID, userID)
 }
 
-// SendAs sends an email through the user's own SMTP mailbox, from the user's
-// configured address. htmlBody may be empty; textBody is always preserved for
-// clients that prefer plain text. Returns ErrNotFound when the user has not yet
-// connected an email account.
-func (s *Service) SendAs(ctx context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error {
-	creds, err := s.Credentials(ctx, organizationID, userID)
-	if err != nil {
-		return err
-	}
-	startedAt := time.Now()
-	err = moduleemail.SendSMTP(moduleemail.SMTPCredentials{
-		FromEmail: creds.FromEmail,
-		FromName:  creds.FromName,
-		Host:      creds.Host,
-		Port:      creds.Port,
-		Username:  creds.Username,
-		Password:  creds.Password,
-		UseTLS:    creds.UseTLS,
-	}, moduleemail.Message{To: to, Subject: subject, TextBody: textBody, HTMLBody: htmlBody})
-	if s.observer != nil {
-		outcome := "success"
-		if err != nil {
-			outcome = "error"
-		}
-		s.observer.ObserveProvider("smtp", "send", outcome, time.Since(startedAt))
-	}
-	return err
-}
-
 // Delete removes a user's email account.
 func (s *Service) Delete(ctx context.Context, organizationID, userID int64) error {
 	if s == nil || s.pool == nil {
@@ -652,17 +669,24 @@ func normalizeInput(input UpsertInput) UpsertInput {
 			input.AuthMethod = "password"
 		}
 	}
+	if input.AuthMethod == "oauth" {
+		input.SMTPHost = ""
+		input.SMTPUsername = ""
+		input.SMTPPassword = ""
+		// The original expand-safe schema requires a positive port. OAuth
+		// delivery does not use it, but retaining this inert value avoids a
+		// destructive constraint migration.
+		input.SMTPPort = 587
+		input.IMAPHost = ""
+		input.IMAPPort = 0
+		input.IMAPUsername = ""
+		input.IMAPPassword = ""
+	}
 	return input
 }
 
 func validateInput(input UpsertInput) error {
 	if input.FromEmail == "" || !strings.Contains(input.FromEmail, "@") {
-		return ErrInvalidInput
-	}
-	if input.SMTPHost == "" || input.SMTPUsername == "" {
-		return ErrInvalidInput
-	}
-	if input.SMTPPort <= 0 || input.SMTPPort > 65535 {
 		return ErrInvalidInput
 	}
 	if !validProvider(input.Provider) || !validAuthMethod(input.AuthMethod) {
@@ -673,6 +697,11 @@ func validateInput(input UpsertInput) error {
 	}
 	if input.Provider == "imap" && input.AuthMethod != "password" {
 		return ErrInvalidInput
+	}
+	if input.AuthMethod == "password" {
+		if input.SMTPHost == "" || input.SMTPUsername == "" || input.SMTPPort <= 0 || input.SMTPPort > 65535 {
+			return ErrInvalidInput
+		}
 	}
 	if input.SyncEnabled && input.AuthMethod == "password" {
 		if input.IMAPHost == "" || input.IMAPUsername == "" || input.IMAPPort <= 0 || input.IMAPPort > 65535 {

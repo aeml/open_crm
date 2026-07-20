@@ -445,7 +445,7 @@ func emailOAuthProviders(env config.Env) []emailOAuthProviderStatus {
 func writeUserEmailAccountError(w http.ResponseWriter, requestID string, err error) {
 	switch {
 	case errors.Is(err, moduleuseremail.ErrInvalidInput):
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "A valid from address, SMTP host, username, port, and password are required")
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Save a valid from address and complete SMTP/IMAP or OAuth provider settings")
 	case errors.Is(err, moduleuseremail.ErrEncryptionUnavailable):
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email account storage is not configured on this server")
 	default:

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
@@ -296,7 +297,7 @@ func TestStartMyEmailOAuthReturnsProviderAuthorizationURL(t *testing.T) {
 	accounts := &fakeUserEmailService{
 		configured: true,
 		account: moduleuseremail.Account{
-			FromEmail: "rep@acme.test",
+			FromEmail: "rep@acme.test", Provider: "google", AuthMethod: "oauth", SyncEnabled: true,
 		},
 	}
 	server := testEmailSyncServer(testOAuthEnv(), accounts, nil)
@@ -328,6 +329,9 @@ func TestStartMyEmailOAuthReturnsProviderAuthorizationURL(t *testing.T) {
 	if query.Get("login_hint") != "rep@acme.test" {
 		t.Fatalf("expected login hint, got %q", query.Get("login_hint"))
 	}
+	if scopes := query.Get("scope"); !strings.Contains(scopes, moduleuseremail.GoogleReadScope) || !strings.Contains(scopes, moduleuseremail.GoogleSendScope) {
+		t.Fatalf("expected read and send scopes, got %q", scopes)
+	}
 	payload, err := verifyEmailOAuthState(testOAuthEnv(), query.Get("state"))
 	if err != nil {
 		t.Fatalf("expected valid oauth state: %v", err)
@@ -337,11 +341,53 @@ func TestStartMyEmailOAuthReturnsProviderAuthorizationURL(t *testing.T) {
 	}
 }
 
+func TestStartMyEmailOAuthRequiresMatchingSavedProvider(t *testing.T) {
+	accounts := &fakeUserEmailService{
+		configured: true,
+		account: moduleuseremail.Account{
+			FromEmail: "rep@acme.test", Provider: "microsoft", AuthMethod: "oauth", SyncEnabled: true,
+		},
+	}
+	server := testEmailSyncServer(testOAuthEnv(), accounts, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/me/email-sync/oauth/google/start", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "EMAIL_OAUTH_SETTINGS_REQUIRED") {
+		t.Fatalf("expected saved-provider conflict, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestDefaultEmailOAuthClientRetainsGrantedScopes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"access","refresh_token":"refresh","expires_in":3600,"scope":"openid https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send"}`))
+	}))
+	defer server.Close()
+
+	tokens, err := (defaultEmailOAuthClient{HTTPClient: server.Client()}).Exchange(context.Background(), emailOAuthProvider{
+		Provider: "google", ClientID: "client", ClientSecret: "secret", TokenURL: server.URL,
+		Scopes: []string{"openid", moduleuseremail.GoogleReadScope, moduleuseremail.GoogleSendScope},
+	}, "code", "https://api.acme.test/callback")
+	if err != nil {
+		t.Fatalf("exchange OAuth code: %v", err)
+	}
+	if len(tokens.Scopes) != 3 || tokens.Scopes[2] != moduleuseremail.GoogleSendScope {
+		t.Fatalf("expected granted scopes, got %#v", tokens.Scopes)
+	}
+}
+
 func TestStartMyEmailOAuthFallsBackToRequestHostForRedirectURI(t *testing.T) {
 	accounts := &fakeUserEmailService{
 		configured: true,
 		account: moduleuseremail.Account{
-			FromEmail: "rep@acme.test",
+			FromEmail: "rep@acme.test", Provider: "google", AuthMethod: "oauth", SyncEnabled: true,
 		},
 	}
 	env := testOAuthEnv()
@@ -379,7 +425,7 @@ func TestMyEmailOAuthCallbackStoresEncryptedTokenMetadata(t *testing.T) {
 			FromEmail: "rep@acme.test",
 		},
 	}
-	oauthClient := &fakeEmailOAuthClient{tokens: emailOAuthTokenSet{AccessToken: "access-token", RefreshToken: "refresh-token", Subject: "google-subject"}}
+	oauthClient := &fakeEmailOAuthClient{tokens: emailOAuthTokenSet{AccessToken: "access-token", RefreshToken: "refresh-token", Subject: "google-subject", Scopes: []string{moduleuseremail.GoogleReadScope, moduleuseremail.GoogleSendScope}}}
 	env := testOAuthEnv()
 	state, err := newEmailOAuthState(env, 42, 1, "google")
 	if err != nil {
@@ -404,5 +450,35 @@ func TestMyEmailOAuthCallbackStoresEncryptedTokenMetadata(t *testing.T) {
 	}
 	if accounts.lastOAuthInput.Provider != "google" || accounts.lastOAuthInput.RefreshToken != "refresh-token" || accounts.lastOAuthInput.Subject != "google-subject" {
 		t.Fatalf("expected oauth token metadata to be stored, got %#v", accounts.lastOAuthInput)
+	}
+	if len(accounts.lastOAuthInput.Scopes) != 2 || accounts.lastOAuthInput.Scopes[1] != moduleuseremail.GoogleSendScope {
+		t.Fatalf("expected granted send scope to be stored, got %#v", accounts.lastOAuthInput.Scopes)
+	}
+}
+
+func TestMyEmailOAuthCallbackReportsMissingSendScope(t *testing.T) {
+	accounts := &fakeUserEmailService{
+		configured: true,
+		account:    moduleuseremail.Account{FromEmail: "rep@acme.test"},
+		upsertErr:  moduleuseremail.ErrOAuthReconnectRequired,
+	}
+	oauthClient := &fakeEmailOAuthClient{tokens: emailOAuthTokenSet{
+		AccessToken: "access-token", RefreshToken: "refresh-token", Scopes: []string{moduleuseremail.GoogleReadScope},
+	}}
+	env := testOAuthEnv()
+	state, err := newEmailOAuthState(env, 42, 1, "google")
+	if err != nil {
+		t.Fatalf("new state: %v", err)
+	}
+	server := testEmailSyncServer(env, accounts, oauthClient)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/me/email-sync/oauth/google/callback?code=provider-code&state="+url.QueryEscape(state), nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "https://crm.acme.test/settings/email-account?emailSync=oauth_scope_missing" {
+		t.Fatalf("expected missing-scope redirect, got %d %q", recorder.Code, recorder.Header().Get("Location"))
 	}
 }

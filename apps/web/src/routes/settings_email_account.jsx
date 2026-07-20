@@ -45,7 +45,7 @@ function initialOAuthResultMessage() {
   }
   const result = new URLSearchParams(window.location.search).get('emailSync')
   if (result === 'oauth_connected') {
-    return { status: 'Mailbox OAuth connected. Sync will start when mailbox ingestion is enabled.', error: '' }
+    return { status: 'OAuth connected for sending and sync.', error: '' }
   }
   if (result === 'oauth_invalid_state') {
     return { status: '', error: 'Mailbox OAuth expired or could not be verified. Start the connection again.' }
@@ -58,6 +58,9 @@ function initialOAuthResultMessage() {
   }
   if (result === 'oauth_token_missing') {
     return { status: '', error: 'The provider did not return a refresh token. Try reconnecting and approving offline mailbox access.' }
+  }
+  if (result === 'oauth_scope_missing') {
+    return { status: '', error: 'Mail sending permission was not granted. Reconnect and approve send and read access.' }
   }
   if (result === 'oauth_exchange_failed' || result === 'oauth_error') {
     return { status: '', error: 'Mailbox OAuth connection failed. Try again from this page.' }
@@ -141,7 +144,7 @@ export function SettingsEmailAccountRoute() {
       if (account) {
         setSyncStatus({ account, oauthProviders: syncStatus.oauthProviders || [] })
       }
-      setStatus('Email account saved. Emails you send to contacts will come from your address.')
+      setStatus(form.authMethod === 'oauth' ? 'Mailbox settings saved. Connect OAuth below to send and sync.' : 'Email account saved. Emails you send to contacts will come from your address.')
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to save email account.')
@@ -222,6 +225,8 @@ export function SettingsEmailAccountRoute() {
     }
   }
 
+  const usesOAuthDelivery = form.syncEnabled && (form.provider === 'google' || form.provider === 'microsoft')
+
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
@@ -246,27 +251,33 @@ export function SettingsEmailAccountRoute() {
               <Field label="From name">
                 <input className="text-input" value={form.fromName} onChange={(event) => setForm({ ...form, fromName: event.target.value })} />
               </Field>
-              <Field label="SMTP host">
-                <input className="text-input" value={form.smtpHost} onChange={(event) => setForm({ ...form, smtpHost: event.target.value })} placeholder="smtp.gmail.com" required />
-              </Field>
-              <Field label="SMTP port">
-                <input className="text-input" type="number" value={form.smtpPort} onChange={(event) => setForm({ ...form, smtpPort: event.target.value })} required />
-              </Field>
-              <Field label="SMTP username">
-                <input className="text-input" value={form.smtpUsername} onChange={(event) => setForm({ ...form, smtpUsername: event.target.value })} required />
-              </Field>
-              <Field label={hasAccount ? 'SMTP password (leave blank to keep current)' : 'SMTP password'}>
-                <input className="text-input" type="password" value={form.smtpPassword} onChange={(event) => setForm({ ...form, smtpPassword: event.target.value })} autoComplete="new-password" />
-              </Field>
-              <label className="checkbox-row">
-                <input type="checkbox" checked={form.smtpUseTls} onChange={(event) => setForm({ ...form, smtpUseTls: event.target.checked })} />
-                <span>Use TLS / STARTTLS</span>
-              </label>
+              {!usesOAuthDelivery ? (
+                <div className="card-stack">
+                  <Field label="SMTP host">
+                    <input className="text-input" value={form.smtpHost} onChange={(event) => setForm({ ...form, smtpHost: event.target.value })} placeholder="smtp.example.com" required />
+                  </Field>
+                  <Field label="SMTP port">
+                    <input className="text-input" type="number" value={form.smtpPort} onChange={(event) => setForm({ ...form, smtpPort: event.target.value })} required />
+                  </Field>
+                  <Field label="SMTP username">
+                    <input className="text-input" value={form.smtpUsername} onChange={(event) => setForm({ ...form, smtpUsername: event.target.value })} required />
+                  </Field>
+                  <Field label={hasAccount ? 'SMTP password (leave blank to keep current)' : 'SMTP password'}>
+                    <input className="text-input" type="password" value={form.smtpPassword} onChange={(event) => setForm({ ...form, smtpPassword: event.target.value })} autoComplete="new-password" />
+                  </Field>
+                  <label className="checkbox-row">
+                    <input type="checkbox" checked={form.smtpUseTls} onChange={(event) => setForm({ ...form, smtpUseTls: event.target.checked })} />
+                    <span>Use TLS / STARTTLS</span>
+                  </label>
+                </div>
+              ) : (
+                <p className="field-hint">Outbound email uses the provider API; no SMTP password is stored.</p>
+              )}
               <Card>
                 <div className="card-stack">
                   <div>
                     <h3>Mailbox sync</h3>
-                    <p className="field-hint">Store sync settings for two-way mailbox work. Generic IMAP can be imported manually now; Google and Microsoft ingestion are still pending.</p>
+                    <p className="field-hint">Import replies and mailbox history manually or with the background worker.</p>
                     {syncStatus.account ? <p className="field-hint">Status: {syncStatusText(syncStatus.account)}</p> : null}
                   </div>
                   <label className="checkbox-row">
@@ -310,7 +321,7 @@ export function SettingsEmailAccountRoute() {
                           </label>
                         </div>
                       ) : (
-                        <p className="field-hint">Use the provider buttons below to connect OAuth mailbox access. Google and Microsoft message ingestion is not active yet.</p>
+                        <p className="field-hint">Save, then connect OAuth below for sending and mailbox sync.</p>
                       )}
                     </div>
                   ) : null}
@@ -321,9 +332,10 @@ export function SettingsEmailAccountRoute() {
                           <div>
                             <p>{provider.label}</p>
                             <p className="field-hint">{provider.configured ? 'OAuth client configured' : 'OAuth client not configured'} · {provider.status}</p>
-                            {syncStatus.account?.provider === provider.provider && syncStatus.account?.oauthConnected ? <p className="field-hint">Connected for mailbox sync</p> : null}
+                            {syncStatus.account?.provider === provider.provider && syncStatus.account?.oauthSendReady ? <p className="field-hint">Connected for sending and sync</p> : null}
+                            {syncStatus.account?.provider === provider.provider && syncStatus.account?.oauthConnected && !syncStatus.account?.oauthSendReady ? <p className="field-hint">Reconnect to approve provider sending</p> : null}
                           </div>
-                          <Button type="button" className="button-secondary" disabled={!workspaceWritable || !provider.configured || !hasAccount || startingOAuthProvider === provider.provider} onClick={() => handleStartOAuth(provider)}>
+                          <Button type="button" className="button-secondary" disabled={!workspaceWritable || !provider.configured || !hasAccount || form.provider !== provider.provider || !form.syncEnabled || startingOAuthProvider === provider.provider} onClick={() => handleStartOAuth(provider)}>
                             {startingOAuthProvider === provider.provider ? 'Starting...' : `Connect ${provider.provider === 'google' ? 'Google' : 'Microsoft'}`}
                           </Button>
                         </article>

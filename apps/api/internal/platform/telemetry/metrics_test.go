@@ -32,6 +32,8 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 	collector := NewCollector()
 	collector.ObserveHTTPRequest(http.MethodGet, "GET /api/contacts/{contactID}", http.StatusCreated, 125*time.Millisecond)
 	collector.ObserveProvider("postmark", "send", "error", 25*time.Millisecond)
+	collector.ObserveProvider("google", "oauth_refresh", "success", 15*time.Millisecond)
+	collector.ObserveProvider("microsoft", "send", "success", 20*time.Millisecond)
 	collector.ObserveJob("email_sequence.send", "retryable")
 	collector.ObserveJob("mailbox.sync", "deferred")
 	collector.ObserveRateLimit("public.lead-submission", "rejected")
@@ -88,6 +90,8 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 		`open_crm_http_requests_total{method="GET",route="/api/contacts/{contactID}",status="201"} 1`,
 		`open_crm_http_request_duration_seconds_bucket{method="GET",route="/api/contacts/{contactID}",le="0.25"} 1`,
 		`open_crm_provider_operations_total{provider="postmark",operation="send",outcome="error"} 1`,
+		`open_crm_provider_operations_total{provider="google",operation="oauth_refresh",outcome="success"} 1`,
+		`open_crm_provider_operations_total{provider="microsoft",operation="send",outcome="success"} 1`,
 		`open_crm_background_job_outcomes_total{job_type="email_sequence.send",outcome="retryable"} 1`,
 		`open_crm_background_job_outcomes_total{job_type="mailbox.sync",outcome="deferred"} 1`,
 		`open_crm_rate_limit_decisions_total{scope="public.lead-submission",outcome="rejected"} 1`,

@@ -44,7 +44,7 @@ func (r *DefaultOAuthTokenRefresher) RefreshOAuthToken(ctx context.Context, cred
 	provider := strings.TrimSpace(creds.Provider)
 	clientID, clientSecret, tokenURL := r.providerConfig(provider)
 	if clientID == "" || clientSecret == "" || tokenURL == "" {
-		return OAuthTokenSet{}, fmt.Errorf("%s oauth client is not configured", provider)
+		return OAuthTokenSet{}, fmt.Errorf("%w: %s oauth client", moduleuseremail.ErrOAuthDeliveryUnavailable, provider)
 	}
 	refreshToken := strings.TrimSpace(creds.OAuthRefresh)
 	if refreshToken == "" {
@@ -85,6 +85,9 @@ func (r *DefaultOAuthTokenRefresher) RefreshOAuthToken(ctx context.Context, cred
 		return OAuthTokenSet{}, fmt.Errorf("decode oauth refresh response: %w", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if strings.TrimSpace(payload.Error) == "invalid_grant" {
+			return OAuthTokenSet{}, fmt.Errorf("%w: provider rejected the refresh token", moduleuseremail.ErrOAuthReconnectRequired)
+		}
 		if strings.TrimSpace(payload.ErrorDescription) != "" {
 			return OAuthTokenSet{}, fmt.Errorf("oauth refresh failed: %s", strings.TrimSpace(payload.ErrorDescription))
 		}

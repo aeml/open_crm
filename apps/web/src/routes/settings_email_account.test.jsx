@@ -88,6 +88,45 @@ describe('settings email account route', () => {
     expect(await screen.findByText(/not enabled on this server/i)).toBeInTheDocument()
   })
 
+  it('saves an OAuth mailbox without collecting an SMTP password', async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/me/email-account') && method === 'GET') {
+        return { ok: true, json: async () => ({ data: { account: null, configured: true } }) }
+      }
+      if (path.endsWith('/api/me/email-account') && method === 'PUT') {
+        return { ok: true, json: async () => ({ data: { account: { fromEmail: 'rep@acme.test', provider: 'google', authMethod: 'oauth', syncEnabled: true } } }) }
+      }
+      return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/email-account')
+    render(<AppRouter />)
+
+    fireEvent.change(await screen.findByLabelText(/from email/i), { target: { value: 'rep@acme.test' } })
+    fireEvent.click(screen.getByLabelText(/enable mailbox sync metadata/i))
+    fireEvent.change(screen.getByLabelText(/sync provider/i), { target: { value: 'google' } })
+
+    expect(screen.queryByLabelText(/smtp host/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/no smtp password is stored/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /save connection/i }))
+
+    await waitFor(() => {
+      const saveCall = fetchMock.mock.calls.find(
+        (call) => String(call[0]).endsWith('/api/me/email-account') && call[1]?.method === 'PUT'
+      )
+      expect(saveCall).toBeTruthy()
+      const payload = JSON.parse(saveCall[1].body)
+      expect(payload.provider).toBe('google')
+      expect(payload.authMethod).toBe('oauth')
+      expect(payload.smtpPassword).toBe('')
+    })
+    expect(await screen.findByRole('status')).toHaveTextContent('Mailbox settings saved. Connect OAuth below to send and sync.')
+  })
+
   it('shows OAuth provider readiness and callback status', async () => {
     const account = {
       fromEmail: 'rep@acme.test',
@@ -100,7 +139,8 @@ describe('settings email account route', () => {
       authMethod: 'oauth',
       syncEnabled: true,
       syncStatus: 'pending',
-      oauthConnected: true
+      oauthConnected: true,
+      oauthSendReady: true
     }
     const fetchMock = vi.fn(async (url, options = {}) => {
       const path = new URL(String(url), 'http://localhost').pathname
@@ -133,9 +173,9 @@ describe('settings email account route', () => {
 
     render(<AppRouter />)
 
-    expect(await screen.findByText(/mailbox oauth connected/i)).toBeInTheDocument()
+    expect(await screen.findByText(/oauth connected/i)).toBeInTheDocument()
     expect(screen.getByText('Google Workspace / Gmail')).toBeInTheDocument()
-    expect(screen.getByText(/connected for mailbox sync/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/connected for sending and sync/i)).toHaveLength(2)
     expect(screen.getByRole('button', { name: /connect google/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /connect microsoft/i })).toBeDisabled()
   })

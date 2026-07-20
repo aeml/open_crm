@@ -121,6 +121,21 @@ func TestMigrationFilesIncludePostmarkDeliveryFeedback(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeOAuthMailDelivery(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "086_oauth_mail_delivery.sql") {
+		t.Fatal("expected OAuth mail delivery migration to be registered")
+	}
+	sql := MigrationSQL("086_oauth_mail_delivery.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "oauth_scopes", "lock_timeout", "statement_timeout"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("OAuth mail delivery migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("086_oauth_mail_delivery.sql"); class != "expand" {
+		t.Fatalf("OAuth mail delivery deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeCollaboration(t *testing.T) {
 	sql := MigrationSQL("060_collaboration.sql")
 	if sql == "" {

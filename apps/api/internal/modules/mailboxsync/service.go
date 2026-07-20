@@ -46,14 +46,11 @@ type Fetcher interface {
 	Fetch(context.Context, moduleuseremail.SyncCredentials, int) ([]FetchedMessage, error)
 }
 
-type OAuthTokenRefresher interface {
-	RefreshOAuthToken(context.Context, moduleuseremail.SyncCredentials) (OAuthTokenSet, error)
-}
+type OAuthTokenRefresher = moduleuseremail.OAuthTokenRefresher
+type OAuthTokenSet = moduleuseremail.OAuthTokenSet
 
-type OAuthTokenSet struct {
-	AccessToken  string
-	RefreshToken string
-	ExpiresAt    *time.Time
+type serializedOAuthCredentialStore interface {
+	RefreshOAuthCredentials(context.Context, int64, int64, moduleuseremail.OAuthTokenRefresher) (moduleuseremail.SyncCredentials, error)
 }
 
 type FetchedMessage struct {
@@ -202,8 +199,11 @@ func (s *Service) SyncDue(ctx context.Context, limit int) (Summary, error) {
 }
 
 func (s *Service) refreshOAuthTokenIfNeeded(ctx context.Context, organizationID, userID int64, creds moduleuseremail.SyncCredentials) (moduleuseremail.SyncCredentials, error) {
-	if !oauthTokenRefreshNeeded(creds) {
+	if !moduleuseremail.OAuthTokenRefreshNeeded(creds) {
 		return creds, nil
+	}
+	if store, ok := s.accounts.(serializedOAuthCredentialStore); ok {
+		return store.RefreshOAuthCredentials(ctx, organizationID, userID, s.refresher)
 	}
 	if s.refresher == nil || s.tokens == nil {
 		return creds, fmt.Errorf("mailbox oauth token refresh is not configured")
@@ -229,19 +229,6 @@ func (s *Service) refreshOAuthTokenIfNeeded(ctx context.Context, organizationID,
 	}
 	creds.OAuthExpires = tokens.ExpiresAt
 	return creds, nil
-}
-
-func oauthTokenRefreshNeeded(creds moduleuseremail.SyncCredentials) bool {
-	if creds.AuthMethod != "oauth" || (creds.Provider != "google" && creds.Provider != "microsoft") || strings.TrimSpace(creds.OAuthRefresh) == "" {
-		return false
-	}
-	if strings.TrimSpace(creds.OAuthAccess) == "" {
-		return true
-	}
-	if creds.OAuthExpires == nil {
-		return false
-	}
-	return time.Now().UTC().Add(2 * time.Minute).After(creds.OAuthExpires.UTC())
 }
 
 func syncCredentialFailure(creds moduleuseremail.SyncCredentials) string {

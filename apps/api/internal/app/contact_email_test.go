@@ -142,6 +142,35 @@ func TestSendContactEmailRequiresConnectedAccount(t *testing.T) {
 	}
 }
 
+func TestSendContactEmailReportsOAuthRecoveryAction(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "reconnect", err: moduleuseremail.ErrOAuthReconnectRequired, wantStatus: http.StatusConflict, wantCode: "EMAIL_OAUTH_RECONNECT_REQUIRED"},
+		{name: "provider unavailable", err: moduleuseremail.ErrOAuthDeliveryUnavailable, wantStatus: http.StatusServiceUnavailable, wantCode: "SERVICE_UNAVAILABLE"},
+		{name: "provider outcome uncertain", err: moduleuseremail.ErrOAuthDeliveryUncertain, wantStatus: http.StatusBadGateway, wantCode: "EMAIL_DELIVERY_UNCERTAIN"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			contacts := &fakeContactsService{getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", Email: "ada@acme.test"}}}
+			accounts := &fakeUserEmailService{configured: true, sendErr: test.err}
+			request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", bytes.NewBufferString(`{"subject":"Hi","body":"Body"}`))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+
+			authenticatedContactEmailServer(contacts, accounts).ServeHTTP(recorder, request)
+
+			if recorder.Code != test.wantStatus || !strings.Contains(recorder.Body.String(), test.wantCode) {
+				t.Fatalf("expected %d/%s, got %d: %s", test.wantStatus, test.wantCode, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestSendContactEmailRejectsContactWithoutEmail(t *testing.T) {
 	contacts := &fakeContactsService{
 		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", LastName: "Lovelace"}},

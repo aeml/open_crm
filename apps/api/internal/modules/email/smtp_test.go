@@ -27,3 +27,34 @@ func TestBuildMessageUsesMultipartWhenHTMLProvided(t *testing.T) {
 		t.Fatalf("expected both bodies, got %q", raw)
 	}
 }
+
+func TestBuildRFC822MessageRejectsHeaderInjection(t *testing.T) {
+	for name, msg := range map[string]Message{
+		"recipient": {To: "lead@example.test\r\nBcc: stolen@example.test", Subject: "Hi"},
+		"subject":   {To: "lead@example.test", Subject: "Hi\r\nBcc: stolen@example.test"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := BuildRFC822Message("Rep", "rep@example.test", msg); err == nil {
+				t.Fatal("expected header injection to be rejected")
+			}
+		})
+	}
+}
+
+func TestBuildRFC822MessageFormatsNamedSenderAndMultipartBody(t *testing.T) {
+	raw, err := BuildRFC822Message("Revenue Rep", "rep@example.test", Message{
+		To:       "lead@example.test",
+		Subject:  "Follow up",
+		TextBody: "Plain body",
+		HTMLBody: "<p>HTML body</p>",
+	})
+	if err != nil {
+		t.Fatalf("build message: %v", err)
+	}
+	message := string(raw)
+	for _, expected := range []string{"From: \"Revenue Rep\" <rep@example.test>", "To: lead@example.test", "Subject: Follow up", "multipart/alternative", "Plain body", "<p>HTML body</p>"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("message missing %q: %s", expected, message)
+		}
+	}
+}

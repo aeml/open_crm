@@ -39,7 +39,7 @@ type sendEmailResponse struct {
 var emailBodyURLPattern = regexp.MustCompile(`https?://[^\s<>"']+`)
 
 // handleSendContactEmail sends a one-to-one email to a contact through the
-// sending user's own mailbox (their configured SMTP account), so the email
+// sending user's own mailbox (SMTP, Gmail, or Microsoft), so the email
 // comes from the user, not the platform. The subject and body may contain
 // {{merge_field}} placeholders, rendered server-side from contact data. A note
 // is logged on the contact so the send appears in its activity timeline.
@@ -313,8 +313,21 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", accountRequiredMessage)
 			return
 		}
+		if errors.Is(err, moduleuseremail.ErrOAuthReconnectRequired) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "EMAIL_OAUTH_RECONNECT_REQUIRED", "Reconnect your mailbox in Settings to approve sending email")
+			return
+		}
+		if errors.Is(err, moduleuseremail.ErrOAuthDeliveryUnavailable) {
+			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "OAuth mailbox delivery is not configured on this server")
+			return
+		}
+		if errors.Is(err, moduleuseremail.ErrOAuthDeliveryUncertain) {
+			recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackingToken, trackedLinks)
+			platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_DELIVERY_UNCERTAIN", "The provider outcome is uncertain. Check your Sent folder before retrying")
+			return
+		}
 		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackingToken, trackedLinks)
-		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email through your mail server")
+		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email through your connected mailbox")
 		return
 	}
 

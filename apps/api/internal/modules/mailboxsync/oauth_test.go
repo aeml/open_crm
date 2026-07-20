@@ -2,10 +2,10 @@ package mailboxsync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -51,7 +51,14 @@ func TestDefaultOAuthTokenRefresherReportsProviderErrors(t *testing.T) {
 
 	refresher := NewOAuthTokenRefresher(OAuthTokenRefresherConfig{MicrosoftClientID: "client", MicrosoftClientSecret: "secret", MicrosoftTokenURL: server.URL, HTTPClient: server.Client()})
 	_, err := refresher.RefreshOAuthToken(context.Background(), moduleuseremail.SyncCredentials{Provider: "microsoft", OAuthRefresh: "stored-refresh"})
-	if err == nil || !strings.Contains(err.Error(), "Refresh token expired") {
+	if err == nil || !errors.Is(err, moduleuseremail.ErrOAuthReconnectRequired) {
 		t.Fatalf("expected provider error, got %v", err)
+	}
+}
+
+func TestDefaultOAuthTokenRefresherReportsMissingProviderConfiguration(t *testing.T) {
+	_, err := NewOAuthTokenRefresher(OAuthTokenRefresherConfig{}).RefreshOAuthToken(context.Background(), moduleuseremail.SyncCredentials{Provider: "google", OAuthRefresh: "stored-refresh"})
+	if !errors.Is(err, moduleuseremail.ErrOAuthDeliveryUnavailable) {
+		t.Fatalf("expected unavailable provider configuration, got %v", err)
 	}
 }
