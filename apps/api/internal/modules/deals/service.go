@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
 )
@@ -227,11 +228,16 @@ type UpdateStageInput struct {
 }
 
 type Service struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	capacity modulebilling.CapacityManager
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
+}
+
+func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityManager) *Service {
+	return &Service{pool: pool, capacity: capacity}
 }
 
 func (s *Service) ListPipelinesByOrganization(ctx context.Context, organizationID int64) ([]Pipeline, error) {
@@ -514,12 +520,26 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if input.Name == "" || input.StageID <= 0 {
 		return Detail{}, fmt.Errorf("deal name and stage are required")
 	}
+	if err := moduleusers.RequireActiveMember(ctx, s.pool, organizationID, actorUserID); err != nil {
+		return Detail{}, err
+	}
+	if err := moduleusers.RequireActiveMember(ctx, s.pool, organizationID, input.OwnerUserID); err != nil {
+		return Detail{}, err
+	}
+	reservation, err := modulebilling.ReserveCapacity(ctx, s.capacity, organizationID, modulebilling.ResourceDeals, 1)
+	if err != nil {
+		return Detail{}, err
+	}
+	defer modulebilling.CancelReservation(s.capacity, reservation)
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Detail{}, fmt.Errorf("begin create deal transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := modulebilling.LockCapacityEffect(ctx, tx, reservation); err != nil {
+		return Detail{}, err
+	}
 	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
 		return Detail{}, err
 	}
@@ -587,6 +607,9 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		EventType: moduleworkflowautomations.DealEventCreated, EventKey: fmt.Sprintf("deal:%d:activity:%d", dealID, activityID),
 	}); err != nil {
 		return Detail{}, fmt.Errorf("execute deal-created task rules: %w", err)
+	}
+	if err := modulebilling.ConsumeCapacity(ctx, s.capacity, tx, reservation); err != nil {
+		return Detail{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

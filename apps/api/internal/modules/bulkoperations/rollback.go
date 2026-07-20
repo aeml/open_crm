@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 )
 
@@ -29,11 +30,22 @@ func (s *Service) Rollback(ctx context.Context, organizationID, actorUserID, ope
 	if organizationID <= 0 || actorUserID <= 0 || operationID <= 0 {
 		return Operation{}, ErrInvalidInput
 	}
+	if err := requireActiveActor(ctx, s.pool, organizationID, actorUserID); err != nil {
+		return Operation{}, err
+	}
+	reservation, err := s.reserveRollbackCapacity(ctx, organizationID, operationID)
+	if err != nil {
+		return Operation{}, err
+	}
+	defer modulebilling.CancelReservation(s.capacity, reservation)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return Operation{}, fmt.Errorf("begin bulk operation rollback: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := modulebilling.LockCapacityEffect(ctx, tx, reservation); err != nil {
+		return Operation{}, err
+	}
 	if err := requireActiveActor(ctx, tx, organizationID, actorUserID); err != nil {
 		return Operation{}, err
 	}
@@ -135,10 +147,47 @@ func (s *Service) Rollback(ctx context.Context, organizationID, actorUserID, ope
 	if err := insertAuditEvent(ctx, tx, organizationID, actorUserID, operationID, operation.EntityType, operation.Action, operation.TargetCount, operation.ChangedCount, len(rolledBackIDs), skipped, true); err != nil {
 		return Operation{}, err
 	}
+	if err := modulebilling.ConsumeCapacity(ctx, s.capacity, tx, reservation); err != nil {
+		return Operation{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Operation{}, fmt.Errorf("commit bulk operation rollback: %w", err)
 	}
 	return getOperation(ctx, s.pool, organizationID, operationID)
+}
+
+func (s *Service) reserveRollbackCapacity(ctx context.Context, organizationID, operationID int64) (modulebilling.CapacityReservation, error) {
+	var entityType, action, status string
+	if err := s.pool.QueryRow(ctx, `SELECT entity_type,action,status FROM bulk_operations WHERE organization_id=$1 AND id=$2`, organizationID, operationID).Scan(&entityType, &action, &status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return modulebilling.CapacityReservation{}, nil
+		}
+		return modulebilling.CapacityReservation{}, fmt.Errorf("load bulk rollback capacity: %w", err)
+	}
+	resource := ""
+	if action == "archive" && status == "completed" {
+		switch entityType {
+		case "contact":
+			resource = modulebilling.ResourceContacts
+		case "deal":
+			resource = modulebilling.ResourceDeals
+		}
+	}
+	if resource == "" {
+		return modulebilling.CapacityReservation{}, nil
+	}
+	var amount int
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM bulk_operation_rows
+		WHERE organization_id=$1 AND bulk_operation_id=$2 AND status='applied' AND before_archived_at IS NULL
+	`, organizationID, operationID).Scan(&amount); err != nil {
+		return modulebilling.CapacityReservation{}, fmt.Errorf("count bulk rollback capacity: %w", err)
+	}
+	if amount == 0 {
+		return modulebilling.CapacityReservation{}, nil
+	}
+	return modulebilling.ReserveCapacity(ctx, s.capacity, organizationID, resource, amount)
 }
 
 func lockCurrentVersion(ctx context.Context, tx pgx.Tx, config entityConfig, organizationID, entityID int64) (time.Time, error) {

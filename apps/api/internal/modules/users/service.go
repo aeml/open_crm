@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	platformauth "github.com/aeml/open_crm/apps/api/internal/platform/auth"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -98,11 +99,16 @@ type UpdateProfileInput struct {
 }
 
 type Service struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	capacity modulebilling.CapacityManager
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
+}
+
+func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityManager) *Service {
+	return &Service{pool: pool, capacity: capacity}
 }
 
 func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]UserSummary, error) {
@@ -165,12 +171,11 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 	if input.Email == "" || input.FirstName == "" || input.LastName == "" || input.Role == "" {
 		return UserSummary{}, fmt.Errorf("email, first name, last name, and role are required")
 	}
-
-	tx, err := s.pool.Begin(ctx)
+	reservation, err := modulebilling.ReserveCapacity(ctx, s.capacity, organizationID, modulebilling.ResourceSeats, 1)
 	if err != nil {
-		return UserSummary{}, fmt.Errorf("begin user transaction: %w", err)
+		return UserSummary{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer modulebilling.CancelReservation(s.capacity, reservation)
 
 	randomPassword, err := platformauth.NewSessionToken()
 	if err != nil {
@@ -185,6 +190,15 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 		return UserSummary{}, fmt.Errorf("generate setup token: %w", err)
 	}
 	setupExpiresAt := time.Now().Add(setupTokenTTL)
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return UserSummary{}, fmt.Errorf("begin user transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := modulebilling.LockCapacityEffect(ctx, tx, reservation); err != nil {
+		return UserSummary{}, err
+	}
 
 	var userID int64
 	err = tx.QueryRow(ctx, `
@@ -201,6 +215,9 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 		VALUES ($1, $2, $3)
 	`, organizationID, userID, input.Role); err != nil {
 		return UserSummary{}, fmt.Errorf("insert membership: %w", err)
+	}
+	if err := modulebilling.ConsumeCapacity(ctx, s.capacity, tx, reservation); err != nil {
+		return UserSummary{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

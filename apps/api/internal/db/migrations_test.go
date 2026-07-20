@@ -1283,3 +1283,18 @@ func TestMigrationFilesIncludeBillingUsageSnapshotsMigration(t *testing.T) {
 		t.Fatalf("billing usage snapshots deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeBillingCapacityReservationsMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "078_billing_capacity_reservations.sql") {
+		t.Fatal("capacity reservation migration is missing")
+	}
+	sql := MigrationSQL("078_billing_capacity_reservations.sql")
+	for _, fragment := range []string{"billing_capacity_reservations", "organization_id", "expires_at", "contacts", "deals", "seats"} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("capacity reservation migration missing %q", fragment)
+		}
+	}
+	if class := MigrationDeploymentClass("078_billing_capacity_reservations.sql"); class != "expand" {
+		t.Fatalf("capacity reservation migration class=%q", class)
+	}
+}

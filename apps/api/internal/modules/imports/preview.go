@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -116,7 +117,8 @@ type PreviewIssue struct {
 }
 
 type Service struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	capacity modulebilling.CapacityManager
 }
 
 func NewService(pools ...*pgxpool.Pool) *Service {
@@ -125,6 +127,10 @@ func NewService(pools ...*pgxpool.Pool) *Service {
 		configured = pools[0]
 	}
 	return &Service{pool: configured}
+}
+
+func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityManager) *Service {
+	return &Service{pool: pool, capacity: capacity}
 }
 
 func (s *Service) Preview(ctx context.Context, input PreviewInput) (PreviewResult, error) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 )
 
@@ -303,6 +304,8 @@ func TestUpdateUserStatusRejectsViewerAndUnsafeTransitions(t *testing.T) {
 		{name: "self", role: "owner", serviceErr: moduleusers.ErrCannotChangeOwnStatus, wantStatus: http.StatusConflict},
 		{name: "last owner", role: "owner", serviceErr: moduleusers.ErrLastActiveOwner, wantStatus: http.StatusConflict},
 		{name: "foreign replacement", role: "owner", serviceErr: moduleusers.ErrInvalidReassignment, wantStatus: http.StatusBadRequest},
+		{name: "reactivation limit", role: "owner", serviceErr: modulebilling.ErrLimitReached, wantStatus: http.StatusPaymentRequired},
+		{name: "capacity unavailable", role: "owner", serviceErr: modulebilling.ErrCapacityUnavailable, wantStatus: http.StatusServiceUnavailable},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

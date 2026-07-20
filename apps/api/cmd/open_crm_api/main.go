@@ -149,21 +149,29 @@ func main() {
 		} else {
 			defer pool.Close()
 			databasePool = pool
+			billingService = modulebilling.NewService(pool, modulebilling.WithObserver(modulebilling.NewProvider(env.BillingProvider, modulebilling.ProviderConfig{
+				SecretKey:       env.StripeSecretKey,
+				WebhookSecret:   env.StripeWebhookSecret,
+				PriceStarter:    env.StripePriceStarter,
+				PricePro:        env.StripePricePro,
+				PriceEnterprise: env.StripePriceEnterprise,
+				WebBaseURL:      env.WebBaseURL,
+			}), metrics))
 			authService = moduleauth.NewService(pool)
 			auditService = moduleaudit.NewService(pool)
-			usersService = moduleusers.NewService(pool)
-			contactsService = modulecontacts.NewService(pool)
+			usersService = moduleusers.NewServiceWithCapacity(pool, billingService)
+			contactsService = modulecontacts.NewServiceWithCapacity(pool, billingService)
 			companiesService = modulecompanies.NewService(pool)
-			dealsService = moduledeals.NewService(pool)
+			dealsService = moduledeals.NewServiceWithCapacity(pool, billingService)
 			tasksService = moduletasks.NewService(pool)
 			taskRemindersService = moduletaskreminders.NewService(pool)
 			exportsService = moduleexports.NewService(pool)
 			workspaceExportsService = moduleworkspaceexports.NewService(pool)
 			dashboardService = moduledashboard.NewService(pool)
 			clientReviewsService = moduleclientreviews.NewService(pool)
-			importsService = moduleimports.NewService(pool)
-			bulkOperationsService = modulebulkoperations.NewService(pool)
-			archiveOperationsService = modulearchiveoperations.NewService(pool)
+			importsService = moduleimports.NewServiceWithCapacity(pool, billingService)
+			bulkOperationsService = modulebulkoperations.NewServiceWithCapacity(pool, billingService)
+			archiveOperationsService = modulearchiveoperations.NewServiceWithCapacity(pool, billingService)
 			duplicateOperationsService = moduleduplicates.NewService(pool)
 			customFieldsService = modulecustomfields.NewService(pool)
 			notesService = modulenotes.NewService(pool)
@@ -175,17 +183,9 @@ func main() {
 			savedViewsService = modulesavedviews.NewService(pool)
 			onboardingService = moduleonboarding.NewService(pool, emailService)
 			orgProfileService = moduleorgprofile.NewService(pool)
-			billingService = modulebilling.NewService(pool, modulebilling.WithObserver(modulebilling.NewProvider(env.BillingProvider, modulebilling.ProviderConfig{
-				SecretKey:       env.StripeSecretKey,
-				WebhookSecret:   env.StripeWebhookSecret,
-				PriceStarter:    env.StripePriceStarter,
-				PricePro:        env.StripePricePro,
-				PriceEnterprise: env.StripePriceEnterprise,
-				WebBaseURL:      env.WebBaseURL,
-			}), metrics))
 			emailTemplatesService = moduleemailtemplates.NewService(pool)
 			productCatalogService = moduleproductcatalog.NewService(pool)
-			leadFormsService = moduleleadforms.NewService(pool, billingService.Hosted())
+			leadFormsService = moduleleadforms.NewServiceWithCapacity(pool, billingService, billingService.Hosted())
 			leadAudiencesService = moduleleadaudiences.NewService(pool)
 			marketingCampaignsService = modulemarketingcampaigns.NewService(pool)
 			nurtureCampaignsService = modulenurturecampaigns.NewService(pool)

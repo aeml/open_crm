@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	"github.com/jackc/pgx/v5"
@@ -152,11 +153,16 @@ type Detail struct {
 }
 
 type Service struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	capacity modulebilling.CapacityManager
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
+}
+
+func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityManager) *Service {
+	return &Service{pool: pool, capacity: capacity}
 }
 
 func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, query ListQuery) (ListResult, error) {
@@ -369,12 +375,20 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if err := ensureNoDuplicateContact(ctx, s.pool, organizationID, 0, input); err != nil {
 		return Detail{}, err
 	}
+	reservation, err := modulebilling.ReserveCapacity(ctx, s.capacity, organizationID, modulebilling.ResourceContacts, 1)
+	if err != nil {
+		return Detail{}, err
+	}
+	defer modulebilling.CancelReservation(s.capacity, reservation)
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Detail{}, fmt.Errorf("begin create contact transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := modulebilling.LockCapacityEffect(ctx, tx, reservation); err != nil {
+		return Detail{}, err
+	}
 	customFields, err := modulecustomfields.NormalizeValues(ctx, tx, organizationID, "contact", input.CustomFields, nil)
 	if err != nil {
 		return Detail{}, err
@@ -395,6 +409,9 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 
 	if err := insertActivity(ctx, tx, organizationID, contactID, actorUserID, "contact.created", "Contact created"); err != nil {
 		return Detail{}, fmt.Errorf("insert create activity: %w", err)
+	}
+	if err := modulebilling.ConsumeCapacity(ctx, s.capacity, tx, reservation); err != nil {
+		return Detail{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

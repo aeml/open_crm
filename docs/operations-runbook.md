@@ -208,10 +208,13 @@ lead capture, or tenant workers because of stored hosted lifecycle fields.
    `workflow_automation_runs.completed_at`, successful
    `background_jobs.completed_at`, and estimated `pg_column_size` row bytes
    across current-schema base tables with `organization_id` (excluding the
-   snapshot table itself). Row bytes do not include indexes or external object
+   snapshot and ephemeral capacity-reservation tables). Row bytes do not include indexes or external object
    storage. Do not invoice from these figures or add manual SQL counters: the
-   message/automation/job/storage values are reconciliation evidence until the
-   hosted quota contract and concurrency policy are approved. Internal browser
+   message/automation/job/storage values are reconciliation evidence until their
+   hosted quota contracts are approved. Existing seat/contact/deal limits use
+   transactional, expiring reservations across direct writes, imports, public
+   lead capture, reactivation, and archive recovery; do not edit or preallocate
+   those internal claims manually. Internal browser
    REST traffic is not labeled API usage; no external API meter exists because
    no versioned external API exists.
    A failed daily observation is labeled **Billing usage snapshot** in

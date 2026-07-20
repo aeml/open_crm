@@ -6,9 +6,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 )
 
-func completeBatch(ctx context.Context, connection *pgxpool.Conn, organizationID, actorUserID, batchID int64) error {
+func completeBatch(ctx context.Context, connection *pgxpool.Conn, organizationID, actorUserID, batchID int64, capacity modulebilling.CapacityManager, reservation modulebilling.CapacityReservation) error {
 	tx, err := connection.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin complete import batch: %w", err)
@@ -40,6 +42,9 @@ func completeBatch(ctx context.Context, connection *pgxpool.Conn, organizationID
 		WHERE organization_id = $1 AND id = $2
 	`, organizationID, batchID, actorUserID); err != nil {
 		return fmt.Errorf("audit import completion: %w", err)
+	}
+	if err := modulebilling.ConsumeCapacity(ctx, capacity, tx, reservation); err != nil {
+		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit completed import batch: %w", err)

@@ -170,11 +170,16 @@ type PublicChatWidget struct {
 type Service struct {
 	pool                 *pgxpool.Pool
 	enforceHostedBilling bool
+	capacity             modulebilling.CapacityManager
 }
 
 func NewService(pool *pgxpool.Pool, enforceHostedBilling ...bool) *Service {
 	enforce := len(enforceHostedBilling) > 0 && enforceHostedBilling[0]
 	return &Service{pool: pool, enforceHostedBilling: enforce}
+}
+
+func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityManager, enforceHostedBilling bool) *Service {
+	return &Service{pool: pool, enforceHostedBilling: enforceHostedBilling, capacity: capacity}
 }
 
 func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]Form, error) {
@@ -581,12 +586,20 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 	}
 	sourceURL := trimMax(input.SourceURL, 2048)
 	attribution := normalizeAttribution(form, input, sourceURL)
+	reservation, err := modulebilling.ReserveCapacity(ctx, s.capacity, organizationID, modulebilling.ResourceContacts, 1)
+	if err != nil {
+		return SubmissionResult{}, err
+	}
+	defer modulebilling.CancelReservation(s.capacity, reservation)
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return SubmissionResult{}, fmt.Errorf("begin lead capture submission transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := modulebilling.LockCapacityEffect(ctx, tx, reservation); err != nil {
+		return SubmissionResult{}, err
+	}
 
 	var planKey, subscriptionStatus, providerStatus string
 	var trialEndsAt *time.Time
@@ -600,12 +613,16 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 		if err := modulebilling.CheckWritable(subscriptionStatus, trialEndsAt, providerStatus); err != nil {
 			return SubmissionResult{}, err
 		}
-		var activeContacts int
-		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM contacts WHERE organization_id=$1 AND archived_at IS NULL`, organizationID).Scan(&activeContacts); err != nil {
-			return SubmissionResult{}, fmt.Errorf("load lead capture contact usage: %w", err)
-		}
-		if !modulebilling.CanCreateMore(modulebilling.LimitUsage{Used: activeContacts, Limit: modulebilling.PlanByKey(planKey).ContactLimit}) {
-			return SubmissionResult{}, modulebilling.ErrLimitReached
+		// Compatibility for isolated hosted-policy tests that do not inject the
+		// shared capacity manager. Production uses the durable reservation above.
+		if s.capacity == nil {
+			var activeContacts int
+			if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM contacts WHERE organization_id=$1 AND archived_at IS NULL`, organizationID).Scan(&activeContacts); err != nil {
+				return SubmissionResult{}, fmt.Errorf("load lead capture contact usage: %w", err)
+			}
+			if !modulebilling.CanCreateMore(modulebilling.LimitUsage{Used: activeContacts, Limit: modulebilling.PlanByKey(planKey).ContactLimit}) {
+				return SubmissionResult{}, modulebilling.ErrLimitReached
+			}
 		}
 	}
 
@@ -646,6 +663,9 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 		RETURNING id, form_id, COALESCE(contact_id, 0), created_at
 	`, organizationID, form.ID, contactID, string(payloadJSON), sourceURL, trimMax(input.RemoteAddr, 255), trimMax(input.UserAgent, 1024), attribution.LeadSource, attribution.UTMSource, attribution.UTMMedium, attribution.UTMCampaign, attribution.UTMTerm, attribution.UTMContent).Scan(&submission.ID, &submission.FormID, &submission.ContactID, &submission.CreatedAt); err != nil {
 		return SubmissionResult{}, fmt.Errorf("insert lead capture submission: %w", err)
+	}
+	if err := modulebilling.ConsumeCapacity(ctx, s.capacity, tx, reservation); err != nil {
+		return SubmissionResult{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

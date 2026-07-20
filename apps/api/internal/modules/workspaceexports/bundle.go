@@ -422,6 +422,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"billing_checkout_requests",
 		"billing_webhook_events",
 		"billing_usage_snapshots",
+		"billing_capacity_reservations",
 		"sessions",
 		"workspace_bootstrap_requests",
 		"workspace_exports",

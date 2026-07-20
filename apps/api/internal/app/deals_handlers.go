@@ -144,10 +144,10 @@ func handleCreateDeal(auth authService, deals dealsService, notifs notifications
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
 		return
 	}
+	// The domain service repeats this as a durable transaction-bound claim.
 	if !enforcePlanLimit(billing, state.Organization.ID, "deals", w, r) {
 		return
 	}
-
 	var request dealRequest
 	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
@@ -166,6 +166,9 @@ func handleCreateDeal(auth authService, deals dealsService, notifs notifications
 		CloseNotes:        strings.TrimSpace(request.CloseNotes),
 	})
 	if err != nil {
+		if writeCapacityError(w, requestID, "deals", err) {
+			return
+		}
 		if errors.Is(err, moduledeals.ErrInvalidAssignee) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an active team member as deal owner")
 			return

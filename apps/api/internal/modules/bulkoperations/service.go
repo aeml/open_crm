@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
@@ -82,11 +83,16 @@ type recordSnapshot struct {
 }
 
 type Service struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	capacity modulebilling.CapacityManager
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
+}
+
+func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityManager) *Service {
+	return &Service{pool: pool, capacity: capacity}
 }
 
 func (s *Service) Execute(ctx context.Context, input ExecuteInput) (Operation, error) {

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 )
@@ -36,9 +37,16 @@ type ListQuery struct {
 	Limit      int
 }
 
-type Service struct{ pool *pgxpool.Pool }
+type Service struct {
+	pool     *pgxpool.Pool
+	capacity modulebilling.CapacityManager
+}
 
 func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+
+func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityManager) *Service {
+	return &Service{pool: pool, capacity: capacity}
+}
 
 func (s *Service) List(ctx context.Context, organizationID int64, query ListQuery) ([]Record, error) {
 	if s == nil || s.pool == nil {
@@ -76,11 +84,35 @@ func (s *Service) Restore(ctx context.Context, organizationID, actorUserID int64
 	if organizationID <= 0 || actorUserID <= 0 || entityID <= 0 || !supportedEntityType(entityType) {
 		return Record{}, ErrInvalidInput
 	}
+	if err := requireActiveActor(ctx, s.pool, organizationID, actorUserID); err != nil {
+		return Record{}, err
+	}
+	var reservation modulebilling.CapacityReservation
+	resource := capacityResource(entityType)
+	if resource != "" {
+		config := entityConfigs[entityType]
+		var archived bool
+		err := s.pool.QueryRow(ctx, `SELECT archived_at IS NOT NULL FROM `+config.table+` WHERE organization_id=$1 AND id=$2`, organizationID, entityID).Scan(&archived)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && !archived) {
+			return Record{}, ErrNotFound
+		}
+		if err != nil {
+			return Record{}, fmt.Errorf("load archived record for capacity: %w", err)
+		}
+		reservation, err = modulebilling.ReserveCapacity(ctx, s.capacity, organizationID, resource, 1)
+		if err != nil {
+			return Record{}, err
+		}
+		defer modulebilling.CancelReservation(s.capacity, reservation)
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return Record{}, fmt.Errorf("begin archive restore: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := modulebilling.LockCapacityEffect(ctx, tx, reservation); err != nil {
+		return Record{}, err
+	}
 	if err := requireActiveActor(ctx, tx, organizationID, actorUserID); err != nil {
 		return Record{}, err
 	}
@@ -121,6 +153,9 @@ func (s *Service) Restore(ctx context.Context, organizationID, actorUserID int64
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json) VALUES ($1,$2,'record.restored',$3,$4,$5,jsonb_build_object('archivedAt',$6::text))`, organizationID, actorUserID, entityType, entityID, "Restored archived "+entityType+" record", record.ArchivedAt.Format(time.RFC3339Nano)); err != nil {
 		return Record{}, fmt.Errorf("audit archive restore: %w", err)
 	}
+	if err := modulebilling.ConsumeCapacity(ctx, s.capacity, tx, reservation); err != nil {
+		return Record{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Record{}, fmt.Errorf("commit archive restore: %w", err)
 	}
@@ -145,6 +180,17 @@ func normalizeEntityType(value string) string { return strings.ToLower(strings.T
 func supportedEntityType(value string) bool {
 	_, ok := entityConfigs[value]
 	return ok
+}
+
+func capacityResource(entityType string) string {
+	switch entityType {
+	case "contact":
+		return modulebilling.ResourceContacts
+	case "deal":
+		return modulebilling.ResourceDeals
+	default:
+		return ""
+	}
 }
 
 const archivedRecordsQuery = `
@@ -213,8 +259,12 @@ func lockArchivedRecord(ctx context.Context, tx pgx.Tx, organizationID int64, en
 	return record, nil
 }
 
-func requireActiveActor(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64) error {
-	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
+type actorQueryRower interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func requireActiveActor(ctx context.Context, query actorQueryRower, organizationID, actorUserID int64) error {
+	if err := moduleusers.RequireActiveMember(ctx, query, organizationID, actorUserID); err != nil {
 		if errors.Is(err, moduleusers.ErrInvalidAssignee) {
 			return ErrInactiveActor
 		}

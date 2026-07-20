@@ -193,7 +193,7 @@ func tenantStorageTables(ctx context.Context, tx pgx.Tx) ([]tenantStorageTable, 
 		WHERE columns.table_schema=current_schema()
 		  AND columns.column_name='organization_id'
 		  AND tables.table_type='BASE TABLE'
-		  AND columns.table_name<>'billing_usage_snapshots'
+		  AND columns.table_name NOT IN ('billing_usage_snapshots','billing_capacity_reservations')
 		ORDER BY columns.table_name
 	`)
 	if err != nil {

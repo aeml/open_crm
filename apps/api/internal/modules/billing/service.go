@@ -463,38 +463,19 @@ func boundedBillingError(err error) string {
 	return value
 }
 
-// EnforceCanCreate returns ErrLimitReached if adding one more of the given
-// metered resource would exceed the organization's plan limit. Unlimited
-// plans and unmetered resources always pass.
+// EnforceCanCreate retains the compatibility check used by isolated callers.
+// Capacity-increasing production paths use ReserveCapacity and consume the
+// reservation in their write transaction so this check cannot be mistaken for
+// a concurrency guarantee.
 func (s *Service) EnforceCanCreate(ctx context.Context, organizationID int64, resource string) error {
-	if s == nil || s.pool == nil {
-		return fmt.Errorf("billing service not configured")
-	}
-	if !s.Hosted() {
+	if !validCapacityResource(resource) {
 		return nil
 	}
-
-	entitlements, err := s.Entitlements(ctx, organizationID)
+	reservation, err := s.ReserveCapacity(ctx, organizationID, resource, 1)
 	if err != nil {
 		return err
 	}
-
-	var usage LimitUsage
-	switch resource {
-	case ResourceContacts:
-		usage = entitlements.Contacts
-	case ResourceDeals:
-		usage = entitlements.Deals
-	case ResourceSeats:
-		usage = entitlements.Seats
-	default:
-		return nil
-	}
-
-	if !CanCreateMore(usage) {
-		return ErrLimitReached
-	}
-	return nil
+	return s.CancelCapacity(ctx, reservation)
 }
 
 const subscriptionLookupSQL = `SELECT subscription_status, trial_ends_at, COALESCE(billing_provider_status, '') FROM organizations WHERE id = $1`

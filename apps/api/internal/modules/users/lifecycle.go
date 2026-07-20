@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 )
 
@@ -44,12 +45,44 @@ func (s *Service) SetStatus(ctx context.Context, organizationID, userID, actorUs
 	if input.Status == MembershipStatusActive && input.ReassignToUserID != 0 {
 		return LifecycleResult{}, ErrInvalidReassignment
 	}
+	var reservation modulebilling.CapacityReservation
+	if input.Status == MembershipStatusActive {
+		var currentStatus string
+		err := s.pool.QueryRow(ctx, `
+			SELECT COALESCE(membership_status, 'active')
+			FROM organization_memberships
+			WHERE organization_id=$1 AND user_id=$2
+		`, organizationID, userID).Scan(&currentStatus)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return LifecycleResult{}, fmt.Errorf("load membership status for capacity: %w", err)
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return LifecycleResult{}, ErrNotFound
+		}
+		if currentStatus == MembershipStatusActive {
+			user, err := loadUserSummary(ctx, s.pool, organizationID, userID)
+			if err != nil {
+				return LifecycleResult{}, err
+			}
+			return LifecycleResult{User: user}, nil
+		}
+		if currentStatus == MembershipStatusDisabled {
+			reservation, err = modulebilling.ReserveCapacity(ctx, s.capacity, organizationID, modulebilling.ResourceSeats, 1)
+			if err != nil {
+				return LifecycleResult{}, err
+			}
+			defer modulebilling.CancelReservation(s.capacity, reservation)
+		}
+	}
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return LifecycleResult{}, fmt.Errorf("begin user lifecycle transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := modulebilling.LockCapacityEffect(ctx, tx, reservation); err != nil {
+		return LifecycleResult{}, err
+	}
 
 	target, err := lockMembership(ctx, tx, organizationID, userID)
 	if err != nil {
@@ -114,6 +147,11 @@ func (s *Service) SetStatus(ctx context.Context, organizationID, userID, actorUs
 	result.User, err = loadUserSummary(ctx, tx, organizationID, userID)
 	if err != nil {
 		return LifecycleResult{}, err
+	}
+	if input.Status == MembershipStatusActive {
+		if err := modulebilling.ConsumeCapacity(ctx, s.capacity, tx, reservation); err != nil {
+			return LifecycleResult{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return LifecycleResult{}, fmt.Errorf("commit user lifecycle: %w", err)
@@ -375,9 +413,13 @@ func recordLifecycleAudit(ctx context.Context, tx pgx.Tx, organizationID, userID
 	return nil
 }
 
-func loadUserSummary(ctx context.Context, tx pgx.Tx, organizationID, userID int64) (UserSummary, error) {
+type lifecycleQueryRower interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func loadUserSummary(ctx context.Context, query lifecycleQueryRower, organizationID, userID int64) (UserSummary, error) {
 	var user UserSummary
-	err := tx.QueryRow(ctx, `
+	err := query.QueryRow(ctx, `
 		SELECT u.id, u.email, u.first_name, u.last_name, om.role,
 			COALESCE(om.membership_status, 'active'), om.status_changed_at,
 			(SELECT COUNT(*) FROM contacts record WHERE record.organization_id = om.organization_id AND record.owner_user_id = u.id AND record.archived_at IS NULL),

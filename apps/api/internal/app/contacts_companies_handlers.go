@@ -170,16 +170,20 @@ func handleCreateContact(auth authService, contacts contactsService, billing bil
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
 		return
 	}
+	// Keep the handler preflight for a fast, friendly rejection; the contacts
+	// service performs the authoritative transactional reservation.
 	if !enforcePlanLimit(billing, state.Organization.ID, "contacts", w, r) {
 		return
 	}
-
 	input, ok := decodeContactRequest(w, r)
 	if !ok {
 		return
 	}
 	result, err := contacts.Create(r.Context(), state.Organization.ID, state.User.ID, input)
 	if err != nil {
+		if writeCapacityError(w, requestID, "contacts", err) {
+			return
+		}
 		if errors.Is(err, modulecontacts.ErrDuplicateContact) {
 			platformweb.WriteErrorWithDetails(w, http.StatusConflict, requestID, "CONFLICT", err.Error(), duplicateErrorDetails(err))
 			return

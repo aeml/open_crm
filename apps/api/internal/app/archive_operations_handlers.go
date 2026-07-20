@@ -80,6 +80,7 @@ func writeArchiveOperationError(w http.ResponseWriter, requestID string, err err
 		return false
 	}
 	switch {
+	case writeCapacityError(w, requestID, "", err):
 	case errors.Is(err, modulearchiveoperations.ErrInvalidInput):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
 	case errors.Is(err, modulearchiveoperations.ErrNotFound):

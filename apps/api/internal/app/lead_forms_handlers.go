@@ -277,7 +277,7 @@ func writeLeadCaptureSubmissionError(w http.ResponseWriter, requestID string, er
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide all required lead capture fields")
 	case errors.Is(err, moduleleadforms.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
-	case errors.Is(err, modulebilling.ErrSubscriptionInactive), errors.Is(err, modulebilling.ErrLimitReached):
+	case errors.Is(err, modulebilling.ErrSubscriptionInactive), errors.Is(err, modulebilling.ErrLimitReached), errors.Is(err, modulebilling.ErrCapacityUnavailable), errors.Is(err, modulebilling.ErrCapacityReservationExpired):
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "FORM_UNAVAILABLE", "This lead form is temporarily unavailable")
 	default:
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to submit lead capture form")

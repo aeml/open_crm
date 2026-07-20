@@ -82,6 +82,24 @@ func enforcePlanLimit(billing billingService, organizationID int64, resource str
 	return false
 }
 
+// writeCapacityError keeps domain-level, transactional capacity enforcement
+// consistent across normal creates, imports, restores, and public-adjacent
+// recovery paths.
+func writeCapacityError(w http.ResponseWriter, requestID, resource string, err error) bool {
+	if errors.Is(err, modulebilling.ErrLimitReached) {
+		if strings.TrimSpace(resource) == "" {
+			resource = "workspace capacity"
+		}
+		platformweb.WriteError(w, http.StatusPaymentRequired, requestID, "PLAN_LIMIT_REACHED", "Your plan limit for "+resource+" has been reached. Upgrade your plan to add more.")
+		return true
+	}
+	if errors.Is(err, modulebilling.ErrCapacityUnavailable) || errors.Is(err, modulebilling.ErrCapacityReservationExpired) {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "BILLING_CHECK_UNAVAILABLE", "Workspace limits could not be verified. Retry shortly; read access and billing recovery remain available.")
+		return true
+	}
+	return false
+}
+
 type changePlanRequest struct {
 	Plan string `json:"plan"`
 }

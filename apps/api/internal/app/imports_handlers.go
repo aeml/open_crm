@@ -242,6 +242,7 @@ func writeImportServiceError(w http.ResponseWriter, requestID string, err error)
 		return false
 	}
 	switch {
+	case writeCapacityError(w, requestID, "contacts", err):
 	case errors.Is(err, moduleimports.ErrInvalidInput):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
 	case errors.Is(err, moduleimports.ErrNotFound):

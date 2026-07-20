@@ -16,6 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 )
 
 var (
@@ -132,11 +134,23 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (Batch, error
 		return Batch{}, err
 	}
 	pendingRows := make([]PreviewRow, 0, len(preview.Rows))
+	capacityRows := 0
 	for _, row := range preview.Rows {
 		if _, exists := processed[row.RowNumber]; exists {
 			continue
 		}
 		pendingRows = append(pendingRows, row)
+		if preview.EntityType == "contacts" && len(row.Errors) == 0 {
+			capacityRows++
+		}
+	}
+	var reservation modulebilling.CapacityReservation
+	if capacityRows > 0 {
+		reservation, err = modulebilling.ReserveCapacity(ctx, s.capacity, input.OrganizationID, modulebilling.ResourceContacts, capacityRows)
+		if err != nil {
+			return Batch{}, err
+		}
+		defer modulebilling.CancelReservation(s.capacity, reservation)
 	}
 	const checkpointRows = 50
 	for start := 0; start < len(pendingRows); start += checkpointRows {
@@ -146,7 +160,7 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (Batch, error
 		}
 	}
 
-	if err := completeBatch(ctx, connection, input.OrganizationID, input.ActorUserID, batch.ID); err != nil {
+	if err := completeBatch(ctx, connection, input.OrganizationID, input.ActorUserID, batch.ID, s.capacity, reservation); err != nil {
 		return Batch{}, err
 	}
 	return getBatch(ctx, connection, input.OrganizationID, batch.ID)

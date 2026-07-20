@@ -123,6 +123,7 @@ func writeBulkOperationError(w http.ResponseWriter, requestID string, err error)
 		return false
 	}
 	switch {
+	case writeCapacityError(w, requestID, "", err):
 	case errors.Is(err, modulebulkoperations.ErrInvalidInput), errors.Is(err, modulebulkoperations.ErrInvalidAssignee):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", err.Error())
 	case errors.Is(err, modulebulkoperations.ErrNotFound):

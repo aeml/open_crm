@@ -281,10 +281,10 @@ func handleCreateUser(auth authService, users usersService, audit auditService, 
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Users service unavailable")
 		return
 	}
+	// The users service owns the authoritative concurrency-safe reservation.
 	if !enforcePlanLimit(billing, state.Organization.ID, "seats", w, r) {
 		return
 	}
-
 	var request createUserRequest
 	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
@@ -303,6 +303,9 @@ func handleCreateUser(auth authService, users usersService, audit auditService, 
 
 	created, err := users.CreateForOrganization(r.Context(), state.Organization.ID, input)
 	if err != nil {
+		if writeCapacityError(w, requestID, "seats", err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create user")
 		return
 	}
@@ -408,6 +411,9 @@ func handleUpdateUserStatus(auth authService, users usersService, w http.Respons
 		ReassignToUserID: request.ReassignToUserID,
 	})
 	if err != nil {
+		if writeCapacityError(w, requestID, "seats", err) {
+			return
+		}
 		switch {
 		case errors.Is(err, moduleusers.ErrNotFound):
 			platformweb.WriteNotFound(w, requestID)
