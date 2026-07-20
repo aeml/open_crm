@@ -105,7 +105,7 @@ func (s *Service) buildBundle(ctx context.Context, organizationID int64) (bundle
 		DatasetCounts:               counts,
 		OmittedPrivateEmailMessages: omittedPrivateMessages,
 		SecurityExclusions: []string{
-			"password hashes, password setup tokens, email verification tokens, and sessions",
+			"password hashes, password setup/reset tokens and delivery state, email verification tokens, and sessions",
 			"SMTP/IMAP passwords, OAuth access/refresh tokens, sync cursors, and email tracking tokens",
 			"Stripe customer/subscription references, signed invoice links, Checkout requests, and webhook processing ledgers",
 			"background-job locks, idempotency payloads, workspace bootstrap receipts, and prior export artifacts",

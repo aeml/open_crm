@@ -57,6 +57,10 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 				"other":                 3,
 				"customer-secret-event": 4,
 			},
+			PasswordResetsAvailable:   true,
+			PasswordResetsOutstanding: 3,
+			PasswordResetStalePending: 1,
+			PasswordResetFailed24h:    2,
 			Backup: BackupStatus{
 				Available:                   true,
 				LastSuccessAt:               time.Unix(100, 0),
@@ -98,6 +102,10 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 		`open_crm_notification_retention_deleted_total{state="read"} 4`,
 		`open_crm_notification_retention_deleted_total{state="unread"} 5`,
 		`open_crm_notification_retention_last_run_success 0`,
+		`open_crm_password_resets_available 1`,
+		`open_crm_password_reset_outstanding 3`,
+		`open_crm_password_reset_delivery_stale_pending 1`,
+		`open_crm_password_reset_delivery_failed_24h 2`,
 		`open_crm_backup_last_success_timestamp_seconds 100`,
 		`open_crm_backup_last_attempt_success 0`,
 	} {

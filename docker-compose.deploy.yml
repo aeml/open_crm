@@ -1,5 +1,6 @@
 x-api-env: &api-env
   API_PORT: 8080
+  GO_ENV: production
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS is required}
   DATABASE_URL: "postgres://${POSTGRES_USER:-open_crm}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-open_crm}?sslmode=disable"
   OPEN_CRM_RELEASE_ID: ${OPEN_CRM_RELEASE_ID:-development}

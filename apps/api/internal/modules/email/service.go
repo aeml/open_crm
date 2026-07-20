@@ -61,6 +61,15 @@ func (s *Service) VerificationLink(token string) string {
 	return fmt.Sprintf("%s/verify-email?token=%s", base, url.QueryEscape(token))
 }
 
+// PasswordResetLink builds the one-time account-recovery URL.
+func (s *Service) PasswordResetLink(token string) string {
+	base := s.webBaseURL
+	if base == "" {
+		base = "http://localhost:5173"
+	}
+	return fmt.Sprintf("%s/reset-password?token=%s", base, url.QueryEscape(token))
+}
+
 // SendEmailVerification delivers the one-time link required before a newly
 // provisioned workspace can create an authenticated owner session.
 func (s *Service) SendEmailVerification(ctx context.Context, to, firstName, token string) error {
@@ -103,6 +112,29 @@ func (s *Service) SendUserInvite(ctx context.Context, to, firstName, setupToken 
 	return s.provider.Send(ctx, Message{
 		To:       to,
 		Subject:  "You're invited to Open CRM",
+		TextBody: body,
+	})
+}
+
+// SendPasswordReset delivers a one-time account-recovery link. The message
+// deliberately contains no workspace or role detail so a shared address does
+// not disclose tenant membership.
+func (s *Service) SendPasswordReset(ctx context.Context, to, firstName, token string) error {
+	if s == nil || s.provider == nil {
+		return fmt.Errorf("email service not configured")
+	}
+	greetingName := strings.TrimSpace(firstName)
+	if greetingName == "" {
+		greetingName = "there"
+	}
+	link := s.PasswordResetLink(token)
+	body := fmt.Sprintf(
+		"Hi %s,\n\nUse this one-time link to choose a new Open CRM password:\n\n%s\n\nThis link expires in 1 hour. Completing the reset signs you out on every device. If you did not request this, you can ignore this email and your password will remain unchanged.\n",
+		greetingName, link,
+	)
+	return s.provider.Send(ctx, Message{
+		To:       to,
+		Subject:  "Reset your Open CRM password",
 		TextBody: body,
 	})
 }

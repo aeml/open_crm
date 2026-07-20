@@ -20,7 +20,9 @@ route/status/latency, PostgreSQL readiness, aggregate (not tenant-labeled)
 durable queue state/lag, worker outcomes, Postmark/SMTP outcomes, and verified
 backup/restore evidence. It also reports aggregate notification backlog, age,
 reviewed event mix, per-recipient concentration, and retention outcomes without
-tenant, recipient, or record labels. The route is hidden with `404` unless
+tenant, recipient, or record labels. Password-recovery gauges report current
+non-expired links plus stale-pending and latest-failed delivery counts without
+user, address, or tenant labels. The route is hidden with `404` unless
 `METRICS_BEARER_TOKEN` contains at least 32 characters; invalid credentials
 receive `401`. The deployment Compose port is loopback-bound, and the token is
 still required because a reverse proxy could otherwise expose the route.
@@ -59,7 +61,7 @@ promtool check config /etc/prometheus/prometheus.yml
 
 The reference rules alert on metrics collection or database failure, sustained
 5xx ratio/p95 latency, queue collection/lag/dead letters/worker errors,
-provider failures, notification collection/retention/elevated recipient volume,
+provider failures, password-recovery delivery health, notification collection/retention/elevated recipient volume,
 backup evidence/failure/freshness, and restore-drill failure/freshness. They do
 not choose an Alertmanager destination. Before a
 pilot, the operator must route critical and warning alerts to an approved
@@ -112,6 +114,36 @@ do not silently relabel a missed target as success.
    described below.
 4. Confirm the counter stops increasing and the next controlled provider
    operation succeeds before resolving the alert.
+
+### Password recovery
+
+Password reset is public because a user may have no valid session. It remains
+available when a hosted workspace is read-only. A valid completion changes the
+user's global password, consumes the one-hour link, invalidates every session,
+and writes an audit event into every workspace membership.
+
+1. Confirm `open_crm_password_resets_available` is `1`. Review
+   `open_crm_password_reset_delivery_stale_pending`,
+   `open_crm_password_reset_delivery_failed_24h`, the bounded
+   `auth.request-password-reset` rate-limit decisions, and Postmark provider
+   errors in the same window. Metrics deliberately contain no email, user, or
+   tenant labels.
+2. For a failed latest delivery, correct the system-email provider and have the
+   user submit the same public form again. Failed delivery bypasses the
+   five-minute recipient cooldown and rotates the token. For a successful or
+   pending request, wait five minutes before another delivery; never bypass the
+   cooldown or manufacture a raw token in SQL.
+3. Treat delivery errors as potentially ambiguous. An earlier link may still
+   arrive, but token rotation makes it invalid; only the newest non-expired link
+   can complete. Replays and expired links fail without changing credentials.
+4. `EMAIL_PROVIDER=fake` does not deliver mail. A local reset link appears only
+   when `GO_ENV` is explicitly `development` or `test`. It is always omitted in
+   production and for Postmark, including when an account exists. Never enable
+   a development runtime mode on an internet-facing deployment.
+5. After a controlled reset, verify the old password is rejected, a new login
+   succeeds, an existing second-device `/auth/me` returns `401`, and the admin
+   audit view contains `user.password_reset`. Do not collect or ask the user to
+   share the raw reset link.
 
 ### Stripe hosted-billing setup and recovery
 

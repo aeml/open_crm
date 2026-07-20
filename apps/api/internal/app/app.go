@@ -16,19 +16,21 @@ import (
 )
 
 const (
-	sessionCookieName    = "open_crm_session"
-	sessionCookieTTL     = 30 * 24 * time.Hour
-	maxJSONBodyBytes     = 1 << 20
-	maxImportBodyBytes   = 2 << 20
-	authRateLimit        = 10
-	authRateWindow       = time.Minute
-	bootstrapRateLimit   = 3
-	bootstrapRateWindow  = time.Hour
-	publicReadRateLimit  = 120
-	publicWriteRateLimit = 20
-	trackingRateLimit    = 300
-	publicRateWindow     = time.Minute
-	rateLimitMaxClients  = 4096
+	sessionCookieName       = "open_crm_session"
+	sessionCookieTTL        = 30 * 24 * time.Hour
+	maxJSONBodyBytes        = 1 << 20
+	maxImportBodyBytes      = 2 << 20
+	authRateLimit           = 10
+	authRateWindow          = time.Minute
+	bootstrapRateLimit      = 3
+	bootstrapRateWindow     = time.Hour
+	passwordResetRateLimit  = 5
+	passwordResetRateWindow = time.Hour
+	publicReadRateLimit     = 120
+	publicWriteRateLimit    = 20
+	trackingRateLimit       = 300
+	publicRateWindow        = time.Minute
+	rateLimitMaxClients     = 4096
 )
 
 type statusResponse struct {
@@ -68,6 +70,15 @@ type verifyEmailRequest struct {
 
 type resendVerificationRequest struct {
 	Email string `json:"email"`
+}
+
+type requestPasswordResetRequest struct {
+	Email string `json:"email"`
+}
+
+type completePasswordResetRequest struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
 }
 
 type completeUserSetupRequest struct {

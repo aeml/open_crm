@@ -68,6 +68,18 @@ func TestMigrationFilesIncludeUserLifecycle(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludePasswordRecovery(t *testing.T) {
+	sql := MigrationSQL("083_password_recovery.sql")
+	if sql == "" {
+		t.Fatal("expected password recovery migration SQL to be embedded")
+	}
+	for _, expected := range []string{"password_reset_token_hash", "password_reset_expires_at", "password_reset_delivery_status", "idx_users_password_reset_token_hash"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected password recovery migration to include %q", expected)
+		}
+	}
+}
+
 func TestMigrationFilesIncludeCollaboration(t *testing.T) {
 	sql := MigrationSQL("060_collaboration.sql")
 	if sql == "" {

@@ -477,6 +477,41 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(page).toHaveURL(/\/dashboard$/)
   await expect(page.getByText(owner.organizationName, { exact: true })).toBeVisible()
 
+  const ownerDeviceContext = await browser.newContext()
+  const ownerDevicePage = await ownerDeviceContext.newPage()
+  await ownerDevicePage.goto('/login')
+  await ownerDevicePage.getByLabel('Email').fill(owner.email)
+  await ownerDevicePage.getByLabel('Password').fill(owner.password)
+  await ownerDevicePage.getByRole('button', { name: 'Sign in' }).click()
+  await expect(ownerDevicePage).toHaveURL(/\/dashboard$/)
+
+  const resetPassword = 'Owner-Recovered-Password-31!'
+  await page.goto('/forgot-password')
+  await expect(page.getByRole('heading', { name: 'Reset your password' })).toBeVisible()
+  await page.getByLabel('Email').fill(owner.email)
+  await page.getByRole('button', { name: 'Send reset link' }).click()
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
+  await page.getByRole('link', { name: 'Reset password locally' }).click()
+  await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible()
+  await page.getByLabel('New password', { exact: true }).fill(resetPassword)
+  await page.getByLabel('Confirm new password').fill(resetPassword)
+  await page.getByRole('button', { name: 'Reset password' }).click()
+  await expect(page.getByRole('heading', { name: 'Password reset complete' })).toBeVisible()
+  const invalidatedOwnerDevice = await ownerDeviceContext.request.get(`${apiURL}/auth/me`)
+  expect(invalidatedOwnerDevice.status()).toBe(401)
+  const rejectedOldPassword = await ownerDeviceContext.request.post(`${apiURL}/auth/login`, {
+    data: { email: owner.email, password: owner.password }
+  })
+  expect(rejectedOldPassword.status()).toBe(401)
+  await ownerDeviceContext.close()
+
+  await page.getByRole('link', { name: 'Sign in' }).click()
+  await page.getByLabel('Email').fill(owner.email)
+  await page.getByLabel('Password').fill(resetPassword)
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(page.getByText(owner.organizationName, { exact: true })).toBeVisible()
+
   const otherContext = await browser.newContext()
   try {
     const otherPage = await otherContext.newPage()

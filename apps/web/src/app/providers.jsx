@@ -26,6 +26,12 @@ const AuthContext = createContext({
   resendVerification: async () => {
     throw new Error('Unable to send verification email.')
   },
+  requestPasswordReset: async () => {
+    throw new Error('Unable to request a password reset.')
+  },
+  completePasswordReset: async () => {
+    throw new Error('Unable to reset password.')
+  },
   refreshSession: async () => null,
   updateWorkspaceAccess: () => {},
   setBusinessProfile: () => {}
@@ -196,6 +202,43 @@ export function AppProviders({ children }) {
     return payload.data
   }, [])
 
+  const requestPasswordReset = useCallback(async (email) => {
+    const response = await fetch(`${API_BASE_URL}/auth/request-password-reset`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    })
+    const payload = await response.json()
+    if (!response.ok) {
+      const message = getErrorMessage(payload, 'Unable to request a password reset.')
+      setError(message)
+      throw new Error(message)
+    }
+    setError('')
+    return payload.data
+  }, [])
+
+  const completePasswordReset = useCallback(async ({ token, password }) => {
+    const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password })
+    })
+    const payload = await response.json()
+    if (!response.ok) {
+      const message = getErrorMessage(payload, 'Unable to reset password.')
+      setError(message)
+      throw new Error(message)
+    }
+    setStatus('unauthenticated')
+    setSession(null)
+    setBusinessProfile(null)
+    setError('')
+    return payload.data
+  }, [])
+
   const logout = useCallback(async () => {
     const response = await fetch(`${API_BASE_URL}/auth/logout`, {
       method: 'POST',
@@ -264,12 +307,14 @@ export function AppProviders({ children }) {
         bootstrap,
         verifyEmail,
         resendVerification,
+        requestPasswordReset,
+        completePasswordReset,
         refreshSession,
         updateWorkspaceAccess,
         setBusinessProfile
       }
     },
-    [bootstrap, businessProfile, error, login, logout, refreshSession, resendVerification, session, status, updateWorkspaceAccess, verifyEmail]
+    [bootstrap, businessProfile, completePasswordReset, error, login, logout, refreshSession, requestPasswordReset, resendVerification, session, status, updateWorkspaceAccess, verifyEmail]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

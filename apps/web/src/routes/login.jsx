@@ -101,6 +101,7 @@ export function LoginRoute() {
                 required
               />
             </Field>
+            <p className="field-hint"><a href="/forgot-password">Forgot your password?</a></p>
             {error || authError ? <p className="form-error" role="alert">{error || authError}</p> : null}
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Signing in…' : 'Sign in'}

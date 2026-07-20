@@ -31,6 +31,18 @@ func registerPlatformRoutes(mux *http.ServeMux, env config.Env, dependencies Dep
 		}
 		handleResendVerification(dependencies.OnboardingService, w, r)
 	})
+	mux.HandleFunc("POST /auth/request-password-reset", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "auth.request-password-reset", passwordResetRateLimit, passwordResetRateWindow, "Too many password reset requests", w, r) {
+			return
+		}
+		handleRequestPasswordReset(dependencies.PasswordResetService, w, r)
+	})
+	mux.HandleFunc("POST /auth/reset-password", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "auth.reset-password", authRateLimit, authRateWindow, "Too many password reset attempts", w, r) {
+			return
+		}
+		handleCompletePasswordReset(env, dependencies.PasswordResetService, w, r)
+	})
 	mux.HandleFunc("GET /auth/me", func(w http.ResponseWriter, r *http.Request) {
 		handleCurrentSession(env, dependencies.AuthService, dependencies.BillingService, w, r)
 	})

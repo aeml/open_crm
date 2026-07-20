@@ -74,6 +74,14 @@ test('critical public and authenticated surfaces meet automated WCAG A/AA rules'
   await expect(page.getByRole('heading', { name: 'Sign in to Open CRM' })).toBeVisible()
   await expectNoAccessibilityViolations(page, 'login')
 
+  await page.goto('/forgot-password')
+  await expect(page.getByRole('heading', { name: 'Reset your password' })).toBeVisible()
+  await expectNoAccessibilityViolations(page, 'password-reset-request')
+
+  await page.goto('/reset-password')
+  await expect(page.getByText('Reset token is missing. Request a new reset link.')).toBeVisible()
+  await expectNoAccessibilityViolations(page, 'password-reset-missing-token')
+
   await bootstrapWorkspace(page)
   await expectNoAccessibilityViolations(page, 'dashboard')
 

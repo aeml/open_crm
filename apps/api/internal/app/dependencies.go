@@ -37,6 +37,7 @@ import (
 	modulenurturecampaigns "github.com/aeml/open_crm/apps/api/internal/modules/nurturecampaigns"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
+	modulepasswordreset "github.com/aeml/open_crm/apps/api/internal/modules/passwordreset"
 	moduleproductcatalog "github.com/aeml/open_crm/apps/api/internal/modules/productcatalog"
 	modulesalesreports "github.com/aeml/open_crm/apps/api/internal/modules/salesreports"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
@@ -237,6 +238,11 @@ type onboardingService interface {
 	ResendVerification(context.Context, string) (moduleonboarding.ResendResult, error)
 }
 
+type passwordResetService interface {
+	Request(context.Context, string) (modulepasswordreset.RequestResult, error)
+	Complete(context.Context, modulepasswordreset.CompleteInput) error
+}
+
 type notificationsService interface {
 	ListForUser(context.Context, int64, int64) ([]modulenotifications.Notification, error)
 	MarkRead(context.Context, int64, int64, int64) error
@@ -413,6 +419,7 @@ type Dependencies struct {
 	CustomFieldsService             customFieldsService
 	SavedViewsService               savedViewsService
 	OnboardingService               onboardingService
+	PasswordResetService            passwordResetService
 	NotificationsService            notificationsService
 	BillingService                  billingService
 	EmailService                    emailService

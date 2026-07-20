@@ -83,6 +83,24 @@ groups:
           summary: Open CRM observed provider operation failures
           runbook: docs/operations-runbook.md#provider-incident
 
+      - alert: OpenCRMPasswordResetMetricsUnavailable
+        expr: open_crm_password_resets_available != 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM cannot collect password-reset delivery health
+          runbook: docs/operations-runbook.md#password-recovery
+
+      - alert: OpenCRMPasswordResetDeliveryFailures
+        expr: open_crm_password_reset_delivery_failed_24h > 0 or open_crm_password_reset_delivery_stale_pending > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM has failed or stale password-reset email delivery
+          runbook: docs/operations-runbook.md#password-recovery
+
       - alert: OpenCRMRateLimitStoreErrors
         expr: sum(increase(open_crm_rate_limit_decisions_total{outcome="error"}[5m])) > 0
         for: 2m

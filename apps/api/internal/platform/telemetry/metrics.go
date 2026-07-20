@@ -172,6 +172,10 @@ type RuntimeSnapshot struct {
 	NotificationMaxPerRecipient24h int64
 	OldestUnreadAge                time.Duration
 	NotificationEvents24h          map[string]int64
+	PasswordResetsAvailable        bool
+	PasswordResetsOutstanding      int64
+	PasswordResetStalePending      int64
+	PasswordResetFailed24h         int64
 	Backup                         BackupStatus
 }
 
@@ -292,6 +296,14 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 		LastRunAt: retentionLastAt,
 		LastRunOK: retentionLastOK,
 	})
+	writeHelpType(&output, "open_crm_password_resets_available", "Whether aggregate password-reset health was collected successfully.", "gauge")
+	writeBool(&output, "open_crm_password_resets_available", snapshot.PasswordResetsAvailable)
+	writeHelpType(&output, "open_crm_password_reset_outstanding", "Current non-expired one-time password-reset tokens across all users.", "gauge")
+	fmt.Fprintf(&output, "open_crm_password_reset_outstanding %d\n", nonNegative64(snapshot.PasswordResetsOutstanding))
+	writeHelpType(&output, "open_crm_password_reset_delivery_stale_pending", "Password-reset deliveries still pending after the recipient cooldown; no user labels are exposed.", "gauge")
+	fmt.Fprintf(&output, "open_crm_password_reset_delivery_stale_pending %d\n", nonNegative64(snapshot.PasswordResetStalePending))
+	writeHelpType(&output, "open_crm_password_reset_delivery_failed_24h", "Current password-reset recipients whose latest delivery failed during the trailing 24 hours; no user labels are exposed.", "gauge")
+	fmt.Fprintf(&output, "open_crm_password_reset_delivery_failed_24h %d\n", nonNegative64(snapshot.PasswordResetFailed24h))
 	writeBackupMetrics(&output, snapshot.Backup)
 	return output.String()
 }

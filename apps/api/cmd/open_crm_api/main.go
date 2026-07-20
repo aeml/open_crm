@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -49,6 +50,7 @@ import (
 	modulenurturecampaigns "github.com/aeml/open_crm/apps/api/internal/modules/nurturecampaigns"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
+	modulepasswordreset "github.com/aeml/open_crm/apps/api/internal/modules/passwordreset"
 	moduleproductcatalog "github.com/aeml/open_crm/apps/api/internal/modules/productcatalog"
 	moduleratelimits "github.com/aeml/open_crm/apps/api/internal/modules/ratelimits"
 	modulesalesreports "github.com/aeml/open_crm/apps/api/internal/modules/salesreports"
@@ -116,6 +118,7 @@ func main() {
 	var notificationsService *modulenotifications.Service
 	var savedViewsService *modulesavedviews.Service
 	var onboardingService *moduleonboarding.Service
+	var passwordResetService *modulepasswordreset.Service
 	var orgProfileService *moduleorgprofile.Service
 	var billingService *modulebilling.Service
 	var emailTemplatesService *moduleemailtemplates.Service
@@ -185,6 +188,8 @@ func main() {
 			notificationsService = modulenotifications.NewService(pool)
 			savedViewsService = modulesavedviews.NewService(pool)
 			onboardingService = moduleonboarding.NewService(pool, emailService)
+			allowLocalResetLinks := strings.EqualFold(env.GOEnv, "development") || strings.EqualFold(env.GOEnv, "test")
+			passwordResetService = modulepasswordreset.NewService(pool, emailService, modulepasswordreset.WithLocalResetLinks(allowLocalResetLinks))
 			orgProfileService = moduleorgprofile.NewService(pool)
 			emailTemplatesService = moduleemailtemplates.NewService(pool)
 			productCatalogService = moduleproductcatalog.NewService(pool)
@@ -343,6 +348,16 @@ func main() {
 			snapshot.OldestUnreadAge = stats.OldestUnreadAge
 			snapshot.NotificationEvents24h = stats.Events24h
 		}
+		if passwordResetService == nil {
+			snapshot.CollectionSuccess = false
+		} else if stats, err := passwordResetService.OperationalStats(ctx); err != nil {
+			snapshot.CollectionSuccess = false
+		} else {
+			snapshot.PasswordResetsAvailable = true
+			snapshot.PasswordResetsOutstanding = stats.Outstanding
+			snapshot.PasswordResetStalePending = stats.StalePending
+			snapshot.PasswordResetFailed24h = stats.FailedLast24h
+		}
 		snapshot.Backup = platformtelemetry.ReadBackupStatus(env.BackupStatusPath)
 		return snapshot
 	}
@@ -378,6 +393,7 @@ func main() {
 		CustomFieldsService:             customFieldsService,
 		SavedViewsService:               savedViewsService,
 		OnboardingService:               onboardingService,
+		PasswordResetService:            passwordResetService,
 		OrgProfileService:               orgProfileService,
 		NotificationsService:            notificationsService,
 		BillingService:                  billingService,

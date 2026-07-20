@@ -72,6 +72,8 @@ func TestEveryPublicMutationAndTokenSurfaceUsesAnExplicitAbuseBudget(t *testing.
 		{http.MethodPost, "/auth/bootstrap", "auth.bootstrap", bootstrapRateLimit, bootstrapRateWindow},
 		{http.MethodPost, "/auth/verify-email", "auth.verify-email", authRateLimit, authRateWindow},
 		{http.MethodPost, "/auth/resend-verification", "auth.resend-verification", authRateLimit, authRateWindow},
+		{http.MethodPost, "/auth/request-password-reset", "auth.request-password-reset", passwordResetRateLimit, passwordResetRateWindow},
+		{http.MethodPost, "/auth/reset-password", "auth.reset-password", authRateLimit, authRateWindow},
 		{http.MethodPost, "/auth/setup-password", "auth.setup-password", authRateLimit, authRateWindow},
 		{http.MethodPost, "/api/billing/webhooks/stripe", "billing.stripe-webhook", publicReadRateLimit, publicRateWindow},
 		{http.MethodGet, "/api/public/landing-pages/demo", "public.landing-page", publicReadRateLimit, publicRateWindow},
