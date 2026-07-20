@@ -81,9 +81,19 @@ func (f *MicrosoftGraphFetcher) Fetch(ctx context.Context, creds moduleuseremail
 
 	fetched := make([]FetchedMessage, 0, len(messages))
 	for _, message := range messages {
-		if key := graphMessageKey(message); key != "" {
-			fetched = append(fetched, toFetchedGraphMessage(message, key, creds))
+		key := graphMessageKey(message)
+		if key == "" || strings.TrimSpace(message.ID) == "" {
+			continue
 		}
+		raw, err := f.getMIMEMessage(ctx, accessToken, message.ID)
+		if err != nil {
+			return nil, err
+		}
+		parsed := parseFetchedMessage(raw, key, parseGraphDateTime(message.ReceivedDateTime), creds)
+		fallback := toFetchedGraphMessage(message, key, creds)
+		parsed.ProviderThreadID = fallback.ProviderThreadID
+		mergeFetchedMessageFallback(&parsed, fallback)
+		fetched = append(fetched, parsed)
 	}
 	return fetched, nil
 }
@@ -142,6 +152,32 @@ func (f *MicrosoftGraphFetcher) doJSON(ctx context.Context, accessToken, endpoin
 	return nil
 }
 
+func (f *MicrosoftGraphFetcher) getMIMEMessage(ctx context.Context, accessToken, messageID string) ([]byte, error) {
+	endpoint := f.baseURL() + "/me/messages/" + url.PathEscape(strings.TrimSpace(messageID)) + "/$value"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build microsoft graph MIME request: %w", err)
+	}
+	request.Header.Set("Accept", "message/rfc822")
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	response, err := f.httpClient().Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("call microsoft graph MIME API: %w", err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxGraphResponseBytes))
+	if err != nil {
+		return nil, fmt.Errorf("read microsoft graph MIME response: %w", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("microsoft graph MIME request failed: %s", graphErrorMessage(response.StatusCode, body))
+	}
+	if len(body) == 0 {
+		return nil, fmt.Errorf("microsoft graph MIME response is empty")
+	}
+	return body, nil
+}
+
 func (f *MicrosoftGraphFetcher) baseURL() string {
 	base := strings.TrimRight(f.BaseURL, "/")
 	if base == "" {
@@ -193,6 +229,31 @@ func toFetchedGraphMessage(message graphMessage, key string, creds moduleuserema
 		fetched.ReceivedAt = time.Now().UTC()
 	}
 	return fetched
+}
+
+func mergeFetchedMessageFallback(message *FetchedMessage, fallback FetchedMessage) {
+	if message.FromEmail == "" {
+		message.FromEmail = fallback.FromEmail
+	}
+	if message.ToEmail == "" {
+		message.ToEmail = fallback.ToEmail
+	}
+	if message.Subject == "" {
+		message.Subject = fallback.Subject
+	}
+	if message.Body == "" {
+		message.Body = fallback.Body
+	}
+	if message.RFCMessageID == "" {
+		message.RFCMessageID = fallback.RFCMessageID
+	}
+	if message.InReplyTo == "" {
+		message.InReplyTo = fallback.InReplyTo
+	}
+	message.ReferenceMessageIDs = appendMessageIDReferences(message.ReferenceMessageIDs, fallback.ReferenceMessageIDs...)
+	if message.ReceivedAt.IsZero() {
+		message.ReceivedAt = fallback.ReceivedAt
+	}
 }
 
 func graphMessageHeaders(headers []graphInternetMessageHeader) map[string]string {

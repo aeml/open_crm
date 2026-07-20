@@ -242,7 +242,12 @@ func parseFetchedMessage(raw []byte, uid string, fallbackDate time.Time, creds m
 	if message.ReceivedAt.IsZero() {
 		message.ReceivedAt = time.Now().UTC()
 	}
-	body, err := decodedMessageBody(parsed.Header, parsed.Body)
+	rawBody, err := io.ReadAll(io.LimitReader(parsed.Body, maxFetchedBodyBytes*4))
+	if err != nil {
+		return message
+	}
+	message.DeliveryFeedback = parseDeliveryFeedback(parsed.Header, rawBody)
+	body, err := decodedMessageBody(parsed.Header, bytes.NewReader(rawBody))
 	if err == nil {
 		message.Body = body
 	}

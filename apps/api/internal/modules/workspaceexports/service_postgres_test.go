@@ -145,8 +145,11 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("portable contact missing: %s", files["data/contacts.ndjson"])
 	}
 	sharedMessages := string(files["data/email_messages_shared.ndjson"])
-	if !strings.Contains(sharedMessages, "Shared customer thread") || strings.Contains(sharedMessages, "Private mailbox thread") || strings.Contains(sharedMessages, "tracking_token") || strings.Contains(sharedMessages, "rfc_message_id") || strings.Contains(sharedMessages, "in_reply_to") || strings.Contains(sharedMessages, "reference_message_ids") {
+	if !strings.Contains(sharedMessages, "Shared customer thread") || strings.Contains(sharedMessages, "Private mailbox thread") || strings.Contains(sharedMessages, "tracking_token") || strings.Contains(sharedMessages, "rfc_message_id") || strings.Contains(sharedMessages, "in_reply_to") || strings.Contains(sharedMessages, "reference_message_ids") || strings.Contains(sharedMessages, "delivery_feedback_email_message_id") {
 		t.Fatalf("workspace email privacy boundary failed: %s", sharedMessages)
+	}
+	if _, exists := files["data/customer_email_feedback_events.ndjson"]; exists {
+		t.Fatal("workspace export included internal customer feedback correlation ledger")
 	}
 	emailAccount := string(files["data/email_account_configuration.ndjson"])
 	for _, secret := range []string{"encrypted-smtp", "encrypted-imap", "encrypted-access", "encrypted-refresh", "smtp_password_enc", "oauth_access_token_enc"} {

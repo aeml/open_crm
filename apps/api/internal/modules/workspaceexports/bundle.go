@@ -110,6 +110,7 @@ func (s *Service) buildBundle(ctx context.Context, organizationID int64) (bundle
 			"Stripe customer/subscription references, signed invoice links, Checkout requests, and webhook processing ledgers",
 			"background-job locks, idempotency payloads, workspace bootstrap receipts, and prior export artifacts",
 			"email messages marked private and their entity/link metadata",
+			"connected-mailbox delivery-feedback correlation ledgers",
 		},
 		ExternalFiles: "Open CRM currently stores recording and invoice references, not uploaded attachment bodies. Referenced external files are not embedded in this bundle.",
 	}
@@ -364,7 +365,7 @@ func buildPortableDatasets() []dataset {
 			SELECT to_jsonb(i) - ARRAY['hosted_invoice_url','invoice_pdf_url','provider_subscription_id']::text[]
 			FROM billing_invoices i WHERE organization_id=$1 ORDER BY id`},
 		{name: "email_messages_shared", query: `
-			SELECT to_jsonb(m) - ARRAY['tracking_token','provider_message_id','provider_thread_id','rfc_message_id','in_reply_to','reference_message_ids']::text[]
+			SELECT to_jsonb(m) - ARRAY['tracking_token','provider_message_id','provider_thread_id','rfc_message_id','in_reply_to','reference_message_ids','delivery_feedback_email_message_id']::text[]
 			FROM email_messages m WHERE organization_id=$1 AND visibility='shared' ORDER BY id`},
 		{name: "email_message_entity_links_shared", query: `
 			SELECT to_jsonb(link)
@@ -428,6 +429,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"billing_capacity_reservations",
 		"sessions",
 		"system_email_feedback_events",
+		"customer_email_feedback_events",
 		"workspace_bootstrap_requests",
 		"workspace_exports",
 	} {

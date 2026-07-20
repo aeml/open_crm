@@ -180,6 +180,10 @@ type RuntimeSnapshot struct {
 	SystemEmailBounces24h          int64
 	SystemEmailComplaints24h       int64
 	SystemEmailUnapplied24h        int64
+	CustomerEmailFeedbackAvailable bool
+	CustomerEmailBounces24h        int64
+	CustomerEmailComplaints24h     int64
+	CustomerEmailUnapplied24h      int64
 	Backup                         BackupStatus
 }
 
@@ -316,6 +320,14 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	fmt.Fprintf(&output, "open_crm_system_email_complaints_24h %d\n", nonNegative64(snapshot.SystemEmailComplaints24h))
 	writeHelpType(&output, "open_crm_system_email_feedback_unapplied_24h", "Authenticated Open CRM Postmark callbacks that did not match the exact current delivery attempt in the trailing 24 hours.", "gauge")
 	fmt.Fprintf(&output, "open_crm_system_email_feedback_unapplied_24h %d\n", nonNegative64(snapshot.SystemEmailUnapplied24h))
+	writeHelpType(&output, "open_crm_customer_email_feedback_available", "Whether aggregate connected-mailbox customer feedback was collected successfully.", "gauge")
+	writeBool(&output, "open_crm_customer_email_feedback_available", snapshot.CustomerEmailFeedbackAvailable)
+	writeHelpType(&output, "open_crm_customer_email_bounces_24h", "Terminal DSN bounce reports correlated from connected customer mailboxes in the trailing 24 hours; no tenant or recipient labels are exposed.", "gauge")
+	fmt.Fprintf(&output, "open_crm_customer_email_bounces_24h %d\n", nonNegative64(snapshot.CustomerEmailBounces24h))
+	writeHelpType(&output, "open_crm_customer_email_complaints_24h", "ARF complaints correlated from connected customer mailboxes in the trailing 24 hours; no tenant or recipient labels are exposed.", "gauge")
+	fmt.Fprintf(&output, "open_crm_customer_email_complaints_24h %d\n", nonNegative64(snapshot.CustomerEmailComplaints24h))
+	writeHelpType(&output, "open_crm_customer_email_feedback_unapplied_24h", "Machine-readable customer-mail feedback that did not match exactly one tenant, mailbox, message, and recipient in the trailing 24 hours.", "gauge")
+	fmt.Fprintf(&output, "open_crm_customer_email_feedback_unapplied_24h %d\n", nonNegative64(snapshot.CustomerEmailUnapplied24h))
 	writeBackupMetrics(&output, snapshot.Backup)
 	return output.String()
 }

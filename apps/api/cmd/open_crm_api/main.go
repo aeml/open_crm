@@ -377,6 +377,10 @@ func main() {
 			snapshot.SystemEmailBounces24h = stats.Bounces24h
 			snapshot.SystemEmailComplaints24h = stats.Complaints24h
 			snapshot.SystemEmailUnapplied24h = stats.Unapplied24h
+			snapshot.CustomerEmailFeedbackAvailable = true
+			snapshot.CustomerEmailBounces24h = stats.CustomerBounces24h
+			snapshot.CustomerEmailComplaints24h = stats.CustomerComplaints24h
+			snapshot.CustomerEmailUnapplied24h = stats.CustomerUnapplied24h
 		}
 		snapshot.Backup = platformtelemetry.ReadBackupStatus(env.BackupStatusPath)
 		return snapshot

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
@@ -15,29 +15,15 @@ function formatTimestamp(value) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
 }
 
-function openStatus(message) {
-  const count = Number.parseInt(String(message?.openCount || 0), 10) || 0
-  if (count <= 0) {
-    return 'Not opened yet'
-  }
-  const suffix = count === 1 ? 'time' : 'times'
-  return `Opened ${count} ${suffix}`
-}
-
-function clickStatus(message) {
-  const count = Number.parseInt(String(message?.clickCount || 0), 10) || 0
-  if (count <= 0) {
-    return 'No clicks yet'
-  }
-  const suffix = count === 1 ? 'time' : 'times'
-  return `Clicked ${count} ${suffix}`
+function engagementStatus(message) {
+  return `Opens ${+message?.openCount || 0} · clicks ${+message?.clickCount || 0}`
 }
 
 export function SettingsEmailLogRoute() {
   const { session } = useAuth()
   usePageTitle('Email Log')
   const role = session?.membership?.role || ''
-  const canView = useMemo(() => ['owner', 'admin'].includes(role), [role])
+  const canView = ['owner', 'admin'].includes(role)
   const [messages, setMessages] = useState([])
   const [selectedMessage, setSelectedMessage] = useState(null)
   const [error, setError] = useState('')
@@ -108,18 +94,14 @@ export function SettingsEmailLogRoute() {
           <div className="record-list" role="list" aria-label="Sent emails">
             {!isLoading && messages.length === 0 ? (
               <article className="record-row" role="listitem">
-                <div>
-                  <p>No emails sent yet.</p>
-                  <p className="field-hint">Emails your team sends to contacts will appear here.</p>
-                </div>
+                <p>No emails sent yet.</p>
               </article>
             ) : messages.map((message) => (
-              <article className={message.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} key={message.id} role="listitem">
+              <article className={message.status === 'failed' || message.deliveryOutcome ? 'record-row record-row-alert' : 'record-row'} key={message.id} role="listitem">
                 <div>
                   <h3>{message.subject}</h3>
-                  <p className="field-hint">To {message.toEmail} · {message.sentByName || 'Unknown sender'}{message.status === 'failed' ? ' · Failed' : ''}</p>
-                  <p className="field-hint">{openStatus(message)}</p>
-                  <p className="field-hint">{clickStatus(message)}</p>
+                  <p className="field-hint">To {message.toEmail} · {message.sentByName || 'Unknown sender'}{message.status === 'failed' ? ' · Failed' : message.deliveryOutcome ? ` · ${message.deliveryOutcome}` : ''}</p>
+                  <p className="field-hint">{engagementStatus(message)}</p>
                 </div>
                 <div>
                   <p>{formatTimestamp(message.createdAt)}</p>
@@ -135,9 +117,8 @@ export function SettingsEmailLogRoute() {
               <div className="card-stack">
                 <div>
                   <h3>{selectedMessage.subject}</h3>
-                  <p className="field-hint">To {selectedMessage.toEmail} · {selectedMessage.sentByName || 'Unknown sender'} · {formatTimestamp(selectedMessage.createdAt)}</p>
-                  <p className="field-hint">{openStatus(selectedMessage)}</p>
-                  <p className="field-hint">{clickStatus(selectedMessage)}</p>
+                  <p className="field-hint">To {selectedMessage.toEmail} · {selectedMessage.sentByName || 'Unknown sender'} · {formatTimestamp(selectedMessage.createdAt)}{selectedMessage.deliveryOutcome ? ` · ${selectedMessage.deliveryOutcome}` : ''}</p>
+                  <p className="field-hint">{engagementStatus(selectedMessage)}</p>
                 </div>
                 {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}
                 <pre className="field-hint message-body">{selectedMessage.body}</pre>

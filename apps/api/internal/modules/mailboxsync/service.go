@@ -63,6 +63,7 @@ type FetchedMessage struct {
 	RFCMessageID        string
 	InReplyTo           string
 	ReferenceMessageIDs []string
+	DeliveryFeedback    []DeliveryFeedback
 	ReceivedAt          time.Time
 }
 
@@ -139,7 +140,14 @@ func (s *Service) SyncUser(ctx context.Context, organizationID, userID int64) (R
 	for _, message := range fetched {
 		input := toInboundInput(userID, creds, message)
 		if s.resolver != nil {
-			links, err := s.resolver.ResolveInboundEntityLinks(ctx, organizationID, input.FromEmail)
+			linkEmail := input.FromEmail
+			for _, feedback := range input.DeliveryFeedback {
+				if feedback.RecipientEmail != "" {
+					linkEmail = feedback.RecipientEmail
+					break
+				}
+			}
+			links, err := s.resolver.ResolveInboundEntityLinks(ctx, organizationID, linkEmail)
 			if err != nil {
 				_, _ = s.updateFailure(ctx, organizationID, userID, "Unable to match synced mailbox message to CRM records.")
 				return Result{}, err
@@ -276,13 +284,26 @@ func toInboundInput(userID int64, creds moduleuseremail.SyncCredentials, message
 		Subject:             message.Subject,
 		Body:                message.Body,
 		MailboxUserID:       userID,
+		MailboxProvider:     creds.Provider,
 		ProviderMessageID:   message.ProviderMessageID,
 		ProviderThreadID:    message.ProviderThreadID,
 		RFCMessageID:        message.RFCMessageID,
 		InReplyTo:           message.InReplyTo,
 		ReferenceMessageIDs: message.ReferenceMessageIDs,
+		DeliveryFeedback:    toDeliveryFeedbackInput(message.DeliveryFeedback),
 		ReceivedAt:          message.ReceivedAt,
 	}
+}
+
+func toDeliveryFeedbackInput(feedback []DeliveryFeedback) []moduleemailmessages.DeliveryFeedbackInput {
+	result := make([]moduleemailmessages.DeliveryFeedbackInput, 0, len(feedback))
+	for _, entry := range feedback {
+		result = append(result, moduleemailmessages.DeliveryFeedbackInput{
+			Type: entry.Type, OriginalMessageID: entry.OriginalMessageID, RecipientEmail: entry.RecipientEmail,
+			Action: entry.Action, StatusCode: entry.StatusCode,
+		})
+	}
+	return result
 }
 
 func cleanSyncError(err error) string {

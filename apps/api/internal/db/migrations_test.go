@@ -181,6 +181,30 @@ func TestMigrationFilesIncludeEmailMessageCorrelation(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeCustomerEmailFeedback(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "090_customer_email_feedback.sql") {
+		t.Fatal("expected customer email feedback migration to be registered")
+	}
+	sql := MigrationSQL("090_customer_email_feedback.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"customer_email_feedback_events",
+		"delivery_outcome",
+		"delivery_feedback_email_message_id",
+		"idx_customer_email_feedback_unapplied",
+		"idx_email_messages_org_mailbox_outbound_rfc_message",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT email_sequence_deliveries_delivery_feedback_message_fk",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("customer email feedback migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("090_customer_email_feedback.sql"); class != "expand" {
+		t.Fatalf("customer email feedback deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeCollaboration(t *testing.T) {
 	sql := MigrationSQL("060_collaboration.sql")
 	if sql == "" {

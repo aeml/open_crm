@@ -158,7 +158,7 @@ export function SettingsEmailSequencesRoute() {
                   <h3>{sequence.name}</h3>
                   <p className="field-hint">{sequence.status} · revision {sequence.revision} · {sequence.approvedAt && sequence.approvedRevision === sequence.revision ? 'approved' : 'approval required'} · steps {sequence.steps.length}</p>
                   {sequence.outcomes?.enrolled ? (
-                    <p className="field-hint">{sequence.outcomes.enrolled} enrolled · {sequence.outcomes.providerAccepted} accepted · {sequence.outcomes.replied} replied · {sequence.outcomes.cadenceFinished} finished · {sequence.outcomes.suppressedExits} suppressed · {sequence.outcomes.needsReview} review</p>
+                    <p className="field-hint">{sequence.outcomes.enrolled} enrolled · {sequence.outcomes.providerAccepted} accepted · {sequence.outcomes.bouncedMessages || 0} bounced · {sequence.outcomes.complaints || 0} complaints · {sequence.outcomes.replied} replied · {sequence.outcomes.cadenceFinished} finished · {sequence.outcomes.suppressedExits} suppressed · {sequence.outcomes.needsReview} review</p>
                   ) : null}
                   {sequence.description ? <p className="field-hint">{sequence.description}</p> : null}
                 </div>

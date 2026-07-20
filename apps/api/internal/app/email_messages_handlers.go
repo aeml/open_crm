@@ -28,6 +28,8 @@ type emailMessageView struct {
 	ToEmail                       string `json:"toEmail"`
 	Subject                       string `json:"subject"`
 	Status                        string `json:"status"`
+	DeliveryOutcome               string `json:"deliveryOutcome,omitempty"`
+	DeliveryOutcomeAt             string `json:"deliveryOutcomeAt,omitempty"`
 	Visibility                    string `json:"visibility"`
 	Error                         string `json:"error,omitempty"`
 	EntityType                    string `json:"entityType,omitempty"`
@@ -64,6 +66,8 @@ type emailMessageDetailView struct {
 	Subject                       string `json:"subject"`
 	Body                          string `json:"body"`
 	Status                        string `json:"status"`
+	DeliveryOutcome               string `json:"deliveryOutcome,omitempty"`
+	DeliveryOutcomeAt             string `json:"deliveryOutcomeAt,omitempty"`
 	Visibility                    string `json:"visibility"`
 	Error                         string `json:"error,omitempty"`
 	EntityType                    string `json:"entityType,omitempty"`
@@ -350,6 +354,8 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 			ToEmail:                       m.ToEmail,
 			Subject:                       m.Subject,
 			Status:                        m.Status,
+			DeliveryOutcome:               m.DeliveryOutcome,
+			DeliveryOutcomeAt:             formatOptionalTime(m.DeliveryOutcomeAt),
 			Visibility:                    m.Visibility,
 			Error:                         m.Error,
 			EntityType:                    m.EntityType,
@@ -381,6 +387,8 @@ func toEmailMessageDetailView(m moduleemailmessages.Message) emailMessageDetailV
 		Subject:                       m.Subject,
 		Body:                          m.Body,
 		Status:                        m.Status,
+		DeliveryOutcome:               m.DeliveryOutcome,
+		DeliveryOutcomeAt:             formatOptionalTime(m.DeliveryOutcomeAt),
 		Visibility:                    m.Visibility,
 		Error:                         m.Error,
 		EntityType:                    m.EntityType,

@@ -174,6 +174,9 @@ func TestSyncUserImportsReadyIMAPMessages(t *testing.T) {
 	if messages.inputs[1].RFCMessageID != "<incoming@buyer.test>" || messages.inputs[1].InReplyTo != "<sequence@crm.example.test>" || strings.Join(messages.inputs[1].ReferenceMessageIDs, ",") != "<older@crm.example.test>" {
 		t.Fatalf("reply correlation was not passed to storage: %#v", messages.inputs[1])
 	}
+	if messages.inputs[1].MailboxProvider != "imap" {
+		t.Fatalf("mailbox provider was not passed to storage: %#v", messages.inputs[1])
+	}
 	if len(accounts.updates) != 2 || accounts.updates[0].Status != "syncing" || accounts.updates[1].Status != "ready" {
 		t.Fatalf("expected syncing then ready updates, got %#v", accounts.updates)
 	}
@@ -225,6 +228,27 @@ func TestSyncUserAutoLinksInboundMessages(t *testing.T) {
 	}
 	if len(messages.inputs) != 1 || messages.inputs[0].EntityType != "contact" || messages.inputs[0].EntityID != 12 || len(messages.inputs[0].EntityLinks) != 3 {
 		t.Fatalf("expected inbound message links to be passed through, got %#v", messages.inputs)
+	}
+}
+
+func TestSyncUserResolvesDeliveryFeedbackByOriginalRecipient(t *testing.T) {
+	accounts := &fakeAccountStore{creds: readyIMAPCredentials()}
+	messages := &fakeMessageStore{entityLinks: []moduleemailmessages.EntityLinkInput{{EntityType: "contact", EntityID: 12}}}
+	fetcher := &fakeFetcher{messages: []FetchedMessage{{
+		FromEmail: "mailer-daemon@provider.test", ToEmail: "rep@acme.test", ProviderMessageID: "12", ReceivedAt: time.Now(),
+		DeliveryFeedback: []DeliveryFeedback{{Type: "bounce", OriginalMessageID: "<sent@crm.example.test>", RecipientEmail: "customer@acme.test", Action: "failed", StatusCode: "5.1.1"}},
+	}}}
+	service := NewService(accounts, messages, fetcher)
+
+	result, err := service.SyncUser(context.Background(), 42, 7)
+	if err != nil || result.Imported != 1 {
+		t.Fatalf("sync feedback: result=%#v err=%v", result, err)
+	}
+	if len(messages.resolvedEmails) != 1 || messages.resolvedEmails[0] != "customer@acme.test" {
+		t.Fatalf("expected resolver to use original recipient, got %#v", messages.resolvedEmails)
+	}
+	if len(messages.inputs) != 1 || messages.inputs[0].MailboxProvider != "imap" || len(messages.inputs[0].DeliveryFeedback) != 1 {
+		t.Fatalf("expected feedback and provider to reach storage, got %#v", messages.inputs)
 	}
 }
 

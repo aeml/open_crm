@@ -46,6 +46,8 @@ type Message struct {
 	RFCMessageID                string     `json:"-"`
 	InReplyTo                   string     `json:"-"`
 	ReferenceMessageIDs         []string   `json:"-"`
+	DeliveryOutcome             string     `json:"deliveryOutcome,omitempty"`
+	DeliveryOutcomeAt           *time.Time `json:"deliveryOutcomeAt,omitempty"`
 	TrackingToken               string     `json:"-"`
 	OpenCount                   int        `json:"openCount"`
 	FirstOpenedAt               *time.Time `json:"firstOpenedAt,omitempty"`
@@ -85,17 +87,27 @@ type RecordInput struct {
 	ProviderThreadID  string
 }
 
+type DeliveryFeedbackInput struct {
+	Type              string
+	OriginalMessageID string
+	RecipientEmail    string
+	Action            string
+	StatusCode        string
+}
+
 type InboundInput struct {
 	FromEmail           string
 	ToEmail             string
 	Subject             string
 	Body                string
 	MailboxUserID       int64
+	MailboxProvider     string
 	ProviderMessageID   string
 	ProviderThreadID    string
 	RFCMessageID        string
 	InReplyTo           string
 	ReferenceMessageIDs []string
+	DeliveryFeedback    []DeliveryFeedbackInput
 	ReceivedAt          time.Time
 	EntityType          string
 	EntityID            int64
@@ -196,6 +208,7 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 	input.RFCMessageID = moduleemail.NormalizeMessageID(input.RFCMessageID)
 	input.InReplyTo = moduleemail.NormalizeMessageID(input.InReplyTo)
 	input.ReferenceMessageIDs = sanitizedMessageIDReferences(input.ReferenceMessageIDs)
+	input.DeliveryFeedback = sanitizedDeliveryFeedback(input.DeliveryFeedback)
 	if organizationID <= 0 || input.MailboxUserID <= 0 || input.FromEmail == "" || input.ToEmail == "" {
 		return false, ErrInvalidInput
 	}
@@ -242,6 +255,9 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 		return false, err
 	}
 	if err := completeSequenceEnrollmentsForReplies(ctx, tx, organizationID, input.MailboxUserID, messageID, receivedAt, input.FromEmail, input.InReplyTo, input.ReferenceMessageIDs, input.ProviderThreadID, entityLinks); err != nil {
+		return false, err
+	}
+	if err := processDeliveryFeedback(ctx, tx, organizationID, input.MailboxUserID, messageID, input.MailboxProvider, receivedAt, input.DeliveryFeedback); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -556,7 +572,8 @@ const baseSelect = `
 	       COALESCE(m.visibility, 'shared'), m.entity_type, COALESCE(m.entity_id, 0), COALESCE(m.sent_by_user_id, 0),
 	       COALESCE(u.first_name || ' ' || u.last_name, ''), COALESCE(m.mailbox_user_id, 0),
 	       COALESCE(m.shared_inbox_status, 'open'), COALESCE(m.shared_inbox_assigned_to_user_id, 0), COALESCE(au.first_name || ' ' || au.last_name, ''),
-	       COALESCE(m.provider_message_id, ''), COALESCE(m.provider_thread_id, ''), COALESCE(m.rfc_message_id, ''), COALESCE(m.in_reply_to, ''), COALESCE(m.reference_message_ids, '{}'::TEXT[]), COALESCE(m.tracking_token, ''),
+	       COALESCE(m.provider_message_id, ''), COALESCE(m.provider_thread_id, ''), COALESCE(m.rfc_message_id, ''), COALESCE(m.in_reply_to, ''), COALESCE(m.reference_message_ids, '{}'::TEXT[]),
+	       COALESCE(m.delivery_outcome, ''), m.delivery_outcome_at, COALESCE(m.tracking_token, ''),
 	       COALESCE(m.open_count, 0), m.first_opened_at, m.last_opened_at,
 	       COALESCE(m.click_count, 0), m.first_clicked_at, m.last_clicked_at, m.received_at, m.created_at
 	FROM email_messages m
@@ -839,11 +856,12 @@ func scanMessage(s scanner) (Message, error) {
 		firstClicked pgtype.Timestamptz
 		lastClicked  pgtype.Timestamptz
 		receivedAt   pgtype.Timestamptz
+		outcomeAt    pgtype.Timestamptz
 	)
 	if err := s.Scan(&m.ID, &m.Direction, &m.FromEmail, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error,
 		&m.Visibility, &m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.MailboxUserID,
 		&m.SharedInboxStatus, &m.SharedInboxAssignedToUserID, &m.SharedInboxAssignedToName,
-		&m.ProviderID, &m.ProviderThread, &m.RFCMessageID, &m.InReplyTo, &m.ReferenceMessageIDs, &m.TrackingToken,
+		&m.ProviderID, &m.ProviderThread, &m.RFCMessageID, &m.InReplyTo, &m.ReferenceMessageIDs, &m.DeliveryOutcome, &outcomeAt, &m.TrackingToken,
 		&m.OpenCount, &firstOpened, &lastOpened, &m.ClickCount, &firstClicked, &lastClicked, &receivedAt, &m.CreatedAt); err != nil {
 		return Message{}, err
 	}
@@ -873,6 +891,10 @@ func scanMessage(s scanner) (Message, error) {
 	if receivedAt.Valid {
 		received := receivedAt.Time
 		m.ReceivedAt = &received
+	}
+	if outcomeAt.Valid {
+		outcome := outcomeAt.Time
+		m.DeliveryOutcomeAt = &outcome
 	}
 	return m, nil
 }

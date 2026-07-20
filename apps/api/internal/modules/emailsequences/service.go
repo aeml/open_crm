@@ -55,6 +55,8 @@ type Outcomes struct {
 	UnclassifiedCompleted int64 `json:"unclassifiedCompleted"`
 	Cancelled             int64 `json:"cancelled"`
 	ProviderAccepted      int64 `json:"providerAccepted"`
+	BouncedMessages       int64 `json:"bouncedMessages"`
+	Complaints            int64 `json:"complaints"`
 	SuppressedMessages    int64 `json:"suppressedMessages"`
 	QueuedMessages        int64 `json:"queuedMessages"`
 	NeedsReview           int64 `json:"needsReview"`
@@ -111,6 +113,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		), delivery_outcomes AS (
 			SELECT enrollment.organization_id, enrollment.sequence_id,
 			       COUNT(*) FILTER (WHERE delivery.status = 'sent') AS provider_accepted,
+			       COUNT(*) FILTER (WHERE delivery.delivery_outcome = 'bounced') AS bounced_messages,
+			       COUNT(*) FILTER (WHERE delivery.delivery_outcome = 'complaint') AS complaints,
 			       COUNT(*) FILTER (WHERE delivery.status = 'suppressed') AS suppressed_messages,
 			       COUNT(*) FILTER (WHERE delivery.status = 'queued') AS queued_messages,
 			       COUNT(*) FILTER (WHERE delivery.status = 'uncertain') AS needs_review
@@ -125,7 +129,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		       COALESCE(enrollment.enrolled, 0), COALESCE(enrollment.active, 0), COALESCE(enrollment.paused, 0),
 		       COALESCE(enrollment.replied, 0), COALESCE(enrollment.cadence_finished, 0), COALESCE(enrollment.suppressed_exits, 0),
 		       COALESCE(enrollment.unclassified_completed, 0), COALESCE(enrollment.cancelled, 0),
-		       COALESCE(delivery.provider_accepted, 0), COALESCE(delivery.suppressed_messages, 0),
+		       COALESCE(delivery.provider_accepted, 0), COALESCE(delivery.bounced_messages, 0), COALESCE(delivery.complaints, 0),
+		       COALESCE(delivery.suppressed_messages, 0),
 		       COALESCE(delivery.queued_messages, 0), COALESCE(delivery.needs_review, 0),
 		       COALESCE(step.id, 0), COALESCE(step.step_order, 0), COALESCE(step.delay_days, 0), COALESCE(step.subject, ''), COALESCE(step.body, '')
 		FROM email_sequences seq
@@ -150,7 +155,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 			&seq.ApprovedByUserID, &approvedAt, &seq.CreatedByUserID, &seq.CreatedAt, &seq.UpdatedAt,
 			&seq.Outcomes.Enrolled, &seq.Outcomes.Active, &seq.Outcomes.Paused, &seq.Outcomes.Replied,
 			&seq.Outcomes.CadenceFinished, &seq.Outcomes.SuppressedExits, &seq.Outcomes.UnclassifiedCompleted,
-			&seq.Outcomes.Cancelled, &seq.Outcomes.ProviderAccepted, &seq.Outcomes.SuppressedMessages,
+			&seq.Outcomes.Cancelled, &seq.Outcomes.ProviderAccepted, &seq.Outcomes.BouncedMessages,
+			&seq.Outcomes.Complaints, &seq.Outcomes.SuppressedMessages,
 			&seq.Outcomes.QueuedMessages, &seq.Outcomes.NeedsReview,
 			&step.ID, &step.StepOrder, &step.DelayDays, &step.Subject, &step.Body); err != nil {
 			return nil, fmt.Errorf("scan email sequence: %w", err)

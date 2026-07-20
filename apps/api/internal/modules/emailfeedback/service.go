@@ -42,9 +42,12 @@ type Result struct {
 }
 
 type OperationalStats struct {
-	Bounces24h    int64
-	Complaints24h int64
-	Unapplied24h  int64
+	Bounces24h            int64
+	Complaints24h         int64
+	Unapplied24h          int64
+	CustomerBounces24h    int64
+	CustomerComplaints24h int64
+	CustomerUnapplied24h  int64
 }
 
 type Service struct {
@@ -319,12 +322,24 @@ func (s *Service) OperationalStats(ctx context.Context) (OperationalStats, error
 	}
 	var stats OperationalStats
 	err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FILTER (WHERE record_type='bounce'),
-		       COUNT(*) FILTER (WHERE record_type='complaint'),
-		       COUNT(*) FILTER (WHERE applied=FALSE)
-		FROM system_email_feedback_events
-		WHERE received_at > NOW() - INTERVAL '24 hours'
-	`).Scan(&stats.Bounces24h, &stats.Complaints24h, &stats.Unapplied24h)
+		SELECT system.bounces, system.complaints, system.unapplied,
+		       customer.bounces, customer.complaints, customer.unapplied
+		FROM (
+		  SELECT COUNT(*) FILTER (WHERE record_type='bounce') AS bounces,
+		         COUNT(*) FILTER (WHERE record_type='complaint') AS complaints,
+		         COUNT(*) FILTER (WHERE applied=FALSE) AS unapplied
+		  FROM system_email_feedback_events
+		  WHERE received_at > NOW() - INTERVAL '24 hours'
+		) system
+		CROSS JOIN (
+		  SELECT COUNT(*) FILTER (WHERE feedback_type='bounce') AS bounces,
+		         COUNT(*) FILTER (WHERE feedback_type='complaint') AS complaints,
+		         COUNT(*) FILTER (WHERE applied=FALSE) AS unapplied
+		  FROM customer_email_feedback_events
+		  WHERE received_at > NOW() - INTERVAL '24 hours'
+		) customer
+	`).Scan(&stats.Bounces24h, &stats.Complaints24h, &stats.Unapplied24h,
+		&stats.CustomerBounces24h, &stats.CustomerComplaints24h, &stats.CustomerUnapplied24h)
 	if err != nil {
 		return OperationalStats{}, fmt.Errorf("load email feedback operational stats: %w", err)
 	}
@@ -338,18 +353,27 @@ func (s *Service) CleanupExpired(ctx context.Context) (int64, error) {
 	var deleted int64
 	err := s.pool.QueryRow(ctx, `
 		WITH lock AS (
-		  SELECT pg_try_advisory_xact_lock(hashtextextended('system-email-feedback-retention', 0)) AS acquired
-		), candidates AS (
+		  SELECT pg_try_advisory_xact_lock(hashtextextended('email-feedback-retention', 0)) AS acquired
+		), system_candidates AS (
 		  SELECT id FROM system_email_feedback_events
 		  WHERE received_at < $1 AND (SELECT acquired FROM lock)
 		  ORDER BY received_at, id
 		  FOR UPDATE SKIP LOCKED
 		  LIMIT $2
-		), removed AS (
+		), removed_system AS (
 		  DELETE FROM system_email_feedback_events event
-		  USING candidates WHERE event.id=candidates.id RETURNING event.id
+		  USING system_candidates WHERE event.id=system_candidates.id RETURNING event.id
+		), customer_candidates AS (
+		  SELECT id FROM customer_email_feedback_events
+		  WHERE received_at < $1 AND (SELECT acquired FROM lock)
+		  ORDER BY received_at, id
+		  FOR UPDATE SKIP LOCKED
+		  LIMIT $2
+		), removed_customer AS (
+		  DELETE FROM customer_email_feedback_events event
+		  USING customer_candidates WHERE event.id=customer_candidates.id RETURNING event.id
 		)
-		SELECT COUNT(*) FROM removed
+		SELECT (SELECT COUNT(*) FROM removed_system) + (SELECT COUNT(*) FROM removed_customer)
 	`, s.now().Add(-feedbackRetention), cleanupBatchSize).Scan(&deleted)
 	if err != nil {
 		return 0, fmt.Errorf("clean up email feedback: %w", err)
@@ -369,7 +393,7 @@ func (s *Service) RunRetentionScheduler(ctx context.Context, logger *slog.Logger
 	}
 	for {
 		if _, err := s.CleanupExpired(ctx); err != nil && ctx.Err() == nil && logger != nil {
-			logger.Error("system email feedback retention failed", "error", err)
+			logger.Error("email feedback retention failed", "error", err)
 		}
 		timer := time.NewTimer(cleanupInterval)
 		select {

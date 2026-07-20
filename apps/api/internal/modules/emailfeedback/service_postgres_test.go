@@ -234,9 +234,31 @@ func TestPostmarkFeedbackIsAttemptBoundIdempotentAndPrivateAgainstPostgres(t *te
 	if _, err := service.ProcessPostmark(ctx, invalidMarked); !errors.Is(err, ErrInvalidEvent) {
 		t.Fatalf("invalid marked Open CRM event returned %v", err)
 	}
+	var customerBounceMessageID, customerComplaintMessageID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO email_messages (organization_id, direction, from_email, to_email, subject, body, status, visibility, mailbox_user_id, provider_message_id, received_at)
+		VALUES ($1, 'inbound', 'mailer-daemon@example.test', $2, 'Bounce', 'report', 'received', 'private', $3, 'customer-bounce-feedback', NOW()) RETURNING id
+	`, organizationID, inviteEmail, inviteUserID).Scan(&customerBounceMessageID); err != nil {
+		t.Fatalf("create customer bounce evidence: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO email_messages (organization_id, direction, from_email, to_email, subject, body, status, visibility, mailbox_user_id, provider_message_id, received_at)
+		VALUES ($1, 'inbound', 'feedback-loop@example.test', $2, 'Complaint', 'report', 'received', 'private', $3, 'customer-complaint-feedback', NOW()) RETURNING id
+	`, organizationID, inviteEmail, inviteUserID).Scan(&customerComplaintMessageID); err != nil {
+		t.Fatalf("create customer complaint evidence: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO customer_email_feedback_events
+		  (organization_id, mailbox_user_id, inbound_email_message_id, provider, feedback_type, original_rfc_message_id, recipient_email, action, status_code, applied, received_at)
+		VALUES
+		  ($1, $2, $3, 'imap', 'bounce', '<customer-bounce@example.test>', 'customer@example.test', 'failed', '5.1.1', TRUE, NOW()),
+		  ($1, $2, $4, 'imap', 'complaint', '<customer-complaint@example.test>', 'customer@example.test', 'reported', 'abuse', FALSE, NOW())
+	`, organizationID, inviteUserID, customerBounceMessageID, customerComplaintMessageID); err != nil {
+		t.Fatalf("create customer feedback metrics evidence: %v", err)
+	}
 
 	stats, err := service.OperationalStats(ctx)
-	if err != nil || stats.Bounces24h != 7 || stats.Complaints24h != 2 || stats.Unapplied24h != 4 {
+	if err != nil || stats.Bounces24h != 7 || stats.Complaints24h != 2 || stats.Unapplied24h != 4 || stats.CustomerBounces24h != 1 || stats.CustomerComplaints24h != 1 || stats.CustomerUnapplied24h != 1 {
 		t.Fatalf("unexpected feedback stats: stats=%#v err=%v", stats, err)
 	}
 	var events, invitationAudits, resetAudits int
@@ -257,8 +279,11 @@ func TestPostmarkFeedbackIsAttemptBoundIdempotentAndPrivateAgainstPostgres(t *te
 	if _, err := pool.Exec(ctx, `UPDATE system_email_feedback_events SET received_at=NOW()-INTERVAL '401 days' WHERE provider_event_id=102`); err != nil {
 		t.Fatalf("age feedback event: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE customer_email_feedback_events SET received_at=NOW()-INTERVAL '401 days' WHERE inbound_email_message_id=$1`, customerBounceMessageID); err != nil {
+		t.Fatalf("age customer feedback event: %v", err)
+	}
 	deleted, err := service.CleanupExpired(ctx)
-	if err != nil || deleted != 1 {
+	if err != nil || deleted != 2 {
 		t.Fatalf("cleanup expired feedback: deleted=%d err=%v", deleted, err)
 	}
 }

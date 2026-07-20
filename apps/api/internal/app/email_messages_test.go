@@ -132,8 +132,9 @@ func TestEmailLogOrgWideRequiresAdmin(t *testing.T) {
 }
 
 func TestEmailLogOrgWideForAdmin(t *testing.T) {
+	outcomeAt := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	service := &fakeEmailMessagesService{
-		orgResult: []moduleemailmessages.Message{{ID: 1, ToEmail: "a@b.test", Subject: "Hi", Status: "sent", CreatedAt: time.Now()}},
+		orgResult: []moduleemailmessages.Message{{ID: 1, ToEmail: "a@b.test", Subject: "Hi", Status: "sent", DeliveryOutcome: "bounced", DeliveryOutcomeAt: &outcomeAt, CreatedAt: time.Now()}},
 	}
 	server := emailMessagesServer(service, "admin")
 
@@ -153,7 +154,7 @@ func TestEmailLogOrgWideForAdmin(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if len(response.Data.Messages) != 1 || response.Data.Messages[0].Subject != "Hi" {
+	if len(response.Data.Messages) != 1 || response.Data.Messages[0].Subject != "Hi" || response.Data.Messages[0].DeliveryOutcome != "bounced" || response.Data.Messages[0].DeliveryOutcomeAt != "2026-07-20T12:00:00Z" {
 		t.Fatalf("unexpected log payload: %#v", response.Data.Messages)
 	}
 }

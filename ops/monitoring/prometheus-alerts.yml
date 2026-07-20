@@ -137,6 +137,42 @@ groups:
           summary: Open CRM system email has elevated bounce volume
           runbook: docs/operations-runbook.md#system-email-feedback
 
+      - alert: OpenCRMCustomerEmailFeedbackUnavailable
+        expr: open_crm_customer_email_feedback_available != 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM cannot read durable customer-email feedback
+          runbook: docs/operations-runbook.md#customer-email-delivery-feedback
+
+      - alert: OpenCRMCustomerEmailComplaints
+        expr: open_crm_customer_email_complaints_24h > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: A customer reported workspace email as abusive
+          runbook: docs/operations-runbook.md#customer-email-delivery-feedback
+
+      - alert: OpenCRMCustomerEmailFeedbackUnapplied
+        expr: open_crm_customer_email_feedback_unapplied_24h > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Customer-email feedback failed exact safe correlation
+          runbook: docs/operations-runbook.md#customer-email-delivery-feedback
+
+      - alert: OpenCRMCustomerEmailBouncesHigh
+        expr: open_crm_customer_email_bounces_24h > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Customer-email delivery has elevated terminal bounce volume
+          runbook: docs/operations-runbook.md#customer-email-delivery-feedback
+
       - alert: OpenCRMRateLimitStoreErrors
         expr: sum(increase(open_crm_rate_limit_decisions_total{outcome="error"}[5m])) > 0
         for: 2m

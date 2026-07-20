@@ -1116,6 +1116,50 @@ recipient feedback; revise the threshold only with that evidence. If a legal or
 contractual retention requirement differs, change the policy and acceptance
 tests deliberately before pilot use rather than relying on manual cleanup.
 
+### Customer email delivery feedback
+
+Connected IMAP, Gmail, and Microsoft mailboxes ingest standards-based delivery
+status notifications (RFC 3464 DSN) and abuse feedback reports (RFC 5965 ARF)
+from raw MIME. Open CRM records only terminal `failed`/`5.x` DSNs; delayed or
+temporary `4.x` reports do not suppress a recipient. A report can change state
+only when its original opaque RFC `Message-ID` resolves to exactly one earlier
+outbound message in the same workspace and mailbox, its reported recipient does
+not disagree, and the report arrived after provider acceptance. Missing,
+ambiguous, foreign-tenant, wrong-mailbox, wrong-recipient, and unmatched reports
+remain durable but unapplied. Provider acceptance remains unchanged; the later
+`bounced` or `complaint` outcome is shown separately in **Settings > Email Log**
+and **Settings > Email Sequences**.
+
+1. Confirm `open_crm_customer_email_feedback_available` is `1`, then inspect
+   `open_crm_customer_email_bounces_24h`,
+   `open_crm_customer_email_complaints_24h`, and
+   `open_crm_customer_email_feedback_unapplied_24h` are being scraped. These
+   aggregates expose no tenant, mailbox, message, or recipient labels.
+2. A correlated terminal bounce suppresses the exact recipient for future
+   customer email. A complaint takes precedence over a prior bounce and must be
+   treated as a compliance incident. Active or paused sequence enrollment stops
+   with a suppression exit; no later step is scheduled. Do not clear suppression
+   or resume the enrollment with SQL.
+3. An unapplied event is intentionally fail-closed evidence. Check the connected
+   mailbox, original provider/Sent item, report timestamp, reported recipient,
+   and the exact release before deciding whether it is a legitimate stale report,
+   a provider MIME variation, or attempted spoofing. Never manually attach it to
+   a different outbound message.
+4. DSN and ARF are message formats, not universal proof that the report sender is
+   authentic. Exact unguessable message correlation materially narrows this risk,
+   but operators must still use provider authentication/reputation evidence for
+   complaint investigations. Retain a controlled bounce and complaint from each
+   approved live provider before treating that provider path as validated.
+5. Feedback evidence is retained for 400 days and removed in bounded hourly
+   batches with the system-email feedback ledger. The retained customer-mail
+   ledger contains correlation IDs and the reported recipient, but not message
+   bodies or raw MIME. Portable workspace exports omit internal correlation IDs.
+
+Standards references: [RFC 3464](https://www.rfc-editor.org/rfc/rfc3464.html)
+and [RFC 5965](https://www.rfc-editor.org/rfc/rfc5965.html). Microsoft raw MIME
+uses the documented Graph message `$value` representation; Gmail ingestion uses
+the provider's raw message representation.
+
 ### Approving and pausing sequence email
 
 New and edited sequence definitions are drafts. An owner or admin must use
@@ -1147,7 +1191,8 @@ the matched contact in the enrolling user's mailbox after an accepted sequence
 delivery and correlated it to that delivery by an exact RFC reply reference or
 one unambiguous provider thread. The stored enrollment links to that exact
 message and received time.
-**Finished** means the cadence exhausted its steps, **suppressed** means policy
+**Bounced** and **complaints** are later machine-readable delivery outcomes;
+they do not rewrite the accepted count. **Finished** means the cadence exhausted its steps, **suppressed** means policy
 stopped it before another send, and **review** means a delivery is quarantined as
 uncertain and needs the procedure below. Historical completions from before
 migration 88 remain unclassified rather than being guessed; the API exposes
@@ -1158,15 +1203,16 @@ email, enrolling mailbox, provider-accepted time, and message correlation.
 Every new durable sequence send stores an opaque RFC `Message-ID` before the
 provider boundary. Gmail also returns a provider message/thread receipt; IMAP
 and Gmail raw MIME preserve `Message-ID`, `In-Reply-To`, and `References`, while
-Microsoft sync explicitly selects its internet headers. An inbound message can
+Microsoft sync retrieves raw MIME while retaining its conversation identifier. An inbound message can
 exit a cadence only when `In-Reply-To` or `References` names the accepted
 delivery, or when a non-empty provider thread identifies exactly one eligible
 enrollment. If two eligible enrollments share a thread, neither is changed.
 Unrelated later messages and historical deliveries without correlation evidence
 remain unclassified; cancel manually only after inspecting the retained message.
-A provider timestamp earlier than acceptance is never counted. Customer-mail
-bounce/complaint events are not yet joined to sequence outcomes. Suppression is
-terminal for the enrollment and no later cadence step is scheduled.
+A provider timestamp earlier than acceptance is never counted. Terminal DSN
+bounces and ARF complaints use the same exact tenant/mailbox/message/recipient
+boundary, suppress the recipient, and exit active or paused enrollments.
+Suppression is terminal for the enrollment and no later cadence step is scheduled.
 
 ### Hosted sequence send safety limits
 
