@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -11,6 +11,8 @@ export function RecordWorkCards({
   canWrite,
   entityId,
   entityType,
+  isCreatingNote = false,
+  isCreatingTask = false,
   noteBody,
   notes,
   notesAria = 'Notes list',
@@ -24,28 +26,44 @@ export function RecordWorkCards({
   tasksAria = 'Contact tasks list',
   users
 }) {
+  const activeRecordRef = useRef({ entityId, entityType })
+  if (activeRecordRef.current.entityId !== entityId || activeRecordRef.current.entityType !== entityType) {
+    activeRecordRef.current = { entityId, entityType }
+  }
   const [followerState, setFollowerState] = useState({ following: false, followers: [] })
   const [followersLoaded, setFollowersLoaded] = useState(false)
   const [followError, setFollowError] = useState('')
   const [isUpdatingFollow, setIsUpdatingFollow] = useState(false)
 
+  useLayoutEffect(() => {
+    setFollowerState({ following: false, followers: [] })
+    setFollowersLoaded(false)
+    setFollowError('')
+    setIsUpdatingFollow(false)
+  }, [entityId, entityType])
+
   async function toggleFollowing() {
+    const record = activeRecordRef.current
     setIsUpdatingFollow(true)
     try {
       if (!followersLoaded) {
-        const result = await getRecordFollowers({ entityType, entityId })
+        const result = await getRecordFollowers(record)
+        if (activeRecordRef.current !== record) return
+        if (result.entityId !== record.entityId || result.entityType !== record.entityType) throw new Error('Unable to load record followers.')
         setFollowerState(result)
         setFollowersLoaded(true)
         setFollowError('')
         return
       }
-      const result = await setRecordFollowing({ entityType, entityId, following: !followerState.following })
+      const result = await setRecordFollowing({ ...record, following: !followerState.following })
+      if (activeRecordRef.current !== record) return
+      if (result.entityId !== record.entityId || result.entityType !== record.entityType) throw new Error('Unable to update following.')
       setFollowerState(result)
       setFollowError('')
     } catch (error) {
-      setFollowError(error.message || 'Unable to update following.')
+      if (activeRecordRef.current === record) setFollowError(error.message || 'Unable to update following.')
     } finally {
-      setIsUpdatingFollow(false)
+      if (activeRecordRef.current === record) setIsUpdatingFollow(false)
     }
   }
 
@@ -91,7 +109,7 @@ export function RecordWorkCards({
                   </div>
                 </div>
               ) : null}
-              <Button type="submit">Add note</Button>
+              <Button type="submit" disabled={isCreatingNote}>{isCreatingNote ? 'Adding…' : 'Add note'}</Button>
             </form>
           ) : null}
           <div className="record-list" role="list" aria-label={notesAria}>
@@ -128,7 +146,7 @@ export function RecordWorkCards({
               <Field label="Due at">
                 <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => onSetTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
               </Field>
-              <Button type="submit">Save task</Button>
+              <Button type="submit" disabled={isCreatingTask}>{isCreatingTask ? 'Saving…' : 'Save task'}</Button>
             </form>
           ) : null}
           <div className="record-list" role="list" aria-label={tasksAria}>

@@ -1,6 +1,31 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RecordWorkCards } from './record_work'
+
+function deferred() {
+  let resolve
+  const promise = new Promise((next) => { resolve = next })
+  return { promise, resolve }
+}
+
+function recordWorkProps(entityId) {
+  return {
+    activities: [],
+    canWrite: true,
+    entityId,
+    entityType: 'deal',
+    noteBody: '',
+    notes: [],
+    onCreateNote: vi.fn((event) => event.preventDefault()),
+    onCreateTask: vi.fn((event) => event.preventDefault()),
+    onOpenTasks: vi.fn(),
+    onSetNoteBody: vi.fn(),
+    onSetTaskForm: vi.fn(),
+    taskForm: { title: '', description: '', assignedToUserId: '2', dueAt: '' },
+    tasks: [],
+    users: []
+  }
+}
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -52,5 +77,28 @@ describe('record collaboration controls', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/record-followers/me?'), expect.objectContaining({ method: 'PUT' }))
     })
+  })
+
+  it('rejects a follower response for a record that is no longer active', async () => {
+    const alphaFollowers = deferred()
+    const fetchMock = vi.fn((input) => {
+      const url = new URL(String(input), 'http://localhost')
+      if (url.searchParams.get('entityId') === '11') return alphaFollowers.promise
+      return Promise.resolve({ ok: true, json: async () => ({ data: { following: true, followers: [{ userId: 3 }] } }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { rerender } = render(<RecordWorkCards {...recordWorkProps(11)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Followers' }))
+    rerender(<RecordWorkCards {...recordWorkProps(12)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Followers' }))
+    expect(await screen.findByText('1 active follower')).toBeInTheDocument()
+
+    await act(async () => {
+      alphaFollowers.resolve({ ok: true, json: async () => ({ data: { following: true, followers: [{ userId: 4 }, { userId: 5 }] } }) })
+      await alphaFollowers.promise
+    })
+    expect(screen.getByText('1 active follower')).toBeInTheDocument()
+    expect(screen.queryByText('2 active followers')).not.toBeInTheDocument()
   })
 })

@@ -11,11 +11,12 @@ import {
   lineItemFormFromCatalogItem,
   lineItemPayload
 } from './deal_view'
+import { requireDealResponse } from './use_deal_selection'
 
 // useDealCommercials keeps quote-line and manual proposal-tracking state and
 // mutations together. The route remains responsible for selecting a deal and
 // applying the returned deal/activity snapshot to its directory and timeline.
-export function useDealCommercials({ selectedDealId, onDealUpdated, onError }) {
+export function useDealCommercials({ selectedDealId, selection, onDealUpdated, onError }) {
   const [productCatalogItems, setProductCatalogItems] = useState([])
   const [lineItems, setLineItems] = useState([])
   const [lineItemForm, setLineItemForm] = useState(emptyLineItemForm)
@@ -39,6 +40,9 @@ export function useDealCommercials({ selectedDealId, onDealUpdated, onError }) {
     }
     setLineItemForm(emptyLineItemForm)
     setSignatureForm(emptySignatureForm)
+    setIsSavingLineItems(false)
+    setIsCreatingSignatureRequest(false)
+    setUpdatingSignatureRequestId(null)
   }
 
   function reset() {
@@ -47,6 +51,9 @@ export function useDealCommercials({ selectedDealId, onDealUpdated, onError }) {
     setLineItemForm(emptyLineItemForm)
     setSignatureRequests([])
     setSignatureForm(emptySignatureForm)
+    setIsSavingLineItems(false)
+    setIsCreatingSignatureRequest(false)
+    setUpdatingSignatureRequestId(null)
   }
 
   function handleCatalogLineItemChange(event) {
@@ -73,58 +80,83 @@ export function useDealCommercials({ selectedDealId, onDealUpdated, onError }) {
   }
 
   async function handleSaveLineItems() {
-    if (!selectedDealId) {
-      return
-    }
+    const operation = selection.start('line-items', selectedDealId, { group: 'deal-snapshot' })
+    if (!operation) return
     setIsSavingLineItems(true)
     try {
-      const data = await replaceDealLineItems(selectedDealId, { items: lineItems.map(lineItemPayload) })
-      refresh(data)
-      onDealUpdated(data)
-      onError('')
+      const data = requireDealResponse(
+        await replaceDealLineItems(operation.dealId, { items: lineItems.map(lineItemPayload) }),
+        operation.dealId,
+        'Unable to update deal line items.'
+      )
+      const isCurrent = selection.isCurrent(operation.selection)
+      if (selection.canApply(operation)) onDealUpdated(data, operation.dealId, isCurrent)
+      if (isCurrent) {
+        refresh(data)
+        onError('')
+      }
     } catch (lineItemError) {
-      onError(lineItemError.message || 'Unable to update deal line items.')
+      if (selection.isCurrent(operation.selection)) {
+        onError(lineItemError.message || 'Unable to update deal line items.')
+      }
     } finally {
-      setIsSavingLineItems(false)
+      selection.finish(operation)
+      if (selection.isCurrent(operation.selection)) setIsSavingLineItems(false)
     }
   }
 
   async function handleCreateSignatureRequest(event) {
     event.preventDefault()
-    if (!selectedDealId || !signatureForm.signerName.trim() || !signatureForm.signerEmail.trim()) {
+    const operation = selection.start('signature-create', selectedDealId, { group: 'deal-snapshot' })
+    if (!operation || !signatureForm.signerName.trim() || !signatureForm.signerEmail.trim()) {
+      selection.finish(operation)
       return
     }
     setIsCreatingSignatureRequest(true)
     try {
-      const data = await createDealSignatureRequest(selectedDealId, {
-        signerName: signatureForm.signerName.trim(),
-        signerEmail: signatureForm.signerEmail.trim()
-      })
-      refresh(data)
-      setSignatureForm(emptySignatureForm)
-      onDealUpdated(data)
-      onError('')
+      const data = requireDealResponse(await createDealSignatureRequest(operation.dealId, {
+        signerName: signatureForm.signerName.trim(), signerEmail: signatureForm.signerEmail.trim()
+      }), operation.dealId, 'Unable to create proposal tracking.')
+      const isCurrent = selection.isCurrent(operation.selection)
+      if (selection.canApply(operation)) onDealUpdated(data, operation.dealId, isCurrent)
+      if (isCurrent) {
+        refresh(data)
+        setSignatureForm(emptySignatureForm)
+        onError('')
+      }
     } catch (signatureError) {
-      onError(signatureError.message || 'Unable to create proposal tracking.')
+      if (selection.isCurrent(operation.selection)) {
+        onError(signatureError.message || 'Unable to create proposal tracking.')
+      }
     } finally {
-      setIsCreatingSignatureRequest(false)
+      selection.finish(operation)
+      if (selection.isCurrent(operation.selection)) setIsCreatingSignatureRequest(false)
     }
   }
 
   async function handleUpdateSignatureRequestStatus(requestID, status) {
-    if (!selectedDealId) {
-      return
-    }
+    const operation = selection.start(`signature-${requestID}`, selectedDealId, { group: 'deal-snapshot' })
+    if (!operation) return
     setUpdatingSignatureRequestId(requestID)
     try {
-      const data = await updateDealSignatureRequestStatus(selectedDealId, requestID, status)
-      refresh(data)
-      onDealUpdated(data)
-      onError('')
+      const data = requireDealResponse(
+        await updateDealSignatureRequestStatus(operation.dealId, requestID, status),
+        operation.dealId,
+        'Unable to update proposal tracking.'
+      )
+      const isCurrent = selection.isCurrent(operation.selection)
+      if (selection.canApply(operation)) onDealUpdated(data, operation.dealId, isCurrent)
+      if (isCurrent) {
+        refresh(data)
+        onError('')
+      }
     } catch (signatureError) {
-      onError(signatureError.message || 'Unable to update proposal tracking.')
+      if (selection.isCurrent(operation.selection)) {
+        onError(signatureError.message || 'Unable to update proposal tracking.')
+      }
     } finally {
-      setUpdatingSignatureRequestId(null)
+      selection.finish(operation)
+      if (selection.isCurrent(operation.selection)) setUpdatingSignatureRequestId(null)
     }
   }
 

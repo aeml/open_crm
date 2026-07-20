@@ -3,8 +3,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { RecordEmailComposer } from '../components/record_email_composer'
 import { archiveDeal, createDeal, getDeal, listDeals, listDealPipelines, sendDealEmail, updateDeal, updateDealStage } from '../lib/deals'
-import { createNote, listNotes } from '../lib/notes'
-import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
 import { listProductCatalogItems } from '../lib/product_catalog'
@@ -25,6 +23,8 @@ import { DealDirectory } from './deal_directory'
 import { DealCreateCard, DealDetailsEditor, DealStageMover } from './deal_editor'
 import { RecordWorkCards } from './record_work'
 import { useDealCommercials } from './use_deal_commercials'
+import { requireDealResponse, useDealSelection } from './use_deal_selection'
+import { useDealWork } from './use_deal_work'
 
 const emptyForm = {
   name: '',
@@ -37,14 +37,6 @@ const emptyForm = {
   ownerUserId: '',
   ...emptyCloseReview
 }
-
-const emptyTaskForm = {
-  title: '',
-  description: '',
-  dueAt: '',
-  assignedToUserId: ''
-}
-
 
 export function DealsRoute() {
   const navigate = useNavigate()
@@ -87,15 +79,33 @@ export function DealsRoute() {
   const [selectedDealId, setSelectedDealId] = useState(null)
   const [selectedStageId, setSelectedStageId] = useState('')
   const [stageCloseReview, setStageCloseReview] = useState(emptyCloseReview)
-  const [notes, setNotes] = useState([])
-  const [tasks, setTasks] = useState([])
-  const [noteBody, setNoteBody] = useState('')
-  const [taskForm, setTaskForm] = useState(emptyTaskForm)
-  const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [pipelineReady, setPipelineReady] = useState(false)
+  const dealSelection = useDealSelection(selectedDealId)
+  const {
+    activities,
+    fetchWork,
+    handleCreateNote,
+    handleCreateTask,
+    isCreatingNote,
+    isCreatingTask,
+    load: loadWork,
+    noteBody,
+    notes,
+    reset: resetWork,
+    setActivities,
+    setNoteBody,
+    setTaskForm,
+    taskForm,
+    tasks
+  } = useDealWork({
+    defaultAssignedToUserId: userOptions[0]?.id ? String(userOptions[0].id) : '',
+    selectedDealId,
+    selection: dealSelection,
+    onError: setError
+  })
   const {
     handleAddLineItem,
     handleCatalogLineItemChange,
@@ -117,7 +127,7 @@ export function DealsRoute() {
     signatureForm,
     signatureRequests,
     updatingSignatureRequestId
-  } = useDealCommercials({ selectedDealId, onDealUpdated: applyCommercialDealUpdate, onError: setError })
+  } = useDealCommercials({ selectedDealId, selection: dealSelection, onDealUpdated: applyCommercialDealUpdate, onError: setError })
   const listControllerRef = useRef(null)
   const filteredStages = stagesForPipeline(stages, pipelineFilter)
   const hasDealFilters = search.trim() !== '' || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all' || closeFrom !== '' || closeTo !== ''
@@ -246,8 +256,6 @@ export function DealsRoute() {
   }, [contactOptions, selectedDeal])
 
   useEffect(() => {
-    const controller = new AbortController()
-
     async function syncRouteDeal() {
       if (!pipelineReady) {
         return
@@ -255,15 +263,14 @@ export function DealsRoute() {
 
       if (!Number.isInteger(routeDealId) || routeDealId <= 0) {
         if (selectedDealId) {
+          dealSelection.clear()
           setSelectedDealId(null)
           setSelectedStageId('')
           setStageCloseReview(emptyCloseReview)
-          setNotes([])
-          setTasks([])
-          setActivities([])
+          setDetailForm(emptyForm)
+          resetWork()
           resetCommercials()
-          setNoteBody('')
-          setTaskForm(emptyTaskForm)
+          setIsDetailLoading(false)
         }
         return
       }
@@ -274,28 +281,27 @@ export function DealsRoute() {
 
       const routeDeal = deals.find((entry) => entry.id === routeDealId)
       if (routeDeal) {
-        setIsDetailLoading(true)
-        try {
-          await handleSelectDeal(routeDeal, { signal: controller.signal })
-        } finally {
-          if (!controller.signal.aborted) {
-            setIsDetailLoading(false)
-          }
-        }
+        await handleSelectDeal(routeDeal)
         return
       }
 
+      const activeSelection = dealSelection.begin(routeDealId)
+      const signal = activeSelection.controller.signal
+      setSelectedDealId(routeDealId)
+      setSelectedStageId('')
+      setStageCloseReview(emptyCloseReview)
+      setDetailForm(emptyForm)
+      resetWork()
+      resetCommercials()
       try {
         setIsDetailLoading(true)
-        const [dealData, loadedNotes, taskData, loadedCatalog] = await Promise.all([
-          getDeal(routeDealId, { signal: controller.signal }),
-          listNotes('deal', routeDealId, { signal: controller.signal }),
-          listTasks({ status: 'open', entityType: 'deal', entityId: routeDealId }, { signal: controller.signal }),
-          listProductCatalogItems({ signal: controller.signal })
+        const [dealData, work, loadedCatalog] = await Promise.all([
+          getDeal(routeDealId, { signal }),
+          fetchWork(routeDealId, { signal }),
+          listProductCatalogItems({ signal })
         ])
-        if (controller.signal.aborted) {
-          return
-        }
+        if (!dealSelection.isCurrent(activeSelection)) return
+        requireDealResponse(dealData, routeDealId, 'Unable to load deal.')
         setDeals((current) => {
           const next = current.filter((entry) => entry.id !== routeDealId)
           return [dealData.deal, ...next]
@@ -303,28 +309,19 @@ export function DealsRoute() {
         setSelectedDealId(dealData.deal.id)
         setSelectedStageId(String(dealData.deal.stageId))
         setDetailForm(dealFormValues(dealData.deal))
-        setActivities(dealData.activities || [])
+        loadWork({ ...work, activities: dealData.activities || [] })
         loadCommercials(dealData, loadedCatalog)
-        setNotes(loadedNotes)
-        setTasks(taskData.tasks || [])
-        setNoteBody('')
-        setTaskForm(emptyTaskForm)
         setError('')
       } catch (loadError) {
-        if (!isAbortError(loadError)) {
+        if (!isAbortError(loadError) && dealSelection.isCurrent(activeSelection)) {
           setError(loadError.message || 'Unable to load deal.')
         }
       } finally {
-        if (!controller.signal.aborted) {
-          setIsDetailLoading(false)
-        }
+        if (dealSelection.isCurrent(activeSelection)) setIsDetailLoading(false)
       }
     }
 
     syncRouteDeal()
-    return () => {
-      controller.abort()
-    }
   }, [deals, pipelineReady, routeDealId, selectedDealId])
 
   async function reloadDeals(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, nextCloseFrom = closeFrom, nextCloseTo = closeTo) {
@@ -376,6 +373,8 @@ export function DealsRoute() {
 
   async function handleCreate(event) {
     event.preventDefault()
+    const operation = dealSelection.start('create', selectedDealId, { allowEmpty: true })
+    if (!operation) return
     try {
       const data = await createDeal({
         name: form.name,
@@ -389,17 +388,8 @@ export function DealsRoute() {
         closeReasonCode: form.closeReasonCode,
         closeNotes: form.closeNotes
       })
-      const taskData = await listTasks({ status: 'open', entityType: 'deal', entityId: data.deal.id })
-      setDeals((current) => [...current, data.deal])
-      setNotes(data.notes || [])
-      setTasks(taskData.tasks || [])
-      loadCommercials(data)
-      setNoteBody('')
-      setTaskForm(emptyTaskForm)
-      setActivities(data.activities || [])
-      setSelectedDealId(data.deal.id)
-      setSelectedStageId(String(data.deal.stageId))
-      setDetailForm(dealFormValues(data.deal))
+      requireDealResponse(data, data?.deal?.id, 'Unable to create deal.')
+      setDeals((current) => [...current.filter((entry) => entry.id !== data.deal.id), data.deal])
       setMeta((current) => ({
         ...current,
         total: current.total + 1,
@@ -407,10 +397,29 @@ export function DealsRoute() {
         wonCount: current.wonCount + (data.deal.status === 'won' ? 1 : 0)
       }))
       setForm((current) => ({ ...emptyForm, stageId: current.stageId || form.stageId || (filteredStages[0] ? String(filteredStages[0].id) : stages[0] ? String(stages[0].id) : '') }))
-      navigate(buildDealsPath(data.deal.id))
-      setError('')
+      if (dealSelection.isCurrent(operation.selection)) {
+        const activeSelection = dealSelection.begin(data.deal.id)
+        setSelectedDealId(data.deal.id)
+        setSelectedStageId(String(data.deal.stageId))
+        setStageCloseReview(emptyCloseReview)
+        setDetailForm(dealFormValues(data.deal))
+        loadWork({ activities: data.activities || [] })
+        loadCommercials(data)
+        navigate(buildDealsPath(data.deal.id))
+        setError('')
+        try {
+          const work = await fetchWork(data.deal.id, { signal: activeSelection.controller.signal })
+          if (dealSelection.isCurrent(activeSelection)) loadWork({ ...work, activities: data.activities || [] })
+        } catch (workError) {
+          if (!isAbortError(workError) && dealSelection.isCurrent(activeSelection)) {
+            setError(workError.message || 'Deal created, but its work items could not be loaded.')
+          }
+        }
+      }
     } catch (saveError) {
-      setError(saveError.message || 'Unable to create deal.')
+      if (dealSelection.isCurrent(operation.selection)) setError(saveError.message || 'Unable to create deal.')
+    } finally {
+      dealSelection.finish(operation)
     }
   }
 
@@ -425,19 +434,23 @@ export function DealsRoute() {
       return
     }
 
+    const operation = dealSelection.start('stage', selectedDealId, { group: 'deal-snapshot' })
+    if (!operation) return
+    const previousStatus = selectedDeal?.status || 'open'
     try {
-      const previousStatus = selectedDeal?.status || 'open'
-      const data = await updateDealStage(selectedDealId, {
+      const data = requireDealResponse(await updateDealStage(operation.dealId, {
         stageId: Number.parseInt(selectedStageId, 10),
         closeReasonCode: stageCloseReview.closeReasonCode,
         closeNotes: stageCloseReview.closeNotes
-      })
-      setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
+      }), operation.dealId, 'Unable to move deal.')
+      if (!dealSelection.canApply(operation)) return
+      setDeals((current) => current.map((entry) => (entry.id === operation.dealId ? data.deal : entry)))
       setMeta((current) => ({
         ...current,
         openCount: current.openCount + (data.deal.status === 'open' ? 1 : 0) - (previousStatus === 'open' ? 1 : 0),
         wonCount: current.wonCount + (data.deal.status === 'won' ? 1 : 0) - (previousStatus === 'won' ? 1 : 0)
       }))
+      if (!dealSelection.isCurrent(operation.selection)) return
       setSelectedStageId(String(data.deal.stageId))
       setStageCloseReview(emptyCloseReview)
       setDetailForm(dealFormValues(data.deal))
@@ -445,54 +458,52 @@ export function DealsRoute() {
       refreshCommercials(data)
       setError('')
     } catch (moveError) {
-      setError(moveError.message || 'Unable to move deal.')
+      if (dealSelection.isCurrent(operation.selection)) setError(moveError.message || 'Unable to move deal.')
+    } finally {
+      dealSelection.finish(operation)
     }
   }
 
-  async function handleSelectDeal(deal, { signal } = {}) {
+  async function handleSelectDeal(deal) {
+    const activeSelection = dealSelection.begin(deal.id)
+    const signal = activeSelection.controller.signal
     setSelectedDealId(deal.id)
     setSelectedStageId(String(deal.stageId))
     setStageCloseReview(emptyCloseReview)
     setDetailForm(dealFormValues(deal))
-    setActivities([])
+    resetWork()
     resetCommercials()
-    setNoteBody('')
-    setTaskForm(emptyTaskForm)
+    setIsDetailLoading(true)
     navigate(buildDealsPath(deal.id))
     try {
-      const [dealData, loadedNotes, taskData, loadedCatalog] = await Promise.all([
+      const [dealData, work, loadedCatalog] = await Promise.all([
         getDeal(deal.id, { signal }),
-        listNotes('deal', deal.id, { signal }),
-        listTasks({ status: 'open', entityType: 'deal', entityId: deal.id }, { signal }),
+        fetchWork(deal.id, { signal }),
         listProductCatalogItems({ signal })
       ])
-      if (signal?.aborted) {
-        return
-      }
+      if (!dealSelection.isCurrent(activeSelection)) return
+      requireDealResponse(dealData, deal.id, 'Unable to load deal.')
       setDeals((current) => current.map((entry) => (entry.id === deal.id ? dealData.deal : entry)))
       setDetailForm(dealFormValues(dealData.deal))
-      setActivities(dealData.activities || [])
+      loadWork({ ...work, activities: dealData.activities || [] })
       loadCommercials(dealData, loadedCatalog)
-      setNotes(loadedNotes)
-      setTasks(taskData.tasks || [])
       setError('')
     } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setNotes([])
-        setTasks([])
-        setError(loadError.message || 'Unable to load notes.')
+      if (!isAbortError(loadError) && dealSelection.isCurrent(activeSelection)) {
+        resetWork()
+        setError(loadError.message || 'Unable to load deal.')
       }
+    } finally {
+      if (dealSelection.isCurrent(activeSelection)) setIsDetailLoading(false)
     }
   }
 
   async function handleUpdate(event) {
     event.preventDefault()
-    if (!selectedDealId) {
-      return
-    }
-
+    const operation = dealSelection.start('update', selectedDealId, { group: 'deal-snapshot' })
+    if (!operation) return
     try {
-      const data = await updateDeal(selectedDealId, {
+      const data = requireDealResponse(await updateDeal(operation.dealId, {
         name: detailForm.name,
         companyId: Number.parseInt(detailForm.companyId, 10) || 0,
         primaryContactId: Number.parseInt(detailForm.primaryContactId, 10) || 0,
@@ -500,95 +511,54 @@ export function DealsRoute() {
         valueCurrency: detailForm.valueCurrency,
         expectedCloseDate: detailForm.expectedCloseDate,
         ownerUserId: Number.parseInt(detailForm.ownerUserId, 10) || 0
-      })
-      setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
+      }), operation.dealId)
+      if (!dealSelection.canApply(operation)) return
+      setDeals((current) => current.map((entry) => (entry.id === operation.dealId ? data.deal : entry)))
+      if (!dealSelection.isCurrent(operation.selection)) return
       setDetailForm(dealFormValues(data.deal))
       setActivities(data.activities || [])
       refreshCommercials(data)
       setError('')
     } catch (saveError) {
-      setError(saveError.message || 'Unable to update deal.')
+      if (dealSelection.isCurrent(operation.selection)) setError(saveError.message || 'Unable to update deal.')
+    } finally {
+      dealSelection.finish(operation)
     }
   }
 
   async function handleArchive() {
-    if (!selectedDealId) {
-      return
-    }
-
+    const operation = dealSelection.start('archive', selectedDealId, { group: 'deal-snapshot' })
+    if (!operation) return
+    const archivedStatus = selectedDeal?.status || 'open'
     try {
-      await archiveDeal(selectedDealId)
-      setDeals((current) => current.filter((entry) => entry.id !== selectedDealId))
+      await archiveDeal(operation.dealId)
+      setDeals((current) => current.filter((entry) => entry.id !== operation.dealId))
       setMeta((current) => ({
         ...current,
         total: Math.max(0, current.total - 1),
-        openCount: Math.max(0, current.openCount - 1)
+        openCount: Math.max(0, current.openCount - (archivedStatus === 'open' ? 1 : 0)),
+        wonCount: Math.max(0, current.wonCount - (archivedStatus === 'won' ? 1 : 0))
       }))
+      if (!dealSelection.isDealActive(operation.dealId)) return
+      dealSelection.clear()
       setSelectedDealId(null)
       setSelectedStageId('')
       setStageCloseReview(emptyCloseReview)
       setDetailForm(emptyForm)
-      setNotes([])
-      setTasks([])
+      resetWork()
       resetCommercials()
-      setActivities([])
-      setNoteBody('')
-      setTaskForm(emptyTaskForm)
       navigate(buildDealsPath(null))
       setError('')
     } catch (archiveError) {
-      setError(archiveError.message || 'Unable to archive deal.')
+      if (dealSelection.isCurrent(operation.selection)) setError(archiveError.message || 'Unable to archive deal.')
+    } finally {
+      dealSelection.finish(operation)
     }
   }
 
-  async function handleCreateNote(event) {
-    event.preventDefault()
-    if (!selectedDealId || !noteBody.trim()) {
-      return
-    }
-
-    try {
-      const data = await createNote({
-        entityType: 'deal',
-        entityId: selectedDealId,
-        body: noteBody.trim()
-      })
-      setNotes((current) => [data.note, ...current])
-      setActivities((current) => [data.activity, ...current])
-      setNoteBody('')
-      setError('')
-    } catch (noteError) {
-      setError(noteError.message || 'Unable to add note.')
-    }
-  }
-
-  async function handleCreateTask(event) {
-    event.preventDefault()
-    if (!selectedDealId || !taskForm.title.trim()) {
-      return
-    }
-
-    try {
-      const data = await createTask({
-        entityType: 'deal',
-        entityId: selectedDealId,
-        title: taskForm.title.trim(),
-        description: taskForm.description.trim(),
-        status: 'open',
-        dueAt: taskForm.dueAt ? `${taskForm.dueAt}:00Z` : '',
-        assignedToUserId: Number.parseInt(taskForm.assignedToUserId, 10) || 0
-      })
-      setTasks((current) => [data.task, ...current.filter((task) => task.id !== data.task.id)])
-      setActivities((current) => [...(data.activities || []), ...current])
-      setTaskForm(emptyTaskForm)
-      setError('')
-    } catch (taskError) {
-      setError(taskError.message || 'Unable to create task.')
-    }
-  }
-
-  function applyCommercialDealUpdate(data) {
-    setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
+  function applyCommercialDealUpdate(data, dealId, isCurrent) {
+    setDeals((current) => current.map((entry) => (entry.id === dealId ? data.deal : entry)))
+    if (!isCurrent) return
     setDetailForm(dealFormValues(data.deal))
     setActivities(data.activities || [])
   }
@@ -620,7 +590,14 @@ export function DealsRoute() {
     setCloseFrom(nextCloseFrom)
     setCloseTo(nextCloseTo)
     setForm((current) => ({ ...current, stageId: nextStages[0] ? String(nextStages[0].id) : current.stageId }))
+    dealSelection.clear()
     setSelectedDealId(null)
+    setSelectedStageId('')
+    setStageCloseReview(emptyCloseReview)
+    setDetailForm(emptyForm)
+    resetWork()
+    resetCommercials()
+    setIsDetailLoading(false)
     navigate(buildDealsPath(null, nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, nextCloseFrom, nextCloseTo), { replace: true })
     await reloadDeals(nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, nextCloseFrom, nextCloseTo)
   }
@@ -764,6 +741,8 @@ export function DealsRoute() {
               canWrite={canWrite}
               entityId={selectedDealId}
               entityType="deal"
+              isCreatingNote={isCreatingNote}
+              isCreatingTask={isCreatingTask}
               noteBody={noteBody}
               notes={notes}
               notesAria={labels.notesAria}
