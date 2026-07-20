@@ -55,6 +55,9 @@ type authService interface {
 	Login(context.Context, string, string) (moduleauth.LoginResult, error)
 	CurrentSession(context.Context, string) (moduleauth.SessionState, error)
 	Logout(context.Context, string) error
+	ListSessions(context.Context, int64, string) ([]moduleauth.SessionSummary, error)
+	RevokeSession(context.Context, int64, int64, string) error
+	RevokeOtherSessions(context.Context, int64, string) (int64, error)
 }
 
 type usersService interface {

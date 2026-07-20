@@ -239,6 +239,122 @@ func TestPasswordResetLifecycleIsPrivateRecoverableAndGlobalAgainstPostgres(t *t
 	}
 }
 
+func TestConcurrentOldPasswordLoginCannotSurvivePasswordReset(t *testing.T) {
+	databaseURL := strings.TrimSpace(os.Getenv("OPEN_CRM_TEST_DATABASE_URL"))
+	if databaseURL == "" {
+		t.Skip("OPEN_CRM_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	adminPool, err := moduledb.NewPool(ctx, moduledb.Config{DatabaseURL: databaseURL})
+	if err != nil {
+		t.Fatalf("connect to login/reset race postgres: %v", err)
+	}
+	defer adminPool.Close()
+	schema := fmt.Sprintf("open_crm_login_reset_race_%d", time.Now().UnixNano())
+	if _, err := adminPool.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+		t.Fatalf("create login/reset race schema: %v", err)
+	}
+	defer func() { _, _ = adminPool.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`) }()
+	schemaURL := passwordResetDatabaseURL(t, databaseURL, schema)
+	if _, err := moduledb.RunMigrations(ctx, moduledb.Config{DatabaseURL: schemaURL}); err != nil {
+		t.Fatalf("migrate login/reset race schema: %v", err)
+	}
+	pool, err := moduledb.NewPool(ctx, moduledb.Config{DatabaseURL: schemaURL})
+	if err != nil {
+		t.Fatalf("connect to login/reset race schema: %v", err)
+	}
+	defer pool.Close()
+
+	oldPassword := "Concurrent-Old-Password-27!"
+	passwordHash, err := moduleauth.SeedPasswordHash(oldPassword)
+	if err != nil {
+		t.Fatalf("hash race password: %v", err)
+	}
+	var organizationID, userID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO organizations(name,slug) VALUES('Race workspace',$1) RETURNING id`, "race-"+schema).Scan(&organizationID); err != nil {
+		t.Fatalf("insert race organization: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO users(email,password_hash,first_name,last_name,email_verified_at)
+		VALUES($1,$2,'Race','Owner',NOW()) RETURNING id
+	`, "race-"+schema+"@example.test", passwordHash).Scan(&userID); err != nil {
+		t.Fatalf("insert race user: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships(organization_id,user_id,role,membership_status) VALUES($1,$2,'owner','active')`, organizationID, userID); err != nil {
+		t.Fatalf("insert race membership: %v", err)
+	}
+
+	mailer := &fakeResetMailer{}
+	resetService := NewService(pool, mailer, WithLocalResetLinks(true))
+	if _, err := resetService.Request(ctx, "race-"+schema+"@example.test"); err != nil || len(mailer.deliveries) != 1 {
+		t.Fatalf("request race reset: deliveries=%d err=%v", len(mailer.deliveries), err)
+	}
+
+	organizationBlocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin organization blocker: %v", err)
+	}
+	defer func() { _ = organizationBlocker.Rollback(context.Background()) }()
+	if err := organizationBlocker.QueryRow(ctx, `SELECT id FROM organizations WHERE id=$1 FOR UPDATE`, organizationID).Scan(&organizationID); err != nil {
+		t.Fatalf("lock organization row: %v", err)
+	}
+
+	loginService := moduleauth.NewService(pool)
+	loginResult := make(chan error, 1)
+	go func() {
+		_, loginErr := loginService.Login(ctx, "race-"+schema+"@example.test", oldPassword)
+		loginResult <- loginErr
+	}()
+	waitForPostgresLock(t, ctx, pool, "%INSERT INTO sessions (user_id, organization_id, token_hash%")
+
+	resetResult := make(chan error, 1)
+	go func() {
+		resetResult <- resetService.Complete(ctx, CompleteInput{
+			Token:    mailer.deliveries[0].token,
+			Password: "Concurrent-New-Password-28!",
+		})
+	}()
+	waitForPostgresLock(t, ctx, pool, "%password_reset_token_hash%FOR UPDATE%")
+	if err := organizationBlocker.Commit(ctx); err != nil {
+		t.Fatalf("release organization row: %v", err)
+	}
+	if err := <-loginResult; err != nil {
+		t.Fatalf("serialized old-password login should finish before reset: %v", err)
+	}
+	if err := <-resetResult; err != nil {
+		t.Fatalf("complete concurrent reset: %v", err)
+	}
+
+	var sessions int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM sessions WHERE user_id=$1`, userID).Scan(&sessions); err != nil || sessions != 0 {
+		t.Fatalf("old-password session survived reset: count=%d err=%v", sessions, err)
+	}
+	if _, err := loginService.Login(ctx, "race-"+schema+"@example.test", oldPassword); !errors.Is(err, moduleauth.ErrUnauthorized) {
+		t.Fatalf("old password remained valid after concurrent reset: %v", err)
+	}
+}
+
+func waitForPostgresLock(t *testing.T, ctx context.Context, pool *moduledb.Pool, queryPattern string) {
+	t.Helper()
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting int
+		if err := pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM pg_stat_activity
+			WHERE pid<>pg_backend_pid() AND datname=current_database()
+			  AND wait_event_type='Lock' AND query LIKE $1
+		`, queryPattern).Scan(&waiting); err != nil {
+			t.Fatalf("inspect PostgreSQL lock wait: %v", err)
+		}
+		if waiting > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for PostgreSQL lock matching %q", queryPattern)
+}
+
 func passwordResetDatabaseURL(t *testing.T, rawURL, schema string) string {
 	t.Helper()
 	parsed, err := url.Parse(rawURL)

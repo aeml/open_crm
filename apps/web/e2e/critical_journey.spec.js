@@ -485,6 +485,22 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await ownerDevicePage.getByRole('button', { name: 'Sign in' }).click()
   await expect(ownerDevicePage).toHaveURL(/\/dashboard$/)
 
+  await page.goto('/settings/profile')
+  const activeSignIns = page.getByRole('list', { name: 'Active sign-ins' })
+  await expect(activeSignIns.getByRole('listitem')).toHaveCount(2)
+  await activeSignIns.getByRole('button', { name: 'Sign out', exact: true }).click()
+  await activeSignIns.getByRole('button', { name: 'Confirm sign out' }).click()
+  await expect(page.getByText('That sign-in has been ended.', { exact: true })).toBeVisible()
+  await expect(activeSignIns.getByRole('listitem')).toHaveCount(1)
+  const manuallyRevokedOwnerDevice = await ownerDeviceContext.request.get(`${apiURL}/auth/me`)
+  expect(manuallyRevokedOwnerDevice.status()).toBe(401)
+
+  await ownerDevicePage.goto('/login')
+  await ownerDevicePage.getByLabel('Email').fill(owner.email)
+  await ownerDevicePage.getByLabel('Password').fill(owner.password)
+  await ownerDevicePage.getByRole('button', { name: 'Sign in' }).click()
+  await expect(ownerDevicePage).toHaveURL(/\/dashboard$/)
+
   const resetPassword = 'Owner-Recovered-Password-31!'
   await page.goto('/forgot-password')
   await expect(page.getByRole('heading', { name: 'Reset your password' })).toBeVisible()

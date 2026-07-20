@@ -27,6 +27,9 @@ func TestCredentialLookupSQLUsesIndexedEmailEquality(t *testing.T) {
 	if !strings.Contains(sql, "SELECT u.id, u.email, u.password_hash, u.email_verified_at") {
 		t.Fatalf("expected credential lookup SQL to fetch only login credentials, got %q", sql)
 	}
+	if !strings.Contains(sql, "FOR UPDATE") {
+		t.Fatalf("expected login to lock the credential row through session creation, got %q", sql)
+	}
 }
 
 func TestSessionStateLookupSQLLoadsContextAfterPasswordValidation(t *testing.T) {

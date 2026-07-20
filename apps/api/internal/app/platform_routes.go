@@ -79,6 +79,15 @@ func registerPlatformRoutes(mux *http.ServeMux, env config.Env, dependencies Dep
 	mux.HandleFunc("PATCH /api/me/preferences", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdatePreferences(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
+	mux.HandleFunc("GET /api/me/sessions", func(w http.ResponseWriter, r *http.Request) {
+		handleListSessions(dependencies.AuthService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/me/sessions/others", func(w http.ResponseWriter, r *http.Request) {
+		handleRevokeOtherSessions(dependencies.AuthService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/me/sessions/{sessionID}", func(w http.ResponseWriter, r *http.Request) {
+		handleRevokeSession(dependencies.AuthService, w, r)
+	})
 	mux.HandleFunc("GET /api/me/email-account", func(w http.ResponseWriter, r *http.Request) {
 		handleGetMyEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
 	})

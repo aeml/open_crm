@@ -7,6 +7,7 @@ import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { updateProfile, getPreferences, updatePreferences } from '../lib/profile'
 import { usePageTitle } from '../lib/use_page_title'
+import { SessionManagement } from './session_management'
 
 const landingViewOptions = [
   { value: '', label: 'Default (Dashboard)' },
@@ -206,6 +207,8 @@ export function SettingsProfileRoute() {
           ) : null}
         </div>
       </Card>
+
+      <SessionManagement />
     </section>
   )
 }

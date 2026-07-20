@@ -10,6 +10,7 @@ import (
 	"time"
 
 	platformauth "github.com/aeml/open_crm/apps/api/internal/platform/auth"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -24,6 +25,7 @@ const credentialLookupSQL = `
 	FROM users u
 	WHERE u.email = $1
 	LIMIT 1
+	FOR UPDATE
 `
 
 const sessionStateByUserSQL = `
@@ -83,6 +85,11 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 
 	email = normalizeLoginEmail(email)
 	password = strings.TrimSpace(password)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return LoginResult{}, fmt.Errorf("begin login: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var (
 		userID       int64
@@ -91,7 +98,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 		verifiedAt   *time.Time
 	)
 
-	err := s.pool.QueryRow(ctx, credentialLookupSQL, email).Scan(&userID, &storedEmail, &passwordHash, &verifiedAt)
+	err = tx.QueryRow(ctx, credentialLookupSQL, email).Scan(&userID, &storedEmail, &passwordHash, &verifiedAt)
 	if err != nil {
 		return LoginResult{}, ErrUnauthorized
 	}
@@ -103,7 +110,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 		return LoginResult{}, ErrEmailUnverified
 	}
 
-	state, err := s.loadSessionStateByUserID(ctx, userID)
+	state, err := s.loadSessionStateByUserID(ctx, tx, userID)
 	if err != nil {
 		return LoginResult{}, err
 	}
@@ -114,12 +121,15 @@ func (s *Service) Login(ctx context.Context, email, password string) (LoginResul
 	}
 
 	tokenHash := hashToken(token)
-	_, err = s.pool.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		INSERT INTO sessions (user_id, organization_id, token_hash, expires_at, created_at, last_seen_at)
 		VALUES ($1, $2, $3, NOW() + INTERVAL '30 days', NOW(), NOW())
 	`, state.User.ID, state.Organization.ID, tokenHash)
 	if err != nil {
 		return LoginResult{}, fmt.Errorf("persist session: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return LoginResult{}, fmt.Errorf("commit login: %w", err)
 	}
 
 	return LoginResult{
@@ -204,9 +214,9 @@ func normalizeLoginEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-func (s *Service) loadSessionStateByUserID(ctx context.Context, userID int64) (SessionState, error) {
+func (s *Service) loadSessionStateByUserID(ctx context.Context, tx pgx.Tx, userID int64) (SessionState, error) {
 	var state SessionState
-	err := s.pool.QueryRow(ctx, sessionStateByUserSQL, userID).Scan(
+	err := tx.QueryRow(ctx, sessionStateByUserSQL, userID).Scan(
 		&state.User.ID,
 		&state.User.Email,
 		&state.User.FirstName,

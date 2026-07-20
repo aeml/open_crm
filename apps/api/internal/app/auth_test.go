@@ -21,9 +21,16 @@ type fakeAuthService struct {
 	currentSessionResult moduleauth.SessionState
 	currentSessionErr    error
 	logoutErr            error
+	listSessionsResult   []moduleauth.SessionSummary
+	listSessionsErr      error
+	revokeSessionErr     error
+	revokeOthersResult   int64
+	revokeOthersErr      error
 	lastLoginEmail       string
 	lastLoginPassword    string
 	lastSessionToken     string
+	lastSessionUserID    int64
+	lastRevokedSessionID int64
 }
 
 func (f *fakeAuthService) Login(_ context.Context, email, password string) (moduleauth.LoginResult, error) {
@@ -40,6 +47,25 @@ func (f *fakeAuthService) CurrentSession(_ context.Context, sessionToken string)
 func (f *fakeAuthService) Logout(_ context.Context, sessionToken string) error {
 	f.lastSessionToken = sessionToken
 	return f.logoutErr
+}
+
+func (f *fakeAuthService) ListSessions(_ context.Context, userID int64, sessionToken string) ([]moduleauth.SessionSummary, error) {
+	f.lastSessionUserID = userID
+	f.lastSessionToken = sessionToken
+	return f.listSessionsResult, f.listSessionsErr
+}
+
+func (f *fakeAuthService) RevokeSession(_ context.Context, userID, sessionID int64, sessionToken string) error {
+	f.lastSessionUserID = userID
+	f.lastRevokedSessionID = sessionID
+	f.lastSessionToken = sessionToken
+	return f.revokeSessionErr
+}
+
+func (f *fakeAuthService) RevokeOtherSessions(_ context.Context, userID int64, sessionToken string) (int64, error) {
+	f.lastSessionUserID = userID
+	f.lastSessionToken = sessionToken
+	return f.revokeOthersResult, f.revokeOthersErr
 }
 
 func TestLoginSetsSessionCookieAndReturnsSessionState(t *testing.T) {

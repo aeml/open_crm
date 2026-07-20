@@ -145,6 +145,32 @@ and writes an audit event into every workspace membership.
    audit view contains `user.password_reset`. Do not collect or ask the user to
    share the raw reset link.
 
+### Suspected account or session compromise
+
+Active-sign-in recovery remains available when a hosted workspace is read-only.
+Open CRM stores only the workspace plus created, last-active, and expiry times
+for this view; it does not collect IP addresses or browser fingerprints, so do
+not claim that the UI identifies a device or location.
+
+1. Have the user open **My Profile > Active sign-ins**. Confirm the row labeled
+   **This sign-in** matches the session they intend to keep by its workspace and
+   timing. The current row is deliberately protected; **Log out** is the only
+   normal way to end it.
+2. For one suspicious row, choose **Sign out**, review the inline confirmation,
+   and confirm. For broad concern, choose **Sign out all other sessions**. A
+   repeated all-other request is safe and reports zero after recovery is done.
+3. Confirm the ended browser receives `401` from `/auth/me`. Review
+   `user.session_revoked` or `user.other_sessions_revoked` in each affected
+   workspace audit view. Audit metadata records only the revocation count where
+   applicable, never a raw session token.
+4. If the password may be known, complete password recovery as well. Login and
+   reset serialize on the user credential row, and reset deletes sessions using
+   a statement-current view; a concurrent old-password login therefore either
+   loses authentication or is included in the reset invalidation.
+5. Escalate unexpected recreation after the password change as an account or
+   system-email incident. Preserve request IDs and audit timestamps; do not ask
+   for cookies, raw reset links, passwords, or browser storage.
+
 ### Stripe hosted-billing setup and recovery
 
 The fake billing provider is the safe self-host/development default. Enabling

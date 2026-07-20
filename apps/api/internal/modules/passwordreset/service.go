@@ -185,7 +185,11 @@ func (s *Service) Complete(ctx context.Context, input CompleteInput) error {
 	if input.Token == "" || len(input.Token) > 512 || len(input.Password) < 12 || len(input.Password) > 1024 {
 		return ErrInvalidInput
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	// Completion serializes credential/session changes with login through the
+	// locked user row. Read committed is intentional: after waiting for a login
+	// that already holds that lock, the session DELETE must observe the login's
+	// newly committed row instead of retaining an earlier transaction snapshot.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin password reset completion: %w", err)
 	}

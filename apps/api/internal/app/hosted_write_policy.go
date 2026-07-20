@@ -13,6 +13,8 @@ import (
 var hostedWriteRecoveryRoutes = map[string]struct{}{
 	"PATCH /api/me/profile":                          {},
 	"PATCH /api/me/preferences":                      {},
+	"DELETE /api/me/sessions/{sessionID}":            {},
+	"DELETE /api/me/sessions/others":                 {},
 	"PATCH /api/notifications/{notificationID}/read": {},
 	"POST /api/notifications/read-all":               {},
 	"POST /api/admin/background-jobs/{jobID}/replay": {},

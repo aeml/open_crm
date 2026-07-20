@@ -32,6 +32,8 @@ func TestHostedWritePolicyClassifiesMutationsAndRecoveryRoutes(t *testing.T) {
 		{name: "workspace export recovery", method: http.MethodPost, pattern: "POST /api/workspace-exports", want: false},
 		{name: "durable job replay", method: http.MethodPost, pattern: "POST /api/admin/background-jobs/{jobID}/replay", want: false},
 		{name: "profile recovery", method: http.MethodPatch, pattern: "PATCH /api/me/profile", want: false},
+		{name: "single session recovery", method: http.MethodDelete, pattern: "DELETE /api/me/sessions/{sessionID}", want: false},
+		{name: "other sessions recovery", method: http.MethodDelete, pattern: "DELETE /api/me/sessions/others", want: false},
 		{name: "notification acknowledgement", method: http.MethodPost, pattern: "POST /api/notifications/read-all", want: false},
 		{name: "public submission", method: http.MethodPost, pattern: "POST /api/public/lead-capture-forms/{publicID}/submissions", want: false},
 		{name: "authentication", method: http.MethodPost, pattern: "POST /auth/logout", want: false},

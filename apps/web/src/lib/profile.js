@@ -27,3 +27,28 @@ export async function updatePreferences(input, { signal } = {}) {
   })
   return payload?.data?.preferences || {}
 }
+
+export async function getSessions({ signal } = {}) {
+  const payload = await apiRequest('/api/me/sessions', {
+    fallbackMessage: 'Unable to load active sign-ins.',
+    signal
+  })
+  return payload?.data?.sessions || []
+}
+
+export async function revokeSession(sessionId, { signal } = {}) {
+  await apiRequest(`/api/me/sessions/${sessionId}`, {
+    method: 'DELETE',
+    fallbackMessage: 'Unable to sign out that session.',
+    signal
+  })
+}
+
+export async function revokeOtherSessions({ signal } = {}) {
+  const payload = await apiRequest('/api/me/sessions/others', {
+    method: 'DELETE',
+    fallbackMessage: 'Unable to sign out other sessions.',
+    signal
+  })
+  return payload?.data?.revoked || 0
+}
