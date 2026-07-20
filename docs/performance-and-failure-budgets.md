@@ -90,9 +90,9 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.99 KiB/57.91 KiB entry, 39.15 KiB/11.27 KiB largest lazy
-chunk, and 621.61 KiB/199.45 KiB total assets. The production contact, company,
-deal, and task routes are 28.72/8.50, 32.06/9.44, 39.15/11.27, and 22.17/6.29
+Current evidence: 178.03 KiB/57.94 KiB entry, 36.35 KiB/10.47 KiB largest lazy
+chunk, and 622.57 KiB/200.34 KiB total assets. The production contact, company,
+deal, and task routes are 28.28/8.53, 32.06/9.44, 36.35/10.47, and 22.17/6.29
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.35 KiB/4.56 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
@@ -151,18 +151,21 @@ company editor/view helpers, deal quote/signature/view helpers, and task view
 logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health,
 and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators plus focused company-directory and linked-
-people presentation leave the parent routes at 721 contact lines,
+people presentation plus shared record selection/work leave the parent routes at 644 contact lines,
 827 company lines, 764 deal lines, and
 722 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
-changing their lazy-load boundaries. The 229-line contact outreach hook also
+changing their lazy-load boundaries. Tested 68-line selection and 142-line work
+hooks now serve contacts and deals, abort obsolete loads, distinguish repeated
+A-to-B-to-A visits, serialize per-record mutations, validate record/work
+identities, and keep late saves and work off the active contact. The 229-line
+contact outreach hook also
 clears record-scoped email and sequence state on selection changes and rejects
 late responses from prior selection epochs. A 59-line lead-score hook rejects
 duplicate evaluations, wrong-contact responses, and late results across
 leave-and-return navigation. Deal directory, shared form, and editor
-presentation live in focused 157-, 74-, and 87-line modules. A tested 65-line
-selection guard distinguishes A-to-B-to-A visits, aborts obsolete loads,
-serializes snapshot-changing mutations per visit, and validates deal snapshots; a 136-line work
-hook scopes notes, tasks, activities, and pending controls; and the guarded
+presentation live in focused 157-, 74-, and 87-line modules. The shared selection
+and work hooks apply the same visit identity, serialization, work, and response
+validation contract to deals; the guarded
 185-line commercial hook rejects stale or mismatched quote/proposal results.
 The shared record-work follower control also resets on record changes and
 rejects late responses from an earlier contact, client, or deal.
@@ -172,7 +175,7 @@ it still represents that task; delayed completion cannot pull navigation back
 to an earlier record.
 Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
-Continue lowering the remaining contact/deal exceptions along tested
+Continue lowering the remaining company/deal/task exceptions along tested
 orchestration seams.
 
 The API composition root is 369 lines, down from 996. Its audited 205-route
@@ -192,7 +195,7 @@ the application composition package.
 
 | Existing hotspot | Current lines | Maximum until next split |
 | --- | ---: | ---: |
-| `contacts.jsx` | 721 | 725 |
+| `contacts.jsx` | 644 | 650 |
 | `companies.jsx` | 827 | 850 |
 | `deals.jsx` | 764 | 775 |
 | `tasks.jsx` | 722 | 750 |

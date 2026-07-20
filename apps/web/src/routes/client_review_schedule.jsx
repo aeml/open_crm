@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -49,6 +49,10 @@ function formatTimestamp(value) {
 }
 
 export function ClientReviewSchedule({ entityType, entityId, isClient, canWrite, users = [], onChanged }) {
+  const activeRecordRef = useRef({ entityType, entityId })
+  if (activeRecordRef.current.entityType !== entityType || activeRecordRef.current.entityId !== entityId) {
+    activeRecordRef.current = { entityType, entityId }
+  }
   const [schedule, setSchedule] = useState(emptySchedule)
   const [form, setForm] = useState(() => initialForm(emptySchedule, users))
   const [error, setError] = useState('')
@@ -63,28 +67,31 @@ export function ClientReviewSchedule({ entityType, entityId, isClient, canWrite,
       setIsLoading(false)
       return undefined
     }
+    const record = activeRecordRef.current
     const controller = new AbortController()
     setIsLoading(true)
     getClientReview(entityType, entityId, { signal: controller.signal })
       .then((result) => {
+        if (activeRecordRef.current !== record) return
         const next = result || emptySchedule
+        if (next.entityType !== record.entityType || next.entityId !== record.entityId) throw new Error('Unable to load client review schedule.')
         setSchedule(next)
         setForm(initialForm(next, users))
         setError('')
       })
       .catch((loadError) => {
-        if (!isAbortError(loadError)) setError(loadError.message || 'Unable to load client review schedule.')
+        if (!isAbortError(loadError) && activeRecordRef.current === record) setError(loadError.message || 'Unable to load client review schedule.')
       })
       .finally(() => {
-        if (!controller.signal.aborted) setIsLoading(false)
+        if (!controller.signal.aborted && activeRecordRef.current === record) setIsLoading(false)
       })
     return () => controller.abort()
   }, [entityType, entityId, isClient, run, users])
 
   if (!isClient) return null
 
-  async function refreshParent() {
-    if (!onChanged) return
+  async function refreshParent(record) {
+    if (!onChanged || activeRecordRef.current !== record) return
     try {
       await onChanged()
     } catch {
@@ -94,6 +101,7 @@ export function ClientReviewSchedule({ entityType, entityId, isClient, canWrite,
 
   async function handleSave(event) {
     event.preventDefault()
+    const record = activeRecordRef.current
     const nextReviewAt = toISOString(form.nextReviewAt)
     if (!nextReviewAt || !form.assignedToUserId) {
       setError('Choose a due time and an active assignee.')
@@ -101,37 +109,41 @@ export function ClientReviewSchedule({ entityType, entityId, isClient, canWrite,
     }
     setIsSaving(true)
     try {
-      const next = await upsertClientReview(entityType, entityId, {
+      const next = await upsertClientReview(record.entityType, record.entityId, {
         reviewType: form.reviewType,
         nextReviewAt,
         cadenceMonths: Number.parseInt(form.cadenceMonths, 10) || 0,
         assignedToUserId: Number.parseInt(form.assignedToUserId, 10) || 0
       })
+      if (activeRecordRef.current !== record) return
+      if (next?.entityType !== record.entityType || next?.entityId !== record.entityId) throw new Error('Unable to save client review schedule.')
       setSchedule(next)
       setForm(initialForm(next, users))
       setNotice(next?.exists ? `${next.reviewLabel} task scheduled.` : 'Client review schedule saved.')
       setError('')
-      await refreshParent()
+      await refreshParent(record)
     } catch (saveError) {
-      setError(saveError.message || 'Unable to save client review schedule.')
+      if (activeRecordRef.current === record) setError(saveError.message || 'Unable to save client review schedule.')
     } finally {
-      setIsSaving(false)
+      if (activeRecordRef.current === record) setIsSaving(false)
     }
   }
 
   async function handleClear() {
+    const record = activeRecordRef.current
     setIsSaving(true)
     try {
-      await deleteClientReview(entityType, entityId)
+      await deleteClientReview(record.entityType, record.entityId)
+      if (activeRecordRef.current !== record) return
       setSchedule(emptySchedule)
       setForm(initialForm(emptySchedule, users))
       setNotice('Client review schedule cleared; its open generated task was archived.')
       setError('')
-      await refreshParent()
+      await refreshParent(record)
     } catch (clearError) {
-      setError(clearError.message || 'Unable to clear client review schedule.')
+      if (activeRecordRef.current === record) setError(clearError.message || 'Unable to clear client review schedule.')
     } finally {
-      setIsSaving(false)
+      if (activeRecordRef.current === record) setIsSaving(false)
     }
   }
 

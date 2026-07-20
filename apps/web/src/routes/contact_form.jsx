@@ -2,7 +2,7 @@ import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { CustomFieldsForm } from '../components/ui/custom_fields_form'
 
-export function ContactForm({ canSubmit = true, customDefinitions = [], form, includeStatus = false, onSetForm, onSubmit, submitLabel }) {
+export function ContactForm({ canSubmit = true, customDefinitions = [], form, includeStatus = false, isSubmitting = false, onSetForm, onSubmit, submitLabel }) {
   const setField = (name) => (event) => onSetForm((current) => ({ ...current, [name]: event.target.value }))
   return (
     <form className="auth-form" onSubmit={onSubmit}>
@@ -49,7 +49,7 @@ export function ContactForm({ canSubmit = true, customDefinitions = [], form, in
         </Field>
       ) : null}
       <CustomFieldsForm definitions={customDefinitions} values={form.customFields || {}} onChange={(customFields) => onSetForm((current) => ({ ...current, customFields }))} />
-      {canSubmit ? <Button type="submit">{submitLabel}</Button> : null}
+      {canSubmit ? <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : submitLabel}</Button> : null}
     </form>
   )
 }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ClientReviewSchedule } from './client_review_schedule'
@@ -11,6 +11,12 @@ const semantics = [
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify({ data }), { status, headers: { 'Content-Type': 'application/json' } })
+}
+
+function deferred() {
+  let resolve
+  const promise = new Promise((next) => { resolve = next })
+  return { promise, resolve }
 }
 
 afterEach(() => {
@@ -106,6 +112,65 @@ describe('client review schedule', () => {
     expect(screen.queryByRole('link', { name: 'Open task' })).not.toBeInTheDocument()
     expect(onChanged).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('rejects a late schedule load from an earlier record visit', async () => {
+    const alphaLoad = deferred()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/company/81')) return alphaLoad.promise
+      return jsonResponse({
+        exists: true,
+        entityType: 'company',
+        entityId: 82,
+        entityLabel: 'Beta',
+        reviewType: 'review',
+        reviewLabel: 'Beta review',
+        nextReviewAt: '2026-08-20T12:00:00Z',
+        cadenceMonths: 3,
+        cadenceLabel: 'Every 3 months',
+        currentTaskId: 102,
+        taskStatus: 'open',
+        assignedToUserId: 7,
+        assignedToUserName: 'Riley Owner',
+        semantics
+      })
+    })
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <ClientReviewSchedule entityType="company" entityId={81} isClient canWrite users={users} />
+      </MemoryRouter>
+    )
+    rerender(
+      <MemoryRouter>
+        <ClientReviewSchedule entityType="company" entityId={82} isClient canWrite users={users} />
+      </MemoryRouter>
+    )
+    expect(await screen.findByText('Beta review')).toBeInTheDocument()
+
+    await act(async () => {
+      alphaLoad.resolve(jsonResponse({
+        exists: true,
+        entityType: 'company',
+        entityId: 81,
+        entityLabel: 'Alpha',
+        reviewType: 'renewal',
+        reviewLabel: 'Alpha renewal',
+        nextReviewAt: '2026-08-21T12:00:00Z',
+        cadenceMonths: 12,
+        cadenceLabel: 'Every 12 months',
+        currentTaskId: 101,
+        taskStatus: 'open',
+        assignedToUserId: 7,
+        assignedToUserName: 'Riley Owner',
+        semantics
+      }))
+      await alphaLoad.promise
+    })
+
+    expect(screen.getByText('Beta review')).toBeInTheDocument()
+    expect(screen.queryByText('Alpha renewal')).not.toBeInTheDocument()
   })
 
   it('is absent for records that are not clients', () => {

@@ -397,8 +397,11 @@ Exit criteria:
 Current convergence evidence: route-level loading and bundle budgets are
 CI-gated. Tested list, editor, view-model, communications, insights, shared
 work, touchpoint, production outreach, and lead-score extraction plus bulk/custom-field
-integration leave `contacts.jsx` at 721 lines, down from 2,038, under a tightened
-725-line ceiling. The 229-line outreach hook clears record-scoped email and
+integration plus shared record selection/work leave `contacts.jsx` at 644 lines,
+down from 2,038, under a tightened 650-line ceiling. Tested 68-line selection and
+142-line work hooks abort obsolete loads, distinguish repeated A-to-B-to-A visits,
+serialize contact mutations, validate returned record/work identities, and keep
+late saves, notes, and tasks off the active contact. The 229-line outreach hook clears record-scoped email and
 sequence state on contact changes and rejects late responses from prior
 selection epochs; a tested 59-line lead-score hook additionally rejects duplicate
 in-flight evaluations, mismatched contact identities, and late responses after
@@ -411,8 +414,8 @@ with a tightened 850-line ceiling. The hook calls one transactional linked-perso
 endpoint and rejects late responses after leave-and-return navigation. Deal view,
 shared work, quote, signature, and bulk-action components leave `deals.jsx` at
 764 lines, down from 1,365, with directory, shared-form, and editor presentation
-isolated in 157-, 74-, and 87-line modules. Tested 65-line selection and 136-line
-work hooks abort obsolete loads, distinguish A-to-B-to-A visits, serialize
+isolated in 157-, 74-, and 87-line modules. The shared selection and work hooks
+abort obsolete loads, distinguish A-to-B-to-A visits, serialize
 snapshot-changing mutations, suppress duplicate work actions, validate returned identities, and keep notes, tasks,
 activities, quote lines, and proposal tracking on the active deal; the guarded
 185-line commercial hook shares that contract. The generic follower control
@@ -2266,15 +2269,15 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 177.99 KiB/57.91 KiB for the entry, 39.15 KiB/11.27 KiB
-for the largest lazy chunk, and 621.61 KiB/199.45 KiB total assets. Hosted
+CSS. Current evidence is 178.03 KiB/57.94 KiB for the entry, 36.35 KiB/10.47 KiB
+for the largest lazy chunk, and 622.57 KiB/200.34 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.35 KiB/4.56 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
 routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
-and focused contact outreach/lead scoring plus company directory/people presentation leave contacts at 721 lines,
+and focused contact outreach/lead scoring plus shared record selection/work and company directory/people presentation leave contacts at 644 lines,
 companies at 827, deals at 764, and tasks at 722, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
