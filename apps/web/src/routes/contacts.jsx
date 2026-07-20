@@ -1,7 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Card } from '../components/ui/card'
-import { Button } from '../components/ui/button'
 import { bulkStatusOptions } from '../components/ui/bulk_actions'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
@@ -10,29 +8,19 @@ import { listDeals } from '../lib/deals'
 import { listOrganizationUsers } from '../lib/users'
 import { customFieldFilterFromParams, listCustomFields } from '../lib/custom_fields'
 import { usePageTitle } from '../lib/use_page_title'
-import { ContactEmailCard, ContactSequencesCard } from './contact_communications'
-import { ContactFoundationCommunications } from './contact_foundation_communications'
-import { ContactForm } from './contact_form'
-import { ContactAttributionCard, ContactLeadScoreCard } from './contact_insights'
-import { ClientAccountContext } from './client_account_context'
-import { ClientReviewSchedule } from './client_review_schedule'
 import { ContactListCard } from './contact_list'
 import {
   contactFormValues,
   contactPayload,
   duplicateSearchTerm,
   emptyContactForm,
-  formatContactAddress,
-  fullContactName,
   relatedPipelineLabels
 } from './contact_view'
-import { RecordWorkCards } from './record_work'
-import { TouchpointSummary } from './touchpoint_summary'
+import { ContactCreateWorkspace, ContactWorkspace } from './contact_workspace'
 import { useContactLeadScore } from './use_contact_lead_score'
 import { useContactOutreach } from './use_contact_outreach'
 import { requireRecordResponse, useRecordSelection } from './use_record_selection'
 import { requireRecordWork, useRecordWork } from './use_record_work'
-const showFoundationCommunications = import.meta.env.DEV
 
 export function ContactsRoute() {
   const navigate = useNavigate()
@@ -67,67 +55,31 @@ export function ContactsRoute() {
   const [isArchivingContact, setIsArchivingContact] = useState(false)
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateCandidate, setDuplicateCandidate] = useState(null)
-  const [foundationCommunicationsSnapshot, setFoundationCommunicationsSnapshot] = useState('')
-  const {
-    applyEmailTemplate,
-    emailForm,
-    emailHistory,
-    emailOpen,
-    emailStatus,
-    emailTemplates,
-    handleCancelSequenceEnrollment,
-    handleEnrollSequence,
-    handleSendEmail,
-    handleToggleEmail,
-    handleToggleSequences,
-    isEnrollingSequence,
-    isSendingEmail,
-    sequenceEnrollments,
-    sequenceForm,
-    sequenceOptions,
-    sequencesOpen,
-    sequenceStatus,
-    setEmailForm,
-    setSequenceForm
-  } = useContactOutreach({ selectedContactId, onError: setError })
-  const {
-    handleEvaluateLeadScore,
-    isEvaluatingLeadScore,
-    leadScoreStatus
-  } = useContactLeadScore({ selectedContactId, onScored: handleLeadScoreEvaluated, onError: setError })
+  const contactOutreach = useContactOutreach({ selectedContactId, onError: setError })
+  const contactLeadScore = useContactLeadScore({ selectedContactId, onScored: handleLeadScoreEvaluated, onError: setError })
   const contactSelection = useRecordSelection(selectedContactId)
-  const {
-    activities: selectedActivities,
-    fetchTasks,
-    handleCreateNote,
-    handleCreateTask,
-    isCreatingNote,
-    isCreatingTask,
-    load: loadWork,
-    noteBody,
-    notes: selectedNotes,
-    refreshTasks,
-    reset: resetWork,
-    setNoteBody,
-    setTaskForm,
-    taskForm,
-    tasks: selectedTasks
-  } = useRecordWork({
+  const contactWork = useRecordWork({
     defaultAssignedToUserId: userOptions[0]?.id ? String(userOptions[0].id) : '',
     entityType: 'contact',
     selectedEntityId: selectedContactId,
     selection: contactSelection,
     onError: setError
   })
+  const {
+    activities: selectedActivities,
+    fetchTasks,
+    load: loadWork,
+    notes: selectedNotes,
+    refreshTasks,
+    reset: resetWork,
+    setTaskForm,
+    tasks: selectedTasks
+  } = contactWork
   const searchControllerRef = useRef(null)
 
   const selectedContact = detail?.contact || null
   const selectedDeals = detail?.deals || []
   const hasFilter = search.trim() !== '' || ownerFilter !== 'all' || customFilter.fieldKey !== ''
-
-  useLayoutEffect(() => {
-    setFoundationCommunicationsSnapshot('')
-  }, [selectedContactId])
 
   function buildContactsPath(nextSearch = search, nextOwner = ownerFilter, nextCustomFilter = customFilter) {
     const params = new URLSearchParams()
@@ -480,8 +432,6 @@ export function ContactsRoute() {
     setContacts((current) => current.map((entry) => (entry.id === contactKey ? scoredContact : entry)))
   }
 
-  const detailTitle = useMemo(() => fullContactName(selectedContact || {}), [selectedContact])
-
   return (
     <section className="dashboard-grid contacts-grid">
       <ContactListCard
@@ -532,112 +482,39 @@ export function ContactsRoute() {
       />
 
       {canWrite && mode === 'create' ? (
-        <Card>
-          <div className="card-stack">
-            <div>
-              <h2>New contact</h2>
-              <p>Add the next person you need to move through the pipeline.</p>
-            </div>
-            <ContactForm customDefinitions={customDefinitions} form={form} isSubmitting={isSavingContact} onSetForm={setForm} onSubmit={handleCreate} submitLabel="Save contact" />
-          </div>
-        </Card>
+        <ContactCreateWorkspace
+          customDefinitions={customDefinitions}
+          form={form}
+          isSaving={isSavingContact}
+          onSetForm={setForm}
+          onSubmit={handleCreate}
+        />
       ) : null}
 
       {mode === 'detail' && selectedContact ? (
-        <Card>
-          <div className="card-stack">
-            {isDetailLoading ? <p className="field-hint">Loading contact detail...</p> : null}
-            <div className="section-header">
-              <div>
-                <h2>{detailTitle}</h2>
-                <p>{selectedContact.email || formatContactAddress(selectedContact) || selectedContact.phone}</p>
-              </div>
-              {canWrite ? (
-                <Button className="button-danger" disabled={isArchivingContact || isSavingContact} onClick={handleArchive}>
-                  {isArchivingContact ? 'Archiving…' : 'Archive contact'}
-                </Button>
-              ) : null}
-            </div>
-            <ContactLeadScoreCard
-              canWrite={canWrite}
-              contact={selectedContact}
-              isEvaluating={isEvaluatingLeadScore}
-              onEvaluate={handleEvaluateLeadScore}
-              status={leadScoreStatus}
-            />
-            <ContactForm
-              canSubmit={canWrite}
-              customDefinitions={customDefinitions}
-              form={form}
-              includeStatus
-              isSubmitting={isSavingContact}
-              onSetForm={setForm}
-              onSubmit={handleUpdate}
-              submitLabel="Update contact"
-            />
-            <ContactAttributionCard contact={selectedContact} />
-            <ClientAccountContext canWrite={canWrite} deals={selectedDeals}
-              isCustomer={selectedContact.isClient || selectedContact.status === 'customer'} labels={pipelineLabels}
-              notes={selectedNotes} onCreateDeal={handleCreateRelatedDeal} onOpenDeal={handleOpenDeal} tasks={selectedTasks}
-            />
-            <ClientReviewSchedule entityType="contact" entityId={selectedContactId} isClient={selectedContact.isClient || selectedContact.status === 'customer'} canWrite={canWrite} users={userOptions} onChanged={handleClientReviewChanged} />
-            {showFoundationCommunications ? (
-              <ContactFoundationCommunications
-                key={selectedContactId}
-                canWrite={canWrite}
-                contact={selectedContact}
-                contactId={selectedContactId}
-                onError={setError}
-                onSnapshotChange={setFoundationCommunicationsSnapshot}
-              />
-            ) : null}
-            <ContactEmailCard
-              canWrite={canWrite}
-              form={emailForm}
-              history={emailHistory}
-              isSending={isSendingEmail}
-              onApplyTemplate={applyEmailTemplate}
-              onSend={handleSendEmail}
-              onSetForm={setEmailForm}
-              onToggle={handleToggleEmail}
-              open={emailOpen}
-              status={emailStatus}
-              templates={emailTemplates}
-            />
-            <ContactSequencesCard
-              canWrite={canWrite}
-              enrollments={sequenceEnrollments}
-              form={sequenceForm}
-              isEnrolling={isEnrollingSequence}
-              onCancel={handleCancelSequenceEnrollment}
-              onEnroll={handleEnrollSequence}
-              onSetForm={setSequenceForm}
-              onToggle={handleToggleSequences}
-              open={sequencesOpen}
-              options={sequenceOptions}
-              status={sequenceStatus}
-            />
-            <TouchpointSummary entityType="contact" entityId={selectedContactId} refreshKey={JSON.stringify({ selectedActivities, selectedNotes, selectedTasks, emailHistory, foundationCommunicationsSnapshot })} />
-            <RecordWorkCards
-              activities={selectedActivities}
-              canWrite={canWrite}
-              entityId={selectedContactId}
-              entityType="contact"
-              isCreatingNote={isCreatingNote}
-              isCreatingTask={isCreatingTask}
-              noteBody={noteBody}
-              notes={selectedNotes}
-              onCreateNote={handleCreateNote}
-              onCreateTask={handleCreateTask}
-              onOpenTasks={handleOpenContactTasks}
-              onSetNoteBody={setNoteBody}
-              onSetTaskForm={setTaskForm}
-              taskForm={taskForm}
-              tasks={selectedTasks}
-              users={userOptions}
-            />
-          </div>
-        </Card>
+        <ContactWorkspace
+          canWrite={canWrite}
+          contact={selectedContact}
+          customDefinitions={customDefinitions}
+          deals={selectedDeals}
+          form={form}
+          isArchiving={isArchivingContact}
+          isLoading={isDetailLoading}
+          isSaving={isSavingContact}
+          leadScore={contactLeadScore}
+          onArchive={handleArchive}
+          onCreateDeal={handleCreateRelatedDeal}
+          onError={setError}
+          onOpenDeal={handleOpenDeal}
+          onOpenTasks={handleOpenContactTasks}
+          onReviewChanged={handleClientReviewChanged}
+          onSetForm={setForm}
+          onUpdate={handleUpdate}
+          outreach={contactOutreach}
+          pipelineLabels={pipelineLabels}
+          users={userOptions}
+          work={contactWork}
+        />
       ) : null}
     </section>
   )

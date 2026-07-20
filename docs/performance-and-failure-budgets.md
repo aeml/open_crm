@@ -91,8 +91,8 @@ level-9-gzip bytes using only Node's standard library.
 | All CSS | 20 KiB | 5 KiB |
 
 Current evidence: 177.99 KiB/57.93 KiB entry, 37.63 KiB/10.88 KiB largest lazy
-chunk, and 626.83 KiB/201.34 KiB total assets. The production contact, company,
-deal, and task routes are 28.25/8.52, 33.43/9.92, 37.63/10.88, and 24.26/6.93
+chunk, and 627.42 KiB/201.59 KiB total assets. The production contact, company,
+deal, and task routes are 28.84/8.64, 33.43/9.92, 37.63/10.88, and 24.26/6.93
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.35 KiB/4.56 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
@@ -150,8 +150,8 @@ modules. Shared collaboration-aware record-work cards now serve contacts, compan
 company editor/view helpers, deal quote/signature/view helpers, and task view
 logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health,
 and client-review integration plus focused development-only communications and
-production outreach and lead-score orchestrators plus focused company-directory, linked-
-people, create/detail workspace presentation, and detail orchestration plus shared record selection/work leave the parent routes at 644 contact lines,
+production outreach and lead-score orchestrators, a focused contact create/detail workspace, plus focused company-directory, linked-
+people, create/detail workspace presentation, and detail orchestration plus shared record selection/work leave the parent routes at 521 contact lines,
 562 company lines, 553 deal lines, and
 590 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 142-line work
@@ -172,6 +172,8 @@ exposes one shared pending state so line-item and proposal controls cannot race
 another deal snapshot mutation.
 The 178-line company-detail hook applies the same contract to direct routes,
 directory selection, related-deal and work loading, and locally seeded creates.
+A 168-line contact create/detail workspace composes scoring, outreach, customer
+context, review scheduling, touchpoints, and work without changing route loading.
 A 155-line company create/detail workspace similarly composes the client editor,
 linked people, email, account/review context, touchpoints, and shared work cards
 without changing the route boundary.
@@ -205,7 +207,7 @@ the application composition package.
 
 | Existing hotspot | Current lines | Maximum until next split |
 | --- | ---: | ---: |
-| `contacts.jsx` | 644 | 650 |
+| `contacts.jsx` | 521 | 530 |
 | `companies.jsx` | 562 | 570 |
 | `deals.jsx` | 553 | 565 |
 | `tasks.jsx` | 590 | 600 |
