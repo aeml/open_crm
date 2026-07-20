@@ -386,9 +386,11 @@ work, and touchpoint extraction plus bulk/custom-field integration leave
 `contacts.jsx` at 854 lines, down from 2,038; the development-only call, SMS,
 and meeting orchestration now lives in a 456-line focused module that remains
 excluded from production builds. Shared record-work cards,
-touchpoints/account/health context, and company editor/view helpers leave `companies.jsx` at 985 lines,
-down from 1,364. Deal view, shared work, quote, signature, and bulk-action
-components leave `deals.jsx` at 1,065 lines, down from 1,365. Task filtering,
+touchpoints/account/health context, company editor/view helpers, and focused
+142-line directory plus 81-line linked-people presentation leave `companies.jsx`
+at 863 lines, down from 1,364, with a tightened 900-line ceiling. Deal view,
+shared work, quote, signature, and bulk-action components leave `deals.jsx` at
+1,064 lines, down from 1,365. Task filtering,
 sorting, labels, due-date view logic, and a shared 98-line create/update form
 leave `tasks.jsx` at 769 lines, down from 1,093. Tighter source ratchets preserve every reduction while
 holding other production routes to 500 lines. This remains in progress while
@@ -2218,15 +2220,16 @@ later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
 CSS. Current evidence is 177.99 KiB/57.92 KiB for the entry, 33.90 KiB/9.12 KiB
-for the largest lazy chunk, and 612.99 KiB/195.75 KiB total assets. Hosted
+for the largest lazy chunk, and 612.62 KiB/196.01 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.70 KiB/4.67 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
 routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
-splits plus bulk/custom-field/touchpoint/close-review/account/health integration leave contacts
-at 1,299 lines, companies at 984, deals at 1,064, and tasks at 839, down from 2,038,
-1,364, 1,365, and 1,093 respectively.
+splits plus bulk/custom-field/touchpoint/close-review/account/health integration
+and focused company directory/people presentation leave contacts at 854 lines,
+companies at 863, deals at 1,064, and tasks at 769, down from 2,038, 1,364,
+1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.
 

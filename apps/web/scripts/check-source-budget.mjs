@@ -7,7 +7,7 @@ const routesDirectory = resolve(scriptDirectory, '..', 'src', 'routes')
 const defaultMaximum = 500
 const maximums = new Map([
   ['contacts.jsx', 900],
-  ['companies.jsx', 1000],
+  ['companies.jsx', 900],
   ['deals.jsx', 1100],
   ['tasks.jsx', 800],
   ['settings_automations.jsx', 700],

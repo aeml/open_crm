@@ -91,8 +91,9 @@ level-9-gzip bytes using only Node's standard library.
 | All CSS | 20 KiB | 5 KiB |
 
 Current evidence: 177.99 KiB/57.92 KiB entry, 33.90 KiB/9.12 KiB largest lazy
-chunk, and 612.99 KiB/195.75 KiB total assets. The production contact route is
-27.97 KiB/8.37 KiB. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
+chunk, and 612.62 KiB/196.01 KiB total assets. The production contact route is
+26.81 KiB/7.96 KiB, the company route is 31.67 KiB/9.22 KiB, and the task route
+is 21.59 KiB/5.99 KiB. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.70 KiB/4.67 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
@@ -149,8 +150,9 @@ modules. Shared collaboration-aware record-work cards now serve contacts, compan
 company editor/view helpers, deal quote/signature/view helpers, and task view
 logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health,
 and client-review integration plus a focused development-only communications
-orchestrator leave the parent routes at 854 contact lines,
-985 company lines, 1,065 deal lines, and
+orchestrator plus focused company-directory and linked-people presentation
+leave the parent routes at 854 contact lines,
+863 company lines, 1,064 deal lines, and
 769 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
@@ -173,10 +175,10 @@ the application composition package.
 | Existing hotspot | Current lines | Maximum until next split |
 | --- | ---: | ---: |
 | `contacts.jsx` | 854 | 900 |
-| `companies.jsx` | 985 | 1,000 |
-| `deals.jsx` | 1,065 | 1,100 |
+| `companies.jsx` | 863 | 900 |
+| `deals.jsx` | 1,064 | 1,100 |
 | `tasks.jsx` | 769 | 800 |
-| `dashboard.jsx` | 478 | 550 |
+| `dashboard.jsx` | 477 | 550 |
 | backend `support_handlers.go` | 699 | 800 |
 
 All other production route and `internal/app` Go files are limited to 500

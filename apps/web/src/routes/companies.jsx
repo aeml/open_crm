@@ -2,16 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
-import { EmptyState } from '../components/ui/empty_state'
-import { SavedViews } from '../components/ui/saved_views'
-import { BulkActions, bulkStatusOptions } from '../components/ui/bulk_actions'
-import { CustomFieldFilter } from '../components/ui/custom_field_filter'
-import { CustomFieldsForm, CustomFieldValue } from '../components/ui/custom_fields_form'
 import { RecordEmailComposer } from '../components/record_email_composer'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { archiveCompany, companiesExportURL, createCompany, getCompany, listCompanies, sendCompanyEmail, updateCompany } from '../lib/companies'
+import { archiveCompany, createCompany, getCompany, listCompanies, sendCompanyEmail, updateCompany } from '../lib/companies'
 import { createContact, listContacts } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
@@ -22,19 +16,16 @@ import { usePageTitle } from '../lib/use_page_title'
 import {
   buildClientRecords,
   buildCompanyPayload,
-  clientTypeLabel,
   companyFormValues,
   createDescription,
   detailSubtitle,
   duplicateSearchTerm,
   emailRecipientOptions,
   emptyLinkedPersonForm,
-  formatAddress,
   individualClientFromContact,
   isIndividualClient,
   linkedPersonFormValues,
   mergeLinkedContactIDs,
-  normalizeClientType,
   organizationClientFromCompany,
   primaryLinkedContactID,
   relatedPipelineLabels,
@@ -42,6 +33,8 @@ import {
   splitFullName
 } from './company_view'
 import { CompanyForm } from './company_form'
+import { CompanyDirectory } from './company_directory'
+import { CompanyPeople } from './company_people'
 import { ClientAccountContext } from './client_account_context'
 import { ClientReviewSchedule, refreshClientReviewTasks } from './client_review_schedule'
 import { ClientHealthReport } from './client_health_report'
@@ -279,10 +272,6 @@ export function CompaniesRoute() {
     setOwnerFilter(value)
     navigate(buildCompaniesPath(search, value), { replace: true })
     await reloadCompanies(search, value)
-  }
-
-  async function handleOwnerFilterChange(event) {
-    await applyOwnerFilter(event.target.value)
   }
 
   async function applyCustomFilter(nextCustomFilter) {
@@ -596,6 +585,39 @@ export function CompaniesRoute() {
     }
   }
 
+  function handleToggleLinkedPersonForm() {
+    setLinkedPersonForm(linkedPersonFormValues(selectedCompany))
+    setShowLinkedPersonForm((current) => !current)
+  }
+
+  function handleAddClient() {
+    navigate('/companies')
+    setMode('create')
+    setForm(emptyForm)
+    setLinkedPersonForm(emptyLinkedPersonForm)
+    setShowLinkedPersonForm(false)
+    setDetail(null)
+    setSelectedCompanyId(null)
+  }
+
+  function handleClearFilters() {
+    const clearedCustomFilter = { fieldKey: '', operator: '', value: '' }
+    setSearch('')
+    setOwnerFilter('all')
+    setCustomFilter(clearedCustomFilter)
+    navigate(buildCompaniesPath('', 'all', clearedCustomFilter), { replace: true })
+    reloadCompanies('', 'all', clearedCustomFilter)
+  }
+
+  function handleToggleClientSelection(company) {
+    if (bulkEntityType !== company.entityType) {
+      setBulkEntityType(company.entityType)
+      setSelectedClientIds([company.entityId])
+      return
+    }
+    setSelectedClientIds((current) => current.includes(company.entityId) ? current.filter((id) => id !== company.entityId) : [...current, company.entityId])
+  }
+
   async function handleArchive() {
     if (!selectedCompanyId) {
       return
@@ -698,132 +720,38 @@ export function CompaniesRoute() {
 
   return (
     <section className="dashboard-grid contacts-grid">
-      <Card>
-        <div className="card-stack">
-          <div className="section-header">
-            <div>
-                <h2>Clients</h2>
-              <p>See client ownership, linked people, and live pipeline in one place.</p>
-            </div>
-            <div className="button-row">
-              <a className="button button-secondary" href={companiesExportURL({ search, customField: customFilter })}>
-                Export CSV
-              </a>
-              {canWrite ? (
-                <Button
-                  onClick={() => {
-                    navigate('/companies')
-                    setMode('create')
-                    setForm(emptyForm)
-                    setLinkedPersonForm(emptyLinkedPersonForm)
-                    setShowLinkedPersonForm(false)
-                    setDetail(null)
-                    setSelectedCompanyId(null)
-                  }}
-                >
-                  Add client
-                </Button>
-              ) : null}
-            </div>
-          </div>
-          <p className="field-hint">CSV exports include up to 10,000 matching clients. Apply filters first for larger sets.</p>
-          <Field label="Search clients">
-            <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
-          </Field>
-          <SavedViews entityType="companies" canManage={canWrite} currentFilters={{ q: search, owner: ownerFilter, customField: customFilter.fieldKey, customOperator: customFilter.operator, customValue: customFilter.value }} onApply={handleApplySavedView} defaultName="Client view" />
-          <Field label="Owner filter">
-            <div className="button-row">
-              <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
-                <option value="all">All owners</option>
-                <option value="unassigned">Unassigned</option>
-                {ownerOptions.map((user) => (
-                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}{user.status === 'disabled' ? ' (disabled)' : ''}</option>
-                ))}
-              </select>
-              {currentUserId ? (
-                <Button className={ownerFilter === currentUserId ? '' : 'button-secondary'} type="button" onClick={() => applyOwnerFilter(currentUserId)}>
-                  Mine
-                </Button>
-              ) : null}
-              <Button className={ownerFilter === 'unassigned' ? '' : 'button-secondary'} type="button" onClick={() => applyOwnerFilter('unassigned')}>
-                Unassigned
-              </Button>
-            </div>
-          </Field>
-          <CustomFieldFilter definitions={companyCustomDefinitions} value={customFilter} onApply={applyCustomFilter} onClear={() => applyCustomFilter({ fieldKey: '', operator: '', value: '' })} />
-          {isListLoading ? <p className="field-hint">Loading clients...</p> : null}
-          {error ? (
-            <div className="card-stack">
-              <p className="form-error">{error}</p>
-              <div>
-                <Button className="button-secondary" type="button" onClick={() => reloadCompanies(search)}>
-                  Retry clients
-                </Button>
-              </div>
-              {duplicateCandidate ? (
-                <div>
-                  <Button className="button-secondary" onClick={handleOpenDuplicate}>
-                    Open matching {duplicateCandidate.entityType === 'contact' ? 'contact' : 'client'}
-                  </Button>
-                </div>
-              ) : null}
-              {duplicateSearch ? (
-                <div>
-                  <Button className="button-secondary" onClick={handleDuplicateSearch}>
-                    Search existing clients for {duplicateSearch}
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {canWrite ? <BulkActions entityType={bulkEntityType} selectedIds={selectedClientIds} visibleIds={companies.filter((company) => company.entityType === bulkEntityType).map((company) => company.entityId)} onSelectionChange={setSelectedClientIds} onChanged={() => reloadCompanies(search, ownerFilter)} statuses={bulkStatusOptions[bulkEntityType]} userOptions={userOptions} /> : null}
-          <div className="record-list" role="list" aria-label="Clients list">
-            {!isListLoading && companies.length === 0 ? (
-              <EmptyState
-                title={hasFilter ? 'No clients match the current filters.' : 'No clients yet.'}
-                description={hasFilter ? 'Try a different client, website, or contact name, or change the owner filter.' : 'Create an organization or individual client so your contacts, pipeline records, notes, and tasks have a home.'}
-                actionLabel={hasFilter ? 'Clear filters' : (canWrite ? 'Create first client' : '')}
-                onAction={() => {
-                  if (hasFilter) {
-                    setSearch('')
-                    setOwnerFilter('all')
-                    setCustomFilter({ fieldKey: '', operator: '', value: '' })
-                    navigate(buildCompaniesPath('', 'all', { fieldKey: '', operator: '', value: '' }), { replace: true })
-                    reloadCompanies('', 'all', { fieldKey: '', operator: '', value: '' })
-                    return
-                  }
-                  navigate('/companies')
-                  setMode('create')
-                  setForm(emptyForm)
-                  setLinkedPersonForm(emptyLinkedPersonForm)
-                  setShowLinkedPersonForm(false)
-                  setDetail(null)
-                  setSelectedCompanyId(null)
-                }}
-              />
-            ) : companies.map((company) => (
-              <article className="record-row" key={company.id} role="listitem">
-                <div>
-                  {canWrite ? <input type="checkbox" aria-label={`Select ${company.name}`} checked={bulkEntityType === company.entityType && selectedClientIds.includes(company.entityId)} onChange={() => { if (bulkEntityType !== company.entityType) { setBulkEntityType(company.entityType); setSelectedClientIds([company.entityId]); return } setSelectedClientIds((current) => current.includes(company.entityId) ? current.filter((id) => id !== company.entityId) : [...current, company.entityId]) }} /> : null}
-                  <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenCompany(company)}>
-                    {company.name}
-                  </button>
-                  <p>{company.industry || `${clientTypeLabel(company.clientType)} client`}</p>
-                </div>
-                <div>
-                  <p>{company.email || company.website || formatAddress(company) || clientTypeLabel(company.clientType)}</p>
-                  <p>{company.status}</p>
-                  <p className="field-hint">{company.ownerUserName || 'Unassigned'}</p>
-                  {company.entityType === 'company' ? companyCustomDefinitions.filter((definition) => definition.showInList).map((definition) => (
-                    <p className="field-hint" key={definition.id}><CustomFieldValue definition={definition} value={company.customFields?.[definition.fieldKey]} /></p>
-                  )) : null}
-                </div>
-              </article>
-            ))}
-          </div>
-          <p className="field-hint">Showing {companies.length} of {meta.total} clients.</p>
-        </div>
-      </Card>
+      <CompanyDirectory
+        bulkEntityType={bulkEntityType}
+        canWrite={canWrite}
+        companies={companies}
+        currentUserId={currentUserId}
+        customDefinitions={companyCustomDefinitions}
+        customFilter={customFilter}
+        duplicateCandidate={duplicateCandidate}
+        duplicateSearch={duplicateSearch}
+        error={error}
+        hasFilter={hasFilter}
+        isLoading={isListLoading}
+        meta={meta}
+        onAddClient={handleAddClient}
+        onApplyCustomFilter={applyCustomFilter}
+        onApplyOwnerFilter={applyOwnerFilter}
+        onApplySavedView={handleApplySavedView}
+        onBulkChanged={() => reloadCompanies(search, ownerFilter)}
+        onClearFilters={handleClearFilters}
+        onDuplicateSearch={handleDuplicateSearch}
+        onOpenClient={handleOpenCompany}
+        onOpenDuplicate={handleOpenDuplicate}
+        onReload={() => reloadCompanies(search)}
+        onSearchChange={handleSearchChange}
+        onSelectionChange={setSelectedClientIds}
+        onToggleSelection={handleToggleClientSelection}
+        ownerFilter={ownerFilter}
+        ownerOptions={ownerOptions}
+        search={search}
+        selectedClientIds={selectedClientIds}
+        userOptions={userOptions}
+      />
 
       {mode === 'list' ? <ClientHealthReport canManage={canWrite} owners={ownerOptions} onOpen={(record) => navigate(`/${record.entityType === 'contact' ? 'contacts' : 'companies'}/${record.entityId}`)} /> : null}
 
@@ -871,67 +799,18 @@ export function CompaniesRoute() {
               onSubmit={handleUpdate}
               submitLabel="Update client"
             />
-            <Card>
-              <div className="card-stack">
-                <div className="section-header">
-                  <div>
-                    <h3>People</h3>
-                    <p>{normalizeClientType(selectedCompany.clientType) === 'individual' ? 'Manage the linked person for this client.' : 'Add and manage the people tied to this client.'}</p>
-                  </div>
-                  {!isIndividualClient(selectedCompany.clientType) && canWrite ? (
-                    <Button className="button-secondary" onClick={() => {
-                      setLinkedPersonForm(linkedPersonFormValues(selectedCompany))
-                      setShowLinkedPersonForm((current) => !current)
-                    }}>
-                      {showLinkedPersonForm ? 'Cancel' : 'Add person'}
-                    </Button>
-                  ) : null}
-                </div>
-                {showLinkedPersonForm && !isIndividualClient(selectedCompany.clientType) && canWrite ? (
-                  <form className="auth-form" onSubmit={handleCreateLinkedPerson}>
-                    <Field label="First name">
-                      <input className="text-input" value={linkedPersonForm.firstName} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, firstName: event.target.value }))} required />
-                    </Field>
-                    <Field label="Last name">
-                      <input className="text-input" value={linkedPersonForm.lastName} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, lastName: event.target.value }))} required />
-                    </Field>
-                    <Field label="Email">
-                      <input className="text-input" type="email" value={linkedPersonForm.email} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, email: event.target.value }))} />
-                    </Field>
-                    <Field label="Phone">
-                      <input className="text-input" value={linkedPersonForm.phone} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, phone: event.target.value }))} />
-                    </Field>
-                    <Field label="Job title">
-                      <input className="text-input" value={linkedPersonForm.jobTitle} onChange={(event) => setLinkedPersonForm((current) => ({ ...current, jobTitle: event.target.value }))} />
-                    </Field>
-                    <CustomFieldsForm definitions={contactCustomDefinitions} values={linkedPersonForm.customFields} onChange={(customFields) => setLinkedPersonForm((current) => ({ ...current, customFields }))} />
-                    <Button type="submit">Save person</Button>
-                  </form>
-                ) : null}
-                <div className="record-list" role="list" aria-label="Linked contacts list">
-                  {linkedContacts.length === 0 ? (
-                    <article className="record-row" role="listitem">
-                      <div>
-                        <p>{normalizeClientType(selectedCompany.clientType) === 'individual' ? 'No linked person yet.' : 'No linked people yet.'}</p>
-                      </div>
-                    </article>
-                  ) : linkedContacts.map((contact) => (
-                    <article className="record-row" key={contact.id} role="listitem">
-                      <div>
-                        <button className="button button-ghost contact-link" type="button" onClick={() => navigate(`/contacts/${contact.id}`)}>
-                          {contact.firstName} {contact.lastName}
-                        </button>
-                        <p>{contact.relationshipTitle || (normalizeClientType(selectedCompany.clientType) === 'individual' ? 'Client record' : 'Linked contact')}</p>
-                      </div>
-                      <div>
-                        <p>{contact.email}</p>
-                        <p>{contact.isPrimary ? 'Primary' : 'Linked'}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </Card>
+            <CompanyPeople
+              canWrite={canWrite}
+              company={selectedCompany}
+              contacts={linkedContacts}
+              customDefinitions={contactCustomDefinitions}
+              form={linkedPersonForm}
+              onOpenContact={(contactID) => navigate(`/contacts/${contactID}`)}
+              onSetForm={setLinkedPersonForm}
+              onSubmit={handleCreateLinkedPerson}
+              onToggleForm={handleToggleLinkedPersonForm}
+              showForm={showLinkedPersonForm}
+            />
             <RecordEmailComposer
               entityType="company"
               entityId={selectedCompanyId}
