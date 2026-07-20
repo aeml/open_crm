@@ -46,6 +46,11 @@ type jobKey struct {
 	outcome string
 }
 
+type rateLimitKey struct {
+	scope   string
+	outcome string
+}
+
 // Collector stores process-local counters. Durable queue gauges and backup
 // timestamps are supplied at scrape time through RuntimeSnapshot.
 type Collector struct {
@@ -56,6 +61,7 @@ type Collector struct {
 	providerCalls   map[providerKey]uint64
 	providerSeconds map[providerKey]float64
 	jobOutcomes     map[jobKey]uint64
+	rateLimits      map[rateLimitKey]uint64
 }
 
 func NewCollector() *Collector {
@@ -66,6 +72,7 @@ func NewCollector() *Collector {
 		providerCalls:   make(map[providerKey]uint64),
 		providerSeconds: make(map[providerKey]float64),
 		jobOutcomes:     make(map[jobKey]uint64),
+		rateLimits:      make(map[rateLimitKey]uint64),
 	}
 }
 
@@ -130,6 +137,19 @@ func (c *Collector) ObserveJob(jobType, outcome string) {
 	c.mu.Unlock()
 }
 
+func (c *Collector) ObserveRateLimit(scope, outcome string) {
+	if c == nil {
+		return
+	}
+	key := rateLimitKey{
+		scope:   boundedLabel(scope, "unknown"),
+		outcome: finiteRateLimitOutcome(outcome),
+	}
+	c.mu.Lock()
+	c.rateLimits[key]++
+	c.mu.Unlock()
+}
+
 type RuntimeSnapshot struct {
 	CollectionSuccess bool
 	DatabaseUp        bool
@@ -184,6 +204,7 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	providerCalls := copyMap(c.providerCalls)
 	providerSeconds := copyMap(c.providerSeconds)
 	jobOutcomes := copyMap(c.jobOutcomes)
+	rateLimits := copyMap(c.rateLimits)
 	startedAt := c.startedAt
 	c.mu.RUnlock()
 
@@ -228,6 +249,12 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	jobKeys := sortedKeys(jobOutcomes, func(key jobKey) string { return key.jobType + "\x00" + key.outcome })
 	for _, key := range jobKeys {
 		fmt.Fprintf(&output, "open_crm_background_job_outcomes_total{job_type=%s,outcome=%s} %d\n", quote(key.jobType), quote(key.outcome), jobOutcomes[key])
+	}
+
+	writeHelpType(&output, "open_crm_rate_limit_decisions_total", "Public abuse-control decisions by bounded static scope and outcome.", "counter")
+	rateLimitKeys := sortedKeys(rateLimits, func(key rateLimitKey) string { return key.scope + "\x00" + key.outcome })
+	for _, key := range rateLimitKeys {
+		fmt.Fprintf(&output, "open_crm_rate_limit_decisions_total{scope=%s,outcome=%s} %d\n", quote(key.scope), quote(key.outcome), rateLimits[key])
 	}
 
 	writeHelpType(&output, "open_crm_background_jobs_available", "Whether durable queue gauges were collected successfully.", "gauge")
@@ -290,6 +317,15 @@ func finiteJobOutcome(value string) string {
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return "unknown"
+	}
+}
+
+func finiteRateLimitOutcome(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "allowed", "rejected", "error":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "error"
 	}
 }
 

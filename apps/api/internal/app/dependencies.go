@@ -386,6 +386,7 @@ type emailSuppressionsService interface {
 type Dependencies struct {
 	CheckReadiness                  func(context.Context) error
 	Logger                          *slog.Logger
+	RateLimitsService               rateLimitService
 	AuthService                     authService
 	UsersService                    usersService
 	AuditService                    auditService

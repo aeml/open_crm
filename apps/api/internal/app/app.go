@@ -331,33 +331,32 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	if emailOAuthClient == nil {
 		emailOAuthClient = defaultEmailOAuthClient{}
 	}
-	authLimiter := newFixedWindowRateLimiter(authRateLimit, authRateWindow, rateLimitMaxClients)
-	bootstrapLimiter := newFixedWindowRateLimiter(bootstrapRateLimit, bootstrapRateWindow, rateLimitMaxClients)
-	publicReadLimiter := newFixedWindowRateLimiter(publicReadRateLimit, publicRateWindow, rateLimitMaxClients)
-	publicWriteLimiter := newFixedWindowRateLimiter(publicWriteRateLimit, publicRateWindow, rateLimitMaxClients)
-	trackingLimiter := newFixedWindowRateLimiter(trackingRateLimit, publicRateWindow, rateLimitMaxClients)
+	rateLimiter := dependencies.RateLimitsService
+	if rateLimiter == nil {
+		rateLimiter = newFixedWindowRateLimiter(rateLimitMaxClients)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth/login", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(authLimiter, "auth.login", "Too many authentication attempts", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "auth.login", authRateLimit, authRateWindow, "Too many authentication attempts", w, r) {
 			return
 		}
 		handleLogin(env, dependencies.AuthService, dependencies.BillingService, w, r)
 	})
 	mux.HandleFunc("POST /auth/bootstrap", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(bootstrapLimiter, "auth.bootstrap", "Too many workspace creation attempts", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "auth.bootstrap", bootstrapRateLimit, bootstrapRateWindow, "Too many workspace creation attempts", w, r) {
 			return
 		}
 		handleBootstrap(dependencies.OnboardingService, w, r)
 	})
 	mux.HandleFunc("POST /auth/verify-email", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(authLimiter, "auth.verify-email", "Too many email verification attempts", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "auth.verify-email", authRateLimit, authRateWindow, "Too many email verification attempts", w, r) {
 			return
 		}
 		handleVerifyEmail(env, dependencies.OnboardingService, dependencies.BillingService, w, r)
 	})
 	mux.HandleFunc("POST /auth/resend-verification", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(authLimiter, "auth.resend-verification", "Too many verification email requests", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "auth.resend-verification", authRateLimit, authRateWindow, "Too many verification email requests", w, r) {
 			return
 		}
 		handleResendVerification(dependencies.OnboardingService, w, r)
@@ -423,7 +422,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleDeleteMyEmailAccount(dependencies.AuthService, dependencies.UserEmailService, w, r)
 	})
 	mux.HandleFunc("POST /auth/setup-password", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(authLimiter, "auth.setup-password", "Too many password setup attempts", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "auth.setup-password", authRateLimit, authRateWindow, "Too many password setup attempts", w, r) {
 			return
 		}
 		handleCompleteUserSetup(dependencies.UsersService, dependencies.AuditService, w, r)
@@ -466,7 +465,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleCreatePortalSession(billingAuth, billingService, w, r)
 	})
 	mux.HandleFunc("POST /api/billing/webhooks/stripe", func(w http.ResponseWriter, r *http.Request) {
-		if !rejectRateLimited(publicReadLimiter, "billing.stripe-webhook", "Too many billing webhook deliveries", w, r) {
+		if !rejectRateLimited(rateLimiter, dependencies.Metrics, "billing.stripe-webhook", publicReadRateLimit, publicRateWindow, "Too many billing webhook deliveries", w, r) {
 			handleStripeWebhook(billingService, w, r)
 		}
 	})
@@ -528,13 +527,13 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleUpdateLeadLandingPage(dependencies.AuthService, dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("GET /api/public/landing-pages/{slug}", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(publicReadLimiter, "public.landing-page", "Too many public page requests", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.landing-page", publicReadRateLimit, publicRateWindow, "Too many public page requests", w, r) {
 			return
 		}
 		handleGetPublicLeadLandingPage(dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("POST /api/public/lead-capture-forms/{publicID}/submissions", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(publicWriteLimiter, "public.lead-submission", "Too many lead submissions", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.lead-submission", publicWriteRateLimit, publicRateWindow, "Too many lead submissions", w, r) {
 			return
 		}
 		handleSubmitPublicLeadCaptureForm(dependencies.LeadFormsService, w, r)
@@ -549,7 +548,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleUpdateLeadChatWidget(dependencies.AuthService, dependencies.LeadFormsService, w, r)
 	})
 	mux.HandleFunc("GET /api/public/lead-chat-widgets/{publicID}", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(publicReadLimiter, "public.lead-widget", "Too many public widget requests", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.lead-widget", publicReadRateLimit, publicRateWindow, "Too many public widget requests", w, r) {
 			return
 		}
 		handleGetPublicLeadChatWidget(dependencies.LeadFormsService, w, r)
@@ -735,19 +734,19 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleSendContactSMS(dependencies.AuthService, dependencies.ContactsService, dependencies.SMSService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-unsubscribe/{token}", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(publicWriteLimiter, "public.email-unsubscribe", "Too many unsubscribe requests", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.email-unsubscribe", publicWriteRateLimit, publicRateWindow, "Too many unsubscribe requests", w, r) {
 			return
 		}
 		handleEmailUnsubscribe(dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages/open/{trackingToken}", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(trackingLimiter, "public.email-open", "Too many email tracking requests", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.email-open", trackingRateLimit, publicRateWindow, "Too many email tracking requests", w, r) {
 			return
 		}
 		handleTrackEmailOpen(dependencies.EmailMessagesService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages/click/{clickToken}", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRateLimited(trackingLimiter, "public.email-click", "Too many email tracking requests", w, r) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.email-click", trackingRateLimit, publicRateWindow, "Too many email tracking requests", w, r) {
 			return
 		}
 		handleTrackEmailClick(dependencies.EmailMessagesService, w, r)

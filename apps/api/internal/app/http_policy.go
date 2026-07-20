@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/url"
@@ -11,52 +12,54 @@ import (
 	"time"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
+	platformtelemetry "github.com/aeml/open_crm/apps/api/internal/platform/telemetry"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
+
+type rateLimitService interface {
+	Allow(context.Context, string, string, int, time.Duration) (bool, time.Duration, error)
+}
 
 type fixedWindowRateLimiter struct {
 	mu      sync.Mutex
 	buckets map[string]rateLimitBucket
-	limit   int
-	window  time.Duration
 	maxKeys int
 	now     func() time.Time
 }
 
 type rateLimitBucket struct {
-	windowStart time.Time
-	count       int
+	expiresAt time.Time
+	count     int
 }
 
-func newFixedWindowRateLimiter(limit int, window time.Duration, maxKeys int) *fixedWindowRateLimiter {
+func newFixedWindowRateLimiter(maxKeys int) *fixedWindowRateLimiter {
+	if maxKeys <= 0 {
+		maxKeys = 1024
+	}
+	return &fixedWindowRateLimiter{
+		buckets: make(map[string]rateLimitBucket),
+		maxKeys: maxKeys,
+		now:     time.Now,
+	}
+}
+
+func (l *fixedWindowRateLimiter) Allow(_ context.Context, scope, clientKey string, limit int, window time.Duration) (bool, time.Duration, error) {
+	if l == nil {
+		return true, window, nil
+	}
 	if limit <= 0 {
 		limit = 1
 	}
 	if window <= 0 {
 		window = time.Minute
 	}
-	if maxKeys <= 0 {
-		maxKeys = 1024
-	}
-	return &fixedWindowRateLimiter{
-		buckets: make(map[string]rateLimitBucket),
-		limit:   limit,
-		window:  window,
-		maxKeys: maxKeys,
-		now:     time.Now,
-	}
-}
-
-func (l *fixedWindowRateLimiter) allow(key string) bool {
-	if l == nil {
-		return true
-	}
+	key := strings.TrimSpace(scope) + ":" + strings.TrimSpace(clientKey)
 	now := l.now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	bucket, exists := l.buckets[key]
-	if exists && now.Sub(bucket.windowStart) >= l.window {
+	if exists && !now.Before(bucket.expiresAt) {
 		delete(l.buckets, key)
 		exists = false
 	}
@@ -65,33 +68,49 @@ func (l *fixedWindowRateLimiter) allow(key string) bool {
 			l.pruneExpired(now)
 		}
 		if len(l.buckets) >= l.maxKeys {
-			return false
+			return false, window, nil
 		}
-		l.buckets[key] = rateLimitBucket{windowStart: now, count: 1}
-		return true
+		l.buckets[key] = rateLimitBucket{expiresAt: now.Add(window), count: 1}
+		return true, window, nil
 	}
-	if bucket.count >= l.limit {
-		return false
+	retryAfter := bucket.expiresAt.Sub(now)
+	if retryAfter <= 0 {
+		retryAfter = time.Second
+	}
+	if bucket.count >= limit {
+		return false, retryAfter, nil
 	}
 	bucket.count++
 	l.buckets[key] = bucket
-	return true
+	return true, retryAfter, nil
 }
 
 func (l *fixedWindowRateLimiter) pruneExpired(now time.Time) {
 	for key, bucket := range l.buckets {
-		if now.Sub(bucket.windowStart) >= l.window {
+		if !now.Before(bucket.expiresAt) {
 			delete(l.buckets, key)
 		}
 	}
 }
 
-func rejectRateLimited(limiter *fixedWindowRateLimiter, group, message string, w http.ResponseWriter, r *http.Request) bool {
-	key := strings.TrimSpace(group) + ":" + rateLimitClientKey(r)
-	if limiter.allow(key) {
+func rejectRateLimited(limiter rateLimitService, metrics *platformtelemetry.Collector, group string, limit int, window time.Duration, message string, w http.ResponseWriter, r *http.Request) bool {
+	allowed, retryAfter, err := limiter.Allow(r.Context(), strings.TrimSpace(group), rateLimitClientKey(r), limit, window)
+	if err != nil {
+		metrics.ObserveRateLimit(group, "error")
+		w.Header().Set("Retry-After", "1")
+		platformweb.WriteError(w, http.StatusServiceUnavailable, platformweb.RequestIDFromContext(r.Context()), "RATE_LIMIT_UNAVAILABLE", "Request protection is temporarily unavailable")
+		return true
+	}
+	if allowed {
+		metrics.ObserveRateLimit(group, "allowed")
 		return false
 	}
-	w.Header().Set("Retry-After", strconv.Itoa(int(publicRateWindow/time.Second)))
+	metrics.ObserveRateLimit(group, "rejected")
+	retrySeconds := int((retryAfter + time.Second - 1) / time.Second)
+	if retrySeconds < 1 {
+		retrySeconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
 	platformweb.WriteError(w, http.StatusTooManyRequests, platformweb.RequestIDFromContext(r.Context()), "RATE_LIMITED", message)
 	return true
 }
@@ -110,6 +129,9 @@ func rateLimitClientKey(r *http.Request) string {
 		if forwarded := firstForwardedIP(r.Header.Get("X-Forwarded-For")); forwarded != "" {
 			return forwarded
 		}
+	}
+	if remoteIP != nil {
+		return remoteIP.String()
 	}
 	if remoteHost != "" {
 		return remoteHost

@@ -47,7 +47,7 @@ This repo is meant to demonstrate the kind of engineering used in practical busi
 Production-capable core:
 
 - Verified self-serve workspace provisioning with stable retry keys, one-time 24-hour email links, no pre-verification session, a verification-started 14-day trial, safe resend recovery, and bounded public auth/signup flows
-- Server-side session authentication, one-time password setup, CSRF/origin protection, and rate-limited auth flows
+- Server-side session authentication, one-time password setup, CSRF/origin protection, and shared PostgreSQL-backed public/auth abuse budgets that coordinate across restarts and replicas without retaining raw client addresses
 - Organization-scoped owner/admin/member/viewer roles and tenant isolation
 - Contacts, companies, deals, tasks, notes, activity, ownership, filters, pagination, and saved views
 - Admin-managed pipelines with bounded stage creation, renaming, outcome classification, configurable open-stage probability, exact reordering, default selection, and stable stage identities for existing deals
@@ -207,7 +207,7 @@ Current automated checks in `.github/workflows/ci.yml`:
 - Chromium pilot journey against a disposable PostgreSQL database, including idempotent workspace bootstrap, mandatory owner-email verification and trial start, invited-user lifecycle, required typed custom-field administration, dynamic mapped import and safe rollback, client/contact creation and reviewed core/custom-field duplicate merge, admin stage/probability configuration with existing-deal continuity and forecast verification, deal/task work, won close review and transactional client handoff/account summary, client-health triage, recurring client review tasks, reversible bulk client changes, teammate mention and followed-digest navigation, session persistence, and cross-tenant denial
 - encrypted Restic snapshot, retention/integrity check, extraction, isolated PostgreSQL restore, forward migration, and plaintext-leak acceptance
 - immutable release, expand-migration, manual rollback, and failed-readiness recovery acceptance
-- protected bounded-cardinality operational metrics plus promtool-validated request/database/job/provider/backup alert rules
+- protected bounded-cardinality operational metrics plus promtool-validated request/database/job/provider/public-abuse/backup alert rules
 - representative multi-tenant PostgreSQL query-plan, concurrent-read latency, and bounded database-failure budgets
 
 The backend and browser jobs each use a disposable PostgreSQL 16 service. The

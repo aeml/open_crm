@@ -50,6 +50,7 @@ import (
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduleproductcatalog "github.com/aeml/open_crm/apps/api/internal/modules/productcatalog"
+	moduleratelimits "github.com/aeml/open_crm/apps/api/internal/modules/ratelimits"
 	modulesalesreports "github.com/aeml/open_crm/apps/api/internal/modules/salesreports"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	modulesequencerunner "github.com/aeml/open_crm/apps/api/internal/modules/sequencerunner"
@@ -137,6 +138,7 @@ func main() {
 	var sequenceRunnerService *modulesequencerunner.Service
 	var jobsService *modulejobs.Service
 	var taskRemindersService *moduletaskreminders.Service
+	var rateLimitsService *moduleratelimits.Service
 	var databasePool *db.Pool
 	credentialCipher, cipherErr := platformsecrets.NewCipherFromBase64(env.CredentialEncryptionKey)
 	if cipherErr != nil {
@@ -149,6 +151,7 @@ func main() {
 		} else {
 			defer pool.Close()
 			databasePool = pool
+			rateLimitsService = moduleratelimits.NewService(pool)
 			billingService = modulebilling.NewService(pool, modulebilling.WithObserver(modulebilling.NewProvider(env.BillingProvider, modulebilling.ProviderConfig{
 				SecretKey:       env.StripeSecretKey,
 				WebhookSecret:   env.StripeWebhookSecret,
@@ -208,6 +211,11 @@ func main() {
 			sequenceRunnerService = modulesequencerunner.NewServiceWithSuppressions(emailSequencesService, userEmailService, emailMessagesService, emailSuppressionsService, env.APIBaseURL)
 			jobsService = modulejobs.NewService(pool)
 		}
+	}
+	if rateLimitsService == nil {
+		// The production HTTP boundary must fail closed when PostgreSQL could
+		// not be configured; NewServer's local limiter is test-only fallback.
+		rateLimitsService = moduleratelimits.NewService(databasePool)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -327,6 +335,7 @@ func main() {
 		Metrics:                         metrics,
 		OperationalMetrics:              operationalMetrics,
 		Logger:                          logger,
+		RateLimitsService:               rateLimitsService,
 		AuthService:                     authService,
 		AuditService:                    auditService,
 		BackgroundJobsService:           jobsService,

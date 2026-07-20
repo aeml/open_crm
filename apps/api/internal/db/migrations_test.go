@@ -1298,3 +1298,21 @@ func TestMigrationFilesIncludeBillingCapacityReservationsMigration(t *testing.T)
 		t.Fatalf("capacity reservation migration class=%q", class)
 	}
 }
+
+func TestMigrationFilesIncludeSharedPublicRateLimitsMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "079_shared_public_rate_limits.sql") {
+		t.Fatal("shared public rate limits migration is missing")
+	}
+	sql := MigrationSQL("079_shared_public_rate_limits.sql")
+	for _, fragment := range []string{"public_rate_limit_buckets", "client_key_hash BYTEA", "expires_at", "request_count", "idx_public_rate_limit_buckets_expiry"} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("shared public rate limits migration missing %q", fragment)
+		}
+	}
+	if strings.Contains(sql, "ip_address") || strings.Contains(sql, "remote_address") {
+		t.Fatal("shared public rate limits migration must not retain raw client addresses")
+	}
+	if class := MigrationDeploymentClass("079_shared_public_rate_limits.sql"); class != "expand" {
+		t.Fatalf("shared public rate limits migration class=%q", class)
+	}
+}

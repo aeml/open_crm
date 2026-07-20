@@ -83,6 +83,24 @@ groups:
           summary: Open CRM observed provider operation failures
           runbook: docs/operations-runbook.md#provider-incident
 
+      - alert: OpenCRMRateLimitStoreErrors
+        expr: sum(increase(open_crm_rate_limit_decisions_total{outcome="error"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM public abuse controls cannot reach their shared store
+          runbook: docs/operations-runbook.md#public-endpoint-abuse-controls
+
+      - alert: OpenCRMPublicRateLimitRejectionsHigh
+        expr: sum(increase(open_crm_rate_limit_decisions_total{outcome="rejected"}[10m])) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM is rejecting elevated public endpoint traffic
+          runbook: docs/operations-runbook.md#public-endpoint-abuse-controls
+
       - alert: OpenCRMBackupStatusUnavailable
         expr: open_crm_backup_status_available == 0
         for: 30m

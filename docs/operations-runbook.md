@@ -688,9 +688,28 @@ cooldown permits. Stripe delivery uses a separate 120/client/minute read-class
 window plus its HMAC and body limit. Never mark a user verified, create a
 session, or change a subscription manually.
 
-The limiters are process-local and intentionally bounded. Multi-instance global
-limits, bot challenges, and reputation-based spam controls remain part of the
-durable production edge work; do not treat these application limits as a WAF.
+Migration `079_shared_public_rate_limits.sql` stores each window atomically in
+PostgreSQL, so every API process and restart consumes the same budget. The
+ledger stores only the static route scope and a one-way SHA-256 client digest,
+never the raw forwarded or peer address. Counters clamp at `limit + 1`, expired
+rows are deleted in bounded opportunistic batches, and a store error fails the
+request closed with `503 RATE_LIMIT_UNAVAILABLE` and `Retry-After: 1`.
+
+Monitor `open_crm_rate_limit_decisions_total{scope,outcome}`. The reference
+rules alert on any sustained `error` decision and elevated `rejected` traffic.
+For a store-error alert, first correlate `open_crm_database_up`, `/readyz`, and
+database saturation/connection logs; restoring PostgreSQL restores the abuse
+boundary without clearing live windows. For elevated rejections, identify the
+bounded scope and compare route/status request rates. Do not query or export
+individual client digests as user identifiers, and do not delete active buckets
+to bypass a limit. If legitimate provider webhook traffic exceeds its budget,
+validate provider source and signature evidence before changing the static
+policy in code and rerunning the concurrency tests.
+
+These application budgets coordinate replicas but are not a volumetric DDoS
+boundary or a reputation system. An approved production edge/WAF plus lead-form
+bot challenge and explicit consent remain required before promoting public lead
+generation beyond foundation maturity.
 
 ## Deploy
 

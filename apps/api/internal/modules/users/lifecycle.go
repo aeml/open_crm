@@ -9,10 +9,13 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 )
+
+const lifecycleAttempts = 4
 
 type SetStatusInput struct {
 	Status           string `json:"status"`
@@ -75,6 +78,21 @@ func (s *Service) SetStatus(ctx context.Context, organizationID, userID, actorUs
 		}
 	}
 
+	var lastErr error
+	for attempt := 0; attempt < lifecycleAttempts; attempt++ {
+		result, err := s.setStatusOnce(ctx, organizationID, userID, actorUserID, input, reservation)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if !retryableLifecycleTransaction(err) || ctx.Err() != nil {
+			return LifecycleResult{}, err
+		}
+	}
+	return LifecycleResult{}, fmt.Errorf("update user lifecycle after %d attempts: %w", lifecycleAttempts, lastErr)
+}
+
+func (s *Service) setStatusOnce(ctx context.Context, organizationID, userID, actorUserID int64, input SetStatusInput, reservation modulebilling.CapacityReservation) (LifecycleResult, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return LifecycleResult{}, fmt.Errorf("begin user lifecycle transaction: %w", err)
@@ -157,6 +175,11 @@ func (s *Service) SetStatus(ctx context.Context, organizationID, userID, actorUs
 		return LifecycleResult{}, fmt.Errorf("commit user lifecycle: %w", err)
 	}
 	return result, nil
+}
+
+func retryableLifecycleTransaction(err error) bool {
+	var postgresError *pgconn.PgError
+	return errors.As(err, &postgresError) && (postgresError.Code == "40001" || postgresError.Code == "40P01")
 }
 
 func (s *Service) updateRole(ctx context.Context, organizationID, userID int64, role string) (UserSummary, error) {

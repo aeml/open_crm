@@ -186,10 +186,44 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 		t.Fatalf("expected last owner demotion denial, got %v", err)
 	}
 
-	result, err := service.SetStatus(ctx, organizationID, memberID, ownerID, moduleusers.SetStatusInput{Status: "disabled", ReassignToUserID: replacementID})
+	// Hold a concurrent session touch across the serializable lifecycle
+	// snapshot. The first DELETE must receive PostgreSQL 40001 after this
+	// transaction commits; SetStatus should retry the whole atomic operation.
+	sessionTouch, err := pool.Begin(ctx)
 	if err != nil {
-		t.Fatalf("disable and reassign organization member: %v", err)
+		t.Fatalf("begin concurrent session touch: %v", err)
 	}
+	defer sessionTouch.Rollback(ctx)
+	if _, err := sessionTouch.Exec(ctx, `UPDATE sessions SET last_seen_at=NOW() WHERE organization_id=$1 AND user_id=$2`, organizationID, memberID); err != nil {
+		t.Fatalf("hold concurrent session touch: %v", err)
+	}
+	type lifecycleResult struct {
+		result moduleusers.LifecycleResult
+		err    error
+	}
+	disabled := make(chan lifecycleResult, 1)
+	go func() {
+		result, err := service.SetStatus(ctx, organizationID, memberID, ownerID, moduleusers.SetStatusInput{Status: "disabled", ReassignToUserID: replacementID})
+		disabled <- lifecycleResult{result: result, err: err}
+	}()
+	select {
+	case early := <-disabled:
+		t.Fatalf("disable did not wait for concurrent session update: result=%#v err=%v", early.result, early.err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := sessionTouch.Commit(ctx); err != nil {
+		t.Fatalf("commit concurrent session touch: %v", err)
+	}
+	var lifecycle lifecycleResult
+	select {
+	case lifecycle = <-disabled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("disable did not recover from concurrent session update")
+	}
+	if lifecycle.err != nil {
+		t.Fatalf("disable and reassign organization member: %v", lifecycle.err)
+	}
+	result := lifecycle.result
 	if !result.Changed || result.User.Status != moduleusers.MembershipStatusDisabled || result.SessionsInvalidated != 1 || result.Reassigned.Total() != 7 {
 		t.Fatalf("unexpected disabled lifecycle result: %#v", result)
 	}
