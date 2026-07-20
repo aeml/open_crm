@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 )
 
 var (
@@ -19,20 +21,23 @@ var (
 )
 
 type Delivery struct {
-	ID               int64
-	OrganizationID   int64
-	EnrollmentID     int64
-	StepOrder        int
-	RecipientEmail   string
-	Subject          string
-	TextBody         string
-	HTMLBody         string
-	Status           string
-	LastError        string
-	AttemptStartedAt *time.Time
-	FinalizedAt      *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                int64
+	OrganizationID    int64
+	EnrollmentID      int64
+	StepOrder         int
+	RecipientEmail    string
+	Subject           string
+	TextBody          string
+	HTMLBody          string
+	RFCMessageID      string
+	ProviderMessageID string
+	ProviderThreadID  string
+	Status            string
+	LastError         string
+	AttemptStartedAt  *time.Time
+	FinalizedAt       *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type DeliveryResolution struct {
@@ -80,6 +85,20 @@ func (s *Service) LoadScheduledSend(ctx context.Context, organizationID, enrollm
 }
 
 func (s *Service) PrepareDelivery(ctx context.Context, send DueSend, subject, textBody, htmlBody string) (Delivery, error) {
+	return s.prepareDelivery(ctx, send, subject, textBody, htmlBody, "")
+}
+
+// PrepareCorrelatedDelivery stores the RFC Message-ID before any provider
+// effect. On replay, the first stored identifier wins.
+func (s *Service) PrepareCorrelatedDelivery(ctx context.Context, send DueSend, subject, textBody, htmlBody, rfcMessageID string) (Delivery, error) {
+	rfcMessageID = moduleemail.NormalizeMessageID(rfcMessageID)
+	if rfcMessageID == "" {
+		return Delivery{}, ErrInvalidInput
+	}
+	return s.prepareDelivery(ctx, send, subject, textBody, htmlBody, rfcMessageID)
+}
+
+func (s *Service) prepareDelivery(ctx context.Context, send DueSend, subject, textBody, htmlBody, rfcMessageID string) (Delivery, error) {
 	if s == nil || s.pool == nil {
 		return Delivery{}, fmt.Errorf("email sequences service not configured")
 	}
@@ -90,12 +109,16 @@ func (s *Service) PrepareDelivery(ctx context.Context, send DueSend, subject, te
 		return Delivery{}, ErrInvalidInput
 	}
 	delivery, err := scanDelivery(s.pool.QueryRow(ctx, `
-		INSERT INTO email_sequence_deliveries (organization_id, enrollment_id, step_order, recipient_email, subject, text_body, html_body)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO email_sequence_deliveries (organization_id, enrollment_id, step_order, recipient_email, subject, text_body, html_body, rfc_message_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (organization_id, enrollment_id, step_order) DO UPDATE
-		SET enrollment_id = EXCLUDED.enrollment_id
+		SET rfc_message_id = CASE
+		  WHEN email_sequence_deliveries.status = 'queued' AND COALESCE(email_sequence_deliveries.rfc_message_id, '') = ''
+		  THEN EXCLUDED.rfc_message_id
+		  ELSE email_sequence_deliveries.rfc_message_id
+		END
 		RETURNING `+deliveryColumns+`
-	`, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder, recipient, subject, textBody, htmlBody))
+	`, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder, recipient, subject, textBody, htmlBody, rfcMessageID))
 	if err != nil {
 		return Delivery{}, fmt.Errorf("prepare email sequence delivery: %w", err)
 	}
@@ -196,14 +219,25 @@ func (s *Service) deliveryPolicyPaused(ctx context.Context, organizationID, enro
 }
 
 func (s *Service) FinalizeSent(ctx context.Context, organizationID, enrollmentID int64, stepOrder int) error {
-	return s.finalizeDelivery(ctx, organizationID, enrollmentID, stepOrder, "sending", "sent", "")
+	return s.FinalizeSentWithReceipt(ctx, organizationID, enrollmentID, stepOrder, "", "")
+}
+
+// FinalizeSentWithReceipt commits the accepted state and provider identifiers
+// in the same transaction that advances the enrollment.
+func (s *Service) FinalizeSentWithReceipt(ctx context.Context, organizationID, enrollmentID int64, stepOrder int, providerMessageID, providerThreadID string) error {
+	providerMessageID = strings.TrimSpace(providerMessageID)
+	providerThreadID = strings.TrimSpace(providerThreadID)
+	if len(providerMessageID) > 500 || len(providerThreadID) > 500 {
+		return ErrInvalidInput
+	}
+	return s.finalizeDelivery(ctx, organizationID, enrollmentID, stepOrder, "sending", "sent", "", providerMessageID, providerThreadID)
 }
 
 func (s *Service) FinalizeSuppressed(ctx context.Context, organizationID, enrollmentID int64, stepOrder int) error {
-	return s.finalizeDelivery(ctx, organizationID, enrollmentID, stepOrder, "queued", "suppressed", "Recipient has unsubscribed from email.")
+	return s.finalizeDelivery(ctx, organizationID, enrollmentID, stepOrder, "queued", "suppressed", "Recipient has unsubscribed from email.", "", "")
 }
 
-func (s *Service) finalizeDelivery(ctx context.Context, organizationID, enrollmentID int64, stepOrder int, expectedStatus, finalStatus, lastError string) error {
+func (s *Service) finalizeDelivery(ctx context.Context, organizationID, enrollmentID int64, stepOrder int, expectedStatus, finalStatus, lastError, providerMessageID, providerThreadID string) error {
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("email sequences service not configured")
 	}
@@ -212,7 +246,7 @@ func (s *Service) finalizeDelivery(ctx context.Context, organizationID, enrollme
 		return fmt.Errorf("begin email sequence delivery finalization: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := finalizeDeliveryTx(ctx, tx, organizationID, enrollmentID, stepOrder, expectedStatus, finalStatus, lastError); err != nil {
+	if err := finalizeDeliveryTx(ctx, tx, organizationID, enrollmentID, stepOrder, expectedStatus, finalStatus, lastError, providerMessageID, providerThreadID); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -221,12 +255,15 @@ func (s *Service) finalizeDelivery(ctx context.Context, organizationID, enrollme
 	return nil
 }
 
-func finalizeDeliveryTx(ctx context.Context, tx pgx.Tx, organizationID, enrollmentID int64, stepOrder int, expectedStatus, finalStatus, lastError string) error {
+func finalizeDeliveryTx(ctx context.Context, tx pgx.Tx, organizationID, enrollmentID int64, stepOrder int, expectedStatus, finalStatus, lastError, providerMessageID, providerThreadID string) error {
 	tag, err := tx.Exec(ctx, `
 		UPDATE email_sequence_deliveries
-		SET status = $5, last_error = $6, finalized_at = NOW(), updated_at = NOW()
+		SET status = $5, last_error = $6,
+		    provider_message_id = CASE WHEN $5 = 'sent' THEN $7 ELSE provider_message_id END,
+		    provider_thread_id = CASE WHEN $5 = 'sent' THEN $8 ELSE provider_thread_id END,
+		    finalized_at = NOW(), updated_at = NOW()
 		WHERE organization_id = $1 AND enrollment_id = $2 AND step_order = $3 AND status = $4
-	`, organizationID, enrollmentID, stepOrder, expectedStatus, finalStatus, lastError)
+	`, organizationID, enrollmentID, stepOrder, expectedStatus, finalStatus, lastError, providerMessageID, providerThreadID)
 	if err != nil {
 		return fmt.Errorf("finalize email sequence delivery: %w", err)
 	}
@@ -367,7 +404,7 @@ func (s *Service) ResolveUncertainDeliveryJob(ctx context.Context, organizationI
 		}
 		jobStatus = "pending"
 	} else {
-		if err := finalizeDeliveryTx(ctx, tx, organizationID, enrollmentID, stepOrder, "uncertain", "sent", "Confirmed delivered by an administrator."); err != nil {
+		if err := finalizeDeliveryTx(ctx, tx, organizationID, enrollmentID, stepOrder, "uncertain", "sent", "Confirmed delivered by an administrator.", "", ""); err != nil {
 			return DeliveryResolution{}, err
 		}
 		if err := tx.QueryRow(ctx, `
@@ -432,12 +469,12 @@ func (s *Service) getDelivery(ctx context.Context, organizationID, enrollmentID 
 	return delivery, nil
 }
 
-const deliveryColumns = `id, organization_id, enrollment_id, step_order, recipient_email, subject, text_body, html_body, status, last_error, attempt_started_at, finalized_at, created_at, updated_at`
+const deliveryColumns = `id, organization_id, enrollment_id, step_order, recipient_email, subject, text_body, html_body, COALESCE(rfc_message_id, ''), COALESCE(provider_message_id, ''), COALESCE(provider_thread_id, ''), status, last_error, attempt_started_at, finalized_at, created_at, updated_at`
 
 func scanDelivery(scanner enrollmentScanner) (Delivery, error) {
 	var delivery Delivery
 	var attemptStartedAt, finalizedAt pgtype.Timestamptz
-	err := scanner.Scan(&delivery.ID, &delivery.OrganizationID, &delivery.EnrollmentID, &delivery.StepOrder, &delivery.RecipientEmail, &delivery.Subject, &delivery.TextBody, &delivery.HTMLBody, &delivery.Status, &delivery.LastError, &attemptStartedAt, &finalizedAt, &delivery.CreatedAt, &delivery.UpdatedAt)
+	err := scanner.Scan(&delivery.ID, &delivery.OrganizationID, &delivery.EnrollmentID, &delivery.StepOrder, &delivery.RecipientEmail, &delivery.Subject, &delivery.TextBody, &delivery.HTMLBody, &delivery.RFCMessageID, &delivery.ProviderMessageID, &delivery.ProviderThreadID, &delivery.Status, &delivery.LastError, &attemptStartedAt, &finalizedAt, &delivery.CreatedAt, &delivery.UpdatedAt)
 	if err != nil {
 		return Delivery{}, err
 	}

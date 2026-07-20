@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
 
@@ -25,15 +26,16 @@ type MicrosoftGraphFetcher struct {
 }
 
 type graphMessage struct {
-	ID                string           `json:"id"`
-	ConversationID    string           `json:"conversationId"`
-	InternetMessageID string           `json:"internetMessageId"`
-	Subject           string           `json:"subject"`
-	ReceivedDateTime  string           `json:"receivedDateTime"`
-	Body              graphMessageBody `json:"body"`
-	BodyPreview       string           `json:"bodyPreview"`
-	From              graphRecipient   `json:"from"`
-	ToRecipients      []graphRecipient `json:"toRecipients"`
+	ID                     string                       `json:"id"`
+	ConversationID         string                       `json:"conversationId"`
+	InternetMessageID      string                       `json:"internetMessageId"`
+	Subject                string                       `json:"subject"`
+	ReceivedDateTime       string                       `json:"receivedDateTime"`
+	Body                   graphMessageBody             `json:"body"`
+	BodyPreview            string                       `json:"bodyPreview"`
+	From                   graphRecipient               `json:"from"`
+	ToRecipients           []graphRecipient             `json:"toRecipients"`
+	InternetMessageHeaders []graphInternetMessageHeader `json:"internetMessageHeaders"`
 }
 
 type graphMessageBody struct {
@@ -48,6 +50,11 @@ type graphRecipient struct {
 type graphEmailAddress struct {
 	Address string `json:"address"`
 	Name    string `json:"name"`
+}
+
+type graphInternetMessageHeader struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 func NewMicrosoftGraphFetcher(client *http.Client) *MicrosoftGraphFetcher {
@@ -85,7 +92,7 @@ func (f *MicrosoftGraphFetcher) listMessages(ctx context.Context, accessToken, c
 	values := url.Values{}
 	values.Set("$top", strconv.Itoa(limit))
 	values.Set("$orderby", "receivedDateTime desc")
-	values.Set("$select", "id,conversationId,internetMessageId,subject,receivedDateTime,body,bodyPreview,from,toRecipients")
+	values.Set("$select", "id,conversationId,internetMessageId,internetMessageHeaders,subject,receivedDateTime,body,bodyPreview,from,toRecipients")
 
 	endpoint := f.baseURL() + "/me/mailFolders/inbox/messages?" + values.Encode()
 	var payload struct {
@@ -171,10 +178,32 @@ func toFetchedGraphMessage(message graphMessage, key string, creds moduleuserema
 		ProviderThreadID:  strings.TrimSpace(message.ConversationID),
 		ReceivedAt:        parseGraphDateTime(message.ReceivedDateTime),
 	}
+	fetched.RFCMessageID = moduleemail.NormalizeMessageID(message.InternetMessageID)
+	headers := graphMessageHeaders(message.InternetMessageHeaders)
+	if value := moduleemail.NormalizeMessageID(headers["message-id"]); value != "" {
+		fetched.RFCMessageID = value
+	}
+	inReplyTo := moduleemail.ParseMessageIDReferences(headers["in-reply-to"])
+	if len(inReplyTo) > 0 {
+		fetched.InReplyTo = inReplyTo[0]
+		fetched.ReferenceMessageIDs = append(fetched.ReferenceMessageIDs, inReplyTo[1:]...)
+	}
+	fetched.ReferenceMessageIDs = appendMessageIDReferences(fetched.ReferenceMessageIDs, moduleemail.ParseMessageIDReferences(headers["references"])...)
 	if fetched.ReceivedAt.IsZero() {
 		fetched.ReceivedAt = time.Now().UTC()
 	}
 	return fetched
+}
+
+func graphMessageHeaders(headers []graphInternetMessageHeader) map[string]string {
+	values := make(map[string]string)
+	for _, header := range headers {
+		name := strings.ToLower(strings.TrimSpace(header.Name))
+		if name == "message-id" || name == "in-reply-to" || name == "references" {
+			values[name] = strings.TrimSpace(header.Value)
+		}
+	}
+	return values
 }
 
 func firstGraphRecipientEmail(recipients []graphRecipient, fallback string) string {

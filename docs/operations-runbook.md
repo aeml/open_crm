@@ -1144,22 +1144,29 @@ means the configured SMTP/Gmail/Graph adapter returned success or an operator
 confirmed acceptance from the provider's Sent/log evidence; it does not prove
 delivery to an inbox. **Replied** means Open CRM retained an inbound message from
 the matched contact in the enrolling user's mailbox after an accepted sequence
-delivery. The stored enrollment links to that exact message and received time.
+delivery and correlated it to that delivery by an exact RFC reply reference or
+one unambiguous provider thread. The stored enrollment links to that exact
+message and received time.
 **Finished** means the cadence exhausted its steps, **suppressed** means policy
 stopped it before another send, and **review** means a delivery is quarantined as
 uncertain and needs the procedure below. Historical completions from before
 migration 88 remain unclassified rather than being guessed; the API exposes
 those counts even though the compact settings summary does not.
 
-Reply detection is deliberately conservative about tenant, contact, mailbox,
-and time, but does not yet correlate provider thread or reply headers. An
-unrelated later message from the same contact to the same enrolling mailbox can
-therefore exit every eligible active/paused enrollment for that contact and
-mailbox. A provider timestamp earlier than the accepted-send evidence is not
-counted. Inspect the retained message and cancel manually when either case needs
-operator correction. Customer-mail bounce/complaint events are not yet joined
-to sequence outcomes. Suppression is terminal for the enrollment and no later
-cadence step is scheduled.
+Reply detection is deliberately conservative about tenant, active contact
+email, enrolling mailbox, provider-accepted time, and message correlation.
+Every new durable sequence send stores an opaque RFC `Message-ID` before the
+provider boundary. Gmail also returns a provider message/thread receipt; IMAP
+and Gmail raw MIME preserve `Message-ID`, `In-Reply-To`, and `References`, while
+Microsoft sync explicitly selects its internet headers. An inbound message can
+exit a cadence only when `In-Reply-To` or `References` names the accepted
+delivery, or when a non-empty provider thread identifies exactly one eligible
+enrollment. If two eligible enrollments share a thread, neither is changed.
+Unrelated later messages and historical deliveries without correlation evidence
+remain unclassified; cancel manually only after inspecting the retained message.
+A provider timestamp earlier than acceptance is never counted. Customer-mail
+bounce/complaint events are not yet joined to sequence outcomes. Suppression is
+terminal for the enrollment and no later cadence step is scheduled.
 
 ### Hosted sequence send safety limits
 

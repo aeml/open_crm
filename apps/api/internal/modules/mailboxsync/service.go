@@ -54,13 +54,16 @@ type serializedOAuthCredentialStore interface {
 }
 
 type FetchedMessage struct {
-	FromEmail         string
-	ToEmail           string
-	Subject           string
-	Body              string
-	ProviderMessageID string
-	ProviderThreadID  string
-	ReceivedAt        time.Time
+	FromEmail           string
+	ToEmail             string
+	Subject             string
+	Body                string
+	ProviderMessageID   string
+	ProviderThreadID    string
+	RFCMessageID        string
+	InReplyTo           string
+	ReferenceMessageIDs []string
+	ReceivedAt          time.Time
 }
 
 type Result struct {
@@ -268,14 +271,17 @@ func toInboundInput(userID int64, creds moduleuseremail.SyncCredentials, message
 		toEmail = creds.FromEmail
 	}
 	return moduleemailmessages.InboundInput{
-		FromEmail:         message.FromEmail,
-		ToEmail:           toEmail,
-		Subject:           message.Subject,
-		Body:              message.Body,
-		MailboxUserID:     userID,
-		ProviderMessageID: message.ProviderMessageID,
-		ProviderThreadID:  message.ProviderThreadID,
-		ReceivedAt:        message.ReceivedAt,
+		FromEmail:           message.FromEmail,
+		ToEmail:             toEmail,
+		Subject:             message.Subject,
+		Body:                message.Body,
+		MailboxUserID:       userID,
+		ProviderMessageID:   message.ProviderMessageID,
+		ProviderThreadID:    message.ProviderThreadID,
+		RFCMessageID:        message.RFCMessageID,
+		InReplyTo:           message.InReplyTo,
+		ReferenceMessageIDs: message.ReferenceMessageIDs,
+		ReceivedAt:          message.ReceivedAt,
 	}
 }
 

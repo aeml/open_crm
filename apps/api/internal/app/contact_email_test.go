@@ -11,6 +11,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
 
@@ -26,6 +27,7 @@ type fakeUserEmailService struct {
 	sendSubject      string
 	sendBody         string
 	sendHTMLBody     string
+	sendReceipt      moduleuseremail.SendReceipt
 	memberOK         bool
 	lastUpsertUserID int64
 	lastOAuthInput   moduleuseremail.OAuthConnectionInput
@@ -71,6 +73,15 @@ func (f *fakeUserEmailService) SendAs(_ context.Context, _, _ int64, to, subject
 	return f.sendErr
 }
 
+func (f *fakeUserEmailService) SendMessageAs(_ context.Context, _, _ int64, message moduleemail.Message) (moduleuseremail.SendReceipt, error) {
+	f.sendCalled = true
+	f.sendTo = message.To
+	f.sendSubject = message.Subject
+	f.sendBody = message.TextBody
+	f.sendHTMLBody = message.HTMLBody
+	return f.sendReceipt, f.sendErr
+}
+
 func (f *fakeUserEmailService) MemberExists(_ context.Context, _, _ int64) (bool, error) {
 	return f.memberOK, nil
 }
@@ -95,7 +106,7 @@ func TestSendContactEmailRendersMergeFieldsAndSends(t *testing.T) {
 			Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", LastName: "Lovelace", Email: "ada@acme.test"},
 		},
 	}
-	accounts := &fakeUserEmailService{configured: true}
+	accounts := &fakeUserEmailService{configured: true, sendReceipt: moduleuseremail.SendReceipt{RFCMessageID: "<direct-1@crm.example.test>", ProviderMessageID: "gmail-direct-1", ProviderThreadID: "gmail-thread-1"}}
 	server := authenticatedContactEmailServer(contacts, accounts)
 
 	body := bytes.NewBufferString(`{"subject":"Hello {{first_name}}","body":"Hi {{full_name}}, thanks!"}`)
@@ -303,7 +314,7 @@ func TestSendContactEmailRecordsToLog(t *testing.T) {
 	contacts := &fakeContactsService{
 		getResult: modulecontacts.Detail{Summary: modulecontacts.Summary{ID: 8, FirstName: "Ada", Email: "ada@acme.test"}},
 	}
-	accounts := &fakeUserEmailService{configured: true}
+	accounts := &fakeUserEmailService{configured: true, sendReceipt: moduleuseremail.SendReceipt{RFCMessageID: "<direct-1@crm.example.test>", ProviderMessageID: "gmail-direct-1", ProviderThreadID: "gmail-thread-1"}}
 	messages := &fakeEmailMessagesService{}
 	server := NewServer(config.Env{}, Dependencies{
 		AuthService: &fakeAuthService{
@@ -336,6 +347,9 @@ func TestSendContactEmailRecordsToLog(t *testing.T) {
 	}
 	if messages.lastRecord.TrackingToken == "" {
 		t.Fatalf("expected sent email to include a tracking token")
+	}
+	if messages.lastRecord.RFCMessageID != "<direct-1@crm.example.test>" || messages.lastRecord.ProviderMessageID != "gmail-direct-1" || messages.lastRecord.ProviderThreadID != "gmail-thread-1" {
+		t.Fatalf("expected provider correlation in the email log, got %#v", messages.lastRecord)
 	}
 	if len(messages.lastRecord.TrackedLinks) != 1 || messages.lastRecord.TrackedLinks[0].TargetURL != "https://example.test/demo" {
 		t.Fatalf("expected tracked link to be recorded, got %#v", messages.lastRecord.TrackedLinks)

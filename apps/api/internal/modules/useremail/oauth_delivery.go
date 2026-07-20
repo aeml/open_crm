@@ -24,12 +24,21 @@ type OAuthTokenSet struct {
 	ExpiresAt    *time.Time
 }
 
+// SendReceipt contains non-content identifiers returned or accepted by the
+// connected mailbox provider. RFCMessageID is generated before the provider
+// boundary so a reply can be correlated even when the API returns no receipt.
+type SendReceipt struct {
+	RFCMessageID      string
+	ProviderMessageID string
+	ProviderThreadID  string
+}
+
 type OAuthTokenRefresher interface {
 	RefreshOAuthToken(context.Context, SyncCredentials) (OAuthTokenSet, error)
 }
 
 type OAuthSender interface {
-	Send(context.Context, SyncCredentials, moduleemail.Message) error
+	Send(context.Context, SyncCredentials, moduleemail.Message) (SendReceipt, error)
 }
 
 // RefreshOAuthCredentials serializes refresh-token use per mailbox across
@@ -133,33 +142,54 @@ func OAuthTokenRefreshNeeded(creds SyncCredentials) bool {
 // SMTP delivery. No provider call is retried after it begins because a timeout
 // can leave delivery outcome ambiguous.
 func (s *Service) SendAs(ctx context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error {
+	_, err := s.SendMessageAs(ctx, organizationID, userID, moduleemail.Message{To: to, Subject: subject, TextBody: textBody, HTMLBody: htmlBody})
+	return err
+}
+
+// SendMessageAs sends a caller-prepared message and returns provider
+// correlation identifiers. A missing Message-ID is generated from the sending
+// mailbox domain before the provider boundary.
+func (s *Service) SendMessageAs(ctx context.Context, organizationID, userID int64, message moduleemail.Message) (SendReceipt, error) {
 	syncCreds, err := s.SyncCredentials(ctx, organizationID, userID)
 	if err != nil {
-		return err
+		return SendReceipt{}, err
+	}
+	if strings.TrimSpace(message.MessageID) == "" {
+		message.MessageID, err = moduleemail.NewMessageID(emailDomain(syncCreds.FromEmail))
+		if err != nil {
+			return SendReceipt{}, err
+		}
+	} else if message.MessageID = moduleemail.NormalizeMessageID(message.MessageID); message.MessageID == "" {
+		return SendReceipt{}, fmt.Errorf("invalid email message id")
 	}
 	if syncCreds.AuthMethod == "oauth" && (syncCreds.Provider == "google" || syncCreds.Provider == "microsoft") {
 		if strings.TrimSpace(syncCreds.OAuthRefresh) == "" {
-			return ErrOAuthReconnectRequired
+			return SendReceipt{}, ErrOAuthReconnectRequired
 		}
 		if !OAuthSendScopeGranted(syncCreds.Provider, syncCreds.OAuthScopes) {
-			return ErrOAuthReconnectRequired
+			return SendReceipt{}, ErrOAuthReconnectRequired
 		}
 		if s.sender == nil {
-			return ErrOAuthDeliveryUnavailable
+			return SendReceipt{}, ErrOAuthDeliveryUnavailable
 		}
 		syncCreds, err = s.RefreshOAuthCredentials(ctx, organizationID, userID, s.refresher)
 		if err != nil {
-			return err
+			return SendReceipt{}, err
 		}
 		startedAt := time.Now()
-		err = s.sender.Send(ctx, syncCreds, moduleemail.Message{To: to, Subject: subject, TextBody: textBody, HTMLBody: htmlBody})
+		receipt, sendErr := s.sender.Send(ctx, syncCreds, message)
+		err = sendErr
 		s.observeProvider(syncCreds.Provider, "send", err, startedAt)
-		return err
+		if err != nil {
+			return SendReceipt{}, err
+		}
+		receipt.RFCMessageID = message.MessageID
+		return receipt, nil
 	}
 
 	creds, err := s.Credentials(ctx, organizationID, userID)
 	if err != nil {
-		return err
+		return SendReceipt{}, err
 	}
 	startedAt := time.Now()
 	err = moduleemail.SendSMTP(moduleemail.SMTPCredentials{
@@ -170,9 +200,21 @@ func (s *Service) SendAs(ctx context.Context, organizationID, userID int64, to, 
 		Username:  creds.Username,
 		Password:  creds.Password,
 		UseTLS:    creds.UseTLS,
-	}, moduleemail.Message{To: to, Subject: subject, TextBody: textBody, HTMLBody: htmlBody})
+	}, message)
 	s.observeProvider("smtp", "send", err, startedAt)
-	return err
+	if err != nil {
+		return SendReceipt{}, err
+	}
+	return SendReceipt{RFCMessageID: message.MessageID}, nil
+}
+
+func emailDomain(address string) string {
+	address = strings.TrimSpace(address)
+	separator := strings.LastIndexByte(address, '@')
+	if separator < 0 || separator == len(address)-1 {
+		return ""
+	}
+	return address[separator+1:]
 }
 
 func (s *Service) observeProvider(provider, operation string, err error, startedAt time.Time) {

@@ -33,13 +33,13 @@ func NewOAuthSender(config OAuthSenderConfig) *ProviderOAuthSender {
 	return &ProviderOAuthSender{config: config}
 }
 
-func (s *ProviderOAuthSender) Send(ctx context.Context, creds moduleuseremail.SyncCredentials, message moduleemail.Message) error {
+func (s *ProviderOAuthSender) Send(ctx context.Context, creds moduleuseremail.SyncCredentials, message moduleemail.Message) (moduleuseremail.SendReceipt, error) {
 	raw, err := moduleemail.BuildRFC822Message(creds.FromName, creds.FromEmail, message)
 	if err != nil {
-		return err
+		return moduleuseremail.SendReceipt{}, err
 	}
 	if strings.TrimSpace(creds.OAuthAccess) == "" {
-		return fmt.Errorf("%s oauth access token is missing", creds.Provider)
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("%s oauth access token is missing", creds.Provider)
 	}
 	switch creds.Provider {
 	case "google":
@@ -47,16 +47,16 @@ func (s *ProviderOAuthSender) Send(ctx context.Context, creds moduleuseremail.Sy
 	case "microsoft":
 		return s.sendMicrosoft(ctx, creds.OAuthAccess, raw)
 	default:
-		return fmt.Errorf("unsupported oauth mail provider %q", creds.Provider)
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("unsupported oauth mail provider %q", creds.Provider)
 	}
 }
 
-func (s *ProviderOAuthSender) sendGmail(ctx context.Context, accessToken string, raw []byte) error {
+func (s *ProviderOAuthSender) sendGmail(ctx context.Context, accessToken string, raw []byte) (moduleuseremail.SendReceipt, error) {
 	payload, err := json.Marshal(struct {
 		Raw string `json:"raw"`
 	}{Raw: base64.RawURLEncoding.EncodeToString(raw)})
 	if err != nil {
-		return fmt.Errorf("encode gmail send request: %w", err)
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("encode gmail send request: %w", err)
 	}
 	endpoint := strings.TrimRight(s.config.GmailBaseURL, "/")
 	if endpoint == "" {
@@ -64,7 +64,7 @@ func (s *ProviderOAuthSender) sendGmail(ctx context.Context, accessToken string,
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/users/me/messages/send", bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("build gmail send request: %w", err)
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("build gmail send request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(accessToken))
@@ -72,32 +72,38 @@ func (s *ProviderOAuthSender) sendGmail(ctx context.Context, accessToken string,
 
 	response, err := s.httpClient().Do(request)
 	if err != nil {
-		return fmt.Errorf("%w: gmail request: %v", moduleuseremail.ErrOAuthDeliveryUncertain, err)
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("%w: gmail request: %v", moduleuseremail.ErrOAuthDeliveryUncertain, err)
 	}
 	defer response.Body.Close()
 	body, err := readOAuthSendResponse(response.Body)
 	if err != nil {
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			return fmt.Errorf("gmail send failed: status %d", response.StatusCode)
+			return moduleuseremail.SendReceipt{}, fmt.Errorf("gmail send failed: status %d", response.StatusCode)
 		}
-		return fmt.Errorf("%w: read gmail response: %v", moduleuseremail.ErrOAuthDeliveryUncertain, err)
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("%w: read gmail response: %v", moduleuseremail.ErrOAuthDeliveryUncertain, err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("gmail send failed: %s", gmailErrorMessage(response.StatusCode, body))
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("gmail send failed: %s", gmailErrorMessage(response.StatusCode, body))
 	}
 	var result struct {
-		ID string `json:"id"`
+		ID       string `json:"id"`
+		ThreadID string `json:"threadId"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return fmt.Errorf("%w: decode gmail response: %v", moduleuseremail.ErrOAuthDeliveryUncertain, err)
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("%w: decode gmail response: %v", moduleuseremail.ErrOAuthDeliveryUncertain, err)
 	}
-	if strings.TrimSpace(result.ID) == "" || len(strings.TrimSpace(result.ID)) > 500 {
-		return fmt.Errorf("%w: gmail response missing message id", moduleuseremail.ErrOAuthDeliveryUncertain)
+	result.ID = strings.TrimSpace(result.ID)
+	result.ThreadID = strings.TrimSpace(result.ThreadID)
+	if result.ID == "" || len(result.ID) > 500 {
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("%w: gmail response missing message id", moduleuseremail.ErrOAuthDeliveryUncertain)
 	}
-	return nil
+	if len(result.ThreadID) > 500 {
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("%w: gmail response thread id is invalid", moduleuseremail.ErrOAuthDeliveryUncertain)
+	}
+	return moduleuseremail.SendReceipt{ProviderMessageID: result.ID, ProviderThreadID: result.ThreadID}, nil
 }
 
-func (s *ProviderOAuthSender) sendMicrosoft(ctx context.Context, accessToken string, raw []byte) error {
+func (s *ProviderOAuthSender) sendMicrosoft(ctx context.Context, accessToken string, raw []byte) (moduleuseremail.SendReceipt, error) {
 	endpoint := strings.TrimRight(s.config.MicrosoftBaseURL, "/")
 	if endpoint == "" {
 		endpoint = graphAPIBaseURL
@@ -105,7 +111,7 @@ func (s *ProviderOAuthSender) sendMicrosoft(ctx context.Context, accessToken str
 	payload := base64.StdEncoding.EncodeToString(raw)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/me/sendMail", strings.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("build microsoft send request: %w", err)
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("build microsoft send request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(accessToken))
@@ -113,17 +119,17 @@ func (s *ProviderOAuthSender) sendMicrosoft(ctx context.Context, accessToken str
 
 	response, err := s.httpClient().Do(request)
 	if err != nil {
-		return fmt.Errorf("%w: microsoft request: %v", moduleuseremail.ErrOAuthDeliveryUncertain, err)
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("%w: microsoft request: %v", moduleuseremail.ErrOAuthDeliveryUncertain, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusAccepted {
-		return nil
+		return moduleuseremail.SendReceipt{}, nil
 	}
 	body, err := readOAuthSendResponse(response.Body)
 	if err != nil {
-		return fmt.Errorf("microsoft send failed: status %d", response.StatusCode)
+		return moduleuseremail.SendReceipt{}, fmt.Errorf("microsoft send failed: status %d", response.StatusCode)
 	}
-	return fmt.Errorf("microsoft send failed: %s", graphErrorMessage(response.StatusCode, body))
+	return moduleuseremail.SendReceipt{}, fmt.Errorf("microsoft send failed: %s", graphErrorMessage(response.StatusCode, body))
 }
 
 func (s *ProviderOAuthSender) httpClient() *http.Client {

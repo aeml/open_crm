@@ -154,7 +154,7 @@ func TestSyncUserImportsReadyIMAPMessages(t *testing.T) {
 	messages := &fakeMessageStore{}
 	fetcher := &fakeFetcher{messages: []FetchedMessage{
 		{FromEmail: "customer@acme.test", Subject: "First", Body: "Hello", ProviderMessageID: "10", ReceivedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)},
-		{FromEmail: "lead@acme.test", ToEmail: "rep@acme.test", Subject: "Second", Body: "Hi", ProviderMessageID: "11", ProviderThreadID: "thread-1", ReceivedAt: time.Date(2026, 1, 2, 4, 4, 5, 0, time.UTC)},
+		{FromEmail: "lead@acme.test", ToEmail: "rep@acme.test", Subject: "Second", Body: "Hi", ProviderMessageID: "11", ProviderThreadID: "thread-1", RFCMessageID: "<incoming@buyer.test>", InReplyTo: "<sequence@crm.example.test>", ReferenceMessageIDs: []string{"<older@crm.example.test>"}, ReceivedAt: time.Date(2026, 1, 2, 4, 4, 5, 0, time.UTC)},
 	}}
 	service := NewService(accounts, messages, fetcher)
 
@@ -170,6 +170,9 @@ func TestSyncUserImportsReadyIMAPMessages(t *testing.T) {
 	}
 	if len(messages.inputs) != 2 || messages.inputs[0].ToEmail != "rep@acme.test" || messages.inputs[1].ProviderThreadID != "thread-1" {
 		t.Fatalf("unexpected stored messages: %#v", messages.inputs)
+	}
+	if messages.inputs[1].RFCMessageID != "<incoming@buyer.test>" || messages.inputs[1].InReplyTo != "<sequence@crm.example.test>" || strings.Join(messages.inputs[1].ReferenceMessageIDs, ",") != "<older@crm.example.test>" {
+		t.Fatalf("reply correlation was not passed to storage: %#v", messages.inputs[1])
 	}
 	if len(accounts.updates) != 2 || accounts.updates[0].Status != "syncing" || accounts.updates[1].Status != "ready" {
 		t.Fatalf("expected syncing then ready updates, got %#v", accounts.updates)

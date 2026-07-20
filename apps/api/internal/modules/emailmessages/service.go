@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 )
 
 var (
@@ -41,6 +43,9 @@ type Message struct {
 	SharedInboxAssignedToName   string     `json:"sharedInboxAssignedToName,omitempty"`
 	ProviderID                  string     `json:"-"`
 	ProviderThread              string     `json:"-"`
+	RFCMessageID                string     `json:"-"`
+	InReplyTo                   string     `json:"-"`
+	ReferenceMessageIDs         []string   `json:"-"`
 	TrackingToken               string     `json:"-"`
 	OpenCount                   int        `json:"openCount"`
 	FirstOpenedAt               *time.Time `json:"firstOpenedAt,omitempty"`
@@ -63,33 +68,39 @@ type EntityLinkInput struct {
 }
 
 type RecordInput struct {
-	FromEmail     string
-	ToEmail       string
-	Subject       string
-	Body          string
-	Status        string
-	Visibility    string
-	Error         string
-	EntityType    string
-	EntityID      int64
-	SentByUserID  int64
-	TrackingToken string
-	TrackedLinks  []TrackedLinkInput
-}
-
-type InboundInput struct {
 	FromEmail         string
 	ToEmail           string
 	Subject           string
 	Body              string
-	MailboxUserID     int64
-	ProviderMessageID string
-	ProviderThreadID  string
-	ReceivedAt        time.Time
+	Status            string
+	Visibility        string
+	Error             string
 	EntityType        string
 	EntityID          int64
-	EntityLinks       []EntityLinkInput
-	Visibility        string
+	SentByUserID      int64
+	TrackingToken     string
+	TrackedLinks      []TrackedLinkInput
+	RFCMessageID      string
+	ProviderMessageID string
+	ProviderThreadID  string
+}
+
+type InboundInput struct {
+	FromEmail           string
+	ToEmail             string
+	Subject             string
+	Body                string
+	MailboxUserID       int64
+	ProviderMessageID   string
+	ProviderThreadID    string
+	RFCMessageID        string
+	InReplyTo           string
+	ReferenceMessageIDs []string
+	ReceivedAt          time.Time
+	EntityType          string
+	EntityID            int64
+	EntityLinks         []EntityLinkInput
+	Visibility          string
 }
 
 type SharedInboxUpdateInput struct {
@@ -134,6 +145,9 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 		token = &trackingToken
 	}
 	visibility := normalizedVisibility(input.Visibility, "shared")
+	rfcMessageID := moduleemail.NormalizeMessageID(input.RFCMessageID)
+	providerMessageID := boundedCorrelationID(input.ProviderMessageID)
+	providerThreadID := boundedCorrelationID(input.ProviderThreadID)
 	links := sanitizedTrackedLinks(input.TrackedLinks)
 	entityLinks := sanitizedEntityLinks([]EntityLinkInput{{EntityType: input.EntityType, EntityID: input.EntityID}})
 	tx, err := s.pool.Begin(ctx)
@@ -144,10 +158,10 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 
 	var messageID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO email_messages (organization_id, direction, from_email, to_email, subject, body, status, visibility, error, entity_type, entity_id, sent_by_user_id, mailbox_user_id, tracking_token)
-		VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO email_messages (organization_id, direction, from_email, to_email, subject, body, status, visibility, error, entity_type, entity_id, sent_by_user_id, mailbox_user_id, tracking_token, rfc_message_id, provider_message_id, provider_thread_id)
+		VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING id
-	`, organizationID, strings.TrimSpace(input.FromEmail), input.ToEmail, input.Subject, input.Body, status, visibility, input.Error, strings.TrimSpace(input.EntityType), entityID, sentBy, mailboxUserID, token).Scan(&messageID); err != nil {
+	`, organizationID, strings.TrimSpace(input.FromEmail), input.ToEmail, input.Subject, input.Body, status, visibility, input.Error, strings.TrimSpace(input.EntityType), entityID, sentBy, mailboxUserID, token, rfcMessageID, providerMessageID, providerThreadID).Scan(&messageID); err != nil {
 		return fmt.Errorf("record email message: %w", err)
 	}
 	for _, link := range links {
@@ -179,6 +193,9 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 	input.Subject = strings.TrimSpace(input.Subject)
 	input.ProviderMessageID = strings.TrimSpace(input.ProviderMessageID)
 	input.ProviderThreadID = strings.TrimSpace(input.ProviderThreadID)
+	input.RFCMessageID = moduleemail.NormalizeMessageID(input.RFCMessageID)
+	input.InReplyTo = moduleemail.NormalizeMessageID(input.InReplyTo)
+	input.ReferenceMessageIDs = sanitizedMessageIDReferences(input.ReferenceMessageIDs)
 	if organizationID <= 0 || input.MailboxUserID <= 0 || input.FromEmail == "" || input.ToEmail == "" {
 		return false, ErrInvalidInput
 	}
@@ -210,11 +227,11 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 	var messageID int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO email_messages
-			(organization_id, direction, from_email, to_email, subject, body, status, visibility, entity_type, entity_id, mailbox_user_id, provider_message_id, provider_thread_id, received_at)
-		VALUES ($1, 'inbound', $2, $3, $4, $5, 'received', $6, $7, $8, $9, $10, $11, $12)
+			(organization_id, direction, from_email, to_email, subject, body, status, visibility, entity_type, entity_id, mailbox_user_id, provider_message_id, provider_thread_id, received_at, rfc_message_id, in_reply_to, reference_message_ids)
+		VALUES ($1, 'inbound', $2, $3, $4, $5, 'received', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (organization_id, mailbox_user_id, provider_message_id) WHERE provider_message_id <> '' DO NOTHING
 		RETURNING id
-	`, organizationID, input.FromEmail, input.ToEmail, input.Subject, input.Body, visibility, strings.TrimSpace(input.EntityType), entityID, input.MailboxUserID, input.ProviderMessageID, input.ProviderThreadID, receivedAt).Scan(&messageID)
+	`, organizationID, input.FromEmail, input.ToEmail, input.Subject, input.Body, visibility, strings.TrimSpace(input.EntityType), entityID, input.MailboxUserID, input.ProviderMessageID, input.ProviderThreadID, receivedAt, input.RFCMessageID, input.InReplyTo, input.ReferenceMessageIDs).Scan(&messageID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -224,7 +241,7 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 	if err := insertEntityLinks(ctx, tx, organizationID, messageID, entityLinks); err != nil {
 		return false, err
 	}
-	if err := completeSequenceEnrollmentsForReplies(ctx, tx, organizationID, input.MailboxUserID, messageID, receivedAt, input.FromEmail, entityLinks); err != nil {
+	if err := completeSequenceEnrollmentsForReplies(ctx, tx, organizationID, input.MailboxUserID, messageID, receivedAt, input.FromEmail, input.InReplyTo, input.ReferenceMessageIDs, input.ProviderThreadID, entityLinks); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -348,6 +365,34 @@ func sanitizedTrackedLinks(input []TrackedLinkInput) []TrackedLinkInput {
 	return links
 }
 
+func boundedCorrelationID(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 500 {
+		return ""
+	}
+	return value
+}
+
+func sanitizedMessageIDReferences(input []string) []string {
+	references := make([]string, 0, min(len(input), moduleemail.MaxMessageIDReferences))
+	seen := make(map[string]struct{})
+	for _, value := range input {
+		messageID := moduleemail.NormalizeMessageID(value)
+		if messageID == "" {
+			continue
+		}
+		if _, exists := seen[messageID]; exists {
+			continue
+		}
+		seen[messageID] = struct{}{}
+		references = append(references, messageID)
+		if len(references) == moduleemail.MaxMessageIDReferences {
+			break
+		}
+	}
+	return references
+}
+
 func normalizedVisibility(value, fallback string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "shared":
@@ -443,9 +488,37 @@ func insertEntityLinks(ctx context.Context, tx pgx.Tx, organizationID, messageID
 	return nil
 }
 
-func completeSequenceEnrollmentsForReplies(ctx context.Context, tx pgx.Tx, organizationID, mailboxUserID, messageID int64, receivedAt time.Time, fromEmail string, links []EntityLinkInput) error {
+func completeSequenceEnrollmentsForReplies(ctx context.Context, tx pgx.Tx, organizationID, mailboxUserID, messageID int64, receivedAt time.Time, fromEmail, inReplyTo string, references []string, providerThreadID string, links []EntityLinkInput) error {
 	for _, contactID := range contactEntityIDs(links) {
 		_, err := tx.Exec(ctx, `
+			WITH candidate_enrollments AS (
+			  SELECT DISTINCT enrollment.id
+			  FROM email_sequence_enrollments enrollment
+			  JOIN contacts contact
+			    ON contact.organization_id = enrollment.organization_id
+			   AND contact.id = enrollment.contact_id
+			   AND contact.email = $6
+			   AND contact.archived_at IS NULL
+			  JOIN email_sequence_deliveries delivery
+			    ON delivery.organization_id = enrollment.organization_id
+			   AND delivery.enrollment_id = enrollment.id
+			   AND delivery.status = 'sent'
+			   AND delivery.finalized_at IS NOT NULL
+			   AND delivery.finalized_at <= $4
+			  WHERE enrollment.organization_id = $1
+			    AND enrollment.contact_id = $2
+			    AND enrollment.enrolled_by_user_id = $3
+			    AND enrollment.status IN ('active', 'paused')
+			    AND (
+			      ($7 <> '' AND delivery.rfc_message_id = $7)
+			      OR (CARDINALITY($8::TEXT[]) > 0 AND delivery.rfc_message_id = ANY($8::TEXT[]))
+			      OR ($9 <> '' AND delivery.provider_thread_id = $9)
+			    )
+			), unique_candidate AS (
+			  SELECT MIN(id) AS id
+			  FROM candidate_enrollments
+			  HAVING COUNT(*) = 1
+			)
 			UPDATE email_sequence_enrollments enrollment
 			SET status = 'completed',
 			    completed_at = $4,
@@ -454,28 +527,10 @@ func completeSequenceEnrollmentsForReplies(ctx context.Context, tx pgx.Tx, organ
 			    reply_email_message_id = $5,
 			    next_send_at = NULL,
 			    updated_at = NOW()
+			FROM unique_candidate
 			WHERE enrollment.organization_id = $1
-			  AND enrollment.contact_id = $2
-			  AND enrollment.enrolled_by_user_id = $3
-			  AND enrollment.status IN ('active', 'paused')
-			  AND EXISTS (
-			    SELECT 1
-			    FROM contacts contact
-			    WHERE contact.organization_id = enrollment.organization_id
-			      AND contact.id = enrollment.contact_id
-			      AND contact.email = $6
-			      AND contact.archived_at IS NULL
-			  )
-			  AND EXISTS (
-			    SELECT 1
-			    FROM email_sequence_deliveries delivery
-			    WHERE delivery.organization_id = enrollment.organization_id
-			      AND delivery.enrollment_id = enrollment.id
-			      AND delivery.status = 'sent'
-			      AND delivery.finalized_at IS NOT NULL
-			      AND delivery.finalized_at <= $4
-			  )
-		`, organizationID, contactID, mailboxUserID, receivedAt, messageID, fromEmail)
+			  AND enrollment.id = unique_candidate.id
+		`, organizationID, contactID, mailboxUserID, receivedAt, messageID, fromEmail, inReplyTo, references, providerThreadID)
 		if err != nil {
 			return fmt.Errorf("complete replied email sequence enrollments: %w", err)
 		}
@@ -501,7 +556,7 @@ const baseSelect = `
 	       COALESCE(m.visibility, 'shared'), m.entity_type, COALESCE(m.entity_id, 0), COALESCE(m.sent_by_user_id, 0),
 	       COALESCE(u.first_name || ' ' || u.last_name, ''), COALESCE(m.mailbox_user_id, 0),
 	       COALESCE(m.shared_inbox_status, 'open'), COALESCE(m.shared_inbox_assigned_to_user_id, 0), COALESCE(au.first_name || ' ' || au.last_name, ''),
-	       COALESCE(m.provider_message_id, ''), COALESCE(m.provider_thread_id, ''), COALESCE(m.tracking_token, ''),
+	       COALESCE(m.provider_message_id, ''), COALESCE(m.provider_thread_id, ''), COALESCE(m.rfc_message_id, ''), COALESCE(m.in_reply_to, ''), COALESCE(m.reference_message_ids, '{}'::TEXT[]), COALESCE(m.tracking_token, ''),
 	       COALESCE(m.open_count, 0), m.first_opened_at, m.last_opened_at,
 	       COALESCE(m.click_count, 0), m.first_clicked_at, m.last_clicked_at, m.received_at, m.created_at
 	FROM email_messages m
@@ -788,7 +843,7 @@ func scanMessage(s scanner) (Message, error) {
 	if err := s.Scan(&m.ID, &m.Direction, &m.FromEmail, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error,
 		&m.Visibility, &m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.MailboxUserID,
 		&m.SharedInboxStatus, &m.SharedInboxAssignedToUserID, &m.SharedInboxAssignedToName,
-		&m.ProviderID, &m.ProviderThread, &m.TrackingToken,
+		&m.ProviderID, &m.ProviderThread, &m.RFCMessageID, &m.InReplyTo, &m.ReferenceMessageIDs, &m.TrackingToken,
 		&m.OpenCount, &firstOpened, &lastOpened, &m.ClickCount, &firstClicked, &lastClicked, &receivedAt, &m.CreatedAt); err != nil {
 		return Message{}, err
 	}

@@ -20,6 +20,9 @@ func TestParseFetchedMessageDecodesHeadersAndBodies(t *testing.T) {
 		"From: Customer <customer@acme.test>",
 		"To: Rep <rep@acme.test>",
 		"Subject: =?UTF-8?Q?Hello_World?=",
+		"Message-ID: <incoming-123@buyer.test>",
+		"In-Reply-To: <sequence-1@crm.example.test>",
+		"References: <older@crm.example.test> <sequence-1@crm.example.test>",
 		"Date: Fri, 02 Jan 2026 03:04:05 +0000",
 		"Content-Type: multipart/alternative; boundary=demo",
 		"",
@@ -43,6 +46,9 @@ func TestParseFetchedMessageDecodesHeadersAndBodies(t *testing.T) {
 	}
 	if message.Subject != "Hello World" {
 		t.Fatalf("subject was not decoded: %q", message.Subject)
+	}
+	if message.RFCMessageID != "<incoming-123@buyer.test>" || message.InReplyTo != "<sequence-1@crm.example.test>" || strings.Join(message.ReferenceMessageIDs, ",") != "<older@crm.example.test>,<sequence-1@crm.example.test>" {
+		t.Fatalf("reply correlation headers were not normalized: %#v", message)
 	}
 	if message.Body != "Line 1" {
 		t.Fatalf("plain body was not decoded: %q", message.Body)

@@ -99,38 +99,45 @@ func TestSequenceReplyQualificationAndOutcomeAnalyticsAgainstPostgres(t *testing
 	if err != nil {
 		t.Fatalf("load reply-qualified send: %v", err)
 	}
-	if _, err := sequences.PrepareDelivery(ctx, due, "First touch", "Hello", ""); err != nil {
+	const replyRFCMessageID = "<reply-qualified@crm.example.test>"
+	if _, err := sequences.PrepareCorrelatedDelivery(ctx, due, "First touch", "Hello", "", replyRFCMessageID); err != nil {
 		t.Fatalf("prepare reply-qualified delivery: %v", err)
 	}
 	if _, err := sequences.ClaimDelivery(ctx, organizationID, replyEnrollment.ID, 1); err != nil {
 		t.Fatalf("claim reply-qualified delivery: %v", err)
 	}
-	if err := sequences.FinalizeSent(ctx, organizationID, replyEnrollment.ID, 1); err != nil {
+	if err := sequences.FinalizeSentWithReceipt(ctx, organizationID, replyEnrollment.ID, 1, "gmail-outbound-1", "reply-thread"); err != nil {
 		t.Fatalf("finalize reply-qualified delivery: %v", err)
 	}
 
 	receivedAt := time.Now().UTC().Add(time.Minute)
-	recordInbound := func(orgID, mailboxUserID int64, providerID, fromEmail string) (bool, error) {
+	recordInbound := func(orgID, mailboxUserID int64, providerID, fromEmail, inReplyTo, providerThreadID string) (bool, error) {
 		return messages.RecordInbound(ctx, orgID, moduleemailmessages.InboundInput{
 			FromEmail: fromEmail, ToEmail: "sender@example.test", Subject: "Re: First touch", Body: "Interested",
-			MailboxUserID: mailboxUserID, ProviderMessageID: providerID, ProviderThreadID: "reply-thread", ReceivedAt: receivedAt,
+			MailboxUserID: mailboxUserID, ProviderMessageID: providerID, ProviderThreadID: providerThreadID, InReplyTo: inReplyTo, ReceivedAt: receivedAt,
 			EntityType: "contact", EntityID: contactID, EntityLinks: []moduleemailmessages.EntityLinkInput{{EntityType: "contact", EntityID: contactID}}, Visibility: "private",
 		})
 	}
-	if inserted, err := recordInbound(otherOrganizationID, senderID, "foreign-reply", "pilot-buyer@example.test"); err != nil || !inserted {
+	if inserted, err := recordInbound(otherOrganizationID, senderID, "foreign-reply", "pilot-buyer@example.test", replyRFCMessageID, ""); err != nil || !inserted {
 		t.Fatalf("record isolated foreign reply: inserted=%t err=%v", inserted, err)
 	}
-	if inserted, err := recordInbound(organizationID, otherSenderID, "wrong-mailbox-reply", "pilot-buyer@example.test"); err != nil || !inserted {
+	if inserted, err := recordInbound(organizationID, otherSenderID, "wrong-mailbox-reply", "pilot-buyer@example.test", replyRFCMessageID, ""); err != nil || !inserted {
 		t.Fatalf("record wrong-mailbox reply: inserted=%t err=%v", inserted, err)
 	}
-	if inserted, err := recordInbound(organizationID, senderID, "wrong-contact-email-reply", "impostor@example.test"); err != nil || !inserted {
+	if inserted, err := recordInbound(organizationID, senderID, "wrong-contact-email-reply", "impostor@example.test", replyRFCMessageID, ""); err != nil || !inserted {
 		t.Fatalf("record incorrectly linked sender: inserted=%t err=%v", inserted, err)
 	}
+	if inserted, err := recordInbound(organizationID, senderID, "uncorrelated-same-sender", "pilot-buyer@example.test", "", ""); err != nil || !inserted {
+		t.Fatalf("record uncorrelated same-sender email: inserted=%t err=%v", inserted, err)
+	}
+	if inserted, err := recordInbound(organizationID, senderID, "wrong-reference", "pilot-buyer@example.test", "<different-message@crm.example.test>", "different-thread"); err != nil || !inserted {
+		t.Fatalf("record wrong-reference email: inserted=%t err=%v", inserted, err)
+	}
 	if current, err := sequences.GetEnrollmentByID(ctx, organizationID, replyEnrollment.ID); err != nil || current.Status != "active" {
-		t.Fatalf("wrong tenant, mailbox, or sender must not complete enrollment: enrollment=%#v err=%v", current, err)
+		t.Fatalf("wrong tenant, mailbox, sender, or correlation must not complete enrollment: enrollment=%#v err=%v", current, err)
 	}
 
-	inserted, err := recordInbound(organizationID, senderID, "qualified-reply", "pilot-buyer@example.test")
+	inserted, err := recordInbound(organizationID, senderID, "qualified-reply", "pilot-buyer@example.test", replyRFCMessageID, "")
 	if err != nil || !inserted {
 		t.Fatalf("record qualified reply: inserted=%t err=%v", inserted, err)
 	}
@@ -148,8 +155,50 @@ func TestSequenceReplyQualificationAndOutcomeAnalyticsAgainstPostgres(t *testing
 	if noSend, err := sequences.GetEnrollmentByID(ctx, organizationID, noSendEnrollment.ID); err != nil || noSend.Status != "active" {
 		t.Fatalf("inbound before any accepted send must not count as reply: enrollment=%#v err=%v", noSend, err)
 	}
-	if duplicate, err := recordInbound(organizationID, senderID, "qualified-reply", "pilot-buyer@example.test"); err != nil || duplicate {
+	if duplicate, err := recordInbound(organizationID, senderID, "qualified-reply", "pilot-buyer@example.test", replyRFCMessageID, ""); err != nil || duplicate {
 		t.Fatalf("duplicate mailbox message must be idempotent: inserted=%t err=%v", duplicate, err)
+	}
+
+	prepareAccepted := func(name, messageID, threadID string) Enrollment {
+		t.Helper()
+		sequence := createSequence(name)
+		enrollment, prepareErr := sequences.EnrollContact(ctx, organizationID, EnrollmentInput{SequenceID: sequence.ID, ContactID: contactID, EnrolledByUserID: senderID})
+		if prepareErr != nil {
+			t.Fatalf("enroll %s: %v", name, prepareErr)
+		}
+		due, prepareErr := sequences.LoadScheduledSend(ctx, organizationID, enrollment.ID, 1)
+		if prepareErr != nil {
+			t.Fatalf("load %s send: %v", name, prepareErr)
+		}
+		if _, prepareErr = sequences.PrepareCorrelatedDelivery(ctx, due, "First touch", "Hello", "", messageID); prepareErr != nil {
+			t.Fatalf("prepare %s delivery: %v", name, prepareErr)
+		}
+		if _, prepareErr = sequences.ClaimDelivery(ctx, organizationID, enrollment.ID, 1); prepareErr != nil {
+			t.Fatalf("claim %s delivery: %v", name, prepareErr)
+		}
+		if prepareErr = sequences.FinalizeSentWithReceipt(ctx, organizationID, enrollment.ID, 1, "", threadID); prepareErr != nil {
+			t.Fatalf("finalize %s delivery: %v", name, prepareErr)
+		}
+		return enrollment
+	}
+
+	threadEnrollment := prepareAccepted("Thread-qualified", "<thread-qualified@crm.example.test>", "unique-provider-thread")
+	if inserted, err := recordInbound(organizationID, senderID, "thread-qualified-reply", "pilot-buyer@example.test", "", "unique-provider-thread"); err != nil || !inserted {
+		t.Fatalf("record provider-thread-qualified reply: inserted=%t err=%v", inserted, err)
+	}
+	if current, err := sequences.GetEnrollmentByID(ctx, organizationID, threadEnrollment.ID); err != nil || current.Status != "completed" || current.CompletionReason != "replied" {
+		t.Fatalf("unique provider thread must qualify reply: enrollment=%#v err=%v", current, err)
+	}
+
+	ambiguousOne := prepareAccepted("Ambiguous thread one", "<ambiguous-one@crm.example.test>", "ambiguous-provider-thread")
+	ambiguousTwo := prepareAccepted("Ambiguous thread two", "<ambiguous-two@crm.example.test>", "ambiguous-provider-thread")
+	if inserted, err := recordInbound(organizationID, senderID, "ambiguous-thread-reply", "pilot-buyer@example.test", "", "ambiguous-provider-thread"); err != nil || !inserted {
+		t.Fatalf("record ambiguous provider-thread reply: inserted=%t err=%v", inserted, err)
+	}
+	for _, enrollmentID := range []int64{ambiguousOne.ID, ambiguousTwo.ID} {
+		if current, err := sequences.GetEnrollmentByID(ctx, organizationID, enrollmentID); err != nil || current.Status != "active" {
+			t.Fatalf("ambiguous provider thread must not stop a cadence: enrollment=%#v err=%v", current, err)
+		}
 	}
 
 	suppressedSequence := createSequence("Suppressed recipient")

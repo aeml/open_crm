@@ -29,8 +29,11 @@ func TestMicrosoftGraphFetcherFetchesNewMessagesAfterCursor(t *testing.T) {
 		if r.URL.Query().Get("$top") != "3" || r.URL.Query().Get("$orderby") != "receivedDateTime desc" {
 			t.Fatalf("unexpected graph query: %s", r.URL.RawQuery)
 		}
+		if !strings.Contains(r.URL.Query().Get("$select"), "internetMessageHeaders") {
+			t.Fatalf("Graph reply headers were not selected: %s", r.URL.RawQuery)
+		}
 
-		_, _ = fmt.Fprint(w, `{"value":[{"id":"graph-12","conversationId":"conversation-12","internetMessageId":"<graph-12@acme.test>","subject":"Subject 12","receivedDateTime":"2026-01-01T00:02:00Z","body":{"contentType":"text","content":"Body 12"},"from":{"emailAddress":{"address":"customer-12@acme.test"}},"toRecipients":[{"emailAddress":{"address":"rep@acme.test"}}]},{"id":"graph-11","conversationId":"conversation-11","internetMessageId":"<graph-11@acme.test>","subject":"Subject 11","receivedDateTime":"2026-01-01T00:01:00Z","body":{"contentType":"text","content":"Body 11"},"from":{"emailAddress":{"address":"customer-11@acme.test"}},"toRecipients":[{"emailAddress":{"address":"rep@acme.test"}}]},{"id":"graph-10","conversationId":"conversation-10","internetMessageId":"<graph-10@acme.test>","subject":"Subject 10","receivedDateTime":"2026-01-01T00:00:00Z","body":{"contentType":"text","content":"Body 10"},"from":{"emailAddress":{"address":"customer-10@acme.test"}},"toRecipients":[{"emailAddress":{"address":"rep@acme.test"}}]}]}`)
+		_, _ = fmt.Fprint(w, `{"value":[{"id":"graph-12","conversationId":"conversation-12","internetMessageId":"<graph-12@acme.test>","subject":"Subject 12","receivedDateTime":"2026-01-01T00:02:00Z","body":{"contentType":"text","content":"Body 12"},"from":{"emailAddress":{"address":"customer-12@acme.test"}},"toRecipients":[{"emailAddress":{"address":"rep@acme.test"}}]},{"id":"graph-11","conversationId":"conversation-11","internetMessageId":"<graph-11@acme.test>","internetMessageHeaders":[{"name":"In-Reply-To","value":"<sequence-11@crm.example.test>"},{"name":"References","value":"<older@crm.example.test> <sequence-11@crm.example.test>"}],"subject":"Subject 11","receivedDateTime":"2026-01-01T00:01:00Z","body":{"contentType":"text","content":"Body 11"},"from":{"emailAddress":{"address":"customer-11@acme.test"}},"toRecipients":[{"emailAddress":{"address":"rep@acme.test"}}]},{"id":"graph-10","conversationId":"conversation-10","internetMessageId":"<graph-10@acme.test>","subject":"Subject 10","receivedDateTime":"2026-01-01T00:00:00Z","body":{"contentType":"text","content":"Body 10"},"from":{"emailAddress":{"address":"customer-10@acme.test"}},"toRecipients":[{"emailAddress":{"address":"rep@acme.test"}}]}]}`)
 	}))
 	defer server.Close()
 
@@ -51,6 +54,9 @@ func TestMicrosoftGraphFetcherFetchesNewMessagesAfterCursor(t *testing.T) {
 	}
 	if messages[0].ProviderThreadID != "conversation-11" || !messages[0].ReceivedAt.Equal(time.Date(2026, 1, 1, 0, 1, 0, 0, time.UTC)) {
 		t.Fatalf("unexpected thread/date metadata: %#v", messages[0])
+	}
+	if messages[0].RFCMessageID != "<graph-11@acme.test>" || messages[0].InReplyTo != "<sequence-11@crm.example.test>" || strings.Join(messages[0].ReferenceMessageIDs, ",") != "<older@crm.example.test>,<sequence-11@crm.example.test>" {
+		t.Fatalf("unexpected Graph reply correlation: %#v", messages[0])
 	}
 	if len(requests) != 1 {
 		t.Fatalf("expected one list request, got %#v", requests)

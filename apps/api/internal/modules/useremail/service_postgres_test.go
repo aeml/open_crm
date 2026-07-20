@@ -42,12 +42,12 @@ type postgresOAuthSender struct {
 	message []moduleemail.Message
 }
 
-func (s *postgresOAuthSender) Send(_ context.Context, creds SyncCredentials, message moduleemail.Message) error {
+func (s *postgresOAuthSender) Send(_ context.Context, creds SyncCredentials, message moduleemail.Message) (SendReceipt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.access = append(s.access, creds.OAuthAccess)
 	s.message = append(s.message, message)
-	return nil
+	return SendReceipt{}, nil
 }
 
 func TestOAuthMailDeliveryIsEncryptedSerializedAndTenantBoundAgainstPostgres(t *testing.T) {
@@ -159,6 +159,9 @@ func TestOAuthMailDeliveryIsEncryptedSerializedAndTenantBoundAgainstPostgres(t *
 	sender.mu.Lock()
 	if len(sender.access) != 2 || sender.access[0] != "fresh-access-token" || sender.access[1] != "fresh-access-token" || sender.message[0].To != "lead@buyer.test" {
 		t.Fatalf("unexpected provider sends: access=%#v messages=%#v", sender.access, sender.message)
+	}
+	if sender.message[0].MessageID == "" || sender.message[1].MessageID == "" || sender.message[0].MessageID == sender.message[1].MessageID || !strings.HasSuffix(sender.message[0].MessageID, "@example.test>") || !strings.HasSuffix(sender.message[1].MessageID, "@example.test>") {
+		t.Fatalf("customer sends must receive unique sender-domain message ids: %#v", sender.message)
 	}
 	sender.mu.Unlock()
 

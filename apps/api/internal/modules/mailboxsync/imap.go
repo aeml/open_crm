@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
 
@@ -222,6 +223,13 @@ func parseFetchedMessage(raw []byte, uid string, fallbackDate time.Time, creds m
 		return message
 	}
 	message.Subject = decodeHeader(parsed.Header.Get("Subject"))
+	message.RFCMessageID = moduleemail.NormalizeMessageID(parsed.Header.Get("Message-ID"))
+	inReplyTo := moduleemail.ParseMessageIDReferences(parsed.Header.Get("In-Reply-To"))
+	if len(inReplyTo) > 0 {
+		message.InReplyTo = inReplyTo[0]
+		message.ReferenceMessageIDs = append(message.ReferenceMessageIDs, inReplyTo[1:]...)
+	}
+	message.ReferenceMessageIDs = appendMessageIDReferences(message.ReferenceMessageIDs, moduleemail.ParseMessageIDReferences(parsed.Header.Get("References"))...)
 	if from := firstAddress(parsed.Header.Get("From")); from != "" {
 		message.FromEmail = from
 	}

@@ -20,6 +20,7 @@ import (
 	moduledataquality "github.com/aeml/open_crm/apps/api/internal/modules/dataquality"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleduplicates "github.com/aeml/open_crm/apps/api/internal/modules/duplicateoperations"
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleemailfeedback "github.com/aeml/open_crm/apps/api/internal/modules/emailfeedback"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
@@ -375,7 +376,7 @@ type userEmailAccountService interface {
 	SaveOAuthConnection(context.Context, int64, int64, moduleuseremail.OAuthConnectionInput) (moduleuseremail.Account, error)
 	UpdateSyncState(context.Context, int64, int64, moduleuseremail.SyncStateInput) (moduleuseremail.Account, error)
 	Delete(context.Context, int64, int64) error
-	SendAs(ctx context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error
+	SendMessageAs(context.Context, int64, int64, moduleemail.Message) (moduleuseremail.SendReceipt, error)
 	MemberExists(context.Context, int64, int64) (bool, error)
 }
 

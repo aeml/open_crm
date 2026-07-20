@@ -238,7 +238,7 @@ func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres
 	if err != nil || completed.Status != "completed" || completed.CompletionReason != "finished" || completed.NextSendAt != nil {
 		t.Fatalf("expected sequence enrollment to complete, enrollment=%#v err=%v", completed, err)
 	}
-	var sentDeliveries, sentMessages, sequenceJobs int
+	var sentDeliveries, sentMessages, sequenceJobs, correlatedDeliveries, correlatedMessages int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM email_sequence_deliveries WHERE organization_id = $1 AND enrollment_id = $2 AND status = 'sent'`, organizationID, enrollment.ID).Scan(&sentDeliveries); err != nil {
 		t.Fatalf("count sent sequence deliveries: %v", err)
 	}
@@ -248,8 +248,17 @@ func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM background_jobs WHERE organization_id = $1 AND job_type = $2`, organizationID, moduleemailsequences.SequenceSendJobType).Scan(&sequenceJobs); err != nil {
 		t.Fatalf("count sequence jobs: %v", err)
 	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(DISTINCT rfc_message_id) FROM email_sequence_deliveries WHERE organization_id = $1 AND enrollment_id = $2 AND status = 'sent' AND rfc_message_id <> ''`, organizationID, enrollment.ID).Scan(&correlatedDeliveries); err != nil {
+		t.Fatalf("count correlated sequence deliveries: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM email_messages message JOIN email_sequence_deliveries delivery ON delivery.organization_id=message.organization_id AND delivery.rfc_message_id=message.rfc_message_id WHERE message.organization_id=$1 AND delivery.enrollment_id=$2 AND message.status='sent'`, organizationID, enrollment.ID).Scan(&correlatedMessages); err != nil {
+		t.Fatalf("count correlated outbound message logs: %v", err)
+	}
 	if sentDeliveries != 2 || sentMessages != 2 || sequenceJobs != 2 {
 		t.Fatalf("expected two exactly-once sequence steps, deliveries=%d messages=%d jobs=%d", sentDeliveries, sentMessages, sequenceJobs)
+	}
+	if correlatedDeliveries != 2 || correlatedMessages != 2 {
+		t.Fatalf("expected unique durable message correlation for both steps, deliveries=%d messages=%d", correlatedDeliveries, correlatedMessages)
 	}
 
 	uncertainEnrollment, err := sequences.EnrollContact(ctx, organizationID, moduleemailsequences.EnrollmentInput{SequenceID: sequenceID, ContactID: uncertainContactID, EnrolledByUserID: userID})
@@ -271,8 +280,8 @@ func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres
 	if _, err := queue.DeadLetter(ctx, claimed[0], uncertainErr); err != nil {
 		t.Fatalf("dead-letter uncertain sequence send: %v", err)
 	}
-	var uncertainStatus, enrollmentStatus string
-	if err := pool.QueryRow(ctx, `SELECT status FROM email_sequence_deliveries WHERE organization_id = $1 AND enrollment_id = $2 AND step_order = 1`, organizationID, uncertainEnrollment.ID).Scan(&uncertainStatus); err != nil {
+	var uncertainStatus, enrollmentStatus, uncertainRFCMessageID string
+	if err := pool.QueryRow(ctx, `SELECT status, rfc_message_id FROM email_sequence_deliveries WHERE organization_id = $1 AND enrollment_id = $2 AND step_order = 1`, organizationID, uncertainEnrollment.ID).Scan(&uncertainStatus, &uncertainRFCMessageID); err != nil {
 		t.Fatalf("load uncertain delivery status: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT status FROM email_sequence_enrollments WHERE organization_id = $1 AND id = $2`, organizationID, uncertainEnrollment.ID).Scan(&enrollmentStatus); err != nil {
@@ -335,11 +344,12 @@ func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres
 	if _, err := queue.Complete(ctx, retryClaim[0], retryResult); err != nil {
 		t.Fatalf("complete operator-approved sequence retry: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT status FROM email_sequence_deliveries WHERE organization_id = $1 AND enrollment_id = $2 AND step_order = 1`, organizationID, uncertainEnrollment.ID).Scan(&uncertainStatus); err != nil {
+	var retriedRFCMessageID string
+	if err := pool.QueryRow(ctx, `SELECT status, rfc_message_id FROM email_sequence_deliveries WHERE organization_id = $1 AND enrollment_id = $2 AND step_order = 1`, organizationID, uncertainEnrollment.ID).Scan(&uncertainStatus, &retriedRFCMessageID); err != nil {
 		t.Fatalf("load resolved delivery status: %v", err)
 	}
-	if uncertainStatus != "sent" {
-		t.Fatalf("expected explicitly retried delivery to finalize sent, got %s", uncertainStatus)
+	if uncertainStatus != "sent" || uncertainRFCMessageID == "" || retriedRFCMessageID != uncertainRFCMessageID {
+		t.Fatalf("expected explicitly retried delivery to reuse its durable message id, status=%s before=%q after=%q", uncertainStatus, uncertainRFCMessageID, retriedRFCMessageID)
 	}
 }
 

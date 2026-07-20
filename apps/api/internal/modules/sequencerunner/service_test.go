@@ -7,10 +7,12 @@ import (
 	"testing"
 	"time"
 
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
 	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
 	moduleratelimits "github.com/aeml/open_crm/apps/api/internal/modules/ratelimits"
+	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
 
 type fakeSequenceStore struct {
@@ -46,12 +48,14 @@ func (f *fakeDurableSequenceStore) LoadScheduledSend(_ context.Context, _, _ int
 	return f.due[0], nil
 }
 
-func (f *fakeDurableSequenceStore) PrepareDelivery(_ context.Context, send moduleemailsequences.DueSend, subject, textBody, htmlBody string) (moduleemailsequences.Delivery, error) {
+func (f *fakeDurableSequenceStore) PrepareCorrelatedDelivery(_ context.Context, send moduleemailsequences.DueSend, subject, textBody, htmlBody, messageID string) (moduleemailsequences.Delivery, error) {
 	if f.prepareErr != nil {
 		return moduleemailsequences.Delivery{}, f.prepareErr
 	}
 	if f.delivery.Status == "" {
-		f.delivery = moduleemailsequences.Delivery{ID: 11, OrganizationID: send.OrganizationID, EnrollmentID: send.EnrollmentID, StepOrder: send.CurrentStepOrder, RecipientEmail: send.ContactEmail, Subject: subject, TextBody: textBody, HTMLBody: htmlBody, Status: "queued"}
+		f.delivery = moduleemailsequences.Delivery{ID: 11, OrganizationID: send.OrganizationID, EnrollmentID: send.EnrollmentID, StepOrder: send.CurrentStepOrder, RecipientEmail: send.ContactEmail, Subject: subject, TextBody: textBody, HTMLBody: htmlBody, RFCMessageID: messageID, Status: "queued"}
+	} else if f.delivery.RFCMessageID == "" && f.delivery.Status == "queued" {
+		f.delivery.RFCMessageID = messageID
 	}
 	return f.delivery, nil
 }
@@ -79,9 +83,11 @@ func (f *fakeSendBudgetStore) AllowAll(_ context.Context, budgets []modulerateli
 	return f.allowed, f.retryAfter, f.err
 }
 
-func (f *fakeDurableSequenceStore) FinalizeSent(context.Context, int64, int64, int) error {
+func (f *fakeDurableSequenceStore) FinalizeSentWithReceipt(_ context.Context, _, _ int64, _ int, providerMessageID, providerThreadID string) error {
 	f.finalizeSent++
 	f.delivery.Status = "sent"
+	f.delivery.ProviderMessageID = providerMessageID
+	f.delivery.ProviderThreadID = providerThreadID
 	return f.markErr
 }
 
@@ -127,19 +133,29 @@ type fakeMailboxSender struct {
 	body       string
 	htmlBody   string
 	calls      int
+	receipt    moduleuseremail.SendReceipt
+	messageID  string
+	messageIDs []string
 }
 
 func (f *fakeMailboxSender) Configured() bool { return f.configured }
 
-func (f *fakeMailboxSender) SendAs(_ context.Context, organizationID, userID int64, to, subject, textBody, htmlBody string) error {
+func (f *fakeMailboxSender) SendMessageAs(_ context.Context, organizationID, userID int64, message moduleemail.Message) (moduleuseremail.SendReceipt, error) {
 	f.calls++
 	f.orgID = organizationID
 	f.userID = userID
-	f.to = to
-	f.subject = subject
-	f.body = textBody
-	f.htmlBody = htmlBody
-	return f.err
+	f.to = message.To
+	f.subject = message.Subject
+	f.body = message.TextBody
+	f.htmlBody = message.HTMLBody
+	f.messageID = message.MessageID
+	f.messageIDs = append(f.messageIDs, message.MessageID)
+	if f.err != nil {
+		return moduleuseremail.SendReceipt{}, f.err
+	}
+	receipt := f.receipt
+	receipt.RFCMessageID = message.MessageID
+	return receipt, nil
 }
 
 func sequenceJob() modulejobs.Job {
@@ -318,7 +334,7 @@ func TestServiceRequiresConfiguredMailboxSender(t *testing.T) {
 
 func TestHandleJobFinalizesDurableDelivery(t *testing.T) {
 	sequences := &fakeDurableSequenceStore{fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}}
-	sender := &fakeMailboxSender{configured: true}
+	sender := &fakeMailboxSender{configured: true, receipt: moduleuseremail.SendReceipt{ProviderMessageID: "gmail-message-1", ProviderThreadID: "gmail-thread-1"}}
 	messages := &fakeMessageStore{}
 	service := NewService(sequences, sender, messages)
 
@@ -328,6 +344,12 @@ func TestHandleJobFinalizesDurableDelivery(t *testing.T) {
 	}
 	if !messages.called || messages.input.Status != "sent" {
 		t.Fatalf("expected durable send to be logged, got %#v", messages.input)
+	}
+	if sender.messageID == "" || sender.messageID != sequences.delivery.RFCMessageID || sequences.delivery.ProviderMessageID != "gmail-message-1" || sequences.delivery.ProviderThreadID != "gmail-thread-1" {
+		t.Fatalf("expected durable send correlation, sender=%#v delivery=%#v", sender, sequences.delivery)
+	}
+	if messages.input.RFCMessageID != sender.messageID || messages.input.ProviderMessageID != "gmail-message-1" || messages.input.ProviderThreadID != "gmail-thread-1" {
+		t.Fatalf("expected outbound log correlation, got %#v", messages.input)
 	}
 }
 

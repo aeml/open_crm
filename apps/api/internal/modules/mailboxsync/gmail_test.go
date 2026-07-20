@@ -54,6 +54,9 @@ func TestGmailFetcherFetchesNewMessagesAfterCursor(t *testing.T) {
 	if messages[0].ProviderThreadID != "thread-11" || !messages[0].ReceivedAt.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("unexpected thread/date metadata: %#v", messages[0])
 	}
+	if messages[0].RFCMessageID != "<incoming-gmail-11@buyer.test>" || messages[0].InReplyTo != "<sequence-11@crm.example.test>" || strings.Join(messages[0].ReferenceMessageIDs, ",") != "<older@crm.example.test>,<sequence-11@crm.example.test>" {
+		t.Fatalf("unexpected Gmail reply correlation: %#v", messages[0])
+	}
 	if len(requests) != 3 {
 		t.Fatalf("expected one list and two get requests, got %#v", requests)
 	}
@@ -82,6 +85,9 @@ func gmailRawMessage(id string) string {
 		"From: Customer <customer-" + id + "@acme.test>",
 		"To: Rep <rep@acme.test>",
 		"Subject: Subject " + id,
+		"Message-ID: <incoming-" + id + "@buyer.test>",
+		"In-Reply-To: <sequence-" + strings.TrimPrefix(id, "gmail-") + "@crm.example.test>",
+		"References: <older@crm.example.test> <sequence-" + strings.TrimPrefix(id, "gmail-") + "@crm.example.test>",
 		"Content-Type: text/plain; charset=utf-8",
 		"",
 		"Body " + id,

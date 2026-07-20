@@ -93,7 +93,14 @@ func BuildRFC822Message(fromName, fromEmail string, msg Message) ([]byte, error)
 		return nil, fmt.Errorf("invalid recipient address")
 	}
 	from := (&mail.Address{Name: fromName, Address: fromAddress.Address}).String()
-	return buildMessage(from, toAddress.Address, subject, msg.TextBody, msg.HTMLBody), nil
+	messageID := ""
+	if strings.TrimSpace(msg.MessageID) != "" {
+		messageID = NormalizeMessageID(msg.MessageID)
+		if messageID == "" {
+			return nil, fmt.Errorf("invalid message id header")
+		}
+	}
+	return buildMessage(from, toAddress.Address, subject, msg.TextBody, msg.HTMLBody, messageID), nil
 }
 
 func sendImplicitTLS(addr, host string, auth smtp.Auth, from, to string, raw []byte) error {
@@ -132,11 +139,14 @@ func writeMessage(client *smtp.Client, from, to string, raw []byte) error {
 	return client.Quit()
 }
 
-func buildMessage(from, to, subject, textBody, htmlBody string) []byte {
+func buildMessage(from, to, subject, textBody, htmlBody, messageID string) []byte {
 	var b strings.Builder
 	b.WriteString("From: " + from + "\r\n")
 	b.WriteString("To: " + to + "\r\n")
 	b.WriteString("Subject: " + subject + "\r\n")
+	if messageID != "" {
+		b.WriteString("Message-ID: " + messageID + "\r\n")
+	}
 	b.WriteString("MIME-Version: 1.0\r\n")
 	if strings.TrimSpace(htmlBody) == "" {
 		b.WriteString("Content-Type: text/plain; charset=\"UTF-8\"\r\n")

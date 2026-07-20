@@ -166,6 +166,21 @@ func TestMigrationFilesIncludeEmailSequenceOutcomes(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeEmailMessageCorrelation(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "089_email_message_correlation.sql") {
+		t.Fatal("expected email message correlation migration to be registered")
+	}
+	sql := MigrationSQL("089_email_message_correlation.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "rfc_message_id", "provider_thread_id", "in_reply_to", "reference_message_ids", "idx_email_sequence_deliveries_org_rfc_message_id", "NOT VALID", "VALIDATE CONSTRAINT email_messages_reference_message_ids_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("email message correlation migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("089_email_message_correlation.sql"); class != "expand" {
+		t.Fatalf("email message correlation deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeCollaboration(t *testing.T) {
 	sql := MigrationSQL("060_collaboration.sql")
 	if sql == "" {

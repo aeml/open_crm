@@ -38,7 +38,7 @@ func TestOAuthSenderUsesExactGmailMIMEContract(t *testing.T) {
 			t.Fatalf("decode MIME: %v", err)
 		}
 		message := string(raw)
-		for _, expected := range []string{"From: \"Revenue Rep\" <rep@acme.test>", "To: lead@buyer.test", "Subject: Follow up", "multipart/alternative", "Plain body", "<p>HTML body</p>"} {
+		for _, expected := range []string{"From: \"Revenue Rep\" <rep@acme.test>", "To: lead@buyer.test", "Subject: Follow up", "Message-ID: <sequence-1@crm.acme.test>", "multipart/alternative", "Plain body", "<p>HTML body</p>"} {
 			if !strings.Contains(message, expected) {
 				t.Fatalf("Gmail MIME missing %q: %s", expected, message)
 			}
@@ -49,9 +49,12 @@ func TestOAuthSenderUsesExactGmailMIMEContract(t *testing.T) {
 	defer server.Close()
 
 	sender := NewOAuthSender(OAuthSenderConfig{HTTPClient: server.Client(), GmailBaseURL: server.URL})
-	err := sender.Send(context.Background(), moduleuseremail.SyncCredentials{Provider: "google", FromEmail: "rep@acme.test", FromName: "Revenue Rep", OAuthAccess: "gmail-access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Follow up", TextBody: "Plain body", HTMLBody: "<p>HTML body</p>"})
+	receipt, err := sender.Send(context.Background(), moduleuseremail.SyncCredentials{Provider: "google", FromEmail: "rep@acme.test", FromName: "Revenue Rep", OAuthAccess: "gmail-access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Follow up", TextBody: "Plain body", HTMLBody: "<p>HTML body</p>", MessageID: "<sequence-1@crm.acme.test>"})
 	if err != nil {
 		t.Fatalf("send Gmail message: %v", err)
+	}
+	if receipt.ProviderMessageID != "gmail-message-1" || receipt.ProviderThreadID != "thread-1" {
+		t.Fatalf("unexpected Gmail correlation receipt: %#v", receipt)
 	}
 }
 
@@ -74,7 +77,7 @@ func TestOAuthSenderUsesExactMicrosoftMIMEContract(t *testing.T) {
 		if err != nil {
 			t.Fatalf("decode MIME: %v", err)
 		}
-		if message := string(raw); !strings.Contains(message, "To: lead@buyer.test") || !strings.Contains(message, "Plain body") {
+		if message := string(raw); !strings.Contains(message, "To: lead@buyer.test") || !strings.Contains(message, "Message-ID: <sequence-2@crm.acme.test>") || !strings.Contains(message, "Plain body") {
 			t.Fatalf("unexpected Microsoft MIME: %s", message)
 		}
 		w.WriteHeader(http.StatusAccepted)
@@ -82,9 +85,12 @@ func TestOAuthSenderUsesExactMicrosoftMIMEContract(t *testing.T) {
 	defer server.Close()
 
 	sender := NewOAuthSender(OAuthSenderConfig{HTTPClient: server.Client(), MicrosoftBaseURL: server.URL})
-	err := sender.Send(context.Background(), moduleuseremail.SyncCredentials{Provider: "microsoft", FromEmail: "rep@acme.test", OAuthAccess: "microsoft-access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Follow up", TextBody: "Plain body"})
+	receipt, err := sender.Send(context.Background(), moduleuseremail.SyncCredentials{Provider: "microsoft", FromEmail: "rep@acme.test", OAuthAccess: "microsoft-access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Follow up", TextBody: "Plain body", MessageID: "<sequence-2@crm.acme.test>"})
 	if err != nil {
 		t.Fatalf("send Microsoft message: %v", err)
+	}
+	if receipt != (moduleuseremail.SendReceipt{}) {
+		t.Fatalf("Microsoft MIME send should return no provider-specific receipt: %#v", receipt)
 	}
 }
 
@@ -110,7 +116,7 @@ func TestOAuthSenderRejectsProviderErrorsAndIncompleteSuccess(t *testing.T) {
 			}))
 			defer server.Close()
 			config := OAuthSenderConfig{HTTPClient: server.Client(), GmailBaseURL: server.URL, MicrosoftBaseURL: server.URL}
-			err := NewOAuthSender(config).Send(context.Background(), moduleuseremail.SyncCredentials{Provider: test.provider, FromEmail: "rep@acme.test", OAuthAccess: "access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Hi", TextBody: "Body"})
+			_, err := NewOAuthSender(config).Send(context.Background(), moduleuseremail.SyncCredentials{Provider: test.provider, FromEmail: "rep@acme.test", OAuthAccess: "access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Hi", TextBody: "Body"})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("expected %q error, got %v", test.want, err)
 			}
@@ -127,7 +133,7 @@ func TestOAuthSenderHonorsHTTPDeadline(t *testing.T) {
 
 	client := server.Client()
 	client.Timeout = 10 * time.Millisecond
-	err := NewOAuthSender(OAuthSenderConfig{HTTPClient: client, GmailBaseURL: server.URL}).Send(context.Background(), moduleuseremail.SyncCredentials{Provider: "google", FromEmail: "rep@acme.test", OAuthAccess: "access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Hi", TextBody: "Body"})
+	_, err := NewOAuthSender(OAuthSenderConfig{HTTPClient: client, GmailBaseURL: server.URL}).Send(context.Background(), moduleuseremail.SyncCredentials{Provider: "google", FromEmail: "rep@acme.test", OAuthAccess: "access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Hi", TextBody: "Body"})
 	if err == nil || !strings.Contains(err.Error(), "outcome is uncertain") {
 		t.Fatalf("expected bounded provider error, got %v", err)
 	}

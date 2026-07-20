@@ -69,9 +69,9 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("seed portable workspace contact: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO email_messages (organization_id,to_email,subject,body,status,visibility) VALUES
-			($1,'shared@portable.test','Shared customer thread','Shared body','sent','shared'),
-			($1,'private@portable.test','Private mailbox thread','Private body','sent','private')
+		INSERT INTO email_messages (organization_id,to_email,subject,body,status,visibility,rfc_message_id,in_reply_to,reference_message_ids) VALUES
+			($1,'shared@portable.test','Shared customer thread','Shared body','sent','shared','<shared@crm.example.test>','<prior@buyer.test>',ARRAY['<older@buyer.test>']),
+			($1,'private@portable.test','Private mailbox thread','Private body','sent','private','','','{}'::TEXT[])
 	`, organizationID); err != nil {
 		t.Fatalf("seed portable workspace email: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("portable contact missing: %s", files["data/contacts.ndjson"])
 	}
 	sharedMessages := string(files["data/email_messages_shared.ndjson"])
-	if !strings.Contains(sharedMessages, "Shared customer thread") || strings.Contains(sharedMessages, "Private mailbox thread") || strings.Contains(sharedMessages, "tracking_token") {
+	if !strings.Contains(sharedMessages, "Shared customer thread") || strings.Contains(sharedMessages, "Private mailbox thread") || strings.Contains(sharedMessages, "tracking_token") || strings.Contains(sharedMessages, "rfc_message_id") || strings.Contains(sharedMessages, "in_reply_to") || strings.Contains(sharedMessages, "reference_message_ids") {
 		t.Fatalf("workspace email privacy boundary failed: %s", sharedMessages)
 	}
 	emailAccount := string(files["data/email_account_configuration.ndjson"])

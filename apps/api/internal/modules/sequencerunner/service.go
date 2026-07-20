@@ -11,11 +11,13 @@ import (
 	"strings"
 	"time"
 
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
 	moduleratelimits "github.com/aeml/open_crm/apps/api/internal/modules/ratelimits"
+	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
 
 const (
@@ -39,16 +41,16 @@ type sequenceStore interface {
 
 type durableSequenceStore interface {
 	LoadScheduledSend(context.Context, int64, int64, int) (moduleemailsequences.DueSend, error)
-	PrepareDelivery(context.Context, moduleemailsequences.DueSend, string, string, string) (moduleemailsequences.Delivery, error)
+	PrepareCorrelatedDelivery(context.Context, moduleemailsequences.DueSend, string, string, string, string) (moduleemailsequences.Delivery, error)
 	ClaimDelivery(context.Context, int64, int64, int) (moduleemailsequences.Delivery, error)
-	FinalizeSent(context.Context, int64, int64, int) error
+	FinalizeSentWithReceipt(context.Context, int64, int64, int, string, string) error
 	FinalizeSuppressed(context.Context, int64, int64, int) error
 	MarkDeliveryUncertain(context.Context, int64, int64, int, error) error
 }
 
 type mailboxSender interface {
 	Configured() bool
-	SendAs(context.Context, int64, int64, string, string, string, string) error
+	SendMessageAs(context.Context, int64, int64, moduleemail.Message) (moduleuseremail.SendReceipt, error)
 }
 
 type messageStore interface {
@@ -166,7 +168,11 @@ func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string
 	unsubscribeURL := s.unsubscribeURL(send.OrganizationID, send.ContactEmail)
 	bodyToSend := textBodyWithUnsubscribe(body, unsubscribeURL)
 	htmlBody := htmlBodyWithUnsubscribe(body, unsubscribeURL)
-	delivery, err := store.PrepareDelivery(ctx, send, subject, bodyToSend, htmlBody)
+	messageID, err := moduleemail.NewMessageID(s.messageIDHost())
+	if err != nil {
+		return nil, err
+	}
+	delivery, err := store.PrepareCorrelatedDelivery(ctx, send, subject, bodyToSend, htmlBody, messageID)
 	if err != nil {
 		if errors.Is(err, moduleemailsequences.ErrInvalidInput) {
 			return nil, modulejobs.Permanent(err)
@@ -194,7 +200,7 @@ func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string
 			if err := store.FinalizeSuppressed(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder); err != nil {
 				return nil, err
 			}
-			s.record(ctx, send, delivery.Subject, delivery.TextBody, "failed", "Recipient has unsubscribed from email.")
+			s.record(ctx, send, delivery.Subject, delivery.TextBody, "failed", "Recipient has unsubscribed from email.", sendCorrelation{RFCMessageID: delivery.RFCMessageID})
 			return map[string]any{"status": "suppressed", "deliveryId": delivery.ID}, nil
 		}
 	}
@@ -215,16 +221,24 @@ func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string
 	if err != nil {
 		return nil, err
 	}
-	if err := s.sender.SendAs(ctx, send.OrganizationID, send.EnrolledByUserID, delivery.RecipientEmail, delivery.Subject, delivery.TextBody, delivery.HTMLBody); err != nil {
+	receipt, err := s.sender.SendMessageAs(ctx, send.OrganizationID, send.EnrolledByUserID, moduleemail.Message{
+		To: delivery.RecipientEmail, Subject: delivery.Subject, TextBody: delivery.TextBody, HTMLBody: delivery.HTMLBody, MessageID: delivery.RFCMessageID,
+	})
+	if err != nil {
 		_ = store.MarkDeliveryUncertain(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder, err)
-		s.record(ctx, send, delivery.Subject, delivery.TextBody, "failed", err.Error())
+		s.record(ctx, send, delivery.Subject, delivery.TextBody, "failed", err.Error(), sendCorrelation{RFCMessageID: delivery.RFCMessageID})
 		return nil, modulejobs.Permanent(fmt.Errorf("%w: %v", moduleemailsequences.ErrDeliveryUncertain, err))
 	}
-	if err := store.FinalizeSent(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder); err != nil {
+	if receipt.RFCMessageID != delivery.RFCMessageID {
+		err = errors.New("mailbox provider receipt did not preserve the prepared message id")
+		_ = store.MarkDeliveryUncertain(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder, err)
+		return nil, modulejobs.Permanent(fmt.Errorf("%w: %v", moduleemailsequences.ErrDeliveryUncertain, err))
+	}
+	if err := store.FinalizeSentWithReceipt(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder, receipt.ProviderMessageID, receipt.ProviderThreadID); err != nil {
 		_ = store.MarkDeliveryUncertain(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder, err)
 		return nil, modulejobs.Permanent(fmt.Errorf("%w: sent through the mailbox provider but state finalization failed: %v", moduleemailsequences.ErrDeliveryUncertain, err))
 	}
-	s.record(ctx, send, delivery.Subject, delivery.TextBody, "sent", "")
+	s.record(ctx, send, delivery.Subject, delivery.TextBody, "sent", "", sendCorrelation{RFCMessageID: delivery.RFCMessageID, ProviderMessageID: receipt.ProviderMessageID, ProviderThreadID: receipt.ProviderThreadID})
 	return map[string]any{"status": "sent", "deliveryId": delivery.ID}, nil
 }
 
@@ -280,12 +294,12 @@ func (s *Service) sendOne(ctx context.Context, send moduleemailsequences.DueSend
 	if s.suppressions != nil {
 		suppressed, err := s.suppressions.IsSuppressed(ctx, send.OrganizationID, send.ContactEmail)
 		if err != nil {
-			s.record(ctx, send, subject, body, "failed", "Unable to check email suppression status.")
+			s.record(ctx, send, subject, body, "failed", "Unable to check email suppression status.", sendCorrelation{})
 			_ = s.sequences.PostponeEnrollment(ctx, send.OrganizationID, send.EnrollmentID, failureRetryDelayMinutes)
 			return err
 		}
 		if suppressed {
-			s.record(ctx, send, subject, body, "failed", "Recipient has unsubscribed from email.")
+			s.record(ctx, send, subject, body, "failed", "Recipient has unsubscribed from email.", sendCorrelation{})
 			if err := s.sequences.MarkStepSent(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder); err != nil {
 				return err
 			}
@@ -296,12 +310,13 @@ func (s *Service) sendOne(ctx context.Context, send moduleemailsequences.DueSend
 	bodyToSend := textBodyWithUnsubscribe(body, unsubscribeURL)
 	htmlBody := htmlBodyWithUnsubscribe(body, unsubscribeURL)
 
-	if err := s.sender.SendAs(ctx, send.OrganizationID, send.EnrolledByUserID, send.ContactEmail, subject, bodyToSend, htmlBody); err != nil {
-		s.record(ctx, send, subject, bodyToSend, "failed", err.Error())
+	receipt, err := s.sender.SendMessageAs(ctx, send.OrganizationID, send.EnrolledByUserID, moduleemail.Message{To: send.ContactEmail, Subject: subject, TextBody: bodyToSend, HTMLBody: htmlBody})
+	if err != nil {
+		s.record(ctx, send, subject, bodyToSend, "failed", err.Error(), sendCorrelation{})
 		_ = s.sequences.PostponeEnrollment(ctx, send.OrganizationID, send.EnrollmentID, failureRetryDelayMinutes)
 		return err
 	}
-	s.record(ctx, send, subject, bodyToSend, "sent", "")
+	s.record(ctx, send, subject, bodyToSend, "sent", "", sendCorrelation{RFCMessageID: receipt.RFCMessageID, ProviderMessageID: receipt.ProviderMessageID, ProviderThreadID: receipt.ProviderThreadID})
 	if err := s.sequences.MarkStepSent(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder); err != nil {
 		return err
 	}
@@ -341,20 +356,37 @@ func htmlEscape(value string) string {
 	return strings.ReplaceAll(value, "'", "&#39;")
 }
 
-func (s *Service) record(ctx context.Context, send moduleemailsequences.DueSend, subject, body, status, errMsg string) {
+type sendCorrelation struct {
+	RFCMessageID      string
+	ProviderMessageID string
+	ProviderThreadID  string
+}
+
+func (s *Service) record(ctx context.Context, send moduleemailsequences.DueSend, subject, body, status, errMsg string, correlation sendCorrelation) {
 	if s.messages == nil {
 		return
 	}
 	_ = s.messages.Record(ctx, send.OrganizationID, moduleemailmessages.RecordInput{
-		ToEmail:      send.ContactEmail,
-		Subject:      subject,
-		Body:         body,
-		Status:       status,
-		Error:        errMsg,
-		EntityType:   "contact",
-		EntityID:     send.ContactID,
-		SentByUserID: send.EnrolledByUserID,
+		ToEmail:           send.ContactEmail,
+		Subject:           subject,
+		Body:              body,
+		Status:            status,
+		Error:             errMsg,
+		EntityType:        "contact",
+		EntityID:          send.ContactID,
+		SentByUserID:      send.EnrolledByUserID,
+		RFCMessageID:      correlation.RFCMessageID,
+		ProviderMessageID: correlation.ProviderMessageID,
+		ProviderThreadID:  correlation.ProviderThreadID,
 	})
+}
+
+func (s *Service) messageIDHost() string {
+	parsed, err := url.Parse(s.unsubscribeBaseURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Hostname()
 }
 
 func contactFields(send moduleemailsequences.DueSend) map[string]string {

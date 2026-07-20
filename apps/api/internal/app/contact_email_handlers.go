@@ -13,6 +13,7 @@ import (
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
@@ -308,7 +309,8 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 		htmlBody, trackedLinks = trackedHTMLBody(body, trackingURL, trackingBaseURL, unsubscribeURL)
 	}
 
-	if err := accounts.SendAs(r.Context(), organizationID, userID, to, subject, bodyToSend, htmlBody); err != nil {
+	receipt, err := accounts.SendMessageAs(r.Context(), organizationID, userID, moduleemail.Message{To: to, Subject: subject, TextBody: bodyToSend, HTMLBody: htmlBody})
+	if err != nil {
 		if errors.Is(err, moduleuseremail.ErrNotFound) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", accountRequiredMessage)
 			return
@@ -322,16 +324,16 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 			return
 		}
 		if errors.Is(err, moduleuseremail.ErrOAuthDeliveryUncertain) {
-			recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackingToken, trackedLinks)
+			recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackingToken, trackedLinks, moduleuseremail.SendReceipt{})
 			platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_DELIVERY_UNCERTAIN", "The provider outcome is uncertain. Check your Sent folder before retrying")
 			return
 		}
-		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackingToken, trackedLinks)
+		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackingToken, trackedLinks, moduleuseremail.SendReceipt{})
 		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email through your connected mailbox")
 		return
 	}
 
-	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "sent", "", trackingToken, trackedLinks)
+	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "sent", "", trackingToken, trackedLinks, receipt)
 	logEntityEmailNote(r, notes, organizationID, userID, entityType, entityID, subject)
 
 	response := sendEmailResponse{}
@@ -468,20 +470,23 @@ func logEntityEmailNote(r *http.Request, notes notesService, organizationID, use
 	})
 }
 
-func recordEntityEmail(r *http.Request, messages emailMessagesService, organizationID, userID int64, entityType string, entityID int64, to, subject, body, status, errMsg, trackingToken string, trackedLinks []moduleemailmessages.TrackedLinkInput) {
+func recordEntityEmail(r *http.Request, messages emailMessagesService, organizationID, userID int64, entityType string, entityID int64, to, subject, body, status, errMsg, trackingToken string, trackedLinks []moduleemailmessages.TrackedLinkInput, receipt moduleuseremail.SendReceipt) {
 	if messages == nil {
 		return
 	}
 	_ = messages.Record(r.Context(), organizationID, moduleemailmessages.RecordInput{
-		ToEmail:       to,
-		Subject:       subject,
-		Body:          body,
-		Status:        status,
-		Error:         errMsg,
-		EntityType:    entityType,
-		EntityID:      entityID,
-		SentByUserID:  userID,
-		TrackingToken: trackingToken,
-		TrackedLinks:  trackedLinks,
+		ToEmail:           to,
+		Subject:           subject,
+		Body:              body,
+		Status:            status,
+		Error:             errMsg,
+		EntityType:        entityType,
+		EntityID:          entityID,
+		SentByUserID:      userID,
+		TrackingToken:     trackingToken,
+		TrackedLinks:      trackedLinks,
+		RFCMessageID:      receipt.RFCMessageID,
+		ProviderMessageID: receipt.ProviderMessageID,
+		ProviderThreadID:  receipt.ProviderThreadID,
 	})
 }
