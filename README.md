@@ -204,6 +204,7 @@ Current automated checks in `.github/workflows/ci.yml`:
 - frontend `npm test`
 - frontend `npm run lint`
 - frontend `npm run build:checked` with entry/lazy/total/CSS raw+gzip budgets
+- Chromium axe-core WCAG A/AA scans over ten critical public and authenticated surfaces, with structured per-surface failure evidence and a keyboard skip-link check
 - Chromium pilot journey against a disposable PostgreSQL database, including idempotent workspace bootstrap, mandatory owner-email verification and trial start, invited-user lifecycle, required typed custom-field administration, dynamic mapped import and safe rollback, client/contact creation and reviewed core/custom-field duplicate merge, admin stage/probability configuration with existing-deal continuity and forecast verification, deal/task work, won close review and transactional client handoff/account summary, client-health triage, recurring client review tasks, reversible bulk client changes, teammate mention and followed-digest navigation, session persistence, and cross-tenant denial
 - encrypted Restic snapshot, retention/integrity check, extraction, isolated PostgreSQL restore, forward migration, and plaintext-leak acceptance
 - immutable release, expand-migration, manual rollback, and failed-readiness recovery acceptance

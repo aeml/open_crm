@@ -673,6 +673,12 @@ Completion notes:
 - Converted export buttons to `<a href>` for semantic keyboard access; added `type="search"` on search inputs.
 - Added `usePageTitle` hook; all 11 routes set `document.title`.
 - `<Card>` changed from `<section>` to `<div>` to eliminate unnamed landmark noise.
+- Added a CI-gated axe-core Chromium journey against disposable PostgreSQL. It
+  rejects automated WCAG A/AA violations across ten public and authenticated
+  critical surfaces, attaches structured per-surface findings, and verifies
+  the keyboard skip-link entry point. The first run caught and fixed the active
+  status chip's insufficient 4.39:1 contrast by using the existing strong
+  accent token.
 
 ## Version 0.3.8a - Tenant Isolation Hardening
 
