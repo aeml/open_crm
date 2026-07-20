@@ -8,7 +8,6 @@ import { isAbortError } from '../lib/api'
 import { archiveContact, contactsExportURL, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
-import { evaluateContactLeadScore } from '../lib/lead_scoring'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
 import { customFieldFilterFromParams, listCustomFields } from '../lib/custom_fields'
@@ -32,6 +31,7 @@ import {
 } from './contact_view'
 import { RecordWorkCards } from './record_work'
 import { TouchpointSummary } from './touchpoint_summary'
+import { useContactLeadScore } from './use_contact_lead_score'
 import { useContactOutreach } from './use_contact_outreach'
 const showFoundationCommunications = import.meta.env.DEV
 
@@ -70,8 +70,6 @@ export function ContactsRoute() {
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateCandidate, setDuplicateCandidate] = useState(null)
   const [foundationCommunicationsSnapshot, setFoundationCommunicationsSnapshot] = useState('')
-  const [leadScoreStatus, setLeadScoreStatus] = useState('')
-  const [isEvaluatingLeadScore, setIsEvaluatingLeadScore] = useState(false)
   const {
     applyEmailTemplate,
     emailForm,
@@ -94,6 +92,11 @@ export function ContactsRoute() {
     setEmailForm,
     setSequenceForm
   } = useContactOutreach({ selectedContactId, onError: setError })
+  const {
+    handleEvaluateLeadScore,
+    isEvaluatingLeadScore,
+    leadScoreStatus
+  } = useContactLeadScore({ selectedContactId, onScored: handleLeadScoreEvaluated, onError: setError })
   const searchControllerRef = useRef(null)
 
   const selectedContact = detail?.contact || null
@@ -105,7 +108,6 @@ export function ContactsRoute() {
 
   useLayoutEffect(() => {
     setFoundationCommunicationsSnapshot('')
-    setLeadScoreStatus('')
   }, [selectedContactId])
 
   function buildContactsPath(nextSearch = search, nextOwner = ownerFilter, nextCustomFilter = customFilter) {
@@ -517,35 +519,14 @@ export function ContactsRoute() {
     }
   }
 
-  async function handleEvaluateLeadScore() {
-    if (!selectedContactId) {
-      return
-    }
-    const contactKey = selectedContactId
-    setIsEvaluatingLeadScore(true)
-    setLeadScoreStatus('')
-    try {
-      const evaluation = await evaluateContactLeadScore(contactKey)
-      const scoredContact = evaluation?.contact
-      if (scoredContact) {
-        setDetail((current) => {
-          if (!current) return current
-          const next = { ...current, contact: scoredContact }
-          setDetailCache((cache) => ({ ...cache, [contactKey]: next }))
-          return next
-        })
-        setContacts((current) => current.map((entry) => (entry.id === scoredContact.id ? scoredContact : entry)))
-      }
-      const matchedCount = evaluation?.matchedRules?.length || 0
-      const gradeText = evaluation?.grade ? ` (${evaluation.grade})` : ''
-      const assignmentText = evaluation?.assignedToUserName ? ` Routed to ${evaluation.assignedToUserName}.` : ''
-      setLeadScoreStatus(`Lead scored ${evaluation?.score ?? 0}${gradeText}; ${matchedCount} rule${matchedCount === 1 ? '' : 's'} matched.${assignmentText}`)
-      setError('')
-    } catch (scoreError) {
-      setError(scoreError.message || 'Unable to evaluate lead score.')
-    } finally {
-      setIsEvaluatingLeadScore(false)
-    }
+  function handleLeadScoreEvaluated(scoredContact, contactKey) {
+    setDetail((current) => {
+      if (current?.contact?.id !== contactKey) return current
+      const next = { ...current, contact: scoredContact }
+      setDetailCache((cache) => ({ ...cache, [contactKey]: next }))
+      return next
+    })
+    setContacts((current) => current.map((entry) => (entry.id === contactKey ? scoredContact : entry)))
   }
 
   async function handleCreateTask(event) {

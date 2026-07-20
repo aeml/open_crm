@@ -6,7 +6,7 @@ const scriptDirectory = fileURLToPath(new URL('.', import.meta.url))
 const routesDirectory = resolve(scriptDirectory, '..', 'src', 'routes')
 const defaultMaximum = 500
 const maximums = new Map([
-  ['contacts.jsx', 750],
+  ['contacts.jsx', 725],
   ['companies.jsx', 850],
   ['deals.jsx', 800],
   ['tasks.jsx', 800],
