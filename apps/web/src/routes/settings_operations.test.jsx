@@ -86,6 +86,27 @@ describe('settings operations route', () => {
     expect(screen.getByRole('button', { name: /replay job/i })).toBeEnabled()
   })
 
+  it('labels and filters durable billing usage snapshot jobs', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { user: { id: 1 }, organization: { id: 1, name: 'Acme' }, membership: { role: 'owner' } } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { jobs: [{ id: 11, type: 'billing.usage.snapshot', status: 'dead', attempts: 5, maxAttempts: 5, lastError: 'Usage source unavailable' }], stats: { dead: 1 } } })
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { jobs: [], stats: { dead: 0 } } }) })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/operations')
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /billing usage snapshot · dead/i })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Job type'), { target: { value: 'billing.usage.snapshot' } })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/type=billing\.usage\.snapshot/), expect.any(Object))
+    })
+  })
+
   it('labels and filters portable workspace export recovery jobs', async () => {
     const fetchMock = vi
       .fn()

@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	moduledb "github.com/aeml/open_crm/apps/api/internal/db"
+	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
 )
 
 func TestUsageReconciliationAgainstPostgres(t *testing.T) {
@@ -185,6 +187,26 @@ func TestUsageReconciliationAgainstPostgres(t *testing.T) {
 	if updated.SnapshotID != usage.SnapshotID || assertUsageMetric(t, updated, "contacts", 3, UsageScopeCurrent) != 3 || assertUsageMetric(t, updated, "storage_bytes", -1, UsageScopeCurrent) <= storageBefore {
 		t.Fatalf("usage snapshot was not updated in place: before=%#v after=%#v", usage, updated)
 	}
+	const concurrentReconciliations = 6
+	concurrentResults := make(chan struct {
+		snapshotID int64
+		err        error
+	}, concurrentReconciliations)
+	for index := 0; index < concurrentReconciliations; index++ {
+		go func() {
+			reconciled, err := service.Usage(ctx, organizationID)
+			concurrentResults <- struct {
+				snapshotID int64
+				err        error
+			}{snapshotID: reconciled.SnapshotID, err: err}
+		}()
+	}
+	for index := 0; index < concurrentReconciliations; index++ {
+		result := <-concurrentResults
+		if result.err != nil || result.snapshotID != usage.SnapshotID {
+			t.Fatalf("concurrent usage reconciliation %d: snapshot=%d err=%v", index, result.snapshotID, result.err)
+		}
+	}
 	var retainedSnapshots int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM billing_usage_snapshots WHERE organization_id=$1`, organizationID).Scan(&retainedSnapshots); err != nil || retainedSnapshots != 1 {
 		t.Fatalf("usage snapshot retention mismatch: count=%d err=%v", retainedSnapshots, err)
@@ -203,6 +225,52 @@ func TestUsageReconciliationAgainstPostgres(t *testing.T) {
 	staleHostedFields, err := selfHostedService.Usage(ctx, organizationID)
 	if err != nil || staleHostedFields.PeriodBasis != "calendar_month" {
 		t.Fatalf("self-hosted runtime trusted stale provider period: usage=%#v err=%v", staleHostedFields, err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE billing_usage_snapshots
+		SET observed_at=(date_trunc('day',NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')-INTERVAL '1 second'
+	`); err != nil {
+		t.Fatalf("age usage snapshots for scheduler: %v", err)
+	}
+	queue := modulejobs.NewService(pool)
+	scheduled, err := service.ScheduleDueUsageSnapshots(ctx, queue, 10)
+	if err != nil || scheduled.Due != 2 || scheduled.Scheduled != 2 || scheduled.Blocked != 0 {
+		t.Fatalf("schedule daily usage snapshots: summary=%#v err=%v", scheduled, err)
+	}
+	duplicateSchedule, err := service.ScheduleDueUsageSnapshots(ctx, queue, 10)
+	if err != nil || duplicateSchedule.Due != 0 {
+		t.Fatalf("active usage snapshots were scheduled twice: summary=%#v err=%v", duplicateSchedule, err)
+	}
+	worker := modulejobs.NewWorker(queue, map[string]modulejobs.Handler{
+		UsageSnapshotJobType: service.HandleUsageSnapshotJob,
+	}, "billing-usage-snapshot-test", nil)
+	for index := 0; index < 2; index++ {
+		workerSummary, err := worker.RunOnce(ctx)
+		if err != nil || workerSummary.Succeeded != 1 {
+			t.Fatalf("run usage snapshot worker %d: summary=%#v err=%v", index, workerSummary, err)
+		}
+	}
+	var succeededJobs, currentSnapshots int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM background_jobs WHERE job_type=$1 AND status='succeeded'`, UsageSnapshotJobType).Scan(&succeededJobs); err != nil || succeededJobs != 2 {
+		t.Fatalf("usage snapshot job evidence mismatch: count=%d err=%v", succeededJobs, err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM organizations organization
+		WHERE organization.id IN ($1,$2) AND EXISTS (
+		  SELECT 1 FROM billing_usage_snapshots snapshot
+		  WHERE snapshot.organization_id=organization.id
+		    AND snapshot.observed_at >= (date_trunc('day',NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+		)
+	`, organizationID, foreignOrganizationID).Scan(&currentSnapshots); err != nil || currentSnapshots != 2 {
+		t.Fatalf("scheduled usage evidence is stale: workspaces=%d err=%v", currentSnapshots, err)
+	}
+	upToDate, err := service.ScheduleDueUsageSnapshots(ctx, queue, 10)
+	if err != nil || upToDate.Due != 0 {
+		t.Fatalf("current usage snapshots were rescheduled: summary=%#v err=%v", upToDate, err)
+	}
+	if _, err := service.HandleUsageSnapshotJob(ctx, modulejobs.Job{OrganizationID: organizationID, Type: UsageSnapshotJobType, IdempotencyKey: "snapshot:invalid", Payload: map[string]any{"snapshotDate": "invalid"}}); !errors.Is(err, ErrInvalidUsageSnapshotJob) {
+		t.Fatalf("invalid usage snapshot job returned %v", err)
 	}
 }
 

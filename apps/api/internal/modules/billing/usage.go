@@ -2,16 +2,23 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
 	UsageScopeCurrent = "current"
 	UsageScopePeriod  = "period"
+	// Concurrent billing-page loads and the daily worker may update the same
+	// retained period row. PostgreSQL repeatable-read correctly asks losers to
+	// retry; eight attempts cover a bounded small-team burst without looping
+	// indefinitely when the database remains contended.
+	usageAttempts = 8
 )
 
 // UsageMetric is one explainable usage observation. Limits remain in the plan
@@ -44,6 +51,21 @@ func (s *Service) Usage(ctx context.Context, organizationID int64) (UsageSnapsho
 	if s == nil || s.pool == nil || organizationID <= 0 {
 		return UsageSnapshot{}, fmt.Errorf("billing service not configured")
 	}
+	var lastErr error
+	for attempt := 0; attempt < usageAttempts; attempt++ {
+		usage, err := s.reconcileUsage(ctx, organizationID)
+		if err == nil {
+			return usage, nil
+		}
+		lastErr = err
+		if !retryableUsageReconciliation(err) || ctx.Err() != nil {
+			return UsageSnapshot{}, err
+		}
+	}
+	return UsageSnapshot{}, fmt.Errorf("reconcile billing usage after %d attempts: %w", usageAttempts, lastErr)
+}
+
+func (s *Service) reconcileUsage(ctx context.Context, organizationID int64) (UsageSnapshot, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return UsageSnapshot{}, fmt.Errorf("begin billing usage reconciliation: %w", err)
@@ -141,6 +163,11 @@ func (s *Service) Usage(ctx context.Context, organizationID int64) (UsageSnapsho
 			{Key: "storage_bytes", Label: "Tenant database row storage", Used: storageBytes, Unit: "bytes", Scope: UsageScopeCurrent, Source: "PostgreSQL row bytes across tenant-scoped base tables"},
 		},
 	}, nil
+}
+
+func retryableUsageReconciliation(err error) bool {
+	var postgresError *pgconn.PgError
+	return errors.As(err, &postgresError) && (postgresError.Code == "40001" || postgresError.Code == "40P01")
 }
 
 func resolveUsagePeriod(now time.Time, managedProviderPeriod bool, providerStart, providerEnd *time.Time) (time.Time, time.Time, string) {

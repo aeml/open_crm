@@ -262,12 +262,22 @@ func main() {
 			}
 			go billingService.RunReconciliationScheduler(ctx, jobsService, logger, 0, 0)
 		}
+		if billingService != nil {
+			jobHandlers[modulebilling.UsageSnapshotJobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
+				result, err := billingService.HandleUsageSnapshotJob(ctx, job)
+				if errors.Is(err, modulebilling.ErrInvalidUsageSnapshotJob) {
+					return nil, modulejobs.Permanent(err)
+				}
+				return result, err
+			}
+			go billingService.RunUsageSnapshotScheduler(ctx, jobsService, logger, 0, 0)
+		}
 		if sequenceRunnerService != nil && sequenceRunnerService.Configured() {
 			jobHandlers[moduleemailsequences.SequenceSendJobType] = sequenceRunnerService.HandleJob
 		}
 		if billingService != nil {
 			for jobType, handler := range jobHandlers {
-				if jobType != modulebilling.ReconciliationJobType && jobType != moduleworkspaceexports.JobType {
+				if jobType != modulebilling.ReconciliationJobType && jobType != modulebilling.UsageSnapshotJobType && jobType != moduleworkspaceexports.JobType {
 					jobHandlers[jobType] = modulebilling.GuardJobHandler(billingService, handler)
 				}
 			}

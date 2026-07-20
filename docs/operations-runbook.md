@@ -187,7 +187,11 @@ lead capture, or tenant workers because of stored hosted lifecycle fields.
    event is a safe no-op. A changed payload for the same event ID and
    cross-tenant customer/subscription references fail closed.
    Open **Settings > Plan & Billing** to reconcile the tenant's measured-usage
-   evidence. Stripe workspaces use the signed/reconciled
+   evidence on demand. The `billing.usage.snapshot` scheduler also discovers a
+   bounded batch every 15 minutes and retains at most one successful observation
+   per tenant per UTC day through the leased queue, so evidence does not depend
+   on a page visit. It is deliberately exempt from suspension, just like provider
+   reconciliation and offboarding export. Stripe workspaces use the signed/reconciled
    `subscription_current_period_start` and end; other workspaces use the current
    UTC month. `billing_usage_snapshots` retains the latest observation for that
    tenant/period. The displayed sources are active memberships, non-archived
@@ -201,6 +205,10 @@ lead capture, or tenant workers because of stored hosted lifecycle fields.
    hosted quota contract and concurrency policy are approved. Internal browser
    REST traffic is not labeled API usage; no external API meter exists because
    no versioned external API exists.
+   A failed daily observation is labeled **Billing usage snapshot** in
+   **Settings > Operations**. Correct the database/source-table cause before
+   replay; do not bypass the bounded identifier/source guard or edit the
+   snapshot/job status manually.
 7. On an incident, preserve the Stripe event ID and Open CRM request ID, correct
    the configuration or data-reference cause, and use Stripe's signed event
    redelivery. Do not edit organization plans/statuses or mark receipt rows
