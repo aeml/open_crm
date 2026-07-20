@@ -90,9 +90,9 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 178.03 KiB/57.94 KiB entry, 36.35 KiB/10.47 KiB largest lazy
-chunk, and 622.57 KiB/200.34 KiB total assets. The production contact, company,
-deal, and task routes are 28.28/8.53, 32.06/9.44, 36.35/10.47, and 22.17/6.29
+Current evidence: 177.99 KiB/57.93 KiB entry, 36.32 KiB/10.46 KiB largest lazy
+chunk, and 621.90 KiB/199.90 KiB total assets. The production contact, company,
+deal, and task routes are 28.25/8.51, 31.90/9.49, 36.32/10.46, and 22.17/6.29
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.35 KiB/4.56 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
@@ -152,10 +152,10 @@ logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health
 and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators plus focused company-directory and linked-
 people presentation plus shared record selection/work leave the parent routes at 644 contact lines,
-827 company lines, 764 deal lines, and
+766 company lines, 764 deal lines, and
 722 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 142-line work
-hooks now serve contacts and deals, abort obsolete loads, distinguish repeated
+hooks now serve contacts, companies, and deals, abort obsolete loads, distinguish repeated
 A-to-B-to-A visits, serialize per-record mutations, validate record/work
 identities, and keep late saves and work off the active contact. The 229-line
 contact outreach hook also
@@ -196,7 +196,7 @@ the application composition package.
 | Existing hotspot | Current lines | Maximum until next split |
 | --- | ---: | ---: |
 | `contacts.jsx` | 644 | 650 |
-| `companies.jsx` | 827 | 850 |
+| `companies.jsx` | 766 | 775 |
 | `deals.jsx` | 764 | 775 |
 | `tasks.jsx` | 722 | 750 |
 | `dashboard.jsx` | 477 | 550 |

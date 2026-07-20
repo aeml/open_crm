@@ -12,7 +12,7 @@ import {
   phoneFieldLabel
 } from './company_view'
 
-export function CompanyForm({ canSubmit = true, contacts, customDefinitions = [], form, includeStatus = false, onSetForm, onSubmit, submitLabel }) {
+export function CompanyForm({ canSubmit = true, contacts, customDefinitions = [], form, includeStatus = false, isSubmitting = false, onSetForm, onSubmit, submitLabel }) {
   const setField = (name) => (event) => onSetForm((current) => ({ ...current, [name]: event.target.value }))
   return (
     <form className="auth-form" onSubmit={onSubmit}>
@@ -86,7 +86,7 @@ export function CompanyForm({ canSubmit = true, contacts, customDefinitions = []
         </>
       ) : null}
       {!isIndividualClient(form.clientType) ? <CustomFieldsForm definitions={customDefinitions} values={form.customFields || {}} onChange={(customFields) => onSetForm((current) => ({ ...current, customFields }))} /> : null}
-      {canSubmit ? <Button type="submit">{submitLabel}</Button> : null}
+      {canSubmit ? <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : submitLabel}</Button> : null}
     </form>
   )
 }

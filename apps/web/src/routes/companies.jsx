@@ -8,8 +8,6 @@ import { isAbortError } from '../lib/api'
 import { archiveCompany, createCompany, getCompany, listCompanies, sendCompanyEmail, updateCompany } from '../lib/companies'
 import { createContact, listContacts } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
-import { createNote, listNotes } from '../lib/notes'
-import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
 import { customFieldFilterFromParams, customFieldPayload, listCustomFields } from '../lib/custom_fields'
 import { usePageTitle } from '../lib/use_page_title'
@@ -34,10 +32,12 @@ import { CompanyDirectory } from './company_directory'
 import { CompanyPeople } from './company_people'
 import { useCompanyPeople } from './use_company_people'
 import { ClientAccountContext } from './client_account_context'
-import { ClientReviewSchedule, refreshClientReviewTasks } from './client_review_schedule'
+import { ClientReviewSchedule } from './client_review_schedule'
 import { ClientHealthReport } from './client_health_report'
 import { RecordWorkCards } from './record_work'
 import { TouchpointSummary } from './touchpoint_summary'
+import { requireRecordResponse, useRecordSelection } from './use_record_selection'
+import { useRecordWork } from './use_record_work'
 
 const emptyForm = {
   name: '',
@@ -56,14 +56,6 @@ const emptyForm = {
   linkedContactIDs: '',
   customFields: {}
 }
-
-const emptyTaskForm = {
-  title: '',
-  description: '',
-  dueAt: '',
-  assignedToUserId: ''
-}
-
 
 export function CompaniesRoute() {
   const navigate = useNavigate()
@@ -88,7 +80,6 @@ export function CompaniesRoute() {
   const [customFilter, setCustomFilter] = useState(initialCustomFilter)
   const [selectedCompanyId, setSelectedCompanyId] = useState(null)
   const [detail, setDetail] = useState(null)
-  const [detailCache, setDetailCache] = useState({})
   const [contactOptions, setContactOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
   const [ownerOptions, setOwnerOptions] = useState([])
@@ -96,22 +87,45 @@ export function CompaniesRoute() {
   const [companyCustomDefinitions, setCompanyCustomDefinitions] = useState([])
   const [contactCustomDefinitions, setContactCustomDefinitions] = useState([])
   const [customDefinitionsLoaded, setCustomDefinitionsLoaded] = useState(false)
-  const [noteBody, setNoteBody] = useState('')
-  const [taskForm, setTaskForm] = useState(emptyTaskForm)
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
+  const [isSavingCompany, setIsSavingCompany] = useState(false)
+  const [isArchivingCompany, setIsArchivingCompany] = useState(false)
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateCandidate, setDuplicateCandidate] = useState(null)
   const searchControllerRef = useRef(null)
+  const seededRouteCompanyRef = useRef(null)
+  const companySelection = useRecordSelection(selectedCompanyId)
+  const {
+    activities: selectedActivities,
+    fetchWork,
+    handleCreateNote,
+    handleCreateTask,
+    isCreatingNote,
+    isCreatingTask,
+    load: loadWork,
+    noteBody,
+    notes: selectedNotes,
+    refreshTasks,
+    reset: resetWork,
+    setActivities,
+    setNoteBody,
+    setTaskForm,
+    taskForm,
+    tasks: selectedTasks
+  } = useRecordWork({
+    defaultAssignedToUserId: userOptions[0]?.id ? String(userOptions[0].id) : '',
+    entityType: 'company',
+    selectedEntityId: selectedCompanyId,
+    selection: companySelection,
+    onError: setError
+  })
 
   const selectedCompany = detail?.company || null
   const linkedContacts = detail?.linkedContacts || []
-  const selectedNotes = detail?.notes || []
-  const selectedTasks = detail?.tasks || []
   const selectedDeals = detail?.deals || []
   const hasFilter = search.trim() !== '' || ownerFilter !== 'all' || customFilter.fieldKey !== ''
-  const selectedActivities = detail?.activities || []
   const companyEmailRecipients = useMemo(() => emailRecipientOptions(linkedContacts), [linkedContacts])
   const companyPeople = useCompanyPeople({
     selectedCompanyId,
@@ -152,20 +166,19 @@ export function CompaniesRoute() {
       const clients = buildClientRecords(nextCompanies, nextContacts)
       setCompanies(clients)
       setSelectedClientIds([])
-        setMeta({ page: 1, pageSize: 20, total: clients.length })
-        return
-      }
+      setMeta({ page: 1, pageSize: 20, total: clients.length })
+      return
+    }
 
     if (companyData?.company) {
       const entry = organizationClientFromCompany(companyData.company)
       setCompanies([entry])
-       setMeta({ page: 1, pageSize: 20, total: 1 })
-       setDetailCache((current) => ({ ...current, [entry.id]: companyData }))
-       return
-     }
+      setMeta({ page: 1, pageSize: 20, total: 1 })
+      return
+    }
 
-     setCompanies([])
-     setMeta({ page: 1, pageSize: 20, total: 0 })
+    setCompanies([])
+    setMeta({ page: 1, pageSize: 20, total: 0 })
   }
 
   async function loadContactOptions({ signal } = {}) {
@@ -241,6 +254,8 @@ export function CompaniesRoute() {
     setMode('list')
     setDetail(null)
     setSelectedCompanyId(null)
+    companySelection.clear()
+    resetWork()
     navigate(buildCompaniesPath(nextSearch, nextOwner, nextCustomFilter), { replace: true })
     await reloadCompanies(nextSearch, nextOwner, nextCustomFilter)
   }
@@ -290,6 +305,8 @@ export function CompaniesRoute() {
     setMode('list')
     setDetail(null)
     setSelectedCompanyId(null)
+    companySelection.clear()
+    resetWork()
     navigate('/companies')
     try {
       await loadCompanies(duplicateSearch)
@@ -333,7 +350,7 @@ export function CompaniesRoute() {
     navigate(`/tasks?entityType=company&entityId=${selectedCompanyId}`)
   }
 
-  const handleClientReviewChanged = () => refreshClientReviewTasks('company', selectedCompanyId, setDetail, setDetailCache)
+  const handleClientReviewChanged = refreshTasks
 
   async function handleOpenCompany(company) {
     if (company.entityType === 'contact') {
@@ -341,113 +358,84 @@ export function CompaniesRoute() {
       return
     }
 
-    const companyID = company.id
-    const cached = detailCache[companyID]
-    if (cached) {
-      setSelectedCompanyId(companyID)
-      setDetail(cached)
-      fillFormFromDetail(cached)
-      setNoteBody('')
-      setTaskForm(emptyTaskForm)
-      setMode('detail')
-      navigate(`/companies/${companyID}`)
-      return
-    }
-
-    try {
-        const [data, notes, taskData, dealData] = await Promise.all([
-          getCompany(companyID),
-          listNotes('company', companyID),
-          listTasks({ status: 'open', entityType: 'company', entityId: companyID }),
-          listDeals({ companyId: companyID })
-        ])
-        const detailData = { ...data, notes, tasks: taskData.tasks || [], deals: dealData.deals || [] }
-      setDetailCache((current) => ({ ...current, [companyID]: detailData }))
-      setSelectedCompanyId(companyID)
-      setDetail(detailData)
-      fillFormFromDetail(detailData)
-      setNoteBody('')
-      setTaskForm(emptyTaskForm)
-      setMode('detail')
-      navigate(`/companies/${companyID}`)
-      setError('')
-    } catch (loadError) {
-      setError(loadError.message || 'Unable to load company.')
-    }
+    const companyID = company.entityId
+    if (routeCompanyId === companyID) return
+    companySelection.begin(companyID)
+    setSelectedCompanyId(companyID)
+    setDetail(null)
+    setForm(emptyForm)
+    resetWork()
+    setMode('detail')
+    setIsDetailLoading(true)
+    navigate(`/companies/${companyID}`)
   }
 
   useEffect(() => {
-    const controller = new AbortController()
-
     async function openRouteCompany() {
       if (!customDefinitionsLoaded) return
       if (!Number.isInteger(routeCompanyId) || routeCompanyId <= 0) {
+        seededRouteCompanyRef.current = null
+        companySelection.clear()
         if (selectedCompanyId || mode === 'detail') {
           setSelectedCompanyId(null)
           setDetail(null)
           setForm(emptyForm)
-          setNoteBody('')
-          setTaskForm(emptyTaskForm)
+          resetWork()
           setMode('list')
         }
+        setIsDetailLoading(false)
+        setIsSavingCompany(false)
+        setIsArchivingCompany(false)
         return
       }
 
-      if (selectedCompanyId === routeCompanyId && detail?.company?.id === routeCompanyId) {
+      const seededRouteCompany = seededRouteCompanyRef.current
+      if (seededRouteCompany?.companyId === routeCompanyId && companySelection.isCurrent(seededRouteCompany.selection)) {
+        setIsDetailLoading(false)
         return
       }
-
-      const cached = detailCache[routeCompanyId]
-      if (cached) {
-        setSelectedCompanyId(routeCompanyId)
-        setDetail(cached)
-        fillFormFromDetail(cached)
-        setNoteBody('')
-        setTaskForm(emptyTaskForm)
-        setMode('detail')
-        setError('')
-        return
-      }
+      seededRouteCompanyRef.current = null
+      const activeSelection = companySelection.begin(routeCompanyId)
+      const signal = activeSelection.controller.signal
+      setSelectedCompanyId(routeCompanyId)
+      setDetail(null)
+      setForm(emptyForm)
+      resetWork()
+      setMode('detail')
+      setIsSavingCompany(false)
+      setIsArchivingCompany(false)
 
       try {
         setIsDetailLoading(true)
-        const [data, notes, taskData, dealData] = await Promise.all([
-          getCompany(routeCompanyId, { signal: controller.signal }),
-          listNotes('company', routeCompanyId, { signal: controller.signal }),
-          listTasks({ status: 'open', entityType: 'company', entityId: routeCompanyId }, { signal: controller.signal }),
-          listDeals({ companyId: routeCompanyId }, { signal: controller.signal })
+        const [data, work, dealData] = await Promise.all([
+          getCompany(routeCompanyId, { signal }),
+          fetchWork(routeCompanyId, { signal }),
+          listDeals({ companyId: routeCompanyId }, { signal })
         ])
-        if (controller.signal.aborted) {
-          return
-        }
-        const detailData = { ...data, notes, tasks: taskData.tasks || [], deals: dealData.deals || [] }
-        setDetailCache((current) => ({ ...current, [routeCompanyId]: detailData }))
-        setSelectedCompanyId(routeCompanyId)
+        if (!companySelection.isCurrent(activeSelection)) return
+        requireRecordResponse(data, 'company', routeCompanyId, 'Unable to load company.')
+        const detailData = { ...data, deals: dealData.deals || [] }
         setDetail(detailData)
         fillFormFromDetail(detailData)
-        setNoteBody('')
-        setTaskForm(emptyTaskForm)
-        setMode('detail')
+        loadWork({ ...work, activities: data.activities || [] })
         setError('')
       } catch (loadError) {
-        if (!isAbortError(loadError)) {
+        if (!isAbortError(loadError) && companySelection.isCurrent(activeSelection)) {
           setError(loadError.message || 'Unable to load company.')
         }
       } finally {
-        if (!controller.signal.aborted) {
-          setIsDetailLoading(false)
-        }
+        if (companySelection.isCurrent(activeSelection)) setIsDetailLoading(false)
       }
     }
 
     openRouteCompany()
-    return () => {
-      controller.abort()
-    }
-  }, [customDefinitionsLoaded, detail, detailCache, mode, routeCompanyId, selectedCompanyId])
+  }, [customDefinitionsLoaded, routeCompanyId])
 
   async function handleCreate(event) {
     event.preventDefault()
+    const operation = companySelection.start('create', selectedCompanyId, { allowEmpty: true, group: 'company-snapshot' })
+    if (!operation) return
+    setIsSavingCompany(true)
     try {
       if (isIndividualClient(form.clientType)) {
         const fullName = splitFullName(form.name)
@@ -467,15 +455,16 @@ export function CompaniesRoute() {
           isClient: true,
           customFields: customFieldPayload(contactCustomDefinitions, form.customFields)
         })
+        if (!data?.contact?.id) throw new Error('Unable to create individual client.')
         const nextClient = individualClientFromContact(data.contact)
         setCompanies((current) => [...current, nextClient].sort((left, right) => left.name.localeCompare(right.name) || left.entityId - right.entityId))
         setMeta((current) => ({ ...current, total: current.total + 1 }))
-        setForm(emptyForm)
-        setMode('list')
-        navigate(`/contacts/${data.contact.id}`)
-        setError('')
-        setDuplicateSearch('')
-        setDuplicateCandidate(null)
+        if (companySelection.isCurrent(operation.selection)) {
+          navigate(`/contacts/${data.contact.id}`)
+          setError('')
+          setDuplicateSearch('')
+          setDuplicateCandidate(null)
+        }
         return
       }
 
@@ -485,52 +474,66 @@ export function CompaniesRoute() {
       if (!data?.company?.id) {
         throw new Error('Unable to create company.')
       }
-      const detailData = { ...data, notes: data.notes || [], tasks: data.tasks || [], deals: [] }
-      setDetailCache((current) => ({ ...current, [data.company.id]: detailData }))
       setCompanies((current) => [...current, organizationClientFromCompany(data.company)].sort((left, right) => left.name.localeCompare(right.name) || left.entityId - right.entityId))
       setMeta((current) => ({ ...current, total: current.total + 1 }))
-      setSelectedCompanyId(data.company.id)
-      setDetail(detailData)
-      fillFormFromDetail(detailData)
-      setNoteBody('')
-      setTaskForm(emptyTaskForm)
-      setMode('detail')
-      navigate(`/companies/${data.company.id}`)
-      setError('')
-      setDuplicateSearch('')
-      setDuplicateCandidate(null)
+      if (companySelection.isCurrent(operation.selection)) {
+        const companyID = data.company.id
+        const activeSelection = companySelection.begin(companyID)
+        const detailData = { ...data, deals: data.deals || [] }
+        seededRouteCompanyRef.current = { companyId: companyID, selection: activeSelection }
+        setSelectedCompanyId(companyID)
+        setDetail(detailData)
+        fillFormFromDetail(detailData)
+        loadWork({ notes: data.notes || [], tasks: data.tasks || [], activities: data.activities || [] })
+        setMode('detail')
+        setIsDetailLoading(false)
+        setIsSavingCompany(false)
+        setIsArchivingCompany(false)
+        navigate(`/companies/${data.company.id}`)
+        setError('')
+        setDuplicateSearch('')
+        setDuplicateCandidate(null)
+      }
     } catch (saveError) {
-      setError(saveError.message || 'Unable to create company.')
-      setDuplicateSearch(duplicateSearchTerm(saveError.message, form.website || form.email || form.phone || form.name))
-      setDuplicateCandidate(saveError.duplicate || null)
+      if (companySelection.isCurrent(operation.selection)) {
+        setError(saveError.message || 'Unable to create company.')
+        setDuplicateSearch(duplicateSearchTerm(saveError.message, form.website || form.email || form.phone || form.name))
+        setDuplicateCandidate(saveError.duplicate || null)
+      }
+    } finally {
+      companySelection.finish(operation)
+      if (companySelection.isCurrent(operation.selection)) setIsSavingCompany(false)
     }
   }
 
   async function handleUpdate(event) {
     event.preventDefault()
-    if (!selectedCompanyId) {
-      return
-    }
-
+    const operation = companySelection.start('update', selectedCompanyId, { group: 'company-snapshot' })
+    if (!operation) return
+    setIsSavingCompany(true)
     try {
-      const data = await updateCompany(selectedCompanyId, {
+      const data = requireRecordResponse(await updateCompany(operation.entityId, {
         ...buildCompanyPayload(form, companyCustomDefinitions)
-      })
-      if (!data?.company?.id) {
-        throw new Error('Unable to update company.')
-      }
-      const detailData = { ...data, notes: detail?.notes || [], tasks: detail?.tasks || [], deals: detail?.deals || [] }
-      setDetailCache((current) => ({ ...current, [selectedCompanyId]: detailData }))
-      setCompanies((current) => current.map((entry) => (entry.id === selectedCompanyId ? organizationClientFromCompany(data.company) : entry)))
+      }), 'company', operation.entityId, 'Unable to update company.')
+      if (!companySelection.canApply(operation)) return
+      setCompanies((current) => current.map((entry) => (entry.entityType === 'company' && entry.entityId === operation.entityId ? organizationClientFromCompany(data.company) : entry)))
+      if (!companySelection.isCurrent(operation.selection)) return
+      const detailData = { ...data, deals: detail?.deals || [] }
       setDetail(detailData)
       fillFormFromDetail(detailData)
+      loadWork({ notes: selectedNotes, tasks: selectedTasks, activities: data.activities || selectedActivities })
       setError('')
       setDuplicateSearch('')
       setDuplicateCandidate(null)
     } catch (saveError) {
-      setError(saveError.message || 'Unable to update company.')
-      setDuplicateSearch(duplicateSearchTerm(saveError.message, form.website || form.email || form.phone || form.name))
-      setDuplicateCandidate(saveError.duplicate || null)
+      if (companySelection.isCurrent(operation.selection)) {
+        setError(saveError.message || 'Unable to update company.')
+        setDuplicateSearch(duplicateSearchTerm(saveError.message, form.website || form.email || form.phone || form.name))
+        setDuplicateCandidate(saveError.duplicate || null)
+      }
+    } finally {
+      companySelection.finish(operation)
+      if (companySelection.isCurrent(operation.selection)) setIsSavingCompany(false)
     }
   }
 
@@ -539,11 +542,9 @@ export function CompaniesRoute() {
     setContactOptions((current) => sortContactOptions([...current.filter((entry) => entry.id !== result.contact.id), result.contact]))
     setDetail((current) => {
       if (current?.company?.id !== selectedCompanyId) return current
-      const nextActivities = result.activity?.id ? [result.activity, ...(current.activities || []).filter((entry) => entry.id !== result.activity.id)] : (current.activities || [])
-      const detailData = { ...current, linkedContacts: [...(current.linkedContacts || []).filter((entry) => entry.id !== linkedContact.id), linkedContact], activities: nextActivities }
-      setDetailCache((cache) => ({ ...cache, [selectedCompanyId]: detailData }))
-      return detailData
+      return { ...current, linkedContacts: [...(current.linkedContacts || []).filter((entry) => entry.id !== linkedContact.id), linkedContact] }
     })
+    if (result.activity?.id) setActivities((current) => [result.activity, ...current.filter((entry) => entry.id !== result.activity.id)])
     setError('')
     setDuplicateSearch('')
     setDuplicateCandidate(null)
@@ -556,11 +557,15 @@ export function CompaniesRoute() {
   }
 
   function handleAddClient() {
+    companySelection.clear()
     navigate('/companies')
     setMode('create')
     setForm(emptyForm)
     setDetail(null)
     setSelectedCompanyId(null)
+    resetWork()
+    setIsSavingCompany(false)
+    setIsArchivingCompany(false)
   }
 
   function handleClearFilters() {
@@ -582,100 +587,30 @@ export function CompaniesRoute() {
   }
 
   async function handleArchive() {
-    if (!selectedCompanyId) {
-      return
-    }
-
+    const operation = companySelection.start('archive', selectedCompanyId, { group: 'company-snapshot' })
+    if (!operation) return
+    setIsArchivingCompany(true)
     try {
-      await archiveCompany(selectedCompanyId)
-      setCompanies((current) => current.filter((entry) => entry.id !== selectedCompanyId))
+      await archiveCompany(operation.entityId)
+      setCompanies((current) => current.filter((entry) => entry.entityType !== 'company' || entry.entityId !== operation.entityId))
       setMeta((current) => ({ ...current, total: Math.max(0, current.total - 1) }))
-      setDetail((current) => {
-        if (!current?.company?.id) {
-          return null
-        }
-        const next = { ...detailCache }
-        delete next[current.company.id]
-        setDetailCache(next)
-        return null
-      })
+      if (!companySelection.isEntityActive(operation.entityId)) return
+      setIsArchivingCompany(false)
+      companySelection.clear()
+      setDetail(null)
       setSelectedCompanyId(null)
       setForm(emptyForm)
-      setNoteBody('')
-      setTaskForm(emptyTaskForm)
+      resetWork()
       setMode('list')
       navigate('/companies')
       setError('')
       setDuplicateSearch('')
       setDuplicateCandidate(null)
     } catch (archiveError) {
-      setError(archiveError.message || 'Unable to archive company.')
-    }
-  }
-
-  async function handleCreateNote(event) {
-    event.preventDefault()
-    if (!selectedCompanyId || !noteBody.trim()) {
-      return
-    }
-
-    try {
-      const data = await createNote({
-        entityType: 'company',
-        entityId: selectedCompanyId,
-        body: noteBody.trim()
-      })
-      setDetail((current) => {
-        if (!current) {
-          return current
-        }
-        const next = {
-          ...current,
-          notes: [data.note, ...(current.notes || [])],
-          activities: [data.activity, ...(current.activities || [])]
-        }
-        setDetailCache((cache) => ({ ...cache, [selectedCompanyId]: next }))
-        return next
-      })
-      setNoteBody('')
-      setError('')
-    } catch (noteError) {
-      setError(noteError.message || 'Unable to add note.')
-    }
-  }
-
-  async function handleCreateTask(event) {
-    event.preventDefault()
-    if (!selectedCompanyId || !taskForm.title.trim()) {
-      return
-    }
-
-    try {
-      const data = await createTask({
-        entityType: 'company',
-        entityId: selectedCompanyId,
-        title: taskForm.title.trim(),
-        description: taskForm.description.trim(),
-        status: 'open',
-        dueAt: taskForm.dueAt ? `${taskForm.dueAt}:00Z` : '',
-        assignedToUserId: Number.parseInt(taskForm.assignedToUserId, 10) || 0
-      })
-      setDetail((current) => {
-        if (!current) {
-          return current
-        }
-        const next = {
-          ...current,
-          tasks: [data.task, ...(current.tasks || []).filter((task) => task.id !== data.task.id)],
-          activities: [...(data.activities || []), ...(current.activities || [])]
-        }
-        setDetailCache((cache) => ({ ...cache, [selectedCompanyId]: next }))
-        return next
-      })
-      setTaskForm(emptyTaskForm)
-      setError('')
-    } catch (taskError) {
-      setError(taskError.message || 'Unable to create task.')
+      if (companySelection.isCurrent(operation.selection)) setError(archiveError.message || 'Unable to archive company.')
+    } finally {
+      companySelection.finish(operation)
+      if (companySelection.isCurrent(operation.selection)) setIsArchivingCompany(false)
     }
   }
 
@@ -729,6 +664,7 @@ export function CompaniesRoute() {
               contacts={contactOptions}
               customDefinitions={isIndividualClient(form.clientType) ? contactCustomDefinitions : companyCustomDefinitions}
               form={form}
+              isSubmitting={isSavingCompany}
               onSetForm={setForm}
               onSubmit={handleCreate}
               submitLabel="Save client"
@@ -747,8 +683,8 @@ export function CompaniesRoute() {
                 <p>{detailSubtitle(selectedCompany, linkedContacts)}</p>
               </div>
               {canWrite ? (
-                <Button className="button-danger" onClick={handleArchive}>
-                  Archive client
+                <Button className="button-danger" disabled={isArchivingCompany || isSavingCompany} onClick={handleArchive}>
+                  {isArchivingCompany ? 'Archiving…' : 'Archive client'}
                 </Button>
               ) : null}
             </div>
@@ -758,6 +694,7 @@ export function CompaniesRoute() {
               customDefinitions={companyCustomDefinitions}
               form={form}
               includeStatus
+              isSubmitting={isSavingCompany}
               onSetForm={setForm}
               onSubmit={handleUpdate}
               submitLabel="Update client"
@@ -806,6 +743,8 @@ export function CompaniesRoute() {
               canWrite={canWrite}
               entityId={selectedCompanyId}
               entityType="company"
+              isCreatingNote={isCreatingNote}
+              isCreatingTask={isCreatingTask}
               noteBody={noteBody}
               notes={selectedNotes}
               notesAria="Client notes list"

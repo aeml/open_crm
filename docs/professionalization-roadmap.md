@@ -409,9 +409,11 @@ leave-and-return navigation. Development-only call, SMS, and meeting orchestrati
 in a 456-line focused module excluded from production builds. Shared record-work cards,
 touchpoints/account/health context, company editor/view helpers, and focused
 142-line directory plus 82-line linked-people presentation and a tested 70-line
-company-people mutation hook leave `companies.jsx` at 827 lines, down from 1,364,
-with a tightened 850-line ceiling. The hook calls one transactional linked-person
-endpoint and rejects late responses after leave-and-return navigation. Deal view,
+company-people mutation hook leave `companies.jsx` at 766 lines, down from 1,364,
+with a tightened 775-line ceiling. Company selection now shares the same visit-identity,
+pending-mutation, work, and response-validation contract as contacts and deals, while
+the focused people hook calls one transactional linked-person endpoint and rejects
+late responses after leave-and-return navigation. Deal view,
 shared work, quote, signature, and bulk-action components leave `deals.jsx` at
 764 lines, down from 1,365, with directory, shared-form, and editor presentation
 isolated in 157-, 74-, and 87-line modules. The shared selection and work hooks
@@ -2269,8 +2271,8 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 178.03 KiB/57.94 KiB for the entry, 36.35 KiB/10.47 KiB
-for the largest lazy chunk, and 622.57 KiB/200.34 KiB total assets. Hosted
+CSS. Current evidence is 177.99 KiB/57.93 KiB for the entry, 36.32 KiB/10.46 KiB
+for the largest lazy chunk, and 621.90 KiB/199.90 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.35 KiB/4.56 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
@@ -2278,7 +2280,7 @@ routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring plus shared record selection/work and company directory/people presentation leave contacts at 644 lines,
-companies at 827, deals at 764, and tasks at 722, down from 2,038, 1,364,
+companies at 766, deals at 764, and tasks at 722, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.
