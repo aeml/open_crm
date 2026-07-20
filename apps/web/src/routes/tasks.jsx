@@ -16,6 +16,7 @@ import { listOrganizationUsers } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
+import { TaskForm } from './task_form'
 import {
   emptyTaskListDescription,
   emptyTaskListMessage,
@@ -377,19 +378,6 @@ export function TasksRoute() {
     await reloadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, nextAssigneeFilter, nextDueView)
   }
 
-  function getDefaultEntityId(nextEntityType) {
-    if (nextEntityType === 'deal') {
-      return dealOptions[0] ? String(dealOptions[0].id) : ''
-    }
-    if (nextEntityType === 'company') {
-      return companyOptions[0] ? String(companyOptions[0].id) : ''
-    }
-    if (nextEntityType === 'contact') {
-      return contactOptions[0] ? String(contactOptions[0].id) : ''
-    }
-    return ''
-  }
-
   function syncTaskIntoState(task, activities) {
     setDetailCache((current) => ({ ...current, [task.id]: { task, activities } }))
     setDetail({ task, activities })
@@ -729,59 +717,18 @@ export function TasksRoute() {
               <h2>{labels.createHeading}</h2>
               <p>{labels.createDescription}</p>
             </div>
-            <form className="auth-form" onSubmit={handleCreate}>
-              <Field label="Task title">
-                <input className="text-input" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} required />
-              </Field>
-              <Field label={labels.entityTypeLabel}>
-                <select className="text-input" value={form.entityType} onChange={(event) => setForm((current) => ({ ...current, entityType: event.target.value, entityId: getDefaultEntityId(event.target.value) }))}>
-                  <option value="deal">{labels.dealOption}</option>
-                  <option value="company">{labels.companyLabel}</option>
-                  <option value="contact">Contact</option>
-                </select>
-              </Field>
-              {form.entityType === 'deal' ? (
-                <Field label={labels.dealLabel}>
-                  <select className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required>
-                    {dealOptions.map((deal) => (
-                      <option key={deal.id} value={deal.id}>{deal.name}</option>
-                    ))}
-                  </select>
-                </Field>
-              ) : null}
-              {form.entityType === 'company' ? (
-                <Field label={labels.companyLabel}>
-                  <select className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required>
-                    {companyOptions.map((company) => (
-                      <option key={company.id} value={company.id}>{company.name}</option>
-                    ))}
-                  </select>
-                </Field>
-              ) : null}
-              {form.entityType === 'contact' ? (
-                <Field label="Contact">
-                  <select className="text-input" value={form.entityId} onChange={(event) => setForm((current) => ({ ...current, entityId: event.target.value }))} required>
-                    {contactOptions.map((contact) => (
-                      <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
-                    ))}
-                  </select>
-                </Field>
-              ) : null}
-              <Field label="Description">
-                <textarea className="text-input" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-              </Field>
-              <Field label="Assigned to">
-                <select className="text-input" value={form.assignedToUserId} onChange={(event) => setForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
-                  {userOptions.map((user) => (
-                    <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Due at">
-                <input className="text-input" type="datetime-local" value={form.dueAt} onChange={(event) => setForm((current) => ({ ...current, dueAt: event.target.value }))} />
-              </Field>
-              <Button type="submit">Save task</Button>
-            </form>
+            <TaskForm
+              companyOptions={companyOptions}
+              contactOptions={contactOptions}
+              dealOptions={dealOptions}
+              form={form}
+              labels={labels}
+              onSetForm={setForm}
+              onSubmit={handleCreate}
+              showEntityFields
+              submitLabel="Save task"
+              userOptions={userOptions}
+            />
           </div>
         </Card>
       ) : null}
@@ -796,35 +743,18 @@ export function TasksRoute() {
                 <p>{selectedTask.entityLabel || `${selectedTask.entityType} #${selectedTask.entityId}`}</p>
               </div>
             </div>
-            <form className="auth-form" onSubmit={handleUpdate}>
-              <Field label="Task title">
-                <input className="text-input" value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} required />
-              </Field>
-              <Field label="Description">
-                <textarea className="text-input" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-              </Field>
-              <Field label="Assigned to">
-                <select className="text-input" value={form.assignedToUserId} onChange={(event) => setForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
-                  {userOptions.map((user) => (
-                    <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Status">
-                <select className="text-input" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
-                  <option value="open">Open</option>
-                  <option value="completed">Completed</option>
-                </select>
-              </Field>
-              <Field label="Due at">
-                <input className="text-input" type="datetime-local" value={form.dueAt} onChange={(event) => setForm((current) => ({ ...current, dueAt: event.target.value }))} />
-              </Field>
-              <Field label="Completed at">
-                <input className="text-input" type="datetime-local" value={form.completedAt} onChange={(event) => setForm((current) => ({ ...current, completedAt: event.target.value }))} />
-              </Field>
-              {canWrite ? <Button type="submit">Update task</Button> : null}
-              {canWrite ? <Button className="button-danger" type="button" onClick={handleArchive}>Archive task</Button> : null}
-            </form>
+            <TaskForm
+              canArchive={canWrite}
+              canSubmit={canWrite}
+              form={form}
+              labels={labels}
+              onArchive={handleArchive}
+              onSetForm={setForm}
+              onSubmit={handleUpdate}
+              showStatusFields
+              submitLabel="Update task"
+              userOptions={userOptions}
+            />
             <Card>
               <div className="card-stack">
                 <h3>Activity</h3>

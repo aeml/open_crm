@@ -389,8 +389,8 @@ excluded from production builds. Shared record-work cards,
 touchpoints/account/health context, and company editor/view helpers leave `companies.jsx` at 985 lines,
 down from 1,364. Deal view, shared work, quote, signature, and bulk-action
 components leave `deals.jsx` at 1,065 lines, down from 1,365. Task filtering,
-sorting, labels, and due-date view logic leave `tasks.jsx` at 839 lines, down
-from 1,093. Tighter source ratchets preserve every reduction while
+sorting, labels, due-date view logic, and a shared 98-line create/update form
+leave `tasks.jsx` at 769 lines, down from 1,093. Tighter source ratchets preserve every reduction while
 holding other production routes to 500 lines. This remains in progress while
 the contact and deal orchestrators retain explicit exceptions.
 

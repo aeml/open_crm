@@ -151,7 +151,7 @@ logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health
 and client-review integration plus a focused development-only communications
 orchestrator leave the parent routes at 854 contact lines,
 985 company lines, 1,065 deal lines, and
-839 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
+769 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
 Continue lowering the remaining contact/deal exceptions along tested
@@ -175,7 +175,7 @@ the application composition package.
 | `contacts.jsx` | 854 | 900 |
 | `companies.jsx` | 985 | 1,000 |
 | `deals.jsx` | 1,065 | 1,100 |
-| `tasks.jsx` | 839 | 850 |
+| `tasks.jsx` | 769 | 800 |
 | `dashboard.jsx` | 478 | 550 |
 | backend `support_handlers.go` | 699 | 800 |
 
