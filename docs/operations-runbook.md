@@ -145,6 +145,23 @@ lead capture, or tenant workers because of stored hosted lifecycle fields.
    URL is informational and never activates a plan. Confirm the portal opens,
    then exercise a failed payment, recovery, scheduled cancellation, and final
    cancellation using approved Stripe test controls.
+
+   CI also runs a credential-free provider-contract acceptance against a fresh
+   PostgreSQL schema. `TestHostedBillingSandboxJourneyAgainstPostgres` sends
+   Stripe-shaped HTTP through the production adapter and the real app routes,
+   signs raw webhook bodies, and runs provider reconciliation through the leased
+   job queue. It proves Checkout and webhook replay, activation, invoice refresh,
+   past-due grace, unpaid suspension/portal recovery, reactivation, and both
+   cancellation stages without contacting Stripe. Reproduce that gate with:
+
+   ```bash
+   cd apps/api
+   OPEN_CRM_TEST_DATABASE_URL='postgres://...' go test ./internal/app \
+     -run '^TestHostedBillingSandboxJourneyAgainstPostgres$' -count=1
+   ```
+
+   This contract gate does not authorize provider activation and does not replace
+   the approved credentialed Stripe test-mode deployment smoke in this step.
 5. During suspension, verify `/auth/me` reports `workspaceAccess.state` as
    `read_only`, the persistent banner appears, and normal mutation controls are
    absent or disabled. An authorized direct CRM mutation must still return
