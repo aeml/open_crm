@@ -1161,6 +1161,40 @@ operator correction. Customer-mail bounce/complaint events are not yet joined
 to sequence outcomes. Suppression is terminal for the enrollment and no later
 cadence step is scheduled.
 
+### Hosted sequence send safety limits
+
+When `BILLING_PROVIDER=stripe`, every eligible sequence provider attempt must
+atomically reserve both of these PostgreSQL-coordinated fixed-window budgets:
+
+- `SEQUENCE_TENANT_SEND_LIMIT_24H` — defaults to 1,000 per workspace in a
+  24-hour window; and
+- `SEQUENCE_SENDER_SEND_LIMIT_1H` — defaults to 100 per enrolling mailbox in a
+  one-hour window.
+
+These are provisional reputation/abuse safety caps, not plan quotas. They apply
+across all API instances and store only hashed workspace/sender keys. A fake
+billing provider—the self-hosted default—does not enable the hosted cap. Hosted
+values must be positive integers no greater than 1,000,000; an invalid value
+stops API startup instead of silently disabling protection.
+
+An exhausted budget leaves the delivery queued and defers the same background
+job until the denied window resets. The deferral does not consume a worker
+attempt or call the mailbox provider. It appears in **Settings > Operations**
+with `hosted sequence send safety limit reached`, and contributes to the
+bounded `email_sequence.send` / `deferred` worker metric. Suppressed deliveries
+and deliveries already finalized at preflight do not consume a budget. A pause
+that wins before the worker's approval check does not consume one either; if a
+pause or concurrent resolution races after budget reservation but before
+delivery claim, the provider is still not called but the conservative
+reservation remains until its window expires.
+
+Do not raise either value merely to clear a queue. First confirm the queue is
+expected, review provider terms/domain reputation and recent complaint/bounce
+evidence, then record the approved threshold and restart the API with the new
+environment value. Lowering a value takes effect against the current window;
+changing a window's numeric limit does not reset its stored expiry. Never edit
+`public_rate_limit_buckets` to bypass the boundary.
+
 ### Uncertain sequence email
 
 SMTP or a mailbox provider API can accept a message before a connection failure reaches Open CRM. Those

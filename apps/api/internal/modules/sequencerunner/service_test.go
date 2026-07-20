@@ -5,10 +5,12 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
 	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
+	moduleratelimits "github.com/aeml/open_crm/apps/api/internal/modules/ratelimits"
 )
 
 type fakeSequenceStore struct {
@@ -30,6 +32,7 @@ type fakeDurableSequenceStore struct {
 	loadErr             error
 	prepareErr          error
 	claimErr            error
+	claimCalls          int
 	finalizeSent        int
 	finalizeSuppressed  int
 	markedUncertain     int
@@ -54,11 +57,26 @@ func (f *fakeDurableSequenceStore) PrepareDelivery(_ context.Context, send modul
 }
 
 func (f *fakeDurableSequenceStore) ClaimDelivery(context.Context, int64, int64, int) (moduleemailsequences.Delivery, error) {
+	f.claimCalls++
 	if f.claimErr != nil {
 		return f.delivery, f.claimErr
 	}
 	f.delivery.Status = "sending"
 	return f.delivery, nil
+}
+
+type fakeSendBudgetStore struct {
+	allowed    bool
+	retryAfter time.Duration
+	err        error
+	calls      int
+	budgets    []moduleratelimits.Budget
+}
+
+func (f *fakeSendBudgetStore) AllowAll(_ context.Context, budgets []moduleratelimits.Budget) (bool, time.Duration, error) {
+	f.calls++
+	f.budgets = append([]moduleratelimits.Budget(nil), budgets...)
+	return f.allowed, f.retryAfter, f.err
 }
 
 func (f *fakeDurableSequenceStore) FinalizeSent(context.Context, int64, int64, int) error {
@@ -375,6 +393,58 @@ func TestHandleJobFinalizesSuppressedDeliveryWithoutSMTP(t *testing.T) {
 	result, err := service.HandleJob(context.Background(), sequenceJob())
 	if err != nil || result["status"] != "suppressed" || sender.calls != 0 || sequences.finalizeSuppressed != 1 {
 		t.Fatalf("unexpected suppressed durable result: result=%#v sender=%#v sequences=%#v err=%v", result, sender, sequences, err)
+	}
+}
+
+func TestHandleJobDefersHostedSendLimitBeforeClaimAndProvider(t *testing.T) {
+	sequences := &fakeDurableSequenceStore{fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}}
+	sender := &fakeMailboxSender{configured: true}
+	budgets := &fakeSendBudgetStore{allowed: false, retryAfter: 20 * time.Minute}
+	service := NewServiceWithHostedLimits(sequences, sender, &fakeMessageStore{}, nil, "", budgets, SendLimits{TenantPer24Hours: 1000, SenderPerHour: 100})
+
+	result, err := service.HandleJob(context.Background(), sequenceJob())
+	if result != nil || !errors.Is(err, ErrSendLimited) || budgets.calls != 1 || sequences.claimCalls != 0 || sender.calls != 0 || sequences.delivery.Status != "queued" {
+		t.Fatalf("expected hosted limit to defer before claim/provider: result=%#v budgets=%#v sequences=%#v sender=%#v err=%v", result, budgets, sequences, sender, err)
+	}
+	if len(budgets.budgets) != 2 || budgets.budgets[0].Scope != "provider.sequence.sender-1h" || budgets.budgets[0].ClientKey != "42:2" || budgets.budgets[0].Limit != 100 || budgets.budgets[1].Scope != "provider.sequence.tenant-24h" || budgets.budgets[1].ClientKey != "42" || budgets.budgets[1].Limit != 1000 {
+		t.Fatalf("unexpected hosted sequence budgets: %#v", budgets.budgets)
+	}
+}
+
+func TestHandleJobConsumesHostedLimitsOnlyForEligibleProviderAttempt(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		suppressed  bool
+		delivery    moduleemailsequences.Delivery
+		budgetCalls int
+		sendCalls   int
+	}{
+		{name: "eligible queued delivery", budgetCalls: 1, sendCalls: 1},
+		{name: "suppressed recipient", suppressed: true},
+		{name: "already sent delivery", delivery: moduleemailsequences.Delivery{ID: 11, Status: "sent"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sequences := &fakeDurableSequenceStore{fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}, delivery: test.delivery}
+			sender := &fakeMailboxSender{configured: true}
+			budgets := &fakeSendBudgetStore{allowed: true, retryAfter: time.Hour}
+			service := NewServiceWithHostedLimits(sequences, sender, &fakeMessageStore{}, &fakeSuppressionStore{suppressed: test.suppressed}, "", budgets, SendLimits{TenantPer24Hours: 1000, SenderPerHour: 100})
+
+			if _, err := service.HandleJob(context.Background(), sequenceJob()); err != nil {
+				t.Fatalf("handle hosted sequence job: %v", err)
+			}
+			if budgets.calls != test.budgetCalls || sender.calls != test.sendCalls {
+				t.Fatalf("unexpected provider boundary calls: budgets=%d sender=%d", budgets.calls, sender.calls)
+			}
+		})
+	}
+}
+
+func TestHandleJobFailsClosedForInvalidHostedLimitPolicy(t *testing.T) {
+	sequences := &fakeDurableSequenceStore{fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}}
+	service := NewServiceWithHostedLimits(sequences, &fakeMailboxSender{configured: true}, &fakeMessageStore{}, nil, "", &fakeSendBudgetStore{allowed: true}, SendLimits{})
+
+	if _, err := service.HandleJob(context.Background(), sequenceJob()); !errors.Is(err, ErrInvalidLimits) || sequences.claimCalls != 0 {
+		t.Fatalf("invalid hosted limits must fail before claiming delivery, claims=%d err=%v", sequences.claimCalls, err)
 	}
 }
 

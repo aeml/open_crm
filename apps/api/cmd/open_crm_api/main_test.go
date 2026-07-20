@@ -34,3 +34,20 @@ func TestBackgroundWorkerIDIncludesProcessIdentity(t *testing.T) {
 		t.Fatalf("expected host and process worker identity, got %q", workerID)
 	}
 }
+
+func TestBuildSequenceRunnerAppliesHostedLimitsOnlyToManagedRuntime(t *testing.T) {
+	invalidLimits := config.Env{APIBaseURL: "https://api.example.test"}
+	selfHosted, err := buildSequenceRunner(invalidLimits, false, nil, nil, nil, nil, nil)
+	if err != nil || selfHosted == nil {
+		t.Fatalf("self-hosted sequence runner must not require hosted policy: service=%#v err=%v", selfHosted, err)
+	}
+	if hosted, err := buildSequenceRunner(invalidLimits, true, nil, nil, nil, nil, nil); err == nil || hosted != nil {
+		t.Fatalf("managed runtime must reject invalid hosted limits: service=%#v err=%v", hosted, err)
+	}
+
+	validLimits := config.Env{SequenceTenant24HourLimit: "1000", SequenceSender1HourLimit: "100"}
+	hosted, err := buildSequenceRunner(validLimits, true, nil, nil, nil, nil, nil)
+	if err != nil || hosted == nil {
+		t.Fatalf("managed runtime should accept valid hosted limits: service=%#v err=%v", hosted, err)
+	}
+}

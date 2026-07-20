@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +15,115 @@ import (
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
 	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
+	moduleratelimits "github.com/aeml/open_crm/apps/api/internal/modules/ratelimits"
 )
+
+func TestHostedSequenceSendLimitsCoordinateAcrossRunnersBeforeProviderEffectsAgainstPostgres(t *testing.T) {
+	databaseURL := strings.TrimSpace(os.Getenv("OPEN_CRM_TEST_DATABASE_URL"))
+	if databaseURL == "" {
+		t.Skip("OPEN_CRM_TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	adminPool, err := moduledb.NewPool(ctx, moduledb.Config{DatabaseURL: databaseURL})
+	if err != nil {
+		t.Fatalf("connect to sequence-limit postgres: %v", err)
+	}
+	defer adminPool.Close()
+	schema := fmt.Sprintf("open_crm_sequence_limits_%d", time.Now().UnixNano())
+	if _, err := adminPool.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+		t.Fatalf("create sequence-limit schema: %v", err)
+	}
+	defer func() { _, _ = adminPool.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`) }()
+
+	schemaURL := databaseURLWithSequenceJobSearchPath(t, databaseURL, schema)
+	if _, err := moduledb.RunMigrations(ctx, moduledb.Config{DatabaseURL: schemaURL}); err != nil {
+		t.Fatalf("migrate sequence-limit schema: %v", err)
+	}
+	pool, err := moduledb.NewPool(ctx, moduledb.Config{DatabaseURL: schemaURL})
+	if err != nil {
+		t.Fatalf("connect to migrated sequence-limit schema: %v", err)
+	}
+	defer pool.Close()
+
+	limiters := []*moduleratelimits.Service{moduleratelimits.NewService(pool), moduleratelimits.NewService(pool)}
+	const attempts = 6
+	start := make(chan struct{})
+	results := make(chan error, attempts)
+	providerCalls := make(chan int, attempts)
+	claimCalls := make(chan int, attempts)
+	var workers sync.WaitGroup
+	for index := range attempts {
+		workers.Add(1)
+		go func(index int) {
+			defer workers.Done()
+			<-start
+			providerCount, claimCount, runErr := runHostedLimitAttempt(ctx, limiters[index%len(limiters)], 42, 2, int64(100+index), SendLimits{TenantPer24Hours: 2, SenderPerHour: 10})
+			results <- runErr
+			providerCalls <- providerCount
+			claimCalls <- claimCount
+		}(index)
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	close(providerCalls)
+	close(claimCalls)
+
+	sent, deferred := 0, 0
+	for runErr := range results {
+		switch {
+		case runErr == nil:
+			sent++
+		case errors.Is(runErr, ErrSendLimited):
+			deferred++
+		default:
+			t.Fatalf("unexpected concurrent runner error: %v", runErr)
+		}
+	}
+	totalProviderCalls, totalClaimCalls := 0, 0
+	for calls := range providerCalls {
+		totalProviderCalls += calls
+	}
+	for calls := range claimCalls {
+		totalClaimCalls += calls
+	}
+	if sent != 2 || deferred != attempts-2 || totalProviderCalls != 2 || totalClaimCalls != 2 {
+		t.Fatalf("shared tenant cap crossed provider boundary: sent=%d deferred=%d provider=%d claims=%d", sent, deferred, totalProviderCalls, totalClaimCalls)
+	}
+
+	providerCount, claimCount, runErr := runHostedLimitAttempt(ctx, limiters[0], 43, 2, 200, SendLimits{TenantPer24Hours: 2, SenderPerHour: 10})
+	if runErr != nil || providerCount != 1 || claimCount != 1 {
+		t.Fatalf("another tenant must have an independent budget: provider=%d claims=%d err=%v", providerCount, claimCount, runErr)
+	}
+	if _, _, runErr := runHostedLimitAttempt(ctx, limiters[0], 44, 5, 201, SendLimits{TenantPer24Hours: 10, SenderPerHour: 1}); runErr != nil {
+		t.Fatalf("first sender-budget attempt: %v", runErr)
+	}
+	providerCount, claimCount, runErr = runHostedLimitAttempt(ctx, limiters[1], 44, 5, 202, SendLimits{TenantPer24Hours: 10, SenderPerHour: 1})
+	if !errors.Is(runErr, ErrSendLimited) || providerCount != 0 || claimCount != 0 {
+		t.Fatalf("shared sender cap crossed provider boundary: provider=%d claims=%d err=%v", providerCount, claimCount, runErr)
+	}
+	providerCount, claimCount, runErr = runHostedLimitAttempt(ctx, limiters[1], 44, 6, 203, SendLimits{TenantPer24Hours: 10, SenderPerHour: 1})
+	if runErr != nil || providerCount != 1 || claimCount != 1 {
+		t.Fatalf("another sender must have an independent budget: provider=%d claims=%d err=%v", providerCount, claimCount, runErr)
+	}
+}
+
+func runHostedLimitAttempt(ctx context.Context, limiter *moduleratelimits.Service, organizationID, senderID, enrollmentID int64, limits SendLimits) (providerCalls, claimCalls int, err error) {
+	send := dueSend()
+	send.OrganizationID = organizationID
+	send.EnrolledByUserID = senderID
+	send.EnrollmentID = enrollmentID
+	sequences := &fakeDurableSequenceStore{fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{send}}}
+	sender := &fakeMailboxSender{configured: true}
+	runner := NewServiceWithHostedLimits(sequences, sender, &fakeMessageStore{}, nil, "", limiter, limits)
+	job := sequenceJob()
+	job.OrganizationID = organizationID
+	job.Payload["enrollmentId"] = fmt.Sprintf("%d", enrollmentID)
+	_, err = runner.HandleJob(ctx, job)
+	return sender.calls, sequences.claimCalls, err
+}
 
 func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres(t *testing.T) {
 	databaseURL := strings.TrimSpace(os.Getenv("OPEN_CRM_TEST_DATABASE_URL"))

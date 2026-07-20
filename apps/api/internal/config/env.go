@@ -1,8 +1,16 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
+)
+
+const (
+	defaultSequenceTenant24HourSendLimit = "1000"
+	defaultSequenceSender1HourSendLimit  = "100"
+	maxSequenceSendLimit                 = 1_000_000
 )
 
 type Env struct {
@@ -25,6 +33,8 @@ type Env struct {
 	PostmarkMessageStream      string
 	PostmarkWebhookUsername    string
 	PostmarkWebhookPassword    string
+	SequenceTenant24HourLimit  string
+	SequenceSender1HourLimit   string
 	CredentialEncryptionKey    string
 	APIBaseURL                 string
 	WebBaseURL                 string
@@ -71,6 +81,14 @@ func Load() Env {
 	if strings.TrimSpace(backupStatusPath) == "" {
 		backupStatusPath = "/run/open-crm/backup-status"
 	}
+	sequenceTenant24HourLimit := strings.TrimSpace(os.Getenv("SEQUENCE_TENANT_SEND_LIMIT_24H"))
+	if sequenceTenant24HourLimit == "" {
+		sequenceTenant24HourLimit = defaultSequenceTenant24HourSendLimit
+	}
+	sequenceSender1HourLimit := strings.TrimSpace(os.Getenv("SEQUENCE_SENDER_SEND_LIMIT_1H"))
+	if sequenceSender1HourLimit == "" {
+		sequenceSender1HourLimit = defaultSequenceSender1HourSendLimit
+	}
 
 	return Env{
 		Port:                       port,
@@ -92,6 +110,8 @@ func Load() Env {
 		PostmarkMessageStream:      os.Getenv("POSTMARK_MESSAGE_STREAM"),
 		PostmarkWebhookUsername:    os.Getenv("POSTMARK_WEBHOOK_USERNAME"),
 		PostmarkWebhookPassword:    os.Getenv("POSTMARK_WEBHOOK_PASSWORD"),
+		SequenceTenant24HourLimit:  sequenceTenant24HourLimit,
+		SequenceSender1HourLimit:   sequenceSender1HourLimit,
 		CredentialEncryptionKey:    os.Getenv("CREDENTIAL_ENCRYPTION_KEY"),
 		APIBaseURL:                 os.Getenv("API_BASE_URL"),
 		WebBaseURL:                 webBaseURL,
@@ -103,6 +123,29 @@ func Load() Env {
 		BackupStatusPath:           backupStatusPath,
 		ReleaseID:                  strings.TrimSpace(os.Getenv("OPEN_CRM_RELEASE_ID")),
 	}
+}
+
+// HostedSequenceSendLimits parses the mandatory hosted provider-effect safety
+// limits. Self-hosted/fake-billing runtimes do not call this method and remain
+// unrestricted by Open CRM's hosted operating policy.
+func (e Env) HostedSequenceSendLimits() (tenant24Hour, sender1Hour int, err error) {
+	tenant24Hour, err = parseSequenceSendLimit("SEQUENCE_TENANT_SEND_LIMIT_24H", e.SequenceTenant24HourLimit)
+	if err != nil {
+		return 0, 0, err
+	}
+	sender1Hour, err = parseSequenceSendLimit("SEQUENCE_SENDER_SEND_LIMIT_1H", e.SequenceSender1HourLimit)
+	if err != nil {
+		return 0, 0, err
+	}
+	return tenant24Hour, sender1Hour, nil
+}
+
+func parseSequenceSendLimit(name, value string) (int, error) {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed <= 0 || parsed > maxSequenceSendLimit {
+		return 0, fmt.Errorf("%s must be an integer from 1 to %d", name, maxSequenceSendLimit)
+	}
+	return parsed, nil
 }
 
 func (e Env) APIAddress() string {

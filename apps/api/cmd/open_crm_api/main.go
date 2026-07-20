@@ -217,7 +217,10 @@ func main() {
 			userEmailService = moduleuseremail.NewServiceWithProviders(pool, credentialCipher, metrics, oauthTokenRefresher, modulemailboxsync.NewOAuthSender(modulemailboxsync.OAuthSenderConfig{}))
 			emailMessagesService = moduleemailmessages.NewService(pool)
 			mailboxSyncService = modulemailboxsync.NewServiceWithOAuthRefresh(userEmailService, emailMessagesService, nil, oauthTokenRefresher)
-			sequenceRunnerService = modulesequencerunner.NewServiceWithSuppressions(emailSequencesService, userEmailService, emailMessagesService, emailSuppressionsService, env.APIBaseURL)
+			sequenceRunnerService, err = buildSequenceRunner(env, billingService.Hosted(), emailSequencesService, userEmailService, emailMessagesService, emailSuppressionsService, rateLimitsService)
+			if err != nil {
+				log.Fatalf("configure sequence runner: %v", err)
+			}
 			jobsService = modulejobs.NewService(pool)
 		}
 	}

@@ -15,6 +15,7 @@ import (
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
+	moduleratelimits "github.com/aeml/open_crm/apps/api/internal/modules/ratelimits"
 )
 
 const (
@@ -26,6 +27,8 @@ var (
 	ErrNotConfigured = errors.New("email sequence runner not configured")
 	ErrSuppressed    = errors.New("email recipient suppressed")
 	ErrInvalidJob    = errors.New("invalid email sequence send job")
+	ErrSendLimited   = errors.New("hosted sequence send safety limit reached")
+	ErrInvalidLimits = errors.New("invalid hosted sequence send limits")
 )
 
 type sequenceStore interface {
@@ -57,6 +60,17 @@ type suppressionStore interface {
 	UnsubscribeToken(int64, string) (string, error)
 }
 
+type sendBudgetStore interface {
+	AllowAll(context.Context, []moduleratelimits.Budget) (bool, time.Duration, error)
+}
+
+// SendLimits is an operational provider-safety policy, not a plan entitlement.
+// A zero value disables the policy for self-hosted/fake-billing runtimes.
+type SendLimits struct {
+	TenantPer24Hours int
+	SenderPerHour    int
+}
+
 type Summary struct {
 	Attempted int
 	Sent      int
@@ -68,6 +82,8 @@ type Service struct {
 	sender             mailboxSender
 	messages           messageStore
 	suppressions       suppressionStore
+	sendBudgets        sendBudgetStore
+	sendLimits         SendLimits
 	unsubscribeBaseURL string
 	limit              int
 }
@@ -78,6 +94,16 @@ func NewService(sequences sequenceStore, sender mailboxSender, messages messageS
 
 func NewServiceWithSuppressions(sequences sequenceStore, sender mailboxSender, messages messageStore, suppressions suppressionStore, unsubscribeBaseURL string) *Service {
 	return &Service{sequences: sequences, sender: sender, messages: messages, suppressions: suppressions, unsubscribeBaseURL: strings.TrimRight(strings.TrimSpace(unsubscribeBaseURL), "/"), limit: defaultBatchLimit}
+}
+
+// NewServiceWithHostedLimits enables a shared provider-effect boundary for a
+// managed SaaS runtime. Callers must validate both positive limits at startup;
+// the handler fails closed if it is accidentally constructed otherwise.
+func NewServiceWithHostedLimits(sequences sequenceStore, sender mailboxSender, messages messageStore, suppressions suppressionStore, unsubscribeBaseURL string, budgets sendBudgetStore, limits SendLimits) *Service {
+	service := NewServiceWithSuppressions(sequences, sender, messages, suppressions, unsubscribeBaseURL)
+	service.sendBudgets = budgets
+	service.sendLimits = limits
+	return service
 }
 
 func (s *Service) Configured() bool {
@@ -172,6 +198,9 @@ func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string
 			return map[string]any{"status": "suppressed", "deliveryId": delivery.ID}, nil
 		}
 	}
+	if err := s.enforceSendLimits(ctx, send); err != nil {
+		return nil, err
+	}
 
 	delivery, err = store.ClaimDelivery(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder)
 	if errors.Is(err, moduleemailsequences.ErrSequencePaused) {
@@ -197,6 +226,31 @@ func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string
 	}
 	s.record(ctx, send, delivery.Subject, delivery.TextBody, "sent", "")
 	return map[string]any{"status": "sent", "deliveryId": delivery.ID}, nil
+}
+
+func (s *Service) enforceSendLimits(ctx context.Context, send moduleemailsequences.DueSend) error {
+	if s.sendBudgets == nil && s.sendLimits == (SendLimits{}) {
+		return nil
+	}
+	if s.sendBudgets == nil || s.sendLimits.TenantPer24Hours <= 0 || s.sendLimits.SenderPerHour <= 0 {
+		return ErrInvalidLimits
+	}
+	organizationKey := strconv.FormatInt(send.OrganizationID, 10)
+	senderKey := organizationKey + ":" + strconv.FormatInt(send.EnrolledByUserID, 10)
+	allowed, retryAfter, err := s.sendBudgets.AllowAll(ctx, []moduleratelimits.Budget{
+		{Scope: "provider.sequence.sender-1h", ClientKey: senderKey, Limit: s.sendLimits.SenderPerHour, Window: time.Hour},
+		{Scope: "provider.sequence.tenant-24h", ClientKey: organizationKey, Limit: s.sendLimits.TenantPer24Hours, Window: 24 * time.Hour},
+	})
+	if err != nil {
+		return err
+	}
+	if allowed {
+		return nil
+	}
+	if retryAfter < time.Second {
+		retryAfter = time.Second
+	}
+	return modulejobs.Deferred(ErrSendLimited, time.Now().UTC().Add(retryAfter))
 }
 
 func sequenceJobIDs(job modulejobs.Job) (int64, int, error) {

@@ -118,6 +118,27 @@ func TestSharedRateLimitsCoordinateAcrossInstancesAgainstPostgres(t *testing.T) 
 	if err != nil || !separateAllowed {
 		t.Fatalf("separate scope did not get its own budget: allowed=%v err=%v", separateAllowed, err)
 	}
+	seeded, _, err := services[0].Allow(ctx, "atomic.z-exhausted", "tenant-42", 1, time.Hour)
+	if err != nil || !seeded {
+		t.Fatalf("seed exhausted atomic budget: allowed=%v err=%v", seeded, err)
+	}
+	atomicAllowed, atomicRetryAfter, err := services[1].AllowAll(ctx, []Budget{
+		{Scope: "atomic.a-available", ClientKey: "sender-7", Limit: 1, Window: time.Hour},
+		{Scope: "atomic.z-exhausted", ClientKey: "tenant-42", Limit: 1, Window: time.Hour},
+	})
+	if err != nil || atomicAllowed || atomicRetryAfter <= 0 || atomicRetryAfter > time.Hour {
+		t.Fatalf("expected exhausted grouped budget: allowed=%v retry=%s err=%v", atomicAllowed, atomicRetryAfter, err)
+	}
+	rolledBackAllowed, _, err := services[0].Allow(ctx, "atomic.a-available", "sender-7", 1, time.Hour)
+	if err != nil || !rolledBackAllowed {
+		t.Fatalf("denied grouped decision consumed an earlier budget: allowed=%v err=%v", rolledBackAllowed, err)
+	}
+	if _, _, err := services[0].AllowAll(ctx, []Budget{
+		{Scope: "atomic.duplicate", ClientKey: "same", Limit: 2, Window: time.Hour},
+		{Scope: "atomic.duplicate", ClientKey: "same", Limit: 2, Window: time.Hour},
+	}); !errors.Is(err, ErrInvalidPolicy) {
+		t.Fatalf("duplicate grouped budgets must be rejected, got %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 		UPDATE public_rate_limit_buckets
 		SET window_started_at=NOW()-INTERVAL '2 minutes', expires_at=NOW()-INTERVAL '1 minute'
