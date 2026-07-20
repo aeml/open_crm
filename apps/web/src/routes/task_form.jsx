@@ -15,6 +15,7 @@ export function TaskForm({
   contactOptions = [],
   dealOptions = [],
   form,
+  isSubmitting = false,
   labels,
   onArchive,
   onSetForm,
@@ -91,8 +92,8 @@ export function TaskForm({
           <input className="text-input" type="datetime-local" value={form.completedAt} onChange={(event) => onSetForm((current) => ({ ...current, completedAt: event.target.value }))} />
         </Field>
       ) : null}
-      {canSubmit ? <Button type="submit">{submitLabel}</Button> : null}
-      {canArchive ? <Button className="button-danger" type="button" onClick={onArchive}>Archive task</Button> : null}
+      {canSubmit ? <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : submitLabel}</Button> : null}
+      {canArchive ? <Button className="button-danger" type="button" disabled={isSubmitting} onClick={onArchive}>Archive task</Button> : null}
     </form>
   )
 }

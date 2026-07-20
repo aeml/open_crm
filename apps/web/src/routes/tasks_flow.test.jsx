@@ -442,6 +442,72 @@ describe('tasks flow', () => {
     expect(screen.queryByRole('heading', { name: 'First task' })).not.toBeInTheDocument()
   })
 
+  it('keeps a delayed task-form save from replacing a newer task visit', async () => {
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+    let resolveUpdate
+    const updateResponse = new Promise((resolve) => {
+      resolveUpdate = resolve
+    })
+    const firstTask = { id: 1, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'First task', description: 'First detail', status: 'open', dueAt: '', completedAt: '', assignedToUserId: 1, assignedToUserName: 'Demo Owner' }
+    const secondTask = { id: 2, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'Second task', description: 'Second detail', status: 'open', dueAt: '', completedAt: '', assignedToUserId: 1, assignedToUserName: 'Demo Owner' }
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({ data: { user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' }, organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' }, membership: { role: 'owner' } } })
+      }
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'GET') {
+        return jsonResponse({ data: { tasks: [firstTask, secondTask], meta: { page: 1, pageSize: 20, total: 2, openCount: 2, completedCount: 0 } } })
+      }
+      if (requestURL.pathname.endsWith('/api/tasks/1') && method === 'PATCH') return updateResponse
+      if (requestURL.pathname.endsWith('/api/deals')) {
+        return jsonResponse({ data: { deals: [], meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' } } })
+      }
+      if (requestURL.pathname.endsWith('/api/companies')) {
+        return jsonResponse({ data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      }
+      if (requestURL.pathname.endsWith('/api/contacts')) {
+        return jsonResponse({ data: { contacts: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      }
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({ data: { users: [{ id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }] } })
+      }
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/tasks')
+    render(<AppRouter />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'First task' }))
+    expect(await screen.findByRole('heading', { name: 'First task' })).toBeInTheDocument()
+    fireEvent.change(screen.getAllByLabelText('Task title')[1], { target: { value: 'First edited' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update task' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Second task' }))
+    expect(await screen.findByRole('heading', { name: 'Second task' })).toBeInTheDocument()
+
+    await act(async () => {
+      resolveUpdate(jsonResponse({
+        data: {
+          task: { ...firstTask, title: 'First persisted' },
+          activities: [{ id: 10, action: 'task.updated', summary: 'First task updated', createdAt: '2026-07-20T09:00:00Z' }]
+        }
+      }))
+      await updateResponse
+    })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'First persisted' })).toBeInTheDocument())
+    expect(screen.getByRole('heading', { name: 'Second task' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/tasks/2')
+    expect(screen.getAllByLabelText('Task title').every((input) => input.value === 'Second task')).toBe(true)
+    expect(screen.queryByText('First task updated')).not.toBeInTheDocument()
+  })
+
   it('uses service task wording for service businesses', async () => {
     const fetchMock = vi
       .fn()

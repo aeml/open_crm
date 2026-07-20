@@ -87,7 +87,9 @@ export function TasksRoute() {
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
+  const [isSavingTask, setIsSavingTask] = useState(false)
   const listControllerRef = useRef(null)
+  const taskVisitRef = useRef(null)
   const { handleQuickAssign, handleQuickComplete, handleQuickReopen, isTaskPending } = useTaskQuickActions({ onUpdated: handleQuickTaskUpdated, onError: setError })
 
   const selectedTask = detail?.task || null
@@ -238,6 +240,7 @@ export function TasksRoute() {
     run()
     return () => {
       controller.abort()
+      taskVisitRef.current = null
     }
   }, [])
 
@@ -382,6 +385,7 @@ export function TasksRoute() {
   }
 
   function syncTaskIntoState(task, activities) {
+    taskVisitRef.current = { taskId: task.id, pending: false }
     setDetailCache((current) => ({ ...current, [task.id]: { task, activities } }))
     setDetail({ task, activities })
     setSelectedTaskId(task.id)
@@ -389,6 +393,7 @@ export function TasksRoute() {
   }
 
   function clearSelectedTask() {
+    taskVisitRef.current = null
     setSelectedTaskId(null)
     setDetail(null)
     setForm(emptyForm)
@@ -419,10 +424,11 @@ export function TasksRoute() {
 
   async function handleUpdate(event) {
     event.preventDefault()
-    if (!selectedTaskId) {
-      return
-    }
+    const visit = taskVisitRef.current
+    if (!selectedTaskId || visit?.taskId !== selectedTaskId || visit.pending) return
 
+    visit.pending = true
+    setIsSavingTask(true)
     try {
       const data = await updateTask(selectedTaskId, {
         title: form.title,
@@ -432,12 +438,19 @@ export function TasksRoute() {
         completedAt: form.completedAt ? `${form.completedAt}:00Z` : '',
         assignedToUserId: Number.parseInt(form.assignedToUserId, 10) || 0
       })
+      if (!data?.task?.id || data.task.id !== selectedTaskId) throw new Error('Unable to update task.')
+      if (!taskVisitRef.current) return
       setTasks((current) => current.map((task) => (task.id === selectedTaskId ? data.task : task)))
+      if (taskVisitRef.current !== visit) return
+      setIsSavingTask(false)
       syncTaskIntoState(data.task, data.activities || [])
       navigate(buildTasksPath(data.task.id))
       setError('')
     } catch (saveError) {
-      setError(saveError.message || 'Unable to update task.')
+      if (taskVisitRef.current === visit) setError(saveError.message || 'Unable to update task.')
+    } finally {
+      visit.pending = false
+      if (taskVisitRef.current === visit) setIsSavingTask(false)
     }
   }
 
@@ -675,6 +688,7 @@ export function TasksRoute() {
               contactOptions={contactOptions}
               dealOptions={dealOptions}
               form={form}
+              isSubmitting={isSavingTask}
               labels={labels}
               onSetForm={setForm}
               onSubmit={handleCreate}
@@ -700,6 +714,7 @@ export function TasksRoute() {
               canArchive={canWrite}
               canSubmit={canWrite}
               form={form}
+              isSubmitting={isSavingTask}
               labels={labels}
               onArchive={handleArchive}
               onSetForm={setForm}
