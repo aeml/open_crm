@@ -9,7 +9,7 @@ const maximums = new Map([
   ['contacts.jsx', 650],
   ['companies.jsx', 685],
   ['deals.jsx', 675],
-  ['tasks.jsx', 750],
+  ['tasks.jsx', 600],
   ['settings_automations.jsx', 700],
   ['dashboard.jsx', 550],
 ])

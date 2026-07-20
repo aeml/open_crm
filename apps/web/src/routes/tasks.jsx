@@ -1,14 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Card } from '../components/ui/card'
-import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
-import { EmptyState } from '../components/ui/empty_state'
-import { SavedViews } from '../components/ui/saved_views'
-import { ActivityTimeline } from '../components/ui/activity_timeline'
-import { InlineError } from '../components/ui/inline_error'
-import { BulkActions, bulkStatusOptions } from '../components/ui/bulk_actions'
-import { archiveTask, createTask, getTask, listTasks, tasksExportURL, updateTask } from '../lib/tasks'
+import { archiveTask, createTask, getTask, listTasks, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
@@ -16,11 +8,11 @@ import { listOrganizationUsers } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
-import { TaskForm } from './task_form'
+import { TaskDirectory } from './task_directory'
+import { TaskCreateWorkspace, TaskWorkspace } from './task_workspace'
 import {
   emptyTaskListDescription,
   emptyTaskListMessage,
-  formatDueLabel,
   matchesAssignee,
   matchesEntityType,
   matchesStatus,
@@ -32,9 +24,7 @@ import {
   sortCompletedTasks,
   sortOpenTasks,
   taskFormValues,
-  taskCountLabel,
   taskLabels,
-  taskListHeading,
   unassignedAssigneeFilter
 } from './task_view'
 import { useTaskQuickActions } from './use_task_quick_actions'
@@ -515,222 +505,85 @@ export function TasksRoute() {
     }
   }
 
-  const summaryLabel = useMemo(() => taskListHeading(statusFilter, dueView, labels), [dueView, labels, statusFilter])
-
   return (
     <section className="dashboard-grid contacts-grid">
-      <Card>
-        <div className="card-stack">
-            <div className="section-header">
-              <div>
-                <h2>{labels.collection}</h2>
-                <p>Keep the next real action visible and close it cleanly.</p>
-              </div>
-            <div className="button-row">
-              <a className="button button-secondary" href={tasksExportURL({ search, status: statusFilter, due: statusFilter === 'open' ? dueView : '', assignee: assigneeFilter === 'all' ? '' : assigneeFilter, entityType: entityTypeFilter === 'all' ? '' : entityTypeFilter, entityId: entityIdFilter })}>
-                Export CSV
-              </a>
-              <Button className={statusFilter === 'open' ? '' : 'button-secondary'} onClick={() => handleToggleStatus('open')}>Show open</Button>
-              <Button className={statusFilter === 'completed' ? '' : 'button-secondary'} onClick={() => handleToggleStatus('completed')}>Show completed</Button>
-            </div>
-          </div>
-          <div className="record-list" role="list" aria-label="Task summary list">
-            <article className="record-row" role="listitem">
-              <div>
-                <p>{labels.summaryOpen}</p>
-              </div>
-              <div>
-                <p>{meta.openCount}</p>
-              </div>
-            </article>
-            <article className="record-row" role="listitem">
-              <div>
-                <p>{labels.summaryCompleted}</p>
-              </div>
-              <div>
-                <p>{meta.completedCount}</p>
-              </div>
-            </article>
-          </div>
-          <Field label={labels.searchLabel}>
-            <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
-          </Field>
-          <SavedViews
-            entityType="tasks"
-            canManage={canWrite}
-            currentFilters={{ q: search, status: statusFilter, due: dueView, assignee: assigneeFilter, entityType: entityTypeFilter, entityId: entityIdFilter }}
-            onApply={handleApplySavedView}
-            defaultName={`${labels.collection} view`}
-          />
-          <Field label="Assignee">
-            <div className="button-row">
-              <select className="text-input" value={assigneeFilter} onChange={(event) => handleAssigneeFilterChange(event.target.value)}>
-                <option value="all">All assignees</option>
-                <option value={unassignedAssigneeFilter}>Unassigned</option>
-                {userOptions.map((user) => (
-                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                ))}
-              </select>
-              {currentUserId ? (
-                <Button className={assigneeFilter === currentUserId ? '' : 'button-secondary'} type="button" onClick={() => handleAssigneeFilterChange(currentUserId)}>
-                  My tasks
-                </Button>
-              ) : null}
-              <Button className={assigneeFilter === unassignedAssigneeFilter ? '' : 'button-secondary'} type="button" onClick={() => handleAssigneeFilterChange(unassignedAssigneeFilter)}>
-                Unassigned
-              </Button>
-            </div>
-          </Field>
-          <Field label={labels.entityTypeFilterLabel}>
-            <select className="text-input" value={entityTypeFilter} onChange={(event) => handleEntityTypeFilterChange(event.target.value)}>
-              <option value="all">All record types</option>
-              <option value="deal">{labels.dealOption}</option>
-              <option value="company">{labels.companyLabel}</option>
-              <option value="contact">Contact</option>
-            </select>
-          </Field>
-          {entityTypeFilter !== 'all' ? (
-            <Field label="Record">
-              <select className="text-input" value={entityIdFilter} onChange={(event) => handleEntityIdFilterChange(event.target.value)}>
-                <option value="">All {entityTypeFilter === 'deal' ? `${labels.dealOption.toLowerCase()}s` : entityTypeFilter === 'company' ? `${labels.companyLabel.toLowerCase()}s` : 'contacts'}</option>
-                {(entityTypeFilter === 'deal' ? dealOptions : entityTypeFilter === 'company' ? companyOptions : contactOptions).map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entityTypeFilter === 'contact' ? `${entity.firstName || ''} ${entity.lastName || ''}`.trim() : entity.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          ) : null}
-          {statusFilter === 'open' ? (
-            <Field label={labels.viewLabel} hint="Due soon is the next 24 hours.">
-              <select className="text-input" value={dueView} onChange={(event) => handleDueViewChange(event.target.value)}>
-                <option value="all">All open</option>
-                <option value="overdue">Overdue</option>
-                <option value="dueSoon">Due within 24 hours</option>
-                <option value="upcoming">Later</option>
-                <option value="noDueDate">No due date</option>
-              </select>
-              <p className="field-hint">Overdue {meta.overdueCount || 0} · Due soon {meta.dueSoonCount || 0}</p>
-            </Field>
-          ) : null}
-          {isListLoading ? <p className="field-hint">Loading {labels.showingSuffix}...</p> : null}
-          {error ? (
-            <InlineError message={error} onRetry={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter)} retryLabel={`Retry ${labels.showingSuffix}`} />
-          ) : null}
-          <h3>{summaryLabel}</h3>
-          <p className="field-hint">Showing {visibleTasks.length} of {statusTasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>
-          {canWrite ? <BulkActions entityType="task" selectedIds={selectedTaskIds} visibleIds={visibleTasks.map((task) => task.id)} onSelectionChange={setSelectedTaskIds} onChanged={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter)} statuses={bulkStatusOptions.task} userOptions={userOptions} /> : null}
-          <div className="record-list" role="list" aria-label="Tasks list">
-            {visibleTasks.length === 0 && (!isListLoading || statusTasks.length > 0) ? (
-              <EmptyState
-                title={emptyMessage}
-                description={emptyDescription}
-                actionLabel={search.trim() || assigneeFilter !== 'all' || entityTypeFilter !== 'all' || entityIdFilter || dueView !== 'all' || statusFilter !== 'open' ? 'Reset task view' : ''}
-                onAction={() => {
-                  setSearch('')
-                  setStatusFilter('open')
-                  setDueView('all')
-                  setAssigneeFilter('all')
-                  setEntityTypeFilter('all')
-                  setEntityIdFilter('')
-                  navigate(buildTasksPath(null, '', 'open', 'all', 'all', 'all', ''), { replace: true })
-                  reloadTasks('', 'open', 'all', '', 'all', 'all')
-                }}
-              />
-            ) : visibleTasks.map((task) => (
-              <article className="record-row" key={task.id} role="listitem">
-                <div>
-                  {canWrite ? <input type="checkbox" aria-label={`Select ${task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={() => setSelectedTaskIds((current) => current.includes(task.id) ? current.filter((id) => id !== task.id) : [...current, task.id])} /> : null}
-                  <button className="button button-ghost contact-link" type="button" onClick={() => handleOpenTask(task)}>
-                    {task.title}
-                  </button>
-                  <p>{task.entityLabel || `${task.entityType} #${task.entityId}`}</p>
-                  {statusFilter === 'open' ? (
-                    canWrite ? (
-                      <Button className="button-secondary" type="button" disabled={isTaskPending(task.id)} onClick={() => handleQuickComplete(task)} aria-label={`Complete ${task.title}`}>
-                        {isTaskPending(task.id) ? 'Saving…' : 'Complete'}
-                      </Button>
-                    ) : null
-                  ) : (
-                    canWrite ? (
-                      <Button className="button-secondary" type="button" disabled={isTaskPending(task.id)} onClick={() => handleQuickReopen(task)} aria-label={`Reopen ${task.title}`}>
-                        {isTaskPending(task.id) ? 'Saving…' : 'Reopen'}
-                      </Button>
-                    ) : null
-                  )}
-                </div>
-                <div>
-                  {canWrite ? (
-                    <select className="text-input" aria-label={`Assign ${task.title}`} disabled={isTaskPending(task.id)} value={task.assignedToUserId ? String(task.assignedToUserId) : ''} onChange={(event) => handleQuickAssign(task, event.target.value)}>
-                      <option value="">Unassigned</option>
-                      {userOptions.map((user) => (
-                        <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                      ))}
-                    </select>
-                  ) : null}
-                  <p>{formatDueLabel(task)}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </Card>
+      <TaskDirectory
+        assigneeFilter={assigneeFilter}
+        canWrite={canWrite}
+        companyOptions={companyOptions}
+        contactOptions={contactOptions}
+        currentUserId={currentUserId}
+        dealOptions={dealOptions}
+        dueView={dueView}
+        emptyDescription={emptyDescription}
+        emptyMessage={emptyMessage}
+        entityIdFilter={entityIdFilter}
+        entityTypeFilter={entityTypeFilter}
+        error={error}
+        isListLoading={isListLoading}
+        isTaskPending={isTaskPending}
+        labels={labels}
+        meta={meta}
+        onApplySavedView={handleApplySavedView}
+        onAssigneeFilterChange={handleAssigneeFilterChange}
+        onBulkChanged={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter)}
+        onDueViewChange={handleDueViewChange}
+        onEntityIdFilterChange={handleEntityIdFilterChange}
+        onEntityTypeFilterChange={handleEntityTypeFilterChange}
+        onOpenTask={handleOpenTask}
+        onQuickAssign={handleQuickAssign}
+        onQuickComplete={handleQuickComplete}
+        onQuickReopen={handleQuickReopen}
+        onReset={() => {
+          setSearch('')
+          setStatusFilter('open')
+          setDueView('all')
+          setAssigneeFilter('all')
+          setEntityTypeFilter('all')
+          setEntityIdFilter('')
+          navigate(buildTasksPath(null, '', 'open', 'all', 'all', 'all', ''), { replace: true })
+          reloadTasks('', 'open', 'all', '', 'all', 'all')
+        }}
+        onRetry={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter)}
+        onSearchChange={handleSearchChange}
+        onSelectionChange={setSelectedTaskIds}
+        onToggleStatus={handleToggleStatus}
+        search={search}
+        selectedTaskIds={selectedTaskIds}
+        statusFilter={statusFilter}
+        statusTasks={statusTasks}
+        userOptions={userOptions}
+        visibleTasks={visibleTasks}
+      />
 
       {canWrite ? (
-        <Card>
-          <div className="card-stack">
-            <div>
-              <h2>{labels.createHeading}</h2>
-              <p>{labels.createDescription}</p>
-            </div>
-            <TaskForm
-              companyOptions={companyOptions}
-              contactOptions={contactOptions}
-              dealOptions={dealOptions}
-              form={form}
-              isSubmitting={isSavingTask}
-              labels={labels}
-              onSetForm={setForm}
-              onSubmit={handleCreate}
-              showEntityFields
-              submitLabel="Save task"
-              userOptions={userOptions}
-            />
-          </div>
-        </Card>
+        <TaskCreateWorkspace
+          companyOptions={companyOptions}
+          contactOptions={contactOptions}
+          dealOptions={dealOptions}
+          form={form}
+          isSaving={isSavingTask}
+          labels={labels}
+          onSetForm={setForm}
+          onSubmit={handleCreate}
+          userOptions={userOptions}
+        />
       ) : null}
 
       {selectedTask ? (
-        <Card>
-          <div className="card-stack">
-            {isDetailLoading ? <p className="field-hint">Loading task detail...</p> : null}
-            <div className="section-header">
-              <div>
-                <h2>{selectedTask.title}</h2>
-                <p>{selectedTask.entityLabel || `${selectedTask.entityType} #${selectedTask.entityId}`}</p>
-              </div>
-            </div>
-            <TaskForm
-              canArchive={canWrite}
-              canSubmit={canWrite}
-              form={form}
-              isSubmitting={isSavingTask}
-              labels={labels}
-              onArchive={handleArchive}
-              onSetForm={setForm}
-              onSubmit={handleUpdate}
-              showStatusFields
-              submitLabel="Update task"
-              userOptions={userOptions}
-            />
-            <Card>
-              <div className="card-stack">
-                <h3>Activity</h3>
-                <ActivityTimeline activities={selectedActivities} emptyMessage="No task activity yet." ariaLabel={labels.activityAria} />
-              </div>
-            </Card>
-          </div>
-        </Card>
+        <TaskWorkspace
+          activities={selectedActivities}
+          canWrite={canWrite}
+          form={form}
+          isLoading={isDetailLoading}
+          isSaving={isSavingTask}
+          labels={labels}
+          onArchive={handleArchive}
+          onSetForm={setForm}
+          onSubmit={handleUpdate}
+          task={selectedTask}
+          userOptions={userOptions}
+        />
       ) : null}
     </section>
   )
