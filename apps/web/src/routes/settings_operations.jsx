@@ -38,7 +38,7 @@ function requiresSequenceReview(job) {
 }
 
 export function SettingsOperationsRoute() {
-  const { session } = useAuth()
+  const { session, workspaceWritable } = useAuth()
   usePageTitle('Operations')
   const role = session?.membership?.role || ''
   const canOperate = useMemo(() => ['owner', 'admin'].includes(role), [role])
@@ -178,8 +178,8 @@ export function SettingsOperationsRoute() {
                   </div>
                   {job.status === 'dead' && reviewRequired ? (
                     <div className="button-row">
-                      <Button className="button-secondary" type="button" onClick={() => handleSequenceResolution(job, 'confirmed_sent')} disabled={resolvingId === job.id}>Confirm already sent</Button>
-                      <Button className="button-secondary" type="button" onClick={() => handleSequenceResolution(job, 'retry')} disabled={resolvingId === job.id}>Retry email</Button>
+                      <Button className="button-secondary" type="button" onClick={() => handleSequenceResolution(job, 'confirmed_sent')} disabled={!workspaceWritable || resolvingId === job.id}>Confirm already sent</Button>
+                      <Button className="button-secondary" type="button" onClick={() => handleSequenceResolution(job, 'retry')} disabled={!workspaceWritable || resolvingId === job.id}>Retry email</Button>
                     </div>
                   ) : job.status === 'dead' ? (
                     <Button className="button-secondary" type="button" onClick={() => handleReplay(job)} disabled={replayingId === job.id || reviewRequired}>

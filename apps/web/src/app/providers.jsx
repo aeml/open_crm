@@ -5,6 +5,11 @@ const AuthContext = createContext({
   status: 'unauthenticated',
   session: null,
   businessProfile: null,
+  workspaceAccess: null,
+  workspaceWritable: true,
+  canWrite: true,
+  canAdminister: true,
+  canManageBilling: true,
   error: '',
   login: async () => {
     throw new Error('Unable to sign in.')
@@ -22,8 +27,13 @@ const AuthContext = createContext({
     throw new Error('Unable to send verification email.')
   },
   refreshSession: async () => null,
+  updateWorkspaceAccess: () => {},
   setBusinessProfile: () => {}
 })
+
+export function workspaceAllowsWrites(workspaceAccess) {
+  return !workspaceAccess || workspaceAccess.state === 'writable' || workspaceAccess.state === 'unmanaged'
+}
 
 function getErrorMessage(payload, fallbackMessage) {
   return payload?.error?.message || fallbackMessage
@@ -51,6 +61,27 @@ export function AppProviders({ children }) {
     window.addEventListener('auth:unauthorized', handleUnauthorized)
     return () => window.removeEventListener('auth:unauthorized', handleUnauthorized)
   }, [])
+
+  const updateWorkspaceAccess = useCallback((nextAccess) => {
+    setSession((current) => current ? {
+      ...current,
+      workspaceAccess: {
+        ...(current.workspaceAccess || {}),
+        ...(nextAccess || {})
+      }
+    } : current)
+  }, [])
+
+  useEffect(() => {
+    function handleWorkspaceAccessChange(event) {
+      const nextState = event?.detail?.state
+      if (!['read_only', 'unavailable'].includes(nextState)) return
+      updateWorkspaceAccess({ state: nextState })
+    }
+
+    window.addEventListener('workspace:access-changed', handleWorkspaceAccessChange)
+    return () => window.removeEventListener('workspace:access-changed', handleWorkspaceAccessChange)
+  }, [updateWorkspaceAccess])
 
   const refreshSession = useCallback(async () => {
     if (typeof fetch !== 'function') {
@@ -214,20 +245,31 @@ export function AppProviders({ children }) {
   }, [])
 
   const value = useMemo(
-    () => ({
-      status,
-      session,
-      businessProfile,
-      error,
-      login,
-      logout,
-      bootstrap,
-      verifyEmail,
-      resendVerification,
-      refreshSession,
-      setBusinessProfile
-    }),
-    [bootstrap, businessProfile, error, login, logout, refreshSession, resendVerification, session, status, verifyEmail]
+    () => {
+      const role = session?.membership?.role || ''
+      const workspaceWritable = workspaceAllowsWrites(session?.workspaceAccess)
+      const canManageBilling = role === 'owner' || role === 'admin'
+      return {
+        status,
+        session,
+        businessProfile,
+        workspaceAccess: session?.workspaceAccess || null,
+        workspaceWritable,
+        canWrite: workspaceWritable && role !== 'viewer',
+        canAdminister: workspaceWritable && canManageBilling,
+        canManageBilling,
+        error,
+        login,
+        logout,
+        bootstrap,
+        verifyEmail,
+        resendVerification,
+        refreshSession,
+        updateWorkspaceAccess,
+        setBusinessProfile
+      }
+    },
+    [bootstrap, businessProfile, error, login, logout, refreshSession, resendVerification, session, status, updateWorkspaceAccess, verifyEmail]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

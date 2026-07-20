@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -20,10 +20,8 @@ function todayISODate() {
 }
 
 export function BusinessProfileRoute() {
-  const { session, setBusinessProfile } = useAuth()
+  const { session, setBusinessProfile, canAdminister: canManageProfile } = useAuth()
   usePageTitle('Business Profile')
-  const role = session?.membership?.role || ''
-  const canManageProfile = useMemo(() => ['owner', 'admin'].includes(role), [role])
   const [profile, setProfile] = useState(null)
   const [businessType, setBusinessType] = useState('general')
   const [baseCurrency, setBaseCurrency] = useState('USD')

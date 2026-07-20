@@ -53,10 +53,9 @@ export function TasksRoute() {
   const [searchParams] = useSearchParams()
   const { taskId } = useParams()
   const routeTaskId = Number.parseInt(taskId || '', 10)
-  const { session, businessProfile } = useAuth()
+  const { session, businessProfile, canWrite } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
-  const canWrite = ['owner', 'admin', 'member'].includes(session?.membership?.role)
   const labels = taskLabels(businessType)
   usePageTitle(labels.collection)
   const initialSearch = searchParams.get('q') || ''
@@ -604,6 +603,7 @@ export function TasksRoute() {
           </Field>
           <SavedViews
             entityType="tasks"
+            canManage={canWrite}
             currentFilters={{ q: search, status: statusFilter, due: dueView, assignee: assigneeFilter, entityType: entityTypeFilter, entityId: entityIdFilter }}
             onApply={handleApplySavedView}
             defaultName={`${labels.collection} view`}

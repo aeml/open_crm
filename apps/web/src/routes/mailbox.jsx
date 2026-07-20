@@ -73,7 +73,7 @@ function participantLabel(message) {
 }
 
 export function MailboxRoute() {
-  const { session } = useAuth()
+  const { session, workspaceWritable } = useAuth()
   usePageTitle('Mailbox')
   const [messages, setMessages] = useState([])
   const [selectedMessage, setSelectedMessage] = useState(null)
@@ -176,7 +176,7 @@ export function MailboxRoute() {
                   <div>
                     <p>{formatTimestamp(messageTimestamp(message))}</p>
                     <Button className="button-secondary" type="button" onClick={() => handleSelectMessage(message.id)}>View details</Button>
-                    {isInbound(message) && message.visibility !== 'shared' ? <Button className="button-secondary" type="button" onClick={() => handleShareMessage(message.id)} disabled={isSharing}>Share with team</Button> : null}
+                    {isInbound(message) && message.visibility !== 'shared' && workspaceWritable ? <Button className="button-secondary" type="button" onClick={() => handleShareMessage(message.id)} disabled={isSharing}>Share with team</Button> : null}
                     {path ? <Link className="button button-ghost" to={path}>Open {label}</Link> : null}
                   </div>
                 </article>

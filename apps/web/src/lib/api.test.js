@@ -87,6 +87,24 @@ describe('api client', () => {
     expect(dispatchSpy).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'auth:unauthorized' }))
   })
 
+  it.each([
+    ['SUBSCRIPTION_INACTIVE', 'read_only'],
+    ['BILLING_CHECK_UNAVAILABLE', 'unavailable']
+  ])('publishes workspace access state for %s', async (code, state) => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: code === 'SUBSCRIPTION_INACTIVE' ? 402 : 503,
+      json: async () => ({ error: { code, message: 'Write blocked' } })
+    })
+
+    await expect(apiRequest('/api/tasks/9', { method: 'PATCH', body: {} })).rejects.toBeInstanceOf(APIError)
+    expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'workspace:access-changed',
+      detail: { state }
+    }))
+  })
+
   it('exposes APIError for direct callers', () => {
     const error = new APIError('Failed', { status: 500, payload: { error: { code: 'INTERNAL' } } })
 

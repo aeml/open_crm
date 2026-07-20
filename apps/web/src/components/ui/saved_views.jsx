@@ -3,7 +3,7 @@ import { Button } from './button'
 import { Field } from './field'
 import { createSavedView, deleteSavedView, listSavedViews, updateSavedView } from '../../lib/saved_views'
 
-export function SavedViews({ entityType, currentFilters, onApply, defaultName = 'My view', viewScope = '', allowDefault = true, noun = 'view' }) {
+export function SavedViews({ entityType, currentFilters, onApply, defaultName = 'My view', viewScope = '', allowDefault = true, noun = 'view', canManage = true }) {
   const [views, setViews] = useState([])
   const [selectedViewId, setSelectedViewId] = useState('')
   const [name, setName] = useState(defaultName)
@@ -122,22 +122,22 @@ export function SavedViews({ entityType, currentFilters, onApply, defaultName = 
       <div className="button-row">
         <Button className="button-secondary" type="button" onClick={handleLoad}>{`Load ${pluralNoun}`}</Button>
         <Button className="button-secondary" type="button" onClick={handleApply}>{`Apply${actionSuffix}`}</Button>
-        <Button className="button-secondary" type="button" onClick={handleUpdate}>{`Update${actionSuffix}`}</Button>
-        {allowDefault ? <Button className="button-secondary" type="button" onClick={handleMakeDefault}>Make default</Button> : null}
-        <Button className="button-danger" type="button" onClick={handleDelete}>{`Delete${actionSuffix}`}</Button>
+        {canManage ? <Button className="button-secondary" type="button" onClick={handleUpdate}>{`Update${actionSuffix}`}</Button> : null}
+        {canManage && allowDefault ? <Button className="button-secondary" type="button" onClick={handleMakeDefault}>Make default</Button> : null}
+        {canManage ? <Button className="button-danger" type="button" onClick={handleDelete}>{`Delete${actionSuffix}`}</Button> : null}
       </div>
-      <Field label={`Save current ${noun === 'view' ? 'filters' : noun} as`}>
+      {canManage ? <Field label={`Save current ${noun === 'view' ? 'filters' : noun} as`}>
         <input className="text-input" value={name} onChange={(event) => setName(event.target.value)} />
-      </Field>
-      {allowDefault ? (
+      </Field> : null}
+      {canManage && allowDefault ? (
         <label className="checkbox-row">
           <input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} />
           <span>Make this my default view</span>
         </label>
       ) : null}
-      <div>
+      {canManage ? <div>
         <Button type="button" onClick={handleSave}>{`Save ${noun}`}</Button>
-      </div>
+      </div> : null}
       {message ? <p className="field-hint" role="status">{message}</p> : null}
     </div>
   )

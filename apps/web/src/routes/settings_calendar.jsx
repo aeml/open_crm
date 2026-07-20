@@ -92,10 +92,8 @@ function availabilityLabel(block) {
 }
 
 export function SettingsCalendarRoute() {
-  const { session } = useAuth()
+  const { session, canWrite: canManage } = useAuth()
   usePageTitle('Booking Links')
-  const role = session?.membership?.role || ''
-  const canManage = role !== 'viewer'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
   const [links, setLinks] = useState([])
   const [users, setUsers] = useState([])

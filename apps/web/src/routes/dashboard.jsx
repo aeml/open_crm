@@ -153,9 +153,8 @@ function dashboardLabels(businessType) {
 
 export function DashboardRoute() {
   const navigate = useNavigate()
-  const { session, businessProfile } = useAuth()
+  const { session, businessProfile, canAdminister: canManageQuotas } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
-  const canManageQuotas = ['owner', 'admin'].includes(session?.membership?.role)
   const labels = dashboardLabels(businessType)
   usePageTitle('Dashboard')
   const [summary, setSummary] = useState(emptySummary)

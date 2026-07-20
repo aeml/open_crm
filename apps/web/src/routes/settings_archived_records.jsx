@@ -34,9 +34,8 @@ function entityLabel(entityType) {
 }
 
 export function SettingsArchivedRecordsRoute() {
-  const { session } = useAuth()
+  const { canWrite: canRestore } = useAuth()
   usePageTitle('Archived Records')
-  const canRestore = ['owner', 'admin', 'member'].includes(session?.membership?.role || '')
   const [records, setRecords] = useState([])
   const [entityType, setEntityType] = useState('')
   const [search, setSearch] = useState('')

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../app/providers'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -19,9 +19,8 @@ function editorValues(definition) {
 }
 
 export function SettingsCustomFieldsRoute() {
-  const { session } = useAuth()
+  const { canAdminister: canManage } = useAuth()
   usePageTitle('Custom fields')
-  const canManage = useMemo(() => ['owner', 'admin'].includes(session?.membership?.role || ''), [session])
   const [entityType, setEntityType] = useState('contact')
   const [definitions, setDefinitions] = useState([])
   const [form, setForm] = useState(emptyForm)

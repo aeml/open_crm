@@ -682,12 +682,6 @@ func respondStatus(w http.ResponseWriter, r *http.Request, statusCode int, statu
 	platformweb.WriteJSON(w, statusCode, response)
 }
 
-func respondSession(w http.ResponseWriter, r *http.Request, statusCode int, state moduleauth.SessionState) {
-	response := sessionResponse{Data: state}
-	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
-	platformweb.WriteJSON(w, statusCode, response)
-}
-
 func setSessionCookie(w http.ResponseWriter, env config.Env, token string) {
 	http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isProduction(env), MaxAge: int(sessionCookieTTL / time.Second), Expires: time.Now().Add(sessionCookieTTL)})
 }

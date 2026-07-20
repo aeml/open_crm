@@ -40,10 +40,8 @@ function payloadFromForm(form) {
 }
 
 export function SettingsEmailSequencesRoute() {
-  const { session } = useAuth()
+  const { session, canWrite: canManage } = useAuth()
   usePageTitle('Email Sequences')
-  const role = session?.membership?.role || ''
-  const canManage = role !== 'viewer'
   const [sequences, setSequences] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)

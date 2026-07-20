@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../app/providers'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -29,9 +29,8 @@ function stageEditors(pipelines) {
 }
 
 export function SettingsPipelinesRoute() {
-  const { session } = useAuth()
+  const { canAdminister: canManage } = useAuth()
   usePageTitle('Pipelines')
-  const canManage = useMemo(() => ['owner', 'admin'].includes(session?.membership?.role || ''), [session])
   const [pipelines, setPipelines] = useState([])
   const [pipelineEditing, setPipelineEditing] = useState({})
   const [stageEditing, setStageEditing] = useState({})

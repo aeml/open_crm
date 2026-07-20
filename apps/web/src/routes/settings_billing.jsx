@@ -26,15 +26,13 @@ function UsageRow({ label, usage }) {
 }
 
 export function SettingsBillingRoute() {
-  const { session } = useAuth()
+  const { session, canManageBilling, updateWorkspaceAccess } = useAuth()
   usePageTitle('Plan & Billing')
   const [entitlements, setEntitlements] = useState(null)
   const [plans, setPlans] = useState([])
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [pendingPlan, setPendingPlan] = useState('')
-  const role = session?.membership?.role || ''
-  const canManageBilling = ['owner', 'admin'].includes(role)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -77,6 +75,7 @@ export function SettingsBillingRoute() {
       const nextEntitlements = await changePlan(planKey)
       if (nextEntitlements) {
         setEntitlements(nextEntitlements)
+        updateWorkspaceAccess({ state: 'writable' })
       }
     } catch (changeError) {
       if (!isAbortError(changeError)) {

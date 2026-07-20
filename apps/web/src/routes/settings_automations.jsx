@@ -105,9 +105,8 @@ function formatRunTime(value) {
 }
 
 export function SettingsAutomationsRoute() {
-  const { session } = useAuth()
+  const { canAdminister: canManage } = useAuth()
   usePageTitle('Automations')
-  const canManage = ['owner', 'admin'].includes(session?.membership?.role)
   const [automations, setAutomations] = useState([])
   const [runs, setRuns] = useState([])
   const [pipelines, setPipelines] = useState([])

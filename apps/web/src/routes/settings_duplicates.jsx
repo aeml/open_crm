@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../app/providers'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -36,9 +36,8 @@ function mergeSummary(operation) {
 }
 
 export function SettingsDuplicatesRoute() {
-  const { session } = useAuth()
+  const { canAdminister: canManage } = useAuth()
   usePageTitle('Data quality')
-  const canManage = useMemo(() => ['owner', 'admin'].includes(session?.membership?.role || ''), [session])
   const [entityType, setEntityType] = useState('contact')
   const [review, setReview] = useState({ candidates: [], recentMerges: [] })
   const [selection, setSelection] = useState(null)

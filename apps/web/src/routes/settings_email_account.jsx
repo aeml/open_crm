@@ -66,7 +66,7 @@ function initialOAuthResultMessage() {
 }
 
 export function SettingsEmailAccountRoute() {
-  const { session } = useAuth()
+  const { session, workspaceWritable } = useAuth()
   usePageTitle('My Email')
   const initialOAuthResult = initialOAuthResultMessage()
   const [form, setForm] = useState(emptyForm)
@@ -274,10 +274,10 @@ export function SettingsEmailAccountRoute() {
                     <span>Enable mailbox sync metadata</span>
                   </label>
                   <div>
-                    <Button type="button" className="button-secondary" disabled={!hasAccount || !form.syncEnabled || isCheckingSync} onClick={handleCheckSync}>
+                    <Button type="button" className="button-secondary" disabled={!workspaceWritable || !hasAccount || !form.syncEnabled || isCheckingSync} onClick={handleCheckSync}>
                       {isCheckingSync ? 'Checking...' : 'Check sync readiness'}
                     </Button>
-                    <Button type="button" className="button-secondary" disabled={!hasAccount || !form.syncEnabled || isRunningSync} onClick={handleRunSync}>
+                    <Button type="button" className="button-secondary" disabled={!workspaceWritable || !hasAccount || !form.syncEnabled || isRunningSync} onClick={handleRunSync}>
                       {isRunningSync ? 'Syncing...' : 'Run sync now'}
                     </Button>
                   </div>
@@ -323,7 +323,7 @@ export function SettingsEmailAccountRoute() {
                             <p className="field-hint">{provider.configured ? 'OAuth client configured' : 'OAuth client not configured'} · {provider.status}</p>
                             {syncStatus.account?.provider === provider.provider && syncStatus.account?.oauthConnected ? <p className="field-hint">Connected for mailbox sync</p> : null}
                           </div>
-                          <Button type="button" className="button-secondary" disabled={!provider.configured || !hasAccount || startingOAuthProvider === provider.provider} onClick={() => handleStartOAuth(provider)}>
+                          <Button type="button" className="button-secondary" disabled={!workspaceWritable || !provider.configured || !hasAccount || startingOAuthProvider === provider.provider} onClick={() => handleStartOAuth(provider)}>
                             {startingOAuthProvider === provider.provider ? 'Starting...' : `Connect ${provider.provider === 'google' ? 'Google' : 'Microsoft'}`}
                           </Button>
                         </article>
@@ -333,8 +333,8 @@ export function SettingsEmailAccountRoute() {
                 </div>
               </Card>
               <div>
-                <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save connection'}</Button>
-                {hasAccount ? <Button className="button-secondary" type="button" onClick={handleDelete}>Remove</Button> : null}
+                <Button type="submit" disabled={!workspaceWritable || isSaving}>{isSaving ? 'Saving...' : 'Save connection'}</Button>
+                {hasAccount ? <Button className="button-secondary" type="button" onClick={handleDelete} disabled={!workspaceWritable}>Remove</Button> : null}
               </div>
             </form>
           ) : null}

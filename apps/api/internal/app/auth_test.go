@@ -12,6 +12,7 @@ import (
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 )
 
 type fakeAuthService struct {
@@ -129,6 +130,61 @@ func TestAuthMeReturnsCurrentSessionState(t *testing.T) {
 
 	if service.lastSessionToken != "session-token-123" {
 		t.Fatalf("expected current session token to be read from cookie, got %q", service.lastSessionToken)
+	}
+}
+
+func TestAuthMeIncludesServerDerivedWorkspaceAccess(t *testing.T) {
+	service := &fakeAuthService{
+		currentSessionResult: moduleauth.SessionState{
+			User:         moduleauth.User{ID: 1, Email: "owner@acme.test"},
+			Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc."},
+			Membership:   moduleauth.Membership{Role: "owner"},
+		},
+	}
+	billing := &fakeBillingService{writableErr: modulebilling.ErrSubscriptionInactive}
+	server := NewServer(config.Env{}, Dependencies{AuthService: service, BillingService: billing})
+
+	request := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	var response sessionResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+	access := response.Data.WorkspaceAccess
+	if billing.writableOrgID != 42 || access.State != workspaceAccessReadOnly {
+		t.Fatalf("unexpected server-derived workspace access: org=%d access=%#v", billing.writableOrgID, access)
+	}
+}
+
+func TestAuthMeKeepsReadsAvailableWhenWorkspaceAccessCannotLoad(t *testing.T) {
+	service := &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+		User:         moduleauth.User{ID: 1, Email: "owner@acme.test"},
+		Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc."},
+		Membership:   moduleauth.Membership{Role: "owner"},
+	}}
+	billing := &fakeBillingService{writableErr: errors.New("billing database unavailable")}
+	server := NewServer(config.Env{}, Dependencies{AuthService: service, BillingService: billing})
+
+	request := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("billing access failure blocked session reads: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response sessionResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+	if response.Data.WorkspaceAccess.State != workspaceAccessUnavailable {
+		t.Fatalf("expected unavailable access snapshot, got %#v", response.Data.WorkspaceAccess)
 	}
 }
 

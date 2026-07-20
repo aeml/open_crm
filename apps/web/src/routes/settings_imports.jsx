@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../app/providers'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -28,9 +28,8 @@ function mappingHasErrors(preview) {
 }
 
 export function SettingsImportsRoute() {
-  const { session } = useAuth()
+  const { canAdminister: canManage } = useAuth()
   usePageTitle('Data imports')
-  const canManage = useMemo(() => ['owner', 'admin'].includes(session?.membership?.role || ''), [session])
   const [entityType, setEntityType] = useState('contacts')
   const [file, setFile] = useState(null)
   const [mapping, setMapping] = useState({})

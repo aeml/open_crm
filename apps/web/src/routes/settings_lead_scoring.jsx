@@ -81,10 +81,8 @@ function ruleSummary(rule) {
 }
 
 export function SettingsLeadScoringRoute() {
-  const { session } = useAuth()
+  const { canAdminister: canManage } = useAuth()
   usePageTitle('Lead Scoring')
-  const role = session?.membership?.role || ''
-  const canManage = role === 'owner' || role === 'admin'
   const [rules, setRules] = useState([])
   const [users, setUsers] = useState([])
   const [form, setForm] = useState(emptyForm)

@@ -6,7 +6,6 @@ import (
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
-	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleleadaudiences "github.com/aeml/open_crm/apps/api/internal/modules/leadaudiences"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
@@ -42,7 +41,7 @@ type statusResponse struct {
 }
 
 type sessionResponse struct {
-	Data moduleauth.SessionState `json:"data"`
+	Data sessionResponseData `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
 	} `json:"meta"`
@@ -343,7 +342,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		if rejectRateLimited(authLimiter, "auth.login", "Too many authentication attempts", w, r) {
 			return
 		}
-		handleLogin(env, dependencies.AuthService, w, r)
+		handleLogin(env, dependencies.AuthService, dependencies.BillingService, w, r)
 	})
 	mux.HandleFunc("POST /auth/bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		if rejectRateLimited(bootstrapLimiter, "auth.bootstrap", "Too many workspace creation attempts", w, r) {
@@ -355,7 +354,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		if rejectRateLimited(authLimiter, "auth.verify-email", "Too many email verification attempts", w, r) {
 			return
 		}
-		handleVerifyEmail(env, dependencies.OnboardingService, w, r)
+		handleVerifyEmail(env, dependencies.OnboardingService, dependencies.BillingService, w, r)
 	})
 	mux.HandleFunc("POST /auth/resend-verification", func(w http.ResponseWriter, r *http.Request) {
 		if rejectRateLimited(authLimiter, "auth.resend-verification", "Too many verification email requests", w, r) {
@@ -364,7 +363,7 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 		handleResendVerification(dependencies.OnboardingService, w, r)
 	})
 	mux.HandleFunc("GET /auth/me", func(w http.ResponseWriter, r *http.Request) {
-		handleCurrentSession(env, dependencies.AuthService, w, r)
+		handleCurrentSession(env, dependencies.AuthService, dependencies.BillingService, w, r)
 	})
 	mux.HandleFunc("POST /auth/logout", func(w http.ResponseWriter, r *http.Request) {
 		handleLogout(env, dependencies.AuthService, w, r)

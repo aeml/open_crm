@@ -1,35 +1,17 @@
 import { AppHeader } from '../components/layout/app_header'
 import { SideNav } from '../components/layout/side_nav'
 import { PageHeader } from '../components/layout/page_header'
+import { WorkspaceAccessBanner } from '../components/layout/workspace_access_banner'
 import { useAuth } from './providers'
-
-const profileCopy = {
-  general: {
-    eyebrow: 'Pipeline at a glance',
-    title: 'Pipeline overview',
-    description: 'Track customers, deals, and follow-ups without drowning in a messy admin panel.'
-  },
-  services: {
-    eyebrow: 'Jobs at a glance',
-    title: 'Job pipeline overview',
-    description: 'Track clients, jobs, and service tasks without drowning in a messy admin panel.'
-  },
-  'product-sales': {
-    eyebrow: 'Revenue at a glance',
-    title: 'Sales pipeline overview',
-    description: 'Track accounts, opportunities, and follow-ups without drowning in a messy admin panel.'
-  },
-  'construction-services': {
-    eyebrow: 'Jobs at a glance',
-    title: 'Job pipeline overview',
-    description: 'Track clients, jobs, and site tasks without drowning in a messy admin panel.'
-  }
-}
 
 export function AppShell({ children }) {
   const { session, businessProfile } = useAuth()
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
-  const copy = profileCopy[businessType] || profileCopy.general
+  const jobs = businessType === 'services' || businessType === 'construction-services'
+  const productSales = businessType === 'product-sales'
+  const eyebrow = jobs ? 'Jobs at a glance' : (productSales ? 'Revenue at a glance' : 'Pipeline at a glance')
+  const title = jobs ? 'Job pipeline overview' : (productSales ? 'Sales pipeline overview' : 'Pipeline overview')
+  const records = jobs ? `clients, jobs, and ${businessType === 'services' ? 'service' : 'site'} tasks` : (productSales ? 'accounts, opportunities, and follow-ups' : 'customers, deals, and follow-ups')
 
   return (
     <div className="app-shell">
@@ -37,11 +19,12 @@ export function AppShell({ children }) {
       <SideNav />
       <div className="app-main">
         <AppHeader />
+        <WorkspaceAccessBanner />
         <main className="app-content" id="main-content">
           <PageHeader
-            eyebrow={copy.eyebrow}
-            title={copy.title}
-            description={copy.description}
+            eyebrow={eyebrow}
+            title={title}
+            description={`Track ${records} without drowning in a messy admin panel.`}
           />
           {children}
         </main>

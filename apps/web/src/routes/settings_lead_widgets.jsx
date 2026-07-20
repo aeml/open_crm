@@ -52,10 +52,8 @@ function payloadFromForm(form) {
 }
 
 export function SettingsLeadWidgetsRoute() {
-  const { session } = useAuth()
+  const { canAdminister: canManage } = useAuth()
   usePageTitle('Website Widgets')
-  const role = session?.membership?.role || ''
-  const canManage = role === 'owner' || role === 'admin'
   const [widgets, setWidgets] = useState([])
   const [leadForms, setLeadForms] = useState([])
   const [form, setForm] = useState(emptyForm)

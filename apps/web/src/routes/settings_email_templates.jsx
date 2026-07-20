@@ -13,10 +13,8 @@ const emptyForm = { name: '', subject: '', body: '' }
 const emptySnippetForm = { name: '', body: '' }
 
 export function SettingsEmailTemplatesRoute() {
-  const { session } = useAuth()
+  const { session, canWrite: canManage } = useAuth()
   usePageTitle('Email Templates')
-  const role = session?.membership?.role || ''
-  const canManage = role !== 'viewer'
   const [templates, setTemplates] = useState([])
   const [snippets, setSnippets] = useState([])
   const [mergeFieldGroups, setMergeFieldGroups] = useState([])

@@ -62,11 +62,10 @@ export function DealsRoute() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { dealId } = useParams()
-  const { session, businessProfile } = useAuth()
+  const { session, businessProfile, canWrite } = useAuth()
   const routeDealId = Number.parseInt(dealId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
-  const canWrite = ['owner', 'admin', 'member'].includes(session?.membership?.role)
   const labels = pipelineLabels(businessType)
   usePageTitle(labels.collection)
   const initialSearch = searchParams.get('q') || ''
@@ -791,7 +790,7 @@ export function DealsRoute() {
           <Field label={labels.searchLabel}>
             <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
-          <SavedViews entityType="deals" currentFilters={{ q: search, pipeline: pipelineFilter, stage: stageFilter, owner: ownerFilter, closeFrom, closeTo }} onApply={handleApplySavedView} defaultName={`${labels.singular} view`} />
+          <SavedViews entityType="deals" canManage={canWrite} currentFilters={{ q: search, pipeline: pipelineFilter, stage: stageFilter, owner: ownerFilter, closeFrom, closeTo }} onApply={handleApplySavedView} defaultName={`${labels.singular} view`} />
           <Field label="Pipeline filter">
             <select className="text-input" value={pipelineFilter} onChange={handlePipelineFilterChange}>
               <option value="all">All pipelines</option>

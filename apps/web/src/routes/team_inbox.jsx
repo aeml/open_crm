@@ -36,7 +36,7 @@ function assignmentLabel(message) {
 }
 
 export function TeamInboxRoute() {
-  const { session } = useAuth()
+  const { session, workspaceWritable } = useAuth()
   usePageTitle('Team Inbox')
   const [messages, setMessages] = useState([])
   const [selectedMessage, setSelectedMessage] = useState(null)
@@ -136,8 +136,8 @@ export function TeamInboxRoute() {
                   </div>
                   <div className="button-row">
                     <Button className="button-secondary" type="button" onClick={() => handleSelectMessage(message.id)}>View details</Button>
-                    {!closed ? <Button className="button-secondary" type="button" onClick={() => assignToMe(message.id)} disabled={isUpdating}>Assign to me</Button> : null}
-                    <Button className="button-secondary" type="button" onClick={() => updateMessage(message.id, { status: closed ? 'open' : 'closed' })} disabled={isUpdating}>{closed ? 'Reopen' : 'Close'}</Button>
+                    {!closed && workspaceWritable ? <Button className="button-secondary" type="button" onClick={() => assignToMe(message.id)} disabled={isUpdating}>Assign to me</Button> : null}
+                    {workspaceWritable ? <Button className="button-secondary" type="button" onClick={() => updateMessage(message.id, { status: closed ? 'open' : 'closed' })} disabled={isUpdating}>{closed ? 'Reopen' : 'Close'}</Button> : null}
                     {path ? <Link className="button button-ghost" to={path}>Open {label}</Link> : null}
                   </div>
                 </article>

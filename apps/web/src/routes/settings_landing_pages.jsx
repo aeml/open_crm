@@ -52,10 +52,8 @@ function landingPagePayload(form) {
 }
 
 export function SettingsLandingPagesRoute() {
-  const { session } = useAuth()
+  const { canAdminister: canManage } = useAuth()
   usePageTitle('Landing Pages')
-  const role = session?.membership?.role || ''
-  const canManage = role === 'owner' || role === 'admin'
   const [pages, setPages] = useState([])
   const [leadForms, setLeadForms] = useState([])
   const [form, setForm] = useState(emptyForm)

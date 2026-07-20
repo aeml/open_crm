@@ -74,6 +74,20 @@
   padding: var(--space-5) var(--space-5) 0;
 }
 
+.workspace-access-banner {
+  align-items: center;
+  background: rgba(180, 35, 24, 0.06);
+  border-color: rgba(180, 35, 24, 0.24);
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+  margin: var(--space-4) var(--space-5) 0;
+}
+
+.workspace-access-banner p {
+  margin: var(--space-1) 0 0;
+}
+
 .app-header-actions {
   display: flex;
   align-items: center;
@@ -307,8 +321,13 @@
   }
 
   .app-header,
-  .app-header-actions {
+  .app-header-actions,
+  .workspace-access-banner {
     align-items: stretch;
+  }
+
+  .workspace-access-banner {
+    flex-direction: column;
   }
 
   .app-header-actions {
@@ -324,5 +343,9 @@
 
   .app-content {
     padding: var(--space-3);
+  }
+
+  .workspace-access-banner {
+    margin: var(--space-3) var(--space-3) 0;
   }
 }

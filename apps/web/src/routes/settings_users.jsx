@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -34,10 +34,9 @@ function ownedWorkSummary(ownedWork = {}) {
 }
 
 export function SettingsUsersRoute() {
-  const { session } = useAuth()
+  const { session, canAdminister: canManageUsers } = useAuth()
   usePageTitle('Users')
   const role = session?.membership?.role || ''
-  const canManageUsers = useMemo(() => ['owner', 'admin'].includes(role), [role])
   const [users, setUsers] = useState([])
   const [error, setError] = useState('')
   const [form, setForm] = useState(emptyForm)

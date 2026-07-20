@@ -51,10 +51,8 @@ function priceLabel(item) {
 }
 
 export function SettingsProductCatalogRoute() {
-  const { session } = useAuth()
+  const { session, canWrite: canManage } = useAuth()
   usePageTitle('Product Catalog')
-  const role = session?.membership?.role || ''
-  const canManage = role !== 'viewer'
   const [items, setItems] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)

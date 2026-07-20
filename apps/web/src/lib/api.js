@@ -50,6 +50,12 @@ export async function apiRequest(path, { method = 'GET', body, headers = {}, fal
     if (response.status === 401 && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('auth:unauthorized'))
     }
+    if (typeof window !== 'undefined' && payload?.error?.code === 'SUBSCRIPTION_INACTIVE') {
+      window.dispatchEvent(new CustomEvent('workspace:access-changed', { detail: { state: 'read_only' } }))
+    }
+    if (typeof window !== 'undefined' && payload?.error?.code === 'BILLING_CHECK_UNAVAILABLE') {
+      window.dispatchEvent(new CustomEvent('workspace:access-changed', { detail: { state: 'unavailable' } }))
+    }
 
     throw new APIError(getErrorMessage(payload, fallbackMessage), {
       status: response.status,

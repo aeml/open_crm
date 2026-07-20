@@ -53,11 +53,10 @@ export function ContactsRoute() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { contactId } = useParams()
-  const { session, businessProfile } = useAuth()
+  const { session, businessProfile, canWrite } = useAuth()
   const routeContactId = Number.parseInt(contactId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
-  const canWrite = ['owner', 'admin', 'member'].includes(session?.membership?.role)
   const pipelineLabels = relatedPipelineLabels(businessType)
   usePageTitle('Contacts')
   const initialSearch = searchParams.get('q') || ''

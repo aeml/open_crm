@@ -63,10 +63,8 @@ function filterSummary(filters = {}) {
 }
 
 export function SettingsLeadAudiencesRoute() {
-  const { session } = useAuth()
+  const { canAdminister: canManage } = useAuth()
   usePageTitle('Lead Audiences')
-  const role = session?.membership?.role || ''
-  const canManage = role === 'owner' || role === 'admin'
   const [audiences, setAudiences] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)

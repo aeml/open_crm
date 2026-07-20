@@ -45,10 +45,8 @@ function sequenceLabel(sequence) {
 }
 
 export function SettingsNurtureCampaignsRoute() {
-  const { session } = useAuth()
+  const { canAdminister: canManage } = useAuth()
   usePageTitle('Nurture Campaigns')
-  const role = session?.membership?.role || ''
-  const canManage = role === 'owner' || role === 'admin'
   const [campaigns, setCampaigns] = useState([])
   const [audiences, setAudiences] = useState([])
   const [sequences, setSequences] = useState([])

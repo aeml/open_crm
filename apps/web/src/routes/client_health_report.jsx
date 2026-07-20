@@ -21,7 +21,7 @@ function filtersFromSavedView(filters = {}) {
   return { entityType, status, staleDays, ownerUserId }
 }
 
-export function ClientHealthReport({ onOpen, owners = [] }) {
+export function ClientHealthReport({ onOpen, owners = [], canManage = true }) {
   const [draft, setDraft] = useState({ entityType: 'company', status: 'all', staleDays: 30, ownerUserId: '' })
   const [query, setQuery] = useState({ ...draft, run: 0 })
   const [report, setReport] = useState(null)
@@ -65,6 +65,7 @@ export function ClientHealthReport({ onOpen, owners = [] }) {
         ) : null}
         <SavedViews
           entityType="companies"
+          canManage={canManage}
           viewScope="client-health"
           allowDefault={false}
           noun="segment"

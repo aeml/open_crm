@@ -78,11 +78,10 @@ export function CompaniesRoute() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { companyId } = useParams()
-  const { session, businessProfile } = useAuth()
+  const { session, businessProfile, canWrite } = useAuth()
   const routeCompanyId = Number.parseInt(companyId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
-  const canWrite = ['owner', 'admin', 'member'].includes(session?.membership?.role)
   const pipelineLabels = relatedPipelineLabels(businessType)
   usePageTitle('Companies')
   const initialSearch = searchParams.get('q') || ''
@@ -731,7 +730,7 @@ export function CompaniesRoute() {
           <Field label="Search clients">
             <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
           </Field>
-          <SavedViews entityType="companies" currentFilters={{ q: search, owner: ownerFilter, customField: customFilter.fieldKey, customOperator: customFilter.operator, customValue: customFilter.value }} onApply={handleApplySavedView} defaultName="Client view" />
+          <SavedViews entityType="companies" canManage={canWrite} currentFilters={{ q: search, owner: ownerFilter, customField: customFilter.fieldKey, customOperator: customFilter.operator, customValue: customFilter.value }} onApply={handleApplySavedView} defaultName="Client view" />
           <Field label="Owner filter">
             <div className="button-row">
               <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
@@ -826,7 +825,7 @@ export function CompaniesRoute() {
         </div>
       </Card>
 
-      {mode === 'list' ? <ClientHealthReport owners={ownerOptions} onOpen={(record) => navigate(`/${record.entityType === 'contact' ? 'contacts' : 'companies'}/${record.entityId}`)} /> : null}
+      {mode === 'list' ? <ClientHealthReport canManage={canWrite} owners={ownerOptions} onOpen={(record) => navigate(`/${record.entityType === 'contact' ? 'contacts' : 'companies'}/${record.entityId}`)} /> : null}
 
       {canWrite && mode === 'create' ? (
         <Card>

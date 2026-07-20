@@ -139,13 +139,18 @@ operating policy have been reviewed.
    URL is informational and never activates a plan. Confirm the portal opens,
    then exercise a failed payment, recovery, scheduled cancellation, and final
    cancellation using approved Stripe test controls.
-5. During suspension, verify an authorized CRM mutation returns
-   `402 SUBSCRIPTION_INACTIVE`, a viewer still receives `403` before billing is
-   disclosed, CSV exports and billing recovery remain available, and the
-   public lead form returns only `503 FORM_UNAVAILABLE`. Non-billing tenant jobs
-   should move to `retryable` with `subscription inactive`, a later
-   `run_at`, and no net increase in `attempts`; the `billing.reconcile` job must
-   continue. After payment recovery, the original jobs resume automatically.
+5. During suspension, verify `/auth/me` reports `workspaceAccess.state` as
+   `read_only`, the persistent banner appears, and normal mutation controls are
+   absent or disabled. An authorized direct CRM mutation must still return
+   `402 SUBSCRIPTION_INACTIVE`, while a viewer receives `403` before billing is
+   disclosed. Navigation, reads, CSV exports, Plan & Billing, own profile and
+   preferences, notification acknowledgement, and Operations replay remain
+   available; the public lead form returns only `503 FORM_UNAVAILABLE`.
+   Non-billing tenant jobs should move to `retryable` with a `deferred` worker
+   outcome, `subscription inactive`, a later `run_at`, and no net increase in
+   `attempts`; the `billing.reconcile` job must continue. After payment recovery,
+   reload or refresh the session, confirm the snapshot is `writable`, and verify
+   the original jobs resume automatically.
    A `503 BILLING_CHECK_UNAVAILABLE` means policy or usage could not be read;
    treat it as a database/control-plane incident rather than bypassing it.
 6. Correlate provider counters (`checkout_session`, `portal_session`,

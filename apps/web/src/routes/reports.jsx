@@ -205,10 +205,8 @@ function reportSummary(definition) {
 }
 
 export function ReportsRoute() {
-  const { session } = useAuth()
+  const { session, canWrite: canManage } = useAuth()
   usePageTitle('Reports')
-  const role = session?.membership?.role || ''
-  const canManage = role !== 'viewer'
   const [definitions, setDefinitions] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)

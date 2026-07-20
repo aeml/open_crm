@@ -55,7 +55,7 @@ type userLifecycleResponse struct {
 	} `json:"meta"`
 }
 
-func handleLogin(env config.Env, service authService, w http.ResponseWriter, r *http.Request) {
+func handleLogin(env config.Env, service authService, billing billingService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	if service == nil {
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Authentication service unavailable")
@@ -90,7 +90,7 @@ func handleLogin(env config.Env, service authService, w http.ResponseWriter, r *
 	}
 
 	setSessionCookie(w, env, result.SessionToken)
-	respondSession(w, r, http.StatusOK, result.State)
+	respondSession(w, r, http.StatusOK, result.State, billing)
 }
 
 func handleBootstrap(service onboardingService, w http.ResponseWriter, r *http.Request) {
@@ -146,7 +146,7 @@ func handleBootstrap(service onboardingService, w http.ResponseWriter, r *http.R
 	platformweb.WriteJSON(w, status, response)
 }
 
-func handleVerifyEmail(env config.Env, service onboardingService, w http.ResponseWriter, r *http.Request) {
+func handleVerifyEmail(env config.Env, service onboardingService, billing billingService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	if service == nil {
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Workspace verification unavailable")
@@ -166,7 +166,7 @@ func handleVerifyEmail(env config.Env, service onboardingService, w http.Respons
 		return
 	}
 	setSessionCookie(w, env, result.SessionToken)
-	respondSession(w, r, http.StatusOK, result.State)
+	respondSession(w, r, http.StatusOK, result.State, billing)
 }
 
 func handleResendVerification(service onboardingService, w http.ResponseWriter, r *http.Request) {
@@ -207,7 +207,7 @@ func handleResendVerification(service onboardingService, w http.ResponseWriter, 
 	platformweb.WriteJSON(w, http.StatusAccepted, response)
 }
 
-func handleCurrentSession(env config.Env, service authService, w http.ResponseWriter, r *http.Request) {
+func handleCurrentSession(env config.Env, service authService, billing billingService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	sessionToken, ok := readSessionCookie(r)
 	if !ok {
@@ -231,7 +231,7 @@ func handleCurrentSession(env config.Env, service authService, w http.ResponseWr
 		return
 	}
 
-	respondSession(w, r, http.StatusOK, state)
+	respondSession(w, r, http.StatusOK, state, billing)
 }
 
 func handleLogout(env config.Env, service authService, w http.ResponseWriter, r *http.Request) {

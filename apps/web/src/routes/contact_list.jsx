@@ -56,7 +56,7 @@ export function ContactListCard({
         <Field label="Search contacts">
           <input className="text-input" type="search" value={search} onChange={onSearchChange} />
         </Field>
-        <SavedViews entityType="contacts" currentFilters={{ q: search, owner: ownerFilter, customField: customFilter.fieldKey, customOperator: customFilter.operator, customValue: customFilter.value }} onApply={onApplySavedView} defaultName="Contact view" />
+        <SavedViews entityType="contacts" canManage={canWrite} currentFilters={{ q: search, owner: ownerFilter, customField: customFilter.fieldKey, customOperator: customFilter.operator, customValue: customFilter.value }} onApply={onApplySavedView} defaultName="Contact view" />
         <Field label="Owner filter">
           <div className="button-row">
             <select className="text-input" value={ownerFilter} onChange={onOwnerFilterChange}>

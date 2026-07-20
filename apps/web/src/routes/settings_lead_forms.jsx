@@ -91,10 +91,8 @@ function mappedFieldLabel(field) {
 }
 
 export function SettingsLeadFormsRoute() {
-  const { session } = useAuth()
+  const { session, canAdminister: canManage } = useAuth()
   usePageTitle('Lead Forms')
-  const role = session?.membership?.role || ''
-  const canManage = role === 'owner' || role === 'admin'
   const [forms, setForms] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
