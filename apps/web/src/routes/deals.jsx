@@ -1,14 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
-import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
-import { EmptyState } from '../components/ui/empty_state'
-import { SavedViews } from '../components/ui/saved_views'
-import { InlineError } from '../components/ui/inline_error'
-import { BulkActions } from '../components/ui/bulk_actions'
 import { RecordEmailComposer } from '../components/record_email_composer'
-import { archiveDeal, createDeal, createDealSignatureRequest, dealsExportURL, getDeal, listDeals, listDealPipelines, quotePDFURL, replaceDealLineItems, sendDealEmail, updateDeal, updateDealSignatureRequestStatus, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, createDealSignatureRequest, getDeal, listDeals, listDealPipelines, replaceDealLineItems, sendDealEmail, updateDeal, updateDealSignatureRequestStatus, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -21,21 +15,19 @@ import { usePageTitle } from '../lib/use_page_title'
 import {
   dealFormValues,
   emptyDealMeta,
-  emptyDealsDescription,
-  emptyDealsMessage,
   emptyLineItemForm,
   emptyLineTotals,
   emptySignatureForm,
   flattenPipelineStages,
-  formatMoney,
   lineItemFormFromCatalogItem,
   lineItemPayload,
   pipelineLabels,
-  stageLabel,
   stagesForPipeline
 } from './deal_view'
 import { DealLineItemsCard, DealSignatureCard } from './deal_quote'
-import { CloseReviewFields, DealCloseSummary, emptyCloseReview, stageOutcome } from './deal_close_review'
+import { emptyCloseReview, stageOutcome } from './deal_close_review'
+import { DealDirectory } from './deal_directory'
+import { DealCreateCard, DealDetailsEditor, DealStageMover } from './deal_editor'
 import { RecordWorkCards } from './record_work'
 
 const emptyForm = {
@@ -231,7 +223,6 @@ export function DealsRoute() {
   }, [initialCloseFrom, initialCloseTo, initialCompanyId, initialOwnerFilter, initialPipelineFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
 
   const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
-  const createStage = stages.find((stage) => String(stage.id) === String(form.stageId))
   const moveStage = stages.find((stage) => String(stage.id) === String(selectedStageId))
   const dealEmailRecipients = useMemo(() => {
     if (!selectedDeal?.primaryContactId) {
@@ -710,10 +701,6 @@ export function DealsRoute() {
     await reloadDeals(search, pipelineFilter, stageFilter, value)
   }
 
-  async function handleOwnerFilterChange(event) {
-    await applyOwnerFilter(event.target.value)
-  }
-
   async function handleCloseDateFilter(event) {
     event.preventDefault()
     navigate(buildDealsPath(selectedDealId, search, pipelineFilter, stageFilter, ownerFilter, closeFrom, closeTo), { replace: true })
@@ -740,6 +727,21 @@ export function DealsRoute() {
     await reloadDeals(nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, nextCloseFrom, nextCloseTo)
   }
 
+  function handleClearFilters() {
+    setSearch('')
+    setPipelineFilter('all')
+    setStageFilter('all')
+    setOwnerFilter('all')
+    setCloseFrom('')
+    setCloseTo('')
+    navigate(buildDealsPath(null, '', 'all', 'all', 'all', '', ''), { replace: true })
+    reloadDeals('', 'all', 'all', 'all', '', '')
+  }
+
+  function handleToggleSelection(dealID) {
+    setSelectedDealIds((current) => current.includes(dealID) ? current.filter((id) => id !== dealID) : [...current, dealID])
+  }
+
   function handleOpenDealTasks() {
     if (!selectedDealId) {
       return
@@ -749,247 +751,71 @@ export function DealsRoute() {
 
   return (
     <section className="dashboard-grid contacts-grid">
-      <Card>
-        <div className="card-stack">
-            <div className="section-header">
-              <div>
-                <h2>{labels.collection}</h2>
-                <p>Real pipeline, real stages, no fake dashboard filler.</p>
-              </div>
-              <a className="button button-secondary" href={dealsExportURL({ search, pipelineId: pipelineFilter === 'all' ? 0 : Number.parseInt(pipelineFilter, 10) || 0, stageId: stageFilter === 'all' ? 0 : Number.parseInt(stageFilter, 10) || 0, ownerUserId: ownerFilter === 'all' ? 0 : Number.parseInt(ownerFilter, 10) || 0, closeFrom, closeTo })}>
-                Export CSV
-              </a>
-            </div>
-          <div className="record-list" role="list" aria-label="Pipeline summary">
-            <article className="record-row" role="listitem">
-              <div>
-                <p>{labels.summaryOpen}</p>
-              </div>
-              <div>
-                  <p>{meta.openCount}</p>
-                </div>
-              </article>
-              <article className="record-row" role="listitem">
-                <div>
-                  <p>{labels.summaryWon}</p>
-                </div>
-                <div>
-                  <p>{meta.wonCount}</p>
-              </div>
-            </article>
-            <article className="record-row" role="listitem">
-              <div>
-                <p>Pipeline value</p>
-              </div>
-              <div>
-                <p>{formatMoney(meta.pipelineValue, meta.currency)}</p>
-                {(meta.missingRateCurrencies || []).length > 0 ? <p className="field-hint">Missing rates: {meta.missingRateCurrencies.join(', ')}</p> : null}
-              </div>
-            </article>
-          </div>
-          <Field label={labels.searchLabel}>
-            <input className="text-input" type="search" value={search} onChange={handleSearchChange} />
-          </Field>
-          <SavedViews entityType="deals" canManage={canWrite} currentFilters={{ q: search, pipeline: pipelineFilter, stage: stageFilter, owner: ownerFilter, closeFrom, closeTo }} onApply={handleApplySavedView} defaultName={`${labels.singular} view`} />
-          <Field label="Pipeline filter">
-            <select className="text-input" value={pipelineFilter} onChange={handlePipelineFilterChange}>
-              <option value="all">All pipelines</option>
-              {pipelines.map((pipeline) => (
-                <option key={pipeline.id} value={pipeline.id}>{pipeline.name}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Stage filter">
-            <select className="text-input" value={stageFilter} onChange={handleStageFilterChange}>
-              <option value="all">All stages</option>
-              {filteredStages.map((stage) => (
-                <option key={stage.id} value={stage.id}>{stageLabel(stage, pipelineFilter)}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Owner filter">
-            <div className="button-row">
-              <select className="text-input" value={ownerFilter} onChange={handleOwnerFilterChange}>
-                <option value="all">All owners</option>
-                <option value="unassigned">Unassigned</option>
-                {userOptions.map((user) => (
-                  <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                ))}
-              </select>
-              {currentUserId ? (
-                <Button className={ownerFilter === currentUserId ? '' : 'button-secondary'} type="button" onClick={() => applyOwnerFilter(currentUserId)}>
-                  Mine
-                </Button>
-              ) : null}
-              <Button className={ownerFilter === 'unassigned' ? '' : 'button-secondary'} type="button" onClick={() => applyOwnerFilter('unassigned')}>
-                Unassigned
-              </Button>
-            </div>
-          </Field>
-          <form className="auth-form" onSubmit={handleCloseDateFilter}>
-            <Field label="Expected close from"><input className="text-input" type="date" value={closeFrom} onChange={(event) => setCloseFrom(event.target.value)} /></Field>
-            <Field label="Expected close to"><input className="text-input" type="date" value={closeTo} onChange={(event) => setCloseTo(event.target.value)} /></Field>
-            <Button className="button-secondary" type="submit">Apply close dates</Button>
-          </form>
-          {isListLoading ? <p className="field-hint">Loading {labels.showingLabel}...</p> : null}
-          {error ? (
-            <InlineError message={error} onRetry={() => reloadDeals(search, pipelineFilter, stageFilter, ownerFilter)} retryLabel={`Retry ${labels.showingLabel}`} />
-          ) : null}
-          {canWrite ? <BulkActions entityType="deal" selectedIds={selectedDealIds} visibleIds={deals.map((deal) => deal.id)} onSelectionChange={setSelectedDealIds} onChanged={() => reloadDeals(search, pipelineFilter, stageFilter, ownerFilter)} statuses={[]} userOptions={userOptions} /> : null}
-          <div className="record-list" role="list" aria-label={labels.listAria}>
-            {!isListLoading && deals.length === 0 ? (
-              <EmptyState
-                title={emptyDealsMessage(search, pipelineFilter, stageFilter, ownerFilter, labels, closeFrom, closeTo)}
-                description={emptyDealsDescription(search, pipelineFilter, stageFilter, ownerFilter, labels, closeFrom, closeTo)}
-                actionLabel={hasDealFilters ? 'Clear filters' : ''}
-                onAction={() => {
-                  if (hasDealFilters) {
-                    setSearch('')
-                    setPipelineFilter('all')
-                    setStageFilter('all')
-                    setOwnerFilter('all')
-                    setCloseFrom('')
-                    setCloseTo('')
-                    navigate(buildDealsPath(null, '', 'all', 'all', 'all', '', ''), { replace: true })
-                    reloadDeals('', 'all', 'all', 'all', '', '')
-                  }
-                }}
-              />
-            ) : deals.map((deal) => (
-              <article className="record-row" key={deal.id} role="listitem">
-                <div>
-                  {canWrite ? <input type="checkbox" aria-label={`Select ${deal.name}`} checked={selectedDealIds.includes(deal.id)} onChange={() => setSelectedDealIds((current) => current.includes(deal.id) ? current.filter((id) => id !== deal.id) : [...current, deal.id])} /> : null}
-                  <button className="button button-ghost contact-link" type="button" onClick={() => handleSelectDeal(deal)}>
-                    {deal.name}
-                  </button>
-                  <p>{deal.pipelineName ? `${deal.pipelineName} · ${deal.stageName}` : deal.stageName}</p>
-                </div>
-              <div>
-                <p>{formatMoney(deal.valueAmount, deal.valueCurrency)}</p>
-                <p>{deal.companyName || labels.companyEmpty}</p>
-                <p className="field-hint">{deal.ownerUserName || 'Unassigned'}</p>
-              </div>
-              </article>
-            ))}
-          </div>
-          <p className="field-hint">Showing {deals.length} of {meta.total} {labels.showingLabel}.</p>
-        </div>
-      </Card>
+      <DealDirectory
+        canWrite={canWrite}
+        closeFrom={closeFrom}
+        closeTo={closeTo}
+        currentUserId={currentUserId}
+        deals={deals}
+        error={error}
+        filteredStages={filteredStages}
+        hasFilters={hasDealFilters}
+        isLoading={isListLoading}
+        labels={labels}
+        meta={meta}
+        onApplyCloseDates={handleCloseDateFilter}
+        onApplyOwnerFilter={applyOwnerFilter}
+        onApplySavedView={handleApplySavedView}
+        onBulkChanged={() => reloadDeals(search, pipelineFilter, stageFilter, ownerFilter)}
+        onClearFilters={handleClearFilters}
+        onCloseFromChange={setCloseFrom}
+        onCloseToChange={setCloseTo}
+        onOpenDeal={handleSelectDeal}
+        onPipelineChange={handlePipelineFilterChange}
+        onReload={() => reloadDeals(search, pipelineFilter, stageFilter, ownerFilter)}
+        onSearchChange={handleSearchChange}
+        onSelectionChange={setSelectedDealIds}
+        onStageChange={handleStageFilterChange}
+        onToggleSelection={handleToggleSelection}
+        ownerFilter={ownerFilter}
+        pipelines={pipelines}
+        pipelineFilter={pipelineFilter}
+        search={search}
+        selectedDealIds={selectedDealIds}
+        stageFilter={stageFilter}
+        users={userOptions}
+      />
 
       {canWrite ? (
-        <Card>
-          <div className="card-stack">
-            <div>
-              <h2>{labels.createHeading}</h2>
-              <p>{labels.createDescription}</p>
-            </div>
-            <form className="auth-form" onSubmit={handleCreate}>
-              <Field label={`${labels.singular} name`}>
-                <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
-              </Field>
-              <Field label="Stage">
-                <select className="text-input" value={form.stageId} onChange={(event) => setForm((current) => ({ ...current, stageId: event.target.value, ...emptyCloseReview }))}>
-                  {filteredStages.map((stage) => (
-                    <option key={stage.id} value={stage.id}>{stageLabel(stage, pipelineFilter)}</option>
-                  ))}
-                </select>
-              </Field>
-              <CloseReviewFields outcome={stageOutcome(createStage)} value={form} onChange={setForm} />
-              <Field label={labels.companyLabel}>
-                <select className="text-input" value={form.companyId} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}>
-                  <option value="">{labels.companyEmpty}</option>
-                  {companyOptions.map((company) => (
-                    <option key={company.id} value={company.id}>{company.name}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={labels.contactLabel}>
-                <select className="text-input" value={form.primaryContactId} onChange={(event) => setForm((current) => ({ ...current, primaryContactId: event.target.value }))}>
-                  <option value="">{labels.contactEmpty}</option>
-                  {contactOptions.map((contact) => (
-                    <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={labels.valueLabel}>
-                <input className="text-input" value={form.valueAmount} onChange={(event) => setForm((current) => ({ ...current, valueAmount: event.target.value }))} />
-              </Field>
-              <Field label="Value currency">
-                <input className="text-input" value={form.valueCurrency} onChange={(event) => setForm((current) => ({ ...current, valueCurrency: event.target.value }))} />
-              </Field>
-              <Field label={labels.dateLabel}>
-                <input className="text-input" type="date" value={form.expectedCloseDate} onChange={(event) => setForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
-              </Field>
-              <Field label="Owner">
-                <select className="text-input" value={form.ownerUserId} onChange={(event) => setForm((current) => ({ ...current, ownerUserId: event.target.value }))}>
-                  {userOptions.map((user) => (
-                    <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                  ))}
-                </select>
-              </Field>
-              <Button type="submit">{`Save ${labels.singular.toLowerCase()}`}</Button>
-            </form>
-          </div>
-        </Card>
+        <DealCreateCard
+          companies={companyOptions}
+          contacts={contactOptions}
+          form={form}
+          labels={labels}
+          onSetForm={setForm}
+          onSubmit={handleCreate}
+          pipelineFilter={pipelineFilter}
+          stages={filteredStages}
+          users={userOptions}
+        />
       ) : null}
 
       {selectedDeal ? (
         <Card>
           <div className="card-stack">
-            {isDetailLoading ? <p className="field-hint">Loading {labels.singular.toLowerCase()} detail...</p> : null}
-            <div className="section-header">
-              <div>
-                <h2>{selectedDeal.name}</h2>
-                <p>{selectedDeal.companyName || labels.companyEmpty}</p>
-              </div>
-              <div className="button-row">
-                <a className="button button-secondary" href={quotePDFURL(selectedDealId)}>Download current quote PDF</a>
-                {canWrite ? (
-                  <Button className="button-danger" onClick={handleArchive}>
-                    {labels.archiveAction}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-            <DealCloseSummary deal={selectedDeal} />
-            <form className="auth-form" aria-label="Deal details form" onSubmit={handleUpdate}>
-              <Field label={`${labels.singular} name`}>
-                <input className="text-input" value={detailForm.name} onChange={(event) => setDetailForm((current) => ({ ...current, name: event.target.value }))} required />
-              </Field>
-              <Field label={labels.companyLabel}>
-                <select className="text-input" value={detailForm.companyId} onChange={(event) => setDetailForm((current) => ({ ...current, companyId: event.target.value }))}>
-                  <option value="">{labels.companyEmpty}</option>
-                  {companyOptions.map((company) => (
-                    <option key={company.id} value={company.id}>{company.name}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={labels.contactLabel}>
-                <select className="text-input" value={detailForm.primaryContactId} onChange={(event) => setDetailForm((current) => ({ ...current, primaryContactId: event.target.value }))}>
-                  <option value="">{labels.contactEmpty}</option>
-                  {contactOptions.map((contact) => (
-                    <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={labels.valueLabel}>
-                <input className="text-input" value={detailForm.valueAmount} onChange={(event) => setDetailForm((current) => ({ ...current, valueAmount: event.target.value }))} />
-              </Field>
-              <Field label="Value currency">
-                <input className="text-input" value={detailForm.valueCurrency} onChange={(event) => setDetailForm((current) => ({ ...current, valueCurrency: event.target.value }))} />
-              </Field>
-              <Field label={labels.dateLabel}>
-                <input className="text-input" type="date" value={detailForm.expectedCloseDate} onChange={(event) => setDetailForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
-              </Field>
-              <Field label="Owner">
-                <select className="text-input" value={detailForm.ownerUserId} onChange={(event) => setDetailForm((current) => ({ ...current, ownerUserId: event.target.value }))}>
-                  {userOptions.map((user) => (
-                    <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>
-                  ))}
-                </select>
-              </Field>
-              {canWrite ? <Button type="submit">{`Update ${labels.singular.toLowerCase()}`}</Button> : null}
-            </form>
+            <DealDetailsEditor
+              canWrite={canWrite}
+              companies={companyOptions}
+              contacts={contactOptions}
+              deal={selectedDeal}
+              form={detailForm}
+              isLoading={isDetailLoading}
+              labels={labels}
+              onArchive={handleArchive}
+              onSetForm={setDetailForm}
+              onSubmit={handleUpdate}
+              users={userOptions}
+            />
             <DealLineItemsCard
               canWrite={canWrite}
               deal={selectedDeal}
@@ -1015,19 +841,16 @@ export function DealsRoute() {
               requests={signatureRequests}
               updatingID={updatingSignatureRequestId}
             />
-            {canWrite ? (
-              <>
-                <Field label={labels.moveLabel}>
-                  <select className="text-input" value={selectedStageId} onChange={(event) => { setSelectedStageId(event.target.value); setStageCloseReview(emptyCloseReview) }}>
-                    {stages.map((stage) => (
-                      <option key={stage.id} value={stage.id}>{stageLabel(stage, 'all')}</option>
-                    ))}
-                  </select>
-                </Field>
-                <CloseReviewFields outcome={stageOutcome(moveStage)} value={stageCloseReview} onChange={setStageCloseReview} />
-                <Button type="button" onClick={handleMoveStage}>{labels.moveAction}</Button>
-              </>
-            ) : null}
+            <DealStageMover
+              canWrite={canWrite}
+              labels={labels}
+              onMove={handleMoveStage}
+              onSetReview={setStageCloseReview}
+              onSetStage={setSelectedStageId}
+              review={stageCloseReview}
+              selectedStageId={selectedStageId}
+              stages={stages}
+            />
             <RecordEmailComposer
               entityType="deal"
               entityId={selectedDealId}

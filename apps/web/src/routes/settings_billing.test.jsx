@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 
 afterEach(() => {
@@ -40,6 +40,43 @@ function usageResponse(periodBasis = 'calendar_month') {
 }
 
 describe('settings billing route', () => {
+  it('waits for initial export history before enabling a new request', async () => {
+    let resolveExports
+    const exportsResponse = new Promise((resolve) => {
+      resolveExports = resolve
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(sessionResponse())
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { entitlements: {
+          plan: { key: 'free', name: 'Free', monthlyPriceUsd: 0, features: [] },
+          features: [],
+          subscription: { managed: false, status: 'canceled', provider: 'fake' },
+          seats: { used: 1, limit: -1, unlimited: true },
+          contacts: { used: 0, limit: -1, unlimited: true },
+          deals: { used: 0, limit: -1, unlimited: true }
+        } } })
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { plans: [] } }) })
+      .mockResolvedValueOnce(usageResponse())
+      .mockReturnValueOnce(exportsResponse)
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/billing')
+    render(<AppRouter />)
+
+    const requestButton = await screen.findByRole('button', { name: /create workspace export/i })
+    expect(requestButton).toBeDisabled()
+
+    await act(async () => {
+      resolveExports({ ok: true, json: async () => ({ data: { exports: [] } }) })
+    })
+    await waitFor(() => expect(requestButton).toBeEnabled())
+  })
+
   it('shows unrestricted local usage without hosted lifecycle or plan controls in self-hosted mode', async () => {
     const fetchMock = vi
       .fn()

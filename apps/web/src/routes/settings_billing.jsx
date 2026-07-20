@@ -349,7 +349,7 @@ export function SettingsBillingRoute() {
               <p>Create a ZIP/NDJSON snapshot for migration, cancellation, or offboarding—even while hosted writes are suspended.</p>
             </div>
             {canManageBilling ? (
-              <Button type="button" className="button-secondary" onClick={handleRequestExport} disabled={isRequestingExport || hasGeneratingExport}>
+              <Button type="button" className="button-secondary" onClick={handleRequestExport} disabled={isLoading || isRequestingExport || hasGeneratingExport}>
                 {isRequestingExport ? 'Requesting…' : hasGeneratingExport ? 'Generating…' : 'Create workspace export'}
               </Button>
             ) : null}

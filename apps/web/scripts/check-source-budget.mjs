@@ -8,7 +8,7 @@ const defaultMaximum = 500
 const maximums = new Map([
   ['contacts.jsx', 900],
   ['companies.jsx', 900],
-  ['deals.jsx', 1100],
+  ['deals.jsx', 900],
   ['tasks.jsx', 800],
   ['settings_automations.jsx', 700],
   ['dashboard.jsx', 550],
