@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { RecordEmailComposer } from '../components/record_email_composer'
-import { archiveDeal, createDeal, createDealSignatureRequest, getDeal, listDeals, listDealPipelines, replaceDealLineItems, sendDealEmail, updateDeal, updateDealSignatureRequestStatus, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, getDeal, listDeals, listDealPipelines, sendDealEmail, updateDeal, updateDealStage } from '../lib/deals'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 import { listCompanies } from '../lib/companies'
@@ -15,12 +15,7 @@ import { usePageTitle } from '../lib/use_page_title'
 import {
   dealFormValues,
   emptyDealMeta,
-  emptyLineItemForm,
-  emptyLineTotals,
-  emptySignatureForm,
   flattenPipelineStages,
-  lineItemFormFromCatalogItem,
-  lineItemPayload,
   pipelineLabels,
   stagesForPipeline
 } from './deal_view'
@@ -29,6 +24,7 @@ import { emptyCloseReview, stageOutcome } from './deal_close_review'
 import { DealDirectory } from './deal_directory'
 import { DealCreateCard, DealDetailsEditor, DealStageMover } from './deal_editor'
 import { RecordWorkCards } from './record_work'
+import { useDealCommercials } from './use_deal_commercials'
 
 const emptyForm = {
   name: '',
@@ -95,20 +91,33 @@ export function DealsRoute() {
   const [tasks, setTasks] = useState([])
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
-  const [productCatalogItems, setProductCatalogItems] = useState([])
-  const [lineItems, setLineItems] = useState([])
-  const [lineItemForm, setLineItemForm] = useState(emptyLineItemForm)
-  const [lineTotals, setLineTotals] = useState(emptyLineTotals)
-  const [signatureRequests, setSignatureRequests] = useState([])
-  const [signatureForm, setSignatureForm] = useState(emptySignatureForm)
   const [activities, setActivities] = useState([])
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
-  const [isSavingLineItems, setIsSavingLineItems] = useState(false)
-  const [isCreatingSignatureRequest, setIsCreatingSignatureRequest] = useState(false)
-  const [updatingSignatureRequestId, setUpdatingSignatureRequestId] = useState(null)
   const [pipelineReady, setPipelineReady] = useState(false)
+  const {
+    handleAddLineItem,
+    handleCatalogLineItemChange,
+    handleCreateSignatureRequest,
+    handleRemoveLineItem,
+    handleSaveLineItems,
+    handleUpdateSignatureRequestStatus,
+    isCreatingSignatureRequest,
+    isSavingLineItems,
+    lineItemForm,
+    lineItems,
+    lineTotals,
+    load: loadCommercials,
+    productCatalogItems,
+    refresh: refreshCommercials,
+    reset: resetCommercials,
+    setLineItemForm,
+    setSignatureForm,
+    signatureForm,
+    signatureRequests,
+    updatingSignatureRequestId
+  } = useDealCommercials({ selectedDealId, onDealUpdated: applyCommercialDealUpdate, onError: setError })
   const listControllerRef = useRef(null)
   const filteredStages = stagesForPipeline(stages, pipelineFilter)
   const hasDealFilters = search.trim() !== '' || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all' || closeFrom !== '' || closeTo !== ''
@@ -252,11 +261,7 @@ export function DealsRoute() {
           setNotes([])
           setTasks([])
           setActivities([])
-          setLineItems([])
-          setLineTotals(emptyLineTotals)
-          setLineItemForm(emptyLineItemForm)
-          setSignatureRequests([])
-          setSignatureForm(emptySignatureForm)
+          resetCommercials()
           setNoteBody('')
           setTaskForm(emptyTaskForm)
         }
@@ -299,12 +304,7 @@ export function DealsRoute() {
         setSelectedStageId(String(dealData.deal.stageId))
         setDetailForm(dealFormValues(dealData.deal))
         setActivities(dealData.activities || [])
-        setLineItems(dealData.lineItems || [])
-        setLineTotals(dealData.totals || emptyLineTotals)
-        setLineItemForm(emptyLineItemForm)
-        setSignatureRequests(dealData.signatureRequests || [])
-        setSignatureForm(emptySignatureForm)
-        setProductCatalogItems(loadedCatalog)
+        loadCommercials(dealData, loadedCatalog)
         setNotes(loadedNotes)
         setTasks(taskData.tasks || [])
         setNoteBody('')
@@ -393,11 +393,7 @@ export function DealsRoute() {
       setDeals((current) => [...current, data.deal])
       setNotes(data.notes || [])
       setTasks(taskData.tasks || [])
-      setLineItems(data.lineItems || [])
-      setLineTotals(data.totals || emptyLineTotals)
-      setLineItemForm(emptyLineItemForm)
-      setSignatureRequests(data.signatureRequests || [])
-      setSignatureForm(emptySignatureForm)
+      loadCommercials(data)
       setNoteBody('')
       setTaskForm(emptyTaskForm)
       setActivities(data.activities || [])
@@ -446,9 +442,7 @@ export function DealsRoute() {
       setStageCloseReview(emptyCloseReview)
       setDetailForm(dealFormValues(data.deal))
       setActivities(data.activities || [])
-      setLineItems(data.lineItems || [])
-      setLineTotals(data.totals || emptyLineTotals)
-      setSignatureRequests(data.signatureRequests || [])
+      refreshCommercials(data)
       setError('')
     } catch (moveError) {
       setError(moveError.message || 'Unable to move deal.')
@@ -461,11 +455,7 @@ export function DealsRoute() {
     setStageCloseReview(emptyCloseReview)
     setDetailForm(dealFormValues(deal))
     setActivities([])
-    setLineItems([])
-    setLineTotals(emptyLineTotals)
-    setLineItemForm(emptyLineItemForm)
-    setSignatureRequests([])
-    setSignatureForm(emptySignatureForm)
+    resetCommercials()
     setNoteBody('')
     setTaskForm(emptyTaskForm)
     navigate(buildDealsPath(deal.id))
@@ -482,10 +472,7 @@ export function DealsRoute() {
       setDeals((current) => current.map((entry) => (entry.id === deal.id ? dealData.deal : entry)))
       setDetailForm(dealFormValues(dealData.deal))
       setActivities(dealData.activities || [])
-      setLineItems(dealData.lineItems || [])
-      setLineTotals(dealData.totals || emptyLineTotals)
-      setSignatureRequests(dealData.signatureRequests || [])
-      setProductCatalogItems(loadedCatalog)
+      loadCommercials(dealData, loadedCatalog)
       setNotes(loadedNotes)
       setTasks(taskData.tasks || [])
       setError('')
@@ -517,9 +504,7 @@ export function DealsRoute() {
       setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
       setDetailForm(dealFormValues(data.deal))
       setActivities(data.activities || [])
-      setLineItems(data.lineItems || [])
-      setLineTotals(data.totals || emptyLineTotals)
-      setSignatureRequests(data.signatureRequests || [])
+      refreshCommercials(data)
       setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to update deal.')
@@ -545,11 +530,7 @@ export function DealsRoute() {
       setDetailForm(emptyForm)
       setNotes([])
       setTasks([])
-      setLineItems([])
-      setLineTotals(emptyLineTotals)
-      setLineItemForm(emptyLineItemForm)
-      setSignatureRequests([])
-      setSignatureForm(emptySignatureForm)
+      resetCommercials()
       setActivities([])
       setNoteBody('')
       setTaskForm(emptyTaskForm)
@@ -606,93 +587,10 @@ export function DealsRoute() {
     }
   }
 
-  function handleCatalogLineItemChange(event) {
-    const productCatalogItemId = event.target.value
-    const catalogItem = productCatalogItems.find((item) => String(item.id) === productCatalogItemId)
-    setLineItemForm(lineItemFormFromCatalogItem(catalogItem))
-  }
-
-  function handleAddLineItem(event) {
-    event.preventDefault()
-    if (!lineItemForm.name.trim()) {
-      setError('Line item name is required.')
-      return
-    }
-    setLineItems((current) => [...current, { ...lineItemForm, position: current.length + 1 }])
-    setLineItemForm(emptyLineItemForm)
-    setError('')
-  }
-
-  function handleRemoveLineItem(index) {
-    setLineItems((current) => current.filter((_, entryIndex) => entryIndex !== index).map((item, entryIndex) => ({ ...item, position: entryIndex + 1 })))
-  }
-
-  async function handleSaveLineItems() {
-    if (!selectedDealId) {
-      return
-    }
-    setIsSavingLineItems(true)
-    try {
-      const data = await replaceDealLineItems(selectedDealId, { items: lineItems.map(lineItemPayload) })
-      setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
-      setDetailForm(dealFormValues(data.deal))
-      setLineItems(data.lineItems || [])
-      setLineTotals(data.totals || emptyLineTotals)
-      setSignatureRequests(data.signatureRequests || [])
-      setActivities(data.activities || [])
-      setError('')
-    } catch (lineItemError) {
-      setError(lineItemError.message || 'Unable to update deal line items.')
-    } finally {
-      setIsSavingLineItems(false)
-    }
-  }
-
-  async function handleCreateSignatureRequest(event) {
-    event.preventDefault()
-    if (!selectedDealId || !signatureForm.signerName.trim() || !signatureForm.signerEmail.trim()) {
-      return
-    }
-    setIsCreatingSignatureRequest(true)
-    try {
-      const data = await createDealSignatureRequest(selectedDealId, {
-        signerName: signatureForm.signerName.trim(),
-        signerEmail: signatureForm.signerEmail.trim()
-      })
-      setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
-      setDetailForm(dealFormValues(data.deal))
-      setLineItems(data.lineItems || [])
-      setLineTotals(data.totals || emptyLineTotals)
-      setSignatureRequests(data.signatureRequests || [])
-      setSignatureForm(emptySignatureForm)
-      setActivities(data.activities || [])
-      setError('')
-    } catch (signatureError) {
-      setError(signatureError.message || 'Unable to create proposal tracking.')
-    } finally {
-      setIsCreatingSignatureRequest(false)
-    }
-  }
-
-  async function handleUpdateSignatureRequestStatus(requestID, status) {
-    if (!selectedDealId) {
-      return
-    }
-    setUpdatingSignatureRequestId(requestID)
-    try {
-      const data = await updateDealSignatureRequestStatus(selectedDealId, requestID, status)
-      setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
-      setDetailForm(dealFormValues(data.deal))
-      setLineItems(data.lineItems || [])
-      setLineTotals(data.totals || emptyLineTotals)
-      setSignatureRequests(data.signatureRequests || [])
-      setActivities(data.activities || [])
-      setError('')
-    } catch (signatureError) {
-      setError(signatureError.message || 'Unable to update proposal tracking.')
-    } finally {
-      setUpdatingSignatureRequestId(null)
-    }
+  function applyCommercialDealUpdate(data) {
+    setDeals((current) => current.map((entry) => (entry.id === selectedDealId ? data.deal : entry)))
+    setDetailForm(dealFormValues(data.deal))
+    setActivities(data.activities || [])
   }
 
   async function applyOwnerFilter(value) {

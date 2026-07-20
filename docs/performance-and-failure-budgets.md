@@ -90,9 +90,9 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.99 KiB/57.92 KiB entry, 34.53 KiB/9.76 KiB largest lazy
-chunk, and 613.25 KiB/196.79 KiB total assets. The production contact, company,
-deal, and task routes are 26.81/7.98, 31.67/9.23, 34.53/9.76, and 21.59/6.00
+Current evidence: 177.99 KiB/57.93 KiB entry, 34.91 KiB/10.04 KiB largest lazy
+chunk, and 613.64 KiB/196.90 KiB total assets. The production contact, company,
+deal, and task routes are 26.81/7.98, 31.67/9.23, 34.91/10.04, and 21.59/6.00
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.70 KiB/4.67 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
@@ -152,10 +152,12 @@ logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health
 and client-review integration plus a focused development-only communications
 orchestrator plus focused company-directory and linked-people presentation
 leave the parent routes at 854 contact lines,
-863 company lines, 887 deal lines, and
+863 company lines, 785 deal lines, and
 769 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Deal directory, shared form, and editor
-presentation live in focused 157-, 74-, and 87-line modules. Narrowing the normal automation UI to its
+presentation live in focused 157-, 74-, and 87-line modules; a 153-line hook
+now owns quote-line and manual proposal-tracking state, mutations, and recovery.
+Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
 Continue lowering the remaining contact/deal exceptions along tested
 orchestration seams.
@@ -179,7 +181,7 @@ the application composition package.
 | --- | ---: | ---: |
 | `contacts.jsx` | 854 | 900 |
 | `companies.jsx` | 863 | 900 |
-| `deals.jsx` | 887 | 900 |
+| `deals.jsx` | 785 | 800 |
 | `tasks.jsx` | 769 | 800 |
 | `dashboard.jsx` | 477 | 550 |
 
