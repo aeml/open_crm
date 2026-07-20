@@ -57,6 +57,24 @@ for (const hiddenFoundation of ['settings_calendar-', 'settings_marketing_email_
     failures.push(`incomplete production route was bundled: ${hiddenFoundation}`)
   }
 }
+const javascriptContents = javascript.map(({ name }) => ({
+  name,
+  contents: readFileSync(resolve(assetsDirectory, name), 'utf8'),
+}))
+for (const hiddenFoundationUI of [
+  'Start an outbound call and log the outcome on this contact.',
+  'Send compliant one-to-one texts and log inbound replies.',
+  'Schedule meetings and keep a contact-level calendar history.',
+  '/api/calls',
+  '/api/sms-messages',
+  '/api/calendar-events',
+  '/api/calendar-booking-links',
+]) {
+  const containingAsset = javascriptContents.find(({ contents }) => contents.includes(hiddenFoundationUI))
+  if (containingAsset) {
+    failures.push(`incomplete production communication UI was bundled in ${containingAsset.name}: ${hiddenFoundationUI}`)
+  }
+}
 const largestAsynchronous = asynchronousChunks.reduce(
   (largest, chunk) => (chunk.raw > largest.raw ? chunk : largest),
   { name: 'none', raw: 0, gzip: 0 },

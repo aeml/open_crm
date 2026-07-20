@@ -90,15 +90,17 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.99 KiB/57.92 KiB entry, 47.56 KiB/12.24 KiB largest lazy
-chunk, and 628.13 KiB/198.53 KiB total assets. Hosted billing and portable
+Current evidence: 177.99 KiB/57.92 KiB entry, 33.90 KiB/9.12 KiB largest lazy
+chunk, and 608.54 KiB/194.50 KiB total assets. The production contact route is
+27.97 KiB/8.37 KiB. Hosted billing and portable
 workspace export remain isolated in a 10.29 KiB/3.46 KiB settings route. Its
 7.54 KiB/2.71 KiB background-operations route includes labeled replay, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
 signup, import, merge, and bulk recovery paths. Production builds now omit the
-incomplete booking-link, marketing-email, and nurture-campaign management
-routes; the bundle gate rejects their accidental inclusion. This restored
-aggregate headroom while making production exposure match executable behavior.
+incomplete calling, SMS, calendar/booking-link, marketing-email, and
+nurture-campaign management surfaces; the bundle gate rejects their accidental
+inclusion. This restored aggregate headroom while making production exposure
+match executable behavior.
 Future frontend slices must remain within the ratcheted ceilings. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a

@@ -48,6 +48,7 @@ import {
 } from './contact_view'
 import { RecordWorkCards } from './record_work'
 import { TouchpointSummary } from './touchpoint_summary'
+const showFoundationCommunications = import.meta.env.DEV
 
 export function ContactsRoute() {
   const navigate = useNavigate()
@@ -1185,7 +1186,7 @@ export function ContactsRoute() {
               notes={selectedNotes} onCreateDeal={handleCreateRelatedDeal} onOpenDeal={handleOpenDeal} tasks={selectedTasks}
             />
             <ClientReviewSchedule entityType="contact" entityId={selectedContactId} isClient={selectedContact.isClient || selectedContact.status === 'customer'} canWrite={canWrite} users={userOptions} onChanged={handleClientReviewChanged} />
-            <ContactCallsCard
+            {showFoundationCommunications ? <ContactCallsCard
               activeCall={activeCall}
               callForm={callForm}
               calls={callLogs}
@@ -1213,8 +1214,8 @@ export function ContactsRoute() {
               recordingCallId={recordingCallId}
               recordingForm={recordingForm}
               status={callStatus}
-            />
-            <ContactSMSCard
+            /> : null}
+            {showFoundationCommunications ? <ContactSMSCard
               canWrite={canWrite}
               contact={selectedContact}
               inboundForm={inboundSMSForm}
@@ -1234,8 +1235,8 @@ export function ContactsRoute() {
               open={smsOpen}
               form={smsForm}
               status={smsStatus}
-            />
-            <ContactMeetingsCard
+            /> : null}
+            {showFoundationCommunications ? <ContactMeetingsCard
               canWrite={canWrite}
               cancellingMeetingId={cancellingMeetingId}
               events={meetingEvents}
@@ -1247,7 +1248,7 @@ export function ContactsRoute() {
               onToggle={handleToggleMeetings}
               open={meetingsOpen}
               status={meetingStatus}
-            />
+            /> : null}
             <ContactEmailCard
               canWrite={canWrite}
               form={emailForm}

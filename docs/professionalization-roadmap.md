@@ -150,7 +150,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 
 - `1.0.0` Multi-Tenant SaaS Platform (signup, billing, plan gating, SSO): in progress.
 - `1.1.0` Email And Communications (2-way sync, tracking, templates, sequences): in progress.
-- `1.2.0` Telephony, SMS, And Meeting Scheduling: in progress.
+- `1.2.0` Telephony, SMS, And Meeting Scheduling: in progress (development foundations retained; fake-only contact and booking actions are hidden and bundle-guarded in production until real provider/compliance outcomes exist).
 - `1.3.0` Sales Acceleration And CPQ (catalog, quotes, e-sign, quotas): in progress.
 - `1.4.0` Marketing And Lead Generation (forms, pages, campaigns, scoring): in progress.
 - `1.5.0` Workflow Automation Engine (visual builder): in progress.
