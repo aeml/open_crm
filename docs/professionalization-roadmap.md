@@ -381,7 +381,9 @@ Exit criteria:
 Current convergence evidence: route-level loading and bundle budgets are
 CI-gated. Tested list, editor, view-model, communications, insights, shared
 work, and touchpoint extraction plus bulk/custom-field integration leave
-`contacts.jsx` at 1,300 lines, down from 2,038. Shared record-work cards,
+`contacts.jsx` at 854 lines, down from 2,038; the development-only call, SMS,
+and meeting orchestration now lives in a 456-line focused module that remains
+excluded from production builds. Shared record-work cards,
 touchpoints/account/health context, and company editor/view helpers leave `companies.jsx` at 985 lines,
 down from 1,364. Deal view, shared work, quote, signature, and bulk-action
 components leave `deals.jsx` at 1,065 lines, down from 1,365. Task filtering,

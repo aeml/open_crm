@@ -148,7 +148,8 @@ scoring, attribution, related deals, notes, tasks, and activity into focused
 modules. Shared collaboration-aware record-work cards now serve contacts, companies, and deals;
 company editor/view helpers, deal quote/signature/view helpers, and task view
 logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health,
-and client-review integration leave the parent routes at 1,300 contact lines,
+and client-review integration plus a focused development-only communications
+orchestrator leave the parent routes at 854 contact lines,
 985 company lines, 1,065 deal lines, and
 839 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Narrowing the normal automation UI to its
@@ -165,7 +166,7 @@ the application composition package.
 
 | Existing hotspot | Current lines | Maximum until next split |
 | --- | ---: | ---: |
-| `contacts.jsx` | 1,300 | 1,300 |
+| `contacts.jsx` | 854 | 900 |
 | `companies.jsx` | 985 | 1,000 |
 | `deals.jsx` | 1,065 | 1,100 |
 | `tasks.jsx` | 839 | 850 |
