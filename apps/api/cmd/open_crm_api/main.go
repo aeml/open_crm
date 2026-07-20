@@ -221,6 +221,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if jobsService != nil {
+		go jobsService.RunRetentionScheduler(ctx, logger, modulejobs.DefaultRetentionPolicy(), 0)
 		jobHandlers := map[string]modulejobs.Handler{}
 		if workspaceExportsService != nil {
 			jobHandlers[moduleworkspaceexports.JobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {

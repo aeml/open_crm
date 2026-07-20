@@ -267,6 +267,7 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_email_messages_org_sent_period",
 		"idx_workflow_automation_runs_org_succeeded_period",
 		"idx_background_jobs_org_succeeded_period",
+		"idx_background_jobs_retention_succeeded",
 	} {
 		assertPostgresIndex(t, ctx, pool, schema, index)
 	}

@@ -1316,3 +1316,18 @@ func TestMigrationFilesIncludeSharedPublicRateLimitsMigration(t *testing.T) {
 		t.Fatalf("shared public rate limits migration class=%q", class)
 	}
 }
+
+func TestMigrationFilesIncludeBackgroundJobRetentionMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "080_background_job_retention.sql") {
+		t.Fatal("background job retention migration is missing")
+	}
+	sql := MigrationSQL("080_background_job_retention.sql")
+	for _, fragment := range []string{"background_jobs", "completed_at ASC", "status = 'succeeded'", "idx_background_jobs_retention_succeeded"} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("background job retention migration missing %q", fragment)
+		}
+	}
+	if class := MigrationDeploymentClass("080_background_job_retention.sql"); class != "expand" {
+		t.Fatalf("background job retention migration class=%q", class)
+	}
+}

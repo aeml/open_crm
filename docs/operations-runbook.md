@@ -820,6 +820,23 @@ Use **Settings > Operations** as an owner or admin to:
 Every replay is tenant-scoped and written to the admin audit trail. Job payloads
 contain internal identifiers, not mailbox credentials or message bodies.
 
+Successful-job retention runs immediately at API start and hourly thereafter.
+Each API instance uses `FOR UPDATE SKIP LOCKED` batches of at most 500 rows, so
+multiple instances can clean safely without a global maintenance lock. Payload,
+result, and error detail are compacted after 30 days; the successful row and its
+idempotency key remain for 400 days before deletion. All current producers also
+recheck durable source state (for example reminder, delivery, enrollment,
+subscription, usage-snapshot, or export state), so work older than the queue's
+400-day replay window cannot rely on the queue row as its only duplicate guard.
+Retention is allowlisted to the seven currently reviewed production job types:
+`billing.reconcile`, `billing.usage.snapshot`, `calendar.reminder`,
+`email_sequence.send`, `mailbox.sync`, `task.reminder`, and
+`workspace.export.generate`. A new worker type retains full history until its
+source-state guard is reviewed.
+Pending, running, retryable, and dead jobs are never selected. Dead work stays
+visible until an administrator resolves and replays it; an increasing dead count
+is an incident, not data for automatic cleanup.
+
 ### Task reminder behavior
 
 Each assigned, open task with a due time has a versioned reminder ledger. A

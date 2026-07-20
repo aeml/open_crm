@@ -37,6 +37,30 @@ func TestRetryDelayIsBounded(t *testing.T) {
 	}
 }
 
+func TestNormalizeRetentionPolicyDefaultsAndRejectsUnboundedBatches(t *testing.T) {
+	policy, err := normalizeRetentionPolicy(RetentionPolicy{})
+	if err != nil || policy != DefaultRetentionPolicy() {
+		t.Fatalf("unexpected default retention policy: policy=%#v err=%v", policy, err)
+	}
+	for _, invalid := range []RetentionPolicy{
+		{SucceededDetailsFor: -time.Hour},
+		{SucceededDetailsFor: 48 * time.Hour, SucceededFor: 24 * time.Hour},
+		{BatchSize: -1},
+		{BatchSize: maxRetentionBatchSize + 1},
+	} {
+		if _, err := normalizeRetentionPolicy(invalid); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("expected invalid retention policy %#v, got %v", invalid, err)
+		}
+	}
+}
+
+func TestRetentionJobTypesRequireExplicitReview(t *testing.T) {
+	want := "billing.reconcile,billing.usage.snapshot,calendar.reminder,email_sequence.send,mailbox.sync,task.reminder,workspace.export.generate"
+	if got := strings.Join(retentionEligibleJobTypes, ","); got != want {
+		t.Fatalf("retention allowlist changed without updating its review contract: got %q want %q", got, want)
+	}
+}
+
 type fakeQueueStore struct {
 	claimed      []Job
 	completed    int

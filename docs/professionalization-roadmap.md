@@ -2118,6 +2118,7 @@ Implementation evidence:
 - Added admin-only queue health/filtering, safe replay, audited recovery, and explicit sequence-delivery decisions for ambiguous SMTP outcomes.
 - Moved calendar reminders, automatic mailbox sync, and email sequence sends off their feature-specific execution loops. New reminders and sequence steps enqueue transactionally; mailbox cycles use a stable persisted due time.
 - Added disposable-PostgreSQL acceptance tests for migrations, multi-attempt lifecycle/replay, tenant isolation, reminder idempotency, mailbox provider-message dedupe, sequence advancement, and crash/SMTP uncertainty behavior.
+- Added an hourly, multi-instance-safe retention pass: successful payload/result detail compacts after 30 days and successful idempotency rows expire after 400 days in bounded `SKIP LOCKED` batches. Active and dead jobs are excluded, only seven explicitly reviewed production job types are eligible, current producers retain source-state duplicate guards, and PostgreSQL acceptance covers both cutoffs, unknown-type preservation, tenant-wide operation, idempotence, and batch limits.
 
 ## Version 0.9.4 - Async Import And Export Jobs
 
