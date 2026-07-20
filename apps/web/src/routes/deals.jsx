@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { archiveDeal, createDeal, getDeal, listDeals, listDealPipelines, updateDeal, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, listDeals, listDealPipelines, updateDeal, updateDealStage } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
-import { listProductCatalogItems } from '../lib/product_catalog'
 import { listOrganizationUsers } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
@@ -19,9 +18,8 @@ import { emptyCloseReview, stageOutcome } from './deal_close_review'
 import { DealDirectory } from './deal_directory'
 import { DealCreateCard } from './deal_editor'
 import { DealWorkspace } from './deal_workspace'
-import { useDealCommercials } from './use_deal_commercials'
-import { requireDealResponse, useDealSelection } from './use_deal_selection'
-import { useDealWork } from './use_deal_work'
+import { useDealDetail } from './use_deal_detail'
+import { requireDealResponse } from './use_deal_selection'
 
 const emptyForm = {
   name: '',
@@ -63,7 +61,6 @@ export function DealsRoute() {
     companyId: initialCompanyId,
     primaryContactId: initialPrimaryContactId
   })
-  const [detailForm, setDetailForm] = useState(emptyForm)
   const [search, setSearch] = useState(initialSearch)
   const [pipelineFilter, setPipelineFilter] = useState(initialPipelineFilter)
   const [stageFilter, setStageFilter] = useState(initialStageFilter)
@@ -73,32 +70,44 @@ export function DealsRoute() {
   const [companyOptions, setCompanyOptions] = useState([])
   const [contactOptions, setContactOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
-  const [selectedDealId, setSelectedDealId] = useState(null)
-  const [selectedStageId, setSelectedStageId] = useState('')
-  const [stageCloseReview, setStageCloseReview] = useState(emptyCloseReview)
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
-  const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [pipelineReady, setPipelineReady] = useState(false)
-  const dealSelection = useDealSelection(selectedDealId)
-  const dealWork = useDealWork({
-    defaultAssignedToUserId: userOptions[0]?.id ? String(userOptions[0].id) : '',
-    selectedDealId,
-    selection: dealSelection,
-    onError: setError
+  const dealDetail = useDealDetail({
+    deals,
+    navigateToDeal: (nextDealId) => navigate(buildDealsPath(nextDealId)),
+    pipelineReady,
+    routeDealId,
+    setDeals,
+    setError,
+    userOptions
   })
+  const {
+    clear: clearDealDetail,
+    commercial: dealCommercial,
+    detailForm,
+    isDetailLoading,
+    select: handleSelectDeal,
+    selectedDeal,
+    selectedDealId,
+    selectedStageId,
+    selection: dealSelection,
+    setDetailForm,
+    setSelectedDealId,
+    setSelectedStageId,
+    setStageCloseReview,
+    stageCloseReview,
+    work: dealWork
+  } = dealDetail
   const {
     fetchWork,
     load: loadWork,
-    reset: resetWork,
     setActivities,
     setTaskForm
   } = dealWork
-  const dealCommercial = useDealCommercials({ selectedDealId, selection: dealSelection, onDealUpdated: applyCommercialDealUpdate, onError: setError })
   const {
     load: loadCommercials,
-    refresh: refreshCommercials,
-    reset: resetCommercials
+    refresh: refreshCommercials
   } = dealCommercial
   const listControllerRef = useRef(null)
   const filteredStages = stagesForPipeline(stages, pipelineFilter)
@@ -213,7 +222,6 @@ export function DealsRoute() {
     }
   }, [initialCloseFrom, initialCloseTo, initialCompanyId, initialOwnerFilter, initialPipelineFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
 
-  const selectedDeal = useMemo(() => deals.find((entry) => entry.id === selectedDealId) || null, [deals, selectedDealId])
   const moveStage = stages.find((stage) => String(stage.id) === String(selectedStageId))
   const dealEmailRecipients = useMemo(() => {
     if (!selectedDeal?.primaryContactId) {
@@ -226,75 +234,6 @@ export function DealsRoute() {
     const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || selectedDeal.primaryContactName || contact.email
     return [{ id: selectedDeal.primaryContactId, label: `${name} (${contact.email})` }]
   }, [contactOptions, selectedDeal])
-
-  useEffect(() => {
-    async function syncRouteDeal() {
-      if (!pipelineReady) {
-        return
-      }
-
-      if (!Number.isInteger(routeDealId) || routeDealId <= 0) {
-        if (selectedDealId) {
-          dealSelection.clear()
-          setSelectedDealId(null)
-          setSelectedStageId('')
-          setStageCloseReview(emptyCloseReview)
-          setDetailForm(emptyForm)
-          resetWork()
-          resetCommercials()
-          setIsDetailLoading(false)
-        }
-        return
-      }
-
-      if (selectedDealId === routeDealId) {
-        return
-      }
-
-      const routeDeal = deals.find((entry) => entry.id === routeDealId)
-      if (routeDeal) {
-        await handleSelectDeal(routeDeal)
-        return
-      }
-
-      const activeSelection = dealSelection.begin(routeDealId)
-      const signal = activeSelection.controller.signal
-      setSelectedDealId(routeDealId)
-      setSelectedStageId('')
-      setStageCloseReview(emptyCloseReview)
-      setDetailForm(emptyForm)
-      resetWork()
-      resetCommercials()
-      try {
-        setIsDetailLoading(true)
-        const [dealData, work, loadedCatalog] = await Promise.all([
-          getDeal(routeDealId, { signal }),
-          fetchWork(routeDealId, { signal }),
-          listProductCatalogItems({ signal })
-        ])
-        if (!dealSelection.isCurrent(activeSelection)) return
-        requireDealResponse(dealData, routeDealId, 'Unable to load deal.')
-        setDeals((current) => {
-          const next = current.filter((entry) => entry.id !== routeDealId)
-          return [dealData.deal, ...next]
-        })
-        setSelectedDealId(dealData.deal.id)
-        setSelectedStageId(String(dealData.deal.stageId))
-        setDetailForm(dealFormValues(dealData.deal))
-        loadWork({ ...work, activities: dealData.activities || [] })
-        loadCommercials(dealData, loadedCatalog)
-        setError('')
-      } catch (loadError) {
-        if (!isAbortError(loadError) && dealSelection.isCurrent(activeSelection)) {
-          setError(loadError.message || 'Unable to load deal.')
-        }
-      } finally {
-        if (dealSelection.isCurrent(activeSelection)) setIsDetailLoading(false)
-      }
-    }
-
-    syncRouteDeal()
-  }, [deals, pipelineReady, routeDealId, selectedDealId])
 
   async function reloadDeals(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, nextCloseFrom = closeFrom, nextCloseTo = closeTo) {
     listControllerRef.current?.abort()
@@ -436,40 +375,6 @@ export function DealsRoute() {
     }
   }
 
-  async function handleSelectDeal(deal) {
-    const activeSelection = dealSelection.begin(deal.id)
-    const signal = activeSelection.controller.signal
-    setSelectedDealId(deal.id)
-    setSelectedStageId(String(deal.stageId))
-    setStageCloseReview(emptyCloseReview)
-    setDetailForm(dealFormValues(deal))
-    resetWork()
-    resetCommercials()
-    setIsDetailLoading(true)
-    navigate(buildDealsPath(deal.id))
-    try {
-      const [dealData, work, loadedCatalog] = await Promise.all([
-        getDeal(deal.id, { signal }),
-        fetchWork(deal.id, { signal }),
-        listProductCatalogItems({ signal })
-      ])
-      if (!dealSelection.isCurrent(activeSelection)) return
-      requireDealResponse(dealData, deal.id, 'Unable to load deal.')
-      setDeals((current) => current.map((entry) => (entry.id === deal.id ? dealData.deal : entry)))
-      setDetailForm(dealFormValues(dealData.deal))
-      loadWork({ ...work, activities: dealData.activities || [] })
-      loadCommercials(dealData, loadedCatalog)
-      setError('')
-    } catch (loadError) {
-      if (!isAbortError(loadError) && dealSelection.isCurrent(activeSelection)) {
-        resetWork()
-        setError(loadError.message || 'Unable to load deal.')
-      }
-    } finally {
-      if (dealSelection.isCurrent(activeSelection)) setIsDetailLoading(false)
-    }
-  }
-
   async function handleUpdate(event) {
     event.preventDefault()
     const operation = dealSelection.start('update', selectedDealId, { group: 'deal-snapshot' })
@@ -512,13 +417,7 @@ export function DealsRoute() {
         wonCount: Math.max(0, current.wonCount - (archivedStatus === 'won' ? 1 : 0))
       }))
       if (!dealSelection.isDealActive(operation.dealId)) return
-      dealSelection.clear()
-      setSelectedDealId(null)
-      setSelectedStageId('')
-      setStageCloseReview(emptyCloseReview)
-      setDetailForm(emptyForm)
-      resetWork()
-      resetCommercials()
+      clearDealDetail()
       navigate(buildDealsPath(null))
       setError('')
     } catch (archiveError) {
@@ -526,13 +425,6 @@ export function DealsRoute() {
     } finally {
       dealSelection.finish(operation)
     }
-  }
-
-  function applyCommercialDealUpdate(data, dealId, isCurrent) {
-    setDeals((current) => current.map((entry) => (entry.id === dealId ? data.deal : entry)))
-    if (!isCurrent) return
-    setDetailForm(dealFormValues(data.deal))
-    setActivities(data.activities || [])
   }
 
   async function applyOwnerFilter(value) {
@@ -562,14 +454,7 @@ export function DealsRoute() {
     setCloseFrom(nextCloseFrom)
     setCloseTo(nextCloseTo)
     setForm((current) => ({ ...current, stageId: nextStages[0] ? String(nextStages[0].id) : current.stageId }))
-    dealSelection.clear()
-    setSelectedDealId(null)
-    setSelectedStageId('')
-    setStageCloseReview(emptyCloseReview)
-    setDetailForm(emptyForm)
-    resetWork()
-    resetCommercials()
-    setIsDetailLoading(false)
+    clearDealDetail()
     navigate(buildDealsPath(null, nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, nextCloseFrom, nextCloseTo), { replace: true })
     await reloadDeals(nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, nextCloseFrom, nextCloseTo)
   }

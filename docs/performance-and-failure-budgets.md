@@ -90,9 +90,9 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.99 KiB/57.92 KiB entry, 36.85 KiB/10.60 KiB largest lazy
-chunk, and 625.38 KiB/200.82 KiB total assets. The production contact, company,
-deal, and task routes are 28.25/8.52, 32.76/9.69, 36.85/10.60, and 24.26/6.93
+Current evidence: 177.99 KiB/57.91 KiB entry, 37.63 KiB/10.88 KiB largest lazy
+chunk, and 626.17 KiB/201.22 KiB total assets. The production contact, company,
+deal, and task routes are 28.25/8.52, 32.76/9.69, 37.63/10.88, and 24.26/6.93
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.35 KiB/4.56 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
@@ -152,7 +152,7 @@ logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health
 and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators plus focused company-directory, linked-
 people, and create/detail workspace presentation plus shared record selection/work leave the parent routes at 644 contact lines,
-677 company lines, 668 deal lines, and
+677 company lines, 553 deal lines, and
 590 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 142-line work
 hooks now serve contacts, companies, and deals, abort obsolete loads, distinguish repeated
@@ -165,8 +165,8 @@ duplicate evaluations, wrong-contact responses, and late results across
 leave-and-return navigation. Deal directory, shared form, and editor
 presentation live in focused 157-, 74-, and 87-line modules, while a 107-line
 detail workspace composes editor, commercial, stage, email, and work cards. The shared selection
-and work hooks apply the same visit identity, serialization, work, and response
-validation contract to deals; the guarded
+and work hooks plus a 164-line detail orchestrator apply the same visit identity,
+route synchronization, serialization, work, and response validation contract to deals; the guarded
 187-line commercial hook rejects stale or mismatched quote/proposal results and
 exposes one shared pending state so line-item and proposal controls cannot race
 another deal snapshot mutation.
@@ -176,8 +176,8 @@ without changing the route boundary.
 The shared record-work follower control also resets on record changes and
 rejects late responses from an earlier contact, client, or deal.
 A tested 88-line task quick-action hook plus 207-line directory and 64-line
-create/detail workspace modules separate task presentation and prevent concurrent mutations of the
-same task, validates response identity, and updates the active detail only when
+create/detail workspace modules separate task presentation. The hook prevents
+concurrent mutations of the same task, validates response identity, and updates the active detail only when
 it still represents that task; delayed completion cannot pull navigation back
 to an earlier record. Full-form task saves now use the same task-visit identity,
 suppress duplicate submission, and cannot navigate after the task route unmounts.
@@ -205,7 +205,7 @@ the application composition package.
 | --- | ---: | ---: |
 | `contacts.jsx` | 644 | 650 |
 | `companies.jsx` | 677 | 685 |
-| `deals.jsx` | 668 | 675 |
+| `deals.jsx` | 553 | 565 |
 | `tasks.jsx` | 590 | 600 |
 | `dashboard.jsx` | 477 | 550 |
 
