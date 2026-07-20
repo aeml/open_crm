@@ -114,7 +114,7 @@ export function DealsRoute() {
     handleSaveLineItems,
     handleUpdateSignatureRequestStatus,
     isCreatingSignatureRequest,
-    isSavingLineItems,
+    isSnapshotPending,
     lineItemForm,
     lineItems,
     lineTotals,
@@ -695,7 +695,7 @@ export function DealsRoute() {
               canWrite={canWrite}
               deal={selectedDeal}
               form={lineItemForm}
-              isSaving={isSavingLineItems}
+              isSaving={isSnapshotPending}
               items={lineItems}
               labels={labels}
               onAdd={handleAddLineItem}
@@ -710,6 +710,7 @@ export function DealsRoute() {
               canWrite={canWrite}
               form={signatureForm}
               isCreating={isCreatingSignatureRequest}
+              isSnapshotPending={isSnapshotPending}
               onCreate={handleCreateSignatureRequest}
               onSetForm={setSignatureForm}
               onUpdate={handleUpdateSignatureRequestStatus}

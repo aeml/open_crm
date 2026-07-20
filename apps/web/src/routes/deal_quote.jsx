@@ -100,7 +100,7 @@ export function DealLineItemsCard({
   )
 }
 
-export function DealSignatureCard({ canWrite, form, isCreating, onCreate, onSetForm, onUpdate, requests, updatingID }) {
+export function DealSignatureCard({ canWrite, form, isCreating, isSnapshotPending, onCreate, onSetForm, onUpdate, requests, updatingID }) {
   return (
     <Card>
       <div className="card-stack">
@@ -128,7 +128,7 @@ export function DealSignatureCard({ canWrite, form, isCreating, onCreate, onSetF
               <div>
                 <p>{request.status === 'signed' ? `Signed ${formatSignatureTime(request.signedAt)}` : `Updated ${formatSignatureTime(request.updatedAt)}`}</p>
                 {canWrite ? (
-                  <select className="text-input" aria-label={`Proposal status for ${request.signerName}`} value={request.status} disabled={updatingID === request.id} onChange={(event) => onUpdate(request.id, event.target.value)}>
+                  <select className="text-input" aria-label={`Proposal status for ${request.signerName}`} value={request.status} disabled={isSnapshotPending || updatingID === request.id} onChange={(event) => onUpdate(request.id, event.target.value)}>
                     <option value="draft">Draft</option>
                     <option value="sent">Sent</option>
                     <option value="signed">Signed</option>
@@ -148,7 +148,7 @@ export function DealSignatureCard({ canWrite, form, isCreating, onCreate, onSetF
             <Field label="Recipient email">
               <input className="text-input" type="email" value={form.signerEmail} onChange={(event) => onSetForm((current) => ({ ...current, signerEmail: event.target.value }))} required />
             </Field>
-            <Button type="submit" disabled={isCreating}>{isCreating ? 'Creating...' : 'Create proposal tracking'}</Button>
+            <Button type="submit" disabled={isSnapshotPending}>{isCreating ? 'Creating...' : 'Create proposal tracking'}</Button>
           </form>
         ) : null}
       </div>

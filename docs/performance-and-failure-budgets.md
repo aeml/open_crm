@@ -90,9 +90,9 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.99 KiB/57.93 KiB entry, 36.32 KiB/10.47 KiB largest lazy
-chunk, and 622.33 KiB/200.17 KiB total assets. The production contact, company,
-deal, and task routes are 28.25/8.52, 31.90/9.50, 36.32/10.47, and 22.60/6.42
+Current evidence: 177.99 KiB/57.92 KiB entry, 36.40 KiB/10.47 KiB largest lazy
+chunk, and 622.41 KiB/200.06 KiB total assets. The production contact, company,
+deal, and task routes are 28.25/8.52, 31.90/9.49, 36.40/10.47, and 22.60/6.42
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.35 KiB/4.56 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
@@ -152,7 +152,7 @@ logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health
 and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators plus focused company-directory and linked-
 people presentation plus shared record selection/work leave the parent routes at 644 contact lines,
-766 company lines, 764 deal lines, and
+766 company lines, 765 deal lines, and
 737 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 142-line work
 hooks now serve contacts, companies, and deals, abort obsolete loads, distinguish repeated
@@ -166,7 +166,9 @@ leave-and-return navigation. Deal directory, shared form, and editor
 presentation live in focused 157-, 74-, and 87-line modules. The shared selection
 and work hooks apply the same visit identity, serialization, work, and response
 validation contract to deals; the guarded
-185-line commercial hook rejects stale or mismatched quote/proposal results.
+187-line commercial hook rejects stale or mismatched quote/proposal results and
+exposes one shared pending state so line-item and proposal controls cannot race
+another deal snapshot mutation.
 The shared record-work follower control also resets on record changes and
 rejects late responses from an earlier contact, client, or deal.
 A tested 88-line task quick-action hook prevents concurrent mutations of the
@@ -198,7 +200,7 @@ the application composition package.
 | --- | ---: | ---: |
 | `contacts.jsx` | 644 | 650 |
 | `companies.jsx` | 766 | 775 |
-| `deals.jsx` | 764 | 775 |
+| `deals.jsx` | 765 | 775 |
 | `tasks.jsx` | 737 | 750 |
 | `dashboard.jsx` | 477 | 550 |
 

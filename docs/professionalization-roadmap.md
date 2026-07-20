@@ -415,12 +415,14 @@ pending-mutation, work, and response-validation contract as contacts and deals, 
 the focused people hook calls one transactional linked-person endpoint and rejects
 late responses after leave-and-return navigation. Deal view,
 shared work, quote, signature, and bulk-action components leave `deals.jsx` at
-764 lines, down from 1,365, with directory, shared-form, and editor presentation
+765 lines, down from 1,365, with directory, shared-form, and editor presentation
 isolated in 157-, 74-, and 87-line modules. The shared selection and work hooks
 abort obsolete loads, distinguish A-to-B-to-A visits, serialize
-snapshot-changing mutations, suppress duplicate work actions, validate returned identities, and keep notes, tasks,
+snapshot-changing mutations, expose one pending state so incompatible commercial
+controls wait for durable completion, suppress duplicate work actions, validate
+returned identities, and keep notes, tasks,
 activities, quote lines, and proposal tracking on the active deal; the guarded
-185-line commercial hook shares that contract. The generic follower control
+187-line commercial hook shares that contract. The generic follower control
 also rejects responses for an earlier record. The parent now has a tightened
 775-line ceiling. Task filtering,
 sorting, labels, due-date view logic, and a shared 98-line create/update form
@@ -2271,8 +2273,8 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 177.99 KiB/57.93 KiB for the entry, 36.32 KiB/10.47 KiB
-for the largest lazy chunk, and 622.33 KiB/200.17 KiB total assets. Hosted
+CSS. Current evidence is 177.99 KiB/57.92 KiB for the entry, 36.40 KiB/10.47 KiB
+for the largest lazy chunk, and 622.41 KiB/200.06 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.35 KiB/4.56 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
@@ -2280,7 +2282,7 @@ routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring plus shared record selection/work and company directory/people presentation leave contacts at 644 lines,
-companies at 766, deals at 764, and tasks at 737, down from 2,038, 1,364,
+companies at 766, deals at 765, and tasks at 737, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.

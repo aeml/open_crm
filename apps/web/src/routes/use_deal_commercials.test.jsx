@@ -39,6 +39,7 @@ describe('useDealCommercials', () => {
     })
     expect(replaceDealLineItems).toHaveBeenCalledTimes(1)
     expect(result.current.commercials.isSavingLineItems).toBe(true)
+    expect(result.current.commercials.isSnapshotPending).toBe(true)
 
     act(() => {
       result.current.selection.begin(12)
@@ -51,6 +52,7 @@ describe('useDealCommercials', () => {
     })
     expect(onDealUpdated).toHaveBeenCalledWith(expect.objectContaining({ deal: { id: 11 } }), 11, false)
     expect(result.current.commercials.lineItems).toEqual([])
+    expect(result.current.commercials.isSnapshotPending).toBe(false)
     expect(onError).not.toHaveBeenCalled()
 
     createDealSignatureRequest.mockResolvedValue({ deal: { id: 11 }, signatureRequests: [] })

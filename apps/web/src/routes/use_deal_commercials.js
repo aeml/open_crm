@@ -26,6 +26,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
   const [isSavingLineItems, setIsSavingLineItems] = useState(false)
   const [isCreatingSignatureRequest, setIsCreatingSignatureRequest] = useState(false)
   const [updatingSignatureRequestId, setUpdatingSignatureRequestId] = useState(null)
+  const isSnapshotPending = isSavingLineItems || isCreatingSignatureRequest || updatingSignatureRequestId !== null
 
   function refresh(data) {
     setLineItems(data.lineItems || [])
@@ -169,6 +170,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     handleUpdateSignatureRequestStatus,
     isCreatingSignatureRequest,
     isSavingLineItems,
+    isSnapshotPending,
     lineItemForm,
     lineItems,
     lineTotals,

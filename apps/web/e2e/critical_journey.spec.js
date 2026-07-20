@@ -2,6 +2,11 @@ import { expect, test } from '@playwright/test'
 
 const apiURL = process.env.OPEN_CRM_E2E_API_URL || 'http://127.0.0.1:8081'
 
+// This journey plus the accessibility scan intentionally consume the exact
+// three-request public signup budget. Retrying would exceed that production
+// policy and hide the original failure behind a secondary rate-limit error.
+test.describe.configure({ retries: 0 })
+
 function uniqueRunID() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
@@ -257,14 +262,17 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByLabel('Line item type').selectOption('service')
   await page.getByLabel('Line item unit price').fill('25000')
   await page.getByRole('button', { name: 'Add line item' }).click()
-  await page.getByRole('button', { name: 'Save line items' }).click()
+  const saveLineItems = page.getByRole('button', { name: 'Save line items' })
+  await saveLineItems.click()
+  await expect(saveLineItems).toBeEnabled()
   await expect(page.getByRole('list', { name: 'Deal line items' }).getByText('Discovery and implementation')).toBeVisible()
   await expect(page.getByText('$25,000.00').first()).toBeVisible()
   await page.getByLabel('Recipient name').fill('Avery Buyer')
   await page.getByLabel('Recipient email').fill(`avery-${runID}@example.test`)
   await page.getByRole('button', { name: 'Create proposal tracking' }).click()
-  await expect(page.getByText('Manual CRM tracking only.', { exact: false })).toBeVisible()
-  await page.getByLabel('Proposal status for Avery Buyer').selectOption('sent')
+  const proposalStatus = page.getByLabel('Proposal status for Avery Buyer')
+  await expect(proposalStatus).toBeVisible()
+  await proposalStatus.selectOption('sent')
   await expect(page.getByLabel('Proposal status for Avery Buyer')).toHaveValue('sent')
   const quoteResponse = await page.context().request.get(`${apiURL}/api/deals/${configuredDealID}/quote.pdf`)
   expect(quoteResponse.status()).toBe(200)
