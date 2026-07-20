@@ -1,16 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { archiveDeal, createDeal, listDeals, listDealPipelines, updateDeal, updateDealStage } from '../lib/deals'
-import { listCompanies } from '../lib/companies'
-import { listContacts } from '../lib/contacts'
-import { listOrganizationUsers } from '../lib/users'
+import { archiveDeal, createDeal, updateDeal, updateDealStage } from '../lib/deals'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
 import {
   dealFormValues,
-  emptyDealMeta,
-  flattenPipelineStages,
   pipelineLabels,
   stagesForPipeline
 } from './deal_view'
@@ -18,6 +13,7 @@ import { emptyCloseReview, stageOutcome } from './deal_close_review'
 import { DealDirectory } from './deal_directory'
 import { DealCreateCard } from './deal_editor'
 import { DealWorkspace } from './deal_workspace'
+import { useDealDirectory } from './use_deal_directory'
 import { useDealDetail } from './use_deal_detail'
 import { requireDealResponse } from './use_deal_selection'
 
@@ -51,28 +47,56 @@ export function DealsRoute() {
   const initialCloseTo = searchParams.get('closeTo') || ''
   const initialCompanyId = searchParams.get('companyId') || ''
   const initialPrimaryContactId = searchParams.get('primaryContactId') || ''
-  const [pipelines, setPipelines] = useState([])
-  const [stages, setStages] = useState([])
-  const [deals, setDeals] = useState([])
-  const [selectedDealIds, setSelectedDealIds] = useState([])
-  const [meta, setMeta] = useState(emptyDealMeta)
-  const [form, setForm] = useState({
+  const initialForm = {
     ...emptyForm,
     companyId: initialCompanyId,
     primaryContactId: initialPrimaryContactId
+  }
+  const directory = useDealDirectory({
+    initialCloseFrom,
+    initialCloseTo,
+    initialCompanyId,
+    initialForm,
+    initialOwnerFilter,
+    initialPipelineFilter,
+    initialPrimaryContactId,
+    initialSearch,
+    initialStageFilter,
+    routeDealId
   })
-  const [search, setSearch] = useState(initialSearch)
-  const [pipelineFilter, setPipelineFilter] = useState(initialPipelineFilter)
-  const [stageFilter, setStageFilter] = useState(initialStageFilter)
-  const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
-  const [closeFrom, setCloseFrom] = useState(initialCloseFrom)
-  const [closeTo, setCloseTo] = useState(initialCloseTo)
-  const [companyOptions, setCompanyOptions] = useState([])
-  const [contactOptions, setContactOptions] = useState([])
-  const [userOptions, setUserOptions] = useState([])
-  const [error, setError] = useState('')
-  const [isListLoading, setIsListLoading] = useState(true)
-  const [pipelineReady, setPipelineReady] = useState(false)
+  const {
+    buildDealsPath,
+    closeFrom,
+    closeTo,
+    companyOptions,
+    contactOptions,
+    deals,
+    error,
+    form,
+    isListLoading,
+    meta,
+    ownerFilter,
+    pipelines,
+    pipelineFilter,
+    pipelineReady,
+    reloadDeals,
+    search,
+    selectedDealIds,
+    setCloseFrom,
+    setCloseTo,
+    setDeals,
+    setError,
+    setForm,
+    setMeta,
+    setOwnerFilter,
+    setPipelineFilter,
+    setSearch,
+    setSelectedDealIds,
+    setStageFilter,
+    stages,
+    stageFilter,
+    userOptions
+  } = directory
   const dealDetail = useDealDetail({
     deals,
     navigateToDeal: (nextDealId) => navigate(buildDealsPath(nextDealId)),
@@ -109,118 +133,23 @@ export function DealsRoute() {
     load: loadCommercials,
     refresh: refreshCommercials
   } = dealCommercial
-  const listControllerRef = useRef(null)
   const filteredStages = stagesForPipeline(stages, pipelineFilter)
   const hasDealFilters = search.trim() !== '' || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all' || closeFrom !== '' || closeTo !== ''
 
-  function buildDealsPath(nextDealId = routeDealId, nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, nextCloseFrom = closeFrom, nextCloseTo = closeTo) {
-    const params = new URLSearchParams()
-    if (nextSearch) {
-      params.set('q', nextSearch)
+  useEffect(() => {
+    if (filteredStages.length > 0 && !selectedStageId) {
+      setSelectedStageId(String(filteredStages[0].id))
     }
-    if (nextPipelineFilter !== 'all') {
-      params.set('pipeline', nextPipelineFilter)
-    }
-    if (nextStageFilter !== 'all') {
-      params.set('stage', nextStageFilter)
-    }
-    if (nextOwnerFilter !== 'all') {
-      params.set('owner', nextOwnerFilter)
-    }
-    if (nextCloseFrom) params.set('closeFrom', nextCloseFrom)
-    if (nextCloseTo) params.set('closeTo', nextCloseTo)
-    const suffix = params.toString() ? `?${params.toString()}` : ''
-    const pathname = nextDealId ? `/deals/${nextDealId}` : '/deals'
-    return `${pathname}${suffix}`
-  }
-
-  async function loadDeals(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal, nextCloseFrom = closeFrom, nextCloseTo = closeTo } = {}) {
-    const isUnassigned = nextOwnerFilter === 'unassigned'
-    const loadedDeals = await listDeals({
-      search: nextSearch,
-      pipelineId: nextPipelineFilter === 'all' ? 0 : Number.parseInt(nextPipelineFilter, 10) || 0,
-      stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
-      unassigned: isUnassigned,
-      ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0,
-      closeFrom: nextCloseFrom,
-      closeTo: nextCloseTo
-    }, { signal })
-    setDeals(loadedDeals.deals || [])
-    setSelectedDealIds([])
-    setMeta(loadedDeals.meta || emptyDealMeta)
-  }
-
-  async function loadPipeline(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, { signal, nextCloseFrom = closeFrom, nextCloseTo = closeTo } = {}) {
-    const isUnassigned = nextOwnerFilter === 'unassigned'
-    const [loadedPipelines, loadedDeals, loadedCompanies, loadedContacts, loadedUsers] = await Promise.all([
-      listDealPipelines({ signal }),
-      listDeals({
-        search: nextSearch,
-        pipelineId: nextPipelineFilter === 'all' ? 0 : Number.parseInt(nextPipelineFilter, 10) || 0,
-        stageId: nextStageFilter === 'all' ? 0 : Number.parseInt(nextStageFilter, 10) || 0,
-        unassigned: isUnassigned,
-        ownerUserId: isUnassigned || nextOwnerFilter === 'all' ? 0 : Number.parseInt(nextOwnerFilter, 10) || 0,
-        closeFrom: nextCloseFrom,
-        closeTo: nextCloseTo
-      }, { signal }),
-      listCompanies('', { signal }),
-      listContacts('', { signal }),
-      listOrganizationUsers({ signal })
-    ])
-    const loadedStages = flattenPipelineStages(loadedPipelines)
-    setStages(loadedStages)
-    setPipelines(loadedPipelines)
-    setDeals(loadedDeals.deals || [])
-    setSelectedDealIds([])
-    setCompanyOptions(loadedCompanies.companies || [])
-    setContactOptions(loadedContacts.contacts || [])
-    setUserOptions(loadedUsers)
-    setMeta(loadedDeals.meta || emptyDealMeta)
-    const nextStages = stagesForPipeline(loadedStages, nextPipelineFilter)
-    if (nextStages.length > 0 && !selectedStageId) {
-      setSelectedStageId(String(nextStages[0].id))
-    }
-    setForm((current) => ({
-      ...current,
-      stageId: current.stageId || (nextStages[0] ? String(nextStages[0].id) : ''),
-      companyId: current.companyId || initialCompanyId || (loadedCompanies.companies?.[0] ? String(loadedCompanies.companies[0].id) : ''),
-      primaryContactId: current.primaryContactId || initialPrimaryContactId || (loadedContacts.contacts?.[0] ? String(loadedContacts.contacts[0].id) : ''),
-      ownerUserId: current.ownerUserId || (loadedUsers[0] ? String(loadedUsers[0].id) : '')
-    }))
-    setTaskForm((current) => {
-      if (current.assignedToUserId || loadedUsers.length === 0) {
-        return current
-      }
-      return { ...current, assignedToUserId: String(loadedUsers[0].id) }
-    })
-    setPipelineReady(true)
-  }
+  }, [filteredStages, selectedStageId])
 
   useEffect(() => {
-    const controller = new AbortController()
-
-    async function run() {
-      setIsListLoading(true)
-      try {
-        await loadPipeline(initialSearch, initialPipelineFilter, initialStageFilter, initialOwnerFilter, { signal: controller.signal, nextCloseFrom: initialCloseFrom, nextCloseTo: initialCloseTo })
-        setError('')
-      } catch (loadError) {
-        if (!isAbortError(loadError)) {
-          setPipelineReady(true)
-          setError(loadError.message || 'Unable to load deals.')
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsListLoading(false)
-        }
+    setTaskForm((current) => {
+      if (current.assignedToUserId || userOptions.length === 0) {
+        return current
       }
-    }
-
-    run()
-    return () => {
-      controller.abort()
-    }
-  }, [initialCloseFrom, initialCloseTo, initialCompanyId, initialOwnerFilter, initialPipelineFilter, initialPrimaryContactId, initialSearch, initialStageFilter])
+      return { ...current, assignedToUserId: String(userOptions[0].id) }
+    })
+  }, [userOptions])
 
   const moveStage = stages.find((stage) => String(stage.id) === String(selectedStageId))
   const dealEmailRecipients = useMemo(() => {
@@ -234,28 +163,6 @@ export function DealsRoute() {
     const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || selectedDeal.primaryContactName || contact.email
     return [{ id: selectedDeal.primaryContactId, label: `${name} (${contact.email})` }]
   }, [contactOptions, selectedDeal])
-
-  async function reloadDeals(nextSearch = search, nextPipelineFilter = pipelineFilter, nextStageFilter = stageFilter, nextOwnerFilter = ownerFilter, nextCloseFrom = closeFrom, nextCloseTo = closeTo) {
-    listControllerRef.current?.abort()
-    const controller = new AbortController()
-    listControllerRef.current = controller
-    setIsListLoading(true)
-    try {
-      await loadDeals(nextSearch, nextPipelineFilter, nextStageFilter, nextOwnerFilter, { signal: controller.signal, nextCloseFrom, nextCloseTo })
-      setError('')
-    } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setError(loadError.message || 'Unable to load deals.')
-      }
-    } finally {
-      if (listControllerRef.current === controller) {
-        listControllerRef.current = null
-      }
-      if (!controller.signal.aborted) {
-        setIsListLoading(false)
-      }
-    }
-  }
 
   async function handleSearchChange(event) {
     const value = event.target.value

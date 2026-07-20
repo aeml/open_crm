@@ -5,9 +5,7 @@ import { fileURLToPath } from 'node:url'
 const scriptDirectory = fileURLToPath(new URL('.', import.meta.url))
 const routesDirectory = resolve(scriptDirectory, '..', 'src', 'routes')
 const defaultMaximum = 500
-const maximums = new Map([
-  ['deals.jsx', 565],
-])
+const maximums = new Map()
 
 function lineCount(path) {
   const source = readFileSync(path, 'utf8')
