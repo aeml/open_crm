@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 
 afterEach(() => {
@@ -369,6 +369,77 @@ describe('tasks flow', () => {
     })
     expect(window.location.pathname).toBe('/tasks')
     expect(screen.queryByRole('heading', { name: /prepare rollout checklist/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps the active task selected when an earlier quick action finishes late', async () => {
+    const jsonResponse = (payload, init = {}) => ({
+      ok: init.ok ?? true,
+      status: init.status ?? 200,
+      json: async () => payload
+    })
+    let resolveCompletion
+    const completionResponse = new Promise((resolve) => {
+      resolveCompletion = resolve
+    })
+    const firstTask = { id: 1, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'First task', description: 'First detail', status: 'open', dueAt: '', completedAt: '', assignedToUserId: 1, assignedToUserName: 'Demo Owner' }
+    const secondTask = { id: 2, entityType: 'contact', entityId: 8, entityLabel: 'Ava Stone', title: 'Second task', description: 'Second detail', status: 'open', dueAt: '', completedAt: '', assignedToUserId: 1, assignedToUserName: 'Demo Owner' }
+
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const method = options.method || 'GET'
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return jsonResponse({ data: { user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' }, organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' }, membership: { role: 'owner' } } })
+      }
+      if (requestURL.pathname.endsWith('/api/tasks') && method === 'GET') {
+        return jsonResponse({ data: { tasks: [firstTask, secondTask], meta: { page: 1, pageSize: 20, total: 2, openCount: 2, completedCount: 0 } } })
+      }
+      if (requestURL.pathname.endsWith('/api/tasks/1') && method === 'PATCH') {
+        return completionResponse
+      }
+      if (requestURL.pathname.endsWith('/api/deals')) {
+        return jsonResponse({ data: { deals: [], meta: { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0' } } })
+      }
+      if (requestURL.pathname.endsWith('/api/companies')) {
+        return jsonResponse({ data: { companies: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      }
+      if (requestURL.pathname.endsWith('/api/contacts')) {
+        return jsonResponse({ data: { contacts: [], meta: { page: 1, pageSize: 20, total: 0 } } })
+      }
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return jsonResponse({ data: { users: [{ id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }] } })
+      }
+      throw new Error(`Unexpected fetch: ${method} ${requestURL.pathname}${requestURL.search}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/tasks')
+    render(<AppRouter />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'First task' }))
+    expect(await screen.findByRole('heading', { name: 'First task' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Complete First task' }))
+    expect(screen.getByRole('button', { name: 'Complete First task' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Second task' }))
+    expect(await screen.findByRole('heading', { name: 'Second task' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/tasks/2')
+
+    await act(async () => {
+      resolveCompletion(jsonResponse({
+        data: {
+          task: { ...firstTask, status: 'completed', completedAt: '2026-07-20T09:00:00Z' },
+          activities: [{ id: 9, action: 'task.completed', summary: 'Task completed', createdAt: '2026-07-20T09:00:00Z' }]
+        }
+      }))
+      await completionResponse
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Second task' })).toBeInTheDocument()
+      expect(window.location.pathname).toBe('/tasks/2')
+    })
+    expect(screen.getAllByLabelText(/task title/i).every((input) => input.value === 'Second task')).toBe(true)
+    expect(screen.queryByRole('heading', { name: 'First task' })).not.toBeInTheDocument()
   })
 
   it('uses service task wording for service businesses', async () => {

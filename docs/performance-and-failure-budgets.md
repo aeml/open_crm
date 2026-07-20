@@ -90,9 +90,9 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.99 KiB/57.92 KiB entry, 34.91 KiB/10.04 KiB largest lazy
-chunk, and 616.23 KiB/197.83 KiB total assets. The production contact, company,
-deal, and task routes are 28.72/8.50, 32.06/9.44, 34.91/10.04, and 21.59/6.00
+Current evidence: 177.99 KiB/57.92 KiB entry, 34.91 KiB/10.05 KiB largest lazy
+chunk, and 616.82 KiB/198.18 KiB total assets. The production contact, company,
+deal, and task routes are 28.72/8.50, 32.06/9.44, 34.91/10.05, and 22.17/6.29
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.70 KiB/4.67 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
@@ -153,7 +153,7 @@ and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators plus focused company-directory and linked-
 people presentation leave the parent routes at 721 contact lines,
 827 company lines, 785 deal lines, and
-769 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
+722 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. The 229-line contact outreach hook also
 clears record-scoped email and sequence state on selection changes and rejects
 late responses from prior selection epochs. A 59-line lead-score hook rejects
@@ -161,6 +161,10 @@ duplicate evaluations, wrong-contact responses, and late results across
 leave-and-return navigation. Deal directory, shared form, and editor
 presentation live in focused 157-, 74-, and 87-line modules; a 153-line hook
 now owns quote-line and manual proposal-tracking state, mutations, and recovery.
+A tested 88-line task quick-action hook prevents concurrent mutations of the
+same task, validates response identity, and updates the active detail only when
+it still represents that task; delayed completion cannot pull navigation back
+to an earlier record.
 Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
 Continue lowering the remaining contact/deal exceptions along tested
@@ -186,7 +190,7 @@ the application composition package.
 | `contacts.jsx` | 721 | 725 |
 | `companies.jsx` | 827 | 850 |
 | `deals.jsx` | 785 | 800 |
-| `tasks.jsx` | 769 | 800 |
+| `tasks.jsx` | 722 | 750 |
 | `dashboard.jsx` | 477 | 550 |
 
 All other production route files and every production `internal/app` Go file

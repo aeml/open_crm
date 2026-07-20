@@ -415,7 +415,10 @@ isolated in 157-, 74-, and 87-line modules. A focused 153-line commercial-state
 hook owns quote-line and manual proposal-tracking mutations under a tightened
 800-line parent ceiling. Task filtering,
 sorting, labels, due-date view logic, and a shared 98-line create/update form
-leave `tasks.jsx` at 769 lines, down from 1,093. Tighter source ratchets preserve every reduction while
+plus a tested 88-line quick-action hook leave `tasks.jsx` at 722 lines, down from
+1,093, under a tightened 750-line ceiling. The hook serializes each task's quick
+mutations, validates response identity, and cannot replace the selected detail
+when a response finishes after navigation. Tighter source ratchets preserve every reduction while
 holding other production routes to 500 lines. This remains in progress while
 the contact and deal orchestrators retain explicit exceptions.
 
@@ -2259,8 +2262,8 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 177.99 KiB/57.92 KiB for the entry, 34.91 KiB/10.04 KiB
-for the largest lazy chunk, and 616.23 KiB/197.83 KiB total assets. Hosted
+CSS. Current evidence is 177.99 KiB/57.92 KiB for the entry, 34.91 KiB/10.05 KiB
+for the largest lazy chunk, and 616.82 KiB/198.18 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.70 KiB/4.67 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
@@ -2268,7 +2271,7 @@ routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring plus company directory/people presentation leave contacts at 721 lines,
-companies at 827, deals at 785, and tasks at 769, down from 2,038, 1,364,
+companies at 827, deals at 785, and tasks at 722, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.

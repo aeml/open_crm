@@ -31,11 +31,13 @@ import {
   normalizeTaskStatusFilter,
   sortCompletedTasks,
   sortOpenTasks,
+  taskFormValues,
   taskCountLabel,
   taskLabels,
   taskListHeading,
   unassignedAssigneeFilter
 } from './task_view'
+import { useTaskQuickActions } from './use_task_quick_actions'
 
 const emptyForm = {
   title: '',
@@ -86,6 +88,7 @@ export function TasksRoute() {
   const [isListLoading, setIsListLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const listControllerRef = useRef(null)
+  const { handleQuickAssign, handleQuickComplete, handleQuickReopen, isTaskPending } = useTaskQuickActions({ onUpdated: handleQuickTaskUpdated, onError: setError })
 
   const selectedTask = detail?.task || null
   const selectedActivities = detail?.activities || []
@@ -382,16 +385,7 @@ export function TasksRoute() {
     setDetailCache((current) => ({ ...current, [task.id]: { task, activities } }))
     setDetail({ task, activities })
     setSelectedTaskId(task.id)
-    setForm({
-      title: task.title || '',
-      entityType: task.entityType || 'deal',
-      entityId: String(task.entityId || ''),
-      description: task.description || '',
-      status: task.status || 'open',
-      dueAt: task.dueAt ? task.dueAt.slice(0, 16) : '',
-      completedAt: task.completedAt ? task.completedAt.slice(0, 16) : '',
-      assignedToUserId: task.assignedToUserId ? String(task.assignedToUserId) : ''
-    })
+    setForm(taskFormValues(task))
   }
 
   function clearSelectedTask() {
@@ -459,66 +453,25 @@ export function TasksRoute() {
     navigate(buildTasksPath(task.id))
   }
 
-  async function handleQuickStatus(task, nextStatus) {
-    try {
-      const completedAt = nextStatus === 'completed' ? new Date().toISOString() : ''
-      const data = await updateTask(task.id, {
-        title: task.title,
-        description: task.description || '',
-        status: nextStatus,
-        dueAt: task.dueAt || '',
-        completedAt,
-        assignedToUserId: task.assignedToUserId || 0
-      })
-
-      const wasCompleted = task.status === 'completed'
-      const isCompleted = data.task.status === 'completed'
-      setTasks((current) => current.map((currentTask) => (currentTask.id === task.id ? data.task : currentTask)))
+  function handleQuickTaskUpdated(previousTask, data) {
+    const nextTask = data.task
+    const nextDetail = { task: nextTask, activities: data.activities || [] }
+    const wasCompleted = previousTask.status === 'completed'
+    const isCompleted = nextTask.status === 'completed'
+    setTasks((current) => current.map((task) => (task.id === nextTask.id ? nextTask : task)))
+    if (wasCompleted !== isCompleted) {
       setMeta((current) => ({
         ...current,
         openCount: Math.max(0, current.openCount + (wasCompleted ? 1 : 0) - (isCompleted ? 1 : 0)),
         completedCount: Math.max(0, current.completedCount + (isCompleted ? 1 : 0) - (wasCompleted ? 1 : 0))
       }))
-      if (selectedTaskId === task.id) {
-        syncTaskIntoState(data.task, data.activities || [])
-      } else {
-        setDetailCache((current) => ({ ...current, [task.id]: { task: data.task, activities: data.activities || [] } }))
-      }
-      setError('')
-    } catch (saveError) {
-      setError(saveError.message || 'Unable to update task.')
     }
-  }
-
-  function handleQuickComplete(task) {
-    return handleQuickStatus(task, 'completed')
-  }
-
-  function handleQuickReopen(task) {
-    return handleQuickStatus(task, 'open')
-  }
-
-  async function handleQuickAssign(task, nextAssignedToUserId) {
-    try {
-      const data = await updateTask(task.id, {
-        title: task.title,
-        description: task.description || '',
-        status: task.status,
-        dueAt: task.dueAt || '',
-        completedAt: task.completedAt || '',
-        assignedToUserId: Number.parseInt(nextAssignedToUserId, 10) || 0
-      })
-
-      setTasks((current) => current.map((currentTask) => (currentTask.id === task.id ? data.task : currentTask)))
-      if (selectedTaskId === task.id) {
-        syncTaskIntoState(data.task, data.activities || [])
-      } else {
-        setDetailCache((current) => ({ ...current, [task.id]: { task: data.task, activities: data.activities || [] } }))
-      }
-      setError('')
-    } catch (saveError) {
-      setError(saveError.message || 'Unable to update task.')
-    }
+    setDetailCache((current) => ({ ...current, [nextTask.id]: nextDetail }))
+    setDetail((current) => {
+      if (current?.task?.id !== nextTask.id) return current
+      setForm(taskFormValues(nextTask))
+      return nextDetail
+    })
   }
 
   async function handleArchive() {
@@ -681,21 +634,21 @@ export function TasksRoute() {
                   <p>{task.entityLabel || `${task.entityType} #${task.entityId}`}</p>
                   {statusFilter === 'open' ? (
                     canWrite ? (
-                      <Button className="button-secondary" type="button" onClick={() => handleQuickComplete(task)} aria-label={`Complete ${task.title}`}>
-                        Complete
+                      <Button className="button-secondary" type="button" disabled={isTaskPending(task.id)} onClick={() => handleQuickComplete(task)} aria-label={`Complete ${task.title}`}>
+                        {isTaskPending(task.id) ? 'Saving…' : 'Complete'}
                       </Button>
                     ) : null
                   ) : (
                     canWrite ? (
-                      <Button className="button-secondary" type="button" onClick={() => handleQuickReopen(task)} aria-label={`Reopen ${task.title}`}>
-                        Reopen
+                      <Button className="button-secondary" type="button" disabled={isTaskPending(task.id)} onClick={() => handleQuickReopen(task)} aria-label={`Reopen ${task.title}`}>
+                        {isTaskPending(task.id) ? 'Saving…' : 'Reopen'}
                       </Button>
                     ) : null
                   )}
                 </div>
                 <div>
                   {canWrite ? (
-                    <select className="text-input" aria-label={`Assign ${task.title}`} value={task.assignedToUserId ? String(task.assignedToUserId) : ''} onChange={(event) => handleQuickAssign(task, event.target.value)}>
+                    <select className="text-input" aria-label={`Assign ${task.title}`} disabled={isTaskPending(task.id)} value={task.assignedToUserId ? String(task.assignedToUserId) : ''} onChange={(event) => handleQuickAssign(task, event.target.value)}>
                       <option value="">Unassigned</option>
                       {userOptions.map((user) => (
                         <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>

@@ -1,5 +1,18 @@
 export const unassignedAssigneeFilter = 'unassigned'
 
+export function taskFormValues(task = {}) {
+  return {
+    title: task.title || '',
+    entityType: task.entityType || 'deal',
+    entityId: String(task.entityId || ''),
+    description: task.description || '',
+    status: task.status || 'open',
+    dueAt: task.dueAt ? task.dueAt.slice(0, 16) : '',
+    completedAt: task.completedAt ? task.completedAt.slice(0, 16) : '',
+    assignedToUserId: task.assignedToUserId ? String(task.assignedToUserId) : ''
+  }
+}
+
 export function normalizeTaskStatusFilter(value) {
   return value === 'completed' ? 'completed' : 'open'
 }
