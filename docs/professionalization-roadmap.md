@@ -408,9 +408,9 @@ in-flight evaluations, mismatched contact identities, and late responses after
 leave-and-return navigation. Development-only call, SMS, and meeting orchestration remains
 in a 456-line focused module excluded from production builds. Shared record-work cards,
 touchpoints/account/health context, company editor/view helpers, and focused
-142-line directory plus 82-line linked-people presentation and a tested 70-line
-company-people mutation hook leave `companies.jsx` at 766 lines, down from 1,364,
-with a tightened 775-line ceiling. Company selection now shares the same visit-identity,
+142-line directory plus 82-line linked-people presentation, a 155-line create/detail
+workspace, and a tested 70-line company-people mutation hook leave `companies.jsx`
+at 677 lines, down from 1,364, with a tightened 685-line ceiling. Company selection now shares the same visit-identity,
 pending-mutation, work, and response-validation contract as contacts and deals, while
 the focused people hook calls one transactional linked-person endpoint and rejects
 late responses after leave-and-return navigation. Deal view,
@@ -2274,15 +2274,15 @@ later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
 CSS. Current evidence is 177.99 KiB/57.93 KiB for the entry, 36.85 KiB/10.60 KiB
-for the largest lazy chunk, and 622.86 KiB/200.26 KiB total assets. Hosted
+for the largest lazy chunk, and 623.72 KiB/200.28 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.35 KiB/4.56 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
 routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
-and focused contact outreach/lead scoring plus shared record selection/work and company directory/people presentation leave contacts at 644 lines,
-companies at 766, deals at 668, and tasks at 737, down from 2,038, 1,364,
+and focused contact outreach/lead scoring plus shared record selection/work and company directory/people/workspace presentation leave contacts at 644 lines,
+companies at 677, deals at 668, and tasks at 737, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.

@@ -1,11 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Card } from '../components/ui/card'
-import { Button } from '../components/ui/button'
-import { RecordEmailComposer } from '../components/record_email_composer'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { archiveCompany, createCompany, getCompany, listCompanies, sendCompanyEmail, updateCompany } from '../lib/companies'
+import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
 import { createContact, listContacts } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { listOrganizationUsers } from '../lib/users'
@@ -15,10 +12,7 @@ import {
   buildClientRecords,
   buildCompanyPayload,
   companyFormValues,
-  createDescription,
-  detailSubtitle,
   duplicateSearchTerm,
-  emailRecipientOptions,
   individualClientFromContact,
   isIndividualClient,
   organizationClientFromCompany,
@@ -27,15 +21,10 @@ import {
   sortContactOptions,
   splitFullName
 } from './company_view'
-import { CompanyForm } from './company_form'
 import { CompanyDirectory } from './company_directory'
-import { CompanyPeople } from './company_people'
+import { CompanyCreateWorkspace, CompanyWorkspace } from './company_workspace'
 import { useCompanyPeople } from './use_company_people'
-import { ClientAccountContext } from './client_account_context'
-import { ClientReviewSchedule } from './client_review_schedule'
 import { ClientHealthReport } from './client_health_report'
-import { RecordWorkCards } from './record_work'
-import { TouchpointSummary } from './touchpoint_summary'
 import { requireRecordResponse, useRecordSelection } from './use_record_selection'
 import { useRecordWork } from './use_record_work'
 
@@ -97,36 +86,29 @@ export function CompaniesRoute() {
   const searchControllerRef = useRef(null)
   const seededRouteCompanyRef = useRef(null)
   const companySelection = useRecordSelection(selectedCompanyId)
-  const {
-    activities: selectedActivities,
-    fetchWork,
-    handleCreateNote,
-    handleCreateTask,
-    isCreatingNote,
-    isCreatingTask,
-    load: loadWork,
-    noteBody,
-    notes: selectedNotes,
-    refreshTasks,
-    reset: resetWork,
-    setActivities,
-    setNoteBody,
-    setTaskForm,
-    taskForm,
-    tasks: selectedTasks
-  } = useRecordWork({
+  const companyWork = useRecordWork({
     defaultAssignedToUserId: userOptions[0]?.id ? String(userOptions[0].id) : '',
     entityType: 'company',
     selectedEntityId: selectedCompanyId,
     selection: companySelection,
     onError: setError
   })
+  const {
+    activities: selectedActivities,
+    fetchWork,
+    load: loadWork,
+    notes: selectedNotes,
+    refreshTasks,
+    reset: resetWork,
+    setActivities,
+    setTaskForm,
+    tasks: selectedTasks
+  } = companyWork
 
   const selectedCompany = detail?.company || null
   const linkedContacts = detail?.linkedContacts || []
   const selectedDeals = detail?.deals || []
   const hasFilter = search.trim() !== '' || ownerFilter !== 'all' || customFilter.fieldKey !== ''
-  const companyEmailRecipients = useMemo(() => emailRecipientOptions(linkedContacts), [linkedContacts])
   const companyPeople = useCompanyPeople({
     selectedCompanyId,
     selectedCompany,
@@ -614,8 +596,6 @@ export function CompaniesRoute() {
     }
   }
 
-  const detailTitle = useMemo(() => selectedCompany?.name || '', [selectedCompany])
-
   return (
     <section className="dashboard-grid contacts-grid">
       <CompanyDirectory
@@ -654,112 +634,43 @@ export function CompaniesRoute() {
       {mode === 'list' ? <ClientHealthReport canManage={canWrite} owners={ownerOptions} onOpen={(record) => navigate(`/${record.entityType === 'contact' ? 'contacts' : 'companies'}/${record.entityId}`)} /> : null}
 
       {canWrite && mode === 'create' ? (
-        <Card>
-            <div className="card-stack">
-              <div>
-                <h2>New client</h2>
-                <p>{createDescription(form.clientType)}</p>
-              </div>
-            <CompanyForm
-              contacts={contactOptions}
-              customDefinitions={isIndividualClient(form.clientType) ? contactCustomDefinitions : companyCustomDefinitions}
-              form={form}
-              isSubmitting={isSavingCompany}
-              onSetForm={setForm}
-              onSubmit={handleCreate}
-              submitLabel="Save client"
-            />
-          </div>
-        </Card>
+        <CompanyCreateWorkspace
+          companyCustomDefinitions={companyCustomDefinitions}
+          contactCustomDefinitions={contactCustomDefinitions}
+          contacts={contactOptions}
+          form={form}
+          isSaving={isSavingCompany}
+          onSetForm={setForm}
+          onSubmit={handleCreate}
+        />
       ) : null}
 
       {mode === 'detail' && selectedCompany ? (
-        <Card>
-          <div className="card-stack">
-            {isDetailLoading ? <p className="field-hint">Loading client detail...</p> : null}
-            <div className="section-header">
-              <div>
-                <h2>{detailTitle}</h2>
-                <p>{detailSubtitle(selectedCompany, linkedContacts)}</p>
-              </div>
-              {canWrite ? (
-                <Button className="button-danger" disabled={isArchivingCompany || isSavingCompany} onClick={handleArchive}>
-                  {isArchivingCompany ? 'Archiving…' : 'Archive client'}
-                </Button>
-              ) : null}
-            </div>
-            <CompanyForm
-              canSubmit={canWrite}
-              contacts={contactOptions}
-              customDefinitions={companyCustomDefinitions}
-              form={form}
-              includeStatus
-              isSubmitting={isSavingCompany}
-              onSetForm={setForm}
-              onSubmit={handleUpdate}
-              submitLabel="Update client"
-            />
-            <CompanyPeople
-              canWrite={canWrite}
-              company={selectedCompany}
-              contacts={linkedContacts}
-              customDefinitions={contactCustomDefinitions}
-              form={companyPeople.form}
-              isSaving={companyPeople.isSaving}
-              onOpenContact={(contactID) => navigate(`/contacts/${contactID}`)}
-              onSetForm={companyPeople.setForm}
-              onSubmit={companyPeople.handleSubmit}
-              onToggleForm={companyPeople.handleToggleForm}
-              showForm={companyPeople.showForm}
-            />
-            <RecordEmailComposer
-              entityType="company"
-              entityId={selectedCompanyId}
-              canWrite={canWrite}
-              recipientOptions={companyEmailRecipients}
-              sendEmail={sendCompanyEmail}
-              emptyMessage="Add a linked person with an email address before sending email from this client."
-              mergeFieldHint="Merge fields like {{first_name}}, {{company_name}}, and {{client_status}} are filled in when the email is sent."
-            />
-            <ClientAccountContext
-              canWrite={canWrite}
-              contacts={linkedContacts}
-              deals={selectedDeals}
-              isCustomer={selectedCompany.status === 'customer'}
-              labels={pipelineLabels}
-              notes={selectedNotes}
-              onCreateDeal={handleCreateRelatedDeal}
-              onOpenContact={(contactID) => navigate(`/contacts/${contactID}`)}
-              onOpenDeal={handleOpenDeal}
-              tasks={selectedTasks}
-            />
-            <ClientReviewSchedule entityType="company" entityId={selectedCompanyId}
-              isClient={selectedCompany.status === 'customer'} canWrite={canWrite}
-              users={userOptions} onChanged={handleClientReviewChanged} />
-            <TouchpointSummary entityType="company" entityId={selectedCompanyId} refreshKey={JSON.stringify({ selectedActivities, selectedNotes, selectedTasks, linkedContacts })} />
-            <RecordWorkCards
-              activities={selectedActivities}
-              activityAria="Activity list"
-              canWrite={canWrite}
-              entityId={selectedCompanyId}
-              entityType="company"
-              isCreatingNote={isCreatingNote}
-              isCreatingTask={isCreatingTask}
-              noteBody={noteBody}
-              notes={selectedNotes}
-              notesAria="Client notes list"
-              onCreateNote={handleCreateNote}
-              onCreateTask={handleCreateTask}
-              onOpenTasks={handleOpenCompanyTasks}
-              onSetNoteBody={setNoteBody}
-              onSetTaskForm={setTaskForm}
-              taskForm={taskForm}
-              tasks={selectedTasks}
-              tasksAria="Client tasks list"
-              users={userOptions}
-            />
-          </div>
-        </Card>
+        <CompanyWorkspace
+          canWrite={canWrite}
+          company={selectedCompany}
+          companyPeople={companyPeople}
+          companyCustomDefinitions={companyCustomDefinitions}
+          contactCustomDefinitions={contactCustomDefinitions}
+          contactOptions={contactOptions}
+          form={form}
+          isArchiving={isArchivingCompany}
+          isLoading={isDetailLoading}
+          isSaving={isSavingCompany}
+          linkedContacts={linkedContacts}
+          onArchive={handleArchive}
+          onCreateDeal={handleCreateRelatedDeal}
+          onOpenContact={(contactID) => navigate(`/contacts/${contactID}`)}
+          onOpenDeal={handleOpenDeal}
+          onOpenTasks={handleOpenCompanyTasks}
+          onReviewChanged={handleClientReviewChanged}
+          onSetForm={setForm}
+          onUpdate={handleUpdate}
+          pipelineLabels={pipelineLabels}
+          selectedDeals={selectedDeals}
+          users={userOptions}
+          work={companyWork}
+        />
       ) : null}
     </section>
   )

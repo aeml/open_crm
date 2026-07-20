@@ -91,8 +91,8 @@ level-9-gzip bytes using only Node's standard library.
 | All CSS | 20 KiB | 5 KiB |
 
 Current evidence: 177.99 KiB/57.93 KiB entry, 36.85 KiB/10.60 KiB largest lazy
-chunk, and 622.86 KiB/200.26 KiB total assets. The production contact, company,
-deal, and task routes are 28.25/8.52, 31.90/9.50, 36.85/10.60, and 22.60/6.42
+chunk, and 623.72 KiB/200.28 KiB total assets. The production contact, company,
+deal, and task routes are 28.25/8.51, 32.76/9.69, 36.85/10.60, and 22.60/6.42
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.35 KiB/4.56 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
@@ -150,9 +150,9 @@ modules. Shared collaboration-aware record-work cards now serve contacts, compan
 company editor/view helpers, deal quote/signature/view helpers, and task view
 logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health,
 and client-review integration plus focused development-only communications and
-production outreach and lead-score orchestrators plus focused company-directory and linked-
-people presentation plus shared record selection/work leave the parent routes at 644 contact lines,
-766 company lines, 668 deal lines, and
+production outreach and lead-score orchestrators plus focused company-directory, linked-
+people, and create/detail workspace presentation plus shared record selection/work leave the parent routes at 644 contact lines,
+677 company lines, 668 deal lines, and
 737 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 142-line work
 hooks now serve contacts, companies, and deals, abort obsolete loads, distinguish repeated
@@ -170,6 +170,9 @@ validation contract to deals; the guarded
 187-line commercial hook rejects stale or mismatched quote/proposal results and
 exposes one shared pending state so line-item and proposal controls cannot race
 another deal snapshot mutation.
+A 155-line company create/detail workspace similarly composes the client editor,
+linked people, email, account/review context, touchpoints, and shared work cards
+without changing the route boundary.
 The shared record-work follower control also resets on record changes and
 rejects late responses from an earlier contact, client, or deal.
 A tested 88-line task quick-action hook prevents concurrent mutations of the
@@ -200,7 +203,7 @@ the application composition package.
 | Existing hotspot | Current lines | Maximum until next split |
 | --- | ---: | ---: |
 | `contacts.jsx` | 644 | 650 |
-| `companies.jsx` | 766 | 775 |
+| `companies.jsx` | 677 | 685 |
 | `deals.jsx` | 668 | 675 |
 | `tasks.jsx` | 737 | 750 |
 | `dashboard.jsx` | 477 | 550 |
