@@ -366,8 +366,8 @@ Exit criteria:
 - No behavior changes beyond tested refactors.
 
 Current convergence evidence: `app.go` is now 369 lines and uses the default
-500-line CI ceiling. All 204 explicit registrations live in focused 142-line
-platform, 246-line foundation, and 264-line core-CRM files, called centrally by
+500-line CI ceiling. All 205 explicit registrations live in focused 142-line
+platform, 246-line foundation, and 267-line core-CRM files, called centrally by
 `NewServer`; package-wide inventory and hosted-write-policy scans preserve the
 complete route set after the split. HTTP rate limiting, proxy-aware client
 identity, CSRF/CORS, and security/release headers live in a focused 285-line
@@ -403,8 +403,10 @@ sequence state on contact changes and rejects late responses from prior
 selection epochs; development-only call, SMS, and meeting orchestration remains
 in a 456-line focused module excluded from production builds. Shared record-work cards,
 touchpoints/account/health context, company editor/view helpers, and focused
-142-line directory plus 81-line linked-people presentation leave `companies.jsx`
-at 863 lines, down from 1,364, with a tightened 900-line ceiling. Deal view,
+142-line directory plus 82-line linked-people presentation and a tested 70-line
+company-people mutation hook leave `companies.jsx` at 827 lines, down from 1,364,
+with a tightened 850-line ceiling. The hook calls one transactional linked-person
+endpoint and rejects late responses after leave-and-return navigation. Deal view,
 shared work, quote, signature, and bulk-action components leave `deals.jsx` at
 785 lines, down from 1,365, with directory, shared-form, and editor presentation
 isolated in 157-, 74-, and 87-line modules. A focused 153-line commercial-state
@@ -430,6 +432,16 @@ Exit criteria:
 
 - Invalid core states are rejected by the database, not only by application code.
 - Migration tests verify real schema outcomes.
+
+Current convergence evidence: in addition to schema constraints, cross-record
+writes are being reviewed as vertical transactions. Organization-client person
+creation now reserves hosted contact capacity and commits the normalized
+non-client contact, typed custom values, primary-safe link, company timestamp,
+and contact/company activities together. A disposable-PostgreSQL test forces
+the link insert to fail and proves no orphan contact or activity remains; the
+same suite covers wrong-tenant and individual-client rejection, and the browser
+journey exercises the endpoint through linked-person creation and duplicate
+review.
 
 ## Version 0.3.0 - Professional Release Candidate
 
@@ -2245,8 +2257,8 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 177.99 KiB/57.92 KiB for the entry, 34.91 KiB/10.04 KiB
-for the largest lazy chunk, and 614.95 KiB/197.31 KiB total assets. Hosted
+CSS. Current evidence is 177.99 KiB/57.93 KiB for the entry, 34.91 KiB/10.05 KiB
+for the largest lazy chunk, and 615.63 KiB/197.71 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.70 KiB/4.67 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
@@ -2254,7 +2266,7 @@ routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach plus company directory/people presentation leave contacts at 740 lines,
-companies at 863, deals at 785, and tasks at 769, down from 2,038, 1,364,
+companies at 827, deals at 785, and tasks at 769, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
 and the remaining explicit source exceptions.

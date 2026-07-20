@@ -90,9 +90,9 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.99 KiB/57.92 KiB entry, 34.91 KiB/10.04 KiB largest lazy
-chunk, and 614.95 KiB/197.31 KiB total assets. The production contact, company,
-deal, and task routes are 28.12/8.33, 31.67/9.23, 34.91/10.04, and 21.59/6.00
+Current evidence: 177.99 KiB/57.93 KiB entry, 34.91 KiB/10.05 KiB largest lazy
+chunk, and 615.63 KiB/197.71 KiB total assets. The production contact, company,
+deal, and task routes are 28.12/8.35, 32.06/9.46, 34.91/10.05, and 21.59/6.00
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.70 KiB/4.67 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
@@ -152,7 +152,7 @@ logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health
 and client-review integration plus focused development-only communications and
 production outreach orchestrators plus focused company-directory and linked-
 people presentation leave the parent routes at 740 contact lines,
-863 company lines, 785 deal lines, and
+827 company lines, 785 deal lines, and
 769 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. The 229-line contact outreach hook also
 clears record-scoped email and sequence state on selection changes and rejects
@@ -164,9 +164,9 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Continue lowering the remaining contact/deal exceptions along tested
 orchestration seams.
 
-The API composition root is 369 lines, down from 996. Its unchanged 204-route
+The API composition root is 369 lines, down from 996. Its audited 205-route
 surface is registered through 142-line platform, 246-line foundation, and
-264-line core-CRM files. The security inventory and hosted-write-policy tests
+267-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot
 silently remove a route from either guard. Shared handler helpers are isolated
 in a 258-line file and `support_handlers.go` is 455 lines, so every production
@@ -182,7 +182,7 @@ the application composition package.
 | Existing hotspot | Current lines | Maximum until next split |
 | --- | ---: | ---: |
 | `contacts.jsx` | 740 | 750 |
-| `companies.jsx` | 863 | 900 |
+| `companies.jsx` | 827 | 850 |
 | `deals.jsx` | 785 | 800 |
 | `tasks.jsx` | 769 | 800 |
 | `dashboard.jsx` | 477 | 550 |

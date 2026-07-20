@@ -22,7 +22,7 @@ function duplicateReasonLabel(message) {
   return match[1].trim().toLowerCase()
 }
 
-function getContactSaveError(error, fallbackMessage) {
+export function getContactSaveError(error, fallbackMessage) {
   if (isAbortError(error)) {
     throw error
   }

@@ -15,29 +15,35 @@ import (
 )
 
 type fakeContactsService struct {
-	listResult         modulecontacts.ListResult
-	listErr            error
-	getResult          modulecontacts.Detail
-	getErr             error
-	createResult       modulecontacts.Detail
-	createErr          error
-	updateResult       modulecontacts.Detail
-	updateErr          error
-	archiveErr         error
-	lastListOrgID      int64
-	lastListQuery      modulecontacts.ListQuery
-	lastDetailOrgID    int64
-	lastDetailID       int64
-	lastCreateOrgID    int64
-	lastCreateActorID  int64
-	lastCreateInput    modulecontacts.CreateInput
-	lastUpdateOrgID    int64
-	lastUpdateID       int64
-	lastUpdateActorID  int64
-	lastUpdateInput    modulecontacts.UpdateInput
-	lastArchiveOrgID   int64
-	lastArchiveID      int64
-	lastArchiveActorID int64
+	listResult          modulecontacts.ListResult
+	listErr             error
+	getResult           modulecontacts.Detail
+	getErr              error
+	createResult        modulecontacts.Detail
+	createErr           error
+	linkedResult        modulecontacts.LinkedCompanyPersonResult
+	linkedErr           error
+	updateResult        modulecontacts.Detail
+	updateErr           error
+	archiveErr          error
+	lastListOrgID       int64
+	lastListQuery       modulecontacts.ListQuery
+	lastDetailOrgID     int64
+	lastDetailID        int64
+	lastCreateOrgID     int64
+	lastCreateActorID   int64
+	lastCreateInput     modulecontacts.CreateInput
+	lastLinkedOrgID     int64
+	lastLinkedCompanyID int64
+	lastLinkedActorID   int64
+	lastLinkedInput     modulecontacts.CreateInput
+	lastUpdateOrgID     int64
+	lastUpdateID        int64
+	lastUpdateActorID   int64
+	lastUpdateInput     modulecontacts.UpdateInput
+	lastArchiveOrgID    int64
+	lastArchiveID       int64
+	lastArchiveActorID  int64
 }
 
 func (f *fakeContactsService) ListByOrganization(_ context.Context, organizationID int64, query modulecontacts.ListQuery) (modulecontacts.ListResult, error) {
@@ -57,6 +63,14 @@ func (f *fakeContactsService) Create(_ context.Context, organizationID, actorUse
 	f.lastCreateActorID = actorUserID
 	f.lastCreateInput = input
 	return f.createResult, f.createErr
+}
+
+func (f *fakeContactsService) CreateLinkedCompanyPerson(_ context.Context, organizationID, companyID, actorUserID int64, input modulecontacts.CreateInput) (modulecontacts.LinkedCompanyPersonResult, error) {
+	f.lastLinkedOrgID = organizationID
+	f.lastLinkedCompanyID = companyID
+	f.lastLinkedActorID = actorUserID
+	f.lastLinkedInput = input
+	return f.linkedResult, f.linkedErr
 }
 
 func (f *fakeContactsService) Update(_ context.Context, organizationID, contactID, actorUserID int64, input modulecontacts.UpdateInput) (modulecontacts.Detail, error) {

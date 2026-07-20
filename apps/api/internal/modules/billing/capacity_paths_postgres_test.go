@@ -123,9 +123,17 @@ func TestEveryCapacityIncreasingPathUsesHostedReservationsAgainstPostgres(t *tes
 	imports := moduleimports.NewServiceWithCapacity(pool, capacity)
 	forms := moduleleadforms.NewServiceWithCapacity(pool, capacity, true)
 	bulk := modulebulkoperations.NewServiceWithCapacity(pool, capacity)
+	var companyID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO companies (organization_id,name,client_type) VALUES ($1,'Capacity Company','organization') RETURNING id`, organizationID).Scan(&companyID); err != nil {
+		t.Fatalf("create capacity company: %v", err)
+	}
 
 	assertLimitReached(t, "direct contact create", func() error {
 		_, err := contacts.Create(ctx, organizationID, ownerID, modulecontacts.CreateInput{FirstName: "New", LastName: "Contact"})
+		return err
+	})
+	assertLimitReached(t, "linked company person create", func() error {
+		_, err := contacts.CreateLinkedCompanyPerson(ctx, organizationID, companyID, ownerID, modulecontacts.CreateInput{FirstName: "Linked", LastName: "Person"})
 		return err
 	})
 	assertLimitReached(t, "direct deal create", func() error {

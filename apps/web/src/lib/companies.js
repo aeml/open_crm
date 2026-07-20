@@ -1,5 +1,6 @@
 import { apiRequest, apiURL, getErrorMessage, isAbortError } from './api'
 import { appendCustomFieldParams } from './custom_fields'
+import { getContactSaveError } from './contacts'
 
 function duplicateCandidate(payload) {
   const candidate = payload?.error?.details?.duplicate
@@ -73,6 +74,15 @@ export async function updateCompany(companyID, input, { signal } = {}) {
     return payload?.data
   } catch (error) {
     throw getCompanySaveError(error, 'Unable to update company.')
+  }
+}
+
+export async function createCompanyLinkedPerson(companyID, input, { signal } = {}) {
+  try {
+    const payload = await apiRequest(`/api/companies/${companyID}/linked-contacts`, { method: 'POST', body: input, fallbackMessage: 'Unable to add linked person.', signal })
+    return payload?.data
+  } catch (error) {
+    throw getContactSaveError(error, 'Unable to add linked person.')
   }
 }
 

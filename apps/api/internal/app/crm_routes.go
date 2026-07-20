@@ -81,6 +81,9 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 	mux.HandleFunc("POST /api/companies/{companyID}/email", func(w http.ResponseWriter, r *http.Request) {
 		handleSendCompanyEmail(dependencies.AuthService, dependencies.CompaniesService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
 	})
+	mux.HandleFunc("POST /api/companies/{companyID}/linked-contacts", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateLinkedCompanyPerson(dependencies.AuthService, dependencies.ContactsService, dependencies.BillingService, w, r)
+	})
 	mux.HandleFunc("GET /api/deal-pipelines", func(w http.ResponseWriter, r *http.Request) {
 		handleListDealPipelines(dependencies.AuthService, dependencies.DealsService, w, r)
 	})

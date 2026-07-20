@@ -86,6 +86,7 @@ type contactsService interface {
 	ListByOrganization(context.Context, int64, modulecontacts.ListQuery) (modulecontacts.ListResult, error)
 	GetByID(context.Context, int64, int64) (modulecontacts.Detail, error)
 	Create(context.Context, int64, int64, modulecontacts.CreateInput) (modulecontacts.Detail, error)
+	CreateLinkedCompanyPerson(context.Context, int64, int64, int64, modulecontacts.CreateInput) (modulecontacts.LinkedCompanyPersonResult, error)
 	Update(context.Context, int64, int64, int64, modulecontacts.UpdateInput) (modulecontacts.Detail, error)
 	Archive(context.Context, int64, int64, int64) error
 }

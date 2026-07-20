@@ -568,29 +568,14 @@ describe('companies flow', () => {
         })
       }
 
-      if (requestURL.pathname.endsWith('/api/contacts') && method === 'POST') {
+      if (requestURL.pathname.endsWith('/api/companies/6/linked-contacts') && method === 'POST') {
         return jsonResponse({
           data: {
             contact: { id: 9, firstName: 'Riley', lastName: 'Chen', email: 'riley@atlas.test', phone: '555-0110', addressLine1: '', addressLine2: '', city: '', state: '', postalCode: '', country: '', jobTitle: 'Procurement Lead', status: 'prospect', isClient: false },
-            notes: [],
-            activities: []
+            link: { relationshipTitle: 'Procurement Lead', isPrimary: false },
+            activity: { id: 23, action: 'company.contact_linked', summary: 'Contact linked: Riley Chen' }
           }
         }, { status: 201 })
-      }
-
-      if (requestURL.pathname.endsWith('/api/companies/6') && method === 'PATCH') {
-        return jsonResponse({
-          data: {
-            company: { id: 6, name: 'Atlas Manufacturing', clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', industry: 'Industrial', phone: '555-0200', website: 'https://atlas.example', status: 'prospect' },
-            linkedContacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', relationshipTitle: 'Champion', isPrimary: true },
-              { id: 9, firstName: 'Riley', lastName: 'Chen', email: 'riley@atlas.test', relationshipTitle: '', isPrimary: false }
-            ],
-            activities: [
-              { id: 23, action: 'company.updated', summary: 'Company updated' }
-            ]
-          }
-        })
       }
 
       if (requestURL.pathname.endsWith('/api/custom-fields')) {
@@ -620,9 +605,10 @@ describe('companies flow', () => {
 
     expect(await screen.findByRole('button', { name: /riley chen/i })).toBeInTheDocument()
     expect(screen.getByText('riley@atlas.test')).toBeInTheDocument()
-    expect(screen.getByText(/company updated/i)).toBeInTheDocument()
+    expect(screen.getByText('Procurement Lead')).toBeInTheDocument()
+    expect(screen.getByText('Contact linked: Riley Chen')).toBeInTheDocument()
 
-    const createCall = fetchMock.mock.calls.find(([requestURL, requestOptions]) => String(requestURL).match(/\/api\/contacts$/) && requestOptions?.method === 'POST')
+    const createCall = fetchMock.mock.calls.find(([requestURL, requestOptions]) => String(requestURL).match(/\/api\/companies\/6\/linked-contacts$/) && requestOptions?.method === 'POST')
     expect(createCall).toBeTruthy()
     expect(JSON.parse(createCall[1].body)).toMatchObject({
       firstName: 'Riley',
@@ -632,10 +618,8 @@ describe('companies flow', () => {
       jobTitle: 'Procurement Lead',
       status: 'prospect'
     })
-
-    const updateCall = fetchMock.mock.calls.find(([requestURL, requestOptions]) => String(requestURL).match(/\/api\/companies\/6$/) && requestOptions?.method === 'PATCH')
-    expect(updateCall).toBeTruthy()
-    expect(JSON.parse(updateCall[1].body)).toMatchObject({ linkedContactIDs: [7, 9] })
+    expect(fetchMock.mock.calls.some(([requestURL, requestOptions]) => String(requestURL).match(/\/api\/contacts$/) && requestOptions?.method === 'POST')).toBe(false)
+    expect(fetchMock.mock.calls.some(([requestURL, requestOptions]) => String(requestURL).match(/\/api\/companies\/6$/) && requestOptions?.method === 'PATCH')).toBe(false)
   })
 
   it('creates an individual client with one linked person record', async () => {

@@ -21,11 +21,8 @@ import {
   detailSubtitle,
   duplicateSearchTerm,
   emailRecipientOptions,
-  emptyLinkedPersonForm,
   individualClientFromContact,
   isIndividualClient,
-  linkedPersonFormValues,
-  mergeLinkedContactIDs,
   organizationClientFromCompany,
   primaryLinkedContactID,
   relatedPipelineLabels,
@@ -35,6 +32,7 @@ import {
 import { CompanyForm } from './company_form'
 import { CompanyDirectory } from './company_directory'
 import { CompanyPeople } from './company_people'
+import { useCompanyPeople } from './use_company_people'
 import { ClientAccountContext } from './client_account_context'
 import { ClientReviewSchedule, refreshClientReviewTasks } from './client_review_schedule'
 import { ClientHealthReport } from './client_health_report'
@@ -100,8 +98,6 @@ export function CompaniesRoute() {
   const [customDefinitionsLoaded, setCustomDefinitionsLoaded] = useState(false)
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm)
-  const [linkedPersonForm, setLinkedPersonForm] = useState(emptyLinkedPersonForm)
-  const [showLinkedPersonForm, setShowLinkedPersonForm] = useState(false)
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
@@ -117,6 +113,13 @@ export function CompaniesRoute() {
   const hasFilter = search.trim() !== '' || ownerFilter !== 'all' || customFilter.fieldKey !== ''
   const selectedActivities = detail?.activities || []
   const companyEmailRecipients = useMemo(() => emailRecipientOptions(linkedContacts), [linkedContacts])
+  const companyPeople = useCompanyPeople({
+    selectedCompanyId,
+    selectedCompany,
+    customDefinitions: contactCustomDefinitions,
+    onCreated: handleLinkedPersonCreated,
+    onError: handleLinkedPersonError
+  })
 
   function buildCompaniesPath(nextSearch = search, nextOwner = ownerFilter, nextCustomFilter = customFilter) {
     const params = new URLSearchParams()
@@ -185,8 +188,6 @@ export function CompaniesRoute() {
 
   function fillFormFromDetail(data) {
     setForm(companyFormValues(data.company, data.linkedContacts || [], companyCustomDefinitions))
-    setLinkedPersonForm(linkedPersonFormValues(data.company))
-    setShowLinkedPersonForm(false)
   }
 
   async function loadCustomDefinitions({ signal } = {}) {
@@ -533,69 +534,31 @@ export function CompaniesRoute() {
     }
   }
 
-  async function handleCreateLinkedPerson(event) {
-    event.preventDefault()
-    if (!selectedCompanyId || !selectedCompany || isIndividualClient(selectedCompany.clientType)) {
-      return
-    }
-
-    try {
-      const contactData = await createContact({
-        firstName: linkedPersonForm.firstName,
-        lastName: linkedPersonForm.lastName,
-        email: linkedPersonForm.email,
-        phone: linkedPersonForm.phone,
-        addressLine1: '',
-        addressLine2: '',
-        city: '',
-        state: '',
-        postalCode: '',
-        country: '',
-        jobTitle: linkedPersonForm.jobTitle,
-        status: linkedPersonForm.status,
-        customFields: customFieldPayload(contactCustomDefinitions, linkedPersonForm.customFields)
-      })
-      if (!contactData?.contact?.id) {
-        throw new Error('Unable to create contact.')
-      }
-
-      setContactOptions((current) => sortContactOptions([...current.filter((entry) => entry.id !== contactData.contact.id), contactData.contact]))
-
-      const linkedContactIDs = mergeLinkedContactIDs(linkedContacts, contactData.contact.id)
-      const companyData = await updateCompany(selectedCompanyId, buildCompanyPayload({
-        ...form,
-        linkedContactIDs: linkedContactIDs.join(',')
-      }, companyCustomDefinitions))
-      if (!companyData?.company?.id) {
-        throw new Error('Unable to update company.')
-      }
-
-      const detailData = { ...companyData, notes: detail?.notes || [], tasks: detail?.tasks || [], deals: detail?.deals || [] }
-      setDetailCache((current) => ({ ...current, [selectedCompanyId]: detailData }))
-      setCompanies((current) => current.map((entry) => (entry.id === selectedCompanyId ? organizationClientFromCompany(companyData.company) : entry)))
-      setDetail(detailData)
-      fillFormFromDetail(detailData)
-      setError('')
-      setDuplicateSearch('')
-      setDuplicateCandidate(null)
-    } catch (saveError) {
-      setError(saveError.message || 'Unable to add linked person.')
-      setDuplicateSearch(duplicateSearchTerm(saveError.message, linkedPersonForm.email || `${linkedPersonForm.firstName} ${linkedPersonForm.lastName}`))
-      setDuplicateCandidate(saveError.duplicate || null)
-    }
+  function handleLinkedPersonCreated(result) {
+    const linkedContact = { ...result.contact, ...result.link }
+    setContactOptions((current) => sortContactOptions([...current.filter((entry) => entry.id !== result.contact.id), result.contact]))
+    setDetail((current) => {
+      if (current?.company?.id !== selectedCompanyId) return current
+      const nextActivities = result.activity?.id ? [result.activity, ...(current.activities || []).filter((entry) => entry.id !== result.activity.id)] : (current.activities || [])
+      const detailData = { ...current, linkedContacts: [...(current.linkedContacts || []).filter((entry) => entry.id !== linkedContact.id), linkedContact], activities: nextActivities }
+      setDetailCache((cache) => ({ ...cache, [selectedCompanyId]: detailData }))
+      return detailData
+    })
+    setError('')
+    setDuplicateSearch('')
+    setDuplicateCandidate(null)
   }
 
-  function handleToggleLinkedPersonForm() {
-    setLinkedPersonForm(linkedPersonFormValues(selectedCompany))
-    setShowLinkedPersonForm((current) => !current)
+  function handleLinkedPersonError(saveError, searchTerm) {
+    setError(saveError.message || 'Unable to add linked person.')
+    setDuplicateSearch(duplicateSearchTerm(saveError.message, searchTerm))
+    setDuplicateCandidate(saveError.duplicate || null)
   }
 
   function handleAddClient() {
     navigate('/companies')
     setMode('create')
     setForm(emptyForm)
-    setLinkedPersonForm(emptyLinkedPersonForm)
-    setShowLinkedPersonForm(false)
     setDetail(null)
     setSelectedCompanyId(null)
   }
@@ -804,12 +767,13 @@ export function CompaniesRoute() {
               company={selectedCompany}
               contacts={linkedContacts}
               customDefinitions={contactCustomDefinitions}
-              form={linkedPersonForm}
+              form={companyPeople.form}
+              isSaving={companyPeople.isSaving}
               onOpenContact={(contactID) => navigate(`/contacts/${contactID}`)}
-              onSetForm={setLinkedPersonForm}
-              onSubmit={handleCreateLinkedPerson}
-              onToggleForm={handleToggleLinkedPersonForm}
-              showForm={showLinkedPersonForm}
+              onSetForm={companyPeople.setForm}
+              onSubmit={companyPeople.handleSubmit}
+              onToggleForm={companyPeople.handleToggleForm}
+              showForm={companyPeople.showForm}
             />
             <RecordEmailComposer
               entityType="company"

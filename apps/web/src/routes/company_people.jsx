@@ -10,6 +10,7 @@ export function CompanyPeople({
   contacts,
   customDefinitions,
   form,
+  isSaving,
   onOpenContact,
   onSetForm,
   onSubmit,
@@ -50,7 +51,7 @@ export function CompanyPeople({
               <input className="text-input" value={form.jobTitle} onChange={(event) => onSetForm((current) => ({ ...current, jobTitle: event.target.value }))} />
             </Field>
             <CustomFieldsForm definitions={customDefinitions} values={form.customFields} onChange={(customFields) => onSetForm((current) => ({ ...current, customFields }))} />
-            <Button type="submit">Save person</Button>
+            <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : 'Save person'}</Button>
           </form>
         ) : null}
         <div className="record-list" role="list" aria-label="Linked contacts list">
