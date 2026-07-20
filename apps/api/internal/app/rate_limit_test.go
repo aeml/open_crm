@@ -80,6 +80,7 @@ func TestEveryPublicMutationAndTokenSurfaceUsesAnExplicitAbuseBudget(t *testing.
 		{http.MethodPost, "/api/public/lead-capture-forms/demo/submissions", "public.lead-submission", publicWriteRateLimit, publicRateWindow},
 		{http.MethodGet, "/api/public/lead-chat-widgets/demo", "public.lead-widget", publicReadRateLimit, publicRateWindow},
 		{http.MethodGet, "/api/email-unsubscribe/demo", "public.email-unsubscribe", publicWriteRateLimit, publicRateWindow},
+		{http.MethodPost, "/api/email-unsubscribe/demo", "public.email-unsubscribe", publicWriteRateLimit, publicRateWindow},
 		{http.MethodGet, "/api/email-messages/open/demo", "public.email-open", trackingRateLimit, publicRateWindow},
 		{http.MethodGet, "/api/email-messages/click/demo", "public.email-click", trackingRateLimit, publicRateWindow},
 	}

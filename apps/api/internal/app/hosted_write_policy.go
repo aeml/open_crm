@@ -24,6 +24,7 @@ var hostedWriteRecoveryRoutes = map[string]struct{}{
 	"POST /api/billing/portal-session":               {},
 	"POST /api/billing/webhooks/stripe":              {},
 	"POST /api/email/webhooks/postmark":              {},
+	"POST /api/email-unsubscribe/{token}":            {},
 	"POST /api/workspace-exports":                    {},
 }
 

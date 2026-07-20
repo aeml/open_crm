@@ -30,6 +30,7 @@ func TestHostedWritePolicyClassifiesMutationsAndRecoveryRoutes(t *testing.T) {
 		{name: "billing portal recovery", method: http.MethodPost, pattern: "POST /api/billing/portal-session", want: false},
 		{name: "billing webhook recovery", method: http.MethodPost, pattern: "POST /api/billing/webhooks/stripe", want: false},
 		{name: "email feedback webhook recovery", method: http.MethodPost, pattern: "POST /api/email/webhooks/postmark", want: false},
+		{name: "public unsubscribe recovery", method: http.MethodPost, pattern: "POST /api/email-unsubscribe/{token}", want: false},
 		{name: "workspace export recovery", method: http.MethodPost, pattern: "POST /api/workspace-exports", want: false},
 		{name: "durable job replay", method: http.MethodPost, pattern: "POST /api/admin/background-jobs/{jobID}/replay", want: false},
 		{name: "profile recovery", method: http.MethodPatch, pattern: "PATCH /api/me/profile", want: false},

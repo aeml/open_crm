@@ -16,22 +16,23 @@ import (
 )
 
 type fakeUserEmailService struct {
-	configured       bool
-	account          moduleuseremail.Account
-	getErr           error
-	upsertErr        error
-	deleteErr        error
-	sendErr          error
-	sendCalled       bool
-	sendTo           string
-	sendSubject      string
-	sendBody         string
-	sendHTMLBody     string
-	sendReceipt      moduleuseremail.SendReceipt
-	memberOK         bool
-	lastUpsertUserID int64
-	lastOAuthInput   moduleuseremail.OAuthConnectionInput
-	syncStateInputs  []moduleuseremail.SyncStateInput
+	configured         bool
+	account            moduleuseremail.Account
+	getErr             error
+	upsertErr          error
+	deleteErr          error
+	sendErr            error
+	sendCalled         bool
+	sendTo             string
+	sendSubject        string
+	sendBody           string
+	sendHTMLBody       string
+	listUnsubscribeURL string
+	sendReceipt        moduleuseremail.SendReceipt
+	memberOK           bool
+	lastUpsertUserID   int64
+	lastOAuthInput     moduleuseremail.OAuthConnectionInput
+	syncStateInputs    []moduleuseremail.SyncStateInput
 }
 
 func (f *fakeUserEmailService) Configured() bool { return f.configured }
@@ -79,6 +80,7 @@ func (f *fakeUserEmailService) SendMessageAs(_ context.Context, _, _ int64, mess
 	f.sendSubject = message.Subject
 	f.sendBody = message.TextBody
 	f.sendHTMLBody = message.HTMLBody
+	f.listUnsubscribeURL = message.ListUnsubscribeURL
 	return f.sendReceipt, f.sendErr
 }
 
@@ -290,6 +292,7 @@ func TestSendContactEmailAddsUnsubscribeFooter(t *testing.T) {
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Forwarded-Proto", "https")
 	request.Header.Set("X-Forwarded-Host", "crm.example.test")
+	request.RemoteAddr = "10.0.0.2:4321"
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -305,8 +308,32 @@ func TestSendContactEmailAddsUnsubscribeFooter(t *testing.T) {
 	if !strings.Contains(accounts.sendHTMLBody, `<a href="`+expectedURL+`">unsubscribe here</a>`) {
 		t.Fatalf("expected HTML body to include unsubscribe link, got %q", accounts.sendHTMLBody)
 	}
+	if accounts.listUnsubscribeURL != expectedURL {
+		t.Fatalf("expected RFC 8058 unsubscribe URL %q, got %q", expectedURL, accounts.listUnsubscribeURL)
+	}
 	if !suppressions.tokenCalled || suppressions.lastOrgID != 42 || suppressions.lastEmail != "ada@acme.test" {
 		t.Fatalf("expected unsubscribe token for recipient, got %#v", suppressions)
+	}
+}
+
+func TestEmailTrackingBaseURLRejectsUntrustedForwardedOrigin(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "https://api.open-crm.example/api/contacts/8/email", nil)
+	request.RemoteAddr = "203.0.113.8:4321"
+	request.Header.Set("X-Forwarded-Proto", "https")
+	request.Header.Set("X-Forwarded-Host", "attacker.example")
+	if got := emailTrackingBaseURL(request); got != "https://api.open-crm.example" {
+		t.Fatalf("untrusted forwarded origin selected %q", got)
+	}
+
+	request.RemoteAddr = "10.0.0.2:4321"
+	request.Header.Set("X-Forwarded-Host", "crm.example.test")
+	if got := emailTrackingBaseURL(request); got != "https://crm.example.test" {
+		t.Fatalf("trusted reverse proxy origin selected %q", got)
+	}
+
+	request.Header.Set("X-Forwarded-Host", "crm.example.test/path")
+	if got := emailTrackingBaseURL(request); got != "" {
+		t.Fatalf("malformed forwarded host selected %q", got)
 	}
 }
 

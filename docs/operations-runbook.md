@@ -1160,6 +1160,45 @@ and [RFC 5965](https://www.rfc-editor.org/rfc/rfc5965.html). Microsoft raw MIME
 uses the documented Graph message `$value` representation; Gmail ingestion uses
 the provider's raw message representation.
 
+### Customer email unsubscribe and one-click validation
+
+Customer email and sequence sends retain a visible unsubscribe link in both
+text and HTML. When that public URL is absolute HTTPS, the shared SMTP/Gmail/
+Microsoft MIME builder also emits `List-Unsubscribe: <https://...>` and
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click`. HTTP development URLs stay
+body-only; production `API_BASE_URL` and reverse-proxy host/protocol forwarding
+must therefore resolve to the intended public HTTPS API origin.
+
+The public `GET /api/email-unsubscribe/{token}` is deliberately read-only. It
+validates the HMAC-signed organization/recipient token and renders a generic
+confirmation form, so mail-security scanners cannot opt a recipient out by
+fetching a link. The same URL accepts a URL-encoded or multipart `POST` only
+when its sole value is exactly `List-Unsubscribe=One-Click`; it returns `200`
+without redirecting. Replays are safe. A bounce may be promoted to an explicit
+unsubscribe, and a complaint always remains the strongest evidence; later
+unsubscribe, manual, or bounce writes cannot downgrade it. Do not clear or
+rewrite suppression evidence in SQL.
+
+Before approving a mailbox provider for pilot use:
+
+1. Send to a controlled recipient and inspect the raw delivered MIME for both
+   headers and the HTTPS URL. Confirm a link-scanner-style `GET` leaves the
+   recipient sendable until the confirmation `POST` occurs.
+2. Submit both supported RFC 8058 forms, repeat the request, and verify one
+   tenant-scoped suppression row plus future direct/sequence send rejection.
+3. Inspect the provider-added `DKIM-Signature` and prove its signed-header list
+   covers both `List-Unsubscribe` and `List-Unsubscribe-Post`. Open CRM creates
+   the headers but cannot guarantee a downstream SMTP/API provider signs or
+   preserves them; without this retained provider evidence, one-click UI at a
+   receiver remains unvalidated.
+4. Repeat through each approved SMTP, Google Workspace, and Microsoft 365 path,
+   recording the exact release, provider/message identifiers, received raw
+   headers, POST response, suppression result, and cleanup without retaining a
+   real recipient or token in general logs.
+
+Standards references: [RFC 8058](https://www.rfc-editor.org/rfc/rfc8058.html)
+and [RFC 2369](https://www.rfc-editor.org/rfc/rfc2369.html).
+
 ### Approving and pausing sequence email
 
 New and edited sequence definitions are drafts. An owner or admin must use

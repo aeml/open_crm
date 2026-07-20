@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -100,7 +101,34 @@ func BuildRFC822Message(fromName, fromEmail string, msg Message) ([]byte, error)
 			return nil, fmt.Errorf("invalid message id header")
 		}
 	}
-	return buildMessage(from, toAddress.Address, subject, msg.TextBody, msg.HTMLBody, messageID), nil
+	listUnsubscribeURL := ""
+	if strings.TrimSpace(msg.ListUnsubscribeURL) != "" {
+		listUnsubscribeURL = OneClickUnsubscribeURL(msg.ListUnsubscribeURL)
+		if listUnsubscribeURL == "" {
+			return nil, fmt.Errorf("invalid list unsubscribe URL")
+		}
+	}
+	return buildMessage(from, toAddress.Address, subject, msg.TextBody, msg.HTMLBody, messageID, listUnsubscribeURL), nil
+}
+
+// OneClickUnsubscribeURL returns a bounded HTTPS URL that is safe to place in
+// RFC 8058 List-Unsubscribe headers. An empty result means the URL must remain
+// a body-only development fallback and must not be emitted as a mail header.
+func OneClickUnsubscribeURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 2048 {
+		return ""
+	}
+	for _, character := range value {
+		if character < 0x21 || character > 0x7e {
+			return ""
+		}
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" || parsed.Opaque != "" {
+		return ""
+	}
+	return value
 }
 
 func sendImplicitTLS(addr, host string, auth smtp.Auth, from, to string, raw []byte) error {
@@ -139,13 +167,17 @@ func writeMessage(client *smtp.Client, from, to string, raw []byte) error {
 	return client.Quit()
 }
 
-func buildMessage(from, to, subject, textBody, htmlBody, messageID string) []byte {
+func buildMessage(from, to, subject, textBody, htmlBody, messageID, listUnsubscribeURL string) []byte {
 	var b strings.Builder
 	b.WriteString("From: " + from + "\r\n")
 	b.WriteString("To: " + to + "\r\n")
 	b.WriteString("Subject: " + subject + "\r\n")
 	if messageID != "" {
 		b.WriteString("Message-ID: " + messageID + "\r\n")
+	}
+	if listUnsubscribeURL != "" {
+		b.WriteString("List-Unsubscribe: <" + listUnsubscribeURL + ">\r\n")
+		b.WriteString("List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n")
 	}
 	b.WriteString("MIME-Version: 1.0\r\n")
 	if strings.TrimSpace(htmlBody) == "" {

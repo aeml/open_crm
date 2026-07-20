@@ -120,12 +120,8 @@ func rateLimitClientKey(r *http.Request) string {
 		return "unknown"
 	}
 
-	remoteHost := strings.TrimSpace(r.RemoteAddr)
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && host != "" {
-		remoteHost = host
-	}
-	remoteIP := net.ParseIP(remoteHost)
-	if remoteIP != nil && (remoteIP.IsLoopback() || remoteIP.IsPrivate()) {
+	remoteIP := requestRemoteIP(r)
+	if requestFromTrustedProxy(r) {
 		if forwarded := firstForwardedIP(r.Header.Get("X-Forwarded-For")); forwarded != "" {
 			return forwarded
 		}
@@ -133,10 +129,31 @@ func rateLimitClientKey(r *http.Request) string {
 	if remoteIP != nil {
 		return remoteIP.String()
 	}
+	remoteHost := requestRemoteHost(r)
 	if remoteHost != "" {
 		return remoteHost
 	}
 	return "unknown"
+}
+
+func requestRemoteIP(r *http.Request) net.IP {
+	return net.ParseIP(requestRemoteHost(r))
+}
+
+func requestRemoteHost(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	remoteHost := strings.TrimSpace(r.RemoteAddr)
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && host != "" {
+		remoteHost = host
+	}
+	return remoteHost
+}
+
+func requestFromTrustedProxy(r *http.Request) bool {
+	remoteIP := requestRemoteIP(r)
+	return remoteIP != nil && (remoteIP.IsLoopback() || remoteIP.IsPrivate())
 }
 
 func firstForwardedIP(value string) string {

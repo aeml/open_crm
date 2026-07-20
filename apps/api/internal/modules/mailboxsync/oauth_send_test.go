@@ -38,7 +38,7 @@ func TestOAuthSenderUsesExactGmailMIMEContract(t *testing.T) {
 			t.Fatalf("decode MIME: %v", err)
 		}
 		message := string(raw)
-		for _, expected := range []string{"From: \"Revenue Rep\" <rep@acme.test>", "To: lead@buyer.test", "Subject: Follow up", "Message-ID: <sequence-1@crm.acme.test>", "multipart/alternative", "Plain body", "<p>HTML body</p>"} {
+		for _, expected := range []string{"From: \"Revenue Rep\" <rep@acme.test>", "To: lead@buyer.test", "Subject: Follow up", "Message-ID: <sequence-1@crm.acme.test>", "List-Unsubscribe: <https://crm.acme.test/api/email-unsubscribe/signed.token>", "List-Unsubscribe-Post: List-Unsubscribe=One-Click", "multipart/alternative", "Plain body", "<p>HTML body</p>"} {
 			if !strings.Contains(message, expected) {
 				t.Fatalf("Gmail MIME missing %q: %s", expected, message)
 			}
@@ -49,7 +49,7 @@ func TestOAuthSenderUsesExactGmailMIMEContract(t *testing.T) {
 	defer server.Close()
 
 	sender := NewOAuthSender(OAuthSenderConfig{HTTPClient: server.Client(), GmailBaseURL: server.URL})
-	receipt, err := sender.Send(context.Background(), moduleuseremail.SyncCredentials{Provider: "google", FromEmail: "rep@acme.test", FromName: "Revenue Rep", OAuthAccess: "gmail-access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Follow up", TextBody: "Plain body", HTMLBody: "<p>HTML body</p>", MessageID: "<sequence-1@crm.acme.test>"})
+	receipt, err := sender.Send(context.Background(), moduleuseremail.SyncCredentials{Provider: "google", FromEmail: "rep@acme.test", FromName: "Revenue Rep", OAuthAccess: "gmail-access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Follow up", TextBody: "Plain body", HTMLBody: "<p>HTML body</p>", MessageID: "<sequence-1@crm.acme.test>", ListUnsubscribeURL: "https://crm.acme.test/api/email-unsubscribe/signed.token"})
 	if err != nil {
 		t.Fatalf("send Gmail message: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestOAuthSenderUsesExactMicrosoftMIMEContract(t *testing.T) {
 		if err != nil {
 			t.Fatalf("decode MIME: %v", err)
 		}
-		if message := string(raw); !strings.Contains(message, "To: lead@buyer.test") || !strings.Contains(message, "Message-ID: <sequence-2@crm.acme.test>") || !strings.Contains(message, "Plain body") {
+		if message := string(raw); !strings.Contains(message, "To: lead@buyer.test") || !strings.Contains(message, "Message-ID: <sequence-2@crm.acme.test>") || !strings.Contains(message, "List-Unsubscribe: <https://crm.acme.test/api/email-unsubscribe/signed.token>") || !strings.Contains(message, "List-Unsubscribe-Post: List-Unsubscribe=One-Click") || !strings.Contains(message, "Plain body") {
 			t.Fatalf("unexpected Microsoft MIME: %s", message)
 		}
 		w.WriteHeader(http.StatusAccepted)
@@ -85,7 +85,7 @@ func TestOAuthSenderUsesExactMicrosoftMIMEContract(t *testing.T) {
 	defer server.Close()
 
 	sender := NewOAuthSender(OAuthSenderConfig{HTTPClient: server.Client(), MicrosoftBaseURL: server.URL})
-	receipt, err := sender.Send(context.Background(), moduleuseremail.SyncCredentials{Provider: "microsoft", FromEmail: "rep@acme.test", OAuthAccess: "microsoft-access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Follow up", TextBody: "Plain body", MessageID: "<sequence-2@crm.acme.test>"})
+	receipt, err := sender.Send(context.Background(), moduleuseremail.SyncCredentials{Provider: "microsoft", FromEmail: "rep@acme.test", OAuthAccess: "microsoft-access"}, moduleemail.Message{To: "lead@buyer.test", Subject: "Follow up", TextBody: "Plain body", MessageID: "<sequence-2@crm.acme.test>", ListUnsubscribeURL: "https://crm.acme.test/api/email-unsubscribe/signed.token"})
 	if err != nil {
 		t.Fatalf("send Microsoft message: %v", err)
 	}

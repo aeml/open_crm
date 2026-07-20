@@ -16,12 +16,13 @@ import (
 
 // Message is a single outbound email.
 type Message struct {
-	To        string
-	Subject   string
-	TextBody  string
-	HTMLBody  string
-	MessageID string
-	Metadata  map[string]string
+	To                 string
+	Subject            string
+	TextBody           string
+	HTMLBody           string
+	MessageID          string
+	ListUnsubscribeURL string
+	Metadata           map[string]string
 }
 
 // SendResult is the provider's durable correlation reference for an accepted

@@ -31,6 +31,12 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.email-unsubscribe", publicWriteRateLimit, publicRateWindow, "Too many unsubscribe requests", w, r) {
 			return
 		}
+		handleEmailUnsubscribePreview(dependencies.EmailSuppressionsService, w, r)
+	})
+	mux.HandleFunc("POST /api/email-unsubscribe/{token}", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.email-unsubscribe", publicWriteRateLimit, publicRateWindow, "Too many unsubscribe requests", w, r) {
+			return
+		}
 		handleEmailUnsubscribe(dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages/open/{trackingToken}", func(w http.ResponseWriter, r *http.Request) {

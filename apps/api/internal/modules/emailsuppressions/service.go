@@ -91,10 +91,22 @@ func (s *Service) Suppress(ctx context.Context, organizationID int64, email, rea
 		INSERT INTO email_suppressions (organization_id, email, reason, source, created_by_user_id)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (organization_id, email) DO UPDATE SET
-		  reason = EXCLUDED.reason,
-		  source = EXCLUDED.source,
-		  created_by_user_id = COALESCE(EXCLUDED.created_by_user_id, email_suppressions.created_by_user_id),
-		  updated_at = NOW()
+		  reason = CASE
+		    WHEN array_position(ARRAY['bounce', 'unsubscribed', 'manual', 'complaint'], EXCLUDED.reason)
+		       > array_position(ARRAY['bounce', 'unsubscribed', 'manual', 'complaint'], email_suppressions.reason)
+		    THEN EXCLUDED.reason ELSE email_suppressions.reason END,
+		  source = CASE
+		    WHEN array_position(ARRAY['bounce', 'unsubscribed', 'manual', 'complaint'], EXCLUDED.reason)
+		       > array_position(ARRAY['bounce', 'unsubscribed', 'manual', 'complaint'], email_suppressions.reason)
+		    THEN EXCLUDED.source ELSE email_suppressions.source END,
+		  created_by_user_id = CASE
+		    WHEN array_position(ARRAY['bounce', 'unsubscribed', 'manual', 'complaint'], EXCLUDED.reason)
+		       > array_position(ARRAY['bounce', 'unsubscribed', 'manual', 'complaint'], email_suppressions.reason)
+		    THEN EXCLUDED.created_by_user_id ELSE email_suppressions.created_by_user_id END,
+		  updated_at = CASE
+		    WHEN array_position(ARRAY['bounce', 'unsubscribed', 'manual', 'complaint'], EXCLUDED.reason)
+		       > array_position(ARRAY['bounce', 'unsubscribed', 'manual', 'complaint'], email_suppressions.reason)
+		    THEN NOW() ELSE email_suppressions.updated_at END
 		RETURNING id, organization_id, email, reason, source, COALESCE(created_by_user_id, 0), created_at, updated_at
 	`, organizationID, email, reason, source, createdBy))
 }
@@ -121,6 +133,13 @@ func (s *Service) UnsubscribeByToken(ctx context.Context, token string) (Suppres
 		return Suppression{}, err
 	}
 	return s.Suppress(ctx, payload.OrganizationID, payload.Email, "unsubscribed", "public_unsubscribe", 0)
+}
+
+// ValidateUnsubscribeToken verifies a public link without changing suppression
+// state. It keeps link-preview scanners and browser GET requests read-only.
+func (s *Service) ValidateUnsubscribeToken(token string) error {
+	_, err := s.verifyToken(token)
+	return err
 }
 
 func (s *Service) verifyToken(value string) (tokenPayload, error) {

@@ -223,6 +223,7 @@ func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string
 	}
 	receipt, err := s.sender.SendMessageAs(ctx, send.OrganizationID, send.EnrolledByUserID, moduleemail.Message{
 		To: delivery.RecipientEmail, Subject: delivery.Subject, TextBody: delivery.TextBody, HTMLBody: delivery.HTMLBody, MessageID: delivery.RFCMessageID,
+		ListUnsubscribeURL: moduleemail.OneClickUnsubscribeURL(unsubscribeURL),
 	})
 	if err != nil {
 		_ = store.MarkDeliveryUncertain(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder, err)
@@ -310,7 +311,10 @@ func (s *Service) sendOne(ctx context.Context, send moduleemailsequences.DueSend
 	bodyToSend := textBodyWithUnsubscribe(body, unsubscribeURL)
 	htmlBody := htmlBodyWithUnsubscribe(body, unsubscribeURL)
 
-	receipt, err := s.sender.SendMessageAs(ctx, send.OrganizationID, send.EnrolledByUserID, moduleemail.Message{To: send.ContactEmail, Subject: subject, TextBody: bodyToSend, HTMLBody: htmlBody})
+	receipt, err := s.sender.SendMessageAs(ctx, send.OrganizationID, send.EnrolledByUserID, moduleemail.Message{
+		To: send.ContactEmail, Subject: subject, TextBody: bodyToSend, HTMLBody: htmlBody,
+		ListUnsubscribeURL: moduleemail.OneClickUnsubscribeURL(unsubscribeURL),
+	})
 	if err != nil {
 		s.record(ctx, send, subject, bodyToSend, "failed", err.Error(), sendCorrelation{})
 		_ = s.sequences.PostponeEnrollment(ctx, send.OrganizationID, send.EnrollmentID, failureRetryDelayMinutes)

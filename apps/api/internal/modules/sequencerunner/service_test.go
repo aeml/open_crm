@@ -124,18 +124,19 @@ func (f *fakeSequenceStore) PostponeEnrollment(_ context.Context, organizationID
 }
 
 type fakeMailboxSender struct {
-	configured bool
-	err        error
-	orgID      int64
-	userID     int64
-	to         string
-	subject    string
-	body       string
-	htmlBody   string
-	calls      int
-	receipt    moduleuseremail.SendReceipt
-	messageID  string
-	messageIDs []string
+	configured         bool
+	err                error
+	orgID              int64
+	userID             int64
+	to                 string
+	subject            string
+	body               string
+	htmlBody           string
+	calls              int
+	receipt            moduleuseremail.SendReceipt
+	messageID          string
+	listUnsubscribeURL string
+	messageIDs         []string
 }
 
 func (f *fakeMailboxSender) Configured() bool { return f.configured }
@@ -149,6 +150,7 @@ func (f *fakeMailboxSender) SendMessageAs(_ context.Context, organizationID, use
 	f.body = message.TextBody
 	f.htmlBody = message.HTMLBody
 	f.messageID = message.MessageID
+	f.listUnsubscribeURL = message.ListUnsubscribeURL
 	f.messageIDs = append(f.messageIDs, message.MessageID)
 	if f.err != nil {
 		return moduleuseremail.SendReceipt{}, f.err
@@ -316,6 +318,9 @@ func TestSendDueAddsUnsubscribeFooterWhenConfigured(t *testing.T) {
 	}
 	if !strings.Contains(sender.htmlBody, `<a href="`+expectedURL+`">unsubscribe here</a>`) {
 		t.Fatalf("expected HTML body to include unsubscribe link, got %q", sender.htmlBody)
+	}
+	if sender.listUnsubscribeURL != expectedURL {
+		t.Fatalf("expected RFC 8058 unsubscribe URL %q, got %q", expectedURL, sender.listUnsubscribeURL)
 	}
 	if messages.input.Body != sender.body {
 		t.Fatalf("email log should record sent body with footer, got %q", messages.input.Body)

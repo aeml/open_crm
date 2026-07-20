@@ -401,6 +401,7 @@ type emailMessagesService interface {
 type emailSuppressionsService interface {
 	IsSuppressed(context.Context, int64, string) (bool, error)
 	UnsubscribeToken(int64, string) (string, error)
+	ValidateUnsubscribeToken(string) error
 	UnsubscribeByToken(context.Context, string) (moduleemailsuppressions.Suppression, error)
 }
 
