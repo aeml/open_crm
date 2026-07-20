@@ -920,8 +920,15 @@ assign-away/back event; inactive, foreign, self, and opted-out recipients do not
 receive one. Disposable-PostgreSQL acceptance covers direct, bulk, lifecycle,
 rollback, preference, and failed-sink behavior, while the notification-center
 test and clean-browser pilot journey prove the assignment filter and deal deep
-link. In-app delivery remains deliberately below production-capable until
-retention, event-quality observability, and pilot noise validation are complete.
+link. Startup/hourly multi-instance-safe retention now keeps acknowledged items
+for 90 days and unread items for 365 days in bounded batches. Protected
+aggregate metrics and validated alerts expose backlog age, reviewed event mix,
+per-recipient concentration, cleanup failures, and deletion counts without
+tenant or user labels; unknown event values collapse into `other`.
+Disposable-PostgreSQL acceptance covers both retention boundaries,
+idempotency, bounded concurrent cleanup, 24-hour event aggregation, and the
+privacy-safe fallback. In-app delivery remains deliberately below
+production-capable until pilot noise and event selection are validated.
 
 ## Version 0.4.5 - Mention And Follow Model
 

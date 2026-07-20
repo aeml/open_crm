@@ -62,6 +62,10 @@ type Collector struct {
 	providerSeconds map[providerKey]float64
 	jobOutcomes     map[jobKey]uint64
 	rateLimits      map[rateLimitKey]uint64
+	retentionRuns   map[string]uint64
+	retentionRows   map[string]uint64
+	retentionLastAt time.Time
+	retentionLastOK bool
 }
 
 func NewCollector() *Collector {
@@ -73,6 +77,8 @@ func NewCollector() *Collector {
 		providerSeconds: make(map[providerKey]float64),
 		jobOutcomes:     make(map[jobKey]uint64),
 		rateLimits:      make(map[rateLimitKey]uint64),
+		retentionRuns:   make(map[string]uint64),
+		retentionRows:   make(map[string]uint64),
 	}
 }
 
@@ -151,15 +157,22 @@ func (c *Collector) ObserveRateLimit(scope, outcome string) {
 }
 
 type RuntimeSnapshot struct {
-	CollectionSuccess bool
-	DatabaseUp        bool
-	JobsAvailable     bool
-	JobsPending       int
-	JobsRunning       int
-	JobsRetryable     int
-	JobsDead          int
-	OldestReadyLag    time.Duration
-	Backup            BackupStatus
+	CollectionSuccess              bool
+	DatabaseUp                     bool
+	JobsAvailable                  bool
+	JobsPending                    int
+	JobsRunning                    int
+	JobsRetryable                  int
+	JobsDead                       int
+	OldestReadyLag                 time.Duration
+	NotificationsAvailable         bool
+	NotificationsUnread            int64
+	NotificationsCreated24h        int64
+	NotificationRecipients24h      int64
+	NotificationMaxPerRecipient24h int64
+	OldestUnreadAge                time.Duration
+	NotificationEvents24h          map[string]int64
+	Backup                         BackupStatus
 }
 
 type SnapshotSource func(context.Context) RuntimeSnapshot
@@ -205,6 +218,10 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	providerSeconds := copyMap(c.providerSeconds)
 	jobOutcomes := copyMap(c.jobOutcomes)
 	rateLimits := copyMap(c.rateLimits)
+	retentionRuns := copyMap(c.retentionRuns)
+	retentionRows := copyMap(c.retentionRows)
+	retentionLastAt := c.retentionLastAt
+	retentionLastOK := c.retentionLastOK
 	startedAt := c.startedAt
 	c.mu.RUnlock()
 
@@ -269,6 +286,12 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	writeHelpType(&output, "open_crm_background_job_oldest_ready_lag_seconds", "Age of the oldest runnable pending or retryable job.", "gauge")
 	fmt.Fprintf(&output, "open_crm_background_job_oldest_ready_lag_seconds %s\n", durationValue(snapshot.OldestReadyLag))
 
+	writeNotificationMetrics(&output, snapshot, notificationRetentionSnapshot{
+		Runs:      retentionRuns,
+		Rows:      retentionRows,
+		LastRunAt: retentionLastAt,
+		LastRunOK: retentionLastOK,
+	})
 	writeBackupMetrics(&output, snapshot.Backup)
 	return output.String()
 }

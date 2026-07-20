@@ -101,6 +101,42 @@ groups:
           summary: Open CRM is rejecting elevated public endpoint traffic
           runbook: docs/operations-runbook.md#public-endpoint-abuse-controls
 
+      - alert: OpenCRMNotificationMetricsUnavailable
+        expr: open_crm_notifications_available == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM notification health cannot be read
+          runbook: docs/operations-runbook.md#notification-retention-and-noise
+
+      - alert: OpenCRMNotificationRetentionErrors
+        expr: open_crm_notification_retention_last_run_timestamp_seconds > 0 and open_crm_notification_retention_last_run_success == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM notification retention is failing
+          runbook: docs/operations-runbook.md#notification-retention-and-noise
+
+      - alert: OpenCRMNotificationRetentionStale
+        expr: open_crm_notifications_available == 1 and (open_crm_notification_retention_last_run_timestamp_seconds == 0 or time() - open_crm_notification_retention_last_run_timestamp_seconds > 7200)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM notification retention has not completed for two hours
+          runbook: docs/operations-runbook.md#notification-retention-and-noise
+
+      - alert: OpenCRMNotificationRecipientVolumeHigh
+        expr: open_crm_notification_max_per_recipient_24h > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: One Open CRM recipient has elevated notification volume
+          runbook: docs/operations-runbook.md#notification-retention-and-noise
+
       - alert: OpenCRMBackupStatusUnavailable
         expr: open_crm_backup_status_available == 0
         for: 30m

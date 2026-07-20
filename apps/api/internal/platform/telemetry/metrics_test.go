@@ -35,15 +35,28 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 	collector.ObserveJob("email_sequence.send", "retryable")
 	collector.ObserveJob("mailbox.sync", "deferred")
 	collector.ObserveRateLimit("public.lead-submission", "rejected")
+	collector.ObserveNotificationRetention("success", 4, 2)
+	collector.ObserveNotificationRetention("unexpected-outcome", -1, 3)
 
 	handler := collector.Handler("monitoring-token-that-is-at-least-32", func(context.Context) RuntimeSnapshot {
 		return RuntimeSnapshot{
-			CollectionSuccess: true,
-			DatabaseUp:        true,
-			JobsAvailable:     true,
-			JobsPending:       2,
-			JobsDead:          1,
-			OldestReadyLag:    3 * time.Minute,
+			CollectionSuccess:              true,
+			DatabaseUp:                     true,
+			JobsAvailable:                  true,
+			JobsPending:                    2,
+			JobsDead:                       1,
+			OldestReadyLag:                 3 * time.Minute,
+			NotificationsAvailable:         true,
+			NotificationsUnread:            8,
+			NotificationsCreated24h:        12,
+			NotificationRecipients24h:      4,
+			NotificationMaxPerRecipient24h: 6,
+			OldestUnreadAge:                48 * time.Hour,
+			NotificationEvents24h: map[string]int64{
+				"deal.assigned":         2,
+				"other":                 3,
+				"customer-secret-event": 4,
+			},
 			Backup: BackupStatus{
 				Available:                   true,
 				LastSuccessAt:               time.Unix(100, 0),
@@ -72,6 +85,19 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 		`open_crm_rate_limit_decisions_total{scope="public.lead-submission",outcome="rejected"} 1`,
 		`open_crm_background_jobs{status="dead"} 1`,
 		`open_crm_background_job_oldest_ready_lag_seconds 180`,
+		`open_crm_notifications_available 1`,
+		`open_crm_notifications_unread 8`,
+		`open_crm_notifications_created_24h 12`,
+		`open_crm_notification_recipients_24h 4`,
+		`open_crm_notification_max_per_recipient_24h 6`,
+		`open_crm_notification_oldest_unread_age_seconds 172800`,
+		`open_crm_notification_events_24h{event_type="deal.assigned"} 2`,
+		`open_crm_notification_events_24h{event_type="other"} 7`,
+		`open_crm_notification_retention_runs_total{outcome="success"} 1`,
+		`open_crm_notification_retention_runs_total{outcome="error"} 1`,
+		`open_crm_notification_retention_deleted_total{state="read"} 4`,
+		`open_crm_notification_retention_deleted_total{state="unread"} 5`,
+		`open_crm_notification_retention_last_run_success 0`,
 		`open_crm_backup_last_success_timestamp_seconds 100`,
 		`open_crm_backup_last_attempt_success 0`,
 	} {
@@ -79,7 +105,7 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 			t.Fatalf("metrics missing %q:\n%s", expected, body)
 		}
 	}
-	if strings.Contains(body, "tenant=") || strings.Contains(body, "123456") {
+	if strings.Contains(body, "tenant=") || strings.Contains(body, "123456") || strings.Contains(body, "customer-secret-event") {
 		t.Fatalf("metrics unexpectedly expose tenant/record labels:\n%s", body)
 	}
 }

@@ -18,7 +18,9 @@ This runbook covers the production Docker Compose deployment used by `scripts/re
 `GET /metrics` exposes dependency-free Prometheus text metrics for bounded HTTP
 route/status/latency, PostgreSQL readiness, aggregate (not tenant-labeled)
 durable queue state/lag, worker outcomes, Postmark/SMTP outcomes, and verified
-backup/restore evidence. The route is hidden with `404` unless
+backup/restore evidence. It also reports aggregate notification backlog, age,
+reviewed event mix, per-recipient concentration, and retention outcomes without
+tenant, recipient, or record labels. The route is hidden with `404` unless
 `METRICS_BEARER_TOKEN` contains at least 32 characters; invalid credentials
 receive `401`. The deployment Compose port is loopback-bound, and the token is
 still required because a reverse proxy could otherwise expose the route.
@@ -57,8 +59,9 @@ promtool check config /etc/prometheus/prometheus.yml
 
 The reference rules alert on metrics collection or database failure, sustained
 5xx ratio/p95 latency, queue collection/lag/dead letters/worker errors,
-provider failures, backup evidence/failure/freshness, and restore-drill
-failure/freshness. They do not choose an Alertmanager destination. Before a
+provider failures, notification collection/retention/elevated recipient volume,
+backup evidence/failure/freshness, and restore-drill failure/freshness. They do
+not choose an Alertmanager destination. Before a
 pilot, the operator must route critical and warning alerts to an approved
 on-call destination, send a synthetic test alert, and record its receipt. Do
 not place destination credentials in this repository.
@@ -870,6 +873,66 @@ or notification row manually. If the notification insert fails, the owner
 mutation also fails and may be safely retried through the original UI/API action.
 Assignment notifications are not background jobs and therefore do not appear in
 the Operations replay queue.
+
+### Notification retention and noise
+
+Notification retention runs immediately when the API starts and hourly
+thereafter. Acknowledged rows are retained for 90 days from `read_at`; unread
+rows are retained for 365 days from `created_at`. Each pass removes at most 500
+rows from each class with `FOR UPDATE SKIP LOCKED`, so multiple API instances
+can clean concurrently and a large backlog cannot turn one pass into an
+unbounded table lock. A failed later class does not conceal rows already
+removed by the earlier class; the outcome and both deletion counts are emitted
+for that pass. Do not delete notification rows manually to clear an alert.
+
+The protected metrics endpoint exposes:
+
+- `open_crm_notifications_available`, aggregate unread count and oldest-unread
+  age;
+- trailing-24-hour total volume, distinct organization-recipient pair count,
+  and maximum volume for one pair;
+- a finite event mix for `deal.assigned`, `meeting.reminder`,
+  `record.activity`, `record.mentioned`, `task.assigned`, `task.due_soon`, and
+  `task.overdue`; all unreviewed values are combined as `other`; and
+- retention run outcomes, last-run timestamp/success, and read/unread deletion
+  counters. Process counters reset on API restart; Prometheus `increase` handles
+  this reset.
+
+No metric identifies the affected tenant or user. If
+`OpenCRMNotificationMetricsUnavailable` fires, check PostgreSQL readiness and
+the API scrape logs first. If `OpenCRMNotificationRetentionErrors` fires, find
+`notification retention failed` in structured API logs, repair the database or
+migration issue, and let the next hourly pass retry. A missing initial pass or
+more than two hours without a pass raises `OpenCRMNotificationRetentionStale`.
+Confirm the last-run success gauge returns to `1`, its timestamp advances, and
+the error counter stops increasing.
+
+`OpenCRMNotificationRecipientVolumeHigh` is a provisional pilot noise warning,
+not a customer-volume SLO. It fires when one organization-recipient pair has
+more than 100 events in the trailing 24 hours. An authorized database operator
+can identify the internal IDs and event mix without selecting notification
+summaries or user PII:
+
+```sql
+SELECT organization_id, user_id, COUNT(*) AS events
+FROM notifications
+WHERE created_at >= NOW() - INTERVAL '24 hours'
+GROUP BY organization_id, user_id
+ORDER BY events DESC
+LIMIT 20;
+
+SELECT event_type, COUNT(*) AS events
+FROM notifications
+WHERE created_at >= NOW() - INTERVAL '24 hours'
+GROUP BY event_type
+ORDER BY events DESC;
+```
+
+Check for a replaying producer, an accidental broad follower fan-out, or a
+new `other` event before changing thresholds. Record actual pilot volumes and
+recipient feedback; revise the threshold only with that evidence. If a legal or
+contractual retention requirement differs, change the policy and acceptance
+tests deliberately before pilot use rather than relying on manual cleanup.
 
 ### Uncertain sequence email
 

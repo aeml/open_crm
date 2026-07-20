@@ -1346,3 +1346,18 @@ func TestMigrationFilesIncludeDealAssignmentNotificationsMigration(t *testing.T)
 		t.Fatalf("deal assignment notification migration class=%q", class)
 	}
 }
+
+func TestMigrationFilesIncludeNotificationRetentionMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "082_notification_retention.sql") {
+		t.Fatal("notification retention migration is missing")
+	}
+	sql := MigrationSQL("082_notification_retention.sql")
+	for _, fragment := range []string{"idx_notifications_retention_read", "idx_notifications_retention_unread", "idx_notifications_operational_created", "INCLUDE (organization_id, user_id, event_type)"} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("notification retention migration missing %q", fragment)
+		}
+	}
+	if class := MigrationDeploymentClass("082_notification_retention.sql"); class != "expand" {
+		t.Fatalf("notification retention migration class=%q", class)
+	}
+}

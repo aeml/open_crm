@@ -24,10 +24,11 @@ type Notification struct {
 
 type Service struct {
 	pool *pgxpool.Pool
+	now  func() time.Time
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+	return &Service{pool: pool, now: time.Now}
 }
 
 func (s *Service) ListForUser(ctx context.Context, organizationID, userID int64) ([]Notification, error) {

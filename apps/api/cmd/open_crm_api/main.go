@@ -296,6 +296,9 @@ func main() {
 			go jobWorker.Run(ctx)
 		}
 	}
+	if notificationsService != nil {
+		go notificationsService.RunRetentionScheduler(ctx, logger, modulenotifications.DefaultRetentionPolicy(), 0, metrics)
+	}
 
 	checkReadiness := func(ctx context.Context) error {
 		if dbConfigErr != nil {
@@ -326,6 +329,19 @@ func main() {
 			if !stats.OldestReadyAt.IsZero() {
 				snapshot.OldestReadyLag = time.Since(stats.OldestReadyAt)
 			}
+		}
+		if notificationsService == nil {
+			snapshot.CollectionSuccess = false
+		} else if stats, err := notificationsService.OperationalStats(ctx); err != nil {
+			snapshot.CollectionSuccess = false
+		} else {
+			snapshot.NotificationsAvailable = true
+			snapshot.NotificationsUnread = stats.Unread
+			snapshot.NotificationsCreated24h = stats.Created24h
+			snapshot.NotificationRecipients24h = stats.Recipients24h
+			snapshot.NotificationMaxPerRecipient24h = stats.MaxPerRecipient24h
+			snapshot.OldestUnreadAge = stats.OldestUnreadAge
+			snapshot.NotificationEvents24h = stats.Events24h
 		}
 		snapshot.Backup = platformtelemetry.ReadBackupStatus(env.BackupStatusPath)
 		return snapshot
