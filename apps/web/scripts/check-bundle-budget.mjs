@@ -52,6 +52,11 @@ if (!entry) {
 }
 
 const asynchronousChunks = javascript.filter(({ name }) => name !== entry.name)
+for (const hiddenFoundation of ['settings_calendar-', 'settings_marketing_email_campaigns-', 'settings_nurture_campaigns-']) {
+  if (javascript.some(({ name }) => name.startsWith(hiddenFoundation))) {
+    failures.push(`incomplete production route was bundled: ${hiddenFoundation}`)
+  }
+}
 const largestAsynchronous = asynchronousChunks.reduce(
   (largest, chunk) => (chunk.raw > largest.raw ? chunk : largest),
   { name: 'none', raw: 0, gzip: 0 },

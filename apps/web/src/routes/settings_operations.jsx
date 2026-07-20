@@ -30,6 +30,7 @@ function jobLabel(type) {
   if (type === 'mailbox.sync') return 'Mailbox sync'
   if (type === 'email_sequence.send') return 'Email sequence send'
   if (type === 'billing.reconcile') return 'Billing reconciliation'
+  if (type === 'workspace.export.generate') return 'Workspace export'
   return type || 'Background job'
 }
 
@@ -127,7 +128,7 @@ export function SettingsOperationsRoute() {
           <div className="section-header">
             <div>
               <h2>Background operations</h2>
-              <p>Inspect durable reminders, mailbox sync, billing reconciliation, and sequence delivery work for {session?.organization?.name || 'your workspace'}.</p>
+              <p>Inspect durable reminders, mailbox sync, billing reconciliation, workspace export, and sequence delivery work for {session?.organization?.name || 'your workspace'}.</p>
             </div>
             <Button className="button-secondary" type="button" onClick={() => load()} disabled={!canOperate || isLoading}>Refresh</Button>
           </div>
@@ -153,6 +154,7 @@ export function SettingsOperationsRoute() {
                 <option value="calendar.reminder">Calendar reminders</option>
                 <option value="mailbox.sync">Mailbox sync</option>
                 <option value="billing.reconcile">Billing reconciliation</option>
+                <option value="workspace.export.generate">Workspace exports</option>
                 <option value="email_sequence.send">Email sequence sends</option>
               </select>
             </Field>

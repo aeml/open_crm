@@ -1253,3 +1253,18 @@ func TestMigrationFilesIncludeBillingReconciliationMigration(t *testing.T) {
 		t.Fatalf("billing reconciliation deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeWorkspaceExportsMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "076_workspace_exports.sql") {
+		t.Fatal("expected workspace exports migration to be registered")
+	}
+	sql := MigrationSQL("076_workspace_exports.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "workspace_exports", "artifact BYTEA", "dataset_counts", "workspace_exports_ready_shape_check", "idx_workspace_exports_expiry"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("workspace exports migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("076_workspace_exports.sql"); class != "expand" {
+		t.Fatalf("workspace exports deployment class = %q", class)
+	}
+}

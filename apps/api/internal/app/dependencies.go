@@ -46,6 +46,7 @@ import (
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
+	moduleworkspaceexports "github.com/aeml/open_crm/apps/api/internal/modules/workspaceexports"
 	platformtelemetry "github.com/aeml/open_crm/apps/api/internal/platform/telemetry"
 )
 
@@ -129,6 +130,12 @@ type dataExportsService interface {
 	CompaniesCSV(context.Context, int64, moduleexports.CompaniesQuery) (moduleexports.File, error)
 	DealsCSV(context.Context, int64, moduleexports.DealsQuery) (moduleexports.File, error)
 	TasksCSV(context.Context, int64, moduleexports.TasksQuery) (moduleexports.File, error)
+}
+
+type workspaceExportsService interface {
+	Request(context.Context, int64, int64, string) (moduleworkspaceexports.Export, error)
+	List(context.Context, int64) ([]moduleworkspaceexports.Export, error)
+	Download(context.Context, int64, int64, int64) (moduleworkspaceexports.Download, error)
 }
 
 type orgProfileService interface {
@@ -389,6 +396,7 @@ type Dependencies struct {
 	DealsService                    dealsService
 	TasksService                    tasksService
 	ExportsService                  dataExportsService
+	WorkspaceExportsService         workspaceExportsService
 	OrgProfileService               orgProfileService
 	DashboardService                dashboardService
 	ClientReviewsService            clientReviewsService

@@ -20,6 +20,7 @@ var hostedWriteRecoveryRoutes = map[string]struct{}{
 	"POST /api/billing/checkout-session":             {},
 	"POST /api/billing/portal-session":               {},
 	"POST /api/billing/webhooks/stripe":              {},
+	"POST /api/workspace-exports":                    {},
 }
 
 type hostedWritePolicyContextKey struct{}

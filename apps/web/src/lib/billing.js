@@ -1,4 +1,4 @@
-import { apiRequest } from './api'
+import { apiRequest, apiURL } from './api'
 
 export async function getEntitlements({ signal } = {}) {
   const payload = await apiRequest('/api/billing/entitlements', { fallbackMessage: 'Unable to load plan details.', signal })
@@ -35,6 +35,22 @@ export async function createBillingPortalSession({ signal } = {}) {
     signal
   })
   return payload?.data || null
+}
+
+export async function listWorkspaceExports({ signal } = {}) {
+  const payload = await apiRequest('/api/workspace-exports', { fallbackMessage: 'Unable to load workspace exports.', signal })
+  return payload?.data?.exports || []
+}
+
+export async function requestWorkspaceExport(idempotencyKey) {
+  const payload = await apiRequest('/api/workspace-exports', {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: 'Unable to request a workspace export.'
+  })
+  return payload?.data?.export || null
+}
+
+export function workspaceExportDownloadURL(exportID) {
+  return apiURL(`/api/workspace-exports/${exportID}/download`)
 }
 
 const featureLabels = {

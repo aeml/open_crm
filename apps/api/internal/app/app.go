@@ -431,6 +431,15 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("GET /api/audit-events", func(w http.ResponseWriter, r *http.Request) {
 		handleListAuditEvents(dependencies.AuthService, dependencies.AuditService, w, r)
 	})
+	mux.HandleFunc("GET /api/workspace-exports", func(w http.ResponseWriter, r *http.Request) {
+		handleListWorkspaceExports(dependencies.AuthService, dependencies.WorkspaceExportsService, w, r)
+	})
+	mux.HandleFunc("POST /api/workspace-exports", func(w http.ResponseWriter, r *http.Request) {
+		handleRequestWorkspaceExport(dependencies.AuthService, dependencies.WorkspaceExportsService, w, r)
+	})
+	mux.HandleFunc("GET /api/workspace-exports/{exportID}/download", func(w http.ResponseWriter, r *http.Request) {
+		handleDownloadWorkspaceExport(dependencies.AuthService, dependencies.WorkspaceExportsService, w, r)
+	})
 	mux.HandleFunc("GET /api/admin/background-jobs", func(w http.ResponseWriter, r *http.Request) {
 		handleListBackgroundJobs(dependencies.AuthService, dependencies.BackgroundJobsService, w, r)
 	})

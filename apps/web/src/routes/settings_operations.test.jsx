@@ -85,4 +85,25 @@ describe('settings operations route', () => {
     expect(screen.getByText(/re-reads ordered, tenant-matched Stripe state/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /replay job/i })).toBeEnabled()
   })
+
+  it('labels and filters portable workspace export recovery jobs', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { user: { id: 1 }, organization: { id: 1, name: 'Acme' }, membership: { role: 'owner' } } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { jobs: [{ id: 10, type: 'workspace.export.generate', status: 'dead', attempts: 3, maxAttempts: 3, lastError: 'Export coverage must be updated' }], stats: { dead: 1 } } })
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { jobs: [], stats: { dead: 0 } } }) })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/operations')
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /workspace export · dead/i })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Job type'), { target: { value: 'workspace.export.generate' } })
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/type=workspace\.export\.generate/), expect.any(Object))
+    })
+  })
 })

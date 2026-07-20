@@ -90,15 +90,16 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 178.78 KiB/58.13 KiB entry, 46.96 KiB/12.20 KiB largest lazy
-chunk, and 649.81 KiB/205.81 KiB total assets. The Stripe hosted-billing
-foundation remains isolated in a 7.31 KiB/2.65 KiB settings route. Its
-7.39 KiB/2.67 KiB background-operations route includes labeled replay, while a
+Current evidence: 177.99 KiB/57.92 KiB entry, 47.56 KiB/12.24 KiB largest lazy
+chunk, and 628.13 KiB/198.53 KiB total assets. Hosted billing and portable
+workspace export remain isolated in a 10.29 KiB/3.46 KiB settings route. Its
+7.54 KiB/2.71 KiB background-operations route includes labeled replay, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
-signup, import, merge, and bulk recovery paths. The aggregate raw ceiling is
-now effectively full. The access-state slice stayed within it by centralizing
-role/write decisions and compacting root navigation/profile metadata instead
-of raising the ceiling; future frontend slices must do the same. The complete custom-field outcome
+signup, import, merge, and bulk recovery paths. Production builds now omit the
+incomplete booking-link, marketing-email, and nurture-campaign management
+routes; the bundle gate rejects their accidental inclusion. This restored
+aggregate headroom while making production exposure match executable behavior.
+Future frontend slices must remain within the ratcheted ceilings. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget

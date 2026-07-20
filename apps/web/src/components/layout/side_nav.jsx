@@ -1,6 +1,12 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../app/providers'
 
+const foundationLinks = import.meta.env.DEV ? [
+  ['/settings/marketing-email-campaigns', 'Email Campaigns'],
+  ['/settings/nurture-campaigns', 'Nurture Campaigns'],
+  ['/settings/calendar', 'Booking Links']
+] : []
+
 const baseLinks = [
   ['/dashboard', 'Dashboard'],
   ['/reports', 'Reports'],
@@ -19,12 +25,10 @@ const baseLinks = [
   ['/settings/lead-forms', 'Lead Forms'],
   ['/settings/landing-pages', 'Landing Pages'],
   ['/settings/lead-audiences', 'Audiences'],
-  ['/settings/marketing-email-campaigns', 'Email Campaigns'],
-  ['/settings/nurture-campaigns', 'Nurture Campaigns'],
+  ...foundationLinks,
   ['/settings/lead-scoring', 'Lead Scoring'],
   ['/settings/lead-widgets', 'Website Widgets'],
   ['/settings/automations', 'Automations'],
-  ['/settings/calendar', 'Booking Links'],
   ['/settings/email-log', 'Email Log'],
   ['/settings/billing', 'Plan & Billing'],
   ['/settings/audit', 'Audit Trail'],

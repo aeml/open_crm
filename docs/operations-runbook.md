@@ -143,9 +143,10 @@ operating policy have been reviewed.
    `read_only`, the persistent banner appears, and normal mutation controls are
    absent or disabled. An authorized direct CRM mutation must still return
    `402 SUBSCRIPTION_INACTIVE`, while a viewer receives `403` before billing is
-   disclosed. Navigation, reads, CSV exports, Plan & Billing, own profile and
-   preferences, notification acknowledgement, and Operations replay remain
-   available; the public lead form returns only `503 FORM_UNAVAILABLE`.
+   disclosed. Navigation, reads, CSV exports, portable workspace export, Plan &
+   Billing, own profile and preferences, notification acknowledgement, and
+   Operations replay remain available; the public lead form returns only `503
+   FORM_UNAVAILABLE`.
    Non-billing tenant jobs should move to `retryable` with a `deferred` worker
    outcome, `subscription inactive`, a later `run_at`, and no net increase in
    `attempts`; the `billing.reconcile` job must continue. After payment recovery,
@@ -215,10 +216,52 @@ references.
    custom-field filter and export the smaller result; retain the filter and time
    with the file. Filters are not a substitute for a complete tenant package
    unless they form reviewed, non-overlapping sets.
-4. A tenant requiring more than 10,000 rows in one record type must use the
-   future durable tenant-offboarding export once Phase 3 provides it. Do not
-   raise the in-memory ceiling, run ad hoc production SQL, or assume several
-   informal filtered downloads prove completeness.
+4. A tenant requiring more than 10,000 rows in one record type should use the
+   portable workspace export below. Do not raise the in-memory ceiling, run ad
+   hoc production SQL, or assume several informal filtered downloads prove
+   completeness.
+
+### Portable workspace export and recovery
+
+1. An owner or admin opens **Settings > Plan & Billing** and selects **Create
+   workspace export**. This path remains available when hosted billing places
+   the workspace in read-only mode. The request, its durable
+   `workspace.export.generate` job, and audit evidence commit together under a
+   stable idempotency key. The server permits only one pending/processing export
+   per workspace, regardless of browser tabs or direct API clients.
+2. The worker reads one repeatable-read, read-only PostgreSQL snapshot and
+   writes a ZIP containing `manifest.json`, `README.txt`, and one NDJSON file
+   per exported dataset. The manifest records row counts, creation/expiry time,
+   and package format. The ready record exposes the whole-file SHA-256 and byte
+   size; preserve those values with the downloaded file and verify the digest
+   before relying on a transferred copy.
+3. The package includes current and archived tenant business records,
+   configuration, membership/user profile data, activity, audit history, and
+   provider-safe operational metadata. It deliberately excludes passwords,
+   sessions, verification/setup/tracking tokens, provider credentials and sync
+   cursors, Stripe-sensitive references and URLs, internal billing/job ledgers,
+   private mailbox content, prior export artifacts, and raw attachment bodies.
+   Shared communication data is included. External file references may remain,
+   but the product does not currently store attachment bodies to embed.
+4. Self-service generation refuses any row above 10 MiB, more than 200 MiB
+   uncompressed data, or more than 50 MiB compressed output. It also fails
+   closed when a migration adds an organization-scoped table without an
+   explicit exported-or-excluded classification. For a failed or dead job,
+   open **Settings > Operations**, filter **Workspace export**, inspect the
+   bounded error, correct the size/schema/query cause, and replay the job. Do
+   not mark the export ready or copy database rows by hand.
+5. At most the three newest ready artifacts remain downloadable per workspace.
+   Ready artifacts otherwise expire after seven days. The hourly cleanup and ordinary
+   export listing both clear expired ZIP bytes while retaining status,
+   checksum, counts, audit, and expiry metadata. Generate a new package rather
+   than attempting to restore an expired artifact. Cross-tenant or unauthorized
+   downloads return a non-disclosing not-found/forbidden response and must not
+   be bypassed.
+6. A portable package is an interchange/offboarding artifact, not an automatic
+   Open CRM database restore. Keep normal encrypted PostgreSQL backups for
+   disaster recovery. If an approved pilot exceeds the self-service size
+   ceiling, design and test a separately authorized operator-streamed export;
+   never increase memory ceilings or use an unreviewed production SQL dump.
 
 ### Pipeline configuration and recovery
 
@@ -517,9 +560,10 @@ references.
    directly.
 5. Core lists, exports, and report inputs omit the archived core record. Open CRM
    currently performs no automatic hard delete or time-based purge: archived
-   rows and their history remain in PostgreSQL and encrypted backups until a
-   future, explicitly approved tenant-offboarding retention/deletion workflow.
-   Do not use ad hoc SQL to bypass these rules during normal recovery.
+   rows and their history remain in PostgreSQL and encrypted backups until an
+   explicitly approved tenant deletion/retention workflow runs after a reviewed
+   portable export. Do not use ad hoc SQL to bypass these rules during normal
+   recovery.
 
 ### Data-quality review
 

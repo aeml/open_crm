@@ -438,6 +438,22 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     for (const excludedValue of exportExpectation.excludes) expect(csv).not.toContain(excludedValue)
   }
 
+  await page.goto('/settings/billing')
+  await expect(page.getByRole('heading', { name: 'Portable workspace export' })).toBeVisible()
+  await page.getByRole('button', { name: 'Create workspace export' }).click()
+  const portableExport = page.getByRole('list', { name: 'Workspace export history' }).getByRole('listitem').first()
+  await expect(portableExport).toContainText('· ready', { timeout: 30000 })
+  await expect(portableExport).toContainText('SHA-256:')
+  const portableDownloadURL = await portableExport.getByRole('link', { name: 'Download ZIP' }).getAttribute('href')
+  expect(portableDownloadURL).toMatch(/\/api\/workspace-exports\/\d+\/download$/)
+  const portableResponse = await page.context().request.get(portableDownloadURL)
+  expect(portableResponse.status()).toBe(200)
+  expect(portableResponse.headers()['content-type']).toContain('application/zip')
+  expect(portableResponse.headers()['cache-control']).toContain('no-store')
+  expect(portableResponse.headers()['x-content-sha256']).toMatch(/^[a-f0-9]{64}$/)
+  const portableArchive = await portableResponse.body()
+  expect(portableArchive.subarray(0, 2).toString()).toBe('PK')
+
   await page.getByRole('button', { name: 'Log out' }).click()
   await expect(page).toHaveURL(/\/login$/)
   await page.getByLabel('Email').fill(owner.email)
@@ -477,6 +493,8 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
       data: { stageId: 1, closeReasonCode: 'solution_fit', closeNotes: 'Must remain hidden.' }
     })
     expect(crossTenantClose.status()).toBe(404)
+    const crossTenantPortableExport = await otherContext.request.get(portableDownloadURL)
+    expect(crossTenantPortableExport.status()).toBe(404)
   } finally {
     await otherContext.close()
   }

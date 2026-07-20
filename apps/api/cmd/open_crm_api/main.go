@@ -60,6 +60,7 @@ import (
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
+	moduleworkspaceexports "github.com/aeml/open_crm/apps/api/internal/modules/workspaceexports"
 	platformlogger "github.com/aeml/open_crm/apps/api/internal/platform/logger"
 	platformsecrets "github.com/aeml/open_crm/apps/api/internal/platform/secrets"
 	platformtelemetry "github.com/aeml/open_crm/apps/api/internal/platform/telemetry"
@@ -90,6 +91,7 @@ func main() {
 	var dealsService *moduledeals.Service
 	var tasksService *moduletasks.Service
 	var exportsService *moduleexports.Service
+	var workspaceExportsService *moduleworkspaceexports.Service
 	var dashboardService *moduledashboard.Service
 	var clientReviewsService *moduleclientreviews.Service
 	var importsService *moduleimports.Service
@@ -156,6 +158,7 @@ func main() {
 			tasksService = moduletasks.NewService(pool)
 			taskRemindersService = moduletaskreminders.NewService(pool)
 			exportsService = moduleexports.NewService(pool)
+			workspaceExportsService = moduleworkspaceexports.NewService(pool)
 			dashboardService = moduledashboard.NewService(pool)
 			clientReviewsService = moduleclientreviews.NewService(pool)
 			importsService = moduleimports.NewService(pool)
@@ -211,6 +214,16 @@ func main() {
 	defer stop()
 	if jobsService != nil {
 		jobHandlers := map[string]modulejobs.Handler{}
+		if workspaceExportsService != nil {
+			jobHandlers[moduleworkspaceexports.JobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
+				result, err := workspaceExportsService.HandleJob(ctx, job)
+				if moduleworkspaceexports.IsPermanentFailure(err) {
+					return nil, modulejobs.Permanent(err)
+				}
+				return result, err
+			}
+			go workspaceExportsService.RunCleanupScheduler(ctx, logger, 0)
+		}
 		if calendarService != nil && calendarService.Configured() {
 			jobHandlers[modulecalendar.ReminderJobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
 				result, err := calendarService.DeliverReminderJob(ctx, job.OrganizationID, job.Payload)
@@ -254,7 +267,7 @@ func main() {
 		}
 		if billingService != nil {
 			for jobType, handler := range jobHandlers {
-				if jobType != modulebilling.ReconciliationJobType {
+				if jobType != modulebilling.ReconciliationJobType && jobType != moduleworkspaceexports.JobType {
 					jobHandlers[jobType] = modulebilling.GuardJobHandler(billingService, handler)
 				}
 			}
@@ -314,6 +327,7 @@ func main() {
 		DealsService:                    dealsService,
 		TasksService:                    tasksService,
 		ExportsService:                  exportsService,
+		WorkspaceExportsService:         workspaceExportsService,
 		DashboardService:                dashboardService,
 		ClientReviewsService:            clientReviewsService,
 		NotesService:                    notesService,

@@ -233,7 +233,7 @@ func withCORS(env config.Env, next http.Handler) http.Handler {
 		if isAllowedOrigin(origin, env.AllowedOrigins) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
 			w.Header().Add("Vary", "Origin")
 			w.Header().Add("Vary", "Access-Control-Request-Method")

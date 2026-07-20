@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { changePlan, createBillingPortalSession, createCheckoutSession, featureLabel, formatLimit, formatPrice, getEntitlements, listPlans, trialBanner } from '../lib/billing'
+import { changePlan, createBillingPortalSession, createCheckoutSession, featureLabel, formatLimit, formatPrice, getEntitlements, listPlans, listWorkspaceExports, requestWorkspaceExport, trialBanner, workspaceExportDownloadURL } from '../lib/billing'
 import { createIdempotencyKey } from '../lib/idempotency'
 import { usePageTitle } from '../lib/use_page_title'
 
@@ -33,18 +33,22 @@ export function SettingsBillingRoute() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [pendingPlan, setPendingPlan] = useState('')
+  const [workspaceExports, setWorkspaceExports] = useState([])
+  const [isRequestingExport, setIsRequestingExport] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
     async function load() {
       setIsLoading(true)
       try {
-        const [nextEntitlements, nextPlans] = await Promise.all([
+        const [nextEntitlements, nextPlans, nextWorkspaceExports] = await Promise.all([
           getEntitlements({ signal: controller.signal }),
-          listPlans({ signal: controller.signal })
+          listPlans({ signal: controller.signal }),
+          canManageBilling ? listWorkspaceExports({ signal: controller.signal }) : Promise.resolve([])
         ])
         setEntitlements(nextEntitlements)
         setPlans(nextPlans)
+        setWorkspaceExports(nextWorkspaceExports)
         setError('')
       } catch (loadError) {
         if (!isAbortError(loadError)) {
@@ -60,7 +64,26 @@ export function SettingsBillingRoute() {
     return () => {
       controller.abort()
     }
-  }, [])
+  }, [canManageBilling])
+
+  const hasGeneratingExport = workspaceExports.some((item) => item.status === 'pending' || item.status === 'processing')
+
+  useEffect(() => {
+    if (!canManageBilling || !hasGeneratingExport) return undefined
+    const controller = new AbortController()
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await listWorkspaceExports({ signal: controller.signal })
+        setWorkspaceExports(next)
+      } catch (pollError) {
+        if (!isAbortError(pollError)) setError(pollError.message || 'Unable to refresh workspace export status.')
+      }
+    }, 3000)
+    return () => {
+      controller.abort()
+      window.clearInterval(timer)
+    }
+  }, [canManageBilling, hasGeneratingExport])
 
   const currentPlan = entitlements?.plan
   const activeFeatures = new Set(entitlements?.features || [])
@@ -116,6 +139,19 @@ export function SettingsBillingRoute() {
     } catch (portalError) {
       if (!isAbortError(portalError)) setError(portalError.message || 'Unable to open the billing portal.')
       setPendingPlan('')
+    }
+  }
+
+  async function handleRequestExport() {
+    setIsRequestingExport(true)
+    setError('')
+    try {
+      const next = await requestWorkspaceExport(createIdempotencyKey('workspace-export'))
+      if (next) setWorkspaceExports((current) => [next, ...current.filter((item) => item.id !== next.id)])
+    } catch (exportError) {
+      if (!isAbortError(exportError)) setError(exportError.message || 'Unable to request a workspace export.')
+    } finally {
+      setIsRequestingExport(false)
     }
   }
 
@@ -224,6 +260,47 @@ export function SettingsBillingRoute() {
           </div>
         </Card>
       ) : null}
+
+      <Card>
+        <div className="card-stack">
+          <div className="section-header">
+            <div>
+              <h2>Portable workspace export</h2>
+              <p>Create a ZIP/NDJSON snapshot for migration, cancellation, or offboarding—even while hosted writes are suspended.</p>
+            </div>
+            {canManageBilling ? (
+              <Button type="button" className="button-secondary" onClick={handleRequestExport} disabled={isRequestingExport || hasGeneratingExport}>
+                {isRequestingExport ? 'Requesting…' : hasGeneratingExport ? 'Generating…' : 'Create workspace export'}
+              </Button>
+            ) : null}
+          </div>
+          <div className="inline-note" role="note">
+            Includes archived CRM data, configuration, history, and shared communications. Secrets and private mailbox messages are excluded. Files expire after 7 days.
+          </div>
+          {!canManageBilling ? <p className="field-hint">Only a workspace owner or administrator can request and download the complete bundle.</p> : null}
+          {canManageBilling && workspaceExports.length === 0 && !isLoading ? <p className="field-hint">No workspace exports have been requested.</p> : null}
+          {canManageBilling && workspaceExports.length > 0 ? (
+            <div className="record-list" role="list" aria-label="Workspace export history">
+              {workspaceExports.map((item) => {
+                return (
+                  <article className={item.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} role="listitem" key={item.id}>
+                    <div>
+                      <h3>Workspace export #{item.id} · {item.status}</h3>
+                      {item.status === 'ready' ? <p className="field-hint">{Number(item.byteSize).toLocaleString()} bytes · expires {new Date(item.expiresAt).toLocaleString()}</p> : null}
+                      {item.lastError ? <p className="field-hint">{item.lastError}</p> : null}
+                      {item.contentSha256 ? <p className="field-hint">SHA-256: <code>{item.contentSha256}</code></p> : null}
+                    </div>
+                    <div>
+                      {item.status === 'ready' ? <a className="button button-secondary" href={workspaceExportDownloadURL(item.id)}>Download ZIP</a> : null}
+                      {item.status === 'pending' || item.status === 'processing' ? <span className="chip" role="status">Generating</span> : null}
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          ) : null}
+        </div>
+      </Card>
     </section>
   )
 }

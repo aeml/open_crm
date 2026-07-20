@@ -55,6 +55,7 @@ describe('settings billing route', () => {
           }
         })
       })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/settings/billing')
@@ -100,6 +101,7 @@ describe('settings billing route', () => {
           }
         })
       })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -162,6 +164,7 @@ describe('settings billing route', () => {
           }
         })
       })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { id: 'cs_test', url: '' } }) })
 
     vi.stubGlobal('fetch', fetchMock)
@@ -203,6 +206,7 @@ describe('settings billing route', () => {
         ok: true,
         json: async () => ({ data: { plans: [{ key: 'pro', name: 'Pro', description: 'Scaling teams', monthlyPriceUsd: 49, features: ['automation'] }] } })
       })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { id: 'bps_test', url: '' } }) })
 
     vi.stubGlobal('fetch', fetchMock)
@@ -213,5 +217,63 @@ describe('settings billing route', () => {
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/api/billing/portal-session'))).toBe(true)
     })
+  })
+
+  it('keeps portable offboarding export available in hosted read-only mode', async () => {
+    const checksum = 'a'.repeat(64)
+    const readyExport = {
+      id: 12,
+      status: 'ready',
+      byteSize: 524288,
+      contentSha256: checksum,
+      datasetCounts: { contacts: 2, companies: 1 },
+      createdAt: '2026-07-20T00:00:00Z',
+      expiresAt: '2026-07-27T00:00:00Z'
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            user: { id: 1, email: 'owner@acme.test' },
+            organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' },
+            membership: { role: 'owner' },
+            workspaceAccess: { state: 'read_only' }
+          }
+        })
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            entitlements: {
+              plan: { key: 'pro', name: 'Pro', monthlyPriceUsd: 49, features: [] },
+              features: [],
+              subscription: { status: 'canceled', suspended: true },
+              seats: { used: 1, limit: 25 }, contacts: { used: 2, limit: 50000 }, deals: { used: 1, limit: 50000 }
+            }
+          }
+        })
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { plans: [{ key: 'pro', name: 'Pro', monthlyPriceUsd: 49, features: [] }] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [readyExport] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { export: { id: 13, status: 'pending', datasetCounts: {}, createdAt: '2026-07-20T00:05:00Z' } } }) })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/billing')
+    render(<AppRouter />)
+
+    const download = await screen.findByRole('link', { name: /download zip/i })
+    expect(download).toHaveAttribute('href', expect.stringMatching(/\/api\/workspace-exports\/12\/download$/))
+    expect(screen.getByText(new RegExp(checksum))).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /create workspace export/i }))
+    await waitFor(() => {
+      const requestCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workspace-exports') && call[1]?.method === 'POST')
+      expect(requestCall).toBeTruthy()
+      expect(requestCall[1].headers['Idempotency-Key']).toMatch(/^workspace-export-/)
+    })
+    expect(await screen.findByRole('heading', { name: /workspace export #13 · pending/i })).toBeInTheDocument()
   })
 })

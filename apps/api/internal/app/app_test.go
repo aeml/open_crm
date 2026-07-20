@@ -82,7 +82,8 @@ func TestNewServerPreflightAllowsConfiguredOrigin(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodOptions, "/healthz", nil)
 	request.Header.Set("Origin", "https://crm.mendola.tech")
-	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	request.Header.Set("Access-Control-Request-Headers", "Idempotency-Key")
 	recorder := httptest.NewRecorder()
 
 	server.ServeHTTP(recorder, request)
@@ -93,6 +94,9 @@ func TestNewServerPreflightAllowsConfiguredOrigin(t *testing.T) {
 
 	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "https://crm.mendola.tech" {
 		t.Fatalf("expected allowed origin header to match request origin, got %q", got)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Idempotency-Key") {
+		t.Fatalf("expected idempotent browser writes to pass preflight, got %q", got)
 	}
 
 	if got := recorder.Header().Get("Vary"); got == "" {
