@@ -157,6 +157,12 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Continue lowering the remaining contact/deal exceptions along tested
 orchestration seams.
 
+The API composition root is 369 lines, down from 996. Its unchanged 204-route
+surface is registered through 142-line platform, 246-line foundation, and
+264-line core-CRM files. The security inventory and hosted-write-policy tests
+scan all production files in the package, so splitting registrations cannot
+silently remove a route from either guard.
+
 ## Source-size no-growth ratchet
 
 Source size is an imperfect complexity measure, so these limits are a temporary
@@ -171,8 +177,7 @@ the application composition package.
 | `deals.jsx` | 1,065 | 1,100 |
 | `tasks.jsx` | 839 | 850 |
 | `dashboard.jsx` | 478 | 550 |
-| backend `app.go` | 961 | 1,000 |
-| backend `support_handlers.go` | 766 | 800 |
+| backend `support_handlers.go` | 699 | 800 |
 
 All other production route and `internal/app` Go files are limited to 500
 lines. Each successful split should lower or remove its exception in the same

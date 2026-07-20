@@ -10,7 +10,6 @@ import (
 
 func TestApplicationSourceSizeRatchet(t *testing.T) {
 	maximums := map[string]int{
-		"app.go":              1000,
 		"support_handlers.go": 800,
 	}
 	entries, err := os.ReadDir(".")

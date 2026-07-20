@@ -6,7 +6,7 @@ Registered route count: `204`
 
 Registered route digest: `bdb107b1a7f003df334c3415e5b229d0f5c2384d15f51b4d631af0b6b68ab1eb`
 
-This is the Phase 0 map for every HTTP route and continuously running background operation. The route count and digest are derived from the `http.ServeMux` registrations in `apps/api/internal/app/app.go`; a backend test fails when that set changes so a new or renamed route cannot silently bypass this review.
+This is the Phase 0 map for every HTTP route and continuously running background operation. The route count and digest are derived from all production `http.ServeMux` registrations in `apps/api/internal/app`; a package-wide backend scan fails when that set changes so a split, new, or renamed route cannot silently bypass this review or the hosted-write-policy coverage check.
 
 ## Policy vocabulary
 

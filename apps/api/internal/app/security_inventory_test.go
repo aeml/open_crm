@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -16,17 +15,7 @@ const (
 )
 
 func TestSecuritySurfaceInventoryMatchesRegisteredRoutes(t *testing.T) {
-	appSource, err := os.ReadFile("app.go")
-	if err != nil {
-		t.Fatalf("read app route registrations: %v", err)
-	}
-
-	registrationPattern := regexp.MustCompile(`mux\.Handle(?:Func)?\("([^"]+)"`)
-	matches := registrationPattern.FindAllSubmatch(appSource, -1)
-	routes := make([]string, 0, len(matches))
-	for _, match := range matches {
-		routes = append(routes, string(match[1]))
-	}
+	routes := registeredRoutePatterns(t)
 	sort.Strings(routes)
 
 	if len(routes) != expectedRegisteredRouteCount {

@@ -352,15 +352,17 @@ Exit criteria:
 - Handler files are easier to review in isolation.
 - No behavior changes beyond tested refactors.
 
-Current convergence evidence: CI now caps `app.go` (984 lines) at 1,000,
-`support_handlers.go` (790 lines) at 800, and every smaller production
-application file at 500 lines. HTTP rate limiting, proxy-aware client
-identity, CSRF/CORS, and security/release headers now live in a focused 263-line
-policy file. Service contracts and dependency composition now live in a focused
-431-line file, while all 199 route registrations remain centralized and covered
-by the executable inventory digest. Existing tests are preserved. This is a
-no-regression ratchet, not completion; the remaining large files still need
-incremental domain splits where reviewability benefits.
+Current convergence evidence: `app.go` is now 369 lines and uses the default
+500-line CI ceiling. All 204 explicit registrations live in focused 142-line
+platform, 246-line foundation, and 264-line core-CRM files, called centrally by
+`NewServer`; package-wide inventory and hosted-write-policy scans preserve the
+complete route set after the split. HTTP rate limiting, proxy-aware client
+identity, CSRF/CORS, and security/release headers live in a focused 285-line
+policy file. Service contracts and dependency composition live in a focused
+440-line file. `support_handlers.go` is the remaining backend exception at 699
+of 800 lines. Existing behavior tests are preserved. This remains a
+no-regression ratchet while the support-handler aggregation still benefits from
+an incremental domain split.
 
 ## Version 0.2.2 - Frontend Maintainability
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -47,14 +46,9 @@ func TestHostedWritePolicyClassifiesMutationsAndRecoveryRoutes(t *testing.T) {
 }
 
 func TestEveryRegisteredPrivateMutationReachesHostedWritePolicy(t *testing.T) {
-	appSource, err := os.ReadFile("app.go")
-	if err != nil {
-		t.Fatalf("read route registrations: %v", err)
-	}
-	registrations := regexp.MustCompile(`mux\.Handle(?:Func)?\("([^"]+)"`).FindAllSubmatch(appSource, -1)
+	registrations := registeredRoutePatterns(t)
 	pathParameter := regexp.MustCompile(`\{[^}]+\}`)
-	for _, registration := range registrations {
-		pattern := string(registration[1])
+	for _, pattern := range registrations {
 		method, path, found := strings.Cut(pattern, " ")
 		if !found || !hostedWriteRequiresActiveSubscription(method, pattern) {
 			continue
