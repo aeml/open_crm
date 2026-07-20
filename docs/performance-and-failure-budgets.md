@@ -164,7 +164,9 @@ The API composition root is 369 lines, down from 996. Its unchanged 204-route
 surface is registered through 142-line platform, 246-line foundation, and
 264-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot
-silently remove a route from either guard.
+silently remove a route from either guard. Shared handler helpers are isolated
+in a 258-line file and `support_handlers.go` is 455 lines, so every production
+file in `internal/app` now uses the default 500-line ceiling.
 
 ## Source-size no-growth ratchet
 
@@ -180,9 +182,9 @@ the application composition package.
 | `deals.jsx` | 887 | 900 |
 | `tasks.jsx` | 769 | 800 |
 | `dashboard.jsx` | 477 | 550 |
-| backend `support_handlers.go` | 699 | 800 |
 
-All other production route and `internal/app` Go files are limited to 500
-lines. Each successful split should lower or remove its exception in the same
-slice. Tests are excluded because large fixture-driven flow tests have different
-review tradeoffs; lint and normal test execution continue to gate them.
+All other production route files and every production `internal/app` Go file
+are limited to 500 lines. Each successful split should lower or remove its
+exception in the same slice. Tests are excluded because large fixture-driven
+flow tests have different review tradeoffs; lint and normal test execution
+continue to gate them.

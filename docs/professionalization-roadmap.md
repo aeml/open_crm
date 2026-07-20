@@ -66,7 +66,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.1.8` Security Baseline: complete.
 - `0.1.9` User Lifecycle: complete.
 - `0.2.0` Observability And Operations: complete.
-- `0.2.1` Backend Maintainability: in progress (reopened for convergence hotspot work).
+- `0.2.1` Backend Maintainability: complete.
 - `0.2.2` Frontend Maintainability: in progress (reopened for convergence hotspot work).
 - `0.2.3` Database Integrity: complete.
 - `0.3.0` Professional Release Candidate: complete.
@@ -338,13 +338,13 @@ Exit criteria:
 
 ## Version 0.2.1 - Backend Maintainability
 
-Status: in progress (reopened for convergence hotspot work).
+Status: complete.
 
 Goal: keep the modular monolith explicit while reducing oversized files.
 
 - Split `internal/app/app.go` by handler area.
 - Keep route registration centralized and easy to scan.
-- Move repeated response and decode helpers into small platform/web utilities.
+- Move repeated response and decode helpers into focused shared helpers or small platform/web utilities.
 - Avoid new framework dependencies unless they clearly remove more complexity than they add.
 
 Exit criteria:
@@ -359,10 +359,11 @@ platform, 246-line foundation, and 264-line core-CRM files, called centrally by
 complete route set after the split. HTTP rate limiting, proxy-aware client
 identity, CSRF/CORS, and security/release headers live in a focused 285-line
 policy file. Service contracts and dependency composition live in a focused
-440-line file. `support_handlers.go` is the remaining backend exception at 699
-of 800 lines. Existing behavior tests are preserved. This remains a
-no-regression ratchet while the support-handler aggregation still benefits from
-an incremental domain split.
+440-line file. Shared request decoding, response shaping, audit/mail helpers,
+and session-cookie behavior now live in a 258-line helper file, leaving
+`support_handlers.go` at 455 lines. Every production file in `internal/app` is
+therefore under the default 500-line CI ceiling, with existing behavior tests
+preserved.
 
 ## Version 0.2.2 - Frontend Maintainability
 
