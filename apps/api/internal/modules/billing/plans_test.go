@@ -20,8 +20,8 @@ func TestPlanByKeyResolvesKnownPlan(t *testing.T) {
 	if plan.Key != "pro" {
 		t.Fatalf("expected pro plan, got %q", plan.Key)
 	}
-	if !plan.HasFeature(FeatureAutomation) {
-		t.Errorf("pro plan should include automation")
+	if len(plan.Features) != 0 {
+		t.Errorf("unapproved hosted features must not be advertised, got %v", plan.Features)
 	}
 }
 
@@ -48,13 +48,24 @@ func TestFreePlanExcludesPaidFeatures(t *testing.T) {
 	}
 }
 
-func TestEnterprisePlanUnlimitedAndSSO(t *testing.T) {
+func TestEnterprisePlanUnlimitedWithoutUnapprovedFeaturePromises(t *testing.T) {
 	ent := PlanByKey("enterprise")
 	if ent.SeatLimit != Unlimited || ent.ContactLimit != Unlimited || ent.DealLimit != Unlimited {
 		t.Errorf("enterprise limits should be unlimited")
 	}
-	if !ent.HasFeature(FeatureSSO) {
-		t.Errorf("enterprise plan should include SSO")
+	if len(ent.Features) != 0 {
+		t.Errorf("enterprise must not promise unimplemented features, got %v", ent.Features)
+	}
+}
+
+func TestCatalogDoesNotAdvertiseUnapprovedFeaturePolicy(t *testing.T) {
+	for _, plan := range Catalog() {
+		if plan.Features == nil {
+			t.Errorf("plan %q must return an explicit empty feature list", plan.Key)
+		}
+		if len(plan.Features) != 0 {
+			t.Errorf("plan %q advertises unapproved features: %v", plan.Key, plan.Features)
+		}
 	}
 }
 

@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { changePlan, createBillingPortalSession, createCheckoutSession, featureLabel, formatInvoiceAmount, formatLimit, formatPrice, formatUsageValue, getBillingUsage, getEntitlements, listBillingInvoices, listPlans, listWorkspaceExports, requestWorkspaceExport, trialBanner, workspaceExportDownloadURL } from '../lib/billing'
+import { changePlan, createBillingPortalSession, createCheckoutSession, formatInvoiceAmount, formatLimit, formatPrice, formatUsageValue, getBillingUsage, getEntitlements, listBillingInvoices, listPlans, listWorkspaceExports, requestWorkspaceExport, trialBanner, workspaceExportDownloadURL } from '../lib/billing'
 import { createIdempotencyKey } from '../lib/idempotency'
 import { usePageTitle } from '../lib/use_page_title'
 
@@ -23,6 +23,11 @@ function UsageRow({ label, usage }) {
       </div>
     </article>
   )
+}
+
+function planCapacity(plan) {
+  const value = (limit) => limit === -1 ? 'unlimited' : Number(limit || 0).toLocaleString()
+  return `${value(plan?.seatLimit)} seats · ${value(plan?.contactLimit)} contacts · ${value(plan?.dealLimit)} deals`
 }
 
 export function SettingsBillingRoute() {
@@ -92,7 +97,6 @@ export function SettingsBillingRoute() {
   }, [canManageBilling, hasGeneratingExport])
 
   const currentPlan = entitlements?.plan
-  const activeFeatures = new Set(entitlements?.features || [])
   const subscription = entitlements?.subscription || null
   const billingProvider = subscription?.provider || 'fake'
   const billingManaged = subscription?.managed !== false
@@ -196,7 +200,7 @@ export function SettingsBillingRoute() {
             </div>
             {currentPlan ? (
               <div>
-                <span className="chip">{billingManaged ? `${currentPlan.name} · ${formatPrice(currentPlan)}` : 'Self-hosted · Unmanaged'}</span>
+                <span className="chip">{billingManaged ? `${currentPlan.name}${billingProvider === 'stripe' ? ' · Managed by Stripe' : ` · ${formatPrice(currentPlan)}`}` : 'Self-hosted · Unmanaged'}</span>
               </div>
             ) : null}
           </div>
@@ -204,6 +208,9 @@ export function SettingsBillingRoute() {
           {error ? <InlineError message={error} /> : null}
           {!isLoading && subscription && !billingManaged ? (
             <div className="inline-note" role="status">Self-hosted mode does not enforce hosted trials, subscriptions, feature tiers, or record limits. Your local CRM data remains writable.</div>
+          ) : null}
+          {!isLoading && subscription && billingManaged ? (
+            <div className="inline-note" role="note">Hosted policy currently enforces subscription write access plus seat, contact, and deal capacity. Feature tiering is not active; incomplete capabilities remain unavailable regardless of plan.</div>
           ) : null}
           {!isLoading && entitlements?.subscription ? (() => {
             const banner = trialBanner(entitlements.subscription)
@@ -295,8 +302,8 @@ export function SettingsBillingRoute() {
       {billingManaged ? <Card>
         <div className="card-stack">
           <div>
-            <h2>Compare plans</h2>
-            <p>Upgrade to unlock more seats, higher limits, and additional features.</p>
+            <h2>Compare hosted capacity</h2>
+            <p>Compare the limits Open CRM currently enforces. Stripe Checkout confirms the actual recurring price before purchase.</p>
           </div>
           <div className="record-list" role="list" aria-label="Available plans">
             {plans.map((plan) => (
@@ -308,12 +315,10 @@ export function SettingsBillingRoute() {
                 <div>
                   <h3>{plan.name}{currentPlan && plan.key === currentPlan.key ? ' · Current plan' : ''}</h3>
                   <p className="field-hint">{plan.description}</p>
-                  <p className="field-hint">
-                    {(plan.features || []).map((feature) => featureLabel(feature)).join(' · ')}
-                  </p>
+                  <p className="field-hint">{planCapacity(plan)}</p>
                 </div>
                 <div>
-                  <p>{formatPrice(plan)}</p>
+                  <p>{billingProvider === 'stripe' ? 'Price shown in checkout' : formatPrice(plan)}</p>
                   {canManageBilling && currentPlan && plan.key !== currentPlan.key && billingProvider === 'fake' ? (
                     <Button
                       className="button-secondary"
@@ -335,29 +340,6 @@ export function SettingsBillingRoute() {
           </div>
         </div>
       </Card> : null}
-
-      {currentPlan && billingManaged ? (
-        <Card>
-          <div className="card-stack">
-            <div>
-              <h2>Included in {currentPlan.name}</h2>
-              <p>Features available on your current plan.</p>
-            </div>
-            <div className="record-list" role="list" aria-label="Active features">
-              {(currentPlan.features || []).map((feature) => (
-                <article className="record-row" key={feature} role="listitem">
-                  <div>
-                    <h3>{featureLabel(feature)}</h3>
-                  </div>
-                  <div>
-                    <p>{activeFeatures.has(feature) ? 'Active' : '—'}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        </Card>
-      ) : null}
 
       <Card>
         <div className="card-stack">

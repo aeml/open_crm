@@ -65,22 +65,6 @@ export function workspaceExportDownloadURL(exportID) {
   return apiURL(`/api/workspace-exports/${exportID}/download`)
 }
 
-const featureLabels = {
-  saved_views: 'Saved views',
-  csv_import: 'CSV import',
-  csv_export: 'CSV export',
-  email_sync: 'Email sync',
-  automation: 'Workflow automation',
-  custom_fields: 'Custom fields',
-  api_access: 'API access',
-  advanced_reporting: 'Advanced reporting',
-  sso: 'Single sign-on (SSO)'
-}
-
-export function featureLabel(key) {
-  return featureLabels[key] || key
-}
-
 export function formatLimit(usage) {
   if (!usage) {
     return ''

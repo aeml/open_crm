@@ -2,8 +2,9 @@ package billing
 
 import "strings"
 
-// Feature keys gate plan-restricted capabilities. They are referenced by both
-// the API (entitlement checks) and the frontend (UI affordances).
+// Feature keys are reserved for an approved hosted feature policy. The current
+// catalog deliberately returns no feature grants: a name in this list must not
+// become a commercial promise before API, UI, and worker enforcement agree.
 const (
 	FeatureSavedViews        = "saved_views"
 	FeatureCSVImport         = "csv_import"
@@ -19,9 +20,10 @@ const (
 // Unlimited marks a numeric limit as having no ceiling.
 const Unlimited = -1
 
-// Plan describes a billing tier: its identity, pricing hint, numeric limits,
-// and the set of features it unlocks. Plans are defined in code (not the
-// database) so entitlement logic stays explicit and testable.
+// Plan describes a billing tier: its identity, non-authoritative pricing hint,
+// numeric limits, and any approved feature grants. Stripe Checkout remains the
+// price authority. Plans are defined in code (not the database) so entitlement
+// logic stays explicit and testable.
 type Plan struct {
 	Key             string   `json:"key"`
 	Name            string   `json:"name"`
@@ -67,69 +69,42 @@ var catalog = []Plan{
 	{
 		Key:             "free",
 		Name:            "Free",
-		Description:     "Get started with core CRM for a small team.",
+		Description:     "A small hosted workspace with bounded CRM capacity.",
 		MonthlyPriceUSD: 0,
 		SeatLimit:       2,
 		ContactLimit:    500,
 		DealLimit:       250,
-		Features: []string{
-			FeatureSavedViews,
-			FeatureCSVExport,
-		},
+		Features:        []string{},
 	},
 	{
 		Key:             "starter",
 		Name:            "Starter",
-		Description:     "For growing teams that need import and email.",
+		Description:     "Higher hosted capacity for a growing service team.",
 		MonthlyPriceUSD: 19,
 		SeatLimit:       5,
 		ContactLimit:    2500,
 		DealLimit:       2500,
-		Features: []string{
-			FeatureSavedViews,
-			FeatureCSVExport,
-			FeatureCSVImport,
-			FeatureEmailSync,
-		},
+		Features:        []string{},
 	},
 	{
 		Key:             "pro",
 		Name:            "Pro",
-		Description:     "Automation, custom fields, and API for scaling sales orgs.",
+		Description:     "Expanded hosted capacity for an established team.",
 		MonthlyPriceUSD: 49,
 		SeatLimit:       25,
 		ContactLimit:    50000,
 		DealLimit:       50000,
-		Features: []string{
-			FeatureSavedViews,
-			FeatureCSVExport,
-			FeatureCSVImport,
-			FeatureEmailSync,
-			FeatureAutomation,
-			FeatureCustomFields,
-			FeatureAPIAccess,
-			FeatureAdvancedReporting,
-		},
+		Features:        []string{},
 	},
 	{
 		Key:             "enterprise",
 		Name:            "Enterprise",
-		Description:     "Unlimited scale with SSO and enterprise controls.",
+		Description:     "Custom hosted capacity requiring an operator agreement.",
 		MonthlyPriceUSD: 0, // contact sales
 		SeatLimit:       Unlimited,
 		ContactLimit:    Unlimited,
 		DealLimit:       Unlimited,
-		Features: []string{
-			FeatureSavedViews,
-			FeatureCSVExport,
-			FeatureCSVImport,
-			FeatureEmailSync,
-			FeatureAutomation,
-			FeatureCustomFields,
-			FeatureAPIAccess,
-			FeatureAdvancedReporting,
-			FeatureSSO,
-		},
+		Features:        []string{},
 	},
 }
 

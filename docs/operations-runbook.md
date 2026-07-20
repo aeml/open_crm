@@ -142,7 +142,9 @@ lead capture, or tenant workers because of stored hosted lifecycle fields.
 4. Deploy through the ordinary CI-gated workflow. In a disposable workspace,
    open **Settings > Plan & Billing**, complete hosted Checkout, and wait for
    the signed subscription event before expecting access to change. The return
-   URL is informational and never activates a plan. Confirm the portal opens,
+   URL is informational and never activates a plan. Confirm the recurring price
+   in Stripe Checkout; Open CRM's in-code amount is only a catalog hint and is
+   not presented as the provider charge. Confirm the portal opens,
    then exercise a failed payment, recovery, scheduled cancellation, and final
    cancellation using approved Stripe test controls. Confirm the owner/admin
    **Invoice and payment history** remains readable during suspension, reports

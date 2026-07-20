@@ -67,7 +67,7 @@ describe('settings billing route', () => {
     expect(await screen.findByText(/self-hosted mode does not enforce hosted trials/i)).toBeInTheDocument()
     expect(screen.getByText(/self-hosted · unmanaged/i)).toBeInTheDocument()
     expect(screen.getByText('620 / Unlimited')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /compare plans/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /compare hosted capacity/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/subscription is canceled/i)).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /measured usage/i })).toBeInTheDocument()
     expect(screen.getByText(/UTC calendar month/i)).toBeInTheDocument()
@@ -88,7 +88,7 @@ describe('settings billing route', () => {
             entitlements: {
               plan: { key: 'free', name: 'Free', description: 'Get started', monthlyPriceUsd: 0, features: ['saved_views', 'csv_export'] },
               features: ['saved_views', 'csv_export'],
-              subscription: { status: 'trialing', inTrial: true, trialDaysLeft: 7 },
+              subscription: { managed: true, status: 'trialing', inTrial: true, trialDaysLeft: 7, provider: 'stripe' },
               seats: { used: 2, limit: 2, unlimited: false, exceeded: false },
               contacts: { used: 600, limit: 500, unlimited: false, exceeded: true },
               deals: { used: 10, limit: 250, unlimited: false, exceeded: false }
@@ -101,8 +101,8 @@ describe('settings billing route', () => {
         json: async () => ({
           data: {
             plans: [
-              { key: 'free', name: 'Free', description: 'Get started', monthlyPriceUsd: 0, features: ['saved_views', 'csv_export'] },
-              { key: 'pro', name: 'Pro', description: 'Scaling teams', monthlyPriceUsd: 49, features: ['automation', 'api_access'] }
+              { key: 'free', name: 'Free', description: 'Get started', monthlyPriceUsd: 0, seatLimit: 2, contactLimit: 500, dealLimit: 250, features: ['saved_views', 'csv_export'] },
+              { key: 'pro', name: 'Pro', description: 'Scaling teams', monthlyPriceUsd: 49, seatLimit: 25, contactLimit: 50000, dealLimit: 50000, features: ['automation', 'api_access'] }
             ]
           }
         })
@@ -120,7 +120,11 @@ describe('settings billing route', () => {
     expect(screen.getByText('600 / 500')).toBeInTheDocument()
     expect(screen.getByText(/over plan limit/i)).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /pro/i })).toBeInTheDocument()
-    expect(screen.getByText('$49/mo')).toBeInTheDocument()
+    expect(screen.getAllByText(/price shown in checkout/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/25 seats · 50,000 contacts · 50,000 deals/i)).toBeInTheDocument()
+    expect(screen.getByText(/feature tiering is not active/i)).toBeInTheDocument()
+    expect(screen.queryByText(/workflow automation/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/API access/i)).not.toBeInTheDocument()
     expect(screen.getByText(/7 days left in your trial/i)).toBeInTheDocument()
     expect(screen.getByText('12 messages')).toBeInTheDocument()
     expect(screen.getByText('1.50 KiB')).toBeInTheDocument()
