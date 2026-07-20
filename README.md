@@ -116,7 +116,7 @@ Engineering notes:
 
 Prerequisites:
 - Go 1.26.5
-- Node.js 24.x and npm 10
+- Node.js 24.x and its bundled npm
 - Docker with Compose plugin
 
 The frontend runtime is pinned in `.nvmrc` and `.node-version`.
@@ -200,6 +200,8 @@ Current automated checks in `.github/workflows/ci.yml`:
 - `go vet ./...`
 - pinned `gosec` static-security analysis with rule-specific, explained suppressions only
 - pinned `govulncheck` reachable-vulnerability scan
+- exact shipped-Go and installed-npm license-policy validation plus a generated,
+  freshness-checked [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
 - backend `go test ./...`
 - full frontend dependency audit at high severity
 - frontend `npm test`
@@ -216,6 +218,14 @@ The backend and browser jobs each use a disposable PostgreSQL 16 service. The
 backup job creates and removes its own disposable Compose stack and encrypted
 repository. Browser failures retain a screenshot, video, trace, and HTML report
 as a short-lived CI artifact.
+
+## Licensing
+
+Open CRM is distributed under the [`MIT license`](LICENSE). The generated
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) inventories the Go and npm
+components shipped in supported application artifacts and preserves their
+required license/notice texts. The API image contains both files, and the
+hosted frontend publishes the third-party notice alongside the SPA.
 
 ## Project Status
 

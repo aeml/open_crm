@@ -70,6 +70,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          notices="$(mktemp)"
+          trap 'rm -f "$notices"' EXIT
+          page_url="${{ steps.deployment.outputs.page_url }}"
           curl --fail --show-error --silent \
             --retry 12 --retry-all-errors --retry-delay 5 \
-            "${{ steps.deployment.outputs.page_url }}" > /dev/null
+            "$page_url" > /dev/null
+          curl --fail --show-error --silent \
+            --retry 12 --retry-all-errors --retry-delay 5 \
+            "${page_url%/}/THIRD_PARTY_NOTICES.md" > "$notices"
+          grep -Fqx '# Third-Party Notices' "$notices"

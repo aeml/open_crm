@@ -144,7 +144,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.9.7` Monitoring And Alerting Hooks: in progress (implementation complete; production scrape/destination validation pending).
 - `0.9.8` Load And Failure Testing: in progress (read/write/query/database-failure/export/import/provider/bundle budgets complete; production-like host evidence remains).
 - `0.9.9` Reliability Release Review: in progress (immutable deploy recovery and migration compatibility complete; load/failure review remains).
-- `0.10.0` Production Beta: planned.
+- `0.10.0` Production Beta: in progress (license inventory/notice gate complete; approved pilot readiness evidence remains).
 
 ### Part II — Competitive SaaS Platform
 
@@ -2286,13 +2286,13 @@ Exit criteria:
 
 ## Version 0.10.0 - Production Beta
 
-Status: planned.
+Status: in progress.
 
 Goal: reach a beta-quality product suitable for real small-team CRM usage.
 
 - Freeze the core beta scope around proven workflows.
 - Review security, reliability, data portability, and support readiness.
-- Generate or refresh `THIRD_PARTY_NOTICES` and verify license obligations across Go modules and npm dependencies.
+- Generate or refresh `THIRD_PARTY_NOTICES` and verify license obligations across Go modules and npm dependencies. Complete: the supported Linux/Node 24 and shipped Go command graphs are policy checked in CI; stale notices block deploy, and the notice ships with API and Pages artifacts.
 - Prepare beta onboarding, feedback capture, and known limitations.
 - Decide the post-beta roadmap based on real customer usage.
 

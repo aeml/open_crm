@@ -67,6 +67,8 @@ container_id="$(OPEN_CRM_RELEASE_ID="$good_release" docker compose \
 [[ -n "$container_id" ]] || { echo "rolled-back API container is missing" >&2; exit 1; }
 docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" \
   | grep -qx "OPEN_CRM_RELEASE_ID=$good_release"
+docker exec "$container_id" test -r /app/LICENSE
+docker exec "$container_id" grep -Fqx '# Third-Party Notices' /app/THIRD_PARTY_NOTICES.md
 
 if OPEN_CRM_ROLLBACK_TEST_FORCE_HEALTH_FAILURE=true \
   "$REPO_ROOT/scripts/rollback-release.sh" "$REPO_ROOT" "$next_release"; then

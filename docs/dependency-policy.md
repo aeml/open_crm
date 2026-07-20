@@ -1,6 +1,6 @@
 # Dependency And Runtime Policy
 
-Last reviewed: 2026-07-19
+Last reviewed: 2026-07-20
 
 Open CRM keeps a small dependency surface, but every dependency and runtime in
 that surface must remain supported and auditable. The dependency budget in
@@ -37,6 +37,10 @@ CI and deploy-recovery path used for application changes.
   vulnerabilities imported by executable code are also release blockers.
 - `npm audit --audit-level=high` scans the complete frontend lockfile, including
   development tooling. Any high or critical finding blocks release.
+- `scripts/check-third-party-notices.mjs --check` must reproduce the committed
+  notice from the exact shipped Go command graph and clean Linux/Node 24 npm
+  install. Missing declarations, unreviewed SPDX identifiers, graph drift, or
+  stale output block release.
 - Base images must be on a supported upstream branch and use a reviewed exact
   digest. Reaching upstream end of support is a release blocker even when a
   scanner has no finding.
@@ -53,6 +57,29 @@ but does not import or compile `openpgp`; there is no fixed module version and
 `govulncheck -show verbose` reports it only at module level. Adding an OpenPGP
 import is prohibited unless this exception is replaced by a maintained
 implementation and its own security review.
+
+## License and notice gate
+
+[`scripts/license-policy.json`](../scripts/license-policy.json) is the explicit
+reviewed SPDX allowlist and Go-module mapping. The generator inventories the
+dependency graph reachable from `open_crm_api`, `migrate`, and `seed`, including
+the Go standard library, and every package installed by the supported npm
+lockfile. Optional packages unavailable on the supported Linux runner are not
+part of that artifact.
+
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) lists every distributed Go
+and browser-runtime component and embeds the license and notice files shipped
+by those packages. Vite and Rollup are conservatively treated as output
+contributors because helpers or polyfills may enter the generated bundle.
+Development-only npm packages are listed and validated, but their full texts
+are not copied unless they are output contributors. The API image contains the
+project license and generated notice; every supported frontend build emits the
+generated notice beside the SPA.
+
+Adding a dependency with an already allowed license still requires the change
+review in this document. A new license identifier must be reviewed for its
+obligations before the policy is changed; the allowlist is an engineering gate,
+not a substitute for legal review.
 
 ## Change rules
 
@@ -83,4 +110,11 @@ npm test
 npm run lint
 npm run check:source
 npm run build:checked
+
+cd ../..
+node scripts/check-third-party-notices.mjs --check
 ```
+
+After an intentional dependency or Go-toolchain change, regenerate on
+Linux/Node 24 with `node scripts/check-third-party-notices.mjs --write`, review
+the component and legal-text diff, and commit it with the dependency change.

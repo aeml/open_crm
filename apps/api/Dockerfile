@@ -19,6 +19,7 @@ WORKDIR /app
 COPY --from=builder /out/open_crm_api /app/open_crm_api
 COPY --from=builder /out/open_crm_migrate /app/open_crm_migrate
 COPY --from=builder /out/open_crm_seed /app/open_crm_seed
+COPY LICENSE THIRD_PARTY_NOTICES.md /app/
 USER appuser
 EXPOSE 8080
 CMD ["/app/open_crm_api"]

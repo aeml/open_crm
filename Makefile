@@ -3,7 +3,7 @@ SHELL := /bin/bash
 API_DIR := apps/api
 WEB_DIR := apps/web
 
-.PHONY: db-up db-down db-migrate db-seed api-dev web-dev test-api test-web test-backup-restore test-deploy-recovery test-monitoring test
+.PHONY: db-up db-down db-migrate db-seed api-dev web-dev check-licenses test-api test-web test-backup-restore test-deploy-recovery test-monitoring test
 
 db-up:
 	docker compose up -d postgres
@@ -22,6 +22,9 @@ api-dev:
 
 web-dev:
 	cd $(WEB_DIR) && npm run dev
+
+check-licenses:
+	node scripts/check-third-party-notices.mjs --check
 
 test-api:
 	cd $(API_DIR) && go test ./...
