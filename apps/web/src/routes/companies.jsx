@@ -2,16 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { archiveCompany, createCompany, getCompany, listCompanies, updateCompany } from '../lib/companies'
+import { archiveCompany, createCompany, listCompanies, updateCompany } from '../lib/companies'
 import { createContact, listContacts } from '../lib/contacts'
-import { listDeals } from '../lib/deals'
 import { listOrganizationUsers } from '../lib/users'
 import { customFieldFilterFromParams, customFieldPayload, listCustomFields } from '../lib/custom_fields'
 import { usePageTitle } from '../lib/use_page_title'
 import {
   buildClientRecords,
   buildCompanyPayload,
-  companyFormValues,
   duplicateSearchTerm,
   individualClientFromContact,
   isIndividualClient,
@@ -23,28 +21,10 @@ import {
 } from './company_view'
 import { CompanyDirectory } from './company_directory'
 import { CompanyCreateWorkspace, CompanyWorkspace } from './company_workspace'
+import { useCompanyDetail } from './use_company_detail'
 import { useCompanyPeople } from './use_company_people'
 import { ClientHealthReport } from './client_health_report'
-import { requireRecordResponse, useRecordSelection } from './use_record_selection'
-import { useRecordWork } from './use_record_work'
-
-const emptyForm = {
-  name: '',
-  clientType: 'organization',
-  addressLine1: '',
-  addressLine2: '',
-  city: '',
-  state: '',
-  postalCode: '',
-  country: '',
-  industry: '',
-  email: '',
-  phone: '',
-  website: '',
-  status: 'prospect',
-  linkedContactIDs: '',
-  customFields: {}
-}
+import { requireRecordResponse } from './use_record_selection'
 
 export function CompaniesRoute() {
   const navigate = useNavigate()
@@ -59,7 +39,6 @@ export function CompaniesRoute() {
   const initialSearch = searchParams.get('q') || ''
   const initialOwnerFilter = searchParams.get('owner') || 'all'
   const initialCustomFilter = customFieldFilterFromParams(searchParams)
-  const [mode, setMode] = useState('list')
   const [companies, setCompanies] = useState([])
   const [bulkEntityType, setBulkEntityType] = useState('company')
   const [selectedClientIds, setSelectedClientIds] = useState([])
@@ -67,39 +46,50 @@ export function CompaniesRoute() {
   const [search, setSearch] = useState(initialSearch)
   const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
   const [customFilter, setCustomFilter] = useState(initialCustomFilter)
-  const [selectedCompanyId, setSelectedCompanyId] = useState(null)
-  const [detail, setDetail] = useState(null)
   const [contactOptions, setContactOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
   const [ownerOptions, setOwnerOptions] = useState([])
-  const [form, setForm] = useState(emptyForm)
   const [companyCustomDefinitions, setCompanyCustomDefinitions] = useState([])
   const [contactCustomDefinitions, setContactCustomDefinitions] = useState([])
   const [customDefinitionsLoaded, setCustomDefinitionsLoaded] = useState(false)
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
-  const [isDetailLoading, setIsDetailLoading] = useState(false)
-  const [isSavingCompany, setIsSavingCompany] = useState(false)
-  const [isArchivingCompany, setIsArchivingCompany] = useState(false)
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateCandidate, setDuplicateCandidate] = useState(null)
   const searchControllerRef = useRef(null)
-  const seededRouteCompanyRef = useRef(null)
-  const companySelection = useRecordSelection(selectedCompanyId)
-  const companyWork = useRecordWork({
-    defaultAssignedToUserId: userOptions[0]?.id ? String(userOptions[0].id) : '',
-    entityType: 'company',
-    selectedEntityId: selectedCompanyId,
-    selection: companySelection,
-    onError: setError
+  const companyDetail = useCompanyDetail({
+    companyCustomDefinitions,
+    customDefinitionsLoaded,
+    navigateToCompany: (nextCompanyId) => navigate(`/companies/${nextCompanyId}`),
+    routeCompanyId,
+    setError,
+    userOptions
   })
   const {
+    clear: clearCompanyDetail,
+    detail,
+    fillForm: fillFormFromDetail,
+    form,
+    isArchiving: isArchivingCompany,
+    isDetailLoading,
+    isSaving: isSavingCompany,
+    mode,
+    open: openCompanyDetail,
+    seedCreated: seedCreatedCompany,
+    selectedCompanyId,
+    selection: companySelection,
+    setDetail,
+    setForm,
+    setIsArchiving: setIsArchivingCompany,
+    setIsSaving: setIsSavingCompany,
+    startCreate: startCompanyCreate,
+    work: companyWork
+  } = companyDetail
+  const {
     activities: selectedActivities,
-    fetchWork,
     load: loadWork,
     notes: selectedNotes,
     refreshTasks,
-    reset: resetWork,
     setActivities,
     setTaskForm,
     tasks: selectedTasks
@@ -181,10 +171,6 @@ export function CompaniesRoute() {
     })
   }
 
-  function fillFormFromDetail(data) {
-    setForm(companyFormValues(data.company, data.linkedContacts || [], companyCustomDefinitions))
-  }
-
   async function loadCustomDefinitions({ signal } = {}) {
     const [companyDefinitions, contactDefinitions] = await Promise.all([listCustomFields('company', { signal }), listCustomFields('contact', { signal })])
     setCompanyCustomDefinitions(companyDefinitions)
@@ -233,11 +219,7 @@ export function CompaniesRoute() {
     setSearch(nextSearch)
     setOwnerFilter(nextOwner)
     setCustomFilter(nextCustomFilter)
-    setMode('list')
-    setDetail(null)
-    setSelectedCompanyId(null)
-    companySelection.clear()
-    resetWork()
+    clearCompanyDetail()
     navigate(buildCompaniesPath(nextSearch, nextOwner, nextCustomFilter), { replace: true })
     await reloadCompanies(nextSearch, nextOwner, nextCustomFilter)
   }
@@ -284,11 +266,7 @@ export function CompaniesRoute() {
     }
 
     setSearch(duplicateSearch)
-    setMode('list')
-    setDetail(null)
-    setSelectedCompanyId(null)
-    companySelection.clear()
-    resetWork()
+    clearCompanyDetail()
     navigate('/companies')
     try {
       await loadCompanies(duplicateSearch)
@@ -342,76 +320,8 @@ export function CompaniesRoute() {
 
     const companyID = company.entityId
     if (routeCompanyId === companyID) return
-    companySelection.begin(companyID)
-    setSelectedCompanyId(companyID)
-    setDetail(null)
-    setForm(emptyForm)
-    resetWork()
-    setMode('detail')
-    setIsDetailLoading(true)
-    navigate(`/companies/${companyID}`)
+    openCompanyDetail(companyID)
   }
-
-  useEffect(() => {
-    async function openRouteCompany() {
-      if (!customDefinitionsLoaded) return
-      if (!Number.isInteger(routeCompanyId) || routeCompanyId <= 0) {
-        seededRouteCompanyRef.current = null
-        companySelection.clear()
-        if (selectedCompanyId || mode === 'detail') {
-          setSelectedCompanyId(null)
-          setDetail(null)
-          setForm(emptyForm)
-          resetWork()
-          setMode('list')
-        }
-        setIsDetailLoading(false)
-        setIsSavingCompany(false)
-        setIsArchivingCompany(false)
-        return
-      }
-
-      const seededRouteCompany = seededRouteCompanyRef.current
-      if (seededRouteCompany?.companyId === routeCompanyId && companySelection.isCurrent(seededRouteCompany.selection)) {
-        setIsDetailLoading(false)
-        return
-      }
-      seededRouteCompanyRef.current = null
-      const activeSelection = companySelection.begin(routeCompanyId)
-      const signal = activeSelection.controller.signal
-      setSelectedCompanyId(routeCompanyId)
-      setDetail(null)
-      setForm(emptyForm)
-      resetWork()
-      setMode('detail')
-      setIsSavingCompany(false)
-      setIsArchivingCompany(false)
-
-      try {
-        setIsDetailLoading(true)
-        const [data, work, dealData] = await Promise.all([
-          getCompany(routeCompanyId, { signal }),
-          fetchWork(routeCompanyId, { signal }),
-          listDeals({ companyId: routeCompanyId }, { signal })
-        ])
-        if (!companySelection.isCurrent(activeSelection)) return
-        requireRecordResponse(data, 'company', routeCompanyId, 'Unable to load company.')
-        const detailData = { ...data, deals: dealData.deals || [] }
-        setDetail(detailData)
-        fillFormFromDetail(detailData)
-        loadWork({ ...work, activities: data.activities || [] })
-        setError('')
-      } catch (loadError) {
-        if (!isAbortError(loadError) && companySelection.isCurrent(activeSelection)) {
-          setError(loadError.message || 'Unable to load company.')
-        }
-      } finally {
-        if (companySelection.isCurrent(activeSelection)) setIsDetailLoading(false)
-      }
-    }
-
-    openRouteCompany()
-  }, [customDefinitionsLoaded, routeCompanyId])
 
   async function handleCreate(event) {
     event.preventDefault()
@@ -459,19 +369,7 @@ export function CompaniesRoute() {
       setCompanies((current) => [...current, organizationClientFromCompany(data.company)].sort((left, right) => left.name.localeCompare(right.name) || left.entityId - right.entityId))
       setMeta((current) => ({ ...current, total: current.total + 1 }))
       if (companySelection.isCurrent(operation.selection)) {
-        const companyID = data.company.id
-        const activeSelection = companySelection.begin(companyID)
-        const detailData = { ...data, deals: data.deals || [] }
-        seededRouteCompanyRef.current = { companyId: companyID, selection: activeSelection }
-        setSelectedCompanyId(companyID)
-        setDetail(detailData)
-        fillFormFromDetail(detailData)
-        loadWork({ notes: data.notes || [], tasks: data.tasks || [], activities: data.activities || [] })
-        setMode('detail')
-        setIsDetailLoading(false)
-        setIsSavingCompany(false)
-        setIsArchivingCompany(false)
-        navigate(`/companies/${data.company.id}`)
+        seedCreatedCompany(data)
         setError('')
         setDuplicateSearch('')
         setDuplicateCandidate(null)
@@ -539,15 +437,8 @@ export function CompaniesRoute() {
   }
 
   function handleAddClient() {
-    companySelection.clear()
     navigate('/companies')
-    setMode('create')
-    setForm(emptyForm)
-    setDetail(null)
-    setSelectedCompanyId(null)
-    resetWork()
-    setIsSavingCompany(false)
-    setIsArchivingCompany(false)
+    startCompanyCreate()
   }
 
   function handleClearFilters() {
@@ -577,13 +468,7 @@ export function CompaniesRoute() {
       setCompanies((current) => current.filter((entry) => entry.entityType !== 'company' || entry.entityId !== operation.entityId))
       setMeta((current) => ({ ...current, total: Math.max(0, current.total - 1) }))
       if (!companySelection.isEntityActive(operation.entityId)) return
-      setIsArchivingCompany(false)
-      companySelection.clear()
-      setDetail(null)
-      setSelectedCompanyId(null)
-      setForm(emptyForm)
-      resetWork()
-      setMode('list')
+      clearCompanyDetail()
       navigate('/companies')
       setError('')
       setDuplicateSearch('')
