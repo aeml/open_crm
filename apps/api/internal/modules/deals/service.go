@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
+	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
 )
@@ -566,6 +567,7 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	}
 
 	var dealID int64
+	var assignmentVersion int
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO deals (
 			organization_id, company_id, primary_contact_id, stage_id, name, status,
@@ -578,11 +580,20 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 			$11, $12, $13, CASE WHEN $6 IN ('won','lost') THEN NOW() END,
 			CASE WHEN $6 IN ('won','lost') THEN NULLIF($14,0) END
 		)
-		RETURNING id
+		RETURNING id,COALESCE(owner_assignment_version,0)
 	`, organizationID, input.CompanyID, input.PrimaryContactID, input.StageID, input.Name, stageSnapshot.Outcome,
 		input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, input.OwnerUserID,
-		review.Code, review.Label, review.Notes, actorUserID).Scan(&dealID); err != nil {
+		review.Code, review.Label, review.Notes, actorUserID).Scan(&dealID, &assignmentVersion); err != nil {
 		return Detail{}, fmt.Errorf("insert deal: %w", err)
+	}
+	if err := modulenotifications.RecordDealAssignment(ctx, tx, modulenotifications.DealAssignment{
+		OrganizationID: organizationID,
+		DealID:         dealID,
+		DealName:       input.Name,
+		UserID:         input.OwnerUserID,
+		Version:        assignmentVersion,
+	}, actorUserID); err != nil {
+		return Detail{}, err
 	}
 
 	createdSummary := "Deal created"
@@ -753,8 +764,29 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 	if err := requireDealRelationships(ctx, tx, organizationID, input.CompanyID, input.PrimaryContactID); err != nil {
 		return Detail{}, err
 	}
+	var previousOwnerUserID int64
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(owner_user_id,0)
+		FROM deals
+		WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL
+		FOR UPDATE
+	`, organizationID, dealID).Scan(&previousOwnerUserID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Detail{}, ErrNotFound
+		}
+		return Detail{}, fmt.Errorf("lock deal for update: %w", err)
+	}
+	nextOwnerUserID := input.OwnerUserID
+	if nextOwnerUserID <= 0 {
+		nextOwnerUserID = previousOwnerUserID
+	}
+	if nextOwnerUserID <= 0 {
+		nextOwnerUserID = actorUserID
+	}
+	assignmentChanged := nextOwnerUserID != previousOwnerUserID
 
 	var dealStatus string
+	var assignmentVersion int
 	row := tx.QueryRow(ctx, `
 		UPDATE deals
 		SET name = $3,
@@ -763,12 +795,16 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 		    value_amount = NULLIF($6, '')::numeric,
 		    value_currency = NULLIF($7, ''),
 		    expected_close_date = NULLIF($8, '')::date,
-		    owner_user_id = COALESCE(NULLIF($9, 0), owner_user_id, $10),
+		    owner_assignment_version = CASE
+		      WHEN owner_user_id IS DISTINCT FROM $9 THEN COALESCE(owner_assignment_version,0)+1
+		      ELSE COALESCE(owner_assignment_version,0)
+		    END,
+		    owner_user_id = $9,
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-		RETURNING status
-	`, organizationID, dealID, input.Name, input.CompanyID, input.PrimaryContactID, input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, input.OwnerUserID, actorUserID)
-	if err := row.Scan(&dealStatus); err != nil {
+		RETURNING status,COALESCE(owner_assignment_version,0)
+	`, organizationID, dealID, input.Name, input.CompanyID, input.PrimaryContactID, input.ValueAmount, input.ValueCurrency, input.ExpectedCloseDate, nextOwnerUserID)
+	if err := row.Scan(&dealStatus, &assignmentVersion); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Detail{}, ErrNotFound
 		}
@@ -783,6 +819,17 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 	}
 	if err := handoffWonDeal(ctx, tx, organizationID, dealID, actorUserID); err != nil {
 		return Detail{}, err
+	}
+	if assignmentChanged {
+		if err := modulenotifications.RecordDealAssignment(ctx, tx, modulenotifications.DealAssignment{
+			OrganizationID: organizationID,
+			DealID:         dealID,
+			DealName:       input.Name,
+			UserID:         nextOwnerUserID,
+			Version:        assignmentVersion,
+		}, actorUserID); err != nil {
+			return Detail{}, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

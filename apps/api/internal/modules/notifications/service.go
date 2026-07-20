@@ -22,37 +22,12 @@ type Notification struct {
 	CreatedAt  time.Time  `json:"createdAt"`
 }
 
-type CreateInput struct {
-	UserID     int64
-	EventType  string
-	EntityType string
-	EntityID   int64
-	Summary    string
-}
-
 type Service struct {
 	pool *pgxpool.Pool
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
-}
-
-func (s *Service) Create(ctx context.Context, organizationID int64, input CreateInput) error {
-	if s == nil || s.pool == nil {
-		return fmt.Errorf("notifications service not configured")
-	}
-	if input.UserID <= 0 {
-		return nil
-	}
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO notifications (organization_id, user_id, event_type, entity_type, entity_id, summary)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, organizationID, input.UserID, input.EventType, input.EntityType, input.EntityID, input.Summary)
-	if err != nil {
-		return fmt.Errorf("create notification: %w", err)
-	}
-	return nil
 }
 
 func (s *Service) ListForUser(ctx context.Context, organizationID, userID int64) ([]Notification, error) {

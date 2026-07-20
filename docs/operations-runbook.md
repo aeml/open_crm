@@ -855,6 +855,22 @@ task is still open and assigned, then use the ordinary Operations replay. Do not
 edit `task_reminders`, its version, or its job payload manually. Email task
 reminders are intentionally not enabled.
 
+### Deal assignment notification behavior
+
+Creating a deal for another active teammate, changing its owner, bulk
+reassignment and rollback, and member-deactivation reassignment create an
+in-app `deal.assigned` notification in the same database transaction as the
+owner change. The recipient's **My Profile > Notify me when a deal is assigned
+to me** choice is checked at write time. Self-assignment, an unchanged owner,
+an inactive recipient, and opt-out are intentional no-ops.
+
+Each effective owner transition advances `deals.owner_assignment_version`; the
+notification idempotency key includes that generation. Do not edit the version
+or notification row manually. If the notification insert fails, the owner
+mutation also fails and may be safely retried through the original UI/API action.
+Assignment notifications are not background jobs and therefore do not appear in
+the Operations replay queue.
+
 ### Uncertain sequence email
 
 SMTP can accept a message before a connection failure reaches Open CRM. Those

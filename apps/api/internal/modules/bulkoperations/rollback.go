@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
+	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 )
 
@@ -132,6 +133,11 @@ func (s *Service) Rollback(ctx context.Context, organizationID, actorUserID, ope
 			return Operation{}, fmt.Errorf("refresh rolled-back task reminders: %w", err)
 		}
 	}
+	if operation.EntityType == "deal" && operation.Action == "reassign" {
+		if err := modulenotifications.RecordDealAssignments(ctx, tx, organizationID, rolledBackIDs, actorUserID); err != nil {
+			return Operation{}, err
+		}
+	}
 	status := "rolled_back"
 	if skipped > 0 {
 		status = "partially_rolled_back"
@@ -207,11 +213,15 @@ func restoreRecord(ctx context.Context, tx pgx.Tx, config entityConfig, action s
 	if config.hasTaskReminders {
 		reminderVersionUpdate = ", reminder_version=COALESCE(reminder_version,0)+1"
 	}
+	assignmentVersionUpdate := ""
+	if config.hasDealAssignments {
+		assignmentVersionUpdate = ", owner_assignment_version=COALESCE(owner_assignment_version,0)+1"
+	}
 	switch action {
 	case "archive":
 		_, err = tx.Exec(ctx, `UPDATE `+config.table+` SET archived_at = $3`+reminderVersionUpdate+`, updated_at = NOW() WHERE organization_id = $1 AND id = $2`, organizationID, row.entityID, nullableTime(row.beforeArchivedAt))
 	case "reassign":
-		_, err = tx.Exec(ctx, `UPDATE `+config.table+` SET `+config.ownerColumn+` = $3`+reminderVersionUpdate+`, updated_at = NOW() WHERE organization_id = $1 AND id = $2`, organizationID, row.entityID, nullableInt8(row.beforeOwner))
+		_, err = tx.Exec(ctx, `UPDATE `+config.table+` SET `+config.ownerColumn+` = $3`+reminderVersionUpdate+assignmentVersionUpdate+`, updated_at = NOW() WHERE organization_id = $1 AND id = $2`, organizationID, row.entityID, nullableInt8(row.beforeOwner))
 	case "set_status":
 		if config.hasCompletedAt {
 			_, err = tx.Exec(ctx, `UPDATE `+config.table+` SET status = $3, completed_at = $4`+reminderVersionUpdate+`, updated_at = NOW() WHERE organization_id = $1 AND id = $2`, organizationID, row.entityID, nullableText(row.beforeStatus), nullableTime(row.beforeCompletedAt))

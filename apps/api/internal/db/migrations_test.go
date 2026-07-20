@@ -1331,3 +1331,18 @@ func TestMigrationFilesIncludeBackgroundJobRetentionMigration(t *testing.T) {
 		t.Fatalf("background job retention migration class=%q", class)
 	}
 }
+
+func TestMigrationFilesIncludeDealAssignmentNotificationsMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "081_deal_assignment_notifications.sql") {
+		t.Fatal("deal assignment notification migration is missing")
+	}
+	sql := MigrationSQL("081_deal_assignment_notifications.sql")
+	for _, fragment := range []string{"owner_assignment_version", "deals_owner_assignment_version_check", "DEFAULT 0"} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("deal assignment notification migration missing %q", fragment)
+		}
+	}
+	if class := MigrationDeploymentClass("081_deal_assignment_notifications.sql"); class != "expand" {
+		t.Fatalf("deal assignment notification migration class=%q", class)
+	}
+}

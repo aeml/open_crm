@@ -911,6 +911,18 @@ Exit criteria:
 - Notification settings exist before external delivery channels are introduced.
 - Events can be generated and reviewed in-app.
 
+Completion evidence (2026-07-20): task and deal assignment preferences are
+persisted before delivery. Deal create/update, bulk reassignment and rollback,
+and user-deactivation reassignment now write the recipient event in the same
+transaction as the owner change. A monotonic per-deal owner generation makes
+unchanged saves and transaction retries quiet without suppressing a later
+assign-away/back event; inactive, foreign, self, and opted-out recipients do not
+receive one. Disposable-PostgreSQL acceptance covers direct, bulk, lifecycle,
+rollback, preference, and failed-sink behavior, while the notification-center
+test and clean-browser pilot journey prove the assignment filter and deal deep
+link. In-app delivery remains deliberately below production-capable until
+retention, event-quality observability, and pilot noise validation are complete.
+
 ## Version 0.4.5 - Mention And Follow Model
 
 Status: complete.

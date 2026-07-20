@@ -17,6 +17,7 @@ import (
 
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
+	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
@@ -66,11 +67,12 @@ type Operation struct {
 }
 
 type entityConfig struct {
-	table            string
-	ownerColumn      string
-	hasCompletedAt   bool
-	allowedStatuses  map[string]bool
-	hasTaskReminders bool
+	table              string
+	ownerColumn        string
+	hasCompletedAt     bool
+	allowedStatuses    map[string]bool
+	hasDealAssignments bool
+	hasTaskReminders   bool
 }
 
 type recordSnapshot struct {
@@ -187,6 +189,11 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (Operation, e
 	if normalized.EntityType == "task" {
 		if err := moduletaskreminders.LoadAndSync(ctx, tx, normalized.OrganizationID, changedIDs, normalized.ActorUserID, normalized.Action == "reassign"); err != nil {
 			return Operation{}, fmt.Errorf("refresh bulk task reminders: %w", err)
+		}
+	}
+	if normalized.EntityType == "deal" && normalized.Action == "reassign" {
+		if err := modulenotifications.RecordDealAssignments(ctx, tx, normalized.OrganizationID, changedIDs, normalized.ActorUserID); err != nil {
+			return Operation{}, err
 		}
 	}
 	if normalized.EntityType == "deal" && normalized.Action == "archive" {
@@ -354,7 +361,7 @@ func entityConfiguration(entityType string) (entityConfig, bool) {
 	case "company":
 		return entityConfig{table: "companies", ownerColumn: "owner_user_id", allowedStatuses: statuses}, true
 	case "deal":
-		return entityConfig{table: "deals", ownerColumn: "owner_user_id", allowedStatuses: map[string]bool{}}, true
+		return entityConfig{table: "deals", ownerColumn: "owner_user_id", hasDealAssignments: true, allowedStatuses: map[string]bool{}}, true
 	case "task":
 		return entityConfig{table: "tasks", ownerColumn: "assigned_to_user_id", hasCompletedAt: true, hasTaskReminders: true, allowedStatuses: map[string]bool{"open": true, "completed": true}}, true
 	default:
@@ -419,11 +426,15 @@ func applyOperation(ctx context.Context, tx pgx.Tx, config entityConfig, input E
 	if config.hasTaskReminders {
 		reminderVersionUpdate = ", reminder_version=COALESCE(reminder_version,0)+1"
 	}
+	assignmentVersionUpdate := ""
+	if config.hasDealAssignments {
+		assignmentVersionUpdate = ", owner_assignment_version=COALESCE(owner_assignment_version,0)+1"
+	}
 	switch input.Action {
 	case "archive":
 		rows, err = tx.Query(ctx, `UPDATE `+config.table+` SET archived_at = NOW()`+reminderVersionUpdate+`, updated_at = NOW() WHERE organization_id = $1 AND id = ANY($2) AND archived_at IS NULL RETURNING id, updated_at`, input.OrganizationID, input.EntityIDs)
 	case "reassign":
-		rows, err = tx.Query(ctx, `UPDATE `+config.table+` SET `+config.ownerColumn+` = NULLIF($3, 0)`+reminderVersionUpdate+`, updated_at = NOW() WHERE organization_id = $1 AND id = ANY($2) AND archived_at IS NULL AND `+config.ownerColumn+` IS DISTINCT FROM NULLIF($3, 0) RETURNING id, updated_at`, input.OrganizationID, input.EntityIDs, *input.TargetUserID)
+		rows, err = tx.Query(ctx, `UPDATE `+config.table+` SET `+config.ownerColumn+` = NULLIF($3, 0)`+reminderVersionUpdate+assignmentVersionUpdate+`, updated_at = NOW() WHERE organization_id = $1 AND id = ANY($2) AND archived_at IS NULL AND `+config.ownerColumn+` IS DISTINCT FROM NULLIF($3, 0) RETURNING id, updated_at`, input.OrganizationID, input.EntityIDs, *input.TargetUserID)
 	case "set_status":
 		if config.hasCompletedAt {
 			rows, err = tx.Query(ctx, `UPDATE `+config.table+` SET status = $3, completed_at = CASE WHEN $3 = 'completed' THEN COALESCE(completed_at, NOW()) ELSE NULL END`+reminderVersionUpdate+`, updated_at = NOW() WHERE organization_id = $1 AND id = ANY($2) AND archived_at IS NULL AND status IS DISTINCT FROM $3 RETURNING id, updated_at`, input.OrganizationID, input.EntityIDs, input.ActionValue)

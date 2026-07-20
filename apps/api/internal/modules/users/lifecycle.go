@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
+	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 )
 
@@ -300,7 +301,6 @@ func reassignOperationalWork(ctx context.Context, tx pgx.Tx, organizationID, use
 	}{
 		{"contacts", `UPDATE contacts SET owner_user_id = $3, updated_at = NOW() WHERE organization_id = $1 AND owner_user_id = $2 AND archived_at IS NULL`, nil},
 		{"companies", `UPDATE companies SET owner_user_id = $3, updated_at = NOW() WHERE organization_id = $1 AND owner_user_id = $2 AND archived_at IS NULL`, nil},
-		{"deals", `UPDATE deals SET owner_user_id = $3, updated_at = NOW() WHERE organization_id = $1 AND owner_user_id = $2 AND archived_at IS NULL`, nil},
 		{"shared inbox", `UPDATE email_messages SET shared_inbox_assigned_to_user_id = $3, shared_inbox_updated_at = NOW() WHERE organization_id = $1 AND shared_inbox_assigned_to_user_id = $2 AND direction = 'inbound' AND visibility = 'shared' AND shared_inbox_status = 'open'`, nil},
 		{"lead routing rules", `UPDATE lead_scoring_rules SET assign_to_user_id = $3, updated_at = NOW() WHERE organization_id = $1 AND assign_to_user_id = $2 AND is_active = TRUE`, nil},
 		{"calendar events", `UPDATE calendar_events SET calendar_user_id = $3, updated_at = NOW() WHERE organization_id = $1 AND calendar_user_id = $2 AND status = 'scheduled' AND end_at > NOW()`, nil},
@@ -308,16 +308,44 @@ func reassignOperationalWork(ctx context.Context, tx pgx.Tx, organizationID, use
 	counts := WorkCounts{}
 	updates[0].count = &counts.Contacts
 	updates[1].count = &counts.Companies
-	updates[2].count = &counts.Deals
-	updates[3].count = &counts.SharedInbox
-	updates[4].count = &counts.LeadRoutingRules
-	updates[5].count = &counts.CalendarEvents
+	updates[2].count = &counts.SharedInbox
+	updates[3].count = &counts.LeadRoutingRules
+	updates[4].count = &counts.CalendarEvents
 	for _, update := range updates {
 		tag, err := tx.Exec(ctx, update.query, organizationID, userID, replacement)
 		if err != nil {
 			return WorkCounts{}, fmt.Errorf("reassign %s: %w", update.name, err)
 		}
 		*update.count = tag.RowsAffected()
+	}
+	dealRows, err := tx.Query(ctx, `
+		UPDATE deals
+		SET owner_user_id=$3,
+		    owner_assignment_version=COALESCE(owner_assignment_version,0)+1,
+		    updated_at=NOW()
+		WHERE organization_id=$1 AND owner_user_id=$2 AND archived_at IS NULL
+		RETURNING id
+	`, organizationID, userID, replacement)
+	if err != nil {
+		return WorkCounts{}, fmt.Errorf("reassign deals: %w", err)
+	}
+	dealIDs := []int64{}
+	for dealRows.Next() {
+		var dealID int64
+		if err := dealRows.Scan(&dealID); err != nil {
+			dealRows.Close()
+			return WorkCounts{}, fmt.Errorf("scan reassigned deal: %w", err)
+		}
+		dealIDs = append(dealIDs, dealID)
+	}
+	if err := dealRows.Err(); err != nil {
+		dealRows.Close()
+		return WorkCounts{}, fmt.Errorf("iterate reassigned deals: %w", err)
+	}
+	dealRows.Close()
+	counts.Deals = int64(len(dealIDs))
+	if err := modulenotifications.RecordDealAssignments(ctx, tx, organizationID, dealIDs, actorUserID); err != nil {
+		return WorkCounts{}, err
 	}
 	taskRows, err := tx.Query(ctx, `
 		UPDATE tasks

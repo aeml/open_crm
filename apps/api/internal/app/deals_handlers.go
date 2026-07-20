@@ -8,7 +8,6 @@ import (
 	"time"
 
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
-	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
@@ -134,7 +133,7 @@ func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-func handleCreateDeal(auth authService, deals dealsService, notifs notificationsService, billing billingService, w http.ResponseWriter, r *http.Request) {
+func handleCreateDeal(auth authService, deals dealsService, billing billingService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -186,16 +185,6 @@ func handleCreateDeal(auth authService, deals dealsService, notifs notifications
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create deal")
 		return
-	}
-
-	if notifs != nil && result.Summary.OwnerUserID > 0 && result.Summary.OwnerUserID != state.User.ID {
-		_ = notifs.Create(r.Context(), state.Organization.ID, modulenotifications.CreateInput{
-			UserID:     result.Summary.OwnerUserID,
-			EventType:  "deal.assigned",
-			EntityType: "deal",
-			EntityID:   result.Summary.ID,
-			Summary:    fmt.Sprintf("You were assigned a deal: %s", result.Summary.Name),
-		})
 	}
 
 	respondDealDetail(w, r, http.StatusCreated, result)
@@ -266,7 +255,7 @@ func handleDownloadDealQuotePDF(auth authService, deals dealsService, w http.Res
 	writePDFFile(w, http.StatusOK, file)
 }
 
-func handleUpdateDeal(auth authService, deals dealsService, notifs notificationsService, w http.ResponseWriter, r *http.Request) {
+func handleUpdateDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -310,16 +299,6 @@ func handleUpdateDeal(auth authService, deals dealsService, notifs notifications
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update deal")
 		return
-	}
-
-	if notifs != nil && request.OwnerUserID > 0 && request.OwnerUserID != state.User.ID {
-		_ = notifs.Create(r.Context(), state.Organization.ID, modulenotifications.CreateInput{
-			UserID:     result.Summary.OwnerUserID,
-			EventType:  "deal.assigned",
-			EntityType: "deal",
-			EntityID:   result.Summary.ID,
-			Summary:    fmt.Sprintf("You were assigned a deal: %s", result.Summary.Name),
-		})
 	}
 
 	respondDealDetail(w, r, http.StatusOK, result)

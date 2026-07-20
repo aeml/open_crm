@@ -118,10 +118,10 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 		handleDownloadDealQuotePDF(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("POST /api/deals", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, dependencies.NotificationsService, dependencies.BillingService, w, r)
+		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, dependencies.BillingService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
-		handleUpdateDeal(dependencies.AuthService, dependencies.DealsService, dependencies.NotificationsService, w, r)
+		handleUpdateDeal(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("DELETE /api/deals/{dealID}", func(w http.ResponseWriter, r *http.Request) {
 		handleArchiveDeal(dependencies.AuthService, dependencies.DealsService, w, r)

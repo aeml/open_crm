@@ -89,7 +89,7 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 		t.Fatalf("create lifecycle sessions: %v", err)
 	}
 
-	var pipelineID, stageID, activeContactID, archivedContactID, calendarEventID, reminderID, taskID int64
+	var pipelineID, stageID, activeContactID, archivedContactID, calendarEventID, reminderID, taskID, ownedDealID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO deal_pipelines (organization_id, name, position, is_default, created_by_user_id) VALUES ($1, 'Lifecycle pipeline', 1, TRUE, $2) RETURNING id`, organizationID, ownerID).Scan(&pipelineID); err != nil {
 		t.Fatalf("create lifecycle pipeline: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	if _, err := pool.Exec(ctx, `INSERT INTO companies (organization_id, name, owner_user_id, status) VALUES ($1, 'Owned company', $2, 'prospect')`, organizationID, memberID); err != nil {
 		t.Fatalf("create owned company: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO deals (organization_id, stage_id, name, owner_user_id, status) VALUES ($1, $2, 'Owned deal', $3, 'open')`, organizationID, stageID, memberID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO deals (organization_id, stage_id, name, owner_user_id, status) VALUES ($1, $2, 'Owned deal', $3, 'open') RETURNING id`, organizationID, stageID, memberID).Scan(&ownedDealID); err != nil {
 		t.Fatalf("create owned deal: %v", err)
 	}
 	createdTask, err := moduletasks.NewService(pool).Create(ctx, organizationID, memberID, moduletasks.CreateInput{
@@ -226,6 +226,13 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	result := lifecycle.result
 	if !result.Changed || result.User.Status != moduleusers.MembershipStatusDisabled || result.SessionsInvalidated != 1 || result.Reassigned.Total() != 7 {
 		t.Fatalf("unexpected disabled lifecycle result: %#v", result)
+	}
+	var dealAssignmentVersion, replacementDealNotifications int
+	if err := pool.QueryRow(ctx, `SELECT owner_assignment_version FROM deals WHERE organization_id=$1 AND id=$2`, organizationID, ownedDealID).Scan(&dealAssignmentVersion); err != nil || dealAssignmentVersion != 1 {
+		t.Fatalf("unexpected lifecycle deal assignment generation: version=%d err=%v", dealAssignmentVersion, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM notifications WHERE organization_id=$1 AND user_id=$2 AND entity_type='deal' AND entity_id=$3 AND event_type='deal.assigned'`, organizationID, replacementID, ownedDealID).Scan(&replacementDealNotifications); err != nil || replacementDealNotifications != 1 {
+		t.Fatalf("expected one transaction-retry-safe lifecycle deal notification: count=%d err=%v", replacementDealNotifications, err)
 	}
 	for table, column := range map[string]string{
 		"contacts":           "owner_user_id",

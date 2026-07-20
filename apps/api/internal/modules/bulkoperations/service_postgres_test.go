@@ -120,6 +120,35 @@ func TestBulkOperationsAreIdempotentTenantSafeAndChangeAwareAgainstPostgres(t *t
 	if err != nil || len(foreignHistory) != 0 {
 		t.Fatalf("foreign tenant saw bulk history: history=%#v err=%v", foreignHistory, err)
 	}
+	dealReassign, err := service.Execute(ctx, modulebulkoperations.ExecuteInput{
+		OrganizationID: organizationID, ActorUserID: ownerID, EntityType: "deal", Action: "reassign",
+		TargetUserID: &memberID, EntityIDs: []int64{dealID}, IdempotencyKey: "bulk-deal-reassign-001",
+	})
+	if err != nil || dealReassign.ChangedCount != 1 {
+		t.Fatalf("reassign deal with notification: operation=%#v err=%v", dealReassign, err)
+	}
+	assertOwner(t, ctx, pool, "deals", organizationID, dealID, memberID)
+	dealReplay, err := service.Execute(ctx, modulebulkoperations.ExecuteInput{
+		OrganizationID: organizationID, ActorUserID: ownerID, EntityType: "deal", Action: "reassign",
+		TargetUserID: &memberID, EntityIDs: []int64{dealID}, IdempotencyKey: "bulk-deal-reassign-001",
+	})
+	if err != nil || !dealReplay.Replayed || dealReplay.ID != dealReassign.ID {
+		t.Fatalf("replay deal reassignment: operation=%#v err=%v", dealReplay, err)
+	}
+	if _, err := service.Rollback(ctx, organizationID, memberID, dealReassign.ID); err != nil {
+		t.Fatalf("roll back deal reassignment: %v", err)
+	}
+	assertOwner(t, ctx, pool, "deals", organizationID, dealID, ownerID)
+	var dealAssignmentVersion, memberDealNotifications, ownerDealNotifications int
+	if err := pool.QueryRow(ctx, `SELECT owner_assignment_version FROM deals WHERE organization_id=$1 AND id=$2`, organizationID, dealID).Scan(&dealAssignmentVersion); err != nil || dealAssignmentVersion != 2 {
+		t.Fatalf("unexpected bulk deal assignment generation: version=%d err=%v", dealAssignmentVersion, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM notifications WHERE organization_id=$1 AND user_id=$2 AND entity_type='deal' AND entity_id=$3 AND event_type='deal.assigned'`, organizationID, memberID, dealID).Scan(&memberDealNotifications); err != nil || memberDealNotifications != 1 {
+		t.Fatalf("expected one replay-safe bulk assignment notification: count=%d err=%v", memberDealNotifications, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM notifications WHERE organization_id=$1 AND user_id=$2 AND entity_type='deal' AND entity_id=$3 AND event_type='deal.assigned'`, organizationID, ownerID, dealID).Scan(&ownerDealNotifications); err != nil || ownerDealNotifications != 1 {
+		t.Fatalf("expected one rollback assignment notification: count=%d err=%v", ownerDealNotifications, err)
+	}
 	if _, err := service.Rollback(ctx, foreignOrganizationID, foreignID, reassign.ID); !errors.Is(err, modulebulkoperations.ErrNotFound) {
 		t.Fatalf("expected cross-tenant rollback miss, got %v", err)
 	}
@@ -202,10 +231,10 @@ func TestBulkOperationsAreIdempotentTenantSafeAndChangeAwareAgainstPostgres(t *t
 		t.Fatalf("unexpected entity-filtered bulk history: history=%#v err=%v", contactHistory, err)
 	}
 	var activityCount, auditCount int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE organization_id = $1 AND action LIKE '%.bulk_%'`, organizationID).Scan(&activityCount); err != nil || activityCount != 7 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE organization_id = $1 AND action LIKE '%.bulk_%'`, organizationID).Scan(&activityCount); err != nil || activityCount != 9 {
 		t.Fatalf("expected per-record apply/rollback activity, count=%d err=%v", activityCount, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id = $1 AND event_type IN ('bulk_operation.completed', 'bulk_operation.rolled_back')`, organizationID).Scan(&auditCount); err != nil || auditCount != 6 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id = $1 AND event_type IN ('bulk_operation.completed', 'bulk_operation.rolled_back')`, organizationID).Scan(&auditCount); err != nil || auditCount != 8 {
 		t.Fatalf("expected aggregate bulk audit events, count=%d err=%v", auditCount, err)
 	}
 }

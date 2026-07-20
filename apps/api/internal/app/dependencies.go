@@ -238,7 +238,6 @@ type onboardingService interface {
 }
 
 type notificationsService interface {
-	Create(context.Context, int64, modulenotifications.CreateInput) error
 	ListForUser(context.Context, int64, int64) ([]modulenotifications.Notification, error)
 	MarkRead(context.Context, int64, int64, int64) error
 	MarkAllRead(context.Context, int64, int64) error

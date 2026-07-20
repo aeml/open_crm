@@ -11,7 +11,7 @@ describe('notifications collaboration route', () => {
   it('links useful notifications and filters a focused activity digest', async () => {
     const fetchMock = vi.fn(async (input, options = {}) => {
       const url = String(input)
-      if (url.includes('/api/notifications/5/read')) {
+      if (url.match(/\/api\/notifications\/(5|7)\/read/)) {
         return { ok: true, status: 204, json: async () => ({}) }
       }
       if (url.includes('/api/notifications')) {
@@ -19,7 +19,8 @@ describe('notifications collaboration route', () => {
           ok: true,
           json: async () => ({ data: { notifications: [
             { id: 5, eventType: 'record.mentioned', entityType: 'contact', entityId: 17, summary: 'Casey mentioned you on Ada Lovelace', readAt: null, createdAt: '2026-07-19T08:00:00Z' },
-            { id: 6, eventType: 'task.assigned', entityType: 'task', entityId: 22, summary: 'You were assigned a task', readAt: '2026-07-19T08:10:00Z', createdAt: '2026-07-19T08:00:00Z' }
+            { id: 6, eventType: 'task.assigned', entityType: 'task', entityId: 22, summary: 'You were assigned a task', readAt: '2026-07-19T08:10:00Z', createdAt: '2026-07-19T08:00:00Z' },
+            { id: 7, eventType: 'deal.assigned', entityType: 'deal', entityId: 23, summary: 'You were assigned a deal: Renewal', readAt: null, createdAt: '2026-07-19T08:20:00Z' }
           ] } })
         }
       }
@@ -48,6 +49,15 @@ describe('notifications collaboration route', () => {
     expect(await screen.findByText(/casey mentioned you on ada lovelace/i)).toBeInTheDocument()
     expect(await screen.findByText('Ada Lovelace: Note added')).toBeInTheDocument()
     expect(screen.getByRole('list', { name: /activity digest summary/i })).toHaveTextContent('Activity1')
+
+    fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'assignments' } })
+    expect(screen.getByText(/you were assigned a deal: renewal/i)).toBeInTheDocument()
+    expect(screen.getByText(/you were assigned a task/i)).toBeInTheDocument()
+    expect(screen.queryByText(/casey mentioned you/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open record' })[1])
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/notifications/7/read'), expect.objectContaining({ method: 'PATCH' }))
+    })
 
     fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'mentions' } })
     expect(screen.getByText(/casey mentioned you/i)).toBeInTheDocument()

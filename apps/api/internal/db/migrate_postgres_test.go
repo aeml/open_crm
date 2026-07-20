@@ -64,6 +64,7 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"deals_status_check",
 		"deals_value_amount_nonnegative_check",
 		"deals_value_currency_code_check",
+		"deals_owner_assignment_version_check",
 		"sales_quotas_period_order_check",
 		"sales_quotas_amount_nonnegative_check",
 		"sales_quotas_currency_code_check",
