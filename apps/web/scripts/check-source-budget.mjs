@@ -6,12 +6,9 @@ const scriptDirectory = fileURLToPath(new URL('.', import.meta.url))
 const routesDirectory = resolve(scriptDirectory, '..', 'src', 'routes')
 const defaultMaximum = 500
 const maximums = new Map([
-  ['contacts.jsx', 530],
   ['companies.jsx', 570],
   ['deals.jsx', 565],
   ['tasks.jsx', 600],
-  ['settings_automations.jsx', 700],
-  ['dashboard.jsx', 550],
 ])
 
 function lineCount(path) {

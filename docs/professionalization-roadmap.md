@@ -398,8 +398,8 @@ Current convergence evidence: route-level loading and bundle budgets are
 CI-gated. Tested list, editor, view-model, communications, insights, shared
 work, touchpoint, production outreach, lead-score, and 168-line create/detail
 workspace extraction plus bulk/custom-field integration and shared record
-selection/work leave `contacts.jsx` at 521 lines, down from 2,038, under a
-tightened 530-line ceiling. Tested 68-line selection and
+selection/work plus a 134-line contact-detail orchestrator leave `contacts.jsx`
+at 449 lines, down from 2,038 and below the default 500-line ceiling. Tested 68-line selection and
 142-line work hooks abort obsolete loads, distinguish repeated A-to-B-to-A visits,
 serialize contact mutations, validate returned record/work identities, and keep
 late saves, notes, and tasks off the active contact. The 229-line outreach hook clears record-scoped email and
@@ -2277,19 +2277,19 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 177.99 KiB/57.93 KiB for the entry, 37.63 KiB/10.88 KiB
-for the largest lazy chunk, and 627.42 KiB/201.59 KiB total assets. Hosted
+CSS. Current evidence is 177.99 KiB/57.91 KiB for the entry, 37.63 KiB/10.88 KiB
+for the largest lazy chunk, and 628.05 KiB/201.74 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.35 KiB/4.56 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
 routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
-and focused contact outreach/lead scoring/workspace presentation plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 521 lines,
+and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 449 lines,
 companies at 562, deals at 553, and tasks at 590, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
-and the remaining explicit source exceptions.
+and the remaining company, deal, and task source exceptions.
 
 ## Version 0.9.9 - Reliability Release Review
 

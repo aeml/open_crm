@@ -3,24 +3,21 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { bulkStatusOptions } from '../components/ui/bulk_actions'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { archiveContact, contactsExportURL, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
-import { listDeals } from '../lib/deals'
+import { archiveContact, contactsExportURL, createContact, listContacts, updateContact } from '../lib/contacts'
 import { listOrganizationUsers } from '../lib/users'
 import { customFieldFilterFromParams, listCustomFields } from '../lib/custom_fields'
 import { usePageTitle } from '../lib/use_page_title'
 import { ContactListCard } from './contact_list'
 import {
-  contactFormValues,
   contactPayload,
   duplicateSearchTerm,
-  emptyContactForm,
   relatedPipelineLabels
 } from './contact_view'
 import { ContactCreateWorkspace, ContactWorkspace } from './contact_workspace'
+import { useContactDetail } from './use_contact_detail'
 import { useContactLeadScore } from './use_contact_lead_score'
 import { useContactOutreach } from './use_contact_outreach'
-import { requireRecordResponse, useRecordSelection } from './use_record_selection'
-import { requireRecordWork, useRecordWork } from './use_record_work'
+import { requireRecordResponse } from './use_record_selection'
 
 export function ContactsRoute() {
   const navigate = useNavigate()
@@ -35,43 +32,53 @@ export function ContactsRoute() {
   const initialSearch = searchParams.get('q') || ''
   const initialOwnerFilter = searchParams.get('owner') || 'all'
   const initialCustomFilter = customFieldFilterFromParams(searchParams)
-  const [mode, setMode] = useState('list')
   const [contacts, setContacts] = useState([])
   const [selectedContactIds, setSelectedContactIds] = useState([])
   const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
   const [search, setSearch] = useState(initialSearch)
   const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
   const [customFilter, setCustomFilter] = useState(initialCustomFilter)
-  const [selectedContactId, setSelectedContactId] = useState(null)
-  const [detail, setDetail] = useState(null)
   const [userOptions, setUserOptions] = useState([])
-  const [form, setForm] = useState(emptyContactForm)
   const [customDefinitions, setCustomDefinitions] = useState([])
   const [customDefinitionsLoaded, setCustomDefinitionsLoaded] = useState(false)
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
-  const [isDetailLoading, setIsDetailLoading] = useState(false)
-  const [isSavingContact, setIsSavingContact] = useState(false)
-  const [isArchivingContact, setIsArchivingContact] = useState(false)
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateCandidate, setDuplicateCandidate] = useState(null)
-  const contactOutreach = useContactOutreach({ selectedContactId, onError: setError })
-  const contactLeadScore = useContactLeadScore({ selectedContactId, onScored: handleLeadScoreEvaluated, onError: setError })
-  const contactSelection = useRecordSelection(selectedContactId)
-  const contactWork = useRecordWork({
-    defaultAssignedToUserId: userOptions[0]?.id ? String(userOptions[0].id) : '',
-    entityType: 'contact',
-    selectedEntityId: selectedContactId,
-    selection: contactSelection,
-    onError: setError
+  const contactDetail = useContactDetail({
+    customDefinitions,
+    customDefinitionsLoaded,
+    navigateToContact: (nextContactId) => navigate(`/contacts/${nextContactId}`),
+    routeContactId,
+    setError,
+    userOptions
   })
   const {
+    clear: clearContactDetail,
+    detail,
+    fillForm: fillFormFromDetail,
+    form,
+    isArchiving: isArchivingContact,
+    isDetailLoading,
+    isSaving: isSavingContact,
+    mode,
+    open: openContactDetail,
+    selectedContactId,
+    selection: contactSelection,
+    setDetail,
+    setForm,
+    setIsArchiving: setIsArchivingContact,
+    setIsSaving: setIsSavingContact,
+    startCreate: startContactCreate,
+    work: contactWork
+  } = contactDetail
+  const contactOutreach = useContactOutreach({ selectedContactId, onError: setError })
+  const contactLeadScore = useContactLeadScore({ selectedContactId, onScored: handleLeadScoreEvaluated, onError: setError })
+  const {
     activities: selectedActivities,
-    fetchTasks,
     load: loadWork,
     notes: selectedNotes,
     refreshTasks,
-    reset: resetWork,
     setTaskForm,
     tasks: selectedTasks
   } = contactWork
@@ -180,11 +187,7 @@ export function ContactsRoute() {
     setSearch(nextSearch)
     setOwnerFilter(nextOwner)
     setCustomFilter(nextCustomFilter)
-    setMode('list')
-    setDetail(null)
-    setSelectedContactId(null)
-    contactSelection.clear()
-    resetWork()
+    clearContactDetail()
     navigate(buildContactsPath(nextSearch, nextOwner, nextCustomFilter), { replace: true })
     await reloadContacts(nextSearch, nextOwner, nextCustomFilter)
   }
@@ -273,70 +276,8 @@ export function ContactsRoute() {
 
   function handleOpenContact(contact) {
     if (routeContactId === contact.id) return
-    contactSelection.begin(contact.id)
-    setSelectedContactId(contact.id)
-    setDetail(null)
-    setForm(emptyContactForm)
-    resetWork()
-    setMode('detail')
-    setIsDetailLoading(true)
-    navigate(`/contacts/${contact.id}`)
+    openContactDetail(contact.id)
   }
-
-  useEffect(() => {
-    async function openRouteContact() {
-      if (!customDefinitionsLoaded) return
-      if (!Number.isInteger(routeContactId) || routeContactId <= 0) {
-        contactSelection.clear()
-        if (selectedContactId || mode === 'detail') {
-          setSelectedContactId(null)
-          setDetail(null)
-          setForm(emptyContactForm)
-          resetWork()
-          setMode('list')
-        }
-        setIsDetailLoading(false)
-        setIsSavingContact(false)
-        setIsArchivingContact(false)
-        return
-      }
-
-      const activeSelection = contactSelection.begin(routeContactId)
-      const signal = activeSelection.controller.signal
-      setSelectedContactId(routeContactId)
-      setDetail(null)
-      setForm(emptyContactForm)
-      resetWork()
-      setMode('detail')
-      setIsSavingContact(false)
-      setIsArchivingContact(false)
-
-      try {
-        setIsDetailLoading(true)
-        const [data, tasks, dealData] = await Promise.all([
-          getContact(routeContactId, { signal }),
-          fetchTasks(routeContactId, { signal }),
-          listDeals({ primaryContactId: routeContactId }, { signal })
-        ])
-        if (!contactSelection.isCurrent(activeSelection)) return
-        requireRecordResponse(data, 'contact', routeContactId, 'Unable to load contact.')
-        const work = requireRecordWork({ notes: data.notes || [], tasks }, 'contact', routeContactId)
-        const detailData = { ...data, deals: dealData.deals || [] }
-        setDetail(detailData)
-        setForm(contactFormValues(detailData.contact, customDefinitions))
-        loadWork({ ...work, activities: data.activities || [] })
-        setError('')
-      } catch (loadError) {
-        if (!isAbortError(loadError) && contactSelection.isCurrent(activeSelection)) {
-          setError(loadError.message || 'Unable to load contact.')
-        }
-      } finally {
-        if (contactSelection.isCurrent(activeSelection)) setIsDetailLoading(false)
-      }
-    }
-
-    openRouteContact()
-  }, [customDefinitionsLoaded, routeContactId])
 
   async function handleCreate(event) {
     event.preventDefault()
@@ -378,7 +319,7 @@ export function ContactsRoute() {
       if (!contactSelection.isCurrent(operation.selection)) return
       const detailData = { ...data, deals: detail?.deals || [] }
       setDetail(detailData)
-      setForm(contactFormValues(data.contact, customDefinitions))
+      fillFormFromDetail(detailData)
       loadWork({ notes: selectedNotes, tasks: selectedTasks, activities: data.activities || selectedActivities })
       setError('')
       setDuplicateSearch('')
@@ -404,13 +345,7 @@ export function ContactsRoute() {
       setContacts((current) => current.filter((entry) => entry.id !== operation.entityId))
       setMeta((current) => ({ ...current, total: Math.max(0, current.total - 1) }))
       if (!contactSelection.isEntityActive(operation.entityId)) return
-      setIsArchivingContact(false)
-      contactSelection.clear()
-      setDetail(null)
-      setSelectedContactId(null)
-      setForm(emptyContactForm)
-      resetWork()
-      setMode('list')
+      clearContactDetail()
       navigate('/contacts')
       setError('')
       setDuplicateSearch('')
@@ -460,15 +395,8 @@ export function ContactsRoute() {
         }}
         onClearCustomFilter={() => applyCustomFilter({ fieldKey: '', operator: '', value: '' })}
         onCreate={() => {
-          contactSelection.clear()
           navigate('/contacts')
-          setMode('create')
-          setForm(emptyContactForm)
-          setDetail(null)
-          setSelectedContactId(null)
-          resetWork()
-          setIsSavingContact(false)
-          setIsArchivingContact(false)
+          startContactCreate()
         }}
         onDuplicateSearch={handleDuplicateSearch}
         onOpenContact={handleOpenContact}
