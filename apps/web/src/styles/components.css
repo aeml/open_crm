@@ -233,10 +233,6 @@
   overflow-wrap: anywhere;
 }
 
-.contacts-grid .record-row > div:last-child {
-  flex-shrink: 1;
-}
-
 .empty-state {
   display: grid;
   gap: var(--space-3);
@@ -509,7 +505,7 @@
 }
 
 .record-row > div:last-child {
-  flex-shrink: 0;
+  flex-shrink: 1;
   text-align: right;
 }
 
@@ -568,7 +564,6 @@
 
   .record-row > div:last-child {
     text-align: left;
-    flex-shrink: 1;
     width: 100%;
   }
 

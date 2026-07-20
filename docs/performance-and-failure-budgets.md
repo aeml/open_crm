@@ -90,8 +90,8 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 179.33 KiB/58.13 KiB entry, 39.39 KiB/11.47 KiB largest lazy
-chunk, and 644.90 KiB/206.82 KiB total assets. The production contact, company,
+Current evidence: 179.33 KiB/58.14 KiB entry, 39.39 KiB/11.48 KiB largest lazy
+chunk, and 644.84 KiB/206.96 KiB total assets. The production contact, company,
 deal, and task routes are 29.47/8.88, 34.81/10.27, 39.39/11.47, and 24.78/7.19
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.35 KiB/4.56 KiB settings route. Its
