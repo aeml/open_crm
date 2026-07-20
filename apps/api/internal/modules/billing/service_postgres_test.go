@@ -195,15 +195,15 @@ func TestStripeCheckoutAndWebhookLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("Stripe trial state did not reconcile: plan=%q status=%q trial=%v err=%v", plan, status, trialEndsAt, err)
 	}
 
-	subscriptionEvent := fmt.Sprintf(`{"id":"evt_subscription_active","type":"customer.subscription.updated","created":%d,"livemode":false,"data":{"object":{"id":"sub_lifecycle","customer":"cus_lifecycle","status":"active","current_period_end":%d,"cancel_at_period_end":false,"metadata":{"organization_id":"%d","plan_key":"pro"}}}}`, now.Add(3*time.Second).Unix(), now.Add(30*24*time.Hour).Unix(), organizationID)
+	subscriptionEvent := fmt.Sprintf(`{"id":"evt_subscription_active","type":"customer.subscription.updated","created":%d,"livemode":false,"data":{"object":{"id":"sub_lifecycle","customer":"cus_lifecycle","status":"active","current_period_start":%d,"current_period_end":%d,"cancel_at_period_end":false,"metadata":{"organization_id":"%d","plan_key":"pro"}}}}`, now.Add(3*time.Second).Unix(), now.Unix(), now.Add(30*24*time.Hour).Unix(), organizationID)
 	applySignedBillingEvent(t, ctx, service, provider, now, subscriptionEvent)
 	var providerStatus string
-	var currentPeriodEnd *time.Time
-	if err := pool.QueryRow(ctx, `SELECT plan,subscription_status,billing_provider_status,subscription_current_period_end FROM organizations WHERE id=$1`, organizationID).Scan(&plan, &status, &providerStatus, &currentPeriodEnd); err != nil {
+	var currentPeriodStart, currentPeriodEnd *time.Time
+	if err := pool.QueryRow(ctx, `SELECT plan,subscription_status,billing_provider_status,subscription_current_period_start,subscription_current_period_end FROM organizations WHERE id=$1`, organizationID).Scan(&plan, &status, &providerStatus, &currentPeriodStart, &currentPeriodEnd); err != nil {
 		t.Fatalf("load active subscription: %v", err)
 	}
-	if plan != "pro" || status != "active" || providerStatus != "active" || currentPeriodEnd == nil {
-		t.Fatalf("subscription webhook did not activate plan: plan=%q status=%q provider=%q period=%v", plan, status, providerStatus, currentPeriodEnd)
+	if plan != "pro" || status != "active" || providerStatus != "active" || currentPeriodStart == nil || currentPeriodStart.Unix() != now.Unix() || currentPeriodEnd == nil {
+		t.Fatalf("subscription webhook did not activate plan: plan=%q status=%q provider=%q period=%v..%v", plan, status, providerStatus, currentPeriodStart, currentPeriodEnd)
 	}
 
 	staleEvent := fmt.Sprintf(`{"id":"evt_subscription_stale","type":"customer.subscription.deleted","created":%d,"livemode":false,"data":{"object":{"id":"sub_lifecycle","customer":"cus_lifecycle","status":"canceled","metadata":{"organization_id":"%d","plan_key":"pro"}}}}`, now.Add(-time.Second).Unix(), organizationID)
@@ -244,7 +244,7 @@ func TestStripeCheckoutAndWebhookLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("Stripe unpaid state did not suspend writes: %v", err)
 	}
 	entitlements, err := service.Entitlements(ctx, organizationID)
-	if err != nil || !entitlements.Subscription.Suspended || entitlements.Subscription.ProviderStatus != "unpaid" || entitlements.Seats.Used != 1 {
+	if err != nil || !entitlements.Subscription.Suspended || entitlements.Subscription.ProviderStatus != "unpaid" || entitlements.Subscription.CurrentPeriodStart == nil || entitlements.Subscription.CurrentPeriodStart.Unix() != now.Unix() || entitlements.Seats.Used != 1 {
 		t.Fatalf("suspended entitlement state missing: subscription=%#v err=%v", entitlements.Subscription, err)
 	}
 	recoveredEvent := fmt.Sprintf(`{"id":"evt_subscription_recovered","type":"customer.subscription.updated","created":%d,"livemode":false,"data":{"object":{"id":"sub_lifecycle","customer":"cus_lifecycle","status":"active","current_period_end":%d,"metadata":{"organization_id":"%d","plan_key":"pro"}}}}`, now.Add(5*time.Second).Unix(), now.Add(30*24*time.Hour).Unix(), organizationID)

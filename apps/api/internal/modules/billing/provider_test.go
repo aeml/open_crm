@@ -106,7 +106,7 @@ func TestStripeProviderReconcilesSubscriptionAndRecentInvoices(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v1/subscriptions/sub_test":
-			_, _ = io.WriteString(w, `{"id":"sub_test","customer":"cus_test","status":"active","current_period_end":1787000000,"metadata":{"organization_id":"42","plan_key":"pro"}}`)
+			_, _ = io.WriteString(w, `{"id":"sub_test","customer":"cus_test","status":"active","current_period_start":1784400000,"current_period_end":1787000000,"metadata":{"organization_id":"42","plan_key":"pro"}}`)
 		case "/v1/invoices":
 			_, _ = io.WriteString(w, `{"data":[{"id":"in_test","customer":"cus_test","subscription":"sub_test","status":"paid","currency":"usd","amount_due":4900,"amount_paid":4900,"created":1784490000,"status_transitions":{"paid_at":1784490010}}]}`)
 		default:
@@ -126,7 +126,7 @@ func TestStripeProviderReconcilesSubscriptionAndRecentInvoices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile Stripe subscription: %v", err)
 	}
-	if !snapshot.ObservedAt.Equal(observedAt) || snapshot.Subscription.Status != "active" || len(snapshot.Invoices) != 1 || snapshot.Invoices[0].AmountPaid != 4900 {
+	if !snapshot.ObservedAt.Equal(observedAt) || snapshot.Subscription.Status != "active" || snapshot.Subscription.CurrentPeriodStart != 1784400000 || len(snapshot.Invoices) != 1 || snapshot.Invoices[0].AmountPaid != 4900 {
 		t.Fatalf("unexpected reconciliation snapshot: %#v", snapshot)
 	}
 	for index := 0; index < 2; index++ {

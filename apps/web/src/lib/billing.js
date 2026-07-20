@@ -12,6 +12,12 @@ export async function listPlans({ signal } = {}) {
   return payload?.data?.plans || []
 }
 
+export async function getBillingUsage({ signal } = {}) {
+  const payload = await apiRequest('/api/billing/usage', { fallbackMessage: 'Unable to reconcile measured usage.', signal })
+
+  return payload?.data?.usage || null
+}
+
 export async function changePlan(plan, { signal } = {}) {
   const payload = await apiRequest('/api/billing/change-plan', { method: 'POST', body: { plan }, fallbackMessage: 'Unable to change plan.', signal })
 
@@ -90,6 +96,24 @@ export function formatPrice(plan) {
     return 'Free'
   }
   return `$${plan.monthlyPriceUsd}/mo`
+}
+
+export function formatUsageValue(metric) {
+  if (!metric) {
+    return ''
+  }
+  const used = Number(metric.used) || 0
+  if (metric.unit !== 'bytes') {
+    return `${used.toLocaleString()} ${metric.unit}`
+  }
+  const units = ['bytes', 'KiB', 'MiB', 'GiB', 'TiB']
+  let value = used
+  let index = 0
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024
+    index += 1
+  }
+  return `${index === 0 ? value.toLocaleString() : value.toFixed(value >= 10 ? 1 : 2)} ${units[index]}`
 }
 
 export function trialBanner(subscription) {

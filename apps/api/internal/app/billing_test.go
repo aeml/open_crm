@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
@@ -38,6 +39,18 @@ type fakeBillingService struct {
 	webhookErr       error
 	webhookPayload   []byte
 	webhookSignature string
+}
+
+type fakeBillingUsageService struct {
+	*fakeBillingService
+	usageResult modulebilling.UsageSnapshot
+	usageErr    error
+	usageOrgID  int64
+}
+
+func (f *fakeBillingUsageService) Usage(_ context.Context, organizationID int64) (modulebilling.UsageSnapshot, error) {
+	f.usageOrgID = organizationID
+	return f.usageResult, f.usageErr
 }
 
 func (f *fakeBillingService) Entitlements(_ context.Context, organizationID int64) (modulebilling.Entitlements, error) {
@@ -161,6 +174,61 @@ func TestGetEntitlementsServiceErrorReturns500(t *testing.T) {
 
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, recorder.Code)
+	}
+}
+
+func TestGetBillingUsageScopesReconciliationToCurrentOrganization(t *testing.T) {
+	periodStart := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	service := &fakeBillingUsageService{
+		fakeBillingService: &fakeBillingService{},
+		usageResult: modulebilling.UsageSnapshot{
+			SnapshotID:  7,
+			PeriodStart: periodStart,
+			PeriodEnd:   periodStart.AddDate(0, 1, 0),
+			PeriodBasis: "calendar_month",
+			Metrics:     []modulebilling.UsageMetric{{Key: "outbound_messages", Used: 12, Unit: "messages"}},
+		},
+	}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User:         moduleauth.User{ID: 1},
+			Organization: moduleauth.Organization{ID: 42},
+			Membership:   moduleauth.Membership{Role: "member"},
+		}},
+		BillingService: service,
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/billing/usage", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || service.usageOrgID != 42 || !bytes.Contains(recorder.Body.Bytes(), []byte(`"snapshotId":7`)) || !bytes.Contains(recorder.Body.Bytes(), []byte(`"key":"outbound_messages"`)) {
+		t.Fatalf("billing usage response mismatch: status=%d org=%d body=%s", recorder.Code, service.usageOrgID, recorder.Body.String())
+	}
+}
+
+func TestGetBillingUsageFailsClosedWhenReconciliationUnavailable(t *testing.T) {
+	server := authenticatedBillingServer(&fakeBillingService{})
+	request := httptest.NewRequest(http.MethodGet, "/api/billing/usage", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected unavailable usage service, got status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	service := &fakeBillingUsageService{fakeBillingService: &fakeBillingService{}, usageErr: errors.New("usage query failed")}
+	errorServer := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User: moduleauth.User{ID: 1}, Organization: moduleauth.Organization{ID: 42}, Membership: moduleauth.Membership{Role: "owner"},
+		}},
+		BillingService: service,
+	})
+	errorRequest := httptest.NewRequest(http.MethodGet, "/api/billing/usage", nil)
+	addSessionCookie(errorRequest)
+	errorRecorder := httptest.NewRecorder()
+	errorServer.ServeHTTP(errorRecorder, errorRequest)
+	if errorRecorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected failed reconciliation status, got %d body=%s", errorRecorder.Code, errorRecorder.Body.String())
 	}
 }
 

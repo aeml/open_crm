@@ -186,6 +186,21 @@ lead capture, or tenant workers because of stored hosted lifecycle fields.
    retryable under the same Stripe event ID and payload; a duplicate processed
    event is a safe no-op. A changed payload for the same event ID and
    cross-tenant customer/subscription references fail closed.
+   Open **Settings > Plan & Billing** to reconcile the tenant's measured-usage
+   evidence. Stripe workspaces use the signed/reconciled
+   `subscription_current_period_start` and end; other workspaces use the current
+   UTC month. `billing_usage_snapshots` retains the latest observation for that
+   tenant/period. The displayed sources are active memberships, non-archived
+   contacts/deals, sent outbound `email_messages.created_at`, successful
+   `workflow_automation_runs.completed_at`, successful
+   `background_jobs.completed_at`, and estimated `pg_column_size` row bytes
+   across current-schema base tables with `organization_id` (excluding the
+   snapshot table itself). Row bytes do not include indexes or external object
+   storage. Do not invoice from these figures or add manual SQL counters: the
+   message/automation/job/storage values are reconciliation evidence until the
+   hosted quota contract and concurrency policy are approved. Internal browser
+   REST traffic is not labeled API usage; no external API meter exists because
+   no versioned external API exists.
 7. On an incident, preserve the Stripe event ID and Open CRM request ID, correct
    the configuration or data-reference cause, and use Stripe's signed event
    redelivery. Do not edit organization plans/statuses or mark receipt rows

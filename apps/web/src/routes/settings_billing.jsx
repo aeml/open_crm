@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { changePlan, createBillingPortalSession, createCheckoutSession, featureLabel, formatLimit, formatPrice, getEntitlements, listPlans, listWorkspaceExports, requestWorkspaceExport, trialBanner, workspaceExportDownloadURL } from '../lib/billing'
+import { changePlan, createBillingPortalSession, createCheckoutSession, featureLabel, formatLimit, formatPrice, formatUsageValue, getBillingUsage, getEntitlements, listPlans, listWorkspaceExports, requestWorkspaceExport, trialBanner, workspaceExportDownloadURL } from '../lib/billing'
 import { createIdempotencyKey } from '../lib/idempotency'
 import { usePageTitle } from '../lib/use_page_title'
 
@@ -30,6 +30,7 @@ export function SettingsBillingRoute() {
   usePageTitle('Plan & Billing')
   const [entitlements, setEntitlements] = useState(null)
   const [plans, setPlans] = useState([])
+  const [usage, setUsage] = useState(null)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [pendingPlan, setPendingPlan] = useState('')
@@ -41,13 +42,15 @@ export function SettingsBillingRoute() {
     async function load() {
       setIsLoading(true)
       try {
-        const [nextEntitlements, nextPlans, nextWorkspaceExports] = await Promise.all([
+        const [nextEntitlements, nextPlans, nextUsage, nextWorkspaceExports] = await Promise.all([
           getEntitlements({ signal: controller.signal }),
           listPlans({ signal: controller.signal }),
+          getBillingUsage({ signal: controller.signal }),
           canManageBilling ? listWorkspaceExports({ signal: controller.signal }) : Promise.resolve([])
         ])
         setEntitlements(nextEntitlements)
         setPlans(nextPlans)
+        setUsage(nextUsage)
         setWorkspaceExports(nextWorkspaceExports)
         setError('')
       } catch (loadError) {
@@ -197,6 +200,35 @@ export function SettingsBillingRoute() {
           ) : null}
         </div>
       </Card>
+
+      {!isLoading && usage ? (
+        <Card>
+          <div className="card-stack">
+            <div>
+              <h2>Measured usage</h2>
+              <p>
+                {usage.periodBasis === 'provider_subscription' ? 'Stripe subscription period' : 'UTC calendar month'} from{' '}
+                {new Date(usage.periodStart).toLocaleDateString()} through {new Date(usage.periodEnd).toLocaleDateString()} (end exclusive).
+              </p>
+            </div>
+            <div className="inline-note" role="note">
+              These reconciled source records are evidence, not new quotas. Message, automation, background-job, and storage quotas are not enforced until hosted plan policy is approved.
+            </div>
+            <div className="record-list" role="list" aria-label="Measured billing usage">
+              {(usage.metrics || []).map((metric) => (
+                <article className="record-row" key={metric.key} role="listitem">
+                  <div>
+                    <h3>{metric.label}</h3>
+                    <p className="field-hint">{metric.source} · {metric.scope === 'period' ? 'this period' : 'current'}</p>
+                  </div>
+                  <div><p>{formatUsageValue(metric)}</p></div>
+                </article>
+              ))}
+            </div>
+            <p className="field-hint">Observed {new Date(usage.observedAt).toLocaleString()} across {Number(usage.sourceTableCount).toLocaleString()} tenant-scoped database tables.</p>
+          </div>
+        </Card>
+      ) : null}
 
       {billingManaged ? <Card>
         <div className="card-stack">

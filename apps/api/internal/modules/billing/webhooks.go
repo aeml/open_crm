@@ -189,6 +189,7 @@ func applyStripeSubscription(ctx context.Context, tx pgx.Tx, event WebhookEvent)
 		return organizationID, false, fmt.Errorf("Stripe subscription has unknown plan metadata")
 	}
 	internalStatus := mapStripeSubscriptionStatus(subscription.Status, event.Type)
+	periodStart := nullableStripeTime(subscription.CurrentPeriodStart)
 	periodEnd := nullableStripeTime(subscription.CurrentPeriodEnd)
 	trialEnd := nullableStripeTime(subscription.TrialEnd)
 	result, err := tx.Exec(ctx, `
@@ -199,19 +200,20 @@ func applyStripeSubscription(ctx context.Context, tx pgx.Tx, event WebhookEvent)
 		    plan=CASE WHEN $6 IN ('active', 'trialing', 'past_due') THEN $5 ELSE plan END,
 		    subscription_status=CASE WHEN $6<>'' THEN $6 ELSE subscription_status END,
 		    trial_ends_at=CASE
-		      WHEN $6='trialing' THEN COALESCE($8, trial_ends_at)
+		      WHEN $6='trialing' THEN COALESCE($9, trial_ends_at)
 		      WHEN $6='active' THEN NULL
 		      ELSE trial_ends_at END,
-		    subscription_current_period_end=$7,
-		    subscription_cancel_at_period_end=$9,
-		    billing_last_event_created=$10, billing_last_event_id=$11,
+		    subscription_current_period_start=COALESCE($7, subscription_current_period_start),
+		    subscription_current_period_end=$8,
+		    subscription_cancel_at_period_end=$10,
+		    billing_last_event_created=$11, billing_last_event_id=$12,
 		    updated_at=NOW()
 		WHERE id=$1
 		  AND (stripe_customer_id IS NULL OR stripe_customer_id=$3)
 		  AND (stripe_subscription_id IS NULL OR stripe_subscription_id=$4)
-		  AND (billing_last_event_created IS NULL OR billing_last_event_created <= $10)
+		  AND (billing_last_event_created IS NULL OR billing_last_event_created <= $11)
 	`, organizationID, subscription.Status, subscription.Customer, subscription.ID, planKey,
-		internalStatus, periodEnd, trialEnd, subscription.CancelAtPeriodEnd, event.Created, event.ID)
+		internalStatus, periodStart, periodEnd, trialEnd, subscription.CancelAtPeriodEnd, event.Created, event.ID)
 	if err != nil {
 		return organizationID, false, fmt.Errorf("reconcile Stripe subscription: %w", err)
 	}

@@ -123,7 +123,7 @@ func TestHostedBillingSandboxJourneyAgainstPostgres(t *testing.T) {
 			providerCalls.Lock()
 			providerCalls.subscriptions++
 			providerCalls.Unlock()
-			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"sub_acceptance","customer":"cus_acceptance","status":"active","current_period_end":%d,"cancel_at_period_end":false,"metadata":{"organization_id":"%d","plan_key":"pro"}}`, baseEventTime.Add(30*24*time.Hour).Unix(), organizationID))
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"sub_acceptance","customer":"cus_acceptance","status":"active","current_period_start":%d,"current_period_end":%d,"cancel_at_period_end":false,"metadata":{"organization_id":"%d","plan_key":"pro"}}`, baseEventTime.Unix(), baseEventTime.Add(30*24*time.Hour).Unix(), organizationID))
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/invoices":
 			providerCalls.Lock()
 			providerCalls.invoices++
@@ -225,14 +225,18 @@ func TestHostedBillingSandboxJourneyAgainstPostgres(t *testing.T) {
 		t.Fatalf("Checkout completion became authoritative before a subscription event: status=%d entitlements=%#v", status, checkoutOnly)
 	}
 
-	activeEvent := []byte(fmt.Sprintf(`{"id":"evt_acceptance_active","type":"customer.subscription.updated","created":%d,"livemode":false,"data":{"object":{"id":"sub_acceptance","customer":"cus_acceptance","status":"active","current_period_end":%d,"cancel_at_period_end":false,"metadata":{"organization_id":"%d","plan_key":"pro"}}}}`, baseEventTime.Add(time.Second).Unix(), baseEventTime.Add(30*24*time.Hour).Unix(), organizationID))
+	activeEvent := []byte(fmt.Sprintf(`{"id":"evt_acceptance_active","type":"customer.subscription.updated","created":%d,"livemode":false,"data":{"object":{"id":"sub_acceptance","customer":"cus_acceptance","status":"active","current_period_start":%d,"current_period_end":%d,"cancel_at_period_end":false,"metadata":{"organization_id":"%d","plan_key":"pro"}}}}`, baseEventTime.Add(time.Second).Unix(), baseEventTime.Unix(), baseEventTime.Add(30*24*time.Hour).Unix(), organizationID))
 	if result = deliverBillingSandboxWebhook(t, server.Client(), server.URL, webhookSecret, activeEvent); !result.Applied || result.Duplicate {
 		t.Fatalf("active subscription webhook was not applied: %#v", result)
 	}
 	status, body = billingSandboxRequest(t, server.Client(), server.URL, http.MethodGet, "/api/billing/entitlements", nil, true, nil)
 	active := decodeBillingSandboxEntitlements(t, body)
-	if status != http.StatusOK || active.Plan.Key != "pro" || active.Subscription.Status != "active" || active.Subscription.ProviderStatus != "active" || !active.Subscription.PortalAvailable {
+	if status != http.StatusOK || active.Plan.Key != "pro" || active.Subscription.Status != "active" || active.Subscription.ProviderStatus != "active" || active.Subscription.CurrentPeriodStart == nil || active.Subscription.CurrentPeriodStart.Unix() != baseEventTime.Unix() || !active.Subscription.PortalAvailable {
 		t.Fatalf("active hosted entitlements mismatch: status=%d entitlements=%#v", status, active)
+	}
+	status, body = billingSandboxRequest(t, server.Client(), server.URL, http.MethodGet, "/api/billing/usage", nil, true, nil)
+	if status != http.StatusOK || !bytes.Contains(body, []byte(`"periodBasis":"provider_subscription"`)) || !bytes.Contains(body, []byte(`"key":"storage_bytes"`)) {
+		t.Fatalf("hosted measured usage mismatch: status=%d body=%s", status, body)
 	}
 
 	queue := modulejobs.NewService(pool)

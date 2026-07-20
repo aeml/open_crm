@@ -46,7 +46,7 @@ func TestStripeReconciliationSchedulerAndRecoveryAgainstPostgres(t *testing.T) {
 
 	observedAt := time.Now().UTC().Truncate(time.Second)
 	var subscriptionResponse atomic.Value
-	subscriptionResponse.Store(`{"id":"sub_reconcile","customer":"cus_reconcile","status":"active","current_period_end":1787000000,"cancel_at_period_end":false,"metadata":{"organization_id":"1","plan_key":"pro"}}`)
+	subscriptionResponse.Store(`{"id":"sub_reconcile","customer":"cus_reconcile","status":"active","current_period_start":1784400000,"current_period_end":1787000000,"cancel_at_period_end":false,"metadata":{"organization_id":"1","plan_key":"pro"}}`)
 	stripeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -81,7 +81,7 @@ func TestStripeReconciliationSchedulerAndRecoveryAgainstPostgres(t *testing.T) {
 	`).Scan(&organizationID); err != nil {
 		t.Fatalf("create reconciliation organization: %v", err)
 	}
-	subscriptionResponse.Store(fmt.Sprintf(`{"id":"sub_reconcile","customer":"cus_reconcile","status":"active","current_period_end":1787000000,"cancel_at_period_end":false,"metadata":{"organization_id":"%d","plan_key":"pro"}}`, organizationID))
+	subscriptionResponse.Store(fmt.Sprintf(`{"id":"sub_reconcile","customer":"cus_reconcile","status":"active","current_period_start":1784400000,"current_period_end":1787000000,"cancel_at_period_end":false,"metadata":{"organization_id":"%d","plan_key":"pro"}}`, organizationID))
 	initialEntitlements, err := service.Entitlements(ctx, organizationID)
 	if err != nil || !initialEntitlements.Subscription.ReconciliationStale || initialEntitlements.Subscription.LastReconciledAt != nil {
 		t.Fatalf("missing hosted reconciliation was not reported stale: subscription=%#v err=%v", initialEntitlements.Subscription, err)
@@ -103,17 +103,17 @@ func TestStripeReconciliationSchedulerAndRecoveryAgainstPostgres(t *testing.T) {
 		t.Fatalf("run reconciliation worker: summary=%#v err=%v", workerSummary, err)
 	}
 	var plan, status, providerStatus, reconciliationError, invoiceStatus string
-	var lastReconciledAt *time.Time
+	var currentPeriodStart, lastReconciledAt *time.Time
 	if err := pool.QueryRow(ctx, `
-		SELECT plan,subscription_status,billing_provider_status,billing_last_reconciled_at,
+		SELECT plan,subscription_status,billing_provider_status,subscription_current_period_start,billing_last_reconciled_at,
 		       COALESCE(billing_last_reconciliation_error,''),
 		       (SELECT status FROM billing_invoices WHERE organization_id=organizations.id AND provider_invoice_id='in_reconcile')
 		FROM organizations WHERE id=$1
-	`, organizationID).Scan(&plan, &status, &providerStatus, &lastReconciledAt, &reconciliationError, &invoiceStatus); err != nil {
+	`, organizationID).Scan(&plan, &status, &providerStatus, &currentPeriodStart, &lastReconciledAt, &reconciliationError, &invoiceStatus); err != nil {
 		t.Fatalf("load reconciled state: %v", err)
 	}
-	if plan != "pro" || status != "active" || providerStatus != "active" || lastReconciledAt == nil || !lastReconciledAt.Equal(observedAt) || reconciliationError != "" || invoiceStatus != "paid" {
-		t.Fatalf("unexpected reconciled state: plan=%q status=%q provider=%q at=%v error=%q invoice=%q", plan, status, providerStatus, lastReconciledAt, reconciliationError, invoiceStatus)
+	if plan != "pro" || status != "active" || providerStatus != "active" || currentPeriodStart == nil || currentPeriodStart.Unix() != 1784400000 || lastReconciledAt == nil || !lastReconciledAt.Equal(observedAt) || reconciliationError != "" || invoiceStatus != "paid" {
+		t.Fatalf("unexpected reconciled state: plan=%q status=%q provider=%q period=%v at=%v error=%q invoice=%q", plan, status, providerStatus, currentPeriodStart, lastReconciledAt, reconciliationError, invoiceStatus)
 	}
 	entitlements, err := service.Entitlements(ctx, organizationID)
 	if err != nil || entitlements.Subscription.ReconciliationStale || entitlements.Subscription.LastReconciledAt == nil {

@@ -202,20 +202,21 @@ func (s *Service) applyReconciliationSnapshot(ctx context.Context, job modulejob
 		    plan=CASE WHEN $6 IN ('active','trialing','past_due') THEN $5 ELSE plan END,
 		    subscription_status=CASE WHEN $6<>'' THEN $6 ELSE subscription_status END,
 		    trial_ends_at=CASE
-		      WHEN $6='trialing' THEN COALESCE($8,trial_ends_at)
+		      WHEN $6='trialing' THEN COALESCE($9,trial_ends_at)
 		      WHEN $6='active' THEN NULL ELSE trial_ends_at END,
-		    subscription_current_period_end=$7,
-		    subscription_cancel_at_period_end=$9,
-		    billing_last_event_created=$10, billing_last_event_id=$11,
+		    subscription_current_period_start=COALESCE($7, subscription_current_period_start),
+		    subscription_current_period_end=$8,
+		    subscription_cancel_at_period_end=$10,
+		    billing_last_event_created=$11, billing_last_event_id=$12,
 		    billing_last_reconciliation_attempt_at=NOW(),
-		    billing_last_reconciled_at=$12,
+		    billing_last_reconciled_at=$13,
 		    billing_last_reconciliation_error=NULL,
 		    updated_at=NOW()
 		WHERE id=$1 AND billing_provider='stripe'
 		  AND stripe_customer_id=$3 AND stripe_subscription_id=$4
-		  AND (billing_last_event_created IS NULL OR billing_last_event_created <= $10)
+		  AND (billing_last_event_created IS NULL OR billing_last_event_created <= $11)
 	`, job.OrganizationID, snapshot.Subscription.Status, customerID, subscriptionID, planKey,
-		internalStatus, nullableStripeTime(snapshot.Subscription.CurrentPeriodEnd), nullableStripeTime(snapshot.Subscription.TrialEnd),
+		internalStatus, nullableStripeTime(snapshot.Subscription.CurrentPeriodStart), nullableStripeTime(snapshot.Subscription.CurrentPeriodEnd), nullableStripeTime(snapshot.Subscription.TrialEnd),
 		snapshot.Subscription.CancelAtPeriodEnd, watermark, eventID, snapshot.ObservedAt.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("apply billing subscription reconciliation: %w", err)

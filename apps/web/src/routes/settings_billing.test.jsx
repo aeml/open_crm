@@ -20,6 +20,25 @@ function sessionResponse() {
   }
 }
 
+function usageResponse(periodBasis = 'calendar_month') {
+  return {
+    ok: true,
+    json: async () => ({ data: { usage: {
+      snapshotId: 7,
+      periodStart: '2026-07-01T00:00:00Z',
+      periodEnd: '2026-08-01T00:00:00Z',
+      periodBasis,
+      observedAt: '2026-07-20T02:00:00Z',
+      sourceTableCount: 42,
+      metrics: [
+        { key: 'seats', label: 'Active team seats', used: 2, unit: 'seats', scope: 'current', source: 'active organization memberships' },
+        { key: 'outbound_messages', label: 'Sent outbound email', used: 12, unit: 'messages', scope: 'period', source: 'outbound email messages recorded as sent' },
+        { key: 'storage_bytes', label: 'Tenant database row storage', used: 1536, unit: 'bytes', scope: 'current', source: 'PostgreSQL row bytes across tenant-scoped base tables' }
+      ]
+    } } })
+  }
+}
+
 describe('settings billing route', () => {
   it('shows unrestricted local usage without hosted lifecycle or plan controls in self-hosted mode', async () => {
     const fetchMock = vi
@@ -38,6 +57,7 @@ describe('settings billing route', () => {
         } } })
       })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { plans: [{ key: 'free', name: 'Free', monthlyPriceUsd: 0, features: ['saved_views'] }] } }) })
+      .mockResolvedValueOnce(usageResponse())
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
 
     vi.stubGlobal('fetch', fetchMock)
@@ -49,6 +69,8 @@ describe('settings billing route', () => {
     expect(screen.getByText('620 / Unlimited')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /compare plans/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/subscription is canceled/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /measured usage/i })).toBeInTheDocument()
+    expect(screen.getByText(/UTC calendar month/i)).toBeInTheDocument()
   })
 
   it('shows the active plan, usage, and plan comparison', async () => {
@@ -85,6 +107,7 @@ describe('settings billing route', () => {
           }
         })
       })
+      .mockResolvedValueOnce(usageResponse('provider_subscription'))
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
 
     vi.stubGlobal('fetch', fetchMock)
@@ -93,12 +116,15 @@ describe('settings billing route', () => {
     render(<AppRouter />)
 
     expect(await screen.findByRole('heading', { name: /plan & billing/i })).toBeInTheDocument()
-    expect(await screen.findByText(/team seats/i)).toBeInTheDocument()
+    expect((await screen.findAllByText(/team seats/i)).length).toBeGreaterThan(0)
     expect(screen.getByText('600 / 500')).toBeInTheDocument()
     expect(screen.getByText(/over plan limit/i)).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /pro/i })).toBeInTheDocument()
     expect(screen.getByText('$49/mo')).toBeInTheDocument()
     expect(screen.getByText(/7 days left in your trial/i)).toBeInTheDocument()
+    expect(screen.getByText('12 messages')).toBeInTheDocument()
+    expect(screen.getByText('1.50 KiB')).toBeInTheDocument()
+    expect(screen.getByText(/not enforced until hosted plan policy is approved/i)).toBeInTheDocument()
   })
 
   it('lets an owner switch plans', async () => {
@@ -131,6 +157,7 @@ describe('settings billing route', () => {
           }
         })
       })
+      .mockResolvedValueOnce(usageResponse())
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
       .mockResolvedValueOnce({
         ok: true,
@@ -194,6 +221,7 @@ describe('settings billing route', () => {
           }
         })
       })
+      .mockResolvedValueOnce(usageResponse('provider_subscription'))
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { id: 'cs_test', url: '' } }) })
 
@@ -236,6 +264,7 @@ describe('settings billing route', () => {
         ok: true,
         json: async () => ({ data: { plans: [{ key: 'pro', name: 'Pro', description: 'Scaling teams', monthlyPriceUsd: 49, features: ['automation'] }] } })
       })
+      .mockResolvedValueOnce(usageResponse('provider_subscription'))
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { id: 'bps_test', url: '' } }) })
 
@@ -288,6 +317,7 @@ describe('settings billing route', () => {
         })
       })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { plans: [{ key: 'pro', name: 'Pro', monthlyPriceUsd: 49, features: [] }] } }) })
+      .mockResolvedValueOnce(usageResponse('provider_subscription'))
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [readyExport] } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { export: { id: 13, status: 'pending', datasetCounts: {}, createdAt: '2026-07-20T00:05:00Z' } } }) })
 

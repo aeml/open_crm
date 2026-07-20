@@ -68,6 +68,7 @@ type Subscription struct {
 	InTrial                bool       `json:"inTrial"`
 	Provider               string     `json:"provider"`
 	ProviderStatus         string     `json:"providerStatus,omitempty"`
+	CurrentPeriodStart     *time.Time `json:"currentPeriodStart,omitempty"`
 	CurrentPeriodEnd       *time.Time `json:"currentPeriodEnd,omitempty"`
 	CancelAtPeriodEnd      bool       `json:"cancelAtPeriodEnd"`
 	CustomerEstablished    bool       `json:"customerEstablished"`
@@ -120,7 +121,8 @@ func (s *Service) Hosted() bool {
 const planLookupSQL = `
 	SELECT plan, subscription_status, trial_ends_at,
 	       COALESCE(billing_provider, ''), COALESCE(billing_provider_status, ''),
-	       subscription_current_period_end, COALESCE(subscription_cancel_at_period_end, FALSE),
+	       subscription_current_period_start, subscription_current_period_end,
+	       COALESCE(subscription_cancel_at_period_end, FALSE),
 	       COALESCE(stripe_customer_id, ''), COALESCE(stripe_subscription_id, ''),
 	       billing_last_reconciled_at
 	FROM organizations WHERE id = $1
@@ -144,11 +146,11 @@ func (s *Service) Entitlements(ctx context.Context, organizationID int64) (Entit
 	var subStatus string
 	var trialEndsAt *time.Time
 	var providerName, providerStatus, customerID, subscriptionID string
-	var currentPeriodEnd, lastReconciledAt *time.Time
+	var currentPeriodStart, currentPeriodEnd, lastReconciledAt *time.Time
 	var cancelAtPeriodEnd bool
 	if err := s.pool.QueryRow(ctx, planLookupSQL, organizationID).Scan(
 		&planKey, &subStatus, &trialEndsAt, &providerName, &providerStatus,
-		&currentPeriodEnd, &cancelAtPeriodEnd, &customerID, &subscriptionID, &lastReconciledAt,
+		&currentPeriodStart, &currentPeriodEnd, &cancelAtPeriodEnd, &customerID, &subscriptionID, &lastReconciledAt,
 	); err != nil {
 		return Entitlements{}, fmt.Errorf("load organization plan: %w", err)
 	}
@@ -167,6 +169,7 @@ func (s *Service) Entitlements(ctx context.Context, organizationID int64) (Entit
 	subscription.Provider = providerName
 	subscription.ProviderStatus = providerStatus
 	subscription.Suspended = subscription.Managed && providerSuspendsWrites(providerStatus)
+	subscription.CurrentPeriodStart = currentPeriodStart
 	subscription.CurrentPeriodEnd = currentPeriodEnd
 	subscription.CancelAtPeriodEnd = cancelAtPeriodEnd
 	subscription.CustomerEstablished = customerID != ""
@@ -226,11 +229,11 @@ func (s *Service) ChangePlan(ctx context.Context, organizationID int64, planKey 
 	var currentPlan, currentStatus string
 	var trialEndsAt *time.Time
 	var providerName, providerStatus, customerID, subscriptionID string
-	var currentPeriodEnd, lastReconciledAt *time.Time
+	var currentPeriodStart, currentPeriodEnd, lastReconciledAt *time.Time
 	var cancelAtPeriodEnd bool
 	if err := s.pool.QueryRow(ctx, planLookupSQL, organizationID).Scan(
 		&currentPlan, &currentStatus, &trialEndsAt, &providerName, &providerStatus,
-		&currentPeriodEnd, &cancelAtPeriodEnd, &customerID, &subscriptionID, &lastReconciledAt,
+		&currentPeriodStart, &currentPeriodEnd, &cancelAtPeriodEnd, &customerID, &subscriptionID, &lastReconciledAt,
 	); err != nil {
 		return Entitlements{}, fmt.Errorf("load organization plan: %w", err)
 	}

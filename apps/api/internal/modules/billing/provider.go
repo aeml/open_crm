@@ -60,13 +60,14 @@ type WebhookEventData struct {
 }
 
 type ProviderSubscription struct {
-	ID                string            `json:"id"`
-	Customer          string            `json:"customer"`
-	Status            string            `json:"status"`
-	CurrentPeriodEnd  int64             `json:"current_period_end"`
-	TrialEnd          int64             `json:"trial_end"`
-	CancelAtPeriodEnd bool              `json:"cancel_at_period_end"`
-	Metadata          map[string]string `json:"metadata"`
+	ID                 string            `json:"id"`
+	Customer           string            `json:"customer"`
+	Status             string            `json:"status"`
+	CurrentPeriodStart int64             `json:"current_period_start"`
+	CurrentPeriodEnd   int64             `json:"current_period_end"`
+	TrialEnd           int64             `json:"trial_end"`
+	CancelAtPeriodEnd  bool              `json:"cancel_at_period_end"`
+	Metadata           map[string]string `json:"metadata"`
 }
 
 type ProviderInvoice struct {

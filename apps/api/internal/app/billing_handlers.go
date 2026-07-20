@@ -25,6 +25,10 @@ type hostedBillingService interface {
 	HandleWebhook(context.Context, []byte, string) (modulebilling.WebhookResult, error)
 }
 
+type billingUsageService interface {
+	Usage(context.Context, int64) (modulebilling.UsageSnapshot, error)
+}
+
 const maxBillingWebhookBytes = 1 << 20
 
 // enforceActiveSubscription blocks tenant writes when the hosted subscription
@@ -99,6 +103,15 @@ type entitlementsResponse struct {
 	} `json:"meta"`
 }
 
+type billingUsageResponse struct {
+	Data struct {
+		Usage modulebilling.UsageSnapshot `json:"usage"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type plansResponse struct {
 	Data struct {
 		Plans []modulebilling.Plan `json:"plans"`
@@ -139,6 +152,28 @@ func handleGetEntitlements(auth authService, billing billingService, w http.Resp
 
 	response := entitlementsResponse{}
 	response.Data.Entitlements = entitlements
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleGetBillingUsage(auth authService, billing billingService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	usageService, ok := billing.(billingUsageService)
+	if !ok {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Billing usage service unavailable")
+		return
+	}
+	usage, err := usageService.Usage(r.Context(), state.Organization.ID)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to reconcile billing usage")
+		return
+	}
+	response := billingUsageResponse{}
+	response.Data.Usage = usage
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }

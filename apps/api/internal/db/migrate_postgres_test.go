@@ -174,6 +174,10 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"custom_field_definitions_position_check",
 		"contacts_custom_fields_object_check",
 		"companies_custom_fields_object_check",
+		"billing_usage_snapshots_period_check",
+		"billing_usage_snapshots_basis_check",
+		"billing_usage_snapshots_counts_check",
+		"billing_usage_snapshots_period_unique",
 	} {
 		assertPostgresConstraint(t, ctx, pool, schema, constraint)
 	}
@@ -259,6 +263,10 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_sessions_token_hash",
 		"idx_sessions_expires_at",
 		"idx_notes_org_entity_created",
+		"idx_billing_usage_snapshots_org_observed",
+		"idx_email_messages_org_sent_period",
+		"idx_workflow_automation_runs_org_succeeded_period",
+		"idx_background_jobs_org_succeeded_period",
 	} {
 		assertPostgresIndex(t, ctx, pool, schema, index)
 	}

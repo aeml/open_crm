@@ -1268,3 +1268,18 @@ func TestMigrationFilesIncludeWorkspaceExportsMigration(t *testing.T) {
 		t.Fatalf("workspace exports deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeBillingUsageSnapshotsMigration(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "077_billing_usage_snapshots.sql") {
+		t.Fatal("expected billing usage snapshots migration to be registered")
+	}
+	sql := MigrationSQL("077_billing_usage_snapshots.sql")
+	for _, expected := range []string{"subscription_current_period_start", "billing_usage_snapshots", "period_basis", "outbound_messages_used", "automation_executions_used", "storage_bytes_used", "idx_email_messages_org_sent_period"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("billing usage snapshots migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("077_billing_usage_snapshots.sql"); class != "expand" {
+		t.Fatalf("billing usage snapshots deployment class = %q", class)
+	}
+}
