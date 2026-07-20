@@ -97,7 +97,7 @@ Engineering notes:
 - Backend routes span the core CRM plus billing, email, communication, quoting, lead-generation, workflow-definition, and report-definition foundations.
 - Authentication uses Argon2id password hashing and an `HttpOnly` same-site session cookie backed by database session records.
 - The API applies CSRF protection for state-changing requests, structured request logging, request IDs, security headers, and readiness checks.
-- Mailbox sync, email sequences, and meeting/task reminders run through a durable PostgreSQL-backed job system with idempotent enqueueing, leased claims, retries, dead letters, and operator recovery.
+- Mailbox sync, email sequences, and meeting/task reminders run through a durable PostgreSQL-backed job system with idempotent enqueueing, leased claims, retries, dead letters, and operator recovery. Sequence enrollment and provider attempts additionally require an admin-approved exact content revision; a writer safety pause defers queued work without spending attempts.
 - The codebase documents major architectural decisions in `docs/adr/`.
 
 ## Tech Stack

@@ -103,4 +103,21 @@ describe('useContactOutreach', () => {
     expect(result.current.sequenceForm).toEqual({ sequenceId: '' })
     expect(onError).not.toHaveBeenCalled()
   })
+
+  it('offers only active sequences approved for their current revision', async () => {
+    listEmailSequences.mockResolvedValue([
+      { id: 1, name: 'Draft', status: 'draft', revision: 1 },
+      { id: 2, name: 'Stale approval', status: 'active', revision: 2, approvedRevision: 1, approvedAt: '2026-07-01T00:00:00Z' },
+      { id: 3, name: 'Approved', status: 'active', revision: 2, approvedRevision: 2, approvedAt: '2026-07-02T00:00:00Z' }
+    ])
+    listEmailSequenceEnrollments.mockResolvedValue([])
+    const { result } = renderHook(() => useContactOutreach({ selectedContactId: 7, onError: vi.fn() }))
+
+    await act(async () => {
+      await result.current.handleToggleSequences()
+    })
+
+    expect(result.current.sequenceOptions.map((sequence) => sequence.id)).toEqual([3])
+    expect(result.current.sequenceForm).toEqual({ sequenceId: '3' })
+  })
 })

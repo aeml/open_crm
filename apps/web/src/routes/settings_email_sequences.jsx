@@ -5,11 +5,11 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { createEmailSequence, deleteEmailSequence, listEmailSequences, updateEmailSequence } from '../lib/email_sequences'
+import { createEmailSequence, deleteEmailSequence, listEmailSequences, transitionEmailSequence, updateEmailSequence } from '../lib/email_sequences'
 import { usePageTitle } from '../lib/use_page_title'
 
 const emptyStep = { delayDays: 0, subject: '', body: '' }
-const emptyForm = { name: '', description: '', status: 'draft', steps: [emptyStep] }
+const emptyForm = { name: '', description: '', steps: [emptyStep] }
 
 function sequenceStepCount(sequence) {
   const count = Array.isArray(sequence?.steps) ? sequence.steps.length : 0
@@ -23,7 +23,6 @@ function formFromSequence(sequence) {
   return {
     name: sequence.name || '',
     description: sequence.description || '',
-    status: sequence.status || 'draft',
     steps
   }
 }
@@ -31,6 +30,7 @@ function formFromSequence(sequence) {
 function payloadFromForm(form) {
   return {
     ...form,
+    status: 'draft',
     steps: form.steps.map((step) => ({
       delayDays: Number.parseInt(String(step.delayDays || 0), 10) || 0,
       subject: step.subject,
@@ -40,7 +40,7 @@ function payloadFromForm(form) {
 }
 
 export function SettingsEmailSequencesRoute() {
-  const { session, canWrite: canManage } = useAuth()
+  const { canWrite: canManage, canAdminister } = useAuth()
   usePageTitle('Email Sequences')
   const [sequences, setSequences] = useState([])
   const [form, setForm] = useState(emptyForm)
@@ -75,7 +75,7 @@ export function SettingsEmailSequencesRoute() {
   }, [])
 
   function resetForm() {
-    setForm({ name: '', description: '', status: 'draft', steps: [{ ...emptyStep }] })
+    setForm({ name: '', description: '', steps: [{ ...emptyStep }] })
     setEditingId(null)
   }
 
@@ -136,6 +136,16 @@ export function SettingsEmailSequencesRoute() {
     }
   }
 
+  async function handleTransition(sequenceId, action) {
+    try {
+      const updated = await transitionEmailSequence(sequenceId, action)
+      setSequences((current) => current.map((sequence) => (sequence.id === sequenceId ? updated : sequence)))
+      setError('')
+    } catch (transitionError) {
+      setError(transitionError.message)
+    }
+  }
+
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
@@ -143,7 +153,6 @@ export function SettingsEmailSequencesRoute() {
           <div className="section-header">
             <div>
               <h2>Email sequences</h2>
-              <p>Reusable cadence definitions for {session?.organization?.name || 'your team'}. Enrollment and automated sending will be added after this foundation.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading sequences...</p> : null}
@@ -153,20 +162,26 @@ export function SettingsEmailSequencesRoute() {
               <article className="record-row" role="listitem">
                 <div>
                   <p>No email sequences yet.</p>
-                  <p className="field-hint">Create a draft cadence before adding enrollment and scheduling.</p>
                 </div>
               </article>
             ) : sequences.map((sequence) => (
               <article className="record-row" key={sequence.id} role="listitem">
                 <div>
                   <h3>{sequence.name}</h3>
-                  <p className="field-hint">{sequence.status || 'draft'} · {sequenceStepCount(sequence)}</p>
+                  <p className="field-hint">{sequence.status} · revision {sequence.revision} · {sequence.approvedAt && sequence.approvedRevision === sequence.revision ? 'approved' : 'approval required'} · {sequenceStepCount(sequence)}</p>
                   {sequence.description ? <p className="field-hint">{sequence.description}</p> : null}
                 </div>
                 {canManage ? (
                   <div>
-                    <Button className="button-secondary" type="button" onClick={() => startEdit(sequence)}>Edit</Button>
-                    <Button className="button-secondary" type="button" onClick={() => handleDelete(sequence.id)}>Delete</Button>
+                    {sequence.status !== 'active' ? <Button className="button-secondary" type="button" onClick={() => startEdit(sequence)}>Edit</Button> : null}
+                    {canAdminister && sequence.status !== 'active' ? (
+                      <Button type="button" onClick={() => handleTransition(sequence.id, 'approve')}>
+                        {sequence.status === 'paused' ? 'Approve & resume' : 'Approve & activate'}
+                      </Button>
+                    ) : null}
+                    {sequence.status === 'active' ? (
+                      <Button className="button-secondary" type="button" onClick={() => handleTransition(sequence.id, 'pause')}>Pause sending</Button>
+                    ) : <Button className="button-secondary" type="button" onClick={() => handleDelete(sequence.id)}>Delete</Button>}
                   </div>
                 ) : null}
               </article>
@@ -180,7 +195,7 @@ export function SettingsEmailSequencesRoute() {
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
             <div>
               <h2>{editingId ? 'Edit sequence' : 'New sequence'}</h2>
-              <p className="field-hint">Status is metadata until enrollment, scheduler, and reply detection ship.</p>
+              <p className="field-hint">Saves as a draft for admin approval.</p>
             </div>
             <Field label="Sequence name">
               <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
@@ -188,18 +203,11 @@ export function SettingsEmailSequencesRoute() {
             <Field label="Description">
               <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
             </Field>
-            <Field label="Status">
-              <select className="text-input" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
-                <option value="draft">Draft</option>
-                <option value="active">Active</option>
-                <option value="paused">Paused</option>
-              </select>
-            </Field>
             <div className="card-stack">
               <div className="section-header">
                 <div>
                   <h3>Steps</h3>
-                  <p className="field-hint">Each step stores the future send delay and email content.</p>
+                  <p className="field-hint">Pause stops new attempts; a claimed send may finish.</p>
                 </div>
                 <Button className="button-secondary" type="button" onClick={addStep}>Add step</Button>
               </div>

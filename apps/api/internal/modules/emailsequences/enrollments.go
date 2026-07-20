@@ -60,7 +60,8 @@ const selectDueSendsSQL = `
 	SELECT e.organization_id, e.id, e.sequence_id, e.contact_id, COALESCE(e.enrolled_by_user_id, 0), e.current_step_order,
 	       contact.first_name, contact.last_name, COALESCE(contact.email, ''), COALESCE(contact.job_title, ''), step.subject, step.body
 	FROM email_sequence_enrollments e
-	JOIN email_sequences seq ON seq.id = e.sequence_id AND seq.organization_id = e.organization_id AND seq.status = 'active'
+	JOIN email_sequences seq ON seq.id = e.sequence_id AND seq.organization_id = e.organization_id
+	  AND seq.status = 'active' AND seq.approved_revision = seq.revision AND seq.approved_at IS NOT NULL
 	JOIN email_sequence_steps step ON step.sequence_id = e.sequence_id AND step.step_order = e.current_step_order
 	JOIN contacts contact ON contact.id = e.contact_id AND contact.organization_id = e.organization_id AND contact.archived_at IS NULL
 	WHERE e.status = 'active'
@@ -124,9 +125,24 @@ func (s *Service) EnrollContact(ctx context.Context, organizationID int64, input
 		JOIN email_sequence_steps step ON step.sequence_id = seq.id AND step.step_order = 1
 		JOIN contacts contact ON contact.id = $3 AND contact.organization_id = $1 AND contact.archived_at IS NULL
 		WHERE seq.organization_id = $1 AND seq.id = $2
+		  AND seq.status = 'active' AND seq.approved_revision = seq.revision AND seq.approved_at IS NOT NULL
+		FOR SHARE OF seq
 	`, organizationID, input.SequenceID, input.ContactID).Scan(&delayDays)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			var inactive bool
+			stateErr := tx.QueryRow(ctx, `
+				SELECT TRUE
+				FROM email_sequences seq
+				JOIN contacts contact ON contact.id = $3 AND contact.organization_id = $1 AND contact.archived_at IS NULL
+				WHERE seq.organization_id = $1 AND seq.id = $2
+			`, organizationID, input.SequenceID, input.ContactID).Scan(&inactive)
+			if stateErr == nil && inactive {
+				return Enrollment{}, ErrApprovalRequired
+			}
+			if stateErr != nil && !errors.Is(stateErr, pgx.ErrNoRows) {
+				return Enrollment{}, fmt.Errorf("load email sequence enrollment policy: %w", stateErr)
+			}
 			return Enrollment{}, ErrNotFound
 		}
 		return Enrollment{}, fmt.Errorf("load first email sequence step: %w", err)

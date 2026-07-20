@@ -273,7 +273,7 @@ export function ContactSequencesCard({
                   {options.map((sequence) => <option key={sequence.id} value={sequence.id}>{sequence.name}</option>)}
                 </select>
               </Field>
-            ) : <p className="field-hint">Create a sequence in Settings, Email Sequences before enrolling contacts.</p>}
+            ) : <p className="field-hint">Approve a sequence in Settings before enrolling contacts.</p>}
             <Button type="submit" disabled={isEnrolling || options.length === 0}>{isEnrolling ? 'Enrolling...' : 'Enroll contact'}</Button>
           </form>
         ) : null}

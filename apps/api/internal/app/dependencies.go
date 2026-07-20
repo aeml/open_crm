@@ -312,6 +312,8 @@ type emailSequencesService interface {
 	Create(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
 	Update(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
 	Delete(context.Context, int64, int64) error
+	Approve(context.Context, int64, int64, int64) (moduleemailsequences.Sequence, error)
+	Pause(context.Context, int64, int64) (moduleemailsequences.Sequence, error)
 }
 
 type marketingCampaignsService interface {

@@ -21,3 +21,9 @@ export async function updateEmailSequence(sequenceId, input, { signal } = {}) {
 export async function deleteEmailSequence(sequenceId, { signal } = {}) {
   await apiRequest(`/api/email-sequences/${sequenceId}`, { method: 'DELETE', fallbackMessage: 'Unable to delete email sequence.', signal })
 }
+
+export async function transitionEmailSequence(sequenceId, action, { signal } = {}) {
+  const payload = await apiRequest(`/api/email-sequences/${sequenceId}/${action}`, { method: 'POST', fallbackMessage: `Unable to ${action} email sequence.`, signal })
+
+  return payload?.data?.sequence
+}

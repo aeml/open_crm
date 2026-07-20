@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -143,6 +144,72 @@ func handleDeleteEmailSequence(auth authService, sequences emailSequencesService
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func handleApproveEmailSequence(auth authService, sequences emailSequencesService, audit auditService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if sequences == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email sequences service unavailable")
+		return
+	}
+	sequenceID, ok := parseEmailSequenceID(w, r, requestID)
+	if !ok {
+		return
+	}
+	sequence, err := sequences.Approve(r.Context(), state.Organization.ID, sequenceID, state.User.ID)
+	if err != nil {
+		writeEmailSequenceError(w, requestID, err)
+		return
+	}
+	recordAuditEvent(r, audit, state.Organization.ID, moduleaudit.RecordInput{
+		ActorUserID: state.User.ID,
+		EventType:   "email_sequence.approved",
+		EntityType:  "email_sequence",
+		EntityID:    sequence.ID,
+		Summary:     "Approved and activated email sequence " + sequence.Name,
+		Metadata:    map[string]string{"revision": strconv.Itoa(sequence.Revision)},
+	})
+	response := emailSequenceResponse{}
+	response.Data.Sequence = sequence
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handlePauseEmailSequence(auth authService, sequences emailSequencesService, audit auditService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgWriter(auth, w, r)
+	if !ok {
+		return
+	}
+	if sequences == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email sequences service unavailable")
+		return
+	}
+	sequenceID, ok := parseEmailSequenceID(w, r, requestID)
+	if !ok {
+		return
+	}
+	sequence, err := sequences.Pause(r.Context(), state.Organization.ID, sequenceID)
+	if err != nil {
+		writeEmailSequenceError(w, requestID, err)
+		return
+	}
+	recordAuditEvent(r, audit, state.Organization.ID, moduleaudit.RecordInput{
+		ActorUserID: state.User.ID,
+		EventType:   "email_sequence.paused",
+		EntityType:  "email_sequence",
+		EntityID:    sequence.ID,
+		Summary:     "Paused email sequence " + sequence.Name,
+		Metadata:    map[string]string{"revision": strconv.Itoa(sequence.Revision)},
+	})
+	response := emailSequenceResponse{}
+	response.Data.Sequence = sequence
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
 func toEmailSequenceInput(request emailSequenceRequest) moduleemailsequences.Input {
 	steps := make([]moduleemailsequences.StepInput, 0, len(request.Steps))
 	for _, step := range request.Steps {
@@ -175,6 +242,14 @@ func writeEmailSequenceError(w http.ResponseWriter, requestID string, err error)
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Name, status, and at least one valid step are required")
 	case errors.Is(err, moduleemailsequences.ErrDuplicateName):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "An email sequence with that name already exists")
+	case errors.Is(err, moduleemailsequences.ErrApprovalRequired):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "APPROVAL_REQUIRED", "Save the sequence as a draft, then have an admin approve it")
+	case errors.Is(err, moduleemailsequences.ErrSequenceActive):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "SEQUENCE_ACTIVE", "Pause the sequence before editing or deleting it")
+	case errors.Is(err, moduleemailsequences.ErrSequenceInUse):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "SEQUENCE_IN_USE", "Sequence history is retained; create a new sequence instead of editing or deleting this one")
+	case errors.Is(err, moduleemailsequences.ErrSequenceNotActive):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "SEQUENCE_NOT_ACTIVE", "Only an active sequence can be paused")
 	case errors.Is(err, moduleemailsequences.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	default:

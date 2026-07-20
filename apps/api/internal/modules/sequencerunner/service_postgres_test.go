@@ -67,7 +67,7 @@ func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres
 	if err := pool.QueryRow(ctx, `INSERT INTO contacts (organization_id, first_name, last_name, email, status) VALUES ($1, 'Dorothy', 'Vaughan', 'dorothy@example.test', 'lead') RETURNING id`, organizationID).Scan(&confirmedContactID); err != nil {
 		t.Fatalf("create confirmed sequence contact: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO email_sequences (organization_id, name, status, created_by_user_id) VALUES ($1, 'Pilot follow-up', 'active', $2) RETURNING id`, organizationID, userID).Scan(&sequenceID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO email_sequences (organization_id, name, status, created_by_user_id, approved_revision, approved_by_user_id, approved_at) VALUES ($1, 'Pilot follow-up', 'active', $2, 1, $2, NOW()) RETURNING id`, organizationID, userID).Scan(&sequenceID); err != nil {
 		t.Fatalf("create active email sequence: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -77,7 +77,7 @@ func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres
 	`, sequenceID); err != nil {
 		t.Fatalf("create email sequence steps: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO email_sequences (organization_id, name, status, created_by_user_id) VALUES ($1, 'One-step follow-up', 'active', $2) RETURNING id`, organizationID, userID).Scan(&oneStepSequenceID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO email_sequences (organization_id, name, status, created_by_user_id, approved_revision, approved_by_user_id, approved_at) VALUES ($1, 'One-step follow-up', 'active', $2, 1, $2, NOW()) RETURNING id`, organizationID, userID).Scan(&oneStepSequenceID); err != nil {
 		t.Fatalf("create one-step sequence: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO email_sequence_steps (sequence_id, step_order, delay_days, subject, body) VALUES ($1, 1, 0, 'One step', 'One message for {{full_name}}.')`, oneStepSequenceID); err != nil {

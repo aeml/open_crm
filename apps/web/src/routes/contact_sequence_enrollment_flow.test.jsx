@@ -38,7 +38,7 @@ describe('contact sequence enrollment flow', () => {
         })
       }
       if (path.endsWith('/api/email-sequences')) {
-        return jsonResponse({ data: { sequences: [{ id: 4, name: 'Trial nurture', status: 'active', steps: [{ id: 11, stepOrder: 1, delayDays: 0, subject: 'Welcome', body: 'Hi' }] }] } })
+        return jsonResponse({ data: { sequences: [{ id: 4, name: 'Trial nurture', status: 'active', revision: 1, approvedRevision: 1, approvedAt: '2026-06-14T12:00:00Z', steps: [{ id: 11, stepOrder: 1, delayDays: 0, subject: 'Welcome', body: 'Hi' }] }] } })
       }
       if (path.endsWith('/api/email-sequence-enrollments') && method === 'POST') {
         return jsonResponse({ data: { enrollment: { id: 9, sequenceId: 4, sequenceName: 'Trial nurture', contactId: 7, status: 'active', currentStepOrder: 1, nextSendAt: '2026-06-15T12:00:00Z' } } })

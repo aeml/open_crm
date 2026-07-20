@@ -55,7 +55,8 @@ func (s *Service) LoadScheduledSend(ctx context.Context, organizationID, enrollm
 		SELECT e.organization_id, e.id, e.sequence_id, e.contact_id, COALESCE(e.enrolled_by_user_id, 0), e.current_step_order,
 		       contact.first_name, contact.last_name, COALESCE(contact.email, ''), COALESCE(contact.job_title, ''), step.subject, step.body
 		FROM email_sequence_enrollments e
-		JOIN email_sequences seq ON seq.id = e.sequence_id AND seq.organization_id = e.organization_id AND seq.status = 'active'
+		JOIN email_sequences seq ON seq.id = e.sequence_id AND seq.organization_id = e.organization_id
+		  AND seq.status = 'active' AND seq.approved_revision = seq.revision AND seq.approved_at IS NOT NULL
 		JOIN email_sequence_steps step ON step.sequence_id = e.sequence_id AND step.step_order = e.current_step_order
 		JOIN contacts contact ON contact.id = e.contact_id AND contact.organization_id = e.organization_id AND contact.archived_at IS NULL
 		WHERE e.organization_id = $1 AND e.id = $2 AND e.current_step_order = $3
@@ -63,6 +64,13 @@ func (s *Service) LoadScheduledSend(ctx context.Context, organizationID, enrollm
 		  AND e.enrolled_by_user_id IS NOT NULL
 	`, organizationID, enrollmentID, stepOrder).Scan(&send.OrganizationID, &send.EnrollmentID, &send.SequenceID, &send.ContactID, &send.EnrolledByUserID, &send.CurrentStepOrder, &send.ContactFirstName, &send.ContactLastName, &send.ContactEmail, &send.ContactJobTitle, &send.Subject, &send.Body)
 	if errors.Is(err, pgx.ErrNoRows) {
+		paused, stateErr := s.deliveryPolicyPaused(ctx, organizationID, enrollmentID, stepOrder)
+		if stateErr != nil {
+			return DueSend{}, stateErr
+		}
+		if paused {
+			return DueSend{}, ErrSequencePaused
+		}
 		return DueSend{}, ErrNotFound
 	}
 	if err != nil {
@@ -98,22 +106,66 @@ func (s *Service) ClaimDelivery(ctx context.Context, organizationID, enrollmentI
 	if s == nil || s.pool == nil {
 		return Delivery{}, fmt.Errorf("email sequences service not configured")
 	}
-	delivery, err := scanDelivery(s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Delivery{}, fmt.Errorf("begin email sequence delivery claim: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var ready bool
+	err = tx.QueryRow(ctx, `
+		SELECT TRUE
+		FROM email_sequence_enrollments enrollment
+		JOIN email_sequences sequence ON sequence.id = enrollment.sequence_id AND sequence.organization_id = enrollment.organization_id
+		WHERE enrollment.organization_id = $1 AND enrollment.id = $2 AND enrollment.current_step_order = $3
+		  AND enrollment.status = 'active' AND sequence.status = 'active'
+		  AND sequence.approved_revision = sequence.revision AND sequence.approved_at IS NOT NULL
+		FOR SHARE OF enrollment, sequence
+	`, organizationID, enrollmentID, stepOrder).Scan(&ready)
+	if err == nil && !ready {
+		err = pgx.ErrNoRows
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return Delivery{}, fmt.Errorf("lock email sequence delivery policy: %w", err)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		_ = tx.Rollback(ctx)
+		current, loadErr := s.getDelivery(ctx, organizationID, enrollmentID, stepOrder)
+		if loadErr != nil {
+			return Delivery{}, loadErr
+		}
+		paused, stateErr := s.deliveryPolicyPaused(ctx, organizationID, enrollmentID, stepOrder)
+		if stateErr != nil {
+			return Delivery{}, stateErr
+		}
+		if current.Status == "queued" && paused {
+			return current, ErrSequencePaused
+		}
+		return classifyUnclaimedDelivery(current)
+	}
+	delivery, err := scanDelivery(tx.QueryRow(ctx, `
 		UPDATE email_sequence_deliveries
 		SET status = 'sending', attempt_started_at = NOW(), updated_at = NOW()
 		WHERE organization_id = $1 AND enrollment_id = $2 AND step_order = $3 AND status = 'queued'
 		RETURNING `+deliveryColumns+`
 	`, organizationID, enrollmentID, stepOrder))
 	if err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return Delivery{}, fmt.Errorf("commit email sequence delivery claim: %w", err)
+		}
 		return delivery, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Delivery{}, fmt.Errorf("claim email sequence delivery: %w", err)
 	}
+	_ = tx.Rollback(ctx)
 	current, loadErr := s.getDelivery(ctx, organizationID, enrollmentID, stepOrder)
 	if loadErr != nil {
 		return Delivery{}, loadErr
 	}
+	return classifyUnclaimedDelivery(current)
+}
+
+func classifyUnclaimedDelivery(current Delivery) (Delivery, error) {
 	if current.Status == "sending" || current.Status == "uncertain" {
 		return current, ErrDeliveryUncertain
 	}
@@ -121,6 +173,26 @@ func (s *Service) ClaimDelivery(ctx context.Context, organizationID, enrollmentI
 		return current, ErrDeliveryAlreadyFinalized
 	}
 	return current, ErrDeliveryState
+}
+
+func (s *Service) deliveryPolicyPaused(ctx context.Context, organizationID, enrollmentID int64, stepOrder int) (bool, error) {
+	var paused bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT sequence.status <> 'active'
+		       OR sequence.approved_revision IS DISTINCT FROM sequence.revision
+		       OR sequence.approved_at IS NULL
+		FROM email_sequence_enrollments enrollment
+		JOIN email_sequences sequence ON sequence.id = enrollment.sequence_id AND sequence.organization_id = enrollment.organization_id
+		WHERE enrollment.organization_id = $1 AND enrollment.id = $2 AND enrollment.current_step_order = $3
+		  AND enrollment.status = 'active'
+	`, organizationID, enrollmentID, stepOrder).Scan(&paused)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("load email sequence delivery policy: %w", err)
+	}
+	return paused, nil
 }
 
 func (s *Service) FinalizeSent(ctx context.Context, organizationID, enrollmentID int64, stepOrder int) error {
@@ -216,7 +288,7 @@ func finalizeDeliveryTx(ctx context.Context, tx pgx.Tx, organizationID, enrollme
 }
 
 // ResolveUncertainDeliveryJob records an explicit admin decision atomically
-// with the dead job. "confirmed_sent" advances without another SMTP call;
+// with the dead job. "confirmed_sent" advances without another provider call;
 // "retry" re-arms both the delivery ledger and the same idempotent job.
 func (s *Service) ResolveUncertainDeliveryJob(ctx context.Context, organizationID, jobID int64, resolution string) (DeliveryResolution, error) {
 	if s == nil || s.pool == nil {

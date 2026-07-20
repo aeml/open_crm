@@ -101,9 +101,10 @@ export function useContactOutreach({ selectedContactId, onError }) {
       if (activeSelectionRef.current !== selection) {
         return
       }
-      setSequenceOptions(sequences)
+      const approvedSequences = sequences.filter((sequence) => sequence.status === 'active' && sequence.approvedAt && sequence.approvedRevision === sequence.revision)
+      setSequenceOptions(approvedSequences)
       setSequenceEnrollments(enrollments)
-      setSequenceForm((current) => ({ sequenceId: current.sequenceId || (sequences[0]?.id ? String(sequences[0].id) : '') }))
+      setSequenceForm({ sequenceId: approvedSequences[0]?.id ? String(approvedSequences[0].id) : '' })
     } catch (loadError) {
       if (!isAbortError(loadError) && activeSelectionRef.current === selection) {
         onError(loadError.message || 'Unable to load email sequences.')

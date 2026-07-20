@@ -49,7 +49,7 @@ describe('settings email sequences route', () => {
           json: async () => ({
             data: {
               sequences: [
-                { id: 3, name: 'Welcome cadence', description: 'First-touch follow-up', status: 'draft', steps: [{ id: 7, stepOrder: 1, delayDays: 0, subject: 'Welcome', body: 'Hello' }] }
+                { id: 3, name: 'Welcome cadence', description: 'First-touch follow-up', status: 'draft', revision: 1, steps: [{ id: 7, stepOrder: 1, delayDays: 0, subject: 'Welcome', body: 'Hello' }] }
               ]
             }
           })
@@ -65,7 +65,7 @@ describe('settings email sequences route', () => {
 
     expect(await screen.findByRole('heading', { name: /email sequences/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /welcome cadence/i })).toBeInTheDocument()
-    expect(screen.getByText(/draft · 1 step/i)).toBeInTheDocument()
+    expect(screen.getByText(/draft · revision 1 · approval required · 1 step/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/sequence name/i), { target: { value: 'Trial nurture' } })
     fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'Warm new trials' } })
@@ -87,5 +87,45 @@ describe('settings email sequences route', () => {
       })
     })
     expect(await screen.findByRole('heading', { name: /trial nurture/i })).toBeInTheDocument()
+  })
+
+  it('requires an admin action to activate an exact draft revision', async () => {
+    const draft = {
+      id: 8,
+      name: 'Approved follow-up',
+      description: 'Controlled outreach',
+      status: 'draft',
+      revision: 3,
+      steps: [{ id: 12, stepOrder: 1, delayDays: 0, subject: 'Hello', body: 'Hi' }]
+    }
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/email-sequences/8/approve') && method === 'POST') {
+        return {
+          ok: true,
+          json: async () => ({ data: { sequence: { ...draft, status: 'active', approvedRevision: 3, approvedAt: '2026-07-20T12:00:00Z' } } })
+        }
+      }
+      if (path.endsWith('/api/email-sequences')) {
+        return { ok: true, json: async () => ({ data: { sequences: [draft] } }) }
+      }
+      return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/email-sequences')
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/draft · revision 3 · approval required/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /approve & activate/i }))
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/api/email-sequences/8/approve') && call[1]?.method === 'POST')).toBe(true)
+    })
+    expect(await screen.findByText(/active · revision 3/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /pause sending/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument()
   })
 })

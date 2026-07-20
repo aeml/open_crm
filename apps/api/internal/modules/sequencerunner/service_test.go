@@ -313,6 +313,32 @@ func TestHandleJobFinalizesDurableDelivery(t *testing.T) {
 	}
 }
 
+func TestHandleJobDefersPausedSequenceBeforeProviderBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		loadErr  error
+		claimErr error
+	}{
+		{name: "paused before load", loadErr: moduleemailsequences.ErrSequencePaused},
+		{name: "paused before claim", claimErr: moduleemailsequences.ErrSequencePaused},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sequences := &fakeDurableSequenceStore{
+				fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}},
+				loadErr:           test.loadErr,
+				claimErr:          test.claimErr,
+			}
+			sender := &fakeMailboxSender{configured: true}
+			service := NewService(sequences, sender, &fakeMessageStore{})
+
+			result, err := service.HandleJob(context.Background(), sequenceJob())
+			if result != nil || !errors.Is(err, moduleemailsequences.ErrSequencePaused) || sender.calls != 0 || sequences.finalizeSent != 0 {
+				t.Fatalf("expected policy deferral before provider attempt: result=%#v sender=%#v sequences=%#v err=%v", result, sender, sequences, err)
+			}
+		})
+	}
+}
+
 func TestHandleJobMakesAmbiguousSMTPFailurePermanent(t *testing.T) {
 	sequences := &fakeDurableSequenceStore{fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}}
 	sender := &fakeMailboxSender{configured: true, err: errors.New("connection reset after DATA")}

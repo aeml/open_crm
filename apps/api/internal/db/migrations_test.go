@@ -136,6 +136,21 @@ func TestMigrationFilesIncludeOAuthMailDelivery(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeEmailSequenceApprovals(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "087_email_sequence_approvals.sql") {
+		t.Fatal("expected email sequence approvals migration to be registered")
+	}
+	sql := MigrationSQL("087_email_sequence_approvals.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "revision", "approved_revision", "approved_by_user_id", "approved_at", "status = 'paused'", "NOT VALID", "VALIDATE CONSTRAINT email_sequences_approval_state_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("email sequence approvals migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("087_email_sequence_approvals.sql"); class != "expand" {
+		t.Fatalf("email sequence approvals deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeCollaboration(t *testing.T) {
 	sql := MigrationSQL("060_collaboration.sql")
 	if sql == "" {

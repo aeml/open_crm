@@ -12,26 +12,36 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const maxSequenceSteps = 20
 
 var (
-	ErrDuplicateName = errors.New("email sequence name already exists")
-	ErrInvalidInput  = errors.New("invalid email sequence")
-	ErrNotFound      = errors.New("email sequence not found")
+	ErrDuplicateName     = errors.New("email sequence name already exists")
+	ErrInvalidInput      = errors.New("invalid email sequence")
+	ErrNotFound          = errors.New("email sequence not found")
+	ErrApprovalRequired  = errors.New("email sequence requires approval")
+	ErrSequenceActive    = errors.New("active email sequence must be paused first")
+	ErrSequenceInUse     = errors.New("email sequence has enrollment or campaign history")
+	ErrSequenceNotActive = errors.New("email sequence is not active")
+	ErrSequencePaused    = errors.New("email sequence delivery is paused")
 )
 
 type Sequence struct {
-	ID              int64     `json:"id"`
-	Name            string    `json:"name"`
-	Description     string    `json:"description"`
-	Status          string    `json:"status"`
-	CreatedByUserID int64     `json:"createdByUserId,omitempty"`
-	Steps           []Step    `json:"steps"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	ID               int64      `json:"id"`
+	Name             string     `json:"name"`
+	Description      string     `json:"description"`
+	Status           string     `json:"status"`
+	Revision         int        `json:"revision"`
+	ApprovedRevision int        `json:"approvedRevision,omitempty"`
+	ApprovedByUserID int64      `json:"approvedByUserId,omitempty"`
+	ApprovedAt       *time.Time `json:"approvedAt,omitempty"`
+	CreatedByUserID  int64      `json:"createdByUserId,omitempty"`
+	Steps            []Step     `json:"steps"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
 }
 
 type Step struct {
@@ -69,7 +79,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT seq.id, seq.name, seq.description, seq.status, COALESCE(seq.created_by_user_id, 0), seq.created_at, seq.updated_at,
+		SELECT seq.id, seq.name, seq.description, seq.status, seq.revision, COALESCE(seq.approved_revision, 0),
+		       COALESCE(seq.approved_by_user_id, 0), seq.approved_at, COALESCE(seq.created_by_user_id, 0), seq.created_at, seq.updated_at,
 		       COALESCE(step.id, 0), COALESCE(step.step_order, 0), COALESCE(step.delay_days, 0), COALESCE(step.subject, ''), COALESCE(step.body, '')
 		FROM email_sequences seq
 		LEFT JOIN email_sequence_steps step ON step.sequence_id = seq.id
@@ -86,8 +97,15 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 	for rows.Next() {
 		var seq Sequence
 		var step Step
-		if err := rows.Scan(&seq.ID, &seq.Name, &seq.Description, &seq.Status, &seq.CreatedByUserID, &seq.CreatedAt, &seq.UpdatedAt, &step.ID, &step.StepOrder, &step.DelayDays, &step.Subject, &step.Body); err != nil {
+		var approvedAt pgtype.Timestamptz
+		if err := rows.Scan(&seq.ID, &seq.Name, &seq.Description, &seq.Status, &seq.Revision, &seq.ApprovedRevision,
+			&seq.ApprovedByUserID, &approvedAt, &seq.CreatedByUserID, &seq.CreatedAt, &seq.UpdatedAt,
+			&step.ID, &step.StepOrder, &step.DelayDays, &step.Subject, &step.Body); err != nil {
 			return nil, fmt.Errorf("scan email sequence: %w", err)
+		}
+		if approvedAt.Valid {
+			value := approvedAt.Time
+			seq.ApprovedAt = &value
 		}
 		idx, ok := indexByID[seq.ID]
 		if !ok {
@@ -111,6 +129,9 @@ func (s *Service) Create(ctx context.Context, organizationID, userID int64, inpu
 		return Sequence{}, fmt.Errorf("email sequences service not configured")
 	}
 	input = normalizeInput(input)
+	if input.Status != "draft" {
+		return Sequence{}, ErrApprovalRequired
+	}
 	if err := validateInput(input); err != nil {
 		return Sequence{}, err
 	}
@@ -129,8 +150,9 @@ func (s *Service) Create(ctx context.Context, organizationID, userID int64, inpu
 	err = tx.QueryRow(ctx, `
 		INSERT INTO email_sequences (organization_id, name, description, status, created_by_user_id)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, name, description, status, COALESCE(created_by_user_id, 0), created_at, updated_at
-	`, organizationID, input.Name, input.Description, input.Status, createdBy).Scan(&seq.ID, &seq.Name, &seq.Description, &seq.Status, &seq.CreatedByUserID, &seq.CreatedAt, &seq.UpdatedAt)
+		RETURNING id, name, description, status, revision, COALESCE(approved_revision, 0), COALESCE(approved_by_user_id, 0),
+		          COALESCE(created_by_user_id, 0), created_at, updated_at
+	`, organizationID, input.Name, input.Description, input.Status, createdBy).Scan(&seq.ID, &seq.Name, &seq.Description, &seq.Status, &seq.Revision, &seq.ApprovedRevision, &seq.ApprovedByUserID, &seq.CreatedByUserID, &seq.CreatedAt, &seq.UpdatedAt)
 	if err != nil {
 		return Sequence{}, mapSaveError(err)
 	}
@@ -150,6 +172,9 @@ func (s *Service) Update(ctx context.Context, organizationID, sequenceID int64, 
 		return Sequence{}, fmt.Errorf("email sequences service not configured")
 	}
 	input = normalizeInput(input)
+	if input.Status != "draft" {
+		return Sequence{}, ErrApprovalRequired
+	}
 	if err := validateInput(input); err != nil {
 		return Sequence{}, err
 	}
@@ -160,13 +185,38 @@ func (s *Service) Update(ctx context.Context, organizationID, sequenceID int64, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	var currentStatus string
+	var hasEnrollments bool
+	err = tx.QueryRow(ctx, `
+		SELECT status, EXISTS (
+			SELECT 1 FROM email_sequence_enrollments enrollment WHERE enrollment.sequence_id = email_sequences.id
+		)
+		FROM email_sequences
+		WHERE organization_id = $1 AND id = $2
+		FOR UPDATE
+	`, organizationID, sequenceID).Scan(&currentStatus, &hasEnrollments)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Sequence{}, ErrNotFound
+	}
+	if err != nil {
+		return Sequence{}, fmt.Errorf("lock email sequence for update: %w", err)
+	}
+	if currentStatus == "active" {
+		return Sequence{}, ErrSequenceActive
+	}
+	if hasEnrollments {
+		return Sequence{}, ErrSequenceInUse
+	}
+
 	var seq Sequence
 	err = tx.QueryRow(ctx, `
 		UPDATE email_sequences
-		SET name = $3, description = $4, status = $5, updated_at = NOW()
+		SET name = $3, description = $4, status = 'draft', revision = revision + 1,
+		    approved_revision = NULL, approved_by_user_id = NULL, approved_at = NULL, updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2
-		RETURNING id, name, description, status, COALESCE(created_by_user_id, 0), created_at, updated_at
-	`, organizationID, sequenceID, input.Name, input.Description, input.Status).Scan(&seq.ID, &seq.Name, &seq.Description, &seq.Status, &seq.CreatedByUserID, &seq.CreatedAt, &seq.UpdatedAt)
+		RETURNING id, name, description, status, revision, COALESCE(approved_revision, 0), COALESCE(approved_by_user_id, 0),
+		          COALESCE(created_by_user_id, 0), created_at, updated_at
+	`, organizationID, sequenceID, input.Name, input.Description).Scan(&seq.ID, &seq.Name, &seq.Description, &seq.Status, &seq.Revision, &seq.ApprovedRevision, &seq.ApprovedByUserID, &seq.CreatedByUserID, &seq.CreatedAt, &seq.UpdatedAt)
 	if err != nil {
 		return Sequence{}, mapSaveError(err)
 	}
@@ -188,17 +238,123 @@ func (s *Service) Delete(ctx context.Context, organizationID, sequenceID int64) 
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("email sequences service not configured")
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin email sequence delete: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var status string
+	var hasEnrollments bool
+	err = tx.QueryRow(ctx, `
+		SELECT status, EXISTS (
+			SELECT 1 FROM email_sequence_enrollments enrollment WHERE enrollment.sequence_id = email_sequences.id
+		)
+		FROM email_sequences
+		WHERE organization_id = $1 AND id = $2
+		FOR UPDATE
+	`, organizationID, sequenceID).Scan(&status, &hasEnrollments)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load email sequence for delete: %w", err)
+	}
+	if status == "active" {
+		return ErrSequenceActive
+	}
+	if hasEnrollments {
+		return ErrSequenceInUse
+	}
+	tag, err := tx.Exec(ctx, `
 		DELETE FROM email_sequences
 		WHERE organization_id = $1 AND id = $2
 	`, organizationID, sequenceID)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return ErrSequenceInUse
+		}
 		return fmt.Errorf("delete email sequence: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit email sequence delete: %w", err)
+	}
 	return nil
+}
+
+// Approve binds activation to the exact current revision. Only the HTTP
+// authorization layer grants admins and owners access to this operation.
+func (s *Service) Approve(ctx context.Context, organizationID, sequenceID, userID int64) (Sequence, error) {
+	if s == nil || s.pool == nil {
+		return Sequence{}, fmt.Errorf("email sequences service not configured")
+	}
+	if organizationID <= 0 || sequenceID <= 0 || userID <= 0 {
+		return Sequence{}, ErrInvalidInput
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE email_sequences
+		SET status = 'active', approved_revision = revision, approved_by_user_id = $3, approved_at = NOW(), updated_at = NOW()
+		WHERE organization_id = $1 AND id = $2 AND status IN ('draft', 'paused')
+	`, organizationID, sequenceID, userID)
+	if err != nil {
+		return Sequence{}, fmt.Errorf("approve email sequence: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		current, loadErr := s.getByID(ctx, organizationID, sequenceID)
+		if errors.Is(loadErr, ErrNotFound) {
+			return Sequence{}, ErrNotFound
+		}
+		if loadErr != nil {
+			return Sequence{}, loadErr
+		}
+		if current.Status == "active" && current.ApprovedAt != nil && current.ApprovedRevision == current.Revision {
+			return current, nil
+		}
+		return Sequence{}, ErrSequenceActive
+	}
+	return s.getByID(ctx, organizationID, sequenceID)
+}
+
+// Pause is an idempotent safety stop. Durable jobs remain deferred until an
+// admin explicitly approves the unchanged revision again.
+func (s *Service) Pause(ctx context.Context, organizationID, sequenceID int64) (Sequence, error) {
+	if s == nil || s.pool == nil {
+		return Sequence{}, fmt.Errorf("email sequences service not configured")
+	}
+	if organizationID <= 0 || sequenceID <= 0 {
+		return Sequence{}, ErrInvalidInput
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE email_sequences
+		SET status = 'paused', updated_at = CASE WHEN status = 'active' THEN NOW() ELSE updated_at END
+		WHERE organization_id = $1 AND id = $2 AND status IN ('active', 'paused')
+	`, organizationID, sequenceID)
+	if err != nil {
+		return Sequence{}, fmt.Errorf("pause email sequence: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		if _, err := s.getByID(ctx, organizationID, sequenceID); errors.Is(err, ErrNotFound) {
+			return Sequence{}, ErrNotFound
+		}
+		return Sequence{}, ErrSequenceNotActive
+	}
+	return s.getByID(ctx, organizationID, sequenceID)
+}
+
+func (s *Service) getByID(ctx context.Context, organizationID, sequenceID int64) (Sequence, error) {
+	sequences, err := s.ListByOrganization(ctx, organizationID)
+	if err != nil {
+		return Sequence{}, err
+	}
+	for _, sequence := range sequences {
+		if sequence.ID == sequenceID {
+			return sequence, nil
+		}
+	}
+	return Sequence{}, ErrNotFound
 }
 
 func insertSteps(ctx context.Context, tx pgx.Tx, sequenceID int64, inputs []StepInput) ([]Step, error) {
@@ -233,7 +389,7 @@ func normalizeInput(input Input) Input {
 }
 
 func validateInput(input Input) error {
-	if input.Name == "" || !validStatus(input.Status) || len(input.Steps) == 0 || len(input.Steps) > maxSequenceSteps {
+	if input.Name == "" || input.Status != "draft" || len(input.Steps) == 0 || len(input.Steps) > maxSequenceSteps {
 		return ErrInvalidInput
 	}
 	for _, step := range input.Steps {
@@ -242,10 +398,6 @@ func validateInput(input Input) error {
 		}
 	}
 	return nil
-}
-
-func validStatus(status string) bool {
-	return status == "draft" || status == "active" || status == "paused"
 }
 
 func mapSaveError(err error) error {

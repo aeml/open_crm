@@ -1116,9 +1116,30 @@ recipient feedback; revise the threshold only with that evidence. If a legal or
 contractual retention requirement differs, change the policy and acceptance
 tests deliberately before pilot use rather than relying on manual cleanup.
 
+### Approving and pausing sequence email
+
+New and edited sequence definitions are drafts. An owner or admin must use
+**Settings > Email Sequences > Approve & activate** before a contact can be
+enrolled. Approval is bound to the displayed revision; editing a paused,
+never-enrolled definition creates a new draft revision and clears approval.
+Definitions with enrollment history are immutable so sent and scheduled
+content cannot be silently rewritten; create a replacement sequence instead.
+
+Any owner, admin, or member can choose **Pause sending** as a safety stop. A
+pause prevents new provider attempts and causes already queued jobs to defer
+without consuming attempts. A provider attempt that the worker claimed before
+the pause transaction acquired its lock may still finish. Check the contact
+history and the enrolling user's Sent folder before assuming it was stopped.
+An owner/admin can **Approve & resume** the unchanged revision. Approval and
+pause actions appear in Audit Trail.
+
+Do not activate or resume a definition by updating `email_sequences` directly:
+the API binds status, approver, approval time, and revision together, while the
+worker independently verifies the same policy at its effect boundary.
+
 ### Uncertain sequence email
 
-SMTP can accept a message before a connection failure reaches Open CRM. Those
+SMTP or a mailbox provider API can accept a message before a connection failure reaches Open CRM. Those
 jobs are marked `dead` and their delivery is marked `uncertain`; automatic and
 generic replay cannot send them a second time.
 
@@ -1127,7 +1148,7 @@ From **Settings > Operations**:
 1. Check the enrolling user's Sent folder/provider log for the recipient,
    subject, and approximate attempt time shown by the job.
 2. If the message is present, choose **Confirm already sent**. Open CRM advances
-   the enrollment and schedules the next step without another SMTP call.
+   the enrollment and schedules the next step without another provider call.
 3. If the message is absent, choose **Retry email** and accept the duplicate-risk
    warning. This re-arms the same delivery/job for one operator-approved attempt.
 4. Recheck the Operations and Audit Trail pages after the decision.

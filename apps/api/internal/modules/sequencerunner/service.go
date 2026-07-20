@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
@@ -106,7 +107,7 @@ func (s *Service) SendDue(ctx context.Context, limit int) (Summary, error) {
 	return summary, nil
 }
 
-// HandleJob executes one durable sequence send. Once an SMTP attempt begins,
+// HandleJob executes one durable sequence send. Once a provider attempt begins,
 // any unconfirmed outcome is dead-lettered for operator review rather than
 // retried automatically, preventing silent duplicate customer email.
 func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
@@ -122,6 +123,9 @@ func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string
 		return nil, modulejobs.Permanent(err)
 	}
 	send, err := store.LoadScheduledSend(ctx, job.OrganizationID, enrollmentID, stepOrder)
+	if errors.Is(err, moduleemailsequences.ErrSequencePaused) {
+		return nil, modulejobs.Deferred(err, time.Now().UTC().Add(15*time.Minute))
+	}
 	if errors.Is(err, moduleemailsequences.ErrNotFound) {
 		return map[string]any{"status": "skipped", "reason": "enrollment is no longer due"}, nil
 	}
@@ -165,6 +169,9 @@ func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string
 	}
 
 	delivery, err = store.ClaimDelivery(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder)
+	if errors.Is(err, moduleemailsequences.ErrSequencePaused) {
+		return nil, modulejobs.Deferred(err, time.Now().UTC().Add(15*time.Minute))
+	}
 	if errors.Is(err, moduleemailsequences.ErrDeliveryAlreadyFinalized) {
 		return map[string]any{"status": delivery.Status, "deliveryId": delivery.ID}, nil
 	}
@@ -181,7 +188,7 @@ func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string
 	}
 	if err := store.FinalizeSent(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder); err != nil {
 		_ = store.MarkDeliveryUncertain(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder, err)
-		return nil, modulejobs.Permanent(fmt.Errorf("%w: sent through SMTP but state finalization failed: %v", moduleemailsequences.ErrDeliveryUncertain, err))
+		return nil, modulejobs.Permanent(fmt.Errorf("%w: sent through the mailbox provider but state finalization failed: %v", moduleemailsequences.ErrDeliveryUncertain, err))
 	}
 	s.record(ctx, send, delivery.Subject, delivery.TextBody, "sent", "")
 	return map[string]any{"status": "sent", "deliveryId": delivery.ID}, nil
