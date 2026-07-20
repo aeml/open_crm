@@ -224,7 +224,7 @@ func (s *Service) RecordInbound(ctx context.Context, organizationID int64, input
 	if err := insertEntityLinks(ctx, tx, organizationID, messageID, entityLinks); err != nil {
 		return false, err
 	}
-	if err := completeSequenceEnrollmentsForReplies(ctx, tx, organizationID, entityLinks); err != nil {
+	if err := completeSequenceEnrollmentsForReplies(ctx, tx, organizationID, input.MailboxUserID, messageID, receivedAt, input.FromEmail, entityLinks); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -443,13 +443,39 @@ func insertEntityLinks(ctx context.Context, tx pgx.Tx, organizationID, messageID
 	return nil
 }
 
-func completeSequenceEnrollmentsForReplies(ctx context.Context, tx pgx.Tx, organizationID int64, links []EntityLinkInput) error {
+func completeSequenceEnrollmentsForReplies(ctx context.Context, tx pgx.Tx, organizationID, mailboxUserID, messageID int64, receivedAt time.Time, fromEmail string, links []EntityLinkInput) error {
 	for _, contactID := range contactEntityIDs(links) {
 		_, err := tx.Exec(ctx, `
-			UPDATE email_sequence_enrollments
-			SET status = 'completed', completed_at = COALESCE(completed_at, NOW()), next_send_at = NULL, updated_at = NOW()
-			WHERE organization_id = $1 AND contact_id = $2 AND status IN ('active', 'paused')
-		`, organizationID, contactID)
+			UPDATE email_sequence_enrollments enrollment
+			SET status = 'completed',
+			    completed_at = $4,
+			    completion_reason = 'replied',
+			    replied_at = $4,
+			    reply_email_message_id = $5,
+			    next_send_at = NULL,
+			    updated_at = NOW()
+			WHERE enrollment.organization_id = $1
+			  AND enrollment.contact_id = $2
+			  AND enrollment.enrolled_by_user_id = $3
+			  AND enrollment.status IN ('active', 'paused')
+			  AND EXISTS (
+			    SELECT 1
+			    FROM contacts contact
+			    WHERE contact.organization_id = enrollment.organization_id
+			      AND contact.id = enrollment.contact_id
+			      AND contact.email = $6
+			      AND contact.archived_at IS NULL
+			  )
+			  AND EXISTS (
+			    SELECT 1
+			    FROM email_sequence_deliveries delivery
+			    WHERE delivery.organization_id = enrollment.organization_id
+			      AND delivery.enrollment_id = enrollment.id
+			      AND delivery.status = 'sent'
+			      AND delivery.finalized_at IS NOT NULL
+			      AND delivery.finalized_at <= $4
+			  )
+		`, organizationID, contactID, mailboxUserID, receivedAt, messageID, fromEmail)
 		if err != nil {
 			return fmt.Errorf("complete replied email sequence enrollments: %w", err)
 		}

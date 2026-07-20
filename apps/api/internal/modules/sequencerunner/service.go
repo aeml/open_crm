@@ -150,7 +150,12 @@ func (s *Service) HandleJob(ctx context.Context, job modulejobs.Job) (map[string
 	switch delivery.Status {
 	case "sent", "suppressed":
 		return map[string]any{"status": delivery.Status, "deliveryId": delivery.ID}, nil
-	case "sending", "uncertain":
+	case "sending":
+		if err := store.MarkDeliveryUncertain(ctx, send.OrganizationID, send.EnrollmentID, send.CurrentStepOrder, errors.New("previous provider attempt ended without a confirmed result")); err != nil {
+			return nil, err
+		}
+		return nil, modulejobs.Permanent(moduleemailsequences.ErrDeliveryUncertain)
+	case "uncertain":
 		return nil, modulejobs.Permanent(moduleemailsequences.ErrDeliveryUncertain)
 	}
 

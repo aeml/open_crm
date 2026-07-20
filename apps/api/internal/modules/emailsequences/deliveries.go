@@ -233,6 +233,21 @@ func finalizeDeliveryTx(ctx context.Context, tx pgx.Tx, organizationID, enrollme
 	if tag.RowsAffected() == 0 {
 		return ErrDeliveryState
 	}
+	if finalStatus == "suppressed" {
+		_, err := tx.Exec(ctx, `
+			UPDATE email_sequence_enrollments
+			SET next_send_at = NULL,
+			    status = 'completed',
+			    completed_at = COALESCE(completed_at, NOW()),
+			    completion_reason = 'suppressed',
+			    updated_at = NOW()
+			WHERE organization_id = $1 AND id = $2 AND current_step_order = $3 AND status = 'active'
+		`, organizationID, enrollmentID, stepOrder)
+		if err != nil {
+			return fmt.Errorf("complete suppressed email sequence enrollment: %w", err)
+		}
+		return nil
+	}
 
 	var sequenceID int64
 	err = tx.QueryRow(ctx, `
@@ -260,7 +275,8 @@ func finalizeDeliveryTx(ctx context.Context, tx pgx.Tx, organizationID, enrollme
 		_, err = tx.Exec(ctx, `
 			UPDATE email_sequence_enrollments
 			SET last_sent_at = CASE WHEN $4 = 'sent' THEN NOW() ELSE last_sent_at END,
-			    next_send_at = NULL, status = 'completed', completed_at = COALESCE(completed_at, NOW()), updated_at = NOW()
+			    next_send_at = NULL, status = 'completed', completed_at = COALESCE(completed_at, NOW()),
+			    completion_reason = 'finished', updated_at = NOW()
 			WHERE organization_id = $1 AND id = $2 AND current_step_order = $3 AND status = 'active'
 		`, organizationID, enrollmentID, stepOrder, finalStatus)
 		if err != nil {

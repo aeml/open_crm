@@ -126,7 +126,7 @@ func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres
 	}
 
 	completed, err := sequences.GetEnrollmentByID(ctx, organizationID, enrollment.ID)
-	if err != nil || completed.Status != "completed" || completed.NextSendAt != nil {
+	if err != nil || completed.Status != "completed" || completed.CompletionReason != "finished" || completed.NextSendAt != nil {
 		t.Fatalf("expected sequence enrollment to complete, enrollment=%#v err=%v", completed, err)
 	}
 	var sentDeliveries, sentMessages, sequenceJobs int
@@ -172,6 +172,19 @@ func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres
 	if uncertainStatus != "uncertain" || enrollmentStatus != "active" {
 		t.Fatalf("expected uncertain delivery quarantined without advancing enrollment, delivery=%s enrollment=%s", uncertainStatus, enrollmentStatus)
 	}
+	listed, err := sequences.ListByOrganization(ctx, organizationID)
+	if err != nil {
+		t.Fatalf("list sequence recovery outcomes: %v", err)
+	}
+	var needsReview int64
+	for _, sequence := range listed {
+		if sequence.ID == sequenceID {
+			needsReview = sequence.Outcomes.NeedsReview
+		}
+	}
+	if needsReview != 1 {
+		t.Fatalf("expected one quarantined delivery in sequence outcomes, got %d", needsReview)
+	}
 
 	confirmedEnrollment, err := sequences.EnrollContact(ctx, organizationID, moduleemailsequences.EnrollmentInput{SequenceID: oneStepSequenceID, ContactID: confirmedContactID, EnrolledByUserID: userID})
 	if err != nil {
@@ -193,7 +206,7 @@ func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres
 		t.Fatalf("confirm uncertain delivery without SMTP: resolution=%#v calls=%d err=%v", confirmedResolution, sender.calls, err)
 	}
 	confirmedEnrollment, err = sequences.GetEnrollmentByID(ctx, organizationID, confirmedEnrollment.ID)
-	if err != nil || confirmedEnrollment.Status != "completed" {
+	if err != nil || confirmedEnrollment.Status != "completed" || confirmedEnrollment.CompletionReason != "finished" {
 		t.Fatalf("expected confirmed one-step delivery to complete enrollment, enrollment=%#v err=%v", confirmedEnrollment, err)
 	}
 

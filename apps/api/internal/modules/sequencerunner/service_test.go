@@ -353,6 +353,20 @@ func TestHandleJobMakesAmbiguousSMTPFailurePermanent(t *testing.T) {
 	}
 }
 
+func TestHandleJobQuarantinesARecoveredSendingStateBeforeRetry(t *testing.T) {
+	sequences := &fakeDurableSequenceStore{
+		fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}},
+		delivery:          moduleemailsequences.Delivery{ID: 11, Status: "sending"},
+	}
+	sender := &fakeMailboxSender{configured: true}
+	service := NewService(sequences, sender, &fakeMessageStore{})
+
+	_, err := service.HandleJob(context.Background(), sequenceJob())
+	if !errors.Is(err, moduleemailsequences.ErrDeliveryUncertain) || sender.calls != 0 || sequences.markedUncertain != 1 || sequences.delivery.Status != "uncertain" {
+		t.Fatalf("stale sending state must become operator-recoverable without another provider call: sender=%#v sequences=%#v err=%v", sender, sequences, err)
+	}
+}
+
 func TestHandleJobFinalizesSuppressedDeliveryWithoutSMTP(t *testing.T) {
 	sequences := &fakeDurableSequenceStore{fakeSequenceStore: &fakeSequenceStore{due: []moduleemailsequences.DueSend{dueSend()}}}
 	sender := &fakeMailboxSender{configured: true}

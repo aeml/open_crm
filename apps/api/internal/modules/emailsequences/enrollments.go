@@ -17,22 +17,25 @@ var ErrAlreadyEnrolled = errors.New("contact already enrolled in email sequence"
 const SequenceSendJobType = "email_sequence.send"
 
 type Enrollment struct {
-	ID               int64      `json:"id"`
-	SequenceID       int64      `json:"sequenceId"`
-	SequenceName     string     `json:"sequenceName"`
-	SequenceStatus   string     `json:"sequenceStatus"`
-	ContactID        int64      `json:"contactId"`
-	ContactName      string     `json:"contactName"`
-	EnrolledByUserID int64      `json:"enrolledByUserId,omitempty"`
-	EnrolledByName   string     `json:"enrolledByName,omitempty"`
-	Status           string     `json:"status"`
-	CurrentStepOrder int        `json:"currentStepOrder"`
-	NextSendAt       *time.Time `json:"nextSendAt,omitempty"`
-	LastSentAt       *time.Time `json:"lastSentAt,omitempty"`
-	CompletedAt      *time.Time `json:"completedAt,omitempty"`
-	CancelledAt      *time.Time `json:"cancelledAt,omitempty"`
-	CreatedAt        time.Time  `json:"createdAt"`
-	UpdatedAt        time.Time  `json:"updatedAt"`
+	ID                  int64      `json:"id"`
+	SequenceID          int64      `json:"sequenceId"`
+	SequenceName        string     `json:"sequenceName"`
+	SequenceStatus      string     `json:"sequenceStatus"`
+	ContactID           int64      `json:"contactId"`
+	ContactName         string     `json:"contactName"`
+	EnrolledByUserID    int64      `json:"enrolledByUserId,omitempty"`
+	EnrolledByName      string     `json:"enrolledByName,omitempty"`
+	Status              string     `json:"status"`
+	CurrentStepOrder    int        `json:"currentStepOrder"`
+	NextSendAt          *time.Time `json:"nextSendAt,omitempty"`
+	LastSentAt          *time.Time `json:"lastSentAt,omitempty"`
+	CompletedAt         *time.Time `json:"completedAt,omitempty"`
+	CompletionReason    string     `json:"completionReason,omitempty"`
+	RepliedAt           *time.Time `json:"repliedAt,omitempty"`
+	ReplyEmailMessageID int64      `json:"replyEmailMessageId,omitempty"`
+	CancelledAt         *time.Time `json:"cancelledAt,omitempty"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	UpdatedAt           time.Time  `json:"updatedAt"`
 }
 
 type EnrollmentInput struct {
@@ -258,6 +261,7 @@ func (s *Service) MarkStepSent(ctx context.Context, organizationID, enrollmentID
 		    next_send_at = CASE WHEN EXISTS (SELECT 1 FROM next_step) THEN NOW() + ((SELECT delay_days FROM next_step) * INTERVAL '1 day') ELSE NULL END,
 		    status = CASE WHEN EXISTS (SELECT 1 FROM next_step) THEN 'active' ELSE 'completed' END,
 		    completed_at = CASE WHEN EXISTS (SELECT 1 FROM next_step) THEN e.completed_at ELSE COALESCE(e.completed_at, NOW()) END,
+		    completion_reason = CASE WHEN EXISTS (SELECT 1 FROM next_step) THEN e.completion_reason ELSE 'finished' END,
 		    updated_at = NOW()
 		WHERE e.organization_id = $1 AND e.id IN (SELECT id FROM current_enrollment)
 	`, organizationID, enrollmentID, currentStepOrder)
@@ -314,7 +318,9 @@ const enrollmentSelect = `
 	SELECT e.id, e.sequence_id, seq.name, seq.status, e.contact_id,
 	       TRIM(COALESCE(contact.first_name, '') || ' ' || COALESCE(contact.last_name, '')),
 	       COALESCE(e.enrolled_by_user_id, 0), TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')),
-	       e.status, e.current_step_order, e.next_send_at, e.last_sent_at, e.completed_at, e.cancelled_at, e.created_at, e.updated_at
+	       e.status, e.current_step_order, e.next_send_at, e.last_sent_at, e.completed_at,
+	       COALESCE(e.completion_reason, ''), e.replied_at, COALESCE(e.reply_email_message_id, 0),
+	       e.cancelled_at, e.created_at, e.updated_at
 	FROM email_sequence_enrollments e
 	JOIN email_sequences seq ON seq.id = e.sequence_id AND seq.organization_id = e.organization_id
 	JOIN contacts contact ON contact.id = e.contact_id AND contact.organization_id = e.organization_id
@@ -331,11 +337,13 @@ func scanEnrollment(scanner enrollmentScanner) (Enrollment, error) {
 		nextSendAt  pgtype.Timestamptz
 		lastSentAt  pgtype.Timestamptz
 		completedAt pgtype.Timestamptz
+		repliedAt   pgtype.Timestamptz
 		cancelledAt pgtype.Timestamptz
 	)
 	if err := scanner.Scan(&enrollment.ID, &enrollment.SequenceID, &enrollment.SequenceName, &enrollment.SequenceStatus, &enrollment.ContactID,
 		&enrollment.ContactName, &enrollment.EnrolledByUserID, &enrollment.EnrolledByName, &enrollment.Status, &enrollment.CurrentStepOrder,
-		&nextSendAt, &lastSentAt, &completedAt, &cancelledAt, &enrollment.CreatedAt, &enrollment.UpdatedAt); err != nil {
+		&nextSendAt, &lastSentAt, &completedAt, &enrollment.CompletionReason, &repliedAt, &enrollment.ReplyEmailMessageID,
+		&cancelledAt, &enrollment.CreatedAt, &enrollment.UpdatedAt); err != nil {
 		return Enrollment{}, err
 	}
 	enrollment.ContactName = strings.TrimSpace(enrollment.ContactName)
@@ -351,6 +359,10 @@ func scanEnrollment(scanner enrollmentScanner) (Enrollment, error) {
 	if completedAt.Valid {
 		value := completedAt.Time
 		enrollment.CompletedAt = &value
+	}
+	if repliedAt.Valid {
+		value := repliedAt.Time
+		enrollment.RepliedAt = &value
 	}
 	if cancelledAt.Valid {
 		value := cancelledAt.Time

@@ -1137,6 +1137,30 @@ Do not activate or resume a definition by updating `email_sequences` directly:
 the API binds status, approver, approval time, and revision together, while the
 worker independently verifies the same policy at its effect boundary.
 
+### Interpreting sequence outcomes
+
+**Settings > Email Sequences** shows cumulative, tenant-scoped counts. **Accepted**
+means the configured SMTP/Gmail/Graph adapter returned success or an operator
+confirmed acceptance from the provider's Sent/log evidence; it does not prove
+delivery to an inbox. **Replied** means Open CRM retained an inbound message from
+the matched contact in the enrolling user's mailbox after an accepted sequence
+delivery. The stored enrollment links to that exact message and received time.
+**Finished** means the cadence exhausted its steps, **suppressed** means policy
+stopped it before another send, and **review** means a delivery is quarantined as
+uncertain and needs the procedure below. Historical completions from before
+migration 88 remain unclassified rather than being guessed; the API exposes
+those counts even though the compact settings summary does not.
+
+Reply detection is deliberately conservative about tenant, contact, mailbox,
+and time, but does not yet correlate provider thread or reply headers. An
+unrelated later message from the same contact to the same enrolling mailbox can
+therefore exit every eligible active/paused enrollment for that contact and
+mailbox. A provider timestamp earlier than the accepted-send evidence is not
+counted. Inspect the retained message and cancel manually when either case needs
+operator correction. Customer-mail bounce/complaint events are not yet joined
+to sequence outcomes. Suppression is terminal for the enrollment and no later
+cadence step is scheduled.
+
 ### Uncertain sequence email
 
 SMTP or a mailbox provider API can accept a message before a connection failure reaches Open CRM. Those

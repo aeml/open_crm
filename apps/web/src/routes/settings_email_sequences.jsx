@@ -11,18 +11,13 @@ import { usePageTitle } from '../lib/use_page_title'
 const emptyStep = { delayDays: 0, subject: '', body: '' }
 const emptyForm = { name: '', description: '', steps: [emptyStep] }
 
-function sequenceStepCount(sequence) {
-  const count = Array.isArray(sequence?.steps) ? sequence.steps.length : 0
-  return `${count} ${count === 1 ? 'step' : 'steps'}`
-}
-
 function formFromSequence(sequence) {
-  const steps = Array.isArray(sequence.steps) && sequence.steps.length > 0
-    ? sequence.steps.map((step) => ({ delayDays: step.delayDays || 0, subject: step.subject || '', body: step.body || '' }))
+  const steps = sequence.steps.length
+    ? sequence.steps.map((step) => ({ delayDays: step.delayDays, subject: step.subject, body: step.body }))
     : [emptyStep]
   return {
-    name: sequence.name || '',
-    description: sequence.description || '',
+    name: sequence.name,
+    description: sequence.description,
     steps
   }
 }
@@ -32,7 +27,7 @@ function payloadFromForm(form) {
     ...form,
     status: 'draft',
     steps: form.steps.map((step) => ({
-      delayDays: Number.parseInt(String(step.delayDays || 0), 10) || 0,
+      delayDays: +step.delayDays || 0,
       subject: step.subject,
       body: step.body
     }))
@@ -49,8 +44,7 @@ export function SettingsEmailSequencesRoute() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
 
-  async function loadSequences({ signal } = {}) {
-    setIsLoading(true)
+  async function loadSequences(signal) {
     try {
       const next = await listEmailSequences({ signal })
       setSequences(next)
@@ -60,7 +54,7 @@ export function SettingsEmailSequencesRoute() {
         setError(loadError.message || 'Unable to load email sequences.')
       }
     } finally {
-      if (!signal?.aborted) {
+      if (!signal.aborted) {
         setIsLoading(false)
       }
     }
@@ -68,14 +62,14 @@ export function SettingsEmailSequencesRoute() {
 
   useEffect(() => {
     const controller = new AbortController()
-    loadSequences({ signal: controller.signal })
+    loadSequences(controller.signal)
     return () => {
       controller.abort()
     }
   }, [])
 
   function resetForm() {
-    setForm({ name: '', description: '', steps: [{ ...emptyStep }] })
+    setForm(emptyForm)
     setEditingId(null)
   }
 
@@ -92,13 +86,13 @@ export function SettingsEmailSequencesRoute() {
   }
 
   function addStep() {
-    setForm((current) => ({ ...current, steps: [...current.steps, { ...emptyStep }] }))
+    setForm((current) => ({ ...current, steps: [...current.steps, emptyStep] }))
   }
 
   function removeStep(index) {
     setForm((current) => ({
       ...current,
-      steps: current.steps.length === 1 ? current.steps : current.steps.filter((_, stepIndex) => stepIndex !== index)
+      steps: current.steps.filter((_, stepIndex) => stepIndex !== index)
     }))
   }
 
@@ -150,25 +144,22 @@ export function SettingsEmailSequencesRoute() {
     <section className="dashboard-grid settings-grid">
       <Card>
         <div className="card-stack">
-          <div className="section-header">
-            <div>
-              <h2>Email sequences</h2>
-            </div>
-          </div>
+          <h2>Email sequences</h2>
           {isLoading ? <p className="field-hint">Loading sequences...</p> : null}
           {error ? <InlineError message={error} /> : null}
           <div className="record-list" role="list" aria-label="Email sequences">
             {!isLoading && sequences.length === 0 ? (
               <article className="record-row" role="listitem">
-                <div>
-                  <p>No email sequences yet.</p>
-                </div>
+                <p>No email sequences yet.</p>
               </article>
             ) : sequences.map((sequence) => (
               <article className="record-row" key={sequence.id} role="listitem">
                 <div>
                   <h3>{sequence.name}</h3>
-                  <p className="field-hint">{sequence.status} · revision {sequence.revision} · {sequence.approvedAt && sequence.approvedRevision === sequence.revision ? 'approved' : 'approval required'} · {sequenceStepCount(sequence)}</p>
+                  <p className="field-hint">{sequence.status} · revision {sequence.revision} · {sequence.approvedAt && sequence.approvedRevision === sequence.revision ? 'approved' : 'approval required'} · steps {sequence.steps.length}</p>
+                  {sequence.outcomes?.enrolled ? (
+                    <p className="field-hint">{sequence.outcomes.enrolled} enrolled · {sequence.outcomes.providerAccepted} accepted · {sequence.outcomes.replied} replied · {sequence.outcomes.cadenceFinished} finished · {sequence.outcomes.suppressedExits} suppressed · {sequence.outcomes.needsReview} review</p>
+                  ) : null}
                   {sequence.description ? <p className="field-hint">{sequence.description}</p> : null}
                 </div>
                 {canManage ? (

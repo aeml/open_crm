@@ -39,9 +39,25 @@ type Sequence struct {
 	ApprovedByUserID int64      `json:"approvedByUserId,omitempty"`
 	ApprovedAt       *time.Time `json:"approvedAt,omitempty"`
 	CreatedByUserID  int64      `json:"createdByUserId,omitempty"`
+	Outcomes         Outcomes   `json:"outcomes"`
 	Steps            []Step     `json:"steps"`
 	CreatedAt        time.Time  `json:"createdAt"`
 	UpdatedAt        time.Time  `json:"updatedAt"`
+}
+
+type Outcomes struct {
+	Enrolled              int64 `json:"enrolled"`
+	Active                int64 `json:"active"`
+	Paused                int64 `json:"paused"`
+	Replied               int64 `json:"replied"`
+	CadenceFinished       int64 `json:"cadenceFinished"`
+	SuppressedExits       int64 `json:"suppressedExits"`
+	UnclassifiedCompleted int64 `json:"unclassifiedCompleted"`
+	Cancelled             int64 `json:"cancelled"`
+	ProviderAccepted      int64 `json:"providerAccepted"`
+	SuppressedMessages    int64 `json:"suppressedMessages"`
+	QueuedMessages        int64 `json:"queuedMessages"`
+	NeedsReview           int64 `json:"needsReview"`
 }
 
 type Step struct {
@@ -79,10 +95,42 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 	}
 
 	rows, err := s.pool.Query(ctx, `
+		WITH enrollment_outcomes AS (
+			SELECT organization_id, sequence_id,
+			       COUNT(*) AS enrolled,
+			       COUNT(*) FILTER (WHERE status = 'active') AS active,
+			       COUNT(*) FILTER (WHERE status = 'paused') AS paused,
+			       COUNT(*) FILTER (WHERE status = 'completed' AND completion_reason = 'replied') AS replied,
+			       COUNT(*) FILTER (WHERE status = 'completed' AND completion_reason = 'finished') AS cadence_finished,
+			       COUNT(*) FILTER (WHERE status = 'completed' AND completion_reason = 'suppressed') AS suppressed_exits,
+			       COUNT(*) FILTER (WHERE status = 'completed' AND completion_reason IS NULL) AS unclassified_completed,
+			       COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled
+			FROM email_sequence_enrollments
+			WHERE organization_id = $1
+			GROUP BY organization_id, sequence_id
+		), delivery_outcomes AS (
+			SELECT enrollment.organization_id, enrollment.sequence_id,
+			       COUNT(*) FILTER (WHERE delivery.status = 'sent') AS provider_accepted,
+			       COUNT(*) FILTER (WHERE delivery.status = 'suppressed') AS suppressed_messages,
+			       COUNT(*) FILTER (WHERE delivery.status = 'queued') AS queued_messages,
+			       COUNT(*) FILTER (WHERE delivery.status = 'uncertain') AS needs_review
+			FROM email_sequence_enrollments enrollment
+			JOIN email_sequence_deliveries delivery
+			  ON delivery.organization_id = enrollment.organization_id AND delivery.enrollment_id = enrollment.id
+			WHERE enrollment.organization_id = $1
+			GROUP BY enrollment.organization_id, enrollment.sequence_id
+		)
 		SELECT seq.id, seq.name, seq.description, seq.status, seq.revision, COALESCE(seq.approved_revision, 0),
 		       COALESCE(seq.approved_by_user_id, 0), seq.approved_at, COALESCE(seq.created_by_user_id, 0), seq.created_at, seq.updated_at,
+		       COALESCE(enrollment.enrolled, 0), COALESCE(enrollment.active, 0), COALESCE(enrollment.paused, 0),
+		       COALESCE(enrollment.replied, 0), COALESCE(enrollment.cadence_finished, 0), COALESCE(enrollment.suppressed_exits, 0),
+		       COALESCE(enrollment.unclassified_completed, 0), COALESCE(enrollment.cancelled, 0),
+		       COALESCE(delivery.provider_accepted, 0), COALESCE(delivery.suppressed_messages, 0),
+		       COALESCE(delivery.queued_messages, 0), COALESCE(delivery.needs_review, 0),
 		       COALESCE(step.id, 0), COALESCE(step.step_order, 0), COALESCE(step.delay_days, 0), COALESCE(step.subject, ''), COALESCE(step.body, '')
 		FROM email_sequences seq
+		LEFT JOIN enrollment_outcomes enrollment ON enrollment.organization_id = seq.organization_id AND enrollment.sequence_id = seq.id
+		LEFT JOIN delivery_outcomes delivery ON delivery.organization_id = seq.organization_id AND delivery.sequence_id = seq.id
 		LEFT JOIN email_sequence_steps step ON step.sequence_id = seq.id
 		WHERE seq.organization_id = $1
 		ORDER BY lower(seq.name) ASC, seq.id ASC, step.step_order ASC
@@ -100,6 +148,10 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		var approvedAt pgtype.Timestamptz
 		if err := rows.Scan(&seq.ID, &seq.Name, &seq.Description, &seq.Status, &seq.Revision, &seq.ApprovedRevision,
 			&seq.ApprovedByUserID, &approvedAt, &seq.CreatedByUserID, &seq.CreatedAt, &seq.UpdatedAt,
+			&seq.Outcomes.Enrolled, &seq.Outcomes.Active, &seq.Outcomes.Paused, &seq.Outcomes.Replied,
+			&seq.Outcomes.CadenceFinished, &seq.Outcomes.SuppressedExits, &seq.Outcomes.UnclassifiedCompleted,
+			&seq.Outcomes.Cancelled, &seq.Outcomes.ProviderAccepted, &seq.Outcomes.SuppressedMessages,
+			&seq.Outcomes.QueuedMessages, &seq.Outcomes.NeedsReview,
 			&step.ID, &step.StepOrder, &step.DelayDays, &step.Subject, &step.Body); err != nil {
 			return nil, fmt.Errorf("scan email sequence: %w", err)
 		}

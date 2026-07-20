@@ -151,6 +151,21 @@ func TestMigrationFilesIncludeEmailSequenceApprovals(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeEmailSequenceOutcomes(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "088_email_sequence_outcomes.sql") {
+		t.Fatal("expected email sequence outcomes migration to be registered")
+	}
+	sql := MigrationSQL("088_email_sequence_outcomes.sql")
+	for _, expected := range []string{"-- open-crm-deploy: expand", "completion_reason", "replied_at", "reply_email_message_id", "NOT VALID", "VALIDATE CONSTRAINT email_sequence_enrollments_reply_message_fk"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("email sequence outcomes migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("088_email_sequence_outcomes.sql"); class != "expand" {
+		t.Fatalf("email sequence outcomes deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeCollaboration(t *testing.T) {
 	sql := MigrationSQL("060_collaboration.sql")
 	if sql == "" {

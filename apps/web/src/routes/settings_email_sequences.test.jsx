@@ -65,7 +65,7 @@ describe('settings email sequences route', () => {
 
     expect(await screen.findByRole('heading', { name: /email sequences/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /welcome cadence/i })).toBeInTheDocument()
-    expect(screen.getByText(/draft · revision 1 · approval required · 1 step/i)).toBeInTheDocument()
+    expect(screen.getByText(/draft · revision 1 · approval required · steps 1/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/sequence name/i), { target: { value: 'Trial nurture' } })
     fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'Warm new trials' } })
@@ -96,6 +96,7 @@ describe('settings email sequences route', () => {
       description: 'Controlled outreach',
       status: 'draft',
       revision: 3,
+      outcomes: { enrolled: 12, active: 3, providerAccepted: 17, replied: 4, cadenceFinished: 2, cancelled: 2, suppressedExits: 1, suppressedMessages: 1, queuedMessages: 2, needsReview: 0, unclassifiedCompleted: 0 },
       steps: [{ id: 12, stepOrder: 1, delayDays: 0, subject: 'Hello', body: 'Hi' }]
     }
     const fetchMock = vi.fn(async (url, options = {}) => {
@@ -119,6 +120,7 @@ describe('settings email sequences route', () => {
     render(<AppRouter />)
 
     expect(await screen.findByText(/draft · revision 3 · approval required/i)).toBeInTheDocument()
+    expect(screen.getByText(/12 enrolled · 17 accepted · 4 replied · 2 finished/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /approve & activate/i }))
 
     await waitFor(() => {
