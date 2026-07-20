@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Card } from '../components/ui/card'
-import { RecordEmailComposer } from '../components/record_email_composer'
-import { archiveDeal, createDeal, getDeal, listDeals, listDealPipelines, sendDealEmail, updateDeal, updateDealStage } from '../lib/deals'
+import { archiveDeal, createDeal, getDeal, listDeals, listDealPipelines, updateDeal, updateDealStage } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
 import { listProductCatalogItems } from '../lib/product_catalog'
@@ -17,11 +15,10 @@ import {
   pipelineLabels,
   stagesForPipeline
 } from './deal_view'
-import { DealLineItemsCard, DealSignatureCard } from './deal_quote'
 import { emptyCloseReview, stageOutcome } from './deal_close_review'
 import { DealDirectory } from './deal_directory'
-import { DealCreateCard, DealDetailsEditor, DealStageMover } from './deal_editor'
-import { RecordWorkCards } from './record_work'
+import { DealCreateCard } from './deal_editor'
+import { DealWorkspace } from './deal_workspace'
 import { useDealCommercials } from './use_deal_commercials'
 import { requireDealResponse, useDealSelection } from './use_deal_selection'
 import { useDealWork } from './use_deal_work'
@@ -84,50 +81,25 @@ export function DealsRoute() {
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [pipelineReady, setPipelineReady] = useState(false)
   const dealSelection = useDealSelection(selectedDealId)
-  const {
-    activities,
-    fetchWork,
-    handleCreateNote,
-    handleCreateTask,
-    isCreatingNote,
-    isCreatingTask,
-    load: loadWork,
-    noteBody,
-    notes,
-    reset: resetWork,
-    setActivities,
-    setNoteBody,
-    setTaskForm,
-    taskForm,
-    tasks
-  } = useDealWork({
+  const dealWork = useDealWork({
     defaultAssignedToUserId: userOptions[0]?.id ? String(userOptions[0].id) : '',
     selectedDealId,
     selection: dealSelection,
     onError: setError
   })
   const {
-    handleAddLineItem,
-    handleCatalogLineItemChange,
-    handleCreateSignatureRequest,
-    handleRemoveLineItem,
-    handleSaveLineItems,
-    handleUpdateSignatureRequestStatus,
-    isCreatingSignatureRequest,
-    isSnapshotPending,
-    lineItemForm,
-    lineItems,
-    lineTotals,
+    fetchWork,
+    load: loadWork,
+    reset: resetWork,
+    setActivities,
+    setTaskForm
+  } = dealWork
+  const dealCommercial = useDealCommercials({ selectedDealId, selection: dealSelection, onDealUpdated: applyCommercialDealUpdate, onError: setError })
+  const {
     load: loadCommercials,
-    productCatalogItems,
     refresh: refreshCommercials,
-    reset: resetCommercials,
-    setLineItemForm,
-    setSignatureForm,
-    signatureForm,
-    signatureRequests,
-    updatingSignatureRequestId
-  } = useDealCommercials({ selectedDealId, selection: dealSelection, onDealUpdated: applyCommercialDealUpdate, onError: setError })
+    reset: resetCommercials
+  } = dealCommercial
   const listControllerRef = useRef(null)
   const filteredStages = stagesForPipeline(stages, pipelineFilter)
   const hasDealFilters = search.trim() !== '' || pipelineFilter !== 'all' || stageFilter !== 'all' || ownerFilter !== 'all' || closeFrom !== '' || closeTo !== ''
@@ -676,89 +648,20 @@ export function DealsRoute() {
       ) : null}
 
       {selectedDeal ? (
-        <Card>
-          <div className="card-stack">
-            <DealDetailsEditor
-              canWrite={canWrite}
-              companies={companyOptions}
-              contacts={contactOptions}
-              deal={selectedDeal}
-              form={detailForm}
-              isLoading={isDetailLoading}
-              labels={labels}
-              onArchive={handleArchive}
-              onSetForm={setDetailForm}
-              onSubmit={handleUpdate}
-              users={userOptions}
-            />
-            <DealLineItemsCard
-              canWrite={canWrite}
-              deal={selectedDeal}
-              form={lineItemForm}
-              isSaving={isSnapshotPending}
-              items={lineItems}
-              labels={labels}
-              onAdd={handleAddLineItem}
-              onCatalogChange={handleCatalogLineItemChange}
-              onRemove={handleRemoveLineItem}
-              onSave={handleSaveLineItems}
-              onSetForm={setLineItemForm}
-              products={productCatalogItems}
-              totals={lineTotals}
-            />
-            <DealSignatureCard
-              canWrite={canWrite}
-              form={signatureForm}
-              isCreating={isCreatingSignatureRequest}
-              isSnapshotPending={isSnapshotPending}
-              onCreate={handleCreateSignatureRequest}
-              onSetForm={setSignatureForm}
-              onUpdate={handleUpdateSignatureRequestStatus}
-              requests={signatureRequests}
-              updatingID={updatingSignatureRequestId}
-            />
-            <DealStageMover
-              canWrite={canWrite}
-              labels={labels}
-              onMove={handleMoveStage}
-              onSetReview={setStageCloseReview}
-              onSetStage={setSelectedStageId}
-              review={stageCloseReview}
-              selectedStageId={selectedStageId}
-              stages={stages}
-            />
-            <RecordEmailComposer
-              entityType="deal"
-              entityId={selectedDealId}
-              canWrite={canWrite}
-              recipientOptions={dealEmailRecipients}
-              sendEmail={sendDealEmail}
-              emptyMessage="Set a primary contact with an email address before sending email from this deal."
-              mergeFieldHint="Merge fields like {{first_name}}, {{deal_name}}, {{deal_stage}}, and {{company_name}} are filled in when the email is sent."
-            />
-            <RecordWorkCards
-              activities={activities}
-              activityAria={labels.activityAria}
-              canWrite={canWrite}
-              entityId={selectedDealId}
-              entityType="deal"
-              isCreatingNote={isCreatingNote}
-              isCreatingTask={isCreatingTask}
-              noteBody={noteBody}
-              notes={notes}
-              notesAria={labels.notesAria}
-              onCreateNote={handleCreateNote}
-              onCreateTask={handleCreateTask}
-              onOpenTasks={handleOpenDealTasks}
-              onSetNoteBody={setNoteBody}
-              onSetTaskForm={setTaskForm}
-              taskForm={taskForm}
-              tasks={tasks}
-              tasksAria={labels.tasksAria}
-              users={userOptions}
-            />
-          </div>
-        </Card>
+        <DealWorkspace
+          canWrite={canWrite}
+          commercial={dealCommercial}
+          companies={companyOptions}
+          contacts={contactOptions}
+          deal={selectedDeal}
+          detail={{ form: detailForm, isLoading: isDetailLoading, onArchive: handleArchive, onSetForm: setDetailForm, onSubmit: handleUpdate }}
+          emailRecipients={dealEmailRecipients}
+          labels={labels}
+          onOpenTasks={handleOpenDealTasks}
+          stage={{ onMove: handleMoveStage, onSetReview: setStageCloseReview, onSetStage: setSelectedStageId, review: stageCloseReview, selectedStageId, stages }}
+          users={userOptions}
+          work={dealWork}
+        />
       ) : null}
     </section>
   )
