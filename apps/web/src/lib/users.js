@@ -14,6 +14,18 @@ export async function createOrganizationUser(input, { signal } = {}) {
   return payload?.data?.user
 }
 
+export async function resendOrganizationUserInvitation(userId, { signal } = {}) {
+  const payload = await apiRequest(`/api/users/${userId}/invitation/resend`, { method: 'POST', fallbackMessage: 'Unable to resend invitation.', signal })
+
+  return payload?.data?.user
+}
+
+export async function revokeOrganizationUserInvitation(userId, { signal } = {}) {
+  const payload = await apiRequest(`/api/users/${userId}/invitation`, { method: 'DELETE', fallbackMessage: 'Unable to revoke invitation.', signal })
+
+  return payload?.data
+}
+
 export async function updateOrganizationUserRole(userId, role, { signal } = {}) {
   const payload = await apiRequest(`/api/users/${userId}/role`, { method: 'PATCH', body: { role }, fallbackMessage: 'Unable to update user role.', signal })
 

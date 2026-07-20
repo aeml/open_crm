@@ -271,7 +271,7 @@ func handleListUsers(auth authService, users usersService, w http.ResponseWriter
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-func handleCreateUser(auth authService, users usersService, audit auditService, billing billingService, mailer emailService, w http.ResponseWriter, r *http.Request) {
+func handleCreateUser(env config.Env, auth authService, users usersService, audit auditService, billing billingService, mailer emailService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgAdmin(auth, w, r)
 	if !ok {
@@ -321,7 +321,11 @@ func handleCreateUser(auth authService, users usersService, audit auditService, 
 		},
 	})
 
-	sendUserInviteEmail(r, mailer, created.Email, created.FirstName, created.SetupToken)
+	created.InvitationDeliveryStatus = "sent"
+	if err := sendUserInviteEmail(r, mailer, created.Email, created.FirstName, created.SetupToken); err != nil {
+		created.InvitationDeliveryStatus = "failed"
+	}
+	hideNonLocalInviteLink(env, mailer, &created)
 
 	response := userResponse{}
 	response.Data.User = created

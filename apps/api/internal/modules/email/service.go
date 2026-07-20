@@ -105,7 +105,7 @@ func (s *Service) SendUserInvite(ctx context.Context, to, firstName, setupToken 
 	}
 	link := s.SetupLink(setupToken)
 	body := fmt.Sprintf(
-		"Hi %s,\n\nYou've been invited to Open CRM. Set your password to activate your account:\n\n%s\n\nThis link will expire, so set your password soon.\n",
+		"Hi %s,\n\nYou've been invited to Open CRM. Set your password to activate your account:\n\n%s\n\nThis one-time link expires in 7 days. If you were not expecting this invitation, you can ignore this email.\n",
 		greetingName, link,
 	)
 

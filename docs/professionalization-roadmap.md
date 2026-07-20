@@ -333,6 +333,18 @@ Exit criteria:
 - New users are not created with a shared known password.
 - Admin-created users can securely activate accounts.
 
+Current convergence evidence: invitations use digest-only, one-time setup tokens
+with a seven-day expiry and production-hidden raw links. The admin Users surface
+shows pending, expired, accepted, and revoked states and supports token-rotating
+resend plus explicit, safely repeatable revocation. Revocation runs through the
+same access-removal transaction as member deactivation, including session
+invalidation, work reassignment, effect quiescence, and audit evidence; a
+reactivated invitation still requires a newly delivered link. Handler/UI tests,
+freshly migrated PostgreSQL acceptance, and the clean browser journey cover
+cross-tenant denial, expiry, old-link rejection, revocation, reactivation, and
+final activation. Approved live-Postmark delivery and bounce/complaint evidence
+remain external validation work.
+
 ## Version 0.2.0 - Observability And Operations
 
 Status: complete.
@@ -365,15 +377,16 @@ Exit criteria:
 - Handler files are easier to review in isolation.
 - No behavior changes beyond tested refactors.
 
-Current convergence evidence: `app.go` is now 369 lines and uses the default
-500-line CI ceiling. All 205 explicit registrations live in focused 142-line
+Current convergence evidence: `app.go` is now 380 lines and uses the default
+500-line CI ceiling. All 212 explicit registrations live in focused 169-line
 platform, 246-line foundation, and 267-line core-CRM files, called centrally by
 `NewServer`; package-wide inventory and hosted-write-policy scans preserve the
 complete route set after the split. HTTP rate limiting, proxy-aware client
 identity, CSRF/CORS, and security/release headers live in a focused 285-line
 policy file. Service contracts and dependency composition live in a focused
-440-line file. Shared request decoding, response shaping, audit/mail helpers,
-and session-cookie behavior now live in a 258-line helper file, leaving
+453-line file. Shared request decoding, response shaping, audit helpers, and
+session-cookie behavior now live in a 250-line helper file, while invitation
+lifecycle delivery lives in a focused handler, leaving
 `support_handlers.go` at 455 lines. Every production file in `internal/app` is
 therefore under the default 500-line CI ceiling, with existing behavior tests
 preserved.
@@ -618,6 +631,7 @@ Completion notes:
 
 - Added organization-scoped audit events with indexed reads by organization, event type, and creation time.
 - Recorded user invites, role changes, password setup completions, and organization profile changes without storing setup tokens or password material.
+- Invitation resend and revocation record secret-free lifecycle audit events; repeated revocation is idempotent and does not duplicate evidence.
 - Added an admin-only audit API and Settings audit view with event filtering and retention guidance.
 - Covered audit event access, metadata sanitization, role updates, and audit UI behavior with tests.
 
@@ -2296,8 +2310,8 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 177.99 KiB/57.93 KiB for the entry, 39.39 KiB/11.47 KiB
-for the largest lazy chunk, and 631.71 KiB/203.04 KiB total assets. Hosted
+CSS. Current evidence is 179.33 KiB/58.13 KiB for the entry, 39.39 KiB/11.47 KiB
+for the largest lazy chunk, and 644.90 KiB/206.82 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.35 KiB/4.56 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
@@ -2314,7 +2328,8 @@ Remaining work is production-like host evidence and later provider/feature loads
 Status: in progress.
 
 Current convergence evidence: CI gates deploys on a Playwright/Chromium journey
-against disposable PostgreSQL 16. It covers workspace bootstrap, invitation and
+against disposable PostgreSQL 16. It covers workspace bootstrap, invitation
+rotation/old-link rejection/revocation/reactivation/final activation and later
 member deactivate/reactivate, required custom-field administration and dynamic
 import mapping with safe rollback, client/contact/deal/task creation, selected
 core/custom-field duplicate merge, reversible bulk client status changes,

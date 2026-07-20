@@ -24,6 +24,8 @@ var (
 	ErrCannotChangeOwnStatus = errors.New("cannot change own membership status")
 	ErrLastActiveOwner       = errors.New("cannot remove the last active owner")
 	ErrInvalidReassignment   = errors.New("reassignment user must be another active organization member")
+	ErrInvitationNotPending  = errors.New("user does not have a pending invitation")
+	ErrInvitationInactive    = errors.New("invited membership is disabled")
 )
 
 const setupTokenTTL = 7 * 24 * time.Hour
@@ -31,6 +33,10 @@ const setupTokenTTL = 7 * 24 * time.Hour
 const (
 	MembershipStatusActive   = "active"
 	MembershipStatusDisabled = "disabled"
+	InvitationStatusPending  = "pending"
+	InvitationStatusExpired  = "expired"
+	InvitationStatusAccepted = "accepted"
+	InvitationStatusRevoked  = "revoked"
 )
 
 type WorkCounts struct {
@@ -48,17 +54,20 @@ func (c WorkCounts) Total() int64 {
 }
 
 type UserSummary struct {
-	ID              int64      `json:"id"`
-	Email           string     `json:"email"`
-	FirstName       string     `json:"firstName"`
-	LastName        string     `json:"lastName"`
-	Role            string     `json:"role"`
-	Status          string     `json:"status"`
-	StatusChangedAt *time.Time `json:"statusChangedAt,omitempty"`
-	OwnedWork       WorkCounts `json:"ownedWork"`
-	SetupPending    bool       `json:"setupPending,omitempty"`
-	SetupToken      string     `json:"setupToken,omitempty"`
-	SetupLink       string     `json:"setupLink,omitempty"`
+	ID                       int64      `json:"id"`
+	Email                    string     `json:"email"`
+	FirstName                string     `json:"firstName"`
+	LastName                 string     `json:"lastName"`
+	Role                     string     `json:"role"`
+	Status                   string     `json:"status"`
+	StatusChangedAt          *time.Time `json:"statusChangedAt,omitempty"`
+	OwnedWork                WorkCounts `json:"ownedWork"`
+	SetupPending             bool       `json:"setupPending,omitempty"`
+	InvitationStatus         string     `json:"invitationStatus,omitempty"`
+	InvitationExpiresAt      *time.Time `json:"invitationExpiresAt,omitempty"`
+	InvitationDeliveryStatus string     `json:"invitationDeliveryStatus,omitempty"`
+	SetupToken               string     `json:"-"`
+	SetupLink                string     `json:"setupLink,omitempty"`
 }
 
 type CreateUserInput struct {
@@ -126,7 +135,15 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 			(SELECT COUNT(*) FROM email_messages record WHERE record.organization_id = om.organization_id AND record.shared_inbox_assigned_to_user_id = u.id AND record.direction = 'inbound' AND record.visibility = 'shared' AND record.shared_inbox_status = 'open'),
 			(SELECT COUNT(*) FROM lead_scoring_rules record WHERE record.organization_id = om.organization_id AND record.assign_to_user_id = u.id AND record.is_active = TRUE),
 			(SELECT COUNT(*) FROM calendar_events record WHERE record.organization_id = om.organization_id AND record.calendar_user_id = u.id AND record.status = 'scheduled' AND record.end_at > NOW()),
-			(u.password_setup_token_hash IS NOT NULL AND u.password_setup_consumed_at IS NULL) AS setup_pending
+			(u.password_setup_token_hash IS NOT NULL AND u.password_setup_consumed_at IS NULL AND u.password_setup_revoked_at IS NULL) AS setup_pending,
+			CASE
+				WHEN u.password_setup_consumed_at IS NOT NULL THEN 'accepted'
+				WHEN u.password_setup_revoked_at IS NOT NULL THEN 'revoked'
+				WHEN u.password_setup_token_hash IS NOT NULL AND u.password_setup_expires_at <= NOW() THEN 'expired'
+				WHEN u.password_setup_token_hash IS NOT NULL THEN 'pending'
+				ELSE ''
+			END AS invitation_status,
+			u.password_setup_expires_at
 		FROM organization_memberships om
 		JOIN users u ON u.id = om.user_id
 		WHERE om.organization_id = $1
@@ -146,6 +163,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 			&entry.OwnedWork.Contacts, &entry.OwnedWork.Companies, &entry.OwnedWork.Deals,
 			&entry.OwnedWork.Tasks, &entry.OwnedWork.SharedInbox, &entry.OwnedWork.LeadRoutingRules,
 			&entry.OwnedWork.CalendarEvents, &entry.SetupPending,
+			&entry.InvitationStatus, &entry.InvitationExpiresAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
@@ -225,14 +243,18 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 	}
 
 	return UserSummary{
-		ID:         userID,
-		Email:      input.Email,
-		FirstName:  input.FirstName,
-		LastName:   input.LastName,
-		Role:       input.Role,
-		Status:     MembershipStatusActive,
-		SetupToken: setupToken,
-		SetupLink:  "/setup-password?token=" + setupToken,
+		ID:                       userID,
+		Email:                    input.Email,
+		FirstName:                input.FirstName,
+		LastName:                 input.LastName,
+		Role:                     input.Role,
+		Status:                   MembershipStatusActive,
+		SetupPending:             true,
+		InvitationStatus:         InvitationStatusPending,
+		InvitationExpiresAt:      &setupExpiresAt,
+		InvitationDeliveryStatus: "pending",
+		SetupToken:               setupToken,
+		SetupLink:                "/setup-password?token=" + setupToken,
 	}, nil
 }
 
@@ -265,10 +287,12 @@ func (s *Service) CompleteSetup(ctx context.Context, input CompleteSetupInput) (
 			    password_setup_token_hash = NULL,
 			    password_setup_expires_at = NULL,
 			    password_setup_consumed_at = NOW(),
+			    password_setup_revoked_at = NULL,
 			    updated_at = NOW()
 			WHERE password_setup_token_hash = $1
 			  AND password_setup_expires_at > NOW()
 			  AND password_setup_consumed_at IS NULL
+			  AND password_setup_revoked_at IS NULL
 			  AND EXISTS (
 				SELECT 1 FROM organization_memberships active_membership
 				WHERE active_membership.user_id = users.id

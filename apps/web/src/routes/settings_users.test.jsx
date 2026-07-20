@@ -198,4 +198,40 @@ describe('settings users route', () => {
     expect(await screen.findByText(/can sign in again; mailbox sync remains off/i)).toBeInTheDocument()
     expect(screen.getAllByText('Active')).toHaveLength(2)
   })
+
+  it('shows invitation expiry, resends with token rotation, and confirms revocation', async () => {
+    const owner = { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner', status: 'active', ownedWork: {} }
+    const expiredInvite = { id: 2, email: 'invitee@acme.test', firstName: 'Jamie', lastName: 'Pilot', role: 'member', status: 'active', ownedWork: {}, invitationStatus: 'expired', invitationExpiresAt: '2026-07-19T12:00:00Z' }
+    const pendingInvite = { ...expiredInvite, invitationStatus: 'pending', invitationExpiresAt: '2026-07-27T12:00:00Z', setupLink: '/setup-password?token=new-local-token' }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { user: owner, organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' }, membership: { role: 'owner' } } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [owner, expiredInvite] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { user: pendingInvite } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { user: { ...pendingInvite, status: 'disabled', invitationStatus: 'revoked', invitationExpiresAt: null, setupLink: undefined }, reassigned: {}, sessionsInvalidated: 0, changed: true } }) })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/users')
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/invitation expired/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /resend invitation/i }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/users\/2\/invitation\/resend$/), expect.objectContaining({ method: 'POST' }))
+    })
+    expect(await screen.findByText(/older setup links no longer work/i)).toBeInTheDocument()
+    expect(screen.getByText('/setup-password?token=new-local-token')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /revoke invitation/i }))
+    expect(screen.getByText(/one-time setup link will stop working immediately/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /confirm revocation/i }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/users\/2\/invitation$/), expect.objectContaining({ method: 'DELETE' }))
+    })
+    expect(await screen.findByText(/every setup link for it is invalid/i)).toBeInTheDocument()
+    expect(screen.queryByText('/setup-password?token=new-local-token')).not.toBeInTheDocument()
+    expect(screen.getByText('Invitation revoked')).toBeInTheDocument()
+    expect(screen.getByText('Disabled')).toBeInTheDocument()
+  })
 })

@@ -145,6 +145,31 @@ and writes an audit event into every workspace membership.
    audit view contains `user.password_reset`. Do not collect or ask the user to
    share the raw reset link.
 
+### Invitation delivery, expiry, and revocation
+
+User invitations use a one-time link with a seven-day expiry. The raw token is
+never stored and production/Postmark API responses never return the setup link.
+
+1. In **Settings > Users**, inspect the invitation state and expiry. A pending
+   or expired invitation may be resent; resend rotates the token, so every
+   earlier link becomes invalid even if provider delivery was ambiguous.
+2. If delivery reports a failure, correct the system-email provider and use
+   **Resend invitation**. The new token remains valid after a failed attempt so
+   an ambiguous provider outcome cannot strand a delivered link; another retry
+   safely rotates it again. Never manufacture or retrieve a token with SQL.
+3. Use **Revoke invitation** when the recipient should no longer activate.
+   Review and confirm the explicit warning. Revocation disables the membership,
+   clears the token, invalidates sessions, quiesces effects, preserves history,
+   and is idempotent. It remains available while hosted writes are suspended.
+4. To invite a revoked user again, reactivate the membership and then resend.
+   Reactivation alone does not create a usable setup link. Confirm final setup
+   succeeds only with the newest link and the audit view records
+   `user.invitation_resent` and `user.invitation_revoked` without secrets.
+5. Local fake-provider links are returned only in explicit development/test
+   mode. Never enable that mode on an internet-facing deployment. Escalate
+   repeated delivery failures with request IDs and provider timestamps, without
+   asking the recipient to share their link.
+
 ### Suspected account or session compromise
 
 Active-sign-in recovery remains available when a hosted workspace is read-only.

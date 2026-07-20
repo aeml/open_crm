@@ -67,8 +67,34 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await inviteForm.getByRole('button', { name: 'Invite user' }).click()
   await expect(page.getByText(invitedEmail, { exact: true })).toBeVisible()
   await expect(page.getByText('Setup link created:', { exact: false })).toBeVisible()
+  const firstSetupPath = await page.locator('.inline-note code').textContent()
+  expect(firstSetupPath).toMatch(/^\/setup-password\?token=/)
+  const memberRow = page.getByRole('listitem').filter({ hasText: invitedEmail })
+  await memberRow.getByRole('button', { name: 'Resend invitation', exact: true }).click()
+  await expect(page.getByText('Older setup links no longer work.', { exact: false })).toBeVisible()
+  const resentSetupPath = await page.locator('.inline-note code').textContent()
+  expect(resentSetupPath).toMatch(/^\/setup-password\?token=/)
+  expect(resentSetupPath).not.toBe(firstSetupPath)
+  const oldSetupAttempt = await page.request.post(`${apiURL}/auth/setup-password`, {
+    data: { token: new URL(firstSetupPath, page.url()).searchParams.get('token'), password: invitedPassword }
+  })
+  expect(oldSetupAttempt.status()).toBe(400)
+
+  await memberRow.getByRole('button', { name: 'Revoke invitation', exact: true }).click()
+  await memberRow.getByRole('button', { name: 'Confirm revocation', exact: true }).click()
+  await expect(memberRow.getByText('Invitation revoked', { exact: true })).toBeVisible()
+  await expect(memberRow.getByText('Disabled', { exact: true })).toBeVisible()
+  const revokedSetupAttempt = await page.request.post(`${apiURL}/auth/setup-password`, {
+    data: { token: new URL(resentSetupPath, page.url()).searchParams.get('token'), password: invitedPassword }
+  })
+  expect(revokedSetupAttempt.status()).toBe(400)
+
+  await memberRow.getByRole('button', { name: 'Reactivate', exact: true }).click()
+  await expect(memberRow.getByText('Active', { exact: true })).toBeVisible()
+  await memberRow.getByRole('button', { name: 'Resend invitation', exact: true }).click()
   const setupPath = await page.locator('.inline-note code').textContent()
   expect(setupPath).toMatch(/^\/setup-password\?token=/)
+  expect(setupPath).not.toBe(resentSetupPath)
 
   const memberContext = await browser.newContext()
   const memberPage = await memberContext.newPage()
@@ -82,7 +108,8 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await memberPage.getByRole('button', { name: 'Sign in' }).click()
   await expect(memberPage).toHaveURL(/\/dashboard$/)
 
-  const memberRow = page.getByRole('listitem').filter({ hasText: invitedEmail })
+  await page.reload()
+  await expect(page.getByText(invitedEmail, { exact: true })).toBeVisible()
   await memberRow.getByRole('button', { name: 'Deactivate', exact: true }).click()
   await memberRow.getByRole('button', { name: 'Confirm deactivation' }).click()
   await expect(memberRow.getByText('Disabled', { exact: true })).toBeVisible()

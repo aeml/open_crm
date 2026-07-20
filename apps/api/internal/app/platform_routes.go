@@ -53,7 +53,13 @@ func registerPlatformRoutes(mux *http.ServeMux, env config.Env, dependencies Dep
 		handleListUsers(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateUser(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, dependencies.BillingService, dependencies.EmailService, w, r)
+		handleCreateUser(env, dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, dependencies.BillingService, dependencies.EmailService, w, r)
+	})
+	mux.HandleFunc("POST /api/users/{userID}/invitation/resend", func(w http.ResponseWriter, r *http.Request) {
+		handleResendUserInvitation(env, dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, dependencies.EmailService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/users/{userID}/invitation", func(w http.ResponseWriter, r *http.Request) {
+		handleRevokeUserInvitation(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/users/{userID}/role", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateUserRole(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)

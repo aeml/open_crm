@@ -19,6 +19,10 @@ type fakeUsersService struct {
 	listErr           error
 	createResult      moduleusers.UserSummary
 	createErr         error
+	resendResult      moduleusers.UserSummary
+	resendErr         error
+	revokeResult      moduleusers.LifecycleResult
+	revokeErr         error
 	setupErr          error
 	lastListOrgID     int64
 	lastCreateOrgID   int64
@@ -33,6 +37,12 @@ type fakeUsersService struct {
 	lastStatusActorID int64
 	lastStatusInput   moduleusers.SetStatusInput
 	lastCreateInput   moduleusers.CreateUserInput
+	lastInviteOrgID   int64
+	lastInviteUserID  int64
+	lastInviteActorID int64
+	lastRevokeOrgID   int64
+	lastRevokeUserID  int64
+	lastRevokeActorID int64
 	lastSetupInput    moduleusers.CompleteSetupInput
 	preferencesResult moduleusers.UserPreferences
 	lastPreferencesID int64
@@ -48,6 +58,20 @@ func (f *fakeUsersService) CreateForOrganization(_ context.Context, organization
 	f.lastCreateOrgID = organizationID
 	f.lastCreateInput = input
 	return f.createResult, f.createErr
+}
+
+func (f *fakeUsersService) ResendInvitation(_ context.Context, organizationID, userID, actorUserID int64) (moduleusers.UserSummary, error) {
+	f.lastInviteOrgID = organizationID
+	f.lastInviteUserID = userID
+	f.lastInviteActorID = actorUserID
+	return f.resendResult, f.resendErr
+}
+
+func (f *fakeUsersService) RevokeInvitation(_ context.Context, organizationID, userID, actorUserID int64) (moduleusers.LifecycleResult, error) {
+	f.lastRevokeOrgID = organizationID
+	f.lastRevokeUserID = userID
+	f.lastRevokeActorID = actorUserID
+	return f.revokeResult, f.revokeErr
 }
 
 func (f *fakeUsersService) UpdateRole(_ context.Context, organizationID, userID, actorUserID int64, role string) (moduleusers.UserSummary, error) {
@@ -180,7 +204,7 @@ func TestListUsersAllowsAllAuthenticatedRoles(t *testing.T) {
 
 func TestCreateUserCreatesUserInCurrentOrganization(t *testing.T) {
 	usersService := &fakeUsersService{
-		createResult: moduleusers.UserSummary{ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin", SetupLink: "/setup-password?token=setup-token-123"},
+		createResult: moduleusers.UserSummary{ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin", SetupToken: "setup-token-123", SetupLink: "/setup-password?token=setup-token-123"},
 	}
 	server := NewServer(config.Env{}, Dependencies{
 		AuthService: &fakeAuthService{
@@ -191,6 +215,7 @@ func TestCreateUserCreatesUserInCurrentOrganization(t *testing.T) {
 			},
 		},
 		UsersService: usersService,
+		EmailService: &fakeEmailService{},
 	})
 
 	body := bytes.NewBufferString(`{"email":"new.admin@acme.test","firstName":"New","lastName":"Admin","role":"admin"}`)

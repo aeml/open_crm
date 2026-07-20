@@ -80,6 +80,21 @@ func TestMigrationFilesIncludePasswordRecovery(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeUserInvitationLifecycle(t *testing.T) {
+	sql := MigrationSQL("084_user_invitation_lifecycle.sql")
+	if sql == "" {
+		t.Fatal("expected user invitation lifecycle migration SQL to be embedded")
+	}
+	for _, expected := range []string{"password_setup_revoked_at", "users_password_setup_terminal_state_check"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("expected user invitation lifecycle migration to include %q", expected)
+		}
+	}
+	if class := migrationDeploymentClass("084_user_invitation_lifecycle.sql", sql); class != "expand" {
+		t.Fatalf("expected user invitation lifecycle migration to be expand-safe, got %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeCollaboration(t *testing.T) {
 	sql := MigrationSQL("060_collaboration.sql")
 	if sql == "" {

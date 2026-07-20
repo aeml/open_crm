@@ -480,7 +480,15 @@ func loadUserSummary(ctx context.Context, query lifecycleQueryRower, organizatio
 			(SELECT COUNT(*) FROM email_messages record WHERE record.organization_id = om.organization_id AND record.shared_inbox_assigned_to_user_id = u.id AND record.direction = 'inbound' AND record.visibility = 'shared' AND record.shared_inbox_status = 'open'),
 			(SELECT COUNT(*) FROM lead_scoring_rules record WHERE record.organization_id = om.organization_id AND record.assign_to_user_id = u.id AND record.is_active = TRUE),
 			(SELECT COUNT(*) FROM calendar_events record WHERE record.organization_id = om.organization_id AND record.calendar_user_id = u.id AND record.status = 'scheduled' AND record.end_at > NOW()),
-			(u.password_setup_token_hash IS NOT NULL AND u.password_setup_consumed_at IS NULL)
+			(u.password_setup_token_hash IS NOT NULL AND u.password_setup_consumed_at IS NULL AND u.password_setup_revoked_at IS NULL),
+			CASE
+				WHEN u.password_setup_consumed_at IS NOT NULL THEN 'accepted'
+				WHEN u.password_setup_revoked_at IS NOT NULL THEN 'revoked'
+				WHEN u.password_setup_token_hash IS NOT NULL AND u.password_setup_expires_at <= NOW() THEN 'expired'
+				WHEN u.password_setup_token_hash IS NOT NULL THEN 'pending'
+				ELSE ''
+			END,
+			u.password_setup_expires_at
 		FROM organization_memberships om
 		JOIN users u ON u.id = om.user_id
 		WHERE om.organization_id = $1 AND om.user_id = $2
@@ -490,6 +498,7 @@ func loadUserSummary(ctx context.Context, query lifecycleQueryRower, organizatio
 		&user.OwnedWork.Contacts, &user.OwnedWork.Companies, &user.OwnedWork.Deals,
 		&user.OwnedWork.Tasks, &user.OwnedWork.SharedInbox, &user.OwnedWork.LeadRoutingRules,
 		&user.OwnedWork.CalendarEvents, &user.SetupPending,
+		&user.InvitationStatus, &user.InvitationExpiresAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return UserSummary{}, ErrNotFound

@@ -109,6 +109,9 @@ func TestSendUserInviteDeliversActivationLink(t *testing.T) {
 	if !strings.Contains(msg.TextBody, "https://app.example.com/setup-password?token=secret-token") {
 		t.Errorf("invite should contain the setup link: %q", msg.TextBody)
 	}
+	if !strings.Contains(msg.TextBody, "expires in 7 days") || !strings.Contains(msg.TextBody, "not expecting this invitation") {
+		t.Errorf("invite should explain expiry and unsolicited-invite handling: %q", msg.TextBody)
+	}
 }
 
 func TestSendEmailVerificationDeliversExpiringTrialActivationLink(t *testing.T) {

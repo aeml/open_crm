@@ -224,16 +224,6 @@ func recordAuditEvent(r *http.Request, audit auditService, organizationID int64,
 	_ = audit.Record(r.Context(), organizationID, input)
 }
 
-// sendUserInviteEmail sends an account-activation email on a best-effort basis.
-// Email delivery must not fail the invite request, so errors are swallowed
-// here; the fake provider records the message for tests and local review.
-func sendUserInviteEmail(r *http.Request, mailer emailService, to, firstName, setupToken string) {
-	if mailer == nil || strings.TrimSpace(setupToken) == "" {
-		return
-	}
-	_ = mailer.SendUserInvite(r.Context(), to, firstName, setupToken)
-}
-
 func respondStatus(w http.ResponseWriter, r *http.Request, statusCode int, status string) {
 	response := statusResponse{}
 	response.Data.Status = status

@@ -3,7 +3,7 @@ import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
-import { createOrganizationUser, listOrganizationUsers, updateOrganizationUserRole, updateOrganizationUserStatus } from '../lib/users'
+import { createOrganizationUser, listOrganizationUsers, resendOrganizationUserInvitation, revokeOrganizationUserInvitation, updateOrganizationUserRole, updateOrganizationUserStatus } from '../lib/users'
 import { isAbortError } from '../lib/api'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
@@ -33,6 +33,21 @@ function ownedWorkSummary(ownedWork = {}) {
   return items.length > 0 ? items.join(', ') : 'No active assigned work'
 }
 
+function invitationSummary(user) {
+  const expiresAt = user.invitationExpiresAt ? new Date(user.invitationExpiresAt) : null
+  const expires = expiresAt && !Number.isNaN(expiresAt.getTime()) ? expiresAt.toLocaleString() : 'an unknown time'
+  switch (user.invitationStatus) {
+    case 'pending':
+      return `Invitation pending · expires ${expires}`
+    case 'expired':
+      return `Invitation expired ${expires}`
+    case 'revoked':
+      return 'Invitation revoked'
+    default:
+      return ''
+  }
+}
+
 export function SettingsUsersRoute() {
   const { session, canAdminister: canManageUsers } = useAuth()
   usePageTitle('Users')
@@ -45,6 +60,8 @@ export function SettingsUsersRoute() {
   const [savingRoleUserId, setSavingRoleUserId] = useState(0)
   const [changingStatusUserId, setChangingStatusUserId] = useState(0)
   const [deactivatingUserId, setDeactivatingUserId] = useState(0)
+  const [resendingUserId, setResendingUserId] = useState(0)
+  const [revokingUserId, setRevokingUserId] = useState(0)
   const [replacementUserId, setReplacementUserId] = useState('')
   const [lifecycleStatus, setLifecycleStatus] = useState('')
   const [latestSetupLink, setLatestSetupLink] = useState('')
@@ -86,16 +103,54 @@ export function SettingsUsersRoute() {
     event.preventDefault()
     setIsSubmitting(true)
     setError('')
+    setLatestSetupLink('')
 
     try {
       const created = await createOrganizationUser(form)
       setUsers((current) => [...current, created])
       setLatestSetupLink(created?.setupLink || '')
+      setLifecycleStatus(created.invitationDeliveryStatus === 'failed'
+        ? `${created.email} was invited, but email delivery failed. Use Resend invitation to retry.`
+        : `${created.email} was invited and the setup email was sent. Their one-time link expires in seven days.`)
       setForm(emptyForm)
     } catch (submitError) {
       setError(submitError.message || 'Unable to create user.')
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  async function handleResendInvitation(user) {
+    setResendingUserId(user.id)
+    setError('')
+    setLifecycleStatus('')
+    setLatestSetupLink('')
+    try {
+      const updated = await resendOrganizationUserInvitation(user.id)
+      setUsers((current) => current.map((entry) => (entry.id === user.id ? updated : entry)))
+      setLatestSetupLink(updated?.setupLink || '')
+      setLifecycleStatus(`A new invitation was sent to ${user.email}. Older setup links no longer work.`)
+    } catch (submitError) {
+      setError(submitError.message || 'Unable to resend invitation.')
+    } finally {
+      setResendingUserId(0)
+    }
+  }
+
+  async function handleRevokeInvitation(user) {
+    setChangingStatusUserId(user.id)
+    setError('')
+    setLifecycleStatus('')
+    setLatestSetupLink('')
+    try {
+      const result = await revokeOrganizationUserInvitation(user.id)
+      setUsers((current) => current.map((entry) => (entry.id === user.id ? result.user : entry)))
+      setLifecycleStatus(`The invitation for ${user.email} was revoked. Every setup link for it is invalid.`)
+      setRevokingUserId(0)
+    } catch (submitError) {
+      setError(submitError.message || 'Unable to revoke invitation.')
+    } finally {
+      setChangingStatusUserId(0)
     }
   }
 
@@ -116,6 +171,7 @@ export function SettingsUsersRoute() {
     setChangingStatusUserId(user.id)
     setError('')
     setLifecycleStatus('')
+    setLatestSetupLink('')
     try {
       const result = await updateOrganizationUserStatus(user.id, {
         status,
@@ -126,7 +182,9 @@ export function SettingsUsersRoute() {
         const reassigned = Object.values(result.reassigned || {}).reduce((total, count) => total + Number(count || 0), 0)
         setLifecycleStatus(`${user.firstName} ${user.lastName} was deactivated. ${reassigned} active work item${reassigned === 1 ? '' : 's'} reassigned; ${result.sessionsInvalidated || 0} session${result.sessionsInvalidated === 1 ? '' : 's'} ended.`)
       } else {
-        setLifecycleStatus(`${user.firstName} ${user.lastName} was reactivated. They can sign in again; mailbox sync remains off until it is reviewed.`)
+        setLifecycleStatus(user.invitationStatus === 'revoked'
+          ? `${user.firstName} ${user.lastName} was reactivated. Resend their invitation before they can finish setup.`
+          : `${user.firstName} ${user.lastName} was reactivated. They can sign in again; mailbox sync remains off until it is reviewed.`)
       }
       setDeactivatingUserId(0)
       setReplacementUserId('')
@@ -165,6 +223,9 @@ export function SettingsUsersRoute() {
               const status = user.status || 'active'
               const isSelf = user.id === session?.user?.id
               const isDeactivating = deactivatingUserId === user.id
+              const invitation = invitationSummary(user)
+              const canManageInvitation = status === 'active' && ['pending', 'expired', 'revoked'].includes(user.invitationStatus)
+              const isRevoking = revokingUserId === user.id
               return (
               <article className={`record-row${status === 'disabled' ? ' record-row-alert' : ''}`} key={user.id} role="listitem">
                 <div>
@@ -172,7 +233,7 @@ export function SettingsUsersRoute() {
                     {user.firstName} {user.lastName}
                   </h3>
                   <p>{user.email}</p>
-                  {user.setupPending ? <p className="field-hint">Pending setup</p> : null}
+                  {invitation ? <p className="field-hint">{invitation}</p> : null}
                   <p className="field-hint"><span className="chip">{status === 'disabled' ? 'Disabled' : 'Active'}</span> · {ownedWorkSummary(user.ownedWork)}</p>
                 </div>
                 <div className="card-stack">
@@ -188,6 +249,15 @@ export function SettingsUsersRoute() {
                     <Button className="button-secondary" type="button" onClick={() => handleStatusChange(user, 'active')} disabled={changingStatusUserId === user.id}>
                       {changingStatusUserId === user.id ? 'Reactivating…' : 'Reactivate'}
                     </Button>
+                  ) : canManageInvitation && !isRevoking ? (
+                    <div className="button-row">
+                      <Button className="button-secondary" type="button" onClick={() => handleResendInvitation(user)} disabled={resendingUserId === user.id}>
+                        {resendingUserId === user.id ? 'Resending…' : 'Resend invitation'}
+                      </Button>
+                      <Button className="button-danger" type="button" onClick={() => { setRevokingUserId(user.id); setLifecycleStatus('') }} disabled={resendingUserId === user.id}>
+                        Revoke invitation
+                      </Button>
+                    </div>
                   ) : !isSelf && !isDeactivating ? (
                     <Button className="button-danger" type="button" onClick={() => { setDeactivatingUserId(user.id); setReplacementUserId(''); setLifecycleStatus('') }}>
                       Deactivate
@@ -211,6 +281,18 @@ export function SettingsUsersRoute() {
                           {changingStatusUserId === user.id ? 'Deactivating…' : 'Confirm deactivation'}
                         </Button>
                         <Button className="button-secondary" type="button" onClick={() => { setDeactivatingUserId(0); setReplacementUserId('') }} disabled={changingStatusUserId === user.id}>Cancel</Button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {isRevoking ? (
+                    <div className="inline-note">
+                      <p><strong>Revoke this invitation?</strong></p>
+                      <p>The one-time setup link will stop working immediately and this seat will be disabled. Historical records are preserved.</p>
+                      <div className="button-row">
+                        <Button className="button-danger" type="button" onClick={() => handleRevokeInvitation(user)} disabled={changingStatusUserId === user.id}>
+                          {changingStatusUserId === user.id ? 'Revoking…' : 'Confirm revocation'}
+                        </Button>
+                        <Button className="button-secondary" type="button" onClick={() => setRevokingUserId(0)} disabled={changingStatusUserId === user.id}>Cancel</Button>
                       </div>
                     </div>
                   ) : null}

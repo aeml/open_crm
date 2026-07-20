@@ -90,8 +90,8 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.99 KiB/57.93 KiB entry, 39.39 KiB/11.47 KiB largest lazy
-chunk, and 631.71 KiB/203.04 KiB total assets. The production contact, company,
+Current evidence: 179.33 KiB/58.13 KiB entry, 39.39 KiB/11.47 KiB largest lazy
+chunk, and 644.90 KiB/206.82 KiB total assets. The production contact, company,
 deal, and task routes are 29.47/8.88, 34.81/10.27, 39.39/11.47, and 24.78/7.19
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.35 KiB/4.56 KiB settings route. Its
@@ -199,13 +199,14 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 369 lines, down from 996. Its audited 205-route
-surface is registered through 142-line platform, 246-line foundation, and
+The API composition root is 380 lines, down from 996. Its audited 212-route
+surface is registered through 169-line platform, 246-line foundation, and
 267-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot
 silently remove a route from either guard. Shared handler helpers are isolated
-in a 258-line file and `support_handlers.go` is 455 lines, so every production
-file in `internal/app` now uses the default 500-line ceiling.
+in a 250-line file, invitation delivery is isolated in a 115-line handler, and
+`support_handlers.go` is 455 lines, so every production file in `internal/app`
+now uses the default 500-line ceiling.
 
 ## Source-size no-growth ratchet
 
