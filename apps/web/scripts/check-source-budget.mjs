@@ -8,7 +8,6 @@ const defaultMaximum = 500
 const maximums = new Map([
   ['companies.jsx', 570],
   ['deals.jsx', 565],
-  ['tasks.jsx', 600],
 ])
 
 function lineCount(path) {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { archiveTask, createTask, getTask, listTasks, updateTask } from '../lib/tasks'
+import { archiveTask, createTask, listTasks, updateTask } from '../lib/tasks'
 import { listDeals } from '../lib/deals'
 import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
@@ -23,23 +23,11 @@ import {
   normalizeTaskStatusFilter,
   sortCompletedTasks,
   sortOpenTasks,
-  taskFormValues,
   taskLabels,
   unassignedAssigneeFilter
 } from './task_view'
+import { useTaskDetail } from './use_task_detail'
 import { useTaskQuickActions } from './use_task_quick_actions'
-
-const emptyForm = {
-  title: '',
-  entityType: 'deal',
-  entityId: '',
-  description: '',
-  status: 'open',
-  dueAt: '',
-  completedAt: '',
-  assignedToUserId: ''
-}
-
 
 export function TasksRoute() {
   const navigate = useNavigate()
@@ -66,20 +54,29 @@ export function TasksRoute() {
   const [assigneeFilter, setAssigneeFilter] = useState(initialAssigneeFilter)
   const [entityTypeFilter, setEntityTypeFilter] = useState(initialEntityTypeFilter)
   const [entityIdFilter, setEntityIdFilter] = useState(initialEntityIdFilter)
-  const [selectedTaskId, setSelectedTaskId] = useState(null)
-  const [detail, setDetail] = useState(null)
-  const [detailCache, setDetailCache] = useState({})
   const [dealOptions, setDealOptions] = useState([])
   const [companyOptions, setCompanyOptions] = useState([])
   const [contactOptions, setContactOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
-  const [form, setForm] = useState(emptyForm)
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
-  const [isDetailLoading, setIsDetailLoading] = useState(false)
-  const [isSavingTask, setIsSavingTask] = useState(false)
   const listControllerRef = useRef(null)
-  const taskVisitRef = useRef(null)
+  const taskDetail = useTaskDetail({ isListLoading, routeTaskId, setError, setTasks, tasks })
+  const {
+    applyExternalUpdate: applyExternalTaskUpdate,
+    clear: clearSelectedTask,
+    detail,
+    form,
+    isDetailLoading,
+    isSaving: isSavingTask,
+    open: openTaskDetail,
+    removeCached: removeCachedTask,
+    selectedTaskId,
+    setForm,
+    setIsSaving: setIsSavingTask,
+    sync: syncTaskIntoState,
+    visitRef: taskVisitRef
+  } = taskDetail
   const { handleQuickAssign, handleQuickComplete, handleQuickReopen, isTaskPending } = useTaskQuickActions({ onUpdated: handleQuickTaskUpdated, onError: setError })
 
   const selectedTask = detail?.task || null
@@ -230,67 +227,8 @@ export function TasksRoute() {
     run()
     return () => {
       controller.abort()
-      taskVisitRef.current = null
     }
   }, [])
-
-  useEffect(() => {
-    const controller = new AbortController()
-
-    async function syncRouteTask() {
-      if (!Number.isInteger(routeTaskId) || routeTaskId <= 0) {
-        if (selectedTaskId) {
-          clearSelectedTask()
-        }
-        return
-      }
-
-      if (selectedTaskId === routeTaskId && detail?.task?.id === routeTaskId) {
-        return
-      }
-
-      const cached = detailCache[routeTaskId]
-      if (cached) {
-        syncTaskIntoState(cached.task, cached.activities || [])
-        setError('')
-        return
-      }
-
-      const routeTask = tasks.find((entry) => entry.id === routeTaskId)
-      if (routeTask) {
-        syncTaskIntoState(routeTask, [])
-        setError('')
-        return
-      }
-
-      try {
-        setIsDetailLoading(true)
-        const data = await getTask(routeTaskId, { signal: controller.signal })
-        if (controller.signal.aborted) {
-          return
-        }
-        setTasks((current) => {
-          const next = current.filter((entry) => entry.id !== routeTaskId)
-          return [data.task, ...next]
-        })
-        syncTaskIntoState(data.task, data.activities || [])
-        setError('')
-      } catch (loadError) {
-        if (!isAbortError(loadError)) {
-          setError(loadError.message || 'Unable to load task.')
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsDetailLoading(false)
-        }
-      }
-    }
-
-    syncRouteTask()
-    return () => {
-      controller.abort()
-    }
-  }, [detail, detailCache, routeTaskId, selectedTaskId, tasks])
 
   async function reloadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, nextAssigneeFilter = assigneeFilter, nextDueView = dueView) {
     listControllerRef.current?.abort()
@@ -374,21 +312,6 @@ export function TasksRoute() {
     await reloadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, nextAssigneeFilter, nextDueView)
   }
 
-  function syncTaskIntoState(task, activities) {
-    taskVisitRef.current = { taskId: task.id, pending: false }
-    setDetailCache((current) => ({ ...current, [task.id]: { task, activities } }))
-    setDetail({ task, activities })
-    setSelectedTaskId(task.id)
-    setForm(taskFormValues(task))
-  }
-
-  function clearSelectedTask() {
-    taskVisitRef.current = null
-    setSelectedTaskId(null)
-    setDetail(null)
-    setForm(emptyForm)
-  }
-
   async function handleCreate(event) {
     event.preventDefault()
     try {
@@ -445,20 +368,12 @@ export function TasksRoute() {
   }
 
   async function handleOpenTask(task) {
-    const cached = detailCache[task.id]
-    if (cached) {
-      syncTaskIntoState(cached.task, cached.activities || [])
-      navigate(buildTasksPath(task.id))
-      return
-    }
-
-    syncTaskIntoState(task, [])
+    openTaskDetail(task)
     navigate(buildTasksPath(task.id))
   }
 
   function handleQuickTaskUpdated(previousTask, data) {
     const nextTask = data.task
-    const nextDetail = { task: nextTask, activities: data.activities || [] }
     const wasCompleted = previousTask.status === 'completed'
     const isCompleted = nextTask.status === 'completed'
     setTasks((current) => current.map((task) => (task.id === nextTask.id ? nextTask : task)))
@@ -469,12 +384,7 @@ export function TasksRoute() {
         completedCount: Math.max(0, current.completedCount + (isCompleted ? 1 : 0) - (wasCompleted ? 1 : 0))
       }))
     }
-    setDetailCache((current) => ({ ...current, [nextTask.id]: nextDetail }))
-    setDetail((current) => {
-      if (current?.task?.id !== nextTask.id) return current
-      setForm(taskFormValues(nextTask))
-      return nextDetail
-    })
+    applyExternalTaskUpdate(nextTask, data.activities || [])
   }
 
   async function handleArchive() {
@@ -492,11 +402,7 @@ export function TasksRoute() {
         openCount: Math.max(0, current.openCount - (archivedTask?.status === 'completed' ? 0 : 1)),
         completedCount: Math.max(0, current.completedCount - (archivedTask?.status === 'completed' ? 1 : 0))
       }))
-      setDetailCache((current) => {
-        const next = { ...current }
-        delete next[selectedTaskId]
-        return next
-      })
+      removeCachedTask(selectedTaskId)
       clearSelectedTask()
       navigate(buildTasksPath(null))
       setError('')

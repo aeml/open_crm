@@ -429,13 +429,13 @@ activities, quote lines, and proposal tracking on the active deal; the guarded
 also rejects responses for an earlier record. The parent now has a tightened
 565-line ceiling. Task filtering,
 sorting, labels, due-date view logic, a shared 98-line create/update form,
-207-line directory, and 64-line create/detail workspace plus a tested 88-line
-quick-action hook and task-form visit guard leave `tasks.jsx` at 590 lines,
-down from 1,093, under a tightened 600-line ceiling. Quick and full-form mutations
+207-line directory, and 64-line create/detail workspace plus tested 88-line
+quick-action and 128-line detail-state hooks leave `tasks.jsx` at 496 lines,
+down from 1,093 and below the default 500-line ceiling. Quick and full-form mutations
 validate response identity and cannot replace a newer selection; full-form saves also
 suppress duplicate submission and cannot navigate after route unmount. Tighter source ratchets preserve every reduction while
 holding other production routes to 500 lines. This remains in progress while
-the record orchestrators retain explicit exceptions.
+the company and deal orchestrators retain explicit exceptions.
 
 ## Version 0.2.3 - Database Integrity
 
@@ -2277,8 +2277,8 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 177.99 KiB/57.91 KiB for the entry, 37.63 KiB/10.88 KiB
-for the largest lazy chunk, and 628.05 KiB/201.74 KiB total assets. Hosted
+CSS. Current evidence is 177.99 KiB/57.92 KiB for the entry, 37.63 KiB/10.88 KiB
+for the largest lazy chunk, and 628.57 KiB/202.10 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.35 KiB/4.56 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
@@ -2286,10 +2286,10 @@ routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 449 lines,
-companies at 562, deals at 553, and tasks at 590, down from 2,038, 1,364,
+companies at 562, deals at 553, and tasks at 496, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
-and the remaining company, deal, and task source exceptions.
+and the remaining company and deal source exceptions.
 
 ## Version 0.9.9 - Reliability Release Review
 

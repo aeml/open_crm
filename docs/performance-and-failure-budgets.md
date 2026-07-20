@@ -90,9 +90,9 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.99 KiB/57.91 KiB entry, 37.63 KiB/10.88 KiB largest lazy
-chunk, and 628.05 KiB/201.74 KiB total assets. The production contact, company,
-deal, and task routes are 29.47/8.87, 33.43/9.92, 37.63/10.88, and 24.26/6.93
+Current evidence: 177.99 KiB/57.92 KiB entry, 37.63 KiB/10.88 KiB largest lazy
+chunk, and 628.57 KiB/202.10 KiB total assets. The production contact, company,
+deal, and task routes are 29.47/8.88, 33.43/9.93, 37.63/10.88, and 24.78/7.19
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.35 KiB/4.56 KiB settings route. Its
 7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
@@ -153,7 +153,7 @@ and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators, a focused contact create/detail workspace and detail orchestrator, plus focused company-directory, linked-
 people, create/detail workspace presentation, and detail orchestration plus shared record selection/work leave the parent routes at 449 contact lines,
 562 company lines, 553 deal lines, and
-590 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
+496 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 142-line work
 hooks now serve contacts, companies, and deals, abort obsolete loads, distinguish repeated
 A-to-B-to-A visits, serialize per-record mutations, validate record/work
@@ -182,15 +182,15 @@ linked people, email, account/review context, touchpoints, and shared work cards
 without changing the route boundary.
 The shared record-work follower control also resets on record changes and
 rejects late responses from an earlier contact, client, or deal.
-A tested 88-line task quick-action hook plus 207-line directory and 64-line
-create/detail workspace modules separate task presentation. The hook prevents
-concurrent mutations of the same task, validates response identity, and updates the active detail only when
+A tested 88-line task quick-action hook plus 207-line directory, 64-line
+create/detail workspace, and 128-line detail-state modules separate task presentation and orchestration. These guards prevent
+concurrent mutations of the same task, validate response identity, and update the active detail only when
 it still represents that task; delayed completion cannot pull navigation back
 to an earlier record. Full-form task saves now use the same task-visit identity,
-suppress duplicate submission, and cannot navigate after the task route unmounts.
+suppress duplicate submission, and cannot navigate after the task route unmounts. The task parent route is now below the default 500-line ceiling.
 Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
-Continue lowering the remaining company/deal/task exceptions along tested
+Continue lowering the remaining company/deal exceptions along tested
 orchestration seams.
 
 The API composition root is 369 lines, down from 996. Its audited 205-route
@@ -212,7 +212,6 @@ the application composition package.
 | --- | ---: | ---: |
 | `companies.jsx` | 562 | 570 |
 | `deals.jsx` | 553 | 565 |
-| `tasks.jsx` | 590 | 600 |
 
 All other production route files and every production `internal/app` Go file
 are limited to 500 lines. Each successful split should lower or remove its
