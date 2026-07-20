@@ -223,6 +223,7 @@ describe('settings billing route', () => {
       })
       .mockResolvedValueOnce(usageResponse('provider_subscription'))
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { invoices: [] } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { id: 'cs_test', url: '' } }) })
 
     vi.stubGlobal('fetch', fetchMock)
@@ -266,12 +267,35 @@ describe('settings billing route', () => {
       })
       .mockResolvedValueOnce(usageResponse('provider_subscription'))
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { invoices: [{
+          id: 18,
+          provider: 'stripe',
+          providerInvoiceId: 'in_payment_retry',
+          status: 'open',
+          currency: 'usd',
+          amountDue: 4900,
+          amountPaid: 0,
+          attempted: true,
+          attemptCount: 1,
+          nextPaymentAttempt: '2026-07-21T02:00:00Z',
+          providerCreatedAt: '2026-07-20T02:00:00Z',
+          hostedInvoiceUrl: 'https://invoice.stripe.test/in_payment_retry',
+          invoicePdfUrl: 'https://invoice.stripe.test/in_payment_retry.pdf'
+        }] } })
+      })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { id: 'bps_test', url: '' } }) })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/settings/billing')
     render(<AppRouter />)
 
+    expect(await screen.findByRole('heading', { name: /invoice in_payment_retry · open/i })).toBeInTheDocument()
+    expect(screen.getByText(/\$0\.00 paid \/ \$49\.00 due/i)).toBeInTheDocument()
+    expect(screen.getByText(/next provider retry/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /view hosted invoice/i })).toHaveAttribute('href', 'https://invoice.stripe.test/in_payment_retry')
+    expect(screen.getByRole('link', { name: /download invoice pdf/i })).toHaveAttribute('href', 'https://invoice.stripe.test/in_payment_retry.pdf')
     fireEvent.click(await screen.findByRole('button', { name: /manage payment method, invoices, or cancellation/i }))
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/api/billing/portal-session'))).toBe(true)

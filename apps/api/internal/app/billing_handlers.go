@@ -29,6 +29,10 @@ type billingUsageService interface {
 	Usage(context.Context, int64) (modulebilling.UsageSnapshot, error)
 }
 
+type billingInvoicesService interface {
+	Invoices(context.Context, int64, int) ([]modulebilling.Invoice, error)
+}
+
 const maxBillingWebhookBytes = 1 << 20
 
 // enforceActiveSubscription blocks tenant writes when the hosted subscription
@@ -112,6 +116,15 @@ type billingUsageResponse struct {
 	} `json:"meta"`
 }
 
+type billingInvoicesResponse struct {
+	Data struct {
+		Invoices []modulebilling.Invoice `json:"invoices"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type plansResponse struct {
 	Data struct {
 		Plans []modulebilling.Plan `json:"plans"`
@@ -174,6 +187,28 @@ func handleGetBillingUsage(auth authService, billing billingService, w http.Resp
 	}
 	response := billingUsageResponse{}
 	response.Data.Usage = usage
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func handleListBillingInvoices(auth authService, billing billingService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	invoiceService, ok := billing.(billingInvoicesService)
+	if !ok {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Billing invoice service unavailable")
+		return
+	}
+	invoices, err := invoiceService.Invoices(r.Context(), state.Organization.ID, 25)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load billing invoices")
+		return
+	}
+	response := billingInvoicesResponse{}
+	response.Data.Invoices = invoices
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }

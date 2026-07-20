@@ -18,6 +18,12 @@ export async function getBillingUsage({ signal } = {}) {
   return payload?.data?.usage || null
 }
 
+export async function listBillingInvoices({ signal } = {}) {
+  const payload = await apiRequest('/api/billing/invoices', { fallbackMessage: 'Unable to load invoice history.', signal })
+
+  return payload?.data?.invoices || []
+}
+
 export async function changePlan(plan, { signal } = {}) {
   const payload = await apiRequest('/api/billing/change-plan', { method: 'POST', body: { plan }, fallbackMessage: 'Unable to change plan.', signal })
 
@@ -114,6 +120,24 @@ export function formatUsageValue(metric) {
     index += 1
   }
   return `${index === 0 ? value.toLocaleString() : value.toFixed(value >= 10 ? 1 : 2)} ${units[index]}`
+}
+
+// Stripe retains two-decimal API representations for ISK and UGX even though
+// locale formatters correctly treat the currencies themselves as zero-decimal.
+const stripeTwoDecimalCompatibilityCurrencies = new Set(['ISK', 'UGX'])
+
+export function formatInvoiceAmount(amount, currency, provider = '') {
+  const value = Number(amount) || 0
+  const code = String(currency || '').trim().toUpperCase()
+  try {
+    const formatter = new Intl.NumberFormat(undefined, { style: 'currency', currency: code })
+    const digits = String(provider).toLowerCase() === 'stripe' && stripeTwoDecimalCompatibilityCurrencies.has(code)
+      ? 2
+      : formatter.resolvedOptions().maximumFractionDigits
+    return formatter.format(value / (10 ** digits))
+  } catch {
+    return `${value.toLocaleString()} ${code || 'minor units'}`
+  }
 }
 
 export function trialBanner(subscription) {

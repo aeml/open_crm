@@ -453,6 +453,9 @@ func NewServer(env config.Env, deps ...Dependencies) http.Handler {
 	mux.HandleFunc("GET /api/billing/plans", func(w http.ResponseWriter, r *http.Request) { handleListPlans(billingAuth, w, r) })
 	mux.HandleFunc("GET /api/billing/entitlements", func(w http.ResponseWriter, r *http.Request) { handleGetEntitlements(billingAuth, billingService, w, r) })
 	mux.HandleFunc("GET /api/billing/usage", func(w http.ResponseWriter, r *http.Request) { handleGetBillingUsage(billingAuth, billingService, w, r) })
+	mux.HandleFunc("GET /api/billing/invoices", func(w http.ResponseWriter, r *http.Request) {
+		handleListBillingInvoices(billingAuth, billingService, w, r)
+	})
 	mux.HandleFunc("POST /api/billing/change-plan", func(w http.ResponseWriter, r *http.Request) {
 		handleChangePlan(billingAuth, billingService, dependencies.AuditService, w, r)
 	})

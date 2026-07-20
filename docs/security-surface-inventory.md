@@ -2,9 +2,9 @@
 
 Audit date: 2026-07-20
 
-Registered route count: `203`
+Registered route count: `204`
 
-Registered route digest: `62ba07c78cd1c0dc29ac4e6a4dcfaeda284275401e90f5da688519bbf5c89f92`
+Registered route digest: `bdb107b1a7f003df334c3415e5b229d0f5c2384d15f51b4d631af0b6b68ab1eb`
 
 This is the Phase 0 map for every HTTP route and continuously running background operation. The route count and digest are derived from the `http.ServeMux` registrations in `apps/api/internal/app/app.go`; a backend test fails when that set changes so a new or renamed route cannot silently bypass this review.
 
@@ -50,6 +50,7 @@ Selectors below are mutually scoped by method and path. Braced names are Go `Ser
 | `GET /api/billing/plans` | Member | Plans are global/static | None | Private defaults | Request telemetry | `billing_test.go` |
 | `GET /api/billing/entitlements` | Member | Session tenant | None | Private defaults | Request telemetry | `billing_test.go` |
 | `GET /api/billing/usage` | Member | Session tenant; every counter query and every dynamically discovered storage source uses the session organization. Retained snapshots are unique per organization and period | No commercial limit or feature dependency; the idempotent evidence upsert does not create new quotas. Stripe uses the exact stored provider period when available; fake/self-hosted mode falls back to the current UTC month | Private defaults; one repeatable-read source reconciliation per request, bounded serialization retries, a 256-table discovery ceiling, and safe PostgreSQL identifier quoting | Request telemetry plus an upserted observed-at snapshot of counts, source period/basis, and source-table count | Handler membership/error tests and disposable-PostgreSQL period, source-filter, concurrent repeatability, retained-snapshot, and cross-tenant acceptance |
+| `GET /api/billing/invoices` | Admin | Session tenant; fixed newest-first query filters the durable provider invoice ledger by the session organization | No feature or writable-subscription dependency; payment evidence remains readable during suspension/cancellation | Private defaults; maximum 25 returned rows and only absolute HTTPS document links without URL userinfo leave the service boundary | Request telemetry; signed webhook/provider reconciliation remains the durable source | Handler role/error tests, disposable-PostgreSQL link-safety/cross-tenant acceptance, app-level Stripe sandbox journey, and focused billing UI test |
 | `POST /api/billing/change-plan` | Admin | Session tenant | Fake-provider plan mutation for self-host/development; Stripe mode rejects direct activation and requires Checkout | Private defaults | Request telemetry plus audit event | `billing_test.go` covers roles and errors |
 | `POST /api/billing/checkout-session`, `POST /api/billing/portal-session` | Admin | Session tenant; server supplies organization/customer metadata and owner email | Paid plans require a configured Stripe price; no plan/status changes occur from the browser redirect | Private defaults; durable request fingerprint and Stripe idempotency key for Checkout | Request/provider telemetry; durable checkout attempt ledger | Handler tests plus Stripe HTTP-contract and disposable-PostgreSQL lifecycle acceptance |
 | `POST /api/billing/webhooks/stripe` | Public; raw-body Stripe HMAC signature and five-minute replay window required | Signed provider references resolve one organization; mismatched metadata/customer/subscription fail closed | Webhook subscription/invoice state is authoritative | 1 MiB raw body; 120/client/minute; provider event ID and payload hash are durable/idempotent | Request telemetry, webhook receipt/failure ledger, invoice records, and subscription/payment audit events | Signature/HTTP handler tests plus duplicate, tamper, ordering, cross-tenant, subscription, and invoice PostgreSQL acceptance |

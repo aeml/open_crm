@@ -90,11 +90,11 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 177.99 KiB/57.93 KiB entry, 33.90 KiB/9.12 KiB largest lazy
-chunk, and 610.69 KiB/195.33 KiB total assets. The production contact route is
-27.97 KiB/8.37 KiB. Hosted billing, explicit self-hosted mode, and portable
-workspace export plus measured usage remain isolated in a 12.04 KiB/3.98 KiB settings route. Its
-7.52 KiB/2.69 KiB background-operations route includes labeled replay, while a
+Current evidence: 177.99 KiB/57.92 KiB entry, 33.90 KiB/9.12 KiB largest lazy
+chunk, and 613.30 KiB/195.80 KiB total assets. The production contact route is
+27.97 KiB/8.37 KiB. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
+portable workspace export, and measured usage remain isolated in a 14.66 KiB/4.64 KiB settings route. Its
+7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
 signup, import, merge, and bulk recovery paths. Production builds now omit the
 incomplete calling, SMS, calendar/booking-link, marketing-email, and

@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { changePlan, createBillingPortalSession, createCheckoutSession, featureLabel, formatLimit, formatPrice, formatUsageValue, getBillingUsage, getEntitlements, listPlans, listWorkspaceExports, requestWorkspaceExport, trialBanner, workspaceExportDownloadURL } from '../lib/billing'
+import { changePlan, createBillingPortalSession, createCheckoutSession, featureLabel, formatInvoiceAmount, formatLimit, formatPrice, formatUsageValue, getBillingUsage, getEntitlements, listBillingInvoices, listPlans, listWorkspaceExports, requestWorkspaceExport, trialBanner, workspaceExportDownloadURL } from '../lib/billing'
 import { createIdempotencyKey } from '../lib/idempotency'
 import { usePageTitle } from '../lib/use_page_title'
 
@@ -34,6 +34,9 @@ export function SettingsBillingRoute() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [pendingPlan, setPendingPlan] = useState('')
+  const [billingInvoices, setBillingInvoices] = useState([])
+  const [invoiceError, setInvoiceError] = useState('')
+  const [invoicesLoading, setInvoicesLoading] = useState(false)
   const [workspaceExports, setWorkspaceExports] = useState([])
   const [isRequestingExport, setIsRequestingExport] = useState(false)
 
@@ -94,6 +97,29 @@ export function SettingsBillingRoute() {
   const billingProvider = subscription?.provider || 'fake'
   const billingManaged = subscription?.managed !== false
   const checkoutPlans = new Set(subscription?.checkoutAvailablePlans || [])
+
+  useEffect(() => {
+    if (!canManageBilling || billingProvider !== 'stripe') {
+      setBillingInvoices([])
+      setInvoiceError('')
+      setInvoicesLoading(false)
+      return undefined
+    }
+    const controller = new AbortController()
+    setInvoicesLoading(true)
+    listBillingInvoices({ signal: controller.signal })
+      .then((next) => {
+        setBillingInvoices(next)
+        setInvoiceError('')
+      })
+      .catch((loadError) => {
+        if (!isAbortError(loadError)) setInvoiceError(loadError.message || 'Unable to load invoice history.')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setInvoicesLoading(false)
+      })
+    return () => controller.abort()
+  }, [billingProvider, canManageBilling])
 
   async function handleChangePlan(planKey) {
     setPendingPlan(planKey)
@@ -226,6 +252,42 @@ export function SettingsBillingRoute() {
               ))}
             </div>
             <p className="field-hint">Observed {new Date(usage.observedAt).toLocaleString()} across {Number(usage.sourceTableCount).toLocaleString()} tenant-scoped database tables.</p>
+          </div>
+        </Card>
+      ) : null}
+
+      {canManageBilling && billingProvider === 'stripe' ? (
+        <Card>
+          <div className="card-stack">
+            <div>
+              <h2>Invoice and payment history</h2>
+              <p>Provider-reconciled payment evidence for this workspace. Stripe controls retry timing; Open CRM does not infer a local suspension deadline.</p>
+            </div>
+            {invoiceError ? <InlineError message={invoiceError} /> : null}
+            {invoicesLoading ? <p className="field-hint">Loading invoice history...</p> : null}
+            {!invoicesLoading && !invoiceError && billingInvoices.length === 0 ? <p className="field-hint">No hosted invoices have been reconciled yet.</p> : null}
+            {billingInvoices.length > 0 ? (
+              <div className="record-list" role="list" aria-label="Invoice and payment history">
+                {billingInvoices.map((invoice) => (
+                  <article className={invoice.status === 'open' || invoice.status === 'uncollectible' ? 'record-row record-row-alert' : 'record-row'} role="listitem" key={invoice.id}>
+                    <div>
+                      <h3>Invoice {invoice.providerInvoiceId} · {invoice.status}</h3>
+                      <p className="field-hint">
+                        {invoice.providerCreatedAt ? `Issued ${new Date(invoice.providerCreatedAt).toLocaleString()}` : 'Provider issue time unavailable'}
+                        {' · '}{invoice.attemptCount || 0} payment attempt{invoice.attemptCount === 1 ? '' : 's'}
+                      </p>
+                      {invoice.nextPaymentAttempt ? <p className="field-hint">Next provider retry: {new Date(invoice.nextPaymentAttempt).toLocaleString()}</p> : null}
+                      {invoice.paidAt ? <p className="field-hint">Paid {new Date(invoice.paidAt).toLocaleString()}</p> : null}
+                    </div>
+                    <div>
+                      <p>{formatInvoiceAmount(invoice.amountPaid, invoice.currency, invoice.provider)} paid / {formatInvoiceAmount(invoice.amountDue, invoice.currency, invoice.provider)} due</p>
+                      {invoice.hostedInvoiceUrl ? <a href={invoice.hostedInvoiceUrl} target="_blank" rel="noreferrer">View hosted invoice</a> : null}
+                      {invoice.invoicePdfUrl ? <a href={invoice.invoicePdfUrl} target="_blank" rel="noreferrer">Download invoice PDF</a> : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
           </div>
         </Card>
       ) : null}

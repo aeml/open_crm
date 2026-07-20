@@ -35,6 +35,10 @@ type fakeBillingService struct {
 	portalResult     modulebilling.HostedSession
 	portalErr        error
 	portalOrgID      int64
+	invoicesResult   []modulebilling.Invoice
+	invoicesErr      error
+	invoicesOrgID    int64
+	invoicesLimit    int
 	webhookResult    modulebilling.WebhookResult
 	webhookErr       error
 	webhookPayload   []byte
@@ -83,6 +87,12 @@ func (f *fakeBillingService) CreateCheckoutSession(_ context.Context, input modu
 func (f *fakeBillingService) CreatePortalSession(_ context.Context, organizationID int64) (modulebilling.HostedSession, error) {
 	f.portalOrgID = organizationID
 	return f.portalResult, f.portalErr
+}
+
+func (f *fakeBillingService) Invoices(_ context.Context, organizationID int64, limit int) ([]modulebilling.Invoice, error) {
+	f.invoicesOrgID = organizationID
+	f.invoicesLimit = limit
+	return f.invoicesResult, f.invoicesErr
 }
 
 func (f *fakeBillingService) HandleWebhook(_ context.Context, payload []byte, signature string) (modulebilling.WebhookResult, error) {
@@ -229,6 +239,47 @@ func TestGetBillingUsageFailsClosedWhenReconciliationUnavailable(t *testing.T) {
 	errorServer.ServeHTTP(errorRecorder, errorRequest)
 	if errorRecorder.Code != http.StatusInternalServerError {
 		t.Fatalf("expected failed reconciliation status, got %d body=%s", errorRecorder.Code, errorRecorder.Body.String())
+	}
+}
+
+func TestListBillingInvoicesScopesToCurrentAdminOrganization(t *testing.T) {
+	issuedAt := time.Date(2026, 7, 20, 2, 0, 0, 0, time.UTC)
+	service := &fakeBillingService{invoicesResult: []modulebilling.Invoice{{
+		ID: 9, Provider: "stripe", ProviderInvoiceID: "in_pilot", Status: "open",
+		Currency: "usd", AmountDue: 4900, Attempted: true, AttemptCount: 1,
+		ProviderCreatedAt: &issuedAt, HostedInvoiceURL: "https://invoice.stripe.test/in_pilot",
+	}}}
+	server := authenticatedBillingServer(service)
+	request := httptest.NewRequest(http.MethodGet, "/api/billing/invoices", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || service.invoicesOrgID != 42 || service.invoicesLimit != 25 ||
+		!bytes.Contains(recorder.Body.Bytes(), []byte(`"providerInvoiceId":"in_pilot"`)) ||
+		!bytes.Contains(recorder.Body.Bytes(), []byte(`"amountDue":4900`)) {
+		t.Fatalf("billing invoice response mismatch: status=%d org=%d limit=%d body=%s", recorder.Code, service.invoicesOrgID, service.invoicesLimit, recorder.Body.String())
+	}
+
+	memberService := &fakeBillingService{}
+	memberServer := authenticatedBillingServerWithRole(memberService, "member")
+	memberRequest := httptest.NewRequest(http.MethodGet, "/api/billing/invoices", nil)
+	addSessionCookie(memberRequest)
+	memberRecorder := httptest.NewRecorder()
+	memberServer.ServeHTTP(memberRecorder, memberRequest)
+	if memberRecorder.Code != http.StatusForbidden || memberService.invoicesOrgID != 0 {
+		t.Fatalf("member read tenant billing invoices: status=%d org=%d", memberRecorder.Code, memberService.invoicesOrgID)
+	}
+}
+
+func TestListBillingInvoicesMapsServiceFailure(t *testing.T) {
+	service := &fakeBillingService{invoicesErr: errors.New("invoice ledger unavailable")}
+	server := authenticatedBillingServer(service)
+	request := httptest.NewRequest(http.MethodGet, "/api/billing/invoices", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"INTERNAL_SERVER_ERROR"`)) {
+		t.Fatalf("billing invoice error mapping: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

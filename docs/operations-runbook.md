@@ -144,14 +144,18 @@ lead capture, or tenant workers because of stored hosted lifecycle fields.
    the signed subscription event before expecting access to change. The return
    URL is informational and never activates a plan. Confirm the portal opens,
    then exercise a failed payment, recovery, scheduled cancellation, and final
-   cancellation using approved Stripe test controls.
+   cancellation using approved Stripe test controls. Confirm the owner/admin
+   **Invoice and payment history** remains readable during suspension, reports
+   provider amounts and the next retry when present, and opens only the
+   provider-reconciled HTTPS invoice/PDF destinations.
 
    CI also runs a credential-free provider-contract acceptance against a fresh
    PostgreSQL schema. `TestHostedBillingSandboxJourneyAgainstPostgres` sends
    Stripe-shaped HTTP through the production adapter and the real app routes,
    signs raw webhook bodies, and runs provider reconciliation through the leased
    job queue. It proves Checkout and webhook replay, activation, invoice refresh,
-   past-due grace, unpaid suspension/portal recovery, reactivation, and both
+   suspension-safe tenant invoice visibility, past-due grace, unpaid
+   suspension/portal recovery, reactivation, and both
    cancellation stages without contacting Stripe. Reproduce that gate with:
 
    ```bash
@@ -181,6 +185,9 @@ lead capture, or tenant workers because of stored hosted lifecycle fields.
    `webhook_verify`, and `subscription_reconcile`), bounded webhook-route
    request metrics, tenant audit events, and the durable `billing_checkout_requests`,
    `billing_webhook_events`, `billing_invoices`, and `background_jobs` ledgers.
+   The owner/admin invoice view reads at most the newest 25 local ledger rows;
+   it never calls Stripe on page load, never invents a retry deadline, and
+   strips non-HTTPS or userinfo-bearing document URLs before they reach the UI.
    The tenant row records the last reconciliation attempt, successful provider
    observation, and bounded error. A failed receipt is
    retryable under the same Stripe event ID and payload; a duplicate processed
@@ -227,7 +234,8 @@ Stripe API behavior used by this boundary is documented in the official
 [webhook](https://docs.stripe.com/webhooks), and
 [subscription webhook](https://docs.stripe.com/billing/subscriptions/webhooks),
 [subscription retrieval](https://docs.stripe.com/api/subscriptions/retrieve),
-and [invoice listing](https://docs.stripe.com/api/invoices/list?api-version=2024-06-20)
+[invoice listing](https://docs.stripe.com/api/invoices/list?api-version=2024-06-20),
+and [currency minor-unit rules](https://docs.stripe.com/currencies)
 references.
 
 ### Import interruption or recovery

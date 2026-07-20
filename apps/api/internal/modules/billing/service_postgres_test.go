@@ -215,7 +215,7 @@ func TestStripeCheckoutAndWebhookLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("stale event changed subscription: status=%q err=%v", status, err)
 	}
 
-	failedInvoiceEvent := fmt.Sprintf(`{"id":"evt_invoice_failed","type":"invoice.payment_failed","created":%d,"livemode":false,"data":{"object":{"id":"in_failed","customer":"cus_lifecycle","subscription":"sub_lifecycle","status":"open","currency":"usd","amount_due":4900,"amount_paid":0,"attempted":true,"attempt_count":1,"next_payment_attempt":%d,"created":%d}}}`, now.Add(2*time.Second).Unix(), now.Add(24*time.Hour).Unix(), now.Unix())
+	failedInvoiceEvent := fmt.Sprintf(`{"id":"evt_invoice_failed","type":"invoice.payment_failed","created":%d,"livemode":false,"data":{"object":{"id":"in_failed","customer":"cus_lifecycle","subscription":"sub_lifecycle","status":"open","currency":"usd","amount_due":4900,"amount_paid":0,"attempted":true,"attempt_count":1,"next_payment_attempt":%d,"hosted_invoice_url":"https://invoice.stripe.test/in_failed","invoice_pdf":"javascript:alert(1)","created":%d}}}`, now.Add(2*time.Second).Unix(), now.Add(24*time.Hour).Unix(), now.Unix())
 	applySignedBillingEvent(t, ctx, service, provider, now, failedInvoiceEvent)
 	if err := pool.QueryRow(ctx, `SELECT subscription_status FROM organizations WHERE id=$1`, organizationID).Scan(&status); err != nil || status != "past_due" {
 		t.Fatalf("payment failure did not enter dunning grace: status=%q err=%v", status, err)
@@ -224,7 +224,7 @@ func TestStripeCheckoutAndWebhookLifecycleAgainstPostgres(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM billing_invoices WHERE organization_id=$1 AND provider_invoice_id='in_failed' AND amount_due=4900`, organizationID).Scan(&invoiceCount); err != nil || invoiceCount != 1 {
 		t.Fatalf("invoice was not reconciled once: count=%d err=%v", invoiceCount, err)
 	}
-	paidInvoiceEvent := fmt.Sprintf(`{"id":"evt_invoice_paid","type":"invoice.paid","created":%d,"livemode":false,"data":{"object":{"id":"in_failed","customer":"cus_lifecycle","subscription":"sub_lifecycle","status":"paid","currency":"usd","amount_due":4900,"amount_paid":4900,"attempted":true,"attempt_count":2,"created":%d,"status_transitions":{"paid_at":%d}}}}`, now.Add(3*time.Second).Unix(), now.Unix(), now.Add(3*time.Second).Unix())
+	paidInvoiceEvent := fmt.Sprintf(`{"id":"evt_invoice_paid","type":"invoice.paid","created":%d,"livemode":false,"data":{"object":{"id":"in_failed","customer":"cus_lifecycle","subscription":"sub_lifecycle","status":"paid","currency":"usd","amount_due":4900,"amount_paid":4900,"attempted":true,"attempt_count":2,"hosted_invoice_url":"https://invoice.stripe.test/in_failed","invoice_pdf":"javascript:alert(1)","created":%d,"status_transitions":{"paid_at":%d}}}}`, now.Add(3*time.Second).Unix(), now.Unix(), now.Add(3*time.Second).Unix())
 	applySignedBillingEvent(t, ctx, service, provider, now, paidInvoiceEvent)
 	if err := pool.QueryRow(ctx, `SELECT subscription_status FROM organizations WHERE id=$1`, organizationID).Scan(&status); err != nil || status != "active" {
 		t.Fatalf("paid invoice did not leave dunning grace: status=%q err=%v", status, err)
@@ -237,6 +237,12 @@ func TestStripeCheckoutAndWebhookLifecycleAgainstPostgres(t *testing.T) {
 	var invoiceAmountPaid int64
 	if err := pool.QueryRow(ctx, `SELECT status,amount_paid FROM billing_invoices WHERE organization_id=$1 AND provider_invoice_id='in_failed'`, organizationID).Scan(&invoiceStatus, &invoiceAmountPaid); err != nil || invoiceStatus != "paid" || invoiceAmountPaid != 4900 {
 		t.Fatalf("stale invoice regressed ledger: status=%q paid=%d err=%v", invoiceStatus, invoiceAmountPaid, err)
+	}
+	invoices, err := service.Invoices(ctx, organizationID, 25)
+	if err != nil || len(invoices) != 1 || invoices[0].ProviderInvoiceID != "in_failed" || invoices[0].Status != "paid" ||
+		invoices[0].AmountDue != 4900 || invoices[0].AmountPaid != 4900 || invoices[0].AttemptCount != 2 || invoices[0].PaidAt == nil ||
+		invoices[0].HostedInvoiceURL != "https://invoice.stripe.test/in_failed" || invoices[0].InvoicePDFURL != "" {
+		t.Fatalf("tenant invoice history mismatch: invoices=%#v err=%v", invoices, err)
 	}
 	unpaidEvent := fmt.Sprintf(`{"id":"evt_subscription_unpaid","type":"customer.subscription.updated","created":%d,"livemode":false,"data":{"object":{"id":"sub_lifecycle","customer":"cus_lifecycle","status":"unpaid","current_period_end":%d,"metadata":{"organization_id":"%d","plan_key":"pro"}}}}`, now.Add(4*time.Second).Unix(), now.Add(30*24*time.Hour).Unix(), organizationID)
 	applySignedBillingEvent(t, ctx, service, provider, now, unpaidEvent)
@@ -286,6 +292,22 @@ func TestStripeCheckoutAndWebhookLifecycleAgainstPostgres(t *testing.T) {
 	var otherOrganizationID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO organizations (name,slug,plan,subscription_status,stripe_customer_id) VALUES ('Other Tenant','other-tenant','free','active','cus_other') RETURNING id`).Scan(&otherOrganizationID); err != nil {
 		t.Fatalf("create foreign billing organization: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO billing_invoices (
+		  organization_id,provider,provider_invoice_id,status,currency,amount_due,
+		  last_event_created,last_event_id,provider_created_at
+		) VALUES ($1,'stripe','in_foreign','open','usd',9900,$2,'evt_foreign_invoice',$3)
+	`, otherOrganizationID, now.Unix(), now.Add(time.Minute)); err != nil {
+		t.Fatalf("create foreign invoice evidence: %v", err)
+	}
+	tenantInvoices, err := service.Invoices(ctx, organizationID, 25)
+	if err != nil || len(tenantInvoices) != 1 || tenantInvoices[0].ProviderInvoiceID != "in_failed" {
+		t.Fatalf("foreign invoice crossed tenant boundary: invoices=%#v err=%v", tenantInvoices, err)
+	}
+	foreignInvoices, err := service.Invoices(ctx, otherOrganizationID, 1)
+	if err != nil || len(foreignInvoices) != 1 || foreignInvoices[0].ProviderInvoiceID != "in_foreign" || foreignInvoices[0].AmountDue != 9900 {
+		t.Fatalf("foreign tenant invoice lookup mismatch: invoices=%#v err=%v", foreignInvoices, err)
 	}
 	conflictEvent := fmt.Sprintf(`{"id":"evt_cross_tenant","type":"customer.subscription.updated","created":%d,"livemode":false,"data":{"object":{"id":"sub_lifecycle","customer":"cus_other","status":"active","metadata":{"organization_id":"%d","plan_key":"starter"}}}}`, now.Add(8*time.Second).Unix(), organizationID)
 	payload := []byte(conflictEvent)

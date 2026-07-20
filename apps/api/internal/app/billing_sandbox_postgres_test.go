@@ -270,7 +270,7 @@ func TestHostedBillingSandboxJourneyAgainstPostgres(t *testing.T) {
 		t.Fatalf("active hosted write was not allowed: status=%d org=%d input=%#v body=%s", status, contactsService.lastCreateOrgID, contactsService.lastCreateInput, body)
 	}
 
-	pastDueEvent := []byte(fmt.Sprintf(`{"id":"evt_acceptance_payment_failed","type":"invoice.payment_failed","created":%d,"livemode":false,"data":{"object":{"id":"in_acceptance_failed","customer":"cus_acceptance","subscription":"sub_acceptance","status":"open","currency":"usd","amount_due":4900,"amount_paid":0,"attempted":true,"attempt_count":1,"next_payment_attempt":%d,"created":%d}}}`, baseEventTime.Add(2*time.Second).Unix(), baseEventTime.Add(24*time.Hour).Unix(), baseEventTime.Unix()))
+	pastDueEvent := []byte(fmt.Sprintf(`{"id":"evt_acceptance_payment_failed","type":"invoice.payment_failed","created":%d,"livemode":false,"data":{"object":{"id":"in_acceptance_failed","customer":"cus_acceptance","subscription":"sub_acceptance","status":"open","currency":"usd","amount_due":4900,"amount_paid":0,"attempted":true,"attempt_count":1,"next_payment_attempt":%d,"hosted_invoice_url":"https://invoice.stripe.test/in_acceptance_failed","invoice_pdf":"https://invoice.stripe.test/in_acceptance_failed.pdf","created":%d}}}`, baseEventTime.Add(2*time.Second).Unix(), baseEventTime.Add(24*time.Hour).Unix(), baseEventTime.Unix()))
 	deliverBillingSandboxWebhook(t, server.Client(), server.URL, webhookSecret, pastDueEvent)
 	status, body = billingSandboxRequest(t, server.Client(), server.URL, http.MethodPost, "/api/contacts", []byte(`{"firstName":"Grace","lastName":"Hopper"}`), true, nil)
 	if status != http.StatusCreated || contactsService.lastCreateInput.FirstName != "Grace" {
@@ -282,6 +282,18 @@ func TestHostedBillingSandboxJourneyAgainstPostgres(t *testing.T) {
 	status, body = billingSandboxRequest(t, server.Client(), server.URL, http.MethodPost, "/api/contacts", []byte(`{"firstName":"Blocked","lastName":"Write"}`), true, nil)
 	if status != http.StatusPaymentRequired || !bytes.Contains(body, []byte(`"code":"SUBSCRIPTION_INACTIVE"`)) || contactsService.lastCreateInput.FirstName != "Grace" {
 		t.Fatalf("unpaid hosted workspace was not suspended before effects: status=%d input=%#v body=%s", status, contactsService.lastCreateInput, body)
+	}
+	status, body = billingSandboxRequest(t, server.Client(), server.URL, http.MethodGet, "/api/billing/invoices", nil, true, nil)
+	var invoiceResponse billingInvoicesResponse
+	if err := json.Unmarshal(body, &invoiceResponse); err != nil {
+		t.Fatalf("decode tenant billing invoices: %v body=%s", err, body)
+	}
+	if status != http.StatusOK || len(invoiceResponse.Data.Invoices) != 2 ||
+		invoiceResponse.Data.Invoices[0].ProviderInvoiceID != "in_acceptance_failed" || invoiceResponse.Data.Invoices[0].Status != "open" ||
+		invoiceResponse.Data.Invoices[0].NextPaymentAttempt == nil || invoiceResponse.Data.Invoices[0].NextPaymentAttempt.Unix() != baseEventTime.Add(24*time.Hour).Unix() ||
+		invoiceResponse.Data.Invoices[0].HostedInvoiceURL != "https://invoice.stripe.test/in_acceptance_failed" ||
+		invoiceResponse.Data.Invoices[0].InvoicePDFURL != "https://invoice.stripe.test/in_acceptance_failed.pdf" {
+		t.Fatalf("suspension-safe invoice evidence mismatch: status=%d invoices=%#v", status, invoiceResponse.Data.Invoices)
 	}
 	status, body = billingSandboxRequest(t, server.Client(), server.URL, http.MethodPost, "/api/billing/portal-session", nil, true, nil)
 	if status != http.StatusCreated || !bytes.Contains(body, []byte(`"id":"bps_acceptance"`)) {
