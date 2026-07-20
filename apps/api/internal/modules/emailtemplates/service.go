@@ -74,10 +74,14 @@ func MergeFieldCatalog() []MergeFieldGroup {
 			Key:   "contact",
 			Label: "Contact fields",
 			Fields: []MergeField{
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{first_name}}", Label: "First name", Description: "Recipient contact first name."},
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{last_name}}", Label: "Last name", Description: "Recipient contact last name."},
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{full_name}}", Label: "Full name", Description: "Recipient contact full name."},
 				{Token: "{{email}}", Label: "Email", Description: "Recipient contact email address."},
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{job_title}}", Label: "Job title", Description: "Recipient contact job title."},
 			},
 		},
@@ -86,7 +90,9 @@ func MergeFieldCatalog() []MergeFieldGroup {
 			Label: "Company fields",
 			Fields: []MergeField{
 				{Token: "{{company_name}}", Label: "Company name", Description: "Company or client name."},
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{client_name}}", Label: "Client name", Description: "Alias for company or client name."},
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{client_type}}", Label: "Client type", Description: "Company client type."},
 				{Token: "{{company_status}}", Label: "Company status", Description: "Company status."},
 				{Token: "{{client_status}}", Label: "Client status", Description: "Alias for company status."},
@@ -99,12 +105,17 @@ func MergeFieldCatalog() []MergeFieldGroup {
 			Key:   "deal",
 			Label: "Deal fields",
 			Fields: []MergeField{
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{deal_name}}", Label: "Deal name", Description: "Deal name."},
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{deal_stage}}", Label: "Deal stage", Description: "Current deal stage."},
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{deal_status}}", Label: "Deal status", Description: "Current deal status."},
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{deal_value}}", Label: "Deal value", Description: "Deal value amount."},
 				{Token: "{{deal_currency}}", Label: "Deal currency", Description: "Deal value currency."},
 				{Token: "{{expected_close_date}}", Label: "Expected close", Description: "Expected close date."},
+				// #nosec G101 -- these are public template identifiers, not credential literals.
 				{Token: "{{primary_contact_name}}", Label: "Primary contact", Description: "Deal primary contact name."},
 			},
 		},

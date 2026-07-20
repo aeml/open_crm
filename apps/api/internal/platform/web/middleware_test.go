@@ -68,3 +68,20 @@ func TestRequestIDFromContextReturnsEmptyWhenUnset(t *testing.T) {
 		t.Fatalf("expected empty request id when unset, got %q", got)
 	}
 }
+
+func TestRequestIDUsesDistinctCryptographicIdentifiers(t *testing.T) {
+	ids := make([]string, 0, 2)
+	handler := RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ids = append(ids, RequestIDFromContext(r.Context()))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	for range 2 {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	}
+	if len(ids) != 2 || !strings.HasPrefix(ids[0], "req_") || !strings.HasPrefix(ids[1], "req_") {
+		t.Fatalf("unexpected request IDs: %#v", ids)
+	}
+	if ids[0] == ids[1] {
+		t.Fatalf("request IDs must be distinct: %#v", ids)
+	}
+}

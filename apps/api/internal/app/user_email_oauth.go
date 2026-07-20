@@ -250,6 +250,7 @@ func emailOAuthProviderFor(env config.Env, provider string) (emailOAuthProvider,
 
 func emailOAuthProviderConfigs(env config.Env) []emailOAuthProvider {
 	return []emailOAuthProvider{
+		// #nosec G101 -- client credentials come from the environment; endpoints and scopes are public provider metadata.
 		{
 			Provider:     "google",
 			Label:        "Google Workspace / Gmail",
@@ -259,6 +260,7 @@ func emailOAuthProviderConfigs(env config.Env) []emailOAuthProvider {
 			TokenURL:     "https://oauth2.googleapis.com/token",
 			Scopes:       []string{"openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly"},
 		},
+		// #nosec G101 -- client credentials come from the environment; endpoints and scopes are public provider metadata.
 		{
 			Provider:     "microsoft",
 			Label:        "Microsoft 365 / Outlook",

@@ -189,6 +189,7 @@ const selectAccountSQL = `
 	WHERE organization_id = $1 AND user_id = $2
 `
 
+// #nosec G101 -- this query names encrypted credential columns but contains no credential literal.
 const selectCredentialsSQL = `
 	SELECT from_email, from_name, smtp_host, smtp_port, smtp_username,
 	       smtp_password_enc, smtp_use_tls, updated_at
@@ -196,6 +197,7 @@ const selectCredentialsSQL = `
 	WHERE organization_id = $1 AND user_id = $2
 `
 
+// #nosec G101 -- this query names encrypted credential columns but contains no credential literal.
 const selectSyncCredentialsSQL = `
 	SELECT from_email, imap_host, imap_port, imap_username, imap_password_enc,
 	       imap_use_tls, provider, auth_method, sync_enabled, sync_cursor, sync_status,

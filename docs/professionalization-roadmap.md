@@ -304,6 +304,19 @@ Exit criteria:
 - Auth endpoints have abuse protection.
 - Configuration no longer contains unused security settings.
 
+Current convergence evidence: CI now pins `gosec` v2.28.0 and rejects every
+unsuppressed backend finding. The initial 175-file scan replaced predictable
+`math/rand` request IDs with cryptographic identifiers, bounds accepted Argon2
+parameters and decoded lengths before hashing, confines backup evidence reads
+to an `os.Root`, reads generated export archives back through their already
+bounded temporary file handle, and handles import close outcomes explicitly.
+Remaining false positives have rule-specific inline explanations for public
+OAuth/template metadata, SQL column names, bounded multipart parsing,
+environment-derived secure cookies, the explicit local seed credential, and
+the validated HTTP(S) click-tracking redirect; an executable repository scan
+enforces the dependency policy's prohibition on bare or unexplained
+suppressions.
+
 ## Version 0.1.9 - User Lifecycle
 
 Status: complete.

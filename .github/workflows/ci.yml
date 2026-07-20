@@ -78,6 +78,10 @@ jobs:
         working-directory: apps/api
         run: go vet ./...
 
+      - name: Run Go static security analysis
+        working-directory: apps/api
+        run: GOTOOLCHAIN=go1.26.5 go run github.com/securego/gosec/v2/cmd/gosec@v2.28.0 -quiet ./...
+
       - name: Check Go dependencies and reachable code for vulnerabilities
         working-directory: apps/api
         # govulncheck's own module targets Go 1.25; pin the tool execution to

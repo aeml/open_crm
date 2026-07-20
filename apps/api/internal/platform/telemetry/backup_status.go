@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -33,10 +32,15 @@ func ReadBackupStatus(directory string) BackupStatus {
 	if directory == "" {
 		return BackupStatus{}
 	}
-	lastBackup, backupErr := readStatusFile(filepath.Join(directory, "last-backup.json"))
-	lastBackupAttempt, backupAttemptErr := readStatusFile(filepath.Join(directory, "last-backup-attempt.json"))
-	lastRestore, restoreErr := readStatusFile(filepath.Join(directory, "last-restore-drill.json"))
-	lastRestoreAttempt, restoreAttemptErr := readStatusFile(filepath.Join(directory, "last-restore-drill-attempt.json"))
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return BackupStatus{}
+	}
+	defer func() { _ = root.Close() }()
+	lastBackup, backupErr := readStatusFile(root, "last-backup.json")
+	lastBackupAttempt, backupAttemptErr := readStatusFile(root, "last-backup-attempt.json")
+	lastRestore, restoreErr := readStatusFile(root, "last-restore-drill.json")
+	lastRestoreAttempt, restoreAttemptErr := readStatusFile(root, "last-restore-drill-attempt.json")
 	lastBackupAt := parseStatusTime(lastBackup.CompletedAt)
 	lastRestoreAt := parseStatusTime(lastRestore.CompletedAt)
 	if backupErr != nil || backupAttemptErr != nil || restoreErr != nil || restoreAttemptErr != nil ||
@@ -52,8 +56,8 @@ func ReadBackupStatus(directory string) BackupStatus {
 	}
 }
 
-func readStatusFile(path string) (statusDocument, error) {
-	file, err := os.Open(path)
+func readStatusFile(root *os.Root, name string) (statusDocument, error) {
+	file, err := root.Open(name)
 	if err != nil {
 		return statusDocument{}, err
 	}

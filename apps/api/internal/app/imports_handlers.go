@@ -179,6 +179,7 @@ func handleImportErrorsCSV(auth authService, imports importsService, w http.Resp
 
 func parseImportUpload(w http.ResponseWriter, r *http.Request, requestID string, requireIdempotency bool) (importUpload, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxImportBodyBytes)
+	// #nosec G120 -- MaxBytesReader rejects the request before multipart parsing can exceed this same hard limit.
 	if err := r.ParseMultipartForm(maxImportBodyBytes); err != nil {
 		removeImportForm(r)
 		var maxBytesErr *http.MaxBytesError
@@ -198,7 +199,7 @@ func parseImportUpload(w http.ResponseWriter, r *http.Request, requestID string,
 	mapping := map[string]string{}
 	if rawMapping := strings.TrimSpace(r.FormValue("mapping")); rawMapping != "" {
 		if err := json.Unmarshal([]byte(rawMapping), &mapping); err != nil {
-			file.Close()
+			_ = file.Close()
 			removeImportForm(r)
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Mapping must be a JSON object of CRM fields to CSV columns")
 			return importUpload{}, false
@@ -209,7 +210,7 @@ func parseImportUpload(w http.ResponseWriter, r *http.Request, requestID string,
 		OriginalName: header.Filename, Mapping: mapping, File: file,
 	}
 	if requireIdempotency && (len(upload.IdempotencyKey) < 8 || len(upload.IdempotencyKey) > 200) {
-		file.Close()
+		_ = file.Close()
 		removeImportForm(r)
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Idempotency key must be 8-200 characters")
 		return importUpload{}, false

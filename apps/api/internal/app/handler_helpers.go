@@ -242,10 +242,12 @@ func respondStatus(w http.ResponseWriter, r *http.Request, statusCode int, statu
 }
 
 func setSessionCookie(w http.ResponseWriter, env config.Env, token string) {
+	// #nosec G124 -- production cookies are Secure; local HTTP development intentionally derives false from the environment.
 	http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isProduction(env), MaxAge: int(sessionCookieTTL / time.Second), Expires: time.Now().Add(sessionCookieTTL)})
 }
 
 func clearSessionCookie(w http.ResponseWriter, env config.Env) {
+	// #nosec G124 -- the deletion cookie must use the same environment-derived Secure attribute as the cookie being cleared.
 	http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isProduction(env), MaxAge: -1, Expires: time.Unix(0, 0)})
 }
 

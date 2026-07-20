@@ -8,6 +8,7 @@ import (
 	platformauth "github.com/aeml/open_crm/apps/api/internal/platform/auth"
 )
 
+// #nosec G101 -- this documented local seed credential is used only by the explicit development seed command and is replaceable through SEED_DEFAULT_PASSWORD.
 const defaultSeedPassword = "opencrm-demo-password"
 
 type seedExecutor interface {

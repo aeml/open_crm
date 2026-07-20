@@ -135,12 +135,15 @@ func (s *Service) buildBundle(ctx context.Context, organizationID int64) (bundle
 	if err := temporary.Sync(); err != nil {
 		return bundle{}, fmt.Errorf("sync workspace export archive: %w", err)
 	}
-	if err := temporary.Close(); err != nil {
-		return bundle{}, fmt.Errorf("close workspace export archive: %w", err)
+	if _, err := temporary.Seek(0, io.SeekStart); err != nil {
+		return bundle{}, fmt.Errorf("rewind workspace export archive: %w", err)
 	}
-	content, err := os.ReadFile(temporaryName)
+	content, err := io.ReadAll(io.LimitReader(temporary, maxArtifactBytes+1))
 	if err != nil {
 		return bundle{}, fmt.Errorf("read workspace export archive: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return bundle{}, fmt.Errorf("close workspace export archive: %w", err)
 	}
 	if int64(len(content)) > maxArtifactBytes {
 		return bundle{}, ErrArtifactTooLarge

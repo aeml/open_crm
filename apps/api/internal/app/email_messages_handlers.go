@@ -328,6 +328,7 @@ func handleTrackEmailClick(messages emailMessagesService, w http.ResponseWriter,
 	}
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
+	// #nosec G710 -- click tracking intentionally redirects to the stored recipient URL after an explicit absolute HTTP(S)-only check.
 	http.Redirect(w, r, targetURL, http.StatusFound)
 }
 

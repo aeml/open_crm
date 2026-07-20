@@ -30,6 +30,9 @@ CI and deploy-recovery path used for application changes.
 - `go vet ./...` and `go test -p 1 ./...` must pass on the exact reviewed Go
   1.26 patch against PostgreSQL. Package serialization avoids known lock-table
   pressure from concurrent fresh-schema integration suites.
+- Pinned `gosec` must report no unsuppressed finding across all backend
+  packages. Suppressions must name one rule inline and explain the already
+  enforced invariant; bare or unexplained `#nosec` comments are prohibited.
 - Pinned `govulncheck` must report no reachable symbol vulnerability. Package
   vulnerabilities imported by executable code are also release blockers.
 - `npm audit --audit-level=high` scans the complete frontend lockfile, including
@@ -69,6 +72,7 @@ Local evidence commands mirror CI:
 cd apps/api
 go mod tidy
 go vet ./...
+GOTOOLCHAIN=go1.26.5 go run github.com/securego/gosec/v2/cmd/gosec@v2.28.0 -quiet ./...
 OPEN_CRM_TEST_DATABASE_URL='postgres://open_crm:open_crm@127.0.0.1:5432/open_crm_test?sslmode=disable' go test -p 1 ./...
 GOTOOLCHAIN=go1.26.5 go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 

@@ -62,7 +62,13 @@ func VerifyPassword(encodedHash, password string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("decode password hash: %w", err)
 	}
+	if time != argonTime || memory != argonMemory || threads != argonThreads {
+		return false, errors.New("unsupported password hash parameters")
+	}
+	if len(salt) != saltLength || len(expectedHash) != int(argonKeyLen) {
+		return false, errors.New("invalid password hash length")
+	}
 
-	actualHash := argon2.IDKey([]byte(password), salt, time, memory, threads, uint32(len(expectedHash)))
+	actualHash := argon2.IDKey([]byte(password), salt, time, memory, threads, argonKeyLen)
 	return subtle.ConstantTimeCompare(actualHash, expectedHash) == 1, nil
 }

@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	googleOAuthTokenURL    = "https://oauth2.googleapis.com/token"
+	// #nosec G101 -- these are public OAuth endpoints, not credentials.
+	googleOAuthTokenURL = "https://oauth2.googleapis.com/token"
+	// #nosec G101 -- these are public OAuth endpoints, not credentials.
 	microsoftOAuthTokenURL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 	maxOAuthTokenBodyBytes = 64 * 1024
 )

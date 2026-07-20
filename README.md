@@ -198,6 +198,7 @@ Current automated checks in `.github/workflows/ci.yml`:
 - backend `go mod tidy` verification
 - `gofmt -l .`
 - `go vet ./...`
+- pinned `gosec` static-security analysis with rule-specific, explained suppressions only
 - pinned `govulncheck` reachable-vulnerability scan
 - backend `go test ./...`
 - full frontend dependency audit at high severity

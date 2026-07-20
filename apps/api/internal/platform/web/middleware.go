@@ -2,9 +2,8 @@ package web
 
 import (
 	"context"
-	"fmt"
+	"crypto/rand"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -16,7 +15,7 @@ const requestIDKey contextKey = "requestId"
 
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := fmt.Sprintf("req_%d_%06d", time.Now().UnixNano(), rand.Intn(1000000))
+		requestID := "req_" + rand.Text()
 		w.Header().Set("X-Request-Id", requestID)
 		ctx := context.WithValue(r.Context(), requestIDKey, requestID)
 		next.ServeHTTP(w, r.WithContext(ctx))

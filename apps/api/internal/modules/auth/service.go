@@ -18,6 +18,7 @@ var (
 	ErrEmailUnverified = errors.New("email unverified")
 )
 
+// #nosec G101 -- this query names a password-hash column but contains no credential literal.
 const credentialLookupSQL = `
 	SELECT u.id, u.email, u.password_hash, u.email_verified_at
 	FROM users u
