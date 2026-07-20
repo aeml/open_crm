@@ -89,6 +89,7 @@ export function SettingsBillingRoute() {
   const activeFeatures = new Set(entitlements?.features || [])
   const subscription = entitlements?.subscription || null
   const billingProvider = subscription?.provider || 'fake'
+  const billingManaged = subscription?.managed !== false
   const checkoutPlans = new Set(subscription?.checkoutAvailablePlans || [])
 
   async function handleChangePlan(planKey) {
@@ -162,16 +163,19 @@ export function SettingsBillingRoute() {
           <div className="section-header">
             <div>
               <h2>Plan &amp; billing</h2>
-              <p>Review the active plan and usage for {session?.organization?.name || 'your workspace'}.</p>
+              <p>{billingManaged ? 'Review the active plan and usage' : 'Review local usage'} for {session?.organization?.name || 'your workspace'}.</p>
             </div>
             {currentPlan ? (
               <div>
-                <span className="chip">{currentPlan.name} · {formatPrice(currentPlan)}</span>
+                <span className="chip">{billingManaged ? `${currentPlan.name} · ${formatPrice(currentPlan)}` : 'Self-hosted · Unmanaged'}</span>
               </div>
             ) : null}
           </div>
           {isLoading ? <p className="field-hint">Loading plan details...</p> : null}
           {error ? <InlineError message={error} /> : null}
+          {!isLoading && subscription && !billingManaged ? (
+            <div className="inline-note" role="status">Self-hosted mode does not enforce hosted trials, subscriptions, feature tiers, or record limits. Your local CRM data remains writable.</div>
+          ) : null}
           {!isLoading && entitlements?.subscription ? (() => {
             const banner = trialBanner(entitlements.subscription)
             return banner ? <div className="inline-note">{banner}</div> : null
@@ -194,7 +198,7 @@ export function SettingsBillingRoute() {
         </div>
       </Card>
 
-      <Card>
+      {billingManaged ? <Card>
         <div className="card-stack">
           <div>
             <h2>Compare plans</h2>
@@ -236,9 +240,9 @@ export function SettingsBillingRoute() {
             ))}
           </div>
         </div>
-      </Card>
+      </Card> : null}
 
-      {currentPlan ? (
+      {currentPlan && billingManaged ? (
         <Card>
           <div className="card-stack">
             <div>

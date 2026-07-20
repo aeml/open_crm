@@ -268,6 +268,20 @@ func TestStripeCheckoutAndWebhookLifecycleAgainstPostgres(t *testing.T) {
 	if err := service.EnforceWritable(ctx, organizationID); !errors.Is(err, ErrSubscriptionInactive) {
 		t.Fatalf("canceled Stripe subscription did not block writes: %v", err)
 	}
+	unmanaged := NewService(pool, FakeProvider{})
+	if unmanaged.Hosted() {
+		t.Fatal("fake billing provider was treated as hosted")
+	}
+	if err := unmanaged.EnforceWritable(ctx, organizationID); err != nil {
+		t.Fatalf("self-hosted canceled subscription restricted writes: %v", err)
+	}
+	if err := unmanaged.EnforceCanCreate(ctx, organizationID, ResourceContacts); err != nil {
+		t.Fatalf("self-hosted plan restricted contact creation: %v", err)
+	}
+	unmanagedEntitlements, err := unmanaged.Entitlements(ctx, organizationID)
+	if err != nil || unmanagedEntitlements.Subscription.Managed || !unmanagedEntitlements.Seats.Unlimited || !unmanagedEntitlements.Contacts.Unlimited || !unmanagedEntitlements.Deals.Unlimited {
+		t.Fatalf("self-hosted entitlement boundary mismatch: entitlements=%#v err=%v", unmanagedEntitlements, err)
+	}
 
 	var otherOrganizationID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO organizations (name,slug,plan,subscription_status,stripe_customer_id) VALUES ('Other Tenant','other-tenant','free','active','cus_other') RETURNING id`).Scan(&otherOrganizationID); err != nil {

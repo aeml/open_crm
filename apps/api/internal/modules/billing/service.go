@@ -61,6 +61,7 @@ func newLimitUsage(used, limit int) LimitUsage {
 
 // Subscription describes an organization's billing lifecycle state.
 type Subscription struct {
+	Managed                bool       `json:"managed"`
 	Status                 string     `json:"status"`
 	TrialEndsAt            *time.Time `json:"trialEndsAt,omitempty"`
 	TrialDaysLeft          int        `json:"trialDaysLeft"`
@@ -109,6 +110,13 @@ func (s *Service) ProviderName() string {
 	return s.provider.Name()
 }
 
+// Hosted reports whether this runtime is enforcing the managed SaaS billing
+// contract. Fake billing remains a development/self-hosting seam and must not
+// make locally hosted core data inaccessible when a trial timestamp expires.
+func (s *Service) Hosted() bool {
+	return s != nil && s.provider != nil && s.provider.Name() == "stripe"
+}
+
 const planLookupSQL = `
 	SELECT plan, subscription_status, trial_ends_at,
 	       COALESCE(billing_provider, ''), COALESCE(billing_provider_status, ''),
@@ -152,18 +160,19 @@ func (s *Service) Entitlements(ctx context.Context, organizationID int64) (Entit
 
 	plan := PlanByKey(planKey)
 	subscription := buildSubscription(subStatus, trialEndsAt)
+	subscription.Managed = s.Hosted()
 	if providerName == "" {
 		providerName = s.ProviderName()
 	}
 	subscription.Provider = providerName
 	subscription.ProviderStatus = providerStatus
-	subscription.Suspended = providerSuspendsWrites(providerStatus)
+	subscription.Suspended = subscription.Managed && providerSuspendsWrites(providerStatus)
 	subscription.CurrentPeriodEnd = currentPeriodEnd
 	subscription.CancelAtPeriodEnd = cancelAtPeriodEnd
 	subscription.CustomerEstablished = customerID != ""
 	subscription.PortalAvailable = s.provider.PortalAvailable() && providerName == "stripe" && customerID != ""
 	subscription.LastReconciledAt = lastReconciledAt
-	subscription.ReconciliationStale = providerName == "stripe" && subscriptionID != "" &&
+	subscription.ReconciliationStale = subscription.Managed && providerName == "stripe" && subscriptionID != "" &&
 		(lastReconciledAt == nil || time.Now().UTC().After(lastReconciledAt.Add(2*reconciliationFreshness)))
 	if customerID == "" {
 		for _, candidate := range Catalog() {
@@ -172,13 +181,17 @@ func (s *Service) Entitlements(ctx context.Context, organizationID int64) (Entit
 			}
 		}
 	}
+	seatLimit, contactLimit, dealLimit := plan.SeatLimit, plan.ContactLimit, plan.DealLimit
+	if !subscription.Managed {
+		seatLimit, contactLimit, dealLimit = Unlimited, Unlimited, Unlimited
+	}
 	return Entitlements{
 		Plan:         plan,
 		Features:     plan.Features,
 		Subscription: subscription,
-		Seats:        newLimitUsage(seats, plan.SeatLimit),
-		Contacts:     newLimitUsage(contacts, plan.ContactLimit),
-		Deals:        newLimitUsage(deals, plan.DealLimit),
+		Seats:        newLimitUsage(seats, seatLimit),
+		Contacts:     newLimitUsage(contacts, contactLimit),
+		Deals:        newLimitUsage(deals, dealLimit),
 	}, nil
 }
 
@@ -454,6 +467,9 @@ func (s *Service) EnforceCanCreate(ctx context.Context, organizationID int64, re
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("billing service not configured")
 	}
+	if !s.Hosted() {
+		return nil
+	}
 
 	entitlements, err := s.Entitlements(ctx, organizationID)
 	if err != nil {
@@ -486,6 +502,9 @@ const subscriptionLookupSQL = `SELECT subscription_status, trial_ends_at, COALES
 func (s *Service) EnforceWritable(ctx context.Context, organizationID int64) error {
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("billing service not configured")
+	}
+	if !s.Hosted() {
+		return nil
 	}
 
 	var status string

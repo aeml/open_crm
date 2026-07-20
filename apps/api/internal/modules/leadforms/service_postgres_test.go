@@ -61,7 +61,7 @@ func TestPublicSubmissionHonorsHostedWritePolicyAgainstPostgres(t *testing.T) {
 		t.Fatalf("create lead form: %v", err)
 	}
 
-	service := NewService(pool)
+	service := NewService(pool, true)
 	input := SubmissionInput{Values: map[string]string{"first": "Ada", "last": "Lovelace"}}
 	if _, err := service.SubmitByPublicID(ctx, "lf_policy_test", input); !errors.Is(err, modulebilling.ErrSubscriptionInactive) {
 		t.Fatalf("expected suspended public submission to be rejected, got %v", err)
@@ -69,6 +69,12 @@ func TestPublicSubmissionHonorsHostedWritePolicyAgainstPostgres(t *testing.T) {
 	var contactCount int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM contacts WHERE organization_id=$1`, organizationID).Scan(&contactCount); err != nil || contactCount != 0 {
 		t.Fatalf("suspended submission created data: count=%d err=%v", contactCount, err)
+	}
+
+	selfHosted := NewService(pool)
+	selfHostedResult, err := selfHosted.SubmitByPublicID(ctx, "lf_policy_test", input)
+	if err != nil || selfHostedResult.Submission.ContactID <= 0 {
+		t.Fatalf("self-hosted billing state restricted public lead capture: result=%#v err=%v", selfHostedResult, err)
 	}
 
 	if _, err := pool.Exec(ctx, `UPDATE organizations SET subscription_status='active' WHERE id=$1`, organizationID); err != nil {

@@ -21,6 +21,36 @@ function sessionResponse() {
 }
 
 describe('settings billing route', () => {
+  it('shows unrestricted local usage without hosted lifecycle or plan controls in self-hosted mode', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(sessionResponse())
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { entitlements: {
+          plan: { key: 'free', name: 'Free', monthlyPriceUsd: 0, features: ['saved_views'] },
+          features: ['saved_views'],
+          subscription: { managed: false, status: 'canceled', provider: 'fake' },
+          seats: { used: 3, limit: -1, unlimited: true, exceeded: false },
+          contacts: { used: 620, limit: -1, unlimited: true, exceeded: false },
+          deals: { used: 280, limit: -1, unlimited: true, exceeded: false }
+        } } })
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { plans: [{ key: 'free', name: 'Free', monthlyPriceUsd: 0, features: ['saved_views'] }] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { exports: [] } }) })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/billing')
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/self-hosted mode does not enforce hosted trials/i)).toBeInTheDocument()
+    expect(screen.getByText(/self-hosted · unmanaged/i)).toBeInTheDocument()
+    expect(screen.getByText('620 / Unlimited')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /compare plans/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/subscription is canceled/i)).not.toBeInTheDocument()
+  })
+
   it('shows the active plan, usage, and plan comparison', async () => {
     const fetchMock = vi
       .fn()

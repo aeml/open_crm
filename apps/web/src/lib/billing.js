@@ -93,7 +93,7 @@ export function formatPrice(plan) {
 }
 
 export function trialBanner(subscription) {
-  if (!subscription) {
+  if (!subscription || subscription.managed === false) {
     return ''
   }
   if (subscription.suspended) {

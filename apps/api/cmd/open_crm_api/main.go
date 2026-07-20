@@ -185,7 +185,7 @@ func main() {
 			}), metrics))
 			emailTemplatesService = moduleemailtemplates.NewService(pool)
 			productCatalogService = moduleproductcatalog.NewService(pool)
-			leadFormsService = moduleleadforms.NewService(pool)
+			leadFormsService = moduleleadforms.NewService(pool, billingService.Hosted())
 			leadAudiencesService = moduleleadaudiences.NewService(pool)
 			marketingCampaignsService = modulemarketingcampaigns.NewService(pool)
 			nurtureCampaignsService = modulenurturecampaigns.NewService(pool)

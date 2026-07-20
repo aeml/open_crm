@@ -162,6 +162,35 @@ func TestAuthMeIncludesServerDerivedWorkspaceAccess(t *testing.T) {
 	}
 }
 
+type unmanagedBillingService struct {
+	*fakeBillingService
+}
+
+func (*unmanagedBillingService) Hosted() bool { return false }
+
+func TestAuthMeLabelsSelfHostedWorkspaceUnmanaged(t *testing.T) {
+	service := &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+		User:         moduleauth.User{ID: 1, Email: "owner@acme.test"},
+		Organization: moduleauth.Organization{ID: 42, Name: "Acme, Inc."},
+		Membership:   moduleauth.Membership{Role: "owner"},
+	}}
+	billing := &unmanagedBillingService{fakeBillingService: &fakeBillingService{writableErr: modulebilling.ErrSubscriptionInactive}}
+	server := NewServer(config.Env{}, Dependencies{AuthService: service, BillingService: billing})
+
+	request := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	var response sessionResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+	if recorder.Code != http.StatusOK || response.Data.WorkspaceAccess.State != workspaceAccessUnmanaged || billing.writableChecked {
+		t.Fatalf("unexpected self-hosted access: status=%d access=%#v checked=%v", recorder.Code, response.Data.WorkspaceAccess, billing.writableChecked)
+	}
+}
+
 func TestAuthMeKeepsReadsAvailableWhenWorkspaceAccessCannotLoad(t *testing.T) {
 	service := &fakeAuthService{currentSessionResult: moduleauth.SessionState{
 		User:         moduleauth.User{ID: 1, Email: "owner@acme.test"},

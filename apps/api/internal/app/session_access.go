@@ -28,6 +28,10 @@ type workspaceAccessSnapshot struct {
 	State string `json:"state"`
 }
 
+type billingModeService interface {
+	Hosted() bool
+}
+
 func respondSession(w http.ResponseWriter, r *http.Request, statusCode int, state moduleauth.SessionState, billing billingService) {
 	response := sessionResponse{Data: sessionResponseData{
 		SessionState:    state,
@@ -39,6 +43,9 @@ func respondSession(w http.ResponseWriter, r *http.Request, statusCode int, stat
 
 func loadWorkspaceAccess(r *http.Request, billing billingService, organizationID int64) workspaceAccessSnapshot {
 	if billing == nil {
+		return workspaceAccessSnapshot{State: workspaceAccessUnmanaged}
+	}
+	if mode, ok := billing.(billingModeService); ok && !mode.Hosted() {
 		return workspaceAccessSnapshot{State: workspaceAccessUnmanaged}
 	}
 	err := billing.EnforceWritable(r.Context(), organizationID)

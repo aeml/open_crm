@@ -168,11 +168,13 @@ type PublicChatWidget struct {
 }
 
 type Service struct {
-	pool *pgxpool.Pool
+	pool                 *pgxpool.Pool
+	enforceHostedBilling bool
 }
 
-func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+func NewService(pool *pgxpool.Pool, enforceHostedBilling ...bool) *Service {
+	enforce := len(enforceHostedBilling) > 0 && enforceHostedBilling[0]
+	return &Service{pool: pool, enforceHostedBilling: enforce}
 }
 
 func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]Form, error) {
@@ -594,15 +596,17 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 	`, organizationID).Scan(&planKey, &subscriptionStatus, &trialEndsAt, &providerStatus); err != nil {
 		return SubmissionResult{}, fmt.Errorf("load lead capture subscription policy: %w", err)
 	}
-	if err := modulebilling.CheckWritable(subscriptionStatus, trialEndsAt, providerStatus); err != nil {
-		return SubmissionResult{}, err
-	}
-	var activeContacts int
-	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM contacts WHERE organization_id=$1 AND archived_at IS NULL`, organizationID).Scan(&activeContacts); err != nil {
-		return SubmissionResult{}, fmt.Errorf("load lead capture contact usage: %w", err)
-	}
-	if !modulebilling.CanCreateMore(modulebilling.LimitUsage{Used: activeContacts, Limit: modulebilling.PlanByKey(planKey).ContactLimit}) {
-		return SubmissionResult{}, modulebilling.ErrLimitReached
+	if s.enforceHostedBilling {
+		if err := modulebilling.CheckWritable(subscriptionStatus, trialEndsAt, providerStatus); err != nil {
+			return SubmissionResult{}, err
+		}
+		var activeContacts int
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM contacts WHERE organization_id=$1 AND archived_at IS NULL`, organizationID).Scan(&activeContacts); err != nil {
+			return SubmissionResult{}, fmt.Errorf("load lead capture contact usage: %w", err)
+		}
+		if !modulebilling.CanCreateMore(modulebilling.LimitUsage{Used: activeContacts, Limit: modulebilling.PlanByKey(planKey).ContactLimit}) {
+			return SubmissionResult{}, modulebilling.ErrLimitReached
+		}
 	}
 
 	var contactID int64

@@ -117,6 +117,12 @@ Stripe makes external payment and subscription state authoritative, so do it
 only with explicit approval and an account whose products, tax, portal, and
 operating policy have been reviewed.
 
+Before configuring hosted billing, note the runtime boundary: only
+`BILLING_PROVIDER=stripe` enables managed trials, plan limits, suspension, and
+dunning enforcement. The default fake/self-hosted mode reports `unmanaged`,
+shows local usage without ceilings, and never restricts private writes, public
+lead capture, or tenant workers because of stored hosted lifecycle fields.
+
 1. In one Stripe mode (test first, live only after approval), create recurring
    Prices for each offered plan. Configure the customer portal for the approved
    payment-method, invoice, plan-change, and cancellation behavior. Open CRM

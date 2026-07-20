@@ -31,7 +31,8 @@ const maxBillingWebhookBytes = 1 << 20
 // is inactive. Once a route is inside the centralized policy boundary,
 // unexpected entitlement failures fail closed so a billing outage cannot turn
 // into an authorization bypass. A nil service keeps isolated tests and
-// explicitly unconfigured self-hosted callers backwards compatible.
+// fake/self-hosted services return success without consulting stored hosted
+// lifecycle state, while a nil service keeps isolated callers compatible.
 func enforceActiveSubscription(billing billingService, organizationID int64, w http.ResponseWriter, r *http.Request) bool {
 	if billing == nil {
 		return true
