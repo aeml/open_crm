@@ -70,17 +70,24 @@ func TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres(t *
 	if err != nil {
 		t.Fatalf("create invitation: %v", err)
 	}
-	if created.SetupToken == "" || created.InvitationStatus != moduleusers.InvitationStatusPending || created.InvitationExpiresAt == nil {
+	if created.SetupToken == "" || created.DeliveryKey == "" || created.InvitationStatus != moduleusers.InvitationStatusPending || created.InvitationDeliveryStatus != "pending" || created.InvitationExpiresAt == nil {
 		t.Fatalf("unexpected created invitation: %#v", created)
 	}
 	firstToken := created.SetupToken
-	var persistedHash string
-	if err := pool.QueryRow(ctx, `SELECT password_setup_token_hash FROM users WHERE id=$1`, created.ID).Scan(&persistedHash); err != nil || persistedHash == firstToken {
-		t.Fatalf("raw invitation token was persisted: hash=%q err=%v", persistedHash, err)
+	firstDeliveryKey := created.DeliveryKey
+	var persistedHash, persistedDeliveryHash string
+	if err := pool.QueryRow(ctx, `SELECT password_setup_token_hash, password_setup_delivery_key_hash FROM users WHERE id=$1`, created.ID).Scan(&persistedHash, &persistedDeliveryHash); err != nil || persistedHash == firstToken || persistedDeliveryHash == firstDeliveryKey {
+		t.Fatalf("raw invitation credentials were persisted: token_hash=%q delivery_hash=%q err=%v", persistedHash, persistedDeliveryHash, err)
+	}
+	if _, err := service.RecordInvitationDelivery(ctx, foreignOrganizationID, created.ID, firstDeliveryKey, "sent", "foreign-message"); !errors.Is(err, moduleusers.ErrNotFound) {
+		t.Fatalf("expected foreign delivery update denial, got %v", err)
+	}
+	if status, err := service.RecordInvitationDelivery(ctx, organizationID, created.ID, firstDeliveryKey, "sent", "postmark-invite-created"); err != nil || status != "sent" {
+		t.Fatalf("record invitation delivery: status=%q err=%v", status, err)
 	}
 
 	listed, err := service.ListByOrganization(ctx, organizationID)
-	if err != nil || len(listed) != 2 || listed[1].InvitationStatus != moduleusers.InvitationStatusPending || listed[1].InvitationExpiresAt == nil {
+	if err != nil || len(listed) != 2 || listed[1].InvitationStatus != moduleusers.InvitationStatusPending || listed[1].InvitationDeliveryStatus != "sent" || listed[1].InvitationExpiresAt == nil {
 		t.Fatalf("unexpected listed pending invitation: users=%#v err=%v", listed, err)
 	}
 	if _, err := service.ResendInvitation(ctx, foreignOrganizationID, created.ID, foreignOwnerID); !errors.Is(err, moduleusers.ErrNotFound) {
@@ -101,8 +108,14 @@ func TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres(t *
 	if err != nil {
 		t.Fatalf("resend expired invitation: %v", err)
 	}
-	if resent.SetupToken == "" || resent.SetupToken == firstToken || resent.InvitationStatus != moduleusers.InvitationStatusPending {
+	if resent.SetupToken == "" || resent.SetupToken == firstToken || resent.DeliveryKey == "" || resent.DeliveryKey == firstDeliveryKey || resent.InvitationStatus != moduleusers.InvitationStatusPending || resent.InvitationDeliveryStatus != "pending" {
 		t.Fatalf("expected rotated pending invitation, got %#v", resent)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE users SET password_setup_delivery_status='bounced' WHERE id=$1`, created.ID); err != nil {
+		t.Fatalf("simulate feedback race: %v", err)
+	}
+	if status, err := service.RecordInvitationDelivery(ctx, organizationID, created.ID, resent.DeliveryKey, "sent", "postmark-late-send"); err != nil || status != "bounced" {
+		t.Fatalf("feedback race was not preserved: status=%q err=%v", status, err)
 	}
 	if _, err := service.CompleteSetup(ctx, moduleusers.CompleteSetupInput{Token: firstToken, Password: "Invitee-Secure-Password-31!"}); !errors.Is(err, moduleusers.ErrInvalidSetupToken) {
 		t.Fatalf("expected old setup token rejection, got %v", err)
@@ -152,6 +165,10 @@ func TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres(t *
 	}
 	if _, err := service.RevokeInvitation(ctx, organizationID, created.ID, ownerID); !errors.Is(err, moduleusers.ErrInvitationNotPending) {
 		t.Fatalf("expected accepted-user revoke rejection, got %v", err)
+	}
+	var completedDeliveryHash, completedProviderMessageID *string
+	if err := pool.QueryRow(ctx, `SELECT password_setup_delivery_key_hash, password_setup_provider_message_id FROM users WHERE id=$1`, created.ID).Scan(&completedDeliveryHash, &completedProviderMessageID); err != nil || completedDeliveryHash != nil || completedProviderMessageID != nil {
+		t.Fatalf("accepted invitation retained delivery correlation: hash=%v provider=%v err=%v", completedDeliveryHash, completedProviderMessageID, err)
 	}
 
 	var resendAudits, revokeAudits int

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 
 afterEach(() => {
@@ -50,7 +50,7 @@ describe('settings users route', () => {
         ok: true,
         json: async () => ({
           data: {
-            user: { id: 3, email: 'ops@acme.test', firstName: 'Ops', lastName: 'Lead', role: 'member', setupLink: '/setup-password?token=setup-token-123' }
+            user: { id: 3, email: 'ops@acme.test', firstName: 'Ops', lastName: 'Lead', role: 'member', invitationDeliveryStatus: 'sent', setupLink: '/setup-password?token=setup-token-123' }
           }
         })
       })
@@ -220,7 +220,7 @@ describe('settings users route', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/users\/2\/invitation\/resend$/), expect.objectContaining({ method: 'POST' }))
     })
-    expect(await screen.findByText(/older setup links no longer work/i)).toBeInTheDocument()
+    expect(await screen.findByText(/old links are invalid/i)).toBeInTheDocument()
     expect(screen.getByText('/setup-password?token=new-local-token')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /revoke invitation/i }))
@@ -229,9 +229,32 @@ describe('settings users route', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/users\/2\/invitation$/), expect.objectContaining({ method: 'DELETE' }))
     })
-    expect(await screen.findByText(/every setup link for it is invalid/i)).toBeInTheDocument()
+    expect(await screen.findByText(/all links are invalid/i)).toBeInTheDocument()
     expect(screen.queryByText('/setup-password?token=new-local-token')).not.toBeInTheDocument()
     expect(screen.getByText('Invitation revoked')).toBeInTheDocument()
     expect(screen.getByText('Disabled')).toBeInTheDocument()
+  })
+
+  it('shows provider feedback and blocks resend after a spam complaint', async () => {
+    const owner = { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner', status: 'active', ownedWork: {} }
+    const bouncedInvite = { id: 2, email: 'bounced@acme.test', firstName: 'Bounce', lastName: 'Recipient', role: 'member', status: 'active', ownedWork: {}, invitationStatus: 'pending', invitationExpiresAt: '2026-07-27T12:00:00Z', invitationDeliveryStatus: 'bounced' }
+    const complainedInvite = { id: 3, email: 'complaint@acme.test', firstName: 'Spam', lastName: 'Reporter', role: 'member', status: 'active', ownedWork: {}, invitationStatus: 'pending', invitationExpiresAt: '2026-07-27T12:00:00Z', invitationDeliveryStatus: 'complaint' }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { user: owner, organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' }, membership: { role: 'owner' } } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [owner, bouncedInvite, complainedInvite] } }) })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/users')
+    render(<AppRouter />)
+
+    const bouncedRow = (await screen.findByText('bounced@acme.test')).closest('article')
+    const complaintRow = screen.getByText('complaint@acme.test').closest('article')
+    expect(within(bouncedRow).getByText(/email bounced · resend or revoke/i)).toBeInTheDocument()
+    expect(within(bouncedRow).getByRole('button', { name: /resend invitation/i })).toBeInTheDocument()
+    expect(within(complaintRow).getByText(/spam complaint · email blocked/i)).toBeInTheDocument()
+    expect(within(complaintRow).queryByRole('button', { name: /resend invitation/i })).not.toBeInTheDocument()
+    expect(within(complaintRow).getByRole('button', { name: /revoke invitation/i })).toBeInTheDocument()
   })
 })

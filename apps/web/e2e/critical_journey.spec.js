@@ -71,7 +71,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   expect(firstSetupPath).toMatch(/^\/setup-password\?token=/)
   const memberRow = page.getByRole('listitem').filter({ hasText: invitedEmail })
   await memberRow.getByRole('button', { name: 'Resend invitation', exact: true }).click()
-  await expect(page.getByText('Older setup links no longer work.', { exact: false })).toBeVisible()
+  await expect(page.getByText('old links are invalid', { exact: false })).toBeVisible()
   const resentSetupPath = await page.locator('.inline-note code').textContent()
   expect(resentSetupPath).toMatch(/^\/setup-password\?token=/)
   expect(resentSetupPath).not.toBe(firstSetupPath)

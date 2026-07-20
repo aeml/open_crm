@@ -30,7 +30,7 @@ var (
 type Mailer interface {
 	ProviderName() string
 	PasswordResetLink(string) string
-	SendPasswordReset(context.Context, string, string, string) error
+	SendPasswordReset(context.Context, string, string, string, int64, string) (string, error)
 }
 
 type RequestResult struct {
@@ -105,6 +105,7 @@ func (s *Service) Request(ctx context.Context, email string) (RequestResult, err
 		FROM users
 		WHERE users.email=$1
 		  AND users.email_verified_at IS NOT NULL
+		  AND users.system_email_suppressed_at IS NULL
 		  AND EXISTS (
 		    SELECT 1 FROM organization_memberships membership
 		    WHERE membership.user_id=users.id
@@ -133,6 +134,10 @@ func (s *Service) Request(ctx context.Context, email string) (RequestResult, err
 		return RequestResult{}, fmt.Errorf("generate password reset token: %w", err)
 	}
 	tokenHash := hashToken(token)
+	deliveryKey, err := platformauth.NewSessionToken()
+	if err != nil {
+		return RequestResult{}, fmt.Errorf("generate password reset delivery key: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE users
 		SET password_reset_token_hash=$2,
@@ -140,10 +145,12 @@ func (s *Service) Request(ctx context.Context, email string) (RequestResult, err
 		    password_reset_requested_at=$4,
 		    password_reset_delivery_status='pending',
 		    password_reset_delivery_attempted_at=NULL,
+		    password_reset_delivery_key_hash=$5,
+		    password_reset_provider_message_id=NULL,
 		    password_reset_consumed_at=NULL,
 		    updated_at=NOW()
 		WHERE id=$1
-	`, userID, tokenHash, now.Add(resetTokenTTL), now); err != nil {
+	`, userID, tokenHash, now.Add(resetTokenTTL), now, hashToken(deliveryKey)); err != nil {
 		return RequestResult{}, fmt.Errorf("persist password reset token: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -152,17 +159,24 @@ func (s *Service) Request(ctx context.Context, email string) (RequestResult, err
 
 	deliveryStatus := "failed"
 	deliverySucceeded := false
-	if s.mailer != nil && s.mailer.SendPasswordReset(ctx, email, firstName, token) == nil {
-		deliveryStatus = "sent"
-		deliverySucceeded = true
+	providerMessageID := ""
+	if s.mailer != nil {
+		if sentMessageID, sendErr := s.mailer.SendPasswordReset(ctx, email, firstName, token, userID, deliveryKey); sendErr == nil {
+			deliveryStatus = "sent"
+			deliverySucceeded = true
+			providerMessageID = sentMessageID
+		}
 	}
 	if _, err := s.pool.Exec(ctx, `
 		UPDATE users
 		SET password_reset_delivery_status=$3,
 		    password_reset_delivery_attempted_at=$4,
+		    password_reset_provider_message_id=NULLIF($5, ''),
 		    updated_at=NOW()
 		WHERE id=$1 AND password_reset_token_hash=$2
-	`, userID, tokenHash, deliveryStatus, s.now()); err != nil {
+		  AND password_reset_delivery_key_hash=$6
+		  AND password_reset_delivery_status='pending'
+	`, userID, tokenHash, deliveryStatus, s.now(), strings.TrimSpace(providerMessageID), hashToken(deliveryKey)); err != nil {
 		return RequestResult{}, fmt.Errorf("record password reset delivery: %w", err)
 	}
 
@@ -227,6 +241,8 @@ func (s *Service) Complete(ctx context.Context, input CompleteInput) error {
 		    password_reset_expires_at=NULL,
 		    password_reset_delivery_status='consumed',
 		    password_reset_consumed_at=$3,
+		    password_reset_delivery_key_hash=NULL,
+		    password_reset_provider_message_id=NULL,
 		    password_setup_token_hash=NULL,
 		    password_setup_expires_at=NULL,
 		    updated_at=NOW()

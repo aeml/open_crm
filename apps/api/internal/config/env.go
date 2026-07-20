@@ -23,6 +23,8 @@ type Env struct {
 	PostmarkServerToken        string
 	PostmarkFromEmail          string
 	PostmarkMessageStream      string
+	PostmarkWebhookUsername    string
+	PostmarkWebhookPassword    string
 	CredentialEncryptionKey    string
 	APIBaseURL                 string
 	WebBaseURL                 string
@@ -88,6 +90,8 @@ func Load() Env {
 		PostmarkServerToken:        os.Getenv("POSTMARK_SERVER_TOKEN"),
 		PostmarkFromEmail:          os.Getenv("POSTMARK_FROM_EMAIL"),
 		PostmarkMessageStream:      os.Getenv("POSTMARK_MESSAGE_STREAM"),
+		PostmarkWebhookUsername:    os.Getenv("POSTMARK_WEBHOOK_USERNAME"),
+		PostmarkWebhookPassword:    os.Getenv("POSTMARK_WEBHOOK_PASSWORD"),
 		CredentialEncryptionKey:    os.Getenv("CREDENTIAL_ENCRYPTION_KEY"),
 		APIBaseURL:                 os.Getenv("API_BASE_URL"),
 		WebBaseURL:                 webBaseURL,

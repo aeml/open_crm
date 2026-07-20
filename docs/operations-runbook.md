@@ -22,7 +22,10 @@ backup/restore evidence. It also reports aggregate notification backlog, age,
 reviewed event mix, per-recipient concentration, and retention outcomes without
 tenant, recipient, or record labels. Password-recovery gauges report current
 non-expired links plus stale-pending and latest-failed delivery counts without
-user, address, or tenant labels. The route is hidden with `404` unless
+user, address, or tenant labels. System-email feedback gauges report aggregate
+Postmark bounces, complaints, and authenticated-but-unapplied events in the
+last 24 hours; they likewise contain no user, recipient, provider ID, or tenant
+labels. The route is hidden with `404` unless
 `METRICS_BEARER_TOKEN` contains at least 32 characters; invalid credentials
 receive `401`. The deployment Compose port is loopback-bound, and the token is
 still required because a reverse proxy could otherwise expose the route.
@@ -61,7 +64,7 @@ promtool check config /etc/prometheus/prometheus.yml
 
 The reference rules alert on metrics collection or database failure, sustained
 5xx ratio/p95 latency, queue collection/lag/dead letters/worker errors,
-provider failures, password-recovery delivery health, notification collection/retention/elevated recipient volume,
+provider failures, password-recovery and system-email feedback health, notification collection/retention/elevated recipient volume,
 backup evidence/failure/freshness, and restore-drill failure/freshness. They do
 not choose an Alertmanager destination. Before a
 pilot, the operator must route critical and warning alerts to an approved
@@ -150,25 +153,87 @@ and writes an audit event into every workspace membership.
 User invitations use a one-time link with a seven-day expiry. The raw token is
 never stored and production/Postmark API responses never return the setup link.
 
-1. In **Settings > Users**, inspect the invitation state and expiry. A pending
-   or expired invitation may be resent; resend rotates the token, so every
-   earlier link becomes invalid even if provider delivery was ambiguous.
-2. If delivery reports a failure, correct the system-email provider and use
+1. In **Settings > Users**, inspect the invitation state, delivery state, and
+   expiry. A pending, expired, failed, or bounced invitation may be resent;
+   resend rotates both the setup token and its separate provider-correlation
+   key, so every earlier link and callback becomes stale.
+2. If delivery reports a failure or bounce, verify the address, correct the
+   system-email provider if necessary, and use
    **Resend invitation**. The new token remains valid after a failed attempt so
    an ambiguous provider outcome cannot strand a delivered link; another retry
    safely rotates it again. Never manufacture or retrieve a token with SQL.
-3. Use **Revoke invitation** when the recipient should no longer activate.
+3. A spam complaint globally suppresses future workspace-verification,
+   invitation, and password-reset mail to that user. Do not bypass the
+   suppression or resend. Confirm the intended address/recipient, revoke the
+   invitation, and investigate provider/domain-authentication evidence.
+4. Use **Revoke invitation** when the recipient should no longer activate.
    Review and confirm the explicit warning. Revocation disables the membership,
    clears the token, invalidates sessions, quiesces effects, preserves history,
    and is idempotent. It remains available while hosted writes are suspended.
-4. To invite a revoked user again, reactivate the membership and then resend.
+5. To invite a revoked user again, reactivate the membership and then resend.
    Reactivation alone does not create a usable setup link. Confirm final setup
    succeeds only with the newest link and the audit view records
    `user.invitation_resent` and `user.invitation_revoked` without secrets.
-5. Local fake-provider links are returned only in explicit development/test
+6. Local fake-provider links are returned only in explicit development/test
    mode. Never enable that mode on an internet-facing deployment. Escalate
    repeated delivery failures with request IDs and provider timestamps, without
    asking the recipient to share their link.
+
+### System email feedback
+
+Postmark does not sign webhooks with HMAC. Open CRM therefore exposes its
+feedback callback only when a dedicated Basic Auth username and a password of
+at least 32 characters are configured. Generate distinct credentials, store
+them only in the protected deployment environment and Postmark server webhook
+configuration, and set:
+
+```text
+POSTMARK_WEBHOOK_USERNAME=<dedicated username>
+POSTMARK_WEBHOOK_PASSWORD=<random 32-or-more-character secret>
+```
+
+Create both **Bounce** and **SpamComplaint** webhooks for the configured
+`POSTMARK_MESSAGE_STREAM` at
+`https://<username>:<password>@<API_BASE_URL-host>/api/email/webhooks/postmark`.
+Leave Postmark's message-content inclusion disabled. When either credential is
+absent or the password is too short, the route deliberately returns `404`.
+Wrong credentials receive `403`; never weaken or log them while diagnosing a
+callback.
+
+Provider contract references: [webhook overview](https://postmarkapp.com/developer/webhooks/webhooks-overview),
+[bounce payload](https://postmarkapp.com/developer/webhooks/bounce-webhook), and
+[spam-complaint payload](https://postmarkapp.com/developer/webhooks/spam-complaint-webhook).
+
+Each verification, invitation, and reset delivery carries a version marker,
+purpose, internal IDs, and a separate random delivery key in Postmark metadata.
+Only the key digest is stored. A callback must match the normalized recipient,
+active one-time flow, user, tenant where applicable, and current key before it
+can change delivery state. Events from another application on a shared stream
+are acknowledged but ignored. Exact retries are idempotent; reuse of a provider
+event ID with changed bytes receives `403` so Postmark stops retrying.
+
+1. Confirm `open_crm_system_email_feedback_available` is `1`, then compare
+   `open_crm_system_email_bounces_24h`,
+   `open_crm_system_email_complaints_24h`, and
+   `open_crm_system_email_feedback_unapplied_24h` with bounded request/provider
+   telemetry. The metrics contain no recipient or tenant labels.
+2. For a bounce, inspect the appropriate user-facing/admin recovery state.
+   Verification and invitation can rotate to a fresh attempt; password reset
+   becomes immediately retryable through the generic public form.
+3. Treat every complaint as a compliance incident. The exact attempt is marked,
+   future system email to that user is suppressed, and tenant audit evidence is
+   written. Do not clear suppression or create a replacement token manually.
+4. An unapplied event is durable evidence that authenticated metadata was stale
+   or mismatched. A small count can follow legitimate token rotation; a growing
+   count requires checking stream selection, provider webhook configuration,
+   application release, and timestamps without querying recipient data from the
+   feedback ledger.
+5. Feedback receipts retain only provider/type/event/message IDs, a payload
+   digest, purpose, matched internal IDs, bounded bounce attributes, and times.
+   They never retain recipient, subject, body, raw delivery key, or provider
+   payload. Multi-instance-safe cleanup removes receipts older than 400 days in
+   bounded hourly batches; do not delete recent/unapplied evidence to clear an
+   alert.
 
 ### Suspected account or session compromise
 
@@ -759,8 +824,9 @@ references.
 ## Public Endpoint Abuse Controls
 
 Authentication, workspace bootstrap, password setup, public lead submissions,
-public landing/widget reads, Stripe webhook delivery, unsubscribe links, and
-email open/click tracking use separate fixed-window per-client limits.
+public landing/widget reads, Stripe/Postmark webhook delivery, unsubscribe
+links, and email open/click tracking use separate fixed-window per-client
+limits.
 Rate-limited responses return `429`, a stable `RATE_LIMITED` error code, and
 `Retry-After`. Forwarded client addresses are trusted only when the direct peer
 is a loopback or private reverse proxy.
@@ -771,7 +837,9 @@ shape for missing, verified, throttled, and pending accounts. Provider delivery
 failure leaves the tenant pending with no session or running trial; retry the
 same signup payload/key after correcting the sender, or use resend once its
 cooldown permits. Stripe delivery uses a separate 120/client/minute read-class
-window plus its HMAC and body limit. Never mark a user verified, create a
+window plus its HMAC and body limit. Authenticated Postmark feedback uses its
+own 120/client/minute window plus dedicated Basic Auth and a 64 KiB body limit;
+invalid credentials are rejected before callback parsing. Never mark a user verified, create a
 session, or change a subscription manually.
 
 Migration `079_shared_public_rate_limits.sql` stores each window atomically in

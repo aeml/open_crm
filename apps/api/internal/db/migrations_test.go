@@ -95,6 +95,32 @@ func TestMigrationFilesIncludeUserInvitationLifecycle(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludePostmarkDeliveryFeedback(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "085_postmark_delivery_feedback.sql") {
+		t.Fatal("expected Postmark delivery feedback migration to be registered")
+	}
+	sql := MigrationSQL("085_postmark_delivery_feedback.sql")
+	for _, expected := range []string{
+		"system_email_feedback_events",
+		"email_verification_delivery_key_hash",
+		"password_setup_delivery_key_hash",
+		"password_reset_delivery_key_hash",
+		"system_email_suppressed_at",
+		"payload_sha256",
+		"idx_system_email_feedback_unapplied",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("Postmark delivery feedback migration missing %q", expected)
+		}
+	}
+	if strings.Contains(sql, "recipient_email") || strings.Contains(sql, "payload_json") {
+		t.Fatal("Postmark feedback ledger must not retain recipient addresses or provider payloads")
+	}
+	if class := MigrationDeploymentClass("085_postmark_delivery_feedback.sql"); class != "expand" {
+		t.Fatalf("Postmark delivery feedback deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeCollaboration(t *testing.T) {
 	sql := MigrationSQL("060_collaboration.sql")
 	if sql == "" {

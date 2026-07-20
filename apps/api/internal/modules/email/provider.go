@@ -20,13 +20,20 @@ type Message struct {
 	Subject  string
 	TextBody string
 	HTMLBody string
+	Metadata map[string]string
+}
+
+// SendResult is the provider's durable correlation reference for an accepted
+// message. It contains no recipient or message content.
+type SendResult struct {
+	ProviderMessageID string
 }
 
 // Provider delivers email messages. Implementations must be safe for
 // concurrent use.
 type Provider interface {
 	Name() string
-	Send(ctx context.Context, msg Message) error
+	Send(ctx context.Context, msg Message) (SendResult, error)
 }
 
 type ProviderObserver interface {
@@ -47,15 +54,15 @@ func WithObserver(provider Provider, observer ProviderObserver) Provider {
 
 func (p *observedProvider) Name() string { return p.provider.Name() }
 
-func (p *observedProvider) Send(ctx context.Context, msg Message) error {
+func (p *observedProvider) Send(ctx context.Context, msg Message) (SendResult, error) {
 	startedAt := time.Now()
-	err := p.provider.Send(ctx, msg)
+	result, err := p.provider.Send(ctx, msg)
 	outcome := "success"
 	if err != nil {
 		outcome = "error"
 	}
 	p.observer.ObserveProvider(p.provider.Name(), "send", outcome, time.Since(startedAt))
-	return err
+	return result, err
 }
 
 // FakeProvider records messages in an in-memory outbox and logs them instead
@@ -73,14 +80,14 @@ func NewFakeProvider(logger *slog.Logger) *FakeProvider {
 
 func (p *FakeProvider) Name() string { return "fake" }
 
-func (p *FakeProvider) Send(_ context.Context, msg Message) error {
+func (p *FakeProvider) Send(_ context.Context, msg Message) (SendResult, error) {
 	p.mu.Lock()
 	p.sent = append(p.sent, msg)
 	p.mu.Unlock()
 	if p.logger != nil {
 		p.logger.Info("fake email send")
 	}
-	return nil
+	return SendResult{}, nil
 }
 
 // Sent returns a copy of all messages recorded by the fake provider. Useful
@@ -101,8 +108,8 @@ type unconfiguredProvider struct {
 
 func (p unconfiguredProvider) Name() string { return p.name }
 
-func (p unconfiguredProvider) Send(_ context.Context, _ Message) error {
-	return fmt.Errorf("email provider %q is not configured", p.name)
+func (p unconfiguredProvider) Send(_ context.Context, _ Message) (SendResult, error) {
+	return SendResult{}, fmt.Errorf("email provider %q is not configured", p.name)
 }
 
 // ProviderConfig selects and configures an email provider.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	platformauth "github.com/aeml/open_crm/apps/api/internal/platform/auth"
@@ -38,6 +39,10 @@ func (s *Service) resendInvitationOnce(ctx context.Context, organizationID, user
 	if err != nil {
 		return UserSummary{}, fmt.Errorf("generate invitation token: %w", err)
 	}
+	deliveryKey, err := platformauth.NewSessionToken()
+	if err != nil {
+		return UserSummary{}, fmt.Errorf("generate invitation delivery key: %w", err)
+	}
 	expiresAt := time.Now().Add(setupTokenTTL)
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -52,13 +57,14 @@ func (s *Service) resendInvitationOnce(ctx context.Context, organizationID, user
 	if target.Status != MembershipStatusActive {
 		return UserSummary{}, ErrInvitationInactive
 	}
-	var eligible bool
+	var eligible, suppressed bool
 	if err := tx.QueryRow(ctx, `
-		SELECT email_verified_at IS NULL AND password_setup_consumed_at IS NULL
+		SELECT email_verified_at IS NULL AND password_setup_consumed_at IS NULL,
+		       system_email_suppressed_at IS NOT NULL
 		FROM users
 		WHERE id=$1
 		FOR UPDATE
-	`, userID).Scan(&eligible); err != nil {
+	`, userID).Scan(&eligible, &suppressed); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return UserSummary{}, ErrNotFound
 		}
@@ -67,14 +73,20 @@ func (s *Service) resendInvitationOnce(ctx context.Context, organizationID, user
 	if !eligible {
 		return UserSummary{}, ErrInvitationNotPending
 	}
+	if suppressed {
+		return UserSummary{}, ErrInvitationSuppressed
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE users
 		SET password_setup_token_hash=$2,
 		    password_setup_expires_at=$3,
 		    password_setup_revoked_at=NULL,
+		    password_setup_delivery_status='pending',
+		    password_setup_delivery_key_hash=$4,
+		    password_setup_provider_message_id=NULL,
 		    updated_at=NOW()
 		WHERE id=$1
-	`, userID, hashSetupToken(token), expiresAt); err != nil {
+	`, userID, hashSetupToken(token), expiresAt, hashSetupToken(deliveryKey)); err != nil {
 		return UserSummary{}, fmt.Errorf("rotate invitation token: %w", err)
 	}
 	metadata, err := json.Marshal(map[string]string{"email": target.Email})
@@ -95,6 +107,7 @@ func (s *Service) resendInvitationOnce(ctx context.Context, organizationID, user
 		return UserSummary{}, fmt.Errorf("commit invitation resend: %w", err)
 	}
 	result.SetupToken = token
+	result.DeliveryKey = deliveryKey
 	result.SetupLink = "/setup-password?token=" + token
 	return result, nil
 }
@@ -189,6 +202,8 @@ func (s *Service) revokeInvitationOnce(ctx context.Context, organizationID, user
 		SET password_setup_token_hash=NULL,
 		    password_setup_expires_at=NULL,
 		    password_setup_revoked_at=NOW(),
+		    password_setup_delivery_key_hash=NULL,
+		    password_setup_provider_message_id=NULL,
 		    updated_at=NOW()
 		WHERE id=$1
 	`, userID); err != nil {
@@ -227,4 +242,54 @@ func (s *Service) revokeInvitationOnce(ctx context.Context, organizationID, user
 		return LifecycleResult{}, fmt.Errorf("commit invitation revocation: %w", err)
 	}
 	return result, nil
+}
+
+// RecordInvitationDelivery binds a provider outcome to the exact rotated
+// invitation attempt. A feedback webhook may win the race and move the attempt
+// from pending to bounced/complaint before this post-send write; in that case
+// the provider-derived state is preserved and returned.
+func (s *Service) RecordInvitationDelivery(ctx context.Context, organizationID, userID int64, deliveryKey, status, providerMessageID string) (string, error) {
+	if s == nil || s.pool == nil {
+		return "", fmt.Errorf("users service not configured")
+	}
+	providerMessageID = strings.TrimSpace(providerMessageID)
+	if organizationID <= 0 || userID <= 0 || deliveryKey == "" || len(providerMessageID) > 200 || (status != "sent" && status != "failed") {
+		return "", ErrInvalidStatus
+	}
+	var recorded string
+	err := s.pool.QueryRow(ctx, `
+		UPDATE users
+		SET password_setup_delivery_status=$4,
+		    password_setup_provider_message_id=NULLIF($5, ''),
+		    updated_at=NOW()
+		WHERE id=$2 AND password_setup_delivery_key_hash=$3
+		  AND password_setup_delivery_status='pending'
+		  AND EXISTS (
+		    SELECT 1 FROM organization_memberships membership
+		    WHERE membership.organization_id=$1 AND membership.user_id=users.id
+		  )
+		RETURNING password_setup_delivery_status
+	`, organizationID, userID, hashSetupToken(deliveryKey), status, providerMessageID).Scan(&recorded)
+	if err == nil {
+		return recorded, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("record invitation delivery: %w", err)
+	}
+	err = s.pool.QueryRow(ctx, `
+		SELECT password_setup_delivery_status
+		FROM users
+		WHERE id=$2 AND password_setup_delivery_key_hash=$3
+		  AND EXISTS (
+		    SELECT 1 FROM organization_memberships membership
+		    WHERE membership.organization_id=$1 AND membership.user_id=users.id
+		  )
+	`, organizationID, userID, hashSetupToken(deliveryKey)).Scan(&recorded)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("load invitation delivery: %w", err)
+	}
+	return recorded, nil
 }

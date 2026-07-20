@@ -176,6 +176,10 @@ type RuntimeSnapshot struct {
 	PasswordResetsOutstanding      int64
 	PasswordResetStalePending      int64
 	PasswordResetFailed24h         int64
+	SystemEmailFeedbackAvailable   bool
+	SystemEmailBounces24h          int64
+	SystemEmailComplaints24h       int64
+	SystemEmailUnapplied24h        int64
 	Backup                         BackupStatus
 }
 
@@ -304,6 +308,14 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	fmt.Fprintf(&output, "open_crm_password_reset_delivery_stale_pending %d\n", nonNegative64(snapshot.PasswordResetStalePending))
 	writeHelpType(&output, "open_crm_password_reset_delivery_failed_24h", "Current password-reset recipients whose latest delivery failed during the trailing 24 hours; no user labels are exposed.", "gauge")
 	fmt.Fprintf(&output, "open_crm_password_reset_delivery_failed_24h %d\n", nonNegative64(snapshot.PasswordResetFailed24h))
+	writeHelpType(&output, "open_crm_system_email_feedback_available", "Whether aggregate Postmark system-email feedback was collected successfully.", "gauge")
+	writeBool(&output, "open_crm_system_email_feedback_available", snapshot.SystemEmailFeedbackAvailable)
+	writeHelpType(&output, "open_crm_system_email_bounces_24h", "Postmark bounce callbacks received for Open CRM system email in the trailing 24 hours; no recipient labels are exposed.", "gauge")
+	fmt.Fprintf(&output, "open_crm_system_email_bounces_24h %d\n", nonNegative64(snapshot.SystemEmailBounces24h))
+	writeHelpType(&output, "open_crm_system_email_complaints_24h", "Postmark spam-complaint callbacks received for Open CRM system email in the trailing 24 hours; no recipient labels are exposed.", "gauge")
+	fmt.Fprintf(&output, "open_crm_system_email_complaints_24h %d\n", nonNegative64(snapshot.SystemEmailComplaints24h))
+	writeHelpType(&output, "open_crm_system_email_feedback_unapplied_24h", "Authenticated Open CRM Postmark callbacks that did not match the exact current delivery attempt in the trailing 24 hours.", "gauge")
+	fmt.Fprintf(&output, "open_crm_system_email_feedback_unapplied_24h %d\n", nonNegative64(snapshot.SystemEmailUnapplied24h))
 	writeBackupMetrics(&output, snapshot.Backup)
 	return output.String()
 }

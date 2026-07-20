@@ -48,28 +48,30 @@ func (p *PostmarkProvider) Configured() bool {
 }
 
 type postmarkSendRequest struct {
-	From          string `json:"From"`
-	To            string `json:"To"`
-	Subject       string `json:"Subject"`
-	HtmlBody      string `json:"HtmlBody,omitempty"`
-	TextBody      string `json:"TextBody,omitempty"`
-	MessageStream string `json:"MessageStream,omitempty"`
+	From          string            `json:"From"`
+	To            string            `json:"To"`
+	Subject       string            `json:"Subject"`
+	HtmlBody      string            `json:"HtmlBody,omitempty"`
+	TextBody      string            `json:"TextBody,omitempty"`
+	MessageStream string            `json:"MessageStream,omitempty"`
+	Metadata      map[string]string `json:"Metadata,omitempty"`
 }
 
 type postmarkSendResponse struct {
 	ErrorCode int    `json:"ErrorCode"`
 	Message   string `json:"Message"`
+	MessageID string `json:"MessageID"`
 }
 
-func (p *PostmarkProvider) Send(ctx context.Context, msg Message) error {
+func (p *PostmarkProvider) Send(ctx context.Context, msg Message) (SendResult, error) {
 	if !p.Configured() {
-		return ErrNotConfigured
+		return SendResult{}, ErrNotConfigured
 	}
 
 	to := strings.TrimSpace(msg.To)
 	subject := strings.TrimSpace(msg.Subject)
 	if to == "" || subject == "" {
-		return fmt.Errorf("postmark: missing to/subject")
+		return SendResult{}, fmt.Errorf("postmark: missing to/subject")
 	}
 
 	payload := postmarkSendRequest{
@@ -79,15 +81,16 @@ func (p *PostmarkProvider) Send(ctx context.Context, msg Message) error {
 		HtmlBody:      msg.HTMLBody,
 		TextBody:      msg.TextBody,
 		MessageStream: p.messageStream,
+		Metadata:      msg.Metadata,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("postmark: marshal: %w", err)
+		return SendResult{}, fmt.Errorf("postmark: marshal: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, postmarkSendURL, bytes.NewReader(b))
 	if err != nil {
-		return fmt.Errorf("postmark: request: %w", err)
+		return SendResult{}, fmt.Errorf("postmark: request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
@@ -95,22 +98,26 @@ func (p *PostmarkProvider) Send(ctx context.Context, msg Message) error {
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("postmark: send: %w", err)
+		return SendResult{}, fmt.Errorf("postmark: send: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var pm postmarkSendResponse
+	_ = json.Unmarshal(body, &pm)
 	if resp.StatusCode >= 300 {
-		var pm postmarkSendResponse
-		_ = json.Unmarshal(body, &pm)
 		if strings.TrimSpace(pm.Message) != "" {
-			return fmt.Errorf("postmark: http %d: %s", resp.StatusCode, pm.Message)
+			return SendResult{}, fmt.Errorf("postmark: http %d: %s", resp.StatusCode, pm.Message)
 		}
-		return fmt.Errorf("postmark: http %d", resp.StatusCode)
+		return SendResult{}, fmt.Errorf("postmark: http %d", resp.StatusCode)
+	}
+	messageID := strings.TrimSpace(pm.MessageID)
+	if pm.ErrorCode != 0 || messageID == "" || len(messageID) > 200 {
+		return SendResult{}, fmt.Errorf("postmark: accepted response has invalid or missing message id")
 	}
 
 	if p.logger != nil {
 		p.logger.Info("postmark email sent")
 	}
-	return nil
+	return SendResult{ProviderMessageID: messageID}, nil
 }

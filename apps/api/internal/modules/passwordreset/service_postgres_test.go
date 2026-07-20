@@ -15,9 +15,10 @@ import (
 )
 
 type resetDelivery struct {
-	email     string
-	firstName string
-	token     string
+	email       string
+	firstName   string
+	token       string
+	deliveryKey string
 }
 
 type fakeResetMailer struct {
@@ -29,12 +30,12 @@ func (m *fakeResetMailer) ProviderName() string { return "fake" }
 func (m *fakeResetMailer) PasswordResetLink(token string) string {
 	return "/reset-password?token=" + url.QueryEscape(token)
 }
-func (m *fakeResetMailer) SendPasswordReset(_ context.Context, email, firstName, token string) error {
+func (m *fakeResetMailer) SendPasswordReset(_ context.Context, email, firstName, token string, _ int64, deliveryKey string) (string, error) {
 	if m.fail != nil {
-		return m.fail
+		return "", m.fail
 	}
-	m.deliveries = append(m.deliveries, resetDelivery{email: email, firstName: firstName, token: token})
-	return nil
+	m.deliveries = append(m.deliveries, resetDelivery{email: email, firstName: firstName, token: token, deliveryKey: deliveryKey})
+	return "postmark-reset-test", nil
 }
 
 func TestPasswordResetLifecycleIsPrivateRecoverableAndGlobalAgainstPostgres(t *testing.T) {
@@ -139,16 +140,21 @@ func TestPasswordResetLifecycleIsPrivateRecoverableAndGlobalAgainstPostgres(t *t
 		t.Fatalf("eligible request did not deliver: result=%#v deliveries=%#v err=%v", requested, mailer.deliveries, err)
 	}
 	firstToken := mailer.deliveries[0].token
-	var storedHash, deliveryStatus string
+	firstDeliveryKey := mailer.deliveries[0].deliveryKey
+	if firstDeliveryKey == "" {
+		t.Fatal("password reset delivery key was empty")
+	}
+	var storedHash, deliveryStatus, deliveryKeyHash, providerMessageID string
 	var expiresAt time.Time
 	if err := pool.QueryRow(ctx, `
-		SELECT password_reset_token_hash,password_reset_expires_at,password_reset_delivery_status
+		SELECT password_reset_token_hash,password_reset_expires_at,password_reset_delivery_status,
+		       password_reset_delivery_key_hash,password_reset_provider_message_id
 		FROM users WHERE id=$1
-	`, userID).Scan(&storedHash, &expiresAt, &deliveryStatus); err != nil {
+	`, userID).Scan(&storedHash, &expiresAt, &deliveryStatus, &deliveryKeyHash, &providerMessageID); err != nil {
 		t.Fatalf("load persisted reset state: %v", err)
 	}
-	if storedHash == firstToken || storedHash != hashToken(firstToken) || len(storedHash) != 64 || deliveryStatus != "sent" || !expiresAt.Equal(now.Add(resetTokenTTL)) {
-		t.Fatalf("unsafe or wrong reset state: hash=%q status=%q expires=%v", storedHash, deliveryStatus, expiresAt)
+	if storedHash == firstToken || storedHash != hashToken(firstToken) || len(storedHash) != 64 || deliveryStatus != "sent" || deliveryKeyHash != hashToken(firstDeliveryKey) || deliveryKeyHash == firstDeliveryKey || providerMessageID != "postmark-reset-test" || !expiresAt.Equal(now.Add(resetTokenTTL)) {
+		t.Fatalf("unsafe or wrong reset state: hash=%q status=%q delivery_hash=%q provider=%q expires=%v", storedHash, deliveryStatus, deliveryKeyHash, providerMessageID, expiresAt)
 	}
 	if replayedRequest, err := service.Request(ctx, "owner@example.test"); err != nil || replayedRequest.ResetLink != "" || len(mailer.deliveries) != 1 {
 		t.Fatalf("recipient cooldown resent or exposed a link: result=%#v deliveries=%d err=%v", replayedRequest, len(mailer.deliveries), err)
@@ -172,9 +178,13 @@ func TestPasswordResetLifecycleIsPrivateRecoverableAndGlobalAgainstPostgres(t *t
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE actor_user_id=$1 AND event_type='user.password_reset'`, userID).Scan(&audits); err != nil || audits != 2 {
 		t.Fatalf("reset was not audited in every membership: count=%d err=%v", audits, err)
 	}
-	var tokenHash *string
-	if err := pool.QueryRow(ctx, `SELECT password_reset_token_hash,password_reset_delivery_status FROM users WHERE id=$1`, userID).Scan(&tokenHash, &deliveryStatus); err != nil || tokenHash != nil || deliveryStatus != "consumed" {
-		t.Fatalf("reset token was not consumed: hash=%v status=%q err=%v", tokenHash, deliveryStatus, err)
+	var tokenHash, completedDeliveryKeyHash, completedProviderMessageID *string
+	if err := pool.QueryRow(ctx, `
+		SELECT password_reset_token_hash,password_reset_delivery_status,
+		       password_reset_delivery_key_hash,password_reset_provider_message_id
+		FROM users WHERE id=$1
+	`, userID).Scan(&tokenHash, &deliveryStatus, &completedDeliveryKeyHash, &completedProviderMessageID); err != nil || tokenHash != nil || deliveryStatus != "consumed" || completedDeliveryKeyHash != nil || completedProviderMessageID != nil {
+		t.Fatalf("reset token/correlation was not consumed: hash=%v status=%q delivery=%v provider=%v err=%v", tokenHash, deliveryStatus, completedDeliveryKeyHash, completedProviderMessageID, err)
 	}
 	if err := service.Complete(ctx, CompleteInput{Token: firstToken, Password: "Another-Password-29!"}); !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("consumed reset token returned %v", err)
@@ -193,8 +203,8 @@ func TestPasswordResetLifecycleIsPrivateRecoverableAndGlobalAgainstPostgres(t *t
 	if err != nil || failed.ResetLink != "" || len(mailer.deliveries) != 1 {
 		t.Fatalf("provider failure was not generic: result=%#v deliveries=%d err=%v", failed, len(mailer.deliveries), err)
 	}
-	var failedTokenHash string
-	if err := pool.QueryRow(ctx, `SELECT password_reset_token_hash,password_reset_delivery_status FROM users WHERE id=$1`, userID).Scan(&failedTokenHash, &deliveryStatus); err != nil || deliveryStatus != "failed" {
+	var failedTokenHash, failedDeliveryKeyHash string
+	if err := pool.QueryRow(ctx, `SELECT password_reset_token_hash,password_reset_delivery_status,password_reset_delivery_key_hash FROM users WHERE id=$1`, userID).Scan(&failedTokenHash, &deliveryStatus, &failedDeliveryKeyHash); err != nil || deliveryStatus != "failed" {
 		t.Fatalf("failed delivery was not retained: status=%q err=%v", deliveryStatus, err)
 	}
 	stats, err = service.OperationalStats(ctx)
@@ -208,8 +218,8 @@ func TestPasswordResetLifecycleIsPrivateRecoverableAndGlobalAgainstPostgres(t *t
 		t.Fatalf("failed delivery was not immediately retryable: result=%#v deliveries=%d err=%v", recovered, len(mailer.deliveries), err)
 	}
 	recoveryToken := mailer.deliveries[1].token
-	if hashToken(recoveryToken) == failedTokenHash {
-		t.Fatal("delivery retry did not rotate the reset token")
+	if hashToken(recoveryToken) == failedTokenHash || hashToken(mailer.deliveries[1].deliveryKey) == failedDeliveryKeyHash {
+		t.Fatal("delivery retry did not rotate the reset token and correlation key")
 	}
 	if err := service.Complete(ctx, CompleteInput{Token: recoveryToken, Password: "Recovered-Password-30!"}); err != nil {
 		t.Fatalf("recovered reset completion failed: %v", err)

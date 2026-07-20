@@ -33,6 +33,7 @@ import (
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleduplicates "github.com/aeml/open_crm/apps/api/internal/modules/duplicateoperations"
 	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
+	moduleemailfeedback "github.com/aeml/open_crm/apps/api/internal/modules/emailfeedback"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
 	moduleemailsuppressions "github.com/aeml/open_crm/apps/api/internal/modules/emailsuppressions"
@@ -135,6 +136,7 @@ func main() {
 	var touchpointsService *moduletouchpoints.Service
 	var emailSequencesService *moduleemailsequences.Service
 	var emailSuppressionsService *moduleemailsuppressions.Service
+	var emailFeedbackService *moduleemailfeedback.Service
 	var userEmailService *moduleuseremail.Service
 	var emailMessagesService *moduleemailmessages.Service
 	var mailboxSyncService *modulemailboxsync.Service
@@ -205,6 +207,7 @@ func main() {
 			touchpointsService = moduletouchpoints.NewService(pool)
 			emailSequencesService = moduleemailsequences.NewService(pool)
 			emailSuppressionsService = moduleemailsuppressions.NewService(pool, env.CredentialEncryptionKey)
+			emailFeedbackService = moduleemailfeedback.NewService(pool, env.PostmarkMessageStream)
 			userEmailService = moduleuseremail.NewServiceWithObserver(pool, credentialCipher, metrics)
 			emailMessagesService = moduleemailmessages.NewService(pool)
 			mailboxSyncService = modulemailboxsync.NewServiceWithOAuthRefresh(userEmailService, emailMessagesService, nil, modulemailboxsync.NewOAuthTokenRefresher(modulemailboxsync.OAuthTokenRefresherConfig{
@@ -304,6 +307,9 @@ func main() {
 	if notificationsService != nil {
 		go notificationsService.RunRetentionScheduler(ctx, logger, modulenotifications.DefaultRetentionPolicy(), 0, metrics)
 	}
+	if emailFeedbackService != nil {
+		go emailFeedbackService.RunRetentionScheduler(ctx, logger, 0)
+	}
 
 	checkReadiness := func(ctx context.Context) error {
 		if dbConfigErr != nil {
@@ -358,6 +364,16 @@ func main() {
 			snapshot.PasswordResetStalePending = stats.StalePending
 			snapshot.PasswordResetFailed24h = stats.FailedLast24h
 		}
+		if emailFeedbackService == nil {
+			snapshot.CollectionSuccess = false
+		} else if stats, err := emailFeedbackService.OperationalStats(ctx); err != nil {
+			snapshot.CollectionSuccess = false
+		} else {
+			snapshot.SystemEmailFeedbackAvailable = true
+			snapshot.SystemEmailBounces24h = stats.Bounces24h
+			snapshot.SystemEmailComplaints24h = stats.Complaints24h
+			snapshot.SystemEmailUnapplied24h = stats.Unapplied24h
+		}
 		snapshot.Backup = platformtelemetry.ReadBackupStatus(env.BackupStatusPath)
 		return snapshot
 	}
@@ -398,6 +414,7 @@ func main() {
 		NotificationsService:            notificationsService,
 		BillingService:                  billingService,
 		EmailService:                    emailService,
+		EmailFeedbackService:            emailFeedbackService,
 		EmailTemplatesService:           emailTemplatesService,
 		ProductCatalogService:           productCatalogService,
 		LeadFormsService:                leadFormsService,

@@ -51,6 +51,8 @@ type BootstrapResult struct {
 	VerificationRequired bool   `json:"verificationRequired"`
 	VerificationLink     string `json:"verificationLink,omitempty"`
 	Created              bool   `json:"created"`
+	OrganizationID       int64  `json:"-"`
+	UserID               int64  `json:"-"`
 }
 
 type ResendResult struct {
@@ -60,7 +62,7 @@ type ResendResult struct {
 type VerificationMailer interface {
 	ProviderName() string
 	VerificationLink(token string) string
-	SendEmailVerification(context.Context, string, string, string) error
+	SendEmailVerification(context.Context, string, string, string, int64, int64, string) (string, error)
 }
 
 type Service struct {
@@ -103,13 +105,13 @@ func (s *Service) BootstrapOrganization(ctx context.Context, input BootstrapInpu
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "workspace-bootstrap:"+keyHash); err != nil {
 		return BootstrapResult{}, fmt.Errorf("lock bootstrap request: %w", err)
 	}
-	if existing, token, found, err := s.existingBootstrap(ctx, tx, keyHash, requestHash, input.Password); err != nil {
+	if existing, token, deliveryKey, found, err := s.existingBootstrap(ctx, tx, keyHash, requestHash, input.Password); err != nil {
 		return BootstrapResult{}, err
 	} else if found {
 		if err := tx.Commit(ctx); err != nil {
 			return BootstrapResult{}, fmt.Errorf("commit bootstrap replay: %w", err)
 		}
-		return s.deliverVerification(ctx, existing, token)
+		return s.deliverVerification(ctx, existing, token, deliveryKey)
 	}
 
 	slugBase := slugify(input.OrganizationName)
@@ -143,16 +145,21 @@ func (s *Service) BootstrapOrganization(ctx context.Context, input BootstrapInpu
 	if err != nil {
 		return BootstrapResult{}, fmt.Errorf("generate verification token: %w", err)
 	}
+	deliveryKey, err := platformauth.NewSessionToken()
+	if err != nil {
+		return BootstrapResult{}, fmt.Errorf("generate verification delivery key: %w", err)
+	}
 	var userID int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO users (
 			email, password_hash, first_name, last_name,
 			email_verified_at, email_verification_token_hash,
-			email_verification_expires_at, email_verification_sent_at
+			email_verification_expires_at, email_verification_sent_at,
+			email_verification_delivery_status, email_verification_delivery_key_hash
 		)
-		VALUES ($1, $2, $3, $4, NULL, $5, $6, NULL)
+		VALUES ($1, $2, $3, $4, NULL, $5, $6, NULL, 'pending', $7)
 		RETURNING id
-	`, input.Email, passwordHash, input.FirstName, input.LastName, hashValue(verificationToken), s.now().Add(verificationTokenTTL)).Scan(&userID)
+	`, input.Email, passwordHash, input.FirstName, input.LastName, hashValue(verificationToken), s.now().Add(verificationTokenTTL), hashValue(deliveryKey)).Scan(&userID)
 	if err != nil {
 		return BootstrapResult{}, mapBootstrapInsertError(err)
 	}
@@ -197,44 +204,45 @@ func (s *Service) BootstrapOrganization(ctx context.Context, input BootstrapInpu
 		return BootstrapResult{}, fmt.Errorf("commit bootstrap transaction: %w", err)
 	}
 
-	return s.deliverVerification(ctx, BootstrapResult{Email: input.Email, VerificationRequired: true, Created: true}, verificationToken)
+	return s.deliverVerification(ctx, BootstrapResult{Email: input.Email, VerificationRequired: true, Created: true, OrganizationID: organizationID, UserID: userID}, verificationToken, deliveryKey)
 }
 
-func (s *Service) existingBootstrap(ctx context.Context, tx pgx.Tx, keyHash, requestHash, password string) (BootstrapResult, string, bool, error) {
+func (s *Service) existingBootstrap(ctx context.Context, tx pgx.Tx, keyHash, requestHash, password string) (BootstrapResult, string, string, bool, error) {
 	var storedHash, email, passwordHash string
-	var userID int64
-	var verifiedAt, sentAt *time.Time
+	var organizationID, userID int64
+	var verifiedAt, sentAt, suppressedAt *time.Time
 	err := tx.QueryRow(ctx, `
-		SELECT request.request_sha256, request.user_id, users.email, users.password_hash,
-		       users.email_verified_at, users.email_verification_sent_at
+		SELECT request.request_sha256, request.organization_id, request.user_id, users.email, users.password_hash,
+		       users.email_verified_at, users.email_verification_sent_at, users.system_email_suppressed_at
 		FROM workspace_bootstrap_requests request
 		JOIN users ON users.id = request.user_id
 		WHERE request.idempotency_key_hash = $1
 		FOR UPDATE OF request, users
-	`, keyHash).Scan(&storedHash, &userID, &email, &passwordHash, &verifiedAt, &sentAt)
+	`, keyHash).Scan(&storedHash, &organizationID, &userID, &email, &passwordHash, &verifiedAt, &sentAt, &suppressedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return BootstrapResult{}, "", false, nil
+		return BootstrapResult{}, "", "", false, nil
 	}
 	if err != nil {
-		return BootstrapResult{}, "", false, fmt.Errorf("load bootstrap replay: %w", err)
+		return BootstrapResult{}, "", "", false, fmt.Errorf("load bootstrap replay: %w", err)
 	}
 	if storedHash != requestHash || !platformauth.CheckPassword(passwordHash, password) {
-		return BootstrapResult{}, "", true, ErrIdempotencyConflict
+		return BootstrapResult{}, "", "", true, ErrIdempotencyConflict
 	}
 	if verifiedAt != nil {
-		return BootstrapResult{}, "", true, ErrAlreadyVerified
+		return BootstrapResult{}, "", "", true, ErrAlreadyVerified
 	}
-	if sentAt != nil && sentAt.After(s.now().Add(-verificationCooldown)) {
-		return BootstrapResult{Email: email, VerificationRequired: true, Created: false}, "", true, nil
+	result := BootstrapResult{Email: email, VerificationRequired: true, Created: false, OrganizationID: organizationID, UserID: userID}
+	if suppressedAt != nil || (sentAt != nil && sentAt.After(s.now().Add(-verificationCooldown))) {
+		return result, "", "", true, nil
 	}
-	token, err := s.issueVerificationToken(ctx, tx, userID)
+	token, deliveryKey, err := s.issueVerificationToken(ctx, tx, userID)
 	if err != nil {
-		return BootstrapResult{}, "", true, err
+		return BootstrapResult{}, "", "", true, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE workspace_bootstrap_requests SET updated_at=NOW() WHERE idempotency_key_hash=$1`, keyHash); err != nil {
-		return BootstrapResult{}, "", true, fmt.Errorf("update bootstrap replay: %w", err)
+		return BootstrapResult{}, "", "", true, fmt.Errorf("update bootstrap replay: %w", err)
 	}
-	return BootstrapResult{Email: email, VerificationRequired: true, Created: false}, token, true, nil
+	return result, token, deliveryKey, true, nil
 }
 
 func (s *Service) VerifyEmail(ctx context.Context, token string) (moduleauth.LoginResult, error) {
@@ -281,7 +289,9 @@ func (s *Service) VerifyEmail(ctx context.Context, token string) (moduleauth.Log
 	if _, err := tx.Exec(ctx, `
 		UPDATE users
 		SET email_verified_at=NOW(), email_verification_token_hash=NULL,
-		    email_verification_expires_at=NULL, email_verification_sent_at=NULL, updated_at=NOW()
+		    email_verification_expires_at=NULL, email_verification_sent_at=NULL,
+		    email_verification_delivery_key_hash=NULL,
+		    email_verification_provider_message_id=NULL, updated_at=NOW()
 		WHERE id=$1
 	`, state.User.ID); err != nil {
 		return moduleauth.LoginResult{}, fmt.Errorf("mark email verified: %w", err)
@@ -335,18 +345,18 @@ func (s *Service) ResendVerification(ctx context.Context, email string) (ResendR
 		return ResendResult{}, fmt.Errorf("lock verification resend: %w", err)
 	}
 
-	var userID int64
-	var sentAt *time.Time
+	var organizationID, userID int64
+	var sentAt, suppressedAt *time.Time
 	err = tx.QueryRow(ctx, `
-		SELECT users.id, users.email_verification_sent_at
+		SELECT membership.organization_id, users.id, users.email_verification_sent_at, users.system_email_suppressed_at
 		FROM users
+		JOIN organization_memberships membership ON membership.user_id=users.id
 		WHERE users.email=$1 AND users.email_verified_at IS NULL
-		  AND EXISTS (
-		    SELECT 1 FROM organization_memberships membership
-		    WHERE membership.user_id=users.id AND COALESCE(membership.membership_status, 'active')='active'
-		  )
-		FOR UPDATE
-	`, email).Scan(&userID, &sentAt)
+		  AND COALESCE(membership.membership_status, 'active')='active'
+		ORDER BY membership.id ASC
+		LIMIT 1
+		FOR UPDATE OF users
+	`, email).Scan(&organizationID, &userID, &sentAt, &suppressedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := tx.Commit(ctx); err != nil {
 			return ResendResult{}, fmt.Errorf("commit empty verification resend: %w", err)
@@ -356,66 +366,89 @@ func (s *Service) ResendVerification(ctx context.Context, email string) (ResendR
 	if err != nil {
 		return ResendResult{}, fmt.Errorf("load verification resend: %w", err)
 	}
-	if sentAt != nil && sentAt.After(s.now().Add(-verificationCooldown)) {
+	if suppressedAt != nil || (sentAt != nil && sentAt.After(s.now().Add(-verificationCooldown))) {
 		if err := tx.Commit(ctx); err != nil {
 			return ResendResult{}, fmt.Errorf("commit throttled verification resend: %w", err)
 		}
 		return ResendResult{}, nil
 	}
-	token, err := s.issueVerificationToken(ctx, tx, userID)
+	token, deliveryKey, err := s.issueVerificationToken(ctx, tx, userID)
 	if err != nil {
 		return ResendResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return ResendResult{}, fmt.Errorf("commit verification resend: %w", err)
 	}
-	result, err := s.deliverVerification(ctx, BootstrapResult{Email: email, VerificationRequired: true}, token)
+	result, err := s.deliverVerification(ctx, BootstrapResult{Email: email, VerificationRequired: true, OrganizationID: organizationID, UserID: userID}, token, deliveryKey)
 	if err != nil {
 		return ResendResult{}, err
 	}
 	return ResendResult{VerificationLink: result.VerificationLink}, nil
 }
 
-func (s *Service) issueVerificationToken(ctx context.Context, tx pgx.Tx, userID int64) (string, error) {
+func (s *Service) issueVerificationToken(ctx context.Context, tx pgx.Tx, userID int64) (string, string, error) {
 	token, err := platformauth.NewSessionToken()
 	if err != nil {
-		return "", fmt.Errorf("generate verification token: %w", err)
+		return "", "", fmt.Errorf("generate verification token: %w", err)
+	}
+	deliveryKey, err := platformauth.NewSessionToken()
+	if err != nil {
+		return "", "", fmt.Errorf("generate verification delivery key: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE users
 		SET email_verification_token_hash=$2, email_verification_expires_at=$3,
-		    email_verification_sent_at=NULL, updated_at=NOW()
+		    email_verification_sent_at=NULL,
+		    email_verification_delivery_status='pending',
+		    email_verification_delivery_key_hash=$4,
+		    email_verification_provider_message_id=NULL, updated_at=NOW()
 		WHERE id=$1 AND email_verified_at IS NULL
-	`, userID, hashValue(token), s.now().Add(verificationTokenTTL)); err != nil {
-		return "", fmt.Errorf("persist verification token: %w", err)
+	`, userID, hashValue(token), s.now().Add(verificationTokenTTL), hashValue(deliveryKey)); err != nil {
+		return "", "", fmt.Errorf("persist verification token: %w", err)
 	}
-	return token, nil
+	return token, deliveryKey, nil
 }
 
-func (s *Service) deliverVerification(ctx context.Context, result BootstrapResult, token string) (BootstrapResult, error) {
+func (s *Service) deliverVerification(ctx context.Context, result BootstrapResult, token, deliveryKey string) (BootstrapResult, error) {
 	if token == "" {
 		return result, nil
 	}
 	if s.mailer == nil {
+		_ = s.recordVerificationDelivery(ctx, result.UserID, deliveryKey, "failed", "")
 		return result, ErrVerificationDelivery
 	}
 	var firstName string
 	if err := s.pool.QueryRow(ctx, `SELECT first_name FROM users WHERE email=$1 AND email_verified_at IS NULL`, result.Email).Scan(&firstName); err != nil {
 		return result, fmt.Errorf("load verification recipient: %w", err)
 	}
-	if err := s.mailer.SendEmailVerification(ctx, result.Email, firstName, token); err != nil {
+	providerMessageID, err := s.mailer.SendEmailVerification(ctx, result.Email, firstName, token, result.OrganizationID, result.UserID, deliveryKey)
+	if err != nil {
+		_ = s.recordVerificationDelivery(ctx, result.UserID, deliveryKey, "failed", "")
 		return result, fmt.Errorf("%w: %v", ErrVerificationDelivery, err)
 	}
-	if _, err := s.pool.Exec(ctx, `
-		UPDATE users SET email_verification_sent_at=NOW(), updated_at=NOW()
-		WHERE email=$1 AND email_verification_token_hash=$2 AND email_verified_at IS NULL
-	`, result.Email, hashValue(token)); err != nil {
+	if err := s.recordVerificationDelivery(ctx, result.UserID, deliveryKey, "sent", providerMessageID); err != nil {
 		return result, fmt.Errorf("record verification delivery: %w", err)
 	}
 	if strings.EqualFold(strings.TrimSpace(s.mailer.ProviderName()), "fake") {
 		result.VerificationLink = s.mailer.VerificationLink(token)
 	}
 	return result, nil
+}
+
+func (s *Service) recordVerificationDelivery(ctx context.Context, userID int64, deliveryKey, status, providerMessageID string) error {
+	if userID <= 0 || strings.TrimSpace(deliveryKey) == "" {
+		return ErrVerificationDelivery
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE users
+		SET email_verification_delivery_status=$3,
+		    email_verification_provider_message_id=NULLIF($4, ''),
+		    email_verification_sent_at=CASE WHEN $3='sent' THEN NOW() ELSE email_verification_sent_at END,
+		    updated_at=NOW()
+		WHERE id=$1 AND email_verification_delivery_key_hash=$2
+		  AND email_verification_delivery_status='pending'
+	`, userID, hashValue(deliveryKey), status, strings.TrimSpace(providerMessageID))
+	return err
 }
 
 func normalizeBootstrapInput(input BootstrapInput) BootstrapInput {

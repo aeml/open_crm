@@ -101,6 +101,42 @@ groups:
           summary: Open CRM has failed or stale password-reset email delivery
           runbook: docs/operations-runbook.md#password-recovery
 
+      - alert: OpenCRMSystemEmailFeedbackUnavailable
+        expr: open_crm_system_email_feedback_available != 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM cannot read durable system-email feedback
+          runbook: docs/operations-runbook.md#system-email-feedback
+
+      - alert: OpenCRMSystemEmailComplaints
+        expr: open_crm_system_email_complaints_24h > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: A recipient reported Open CRM system email as spam
+          runbook: docs/operations-runbook.md#system-email-feedback
+
+      - alert: OpenCRMSystemEmailFeedbackUnapplied
+        expr: open_crm_system_email_feedback_unapplied_24h > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Authenticated Postmark feedback did not match an active Open CRM delivery attempt
+          runbook: docs/operations-runbook.md#system-email-feedback
+
+      - alert: OpenCRMSystemEmailBouncesHigh
+        expr: open_crm_system_email_bounces_24h > 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM system email has elevated bounce volume
+          runbook: docs/operations-runbook.md#system-email-feedback
+
       - alert: OpenCRMRateLimitStoreErrors
         expr: sum(increase(open_crm_rate_limit_decisions_total{outcome="error"}[5m])) > 0
         for: 2m

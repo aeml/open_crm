@@ -34,7 +34,7 @@ func TestNewProviderUnknownIsUnconfigured(t *testing.T) {
 	if provider.Name() != "sendgrid" {
 		t.Fatalf("expected provider name sendgrid, got %q", provider.Name())
 	}
-	if err := provider.Send(context.Background(), Message{To: "a@b.test"}); err == nil {
+	if _, err := provider.Send(context.Background(), Message{To: "a@b.test"}); err == nil {
 		t.Errorf("unconfigured provider should reject sends")
 	}
 }
@@ -42,7 +42,7 @@ func TestNewProviderUnknownIsUnconfigured(t *testing.T) {
 func TestObservedProviderRecordsFailureWithoutChangingError(t *testing.T) {
 	observer := &providerObservation{}
 	provider := WithObserver(NewProvider(ProviderConfig{Name: "unconfigured-test"}), observer)
-	err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Hello"})
+	_, err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Hello"})
 	if err == nil {
 		t.Fatal("expected the unconfigured provider to fail")
 	}
@@ -60,14 +60,14 @@ func TestNewProviderPostmark(t *testing.T) {
 	// Without credentials, the postmark provider must refuse to send (fails
 	// loudly) rather than silently behaving like the fake provider.
 	unconfigured := NewProvider(ProviderConfig{Name: "postmark"})
-	if err := unconfigured.Send(context.Background(), Message{To: "a@b.test", Subject: "Hi"}); err == nil {
+	if _, err := unconfigured.Send(context.Background(), Message{To: "a@b.test", Subject: "Hi"}); err == nil {
 		t.Errorf("unconfigured postmark provider should reject sends")
 	}
 }
 
 func TestFakeProviderRecordsSentMessages(t *testing.T) {
 	provider := NewFakeProvider(nil)
-	if err := provider.Send(context.Background(), Message{To: "a@b.test", Subject: "Hi"}); err != nil {
+	if _, err := provider.Send(context.Background(), Message{To: "a@b.test", Subject: "Hi"}); err != nil {
 		t.Fatalf("fake provider should not error: %v", err)
 	}
 	sent := provider.Sent()
@@ -91,7 +91,7 @@ func TestSendUserInviteDeliversActivationLink(t *testing.T) {
 	provider := NewFakeProvider(nil)
 	service := NewService(provider, "Open CRM", "no-reply@example.com", "https://app.example.com")
 
-	if err := service.SendUserInvite(context.Background(), "new@acme.test", "Ada", "secret-token"); err != nil {
+	if _, err := service.SendUserInvite(context.Background(), "new@acme.test", "Ada", "secret-token", 42, 9, "delivery-key-that-is-long-enough-123"); err != nil {
 		t.Fatalf("send invite failed: %v", err)
 	}
 
@@ -112,13 +112,16 @@ func TestSendUserInviteDeliversActivationLink(t *testing.T) {
 	if !strings.Contains(msg.TextBody, "expires in 7 days") || !strings.Contains(msg.TextBody, "not expecting this invitation") {
 		t.Errorf("invite should explain expiry and unsolicited-invite handling: %q", msg.TextBody)
 	}
+	if msg.Metadata["open_crm_system_email"] != "v1" || msg.Metadata["open_crm_purpose"] != PurposeUserInvitation || msg.Metadata["open_crm_organization_id"] != "42" || msg.Metadata["open_crm_user_id"] != "9" || msg.Metadata["open_crm_delivery_key"] != "delivery-key-that-is-long-enough-123" {
+		t.Fatalf("invite metadata omitted safe correlation: %#v", msg.Metadata)
+	}
 }
 
 func TestSendEmailVerificationDeliversExpiringTrialActivationLink(t *testing.T) {
 	provider := NewFakeProvider(nil)
 	service := NewService(provider, "Open CRM", "no-reply@example.com", "https://app.example.com/")
 
-	if err := service.SendEmailVerification(context.Background(), "owner@acme.test", "Morgan", "verify token+1"); err != nil {
+	if _, err := service.SendEmailVerification(context.Background(), "owner@acme.test", "Morgan", "verify token+1", 42, 9, "delivery-key-that-is-long-enough-456"); err != nil {
 		t.Fatalf("send verification failed: %v", err)
 	}
 
@@ -136,13 +139,16 @@ func TestSendEmailVerificationDeliversExpiringTrialActivationLink(t *testing.T) 
 	if !strings.Contains(msg.TextBody, "https://app.example.com/verify-email?token=verify+token%2B1") {
 		t.Fatalf("verification message omitted encoded link: %q", msg.TextBody)
 	}
+	if msg.Metadata["open_crm_system_email"] != "v1" || msg.Metadata["open_crm_purpose"] != PurposeWorkspaceVerification || msg.Metadata["open_crm_organization_id"] != "42" || msg.Metadata["open_crm_user_id"] != "9" || msg.Metadata["open_crm_delivery_key"] != "delivery-key-that-is-long-enough-456" {
+		t.Fatalf("verification metadata omitted exact-attempt correlation: %#v", msg.Metadata)
+	}
 }
 
 func TestSendPasswordResetDeliversExpiringGlobalSignOutLink(t *testing.T) {
 	provider := NewFakeProvider(nil)
 	service := NewService(provider, "Open CRM", "no-reply@example.com", "https://app.example.com/")
 
-	if err := service.SendPasswordReset(context.Background(), "owner@acme.test", "Morgan", "reset token+1"); err != nil {
+	if _, err := service.SendPasswordReset(context.Background(), "owner@acme.test", "Morgan", "reset token+1", 9, "delivery-key-that-is-long-enough-789"); err != nil {
 		t.Fatalf("send password reset failed: %v", err)
 	}
 
@@ -159,5 +165,8 @@ func TestSendPasswordResetDeliversExpiringGlobalSignOutLink(t *testing.T) {
 	}
 	if !strings.Contains(msg.TextBody, "https://app.example.com/reset-password?token=reset+token%2B1") {
 		t.Fatalf("password reset message omitted encoded link: %q", msg.TextBody)
+	}
+	if msg.Metadata["open_crm_system_email"] != "v1" || msg.Metadata["open_crm_purpose"] != PurposePasswordReset || msg.Metadata["open_crm_user_id"] != "9" || msg.Metadata["open_crm_delivery_key"] != "delivery-key-that-is-long-enough-789" || msg.Metadata["open_crm_organization_id"] != "" {
+		t.Fatalf("password reset metadata omitted global exact-attempt correlation: %#v", msg.Metadata)
 	}
 }

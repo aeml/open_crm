@@ -29,7 +29,7 @@ func TestResendInvitationScopesDeliveryAndNeverSerializesRawToken(t *testing.T) 
 	users := &fakeUsersService{resendResult: moduleusers.UserSummary{
 		ID: 9, Email: "invitee@acme.test", FirstName: "Jamie", Role: "member",
 		InvitationStatus: moduleusers.InvitationStatusPending, InvitationExpiresAt: &expiresAt,
-		SetupToken: "raw-setup-token", SetupLink: "/setup-password?token=raw-setup-token",
+		SetupToken: "raw-setup-token", DeliveryKey: "delivery-key-123456789012345678901234", SetupLink: "/setup-password?token=raw-setup-token",
 	}}
 	mailer := &fakeEmailService{}
 	request := httptest.NewRequest(http.MethodPost, "/api/users/9/invitation/resend", nil)
@@ -56,7 +56,7 @@ func TestResendInvitationScopesDeliveryAndNeverSerializesRawToken(t *testing.T) 
 }
 
 func TestResendInvitationHidesLinkInProductionAndSurfacesDeliveryFailure(t *testing.T) {
-	result := moduleusers.UserSummary{ID: 9, Email: "invitee@acme.test", FirstName: "Jamie", SetupToken: "secret", SetupLink: "/setup-password?token=secret"}
+	result := moduleusers.UserSummary{ID: 9, Email: "invitee@acme.test", FirstName: "Jamie", SetupToken: "secret", DeliveryKey: "delivery-key-123456789012345678901234", SetupLink: "/setup-password?token=secret"}
 	for _, test := range []struct {
 		name       string
 		mailer     *fakeEmailService
@@ -113,9 +113,11 @@ func TestInvitationHandlersMapStableConflictsAndNotFound(t *testing.T) {
 		path       string
 		users      *fakeUsersService
 		wantStatus int
+		wantCode   string
 	}{
 		{name: "resend inactive", method: http.MethodPost, path: "/api/users/9/invitation/resend", users: &fakeUsersService{resendErr: moduleusers.ErrInvitationInactive}, wantStatus: http.StatusConflict},
 		{name: "resend accepted", method: http.MethodPost, path: "/api/users/9/invitation/resend", users: &fakeUsersService{resendErr: moduleusers.ErrInvitationNotPending}, wantStatus: http.StatusConflict},
+		{name: "resend complaint suppressed", method: http.MethodPost, path: "/api/users/9/invitation/resend", users: &fakeUsersService{resendErr: moduleusers.ErrInvitationSuppressed}, wantStatus: http.StatusConflict, wantCode: "INVITATION_DELIVERY_BLOCKED"},
 		{name: "revoke accepted", method: http.MethodDelete, path: "/api/users/9/invitation", users: &fakeUsersService{revokeErr: moduleusers.ErrInvitationNotPending}, wantStatus: http.StatusConflict},
 		{name: "foreign target", method: http.MethodDelete, path: "/api/users/9/invitation", users: &fakeUsersService{revokeErr: moduleusers.ErrNotFound}, wantStatus: http.StatusNotFound},
 	} {
@@ -126,6 +128,9 @@ func TestInvitationHandlersMapStableConflictsAndNotFound(t *testing.T) {
 			invitationServer(config.Env{}, "admin", test.users, &fakeEmailService{}).ServeHTTP(recorder, request)
 			if recorder.Code != test.wantStatus {
 				t.Fatalf("expected status %d, got %d: %s", test.wantStatus, recorder.Code, recorder.Body.String())
+			}
+			if test.wantCode != "" && !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"`+test.wantCode+`"`)) {
+				t.Fatalf("expected code %q, got %s", test.wantCode, recorder.Body.String())
 			}
 		})
 	}

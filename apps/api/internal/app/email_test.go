@@ -13,12 +13,16 @@ import (
 )
 
 type fakeEmailService struct {
-	providerName  string
-	called        bool
-	lastTo        string
-	lastFirstName string
-	lastToken     string
-	err           error
+	providerName       string
+	called             bool
+	lastTo             string
+	lastFirstName      string
+	lastToken          string
+	lastDeliveryKey    string
+	lastOrganizationID int64
+	lastUserID         int64
+	providerMessageID  string
+	err                error
 
 	sendCalled  bool
 	sendTo      string
@@ -34,12 +38,18 @@ func (f *fakeEmailService) ProviderName() string {
 	return f.providerName
 }
 
-func (f *fakeEmailService) SendUserInvite(_ context.Context, to, firstName, setupToken string) error {
+func (f *fakeEmailService) SendUserInvite(_ context.Context, to, firstName, setupToken string, organizationID, userID int64, deliveryKey string) (string, error) {
 	f.called = true
 	f.lastTo = to
 	f.lastFirstName = firstName
 	f.lastToken = setupToken
-	return f.err
+	f.lastOrganizationID = organizationID
+	f.lastUserID = userID
+	f.lastDeliveryKey = deliveryKey
+	if f.providerMessageID == "" {
+		f.providerMessageID = "provider-message-test"
+	}
+	return f.providerMessageID, f.err
 }
 
 func (f *fakeEmailService) Send(_ context.Context, to, subject, body string) error {
@@ -52,7 +62,7 @@ func (f *fakeEmailService) Send(_ context.Context, to, subject, body string) err
 
 func TestCreateUserSendsInviteEmail(t *testing.T) {
 	usersService := &fakeUsersService{
-		createResult: moduleusers.UserSummary{ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin", SetupToken: "setup-token-123"},
+		createResult: moduleusers.UserSummary{ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin", SetupToken: "setup-token-123", DeliveryKey: "delivery-key-123456789012345678901234"},
 	}
 	mailer := &fakeEmailService{}
 	server := NewServer(config.Env{}, Dependencies{
@@ -88,7 +98,7 @@ func TestCreateUserSendsInviteEmail(t *testing.T) {
 
 func TestCreateUserSucceedsWhenEmailServiceUnset(t *testing.T) {
 	usersService := &fakeUsersService{
-		createResult: moduleusers.UserSummary{ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin", SetupToken: "setup-token-123"},
+		createResult: moduleusers.UserSummary{ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin", SetupToken: "setup-token-123", DeliveryKey: "delivery-key-123456789012345678901234"},
 	}
 	server := NewServer(config.Env{}, Dependencies{
 		AuthService: &fakeAuthService{
@@ -122,6 +132,7 @@ func TestCreateUserHidesSetupLinkWithProductionProvider(t *testing.T) {
 		createResult: moduleusers.UserSummary{
 			ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin",
 			SetupToken: "setup-token-123", SetupLink: "/setup-password?token=setup-token-123",
+			DeliveryKey: "delivery-key-123456789012345678901234",
 		},
 	}
 	server := NewServer(config.Env{GOEnv: "production", AllowedOrigins: []string{"https://crm.example.test"}}, Dependencies{

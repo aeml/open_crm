@@ -26,6 +26,12 @@ const workLabels = [
   ['calendarEvents', 'future meetings']
 ]
 
+const deliverySummaries = {
+  complaint: 'Spam complaint · email blocked',
+  bounced: 'Email bounced · resend or revoke',
+  failed: 'Email failed · resend or revoke'
+}
+
 function ownedWorkSummary(ownedWork = {}) {
   const items = workLabels
     .filter(([key]) => Number(ownedWork[key] || 0) > 0)
@@ -36,6 +42,8 @@ function ownedWorkSummary(ownedWork = {}) {
 function invitationSummary(user) {
   const expiresAt = user.invitationExpiresAt ? new Date(user.invitationExpiresAt) : null
   const expires = expiresAt && !Number.isNaN(expiresAt.getTime()) ? expiresAt.toLocaleString() : 'an unknown time'
+  const delivery = deliverySummaries[user.invitationDeliveryStatus]
+  if (delivery) return delivery
   switch (user.invitationStatus) {
     case 'pending':
       return `Invitation pending · expires ${expires}`
@@ -51,7 +59,6 @@ function invitationSummary(user) {
 export function SettingsUsersRoute() {
   const { session, canAdminister: canManageUsers } = useAuth()
   usePageTitle('Users')
-  const role = session?.membership?.role || ''
   const [users, setUsers] = useState([])
   const [error, setError] = useState('')
   const [form, setForm] = useState(emptyForm)
@@ -109,9 +116,7 @@ export function SettingsUsersRoute() {
       const created = await createOrganizationUser(form)
       setUsers((current) => [...current, created])
       setLatestSetupLink(created?.setupLink || '')
-      setLifecycleStatus(created.invitationDeliveryStatus === 'failed'
-        ? `${created.email} was invited, but email delivery failed. Use Resend invitation to retry.`
-        : `${created.email} was invited and the setup email was sent. Their one-time link expires in seven days.`)
+      setLifecycleStatus(`Invited ${created.email}; review delivery below.`)
       setForm(emptyForm)
     } catch (submitError) {
       setError(submitError.message || 'Unable to create user.')
@@ -129,7 +134,7 @@ export function SettingsUsersRoute() {
       const updated = await resendOrganizationUserInvitation(user.id)
       setUsers((current) => current.map((entry) => (entry.id === user.id ? updated : entry)))
       setLatestSetupLink(updated?.setupLink || '')
-      setLifecycleStatus(`A new invitation was sent to ${user.email}. Older setup links no longer work.`)
+      setLifecycleStatus(`Invitation sent to ${user.email}; old links are invalid.`)
     } catch (submitError) {
       setError(submitError.message || 'Unable to resend invitation.')
     } finally {
@@ -145,7 +150,7 @@ export function SettingsUsersRoute() {
     try {
       const result = await revokeOrganizationUserInvitation(user.id)
       setUsers((current) => current.map((entry) => (entry.id === user.id ? result.user : entry)))
-      setLifecycleStatus(`The invitation for ${user.email} was revoked. Every setup link for it is invalid.`)
+      setLifecycleStatus(`Invitation revoked for ${user.email}; all links are invalid.`)
       setRevokingUserId(0)
     } catch (submitError) {
       setError(submitError.message || 'Unable to revoke invitation.')
@@ -251,9 +256,11 @@ export function SettingsUsersRoute() {
                     </Button>
                   ) : canManageInvitation && !isRevoking ? (
                     <div className="button-row">
-                      <Button className="button-secondary" type="button" onClick={() => handleResendInvitation(user)} disabled={resendingUserId === user.id}>
-                        {resendingUserId === user.id ? 'Resending…' : 'Resend invitation'}
-                      </Button>
+                      {user.invitationDeliveryStatus !== 'complaint' ? (
+                        <Button className="button-secondary" type="button" onClick={() => handleResendInvitation(user)} disabled={resendingUserId === user.id}>
+                          {resendingUserId === user.id ? 'Resending…' : 'Resend invitation'}
+                        </Button>
+                      ) : null}
                       <Button className="button-danger" type="button" onClick={() => { setRevokingUserId(user.id); setLifecycleStatus('') }} disabled={resendingUserId === user.id}>
                         Revoke invitation
                       </Button>

@@ -321,9 +321,16 @@ func handleCreateUser(env config.Env, auth authService, users usersService, audi
 		},
 	})
 
-	created.InvitationDeliveryStatus = "sent"
-	if err := sendUserInviteEmail(r, mailer, created.Email, created.FirstName, created.SetupToken); err != nil {
+	providerMessageID, sendErr := sendUserInviteEmail(r, mailer, created.Email, created.FirstName, created.SetupToken, state.Organization.ID, created.ID, created.DeliveryKey)
+	deliveryStatus := "sent"
+	if sendErr != nil {
+		deliveryStatus = "failed"
+	}
+	recordedStatus, recordErr := users.RecordInvitationDelivery(r.Context(), state.Organization.ID, created.ID, created.DeliveryKey, deliveryStatus, providerMessageID)
+	if recordErr != nil {
 		created.InvitationDeliveryStatus = "failed"
+	} else {
+		created.InvitationDeliveryStatus = recordedStatus
 	}
 	hideNonLocalInviteLink(env, mailer, &created)
 

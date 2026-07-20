@@ -15,9 +15,10 @@ import (
 )
 
 type recordedVerification struct {
-	email     string
-	firstName string
-	token     string
+	email       string
+	firstName   string
+	token       string
+	deliveryKey string
 }
 
 type fakeVerificationMailer struct {
@@ -29,12 +30,12 @@ func (m *fakeVerificationMailer) ProviderName() string { return "fake" }
 func (m *fakeVerificationMailer) VerificationLink(token string) string {
 	return "/verify-email?token=" + token
 }
-func (m *fakeVerificationMailer) SendEmailVerification(_ context.Context, email, firstName, token string) error {
+func (m *fakeVerificationMailer) SendEmailVerification(_ context.Context, email, firstName, token string, _, _ int64, deliveryKey string) (string, error) {
 	if m.fail != nil {
-		return m.fail
+		return "", m.fail
 	}
-	m.messages = append(m.messages, recordedVerification{email: email, firstName: firstName, token: token})
-	return nil
+	m.messages = append(m.messages, recordedVerification{email: email, firstName: firstName, token: token, deliveryKey: deliveryKey})
+	return "postmark-verification-test", nil
 }
 
 func TestVerifiedWorkspaceSignupIsIdempotentAndStartsTrialAfterVerificationAgainstPostgres(t *testing.T) {
@@ -76,10 +77,11 @@ func TestVerifiedWorkspaceSignupIsIdempotentAndStartsTrialAfterVerificationAgain
 	if err != nil || !created.Created || !created.VerificationRequired || created.Email != "owner@northstar.test" || !strings.HasPrefix(created.VerificationLink, "/verify-email?token=") {
 		t.Fatalf("unexpected verified-signup result: result=%#v err=%v", created, err)
 	}
-	if len(mailer.messages) != 1 || mailer.messages[0].email != "owner@northstar.test" || mailer.messages[0].firstName != "Morgan" || mailer.messages[0].token == "" {
+	if len(mailer.messages) != 1 || mailer.messages[0].email != "owner@northstar.test" || mailer.messages[0].firstName != "Morgan" || mailer.messages[0].token == "" || mailer.messages[0].deliveryKey == "" {
 		t.Fatalf("unexpected verification delivery: %#v", mailer.messages)
 	}
 	verificationToken := mailer.messages[0].token
+	verificationDeliveryKey := mailer.messages[0].deliveryKey
 
 	var organizationID, userID int64
 	var slug, status string
@@ -95,6 +97,13 @@ func TestVerifiedWorkspaceSignupIsIdempotentAndStartsTrialAfterVerificationAgain
 	}
 	if slug != "northstar-logistics" || status != "trialing" || trialStartedAt != nil || trialEndsAt != nil || verifiedAt != nil {
 		t.Fatalf("unverified workspace started early: slug=%q status=%q start=%v end=%v verified=%v", slug, status, trialStartedAt, trialEndsAt, verifiedAt)
+	}
+	var deliveryStatus, deliveryKeyHash, providerMessageID string
+	if err := pool.QueryRow(ctx, `
+		SELECT email_verification_delivery_status, email_verification_delivery_key_hash, email_verification_provider_message_id
+		FROM users WHERE id=$1
+	`, userID).Scan(&deliveryStatus, &deliveryKeyHash, &providerMessageID); err != nil || deliveryStatus != "sent" || deliveryKeyHash != hashValue(verificationDeliveryKey) || deliveryKeyHash == verificationDeliveryKey || providerMessageID != "postmark-verification-test" {
+		t.Fatalf("unsafe or wrong verification delivery state: status=%q key=%q provider=%q err=%v", deliveryStatus, deliveryKeyHash, providerMessageID, err)
 	}
 	var sessions int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM sessions WHERE user_id=$1`, userID).Scan(&sessions); err != nil || sessions != 0 {
@@ -151,6 +160,10 @@ func TestVerifiedWorkspaceSignupIsIdempotentAndStartsTrialAfterVerificationAgain
 	if _, err := service.VerifyEmail(ctx, verificationToken); !errors.Is(err, ErrInvalidVerificationToken) {
 		t.Fatalf("consumed verification token returned %v", err)
 	}
+	var completedDeliveryKeyHash, completedProviderMessageID *string
+	if err := pool.QueryRow(ctx, `SELECT email_verification_delivery_key_hash,email_verification_provider_message_id FROM users WHERE id=$1`, userID).Scan(&completedDeliveryKeyHash, &completedProviderMessageID); err != nil || completedDeliveryKeyHash != nil || completedProviderMessageID != nil {
+		t.Fatalf("verified user retained delivery correlation: key=%v provider=%v err=%v", completedDeliveryKeyHash, completedProviderMessageID, err)
+	}
 	if _, err := auth.CurrentSession(ctx, verified.SessionToken); err != nil {
 		t.Fatalf("verified session was not usable: %v", err)
 	}
@@ -185,7 +198,7 @@ func TestVerifiedWorkspaceSignupIsIdempotentAndStartsTrialAfterVerificationAgain
 		t.Fatalf("age resend cooldown: %v", err)
 	}
 	resent, err := service.ResendVerification(ctx, second.Email)
-	if err != nil || resent.VerificationLink == "" || len(mailer.messages) != beforeResend+1 || mailer.messages[len(mailer.messages)-1].token == verificationToken {
+	if err != nil || resent.VerificationLink == "" || len(mailer.messages) != beforeResend+1 || mailer.messages[len(mailer.messages)-1].token == verificationToken || mailer.messages[len(mailer.messages)-1].deliveryKey == "" || mailer.messages[len(mailer.messages)-1].deliveryKey == verificationDeliveryKey {
 		t.Fatalf("verification resend did not rotate and deliver: result=%#v deliveries=%d err=%v", resent, len(mailer.messages), err)
 	}
 }

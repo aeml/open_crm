@@ -13,6 +13,8 @@ func TestLoadUsesProductionPortAndAllowedOrigins(t *testing.T) {
 	t.Setenv("STRIPE_SECRET_KEY", "sk_test_config")
 	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_config")
 	t.Setenv("STRIPE_PRICE_PRO", "price_config_pro")
+	t.Setenv("POSTMARK_WEBHOOK_USERNAME", "postmark-open-crm")
+	t.Setenv("POSTMARK_WEBHOOK_PASSWORD", "postmark-feedback-secret")
 
 	env := Load()
 
@@ -26,6 +28,9 @@ func TestLoadUsesProductionPortAndAllowedOrigins(t *testing.T) {
 	}
 	if env.BillingProvider != "stripe" || env.StripeSecretKey != "sk_test_config" || env.StripeWebhookSecret != "whsec_config" || env.StripePricePro != "price_config_pro" {
 		t.Fatalf("Stripe configuration did not load: %#v", env)
+	}
+	if env.PostmarkWebhookUsername != "postmark-open-crm" || env.PostmarkWebhookPassword != "postmark-feedback-secret" {
+		t.Fatalf("Postmark webhook configuration did not load: %#v", env)
 	}
 }
 

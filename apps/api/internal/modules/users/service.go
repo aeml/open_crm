@@ -26,6 +26,7 @@ var (
 	ErrInvalidReassignment   = errors.New("reassignment user must be another active organization member")
 	ErrInvitationNotPending  = errors.New("user does not have a pending invitation")
 	ErrInvitationInactive    = errors.New("invited membership is disabled")
+	ErrInvitationSuppressed  = errors.New("invitation recipient suppressed system email")
 )
 
 const setupTokenTTL = 7 * 24 * time.Hour
@@ -67,6 +68,7 @@ type UserSummary struct {
 	InvitationExpiresAt      *time.Time `json:"invitationExpiresAt,omitempty"`
 	InvitationDeliveryStatus string     `json:"invitationDeliveryStatus,omitempty"`
 	SetupToken               string     `json:"-"`
+	DeliveryKey              string     `json:"-"`
 	SetupLink                string     `json:"setupLink,omitempty"`
 }
 
@@ -143,7 +145,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 				WHEN u.password_setup_token_hash IS NOT NULL THEN 'pending'
 				ELSE ''
 			END AS invitation_status,
-			u.password_setup_expires_at
+			u.password_setup_expires_at,
+			COALESCE(u.password_setup_delivery_status, '')
 		FROM organization_memberships om
 		JOIN users u ON u.id = om.user_id
 		WHERE om.organization_id = $1
@@ -163,7 +166,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 			&entry.OwnedWork.Contacts, &entry.OwnedWork.Companies, &entry.OwnedWork.Deals,
 			&entry.OwnedWork.Tasks, &entry.OwnedWork.SharedInbox, &entry.OwnedWork.LeadRoutingRules,
 			&entry.OwnedWork.CalendarEvents, &entry.SetupPending,
-			&entry.InvitationStatus, &entry.InvitationExpiresAt,
+			&entry.InvitationStatus, &entry.InvitationExpiresAt, &entry.InvitationDeliveryStatus,
 		); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
@@ -208,6 +211,10 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 		return UserSummary{}, fmt.Errorf("generate setup token: %w", err)
 	}
 	setupExpiresAt := time.Now().Add(setupTokenTTL)
+	deliveryKey, err := platformauth.NewSessionToken()
+	if err != nil {
+		return UserSummary{}, fmt.Errorf("generate invitation delivery key: %w", err)
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -220,10 +227,13 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 
 	var userID int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, first_name, last_name, password_setup_token_hash, password_setup_expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO users (
+			email, password_hash, first_name, last_name, password_setup_token_hash, password_setup_expires_at,
+			password_setup_delivery_status, password_setup_delivery_key_hash
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
 		RETURNING id
-	`, input.Email, passwordHash, input.FirstName, input.LastName, hashSetupToken(setupToken), setupExpiresAt).Scan(&userID)
+	`, input.Email, passwordHash, input.FirstName, input.LastName, hashSetupToken(setupToken), setupExpiresAt, hashSetupToken(deliveryKey)).Scan(&userID)
 	if err != nil {
 		return UserSummary{}, fmt.Errorf("insert user: %w", err)
 	}
@@ -254,6 +264,7 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 		InvitationExpiresAt:      &setupExpiresAt,
 		InvitationDeliveryStatus: "pending",
 		SetupToken:               setupToken,
+		DeliveryKey:              deliveryKey,
 		SetupLink:                "/setup-password?token=" + setupToken,
 	}, nil
 }
@@ -288,6 +299,8 @@ func (s *Service) CompleteSetup(ctx context.Context, input CompleteSetupInput) (
 			    password_setup_expires_at = NULL,
 			    password_setup_consumed_at = NOW(),
 			    password_setup_revoked_at = NULL,
+			    password_setup_delivery_key_hash = NULL,
+			    password_setup_provider_message_id = NULL,
 			    updated_at = NOW()
 			WHERE password_setup_token_hash = $1
 			  AND password_setup_expires_at > NOW()

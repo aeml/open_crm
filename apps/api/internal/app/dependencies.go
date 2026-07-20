@@ -20,6 +20,7 @@ import (
 	moduledataquality "github.com/aeml/open_crm/apps/api/internal/modules/dataquality"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleduplicates "github.com/aeml/open_crm/apps/api/internal/modules/duplicateoperations"
+	moduleemailfeedback "github.com/aeml/open_crm/apps/api/internal/modules/emailfeedback"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
 	moduleemailsuppressions "github.com/aeml/open_crm/apps/api/internal/modules/emailsuppressions"
@@ -64,6 +65,7 @@ type usersService interface {
 	ListByOrganization(context.Context, int64) ([]moduleusers.UserSummary, error)
 	CreateForOrganization(context.Context, int64, moduleusers.CreateUserInput) (moduleusers.UserSummary, error)
 	ResendInvitation(context.Context, int64, int64, int64) (moduleusers.UserSummary, error)
+	RecordInvitationDelivery(context.Context, int64, int64, string, string, string) (string, error)
 	RevokeInvitation(context.Context, int64, int64, int64) (moduleusers.LifecycleResult, error)
 	UpdateRole(context.Context, int64, int64, int64, string) (moduleusers.UserSummary, error)
 	SetStatus(context.Context, int64, int64, int64, moduleusers.SetStatusInput) (moduleusers.LifecycleResult, error)
@@ -257,8 +259,12 @@ type notificationsService interface {
 
 type emailService interface {
 	ProviderName() string
-	SendUserInvite(ctx context.Context, to, firstName, setupToken string) error
+	SendUserInvite(ctx context.Context, to, firstName, setupToken string, organizationID, userID int64, deliveryKey string) (string, error)
 	Send(ctx context.Context, to, subject, body string) error
+}
+
+type emailFeedbackService interface {
+	ProcessPostmark(context.Context, []byte) (moduleemailfeedback.Result, error)
 }
 
 type emailTemplatesService interface {
@@ -429,6 +435,7 @@ type Dependencies struct {
 	NotificationsService            notificationsService
 	BillingService                  billingService
 	EmailService                    emailService
+	EmailFeedbackService            emailFeedbackService
 	EmailTemplatesService           emailTemplatesService
 	ProductCatalogService           productCatalogService
 	LeadFormsService                leadFormsService

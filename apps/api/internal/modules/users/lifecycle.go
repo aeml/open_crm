@@ -488,7 +488,8 @@ func loadUserSummary(ctx context.Context, query lifecycleQueryRower, organizatio
 				WHEN u.password_setup_token_hash IS NOT NULL THEN 'pending'
 				ELSE ''
 			END,
-			u.password_setup_expires_at
+			u.password_setup_expires_at,
+			COALESCE(u.password_setup_delivery_status, '')
 		FROM organization_memberships om
 		JOIN users u ON u.id = om.user_id
 		WHERE om.organization_id = $1 AND om.user_id = $2
@@ -498,7 +499,7 @@ func loadUserSummary(ctx context.Context, query lifecycleQueryRower, organizatio
 		&user.OwnedWork.Contacts, &user.OwnedWork.Companies, &user.OwnedWork.Deals,
 		&user.OwnedWork.Tasks, &user.OwnedWork.SharedInbox, &user.OwnedWork.LeadRoutingRules,
 		&user.OwnedWork.CalendarEvents, &user.SetupPending,
-		&user.InvitationStatus, &user.InvitationExpiresAt,
+		&user.InvitationStatus, &user.InvitationExpiresAt, &user.InvitationDeliveryStatus,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return UserSummary{}, ErrNotFound

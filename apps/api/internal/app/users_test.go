@@ -15,38 +15,40 @@ import (
 )
 
 type fakeUsersService struct {
-	listResult        []moduleusers.UserSummary
-	listErr           error
-	createResult      moduleusers.UserSummary
-	createErr         error
-	resendResult      moduleusers.UserSummary
-	resendErr         error
-	revokeResult      moduleusers.LifecycleResult
-	revokeErr         error
-	setupErr          error
-	lastListOrgID     int64
-	lastCreateOrgID   int64
-	lastRoleOrgID     int64
-	lastRoleUserID    int64
-	lastRoleActorID   int64
-	lastRole          string
-	statusResult      moduleusers.LifecycleResult
-	statusErr         error
-	lastStatusOrgID   int64
-	lastStatusUserID  int64
-	lastStatusActorID int64
-	lastStatusInput   moduleusers.SetStatusInput
-	lastCreateInput   moduleusers.CreateUserInput
-	lastInviteOrgID   int64
-	lastInviteUserID  int64
-	lastInviteActorID int64
-	lastRevokeOrgID   int64
-	lastRevokeUserID  int64
-	lastRevokeActorID int64
-	lastSetupInput    moduleusers.CompleteSetupInput
-	preferencesResult moduleusers.UserPreferences
-	lastPreferencesID int64
-	lastPreferences   moduleusers.UserPreferences
+	listResult             []moduleusers.UserSummary
+	listErr                error
+	createResult           moduleusers.UserSummary
+	createErr              error
+	resendResult           moduleusers.UserSummary
+	resendErr              error
+	revokeResult           moduleusers.LifecycleResult
+	revokeErr              error
+	setupErr               error
+	lastListOrgID          int64
+	lastCreateOrgID        int64
+	lastRoleOrgID          int64
+	lastRoleUserID         int64
+	lastRoleActorID        int64
+	lastRole               string
+	statusResult           moduleusers.LifecycleResult
+	statusErr              error
+	lastStatusOrgID        int64
+	lastStatusUserID       int64
+	lastStatusActorID      int64
+	lastStatusInput        moduleusers.SetStatusInput
+	lastCreateInput        moduleusers.CreateUserInput
+	lastInviteOrgID        int64
+	lastInviteUserID       int64
+	lastInviteActorID      int64
+	recordedDeliveryStatus string
+	recordDeliveryErr      error
+	lastRevokeOrgID        int64
+	lastRevokeUserID       int64
+	lastRevokeActorID      int64
+	lastSetupInput         moduleusers.CompleteSetupInput
+	preferencesResult      moduleusers.UserPreferences
+	lastPreferencesID      int64
+	lastPreferences        moduleusers.UserPreferences
 }
 
 func (f *fakeUsersService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleusers.UserSummary, error) {
@@ -65,6 +67,11 @@ func (f *fakeUsersService) ResendInvitation(_ context.Context, organizationID, u
 	f.lastInviteUserID = userID
 	f.lastInviteActorID = actorUserID
 	return f.resendResult, f.resendErr
+}
+
+func (f *fakeUsersService) RecordInvitationDelivery(_ context.Context, _, _ int64, _, status, _ string) (string, error) {
+	f.recordedDeliveryStatus = status
+	return status, f.recordDeliveryErr
 }
 
 func (f *fakeUsersService) RevokeInvitation(_ context.Context, organizationID, userID, actorUserID int64) (moduleusers.LifecycleResult, error) {
@@ -204,7 +211,7 @@ func TestListUsersAllowsAllAuthenticatedRoles(t *testing.T) {
 
 func TestCreateUserCreatesUserInCurrentOrganization(t *testing.T) {
 	usersService := &fakeUsersService{
-		createResult: moduleusers.UserSummary{ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin", SetupToken: "setup-token-123", SetupLink: "/setup-password?token=setup-token-123"},
+		createResult: moduleusers.UserSummary{ID: 9, Email: "new.admin@acme.test", FirstName: "New", LastName: "Admin", Role: "admin", SetupToken: "setup-token-123", DeliveryKey: "delivery-key-123456789012345678901234", SetupLink: "/setup-password?token=setup-token-123"},
 	}
 	server := NewServer(config.Env{}, Dependencies{
 		AuthService: &fakeAuthService{

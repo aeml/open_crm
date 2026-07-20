@@ -166,4 +166,7 @@ func registerPlatformRoutes(mux *http.ServeMux, env config.Env, dependencies Dep
 			handleStripeWebhook(billingService, w, r)
 		}
 	})
+	mux.HandleFunc("POST /api/email/webhooks/postmark", func(w http.ResponseWriter, r *http.Request) {
+		handlePostmarkFeedback(env, dependencies.EmailFeedbackService, rateLimiter, dependencies.Metrics, w, r)
+	})
 }
