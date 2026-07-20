@@ -5,13 +5,9 @@ import { Button } from '../components/ui/button'
 import { bulkStatusOptions } from '../components/ui/bulk_actions'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { archiveContact, contactsExportURL, createContact, getContact, listContacts, sendContactEmail, updateContact } from '../lib/contacts'
+import { archiveContact, contactsExportURL, createContact, getContact, listContacts, updateContact } from '../lib/contacts'
 import { listDeals } from '../lib/deals'
 import { createNote } from '../lib/notes'
-import { listEmailSequences } from '../lib/email_sequences'
-import { cancelEmailSequenceEnrollment, createEmailSequenceEnrollment, listEmailSequenceEnrollments } from '../lib/email_sequence_enrollments'
-import { listEmailTemplates } from '../lib/email_templates'
-import { listEmailMessages } from '../lib/email_messages'
 import { evaluateContactLeadScore } from '../lib/lead_scoring'
 import { createTask, listTasks } from '../lib/tasks'
 import { listOrganizationUsers } from '../lib/users'
@@ -36,6 +32,7 @@ import {
 } from './contact_view'
 import { RecordWorkCards } from './record_work'
 import { TouchpointSummary } from './touchpoint_summary'
+import { useContactOutreach } from './use_contact_outreach'
 const showFoundationCommunications = import.meta.env.DEV
 
 export function ContactsRoute() {
@@ -72,21 +69,31 @@ export function ContactsRoute() {
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateCandidate, setDuplicateCandidate] = useState(null)
-  const [emailOpen, setEmailOpen] = useState(false)
-  const [emailTemplates, setEmailTemplates] = useState([])
-  const [emailForm, setEmailForm] = useState({ subject: '', body: '' })
-  const [emailStatus, setEmailStatus] = useState('')
-  const [isSendingEmail, setIsSendingEmail] = useState(false)
-  const [emailHistory, setEmailHistory] = useState([])
   const [foundationCommunicationsSnapshot, setFoundationCommunicationsSnapshot] = useState('')
-  const [sequencesOpen, setSequencesOpen] = useState(false)
-  const [sequenceOptions, setSequenceOptions] = useState([])
-  const [sequenceEnrollments, setSequenceEnrollments] = useState([])
-  const [sequenceForm, setSequenceForm] = useState({ sequenceId: '' })
-  const [sequenceStatus, setSequenceStatus] = useState('')
   const [leadScoreStatus, setLeadScoreStatus] = useState('')
-  const [isEnrollingSequence, setIsEnrollingSequence] = useState(false)
   const [isEvaluatingLeadScore, setIsEvaluatingLeadScore] = useState(false)
+  const {
+    applyEmailTemplate,
+    emailForm,
+    emailHistory,
+    emailOpen,
+    emailStatus,
+    emailTemplates,
+    handleCancelSequenceEnrollment,
+    handleEnrollSequence,
+    handleSendEmail,
+    handleToggleEmail,
+    handleToggleSequences,
+    isEnrollingSequence,
+    isSendingEmail,
+    sequenceEnrollments,
+    sequenceForm,
+    sequenceOptions,
+    sequencesOpen,
+    sequenceStatus,
+    setEmailForm,
+    setSequenceForm
+  } = useContactOutreach({ selectedContactId, onError: setError })
   const searchControllerRef = useRef(null)
 
   const selectedContact = detail?.contact || null
@@ -98,10 +105,6 @@ export function ContactsRoute() {
 
   useLayoutEffect(() => {
     setFoundationCommunicationsSnapshot('')
-    setSequencesOpen(false)
-    setSequenceEnrollments([])
-    setSequenceStatus('')
-    setSequenceForm({ sequenceId: '' })
     setLeadScoreStatus('')
   }, [selectedContactId])
 
@@ -514,89 +517,6 @@ export function ContactsRoute() {
     }
   }
 
-  async function handleToggleEmail() {
-    const next = !emailOpen
-    setEmailOpen(next)
-    setEmailStatus('')
-    if (next) {
-      if (emailTemplates.length === 0) {
-        try {
-          const templates = await listEmailTemplates()
-          setEmailTemplates(templates)
-        } catch (templatesError) {
-          if (!isAbortError(templatesError)) {
-            setEmailTemplates([])
-          }
-        }
-      }
-      if (selectedContactId) {
-        try {
-          const history = await listEmailMessages({ entityType: 'contact', entityId: selectedContactId })
-          setEmailHistory(history)
-        } catch (historyError) {
-          if (!isAbortError(historyError)) {
-            setEmailHistory([])
-          }
-        }
-      }
-    }
-  }
-
-  async function handleToggleSequences() {
-    const next = !sequencesOpen
-    setSequencesOpen(next)
-    setSequenceStatus('')
-    if (!next || !selectedContactId) {
-      return
-    }
-    try {
-      const [sequences, enrollments] = await Promise.all([
-        listEmailSequences(),
-        listEmailSequenceEnrollments({ contactId: selectedContactId })
-      ])
-      setSequenceOptions(sequences)
-      setSequenceEnrollments(enrollments)
-      setSequenceForm((current) => ({ sequenceId: current.sequenceId || (sequences[0]?.id ? String(sequences[0].id) : '') }))
-    } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setError(loadError.message || 'Unable to load email sequences.')
-      }
-    }
-  }
-
-  async function handleEnrollSequence(event) {
-    event.preventDefault()
-    if (!selectedContactId || !sequenceForm.sequenceId) {
-      return
-    }
-    setIsEnrollingSequence(true)
-    setSequenceStatus('')
-    try {
-      const enrollment = await createEmailSequenceEnrollment({
-        contactId: selectedContactId,
-        sequenceId: Number.parseInt(sequenceForm.sequenceId, 10)
-      })
-      setSequenceEnrollments((current) => [enrollment, ...current.filter((entry) => entry.id !== enrollment.id)])
-      setSequenceStatus(`Enrolled in ${enrollment.sequenceName || 'sequence'}.`)
-      setError('')
-    } catch (enrollError) {
-      setError(enrollError.message || 'Unable to enroll contact in sequence.')
-    } finally {
-      setIsEnrollingSequence(false)
-    }
-  }
-
-  async function handleCancelSequenceEnrollment(enrollmentId) {
-    try {
-      await cancelEmailSequenceEnrollment(enrollmentId)
-      setSequenceEnrollments((current) => current.filter((entry) => entry.id !== enrollmentId))
-      setSequenceStatus('Sequence enrollment cancelled.')
-      setError('')
-    } catch (cancelError) {
-      setError(cancelError.message || 'Unable to cancel sequence enrollment.')
-    }
-  }
-
   async function handleEvaluateLeadScore() {
     if (!selectedContactId) {
       return
@@ -625,40 +545,6 @@ export function ContactsRoute() {
       setError(scoreError.message || 'Unable to evaluate lead score.')
     } finally {
       setIsEvaluatingLeadScore(false)
-    }
-  }
-
-  function applyEmailTemplate(templateId) {
-    const template = emailTemplates.find((item) => String(item.id) === String(templateId))
-    if (template) {
-      setEmailForm({ subject: template.subject, body: template.body })
-    }
-  }
-
-  async function handleSendEmail(event) {
-    event.preventDefault()
-    if (!selectedContactId) {
-      return
-    }
-    setIsSendingEmail(true)
-    setEmailStatus('')
-    try {
-      const result = await sendContactEmail(selectedContactId, emailForm)
-      setEmailStatus(`Email sent to ${result?.to || 'contact'}.`)
-      setEmailForm({ subject: '', body: '' })
-      setError('')
-      try {
-        const history = await listEmailMessages({ entityType: 'contact', entityId: selectedContactId })
-        setEmailHistory(history)
-      } catch (historyError) {
-        if (!isAbortError(historyError)) {
-          // history refresh is best-effort
-        }
-      }
-    } catch (sendError) {
-      setError(sendError.message || 'Unable to send email.')
-    } finally {
-      setIsSendingEmail(false)
     }
   }
 

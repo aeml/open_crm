@@ -396,10 +396,12 @@ Exit criteria:
 
 Current convergence evidence: route-level loading and bundle budgets are
 CI-gated. Tested list, editor, view-model, communications, insights, shared
-work, and touchpoint extraction plus bulk/custom-field integration leave
-`contacts.jsx` at 854 lines, down from 2,038; the development-only call, SMS,
-and meeting orchestration now lives in a 456-line focused module that remains
-excluded from production builds. Shared record-work cards,
+work, touchpoint, and production outreach extraction plus bulk/custom-field
+integration leave `contacts.jsx` at 740 lines, down from 2,038, under a tightened
+750-line ceiling. The 229-line outreach hook clears record-scoped email and
+sequence state on contact changes and rejects late responses from prior
+selection epochs; development-only call, SMS, and meeting orchestration remains
+in a 456-line focused module excluded from production builds. Shared record-work cards,
 touchpoints/account/health context, company editor/view helpers, and focused
 142-line directory plus 81-line linked-people presentation leave `companies.jsx`
 at 863 lines, down from 1,364, with a tightened 900-line ceiling. Deal view,
@@ -2243,15 +2245,15 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 177.99 KiB/57.93 KiB for the entry, 34.91 KiB/10.04 KiB
-for the largest lazy chunk, and 613.64 KiB/196.90 KiB total assets. Hosted
+CSS. Current evidence is 177.99 KiB/57.92 KiB for the entry, 34.91 KiB/10.04 KiB
+for the largest lazy chunk, and 614.95 KiB/197.31 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.70 KiB/4.67 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
 routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
-and focused company directory/people presentation leave contacts at 854 lines,
+and focused contact outreach plus company directory/people presentation leave contacts at 740 lines,
 companies at 863, deals at 785, and tasks at 769, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
