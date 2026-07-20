@@ -1,14 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../app/providers'
-import { isAbortError } from '../lib/api'
-import { archiveCompany, createCompany, listCompanies, updateCompany } from '../lib/companies'
-import { createContact, listContacts } from '../lib/contacts'
-import { listOrganizationUsers } from '../lib/users'
-import { customFieldFilterFromParams, customFieldPayload, listCustomFields } from '../lib/custom_fields'
+import { archiveCompany, createCompany, updateCompany } from '../lib/companies'
+import { createContact } from '../lib/contacts'
+import { customFieldFilterFromParams, customFieldPayload } from '../lib/custom_fields'
 import { usePageTitle } from '../lib/use_page_title'
 import {
-  buildClientRecords,
   buildCompanyPayload,
   duplicateSearchTerm,
   individualClientFromContact,
@@ -21,6 +18,7 @@ import {
 } from './company_view'
 import { CompanyDirectory } from './company_directory'
 import { CompanyCreateWorkspace, CompanyWorkspace } from './company_workspace'
+import { buildCompaniesPath, useCompanyDirectory } from './use_company_directory'
 import { useCompanyDetail } from './use_company_detail'
 import { useCompanyPeople } from './use_company_people'
 import { ClientHealthReport } from './client_health_report'
@@ -39,24 +37,38 @@ export function CompaniesRoute() {
   const initialSearch = searchParams.get('q') || ''
   const initialOwnerFilter = searchParams.get('owner') || 'all'
   const initialCustomFilter = customFieldFilterFromParams(searchParams)
-  const [companies, setCompanies] = useState([])
-  const [bulkEntityType, setBulkEntityType] = useState('company')
-  const [selectedClientIds, setSelectedClientIds] = useState([])
-  const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0 })
-  const [search, setSearch] = useState(initialSearch)
-  const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
-  const [customFilter, setCustomFilter] = useState(initialCustomFilter)
-  const [contactOptions, setContactOptions] = useState([])
-  const [userOptions, setUserOptions] = useState([])
-  const [ownerOptions, setOwnerOptions] = useState([])
-  const [companyCustomDefinitions, setCompanyCustomDefinitions] = useState([])
-  const [contactCustomDefinitions, setContactCustomDefinitions] = useState([])
-  const [customDefinitionsLoaded, setCustomDefinitionsLoaded] = useState(false)
-  const [error, setError] = useState('')
-  const [isListLoading, setIsListLoading] = useState(true)
-  const [duplicateSearch, setDuplicateSearch] = useState('')
-  const [duplicateCandidate, setDuplicateCandidate] = useState(null)
-  const searchControllerRef = useRef(null)
+  const directory = useCompanyDirectory({ initialCustomFilter, initialOwnerFilter, initialSearch })
+  const {
+    bulkEntityType,
+    companies,
+    companyCustomDefinitions,
+    contactCustomDefinitions,
+    contactOptions,
+    customDefinitionsLoaded,
+    customFilter,
+    duplicateCandidate,
+    duplicateSearch,
+    error,
+    isListLoading,
+    meta,
+    ownerFilter,
+    ownerOptions,
+    reloadCompanies,
+    search,
+    selectedClientIds,
+    setBulkEntityType,
+    setCompanies,
+    setContactOptions,
+    setCustomFilter,
+    setDuplicateCandidate,
+    setDuplicateSearch,
+    setError,
+    setMeta,
+    setOwnerFilter,
+    setSearch,
+    setSelectedClientIds,
+    userOptions
+  } = directory
   const companyDetail = useCompanyDetail({
     companyCustomDefinitions,
     customDefinitionsLoaded,
@@ -107,109 +119,20 @@ export function CompaniesRoute() {
     onError: handleLinkedPersonError
   })
 
-  function buildCompaniesPath(nextSearch = search, nextOwner = ownerFilter, nextCustomFilter = customFilter) {
-    const params = new URLSearchParams()
-    if (nextSearch) {
-      params.set('q', nextSearch)
-    }
-    if (nextOwner !== 'all') {
-      params.set('owner', nextOwner)
-    }
-    if (nextCustomFilter.fieldKey) {
-      params.set('customField', nextCustomFilter.fieldKey)
-      params.set('customOperator', nextCustomFilter.operator)
-      params.set('customValue', nextCustomFilter.value)
-    }
-    const suffix = params.toString() ? `?${params.toString()}` : ''
-    return `/companies${suffix}`
-  }
-
-  async function loadCompanies(nextSearch = '', nextOwner = 'all', { signal, nextCustomFilter = customFilter } = {}) {
-    const isUnassigned = nextOwner === 'unassigned'
-    const ownerUserId = isUnassigned || nextOwner === 'all' ? 0 : Number.parseInt(nextOwner, 10) || 0
-    const [companyData, contactData] = await Promise.all([
-      listCompanies({ search: nextSearch, unassigned: isUnassigned, ownerUserId, customField: nextCustomFilter }, { signal }),
-      listContacts({ search: nextSearch, unassigned: isUnassigned, ownerUserId }, { signal })
-    ])
-
-    if (Array.isArray(companyData?.companies)) {
-      const nextCompanies = companyData.companies
-      const nextContacts = nextCustomFilter.fieldKey ? [] : (contactData?.contacts || []).filter((contact) => contact.isClient)
-      const clients = buildClientRecords(nextCompanies, nextContacts)
-      setCompanies(clients)
-      setSelectedClientIds([])
-      setMeta({ page: 1, pageSize: 20, total: clients.length })
-      return
-    }
-
-    if (companyData?.company) {
-      const entry = organizationClientFromCompany(companyData.company)
-      setCompanies([entry])
-      setMeta({ page: 1, pageSize: 20, total: 1 })
-      return
-    }
-
-    setCompanies([])
-    setMeta({ page: 1, pageSize: 20, total: 0 })
-  }
-
-  async function loadContactOptions({ signal } = {}) {
-    const data = await listContacts('', { signal })
-    setContactOptions(sortContactOptions(data.contacts || []))
-  }
-
-  async function loadUserOptions({ signal } = {}) {
-    const nextOwners = await listOrganizationUsers({ includeDisabled: true, signal })
-    const nextUsers = nextOwners.filter((user) => (user.status || 'active') === 'active')
-    setOwnerOptions(nextOwners)
-    setUserOptions(nextUsers)
+  useEffect(() => {
     setTaskForm((current) => {
-      if (current.assignedToUserId || nextUsers.length === 0) {
+      if (current.assignedToUserId || userOptions.length === 0) {
         return current
       }
-      return { ...current, assignedToUserId: String(nextUsers[0].id) }
+      return { ...current, assignedToUserId: String(userOptions[0].id) }
     })
-  }
-
-  async function loadCustomDefinitions({ signal } = {}) {
-    const [companyDefinitions, contactDefinitions] = await Promise.all([listCustomFields('company', { signal }), listCustomFields('contact', { signal })])
-    setCompanyCustomDefinitions(companyDefinitions)
-    setContactCustomDefinitions(contactDefinitions)
-    setCustomDefinitionsLoaded(true)
-  }
-
-  useEffect(() => {
-    const controller = new AbortController()
-
-    async function run() {
-      setIsListLoading(true)
-      try {
-        await Promise.all([loadCompanies(initialSearch, initialOwnerFilter, { signal: controller.signal }), loadContactOptions({ signal: controller.signal }), loadUserOptions({ signal: controller.signal }), loadCustomDefinitions({ signal: controller.signal })])
-        setError('')
-        setDuplicateSearch('')
-        setDuplicateCandidate(null)
-      } catch (loadError) {
-        if (!isAbortError(loadError)) {
-          setError(loadError.message || 'Unable to load companies.')
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsListLoading(false)
-        }
-      }
-    }
-
-    run()
-    return () => {
-      controller.abort()
-    }
-  }, [])
+  }, [userOptions])
 
   async function handleSearchChange(event) {
     const value = event.target.value
     setSearch(value)
-    navigate(buildCompaniesPath(value, ownerFilter), { replace: true })
-    await reloadCompanies(value, ownerFilter)
+    navigate(buildCompaniesPath(value, ownerFilter, customFilter), { replace: true })
+    await reloadCompanies(value, ownerFilter, customFilter)
   }
 
   async function handleApplySavedView(filters) {
@@ -224,34 +147,10 @@ export function CompaniesRoute() {
     await reloadCompanies(nextSearch, nextOwner, nextCustomFilter)
   }
 
-  async function reloadCompanies(nextSearch = search, nextOwner = ownerFilter, nextCustomFilter = customFilter) {
-    searchControllerRef.current?.abort()
-    const controller = new AbortController()
-    searchControllerRef.current = controller
-    setIsListLoading(true)
-    try {
-      await loadCompanies(nextSearch, nextOwner, { signal: controller.signal, nextCustomFilter })
-      setError('')
-      setDuplicateSearch('')
-      setDuplicateCandidate(null)
-    } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setError(loadError.message || 'Unable to load companies.')
-      }
-    } finally {
-      if (searchControllerRef.current === controller) {
-        searchControllerRef.current = null
-      }
-      if (!controller.signal.aborted) {
-        setIsListLoading(false)
-      }
-    }
-  }
-
   async function applyOwnerFilter(value) {
     setOwnerFilter(value)
-    navigate(buildCompaniesPath(search, value), { replace: true })
-    await reloadCompanies(search, value)
+    navigate(buildCompaniesPath(search, value, customFilter), { replace: true })
+    await reloadCompanies(search, value, customFilter)
   }
 
   async function applyCustomFilter(nextCustomFilter) {
@@ -266,14 +165,11 @@ export function CompaniesRoute() {
     }
 
     setSearch(duplicateSearch)
+    setOwnerFilter('all')
+    setCustomFilter({ fieldKey: '', operator: '', value: '' })
     clearCompanyDetail()
     navigate('/companies')
-    try {
-      await loadCompanies(duplicateSearch)
-      setError('')
-    } catch (loadError) {
-      setError(loadError.message || 'Unable to load companies.')
-    }
+    await reloadCompanies(duplicateSearch, 'all', { fieldKey: '', operator: '', value: '' })
   }
 
   function handleOpenDuplicate() {
@@ -500,12 +396,12 @@ export function CompaniesRoute() {
         onApplyCustomFilter={applyCustomFilter}
         onApplyOwnerFilter={applyOwnerFilter}
         onApplySavedView={handleApplySavedView}
-        onBulkChanged={() => reloadCompanies(search, ownerFilter)}
+        onBulkChanged={() => reloadCompanies(search, ownerFilter, customFilter)}
         onClearFilters={handleClearFilters}
         onDuplicateSearch={handleDuplicateSearch}
         onOpenClient={handleOpenCompany}
         onOpenDuplicate={handleOpenDuplicate}
-        onReload={() => reloadCompanies(search)}
+        onReload={() => reloadCompanies(search, ownerFilter, customFilter)}
         onSearchChange={handleSearchChange}
         onSelectionChange={setSelectedClientIds}
         onToggleSelection={handleToggleClientSelection}

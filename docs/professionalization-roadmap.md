@@ -410,8 +410,10 @@ leave-and-return navigation. Development-only call, SMS, and meeting orchestrati
 in a 456-line focused module excluded from production builds. Shared record-work cards,
 touchpoints/account/health context, company editor/view helpers, and focused
 142-line directory plus 82-line linked-people presentation, a 155-line create/detail
-workspace, and a tested 70-line company-people mutation hook leave `companies.jsx`
-at 562 lines, down from 1,364, with a tightened 570-line ceiling. A 178-line
+workspace, and tested 70-line company-people plus 176-line directory-state hooks leave `companies.jsx`
+at 458 lines, down from 1,364 and below the default 500-line ceiling. The directory hook owns
+bootstrap data, filters, loading, and request identity so stale bootstrap/search results cannot replace
+the latest list. A 178-line
 company-detail orchestrator owns direct-route, directory-selection, related-deal,
 work, and seeded-create state. Company selection now shares the same visit-identity,
 pending-mutation, work, and response-validation contract as contacts and deals, while
@@ -435,7 +437,7 @@ down from 1,093 and below the default 500-line ceiling. Quick and full-form muta
 validate response identity and cannot replace a newer selection; full-form saves also
 suppress duplicate submission and cannot navigate after route unmount. Tighter source ratchets preserve every reduction while
 holding other production routes to 500 lines. This remains in progress while
-the company and deal orchestrators retain explicit exceptions.
+the deal orchestrator retains the only explicit exception.
 
 ## Version 0.2.3 - Database Integrity
 
@@ -2277,8 +2279,8 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 177.99 KiB/57.92 KiB for the entry, 37.63 KiB/10.88 KiB
-for the largest lazy chunk, and 628.57 KiB/202.10 KiB total assets. Hosted
+CSS. Current evidence is 177.99 KiB/57.93 KiB for the entry, 37.63 KiB/10.88 KiB
+for the largest lazy chunk, and 629.96 KiB/202.51 KiB total assets. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.35 KiB/4.56 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
@@ -2286,10 +2288,10 @@ routes, and the bundle gate rejects their accidental inclusion; this aligns
 normal exposure with executable behavior and restores aggregate headroom. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 449 lines,
-companies at 562, deals at 553, and tasks at 496, down from 2,038, 1,364,
+companies at 458, deals at 553, and tasks at 496, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, later provider/feature loads,
-and the remaining company and deal source exceptions.
+and the remaining deal source exception.
 
 ## Version 0.9.9 - Reliability Release Review
 
