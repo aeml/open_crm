@@ -967,8 +967,14 @@ The workflow supplies the full Git commit SHA as the release ID. The deploy
 script builds one immutable `open-crm-api:<release>` image for both migration
 and API processes, starts PostgreSQL, applies compatible migrations, recreates
 the API, and accepts the release only when the container is healthy and
-`/readyz` reports the exact expected `X-Open-CRM-Release` header. Atomic state
-and per-release manifests are retained under `var/deploy/`.
+`/readyz` reports the exact expected `X-Open-CRM-Release` header continuously
+for 45 seconds. This stabilization window covers dependency or container-daemon
+restarts immediately after the first successful probe. It can be configured
+from 0 through 120 seconds with `OPEN_CRM_DEPLOY_STABILITY_SECONDS`; retain the
+45-second production default and use a shorter value only in disposable
+acceptance tests. Zero disables the observation window and is reserved for
+focused script diagnostics. Atomic state and per-release manifests are retained
+under `var/deploy/`.
 
 Every migration from `056` onward must begin with one of these classifications:
 
@@ -991,8 +997,23 @@ If a normal expand deployment fails its post-migration readiness check,
 `remote-deploy.sh` automatically recreates the previously accepted immutable
 image, verifies its release header and health, records `rolled_back` in
 `var/deploy/last-deploy.json`, and exits nonzero so CI remains failed. The
-disposable CI acceptance test proves both failed-readiness recovery and a
-manual rollback without reversing database migrations.
+disposable CI acceptance test proves failed-readiness recovery, a manual
+rollback without reversing database migrations, and database-unavailable boot
+recovery. A production-configured API exits before opening HTTP whenever its
+database configuration is invalid or its initial connection fails. Compose's
+`unless-stopped` restart policy then retries the process until PostgreSQL and
+Docker DNS are usable; the `/readyz` container healthcheck prevents a partial
+database-disabled application from being classified as healthy. Development
+and test processes may omit `DATABASE_URL` for a health-only harness, but a
+configured database connection failure is fatal in every environment.
+
+On 2026-07-21, an external Docker daemon restart occurred immediately after a
+successful deployment. PostgreSQL recovered, but the API had started while
+Docker DNS was unavailable and remained alive with database services disabled;
+`/healthz` passed while `/readyz` returned `503`. Restarting only the API after
+PostgreSQL was healthy restored the exact release. The fail-fast startup,
+readiness healthcheck, stabilization window, and disposable interruption test
+above are the permanent controls for that incident class.
 
 Check service state:
 
@@ -1004,6 +1025,21 @@ cat var/deploy/last-deploy.json
 cat var/deploy/current-release
 cat var/deploy/previous-release
 ```
+
+After a host or daemon restart, PostgreSQL should become healthy and the API
+should recover automatically. If `/healthz` is absent or `/readyz` remains
+degraded after PostgreSQL is healthy, preserve the service logs, confirm Docker
+DNS resolves `postgres` from the Compose network, and restart only the API:
+
+```sh
+docker compose -f docker-compose.deploy.yml --env-file .env.production ps
+docker compose -f docker-compose.deploy.yml --env-file .env.production logs --tail=200 postgres api
+docker compose -f docker-compose.deploy.yml --env-file .env.production restart api
+curl --fail --show-error --silent http://127.0.0.1:18089/readyz
+```
+
+Do not restart the production daemon merely to exercise this path. Use the
+disposable CI acceptance or an approved maintenance window.
 
 To deliberately restore the recorded previous application release after an
 expand-only deploy, use the guarded helper. It refuses arbitrary image tags,
@@ -1603,4 +1639,7 @@ captured. Do not automate production database replacement.
 
 - `GET /healthz` confirms the API process is serving HTTP.
 - `GET /readyz` confirms required dependencies are reachable.
-- The production API container healthcheck uses `/healthz` so Docker can restart unhealthy API containers.
+- The production API container healthcheck uses `/readyz`, so Compose status
+  never calls a database-disabled process healthy. Docker restart behavior is
+  driven by process exit, which production startup now guarantees when its
+  configured database cannot be reached.

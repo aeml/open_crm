@@ -58,7 +58,7 @@ services:
     volumes:
       - ${BACKUP_STATUS_DIR:-./var/backup-status}:/run/open-crm/backup-status:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/readyz"]
       interval: 30s
       timeout: 5s
       retries: 3

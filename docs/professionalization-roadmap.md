@@ -2345,9 +2345,15 @@ the remaining plaintext-HTTP edge redirect is recorded as external item
 certificate and must not have GitHub enforcement toggled blindly. New migrations
 declare expand or contract compatibility; ordinary destructive migrations are
 rejected. Disposable Compose acceptance proves operator rollback and automatic
-restoration of the last healthy image after failed readiness. Restore drills,
-broader load/failure testing, production-host recovery evidence, and the complete
-pilot journey remain before this review can be complete.
+restoration of the last healthy image after failed readiness. A 2026-07-21
+production Docker restart exposed an API that could remain alive after its
+initial database connection failed. Production startup now exits before HTTP
+on that failure, the restart policy retries it, container health uses
+dependency-aware `/readyz`, deploy and rollback acceptance require 45 seconds
+of continuous exact-release health, and disposable Compose acceptance proves
+automatic recovery from database-unavailable boot. Restore drills, broader
+load/failure testing, an approved automatic production-host recovery exercise,
+and the complete pilot journey remain before this review can be complete.
 
 Goal: close the reliability milestone before production beta.
 

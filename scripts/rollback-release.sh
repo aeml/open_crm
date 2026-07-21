@@ -50,9 +50,15 @@ target_manifest="$DEPLOY_STATE_DIR/releases/$target_release/manifest.json"
 grep -Fq '"rollbackSafe":true' "$current_manifest" || \
   rollback_error "current release applied contract migrations; deploy a forward fix or restore the database instead of rolling the app back"
 
-open_crm_load_env_keys "$DEPLOY_ENV_FILE" OPEN_CRM_API_IMAGE_REPOSITORY
+open_crm_load_env_keys "$DEPLOY_ENV_FILE" \
+  OPEN_CRM_API_IMAGE_REPOSITORY \
+  OPEN_CRM_DEPLOY_STABILITY_SECONDS
 OPEN_CRM_API_IMAGE_REPOSITORY="${OPEN_CRM_API_IMAGE_REPOSITORY:-open-crm-api}"
 export OPEN_CRM_API_IMAGE_REPOSITORY
+deploy_stability_seconds="${OPEN_CRM_DEPLOY_STABILITY_SECONDS:-45}"
+[[ "$deploy_stability_seconds" =~ ^([0-9]|[1-9][0-9]|1[01][0-9]|120)$ ]] || \
+  rollback_error "OPEN_CRM_DEPLOY_STABILITY_SECONDS must be an integer from 0 through 120"
+readiness_attempts="$(( 90 + (deploy_stability_seconds + 1) / 2 ))"
 export OPEN_CRM_RELEASE_ID="$target_release"
 export OPEN_CRM_ENV_FILE="$DEPLOY_ENV_FILE"
 docker image inspect "$OPEN_CRM_API_IMAGE_REPOSITORY:$target_release" >/dev/null 2>&1 || \
@@ -78,12 +84,15 @@ wait_for_release() {
   if [[ "$allow_forced_failure" == "true" && "${OPEN_CRM_ROLLBACK_TEST_FORCE_HEALTH_FAILURE:-false}" == "true" ]]; then
     return 1
   fi
-  for attempt in $(seq 1 30); do
-    local container_id health observed_release published_address published_port
+  local healthy_since=""
+  local healthy_instance=""
+  for attempt in $(seq 1 "$readiness_attempts"); do
+    local container_id health container_instance observed_release published_address published_port now stable_for
     container_id="$("${COMPOSE[@]}" ps -q api 2>/dev/null || true)"
     health=""
     if [[ -n "$container_id" ]]; then
       health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)"
+      container_instance="$(docker inspect --format '{{.RestartCount}}:{{.State.StartedAt}}' "$container_id" 2>/dev/null || true)"
     fi
     published_address="$("${COMPOSE[@]}" port api 8080 2>/dev/null | head -n 1 || true)"
     published_port="${published_address##*:}"
@@ -93,11 +102,25 @@ wait_for_release() {
         --dump-header - --output /dev/null "http://127.0.0.1:${published_port}/readyz" 2>/dev/null \
         | tr -d '\r' | sed -n 's/^[Xx]-[Oo]pen-[Cc][Rr][Mm]-[Rr]elease: *//p' | head -n 1 || true)"
     fi
+    now="$(date +%s)"
+    stable_for=0
     if [[ "$health" == "healthy" && "$observed_release" == "$expected_release" ]]; then
-      return 0
+      container_instance="$container_id:$container_instance"
+      if [[ -z "$healthy_since" || "$healthy_instance" != "$container_instance" ]]; then
+        healthy_since="$now"
+        healthy_instance="$container_instance"
+      fi
+      stable_for="$(( now - healthy_since ))"
+      if (( stable_for >= deploy_stability_seconds )); then
+        echo "rollback_readiness_stable release=$expected_release stability_seconds=$stable_for"
+        return 0
+      fi
+    else
+      healthy_since=""
+      healthy_instance=""
     fi
-    if [[ "$attempt" -eq 30 ]]; then
-      echo "rollback_readiness_failed expected_release=$expected_release container_health=${health:-missing} observed_release=${observed_release:-missing}" >&2
+    if [[ "$attempt" -eq "$readiness_attempts" ]]; then
+      echo "rollback_readiness_failed expected_release=$expected_release container_health=${health:-missing} observed_release=${observed_release:-missing} required_stability_seconds=$deploy_stability_seconds observed_stability_seconds=$stable_for" >&2
       return 1
     fi
     sleep 2

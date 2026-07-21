@@ -184,7 +184,7 @@ Backend:
 - Syncs the repo to a remote host over SSH
 - Writes `.env.production` from the `DEPLOY_ENV` secret
 - Runs `scripts/remote-deploy.sh` with the commit SHA, which builds an immutable API image, starts PostgreSQL, enforces expand/contract migration policy, runs migrations, and brings the API up with `docker-compose.deploy.yml`
-- Verifies container health and the exact release identity locally, automatically restores the previous image after failed readiness when schema-compatible, and then verifies the public `/healthz` and `/readyz` release header
+- Requires readiness-based container health and the exact release identity to remain stable locally, automatically restores the previous image after failed readiness when schema-compatible, and then verifies the public `/healthz` and `/readyz` release header
 
 Operational details already documented in the repo:
 - health and readiness endpoints: `/healthz`, `/readyz`
@@ -210,7 +210,7 @@ Current automated checks in `.github/workflows/ci.yml`:
 - Chromium axe-core WCAG A/AA scans over critical public and authenticated surfaces, including password recovery, with structured per-surface failure evidence and a keyboard skip-link check
 - Chromium pilot journey against a disposable PostgreSQL database, including idempotent workspace bootstrap, mandatory owner-email verification and trial start, invitation rotation with old-link rejection, explicit revocation, reactivation, final activation, later member deactivation/reactivation, user-controlled active-sign-in revocation, multi-device password recovery/session invalidation, required typed custom-field administration, dynamic mapped import and safe rollback, client/contact creation and reviewed core/custom-field duplicate merge, admin stage/probability configuration with existing-deal continuity and forecast verification, deal/task work, won close review and transactional client handoff/account summary, client-health triage, recurring client review tasks, reversible bulk client changes, teammate mention and followed-digest navigation, session persistence, and cross-tenant denial
 - encrypted Restic snapshot, retention/integrity check, extraction, isolated PostgreSQL restore, forward migration, and plaintext-leak acceptance
-- immutable release, expand-migration, manual rollback, and failed-readiness recovery acceptance
+- immutable release, expand-migration, manual rollback, failed-readiness recovery, and database-unavailable startup recovery acceptance
 - protected bounded-cardinality operational metrics plus promtool-validated request/database/job/provider/public-abuse/backup alert rules
 - representative multi-tenant PostgreSQL query-plan, concurrent-read latency, and bounded database-failure budgets
 

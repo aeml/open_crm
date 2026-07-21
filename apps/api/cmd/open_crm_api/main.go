@@ -83,8 +83,11 @@ func main() {
 	logger := platformlogger.New(env.GOEnv)
 	metrics := platformtelemetry.NewCollector()
 	dbConfig, dbConfigErr := db.LoadConfigFromEnv()
+	if startupErr := databaseStartupError(env.GOEnv, dbConfigErr, nil); startupErr != nil {
+		log.Fatal(startupErr)
+	}
 	if dbConfigErr != nil {
-		log.Printf("database config warning: %v", dbConfigErr)
+		log.Printf("database disabled for local environment: %v", dbConfigErr)
 	}
 
 	var authService *moduleauth.Service
@@ -151,8 +154,8 @@ func main() {
 	}
 	if dbConfigErr == nil {
 		pool, err := db.NewPool(context.Background(), dbConfig)
-		if err != nil {
-			log.Printf("auth service disabled: %v", err)
+		if startupErr := databaseStartupError(env.GOEnv, nil, err); startupErr != nil {
+			log.Fatal(startupErr)
 		} else {
 			defer pool.Close()
 			databasePool = pool
