@@ -2327,8 +2327,8 @@ contacts with duplicate checks and progress ledgers under a 10 s budget. Postmar
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 178.92 KiB/58.02 KiB for the entry, 54.78 KiB/15.63 KiB
-for the largest lazy chunk, and 687.01 KiB/217.51 KiB total assets. The isolated
+CSS. Current production-URL evidence is 178.92 KiB/58.01 KiB for the entry, 54.78 KiB/15.64 KiB
+for the largest lazy chunk, and 689.50 KiB/218.37 KiB total assets. The isolated
 public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
 retry-safe signature ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB
@@ -2639,7 +2639,9 @@ in normal product navigation. Version `0.6.3` replaced that surface with a
 bounded task-automation editor and implemented transactional, idempotent deal
 event tasks. Version `1.5.8` adds one durable conditional lead-form follow-up
 task outcome, and `1.5.9` gives that exact outcome a durable whole-day creation
-schedule separate from its due offset. Other targets/actions, general schedules,
+schedule separate from its due offset. Version `1.5.10` adds one explicitly
+versioned, typed event-time deal condition to the existing task outcome without
+activating legacy stored conditions. Other targets/actions, general schedules,
 nested branches, approval steps, provider dispatch, and general retry
 orchestration still do not execute and must not be inferred complete from the
 historical foundation entries.
@@ -2655,6 +2657,7 @@ Progress:
 - `1.5.7` (automation run history/retry foundation): complete. Added persistent workflow automation run records with per-automation idempotency keys, statuses, trigger payload metadata, condition results, action progress, retry count, error text, and UTC timestamps; exposed recent run history through an authenticated API and Settings > Automations panel; and added service helpers for future idempotent run recording and terminal completion. Trigger detection, action queue execution, provider dispatch, loop protection, retry scheduling, and action-level attempt history remain future slices.
 - `1.5.8` (durable lead follow-up task automation): complete locally. Owners/admins can bind one exact active lead form or every active form, an optional attribution condition, one active teammate, literal task content, and a 0–365-day due offset. Accepted public submissions snapshot that exact executable definition and enqueue one tenant-scoped `workflow.lead_follow_up` job in the same transaction as the contact/submission. The worker rehydrates retained source records, rechecks rule activation and assignee membership, evaluates the captured condition, and commits the task, reminders, assignment notification, activity, audit, and terminal run evidence atomically. Stable run/job/task identities make capture retries and lost acknowledgements harmless; managed hosted suspension defers through the shared billing guard; deactivation cancels queued effects; mismatches skip safely; inactive assignees fail visibly. Migration `101_workflow_run_operations.sql` bounds aggregate active/recent-terminal health scans without tenant or record labels. Aggregate metrics, validated alerts, admin run inspection with active-run polling, disposable-PostgreSQL replay/tenant/negative-path tests, and the Chromium pilot journey cover the local outcome. Broader targets/actions, nested branching, general scheduling, approvals, and provider effects remain hidden foundations.
 - `1.5.9` (scheduled lead follow-up execution): complete locally. New lead rules separate a 0–365 whole-day creation delay from the 0–365-day task due offset while preserving immediate creation and the original due semantics for every legacy rule until it is edited. An accepted submission transaction retains immutable `scheduled_at` evidence and enqueues the durable job at that exact time; `SKIP LOCKED` claims cannot run it early. Future queued runs are visible without one-second browser polling and are excluded from stalled-age alerts until due. Source activation, assignee, hosted-billing, idempotency, retry, audit, task/reminder, and recovery guards remain unchanged at the delayed boundary. Expand-safe migration `102_workflow_run_scheduling.sql` backfills old schedules, enforces presence for new rows, and adds the bounded active-schedule index; the embedded migration inventory now explicitly registers both workflow operations migrations. Unit/UI and disposable-PostgreSQL tests cover legacy compatibility, validation, schedule equality, early-claim denial, due-only health, forced boundary execution, and due time measured from actual task creation. General action schedules remain hidden.
+- `1.5.10` (event-time deal task condition): complete locally. Existing create, real-stage-change, and archive task rules can now opt into exactly one typed `all` condition over deal value amount, three-letter currency, owner, or derived open/won/lost status. The event transaction reads the tenant-scoped deal and stage snapshot without converting an unassigned owner into a present value, evaluates the rule before any effect, and retains only the referenced field in run evidence; a non-match records an exact terminal skip. The explicit `deal_snapshot_v1` marker keeps every legacy/unreviewed condition inert, while multi-condition, `any`, and unsupported field/operator shapes remain hidden and skipped instead of gaining partial execution. Stable event/run/task identities and the existing transactional task, reminder, activity, and audit boundary are unchanged. Unit/UI validation and disposable-PostgreSQL match/non-match/unassigned/legacy/replay/tenant acceptance plus the value-conditioned Chromium journey cover the local outcome. Broader branching and actions remain hidden; condition language and operating usefulness still require pilot validation.
 
 Candidate slices:
 
@@ -2667,6 +2670,7 @@ Candidate slices:
 - `1.5.7` Automation run history, error handling, and safe retry/idempotency: foundation complete.
 - `1.5.8` Lead-form submission to assigned follow-up task: complete locally; pilot validation remains.
 - `1.5.9` Whole-day scheduling for that exact lead-task outcome: complete locally; pilot validation remains.
+- `1.5.10` One optional event-time deal-snapshot condition for the existing task outcome: complete locally; pilot validation remains.
 
 Exit criteria:
 

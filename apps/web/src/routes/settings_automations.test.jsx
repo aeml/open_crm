@@ -29,9 +29,9 @@ describe('settings task automations route', () => {
       name: 'Proposal follow-up',
       triggerType: 'stage_changed',
       targetEntityType: 'deal',
-      triggerConfig: { stageId: 12 },
+      triggerConfig: { stageId: 12, conditionContract: 'deal_snapshot_v1' },
       conditionLogic: 'all',
-      conditions: [],
+      conditions: [{ field: 'valueAmount', operator: 'greaterThan', value: '5000' }],
       actions: [{ type: 'create_task', config: { title: 'Prepare proposal', description: 'Confirm scope.' }, delayMinutes: 2880 }],
       isActive: true,
       position: 0
@@ -51,7 +51,8 @@ describe('settings task automations route', () => {
         return jsonResponse({ data: { automations: [
           { id: 5, name: 'Qualify new deals', triggerType: 'record_created', targetEntityType: 'deal', triggerConfig: {}, conditions: [], actions: [{ type: 'create_task', config: { title: 'Qualify deal' }, delayMinutes: 1440 }], isActive: true },
           { id: 6, name: 'Legacy email action', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditions: [], actions: [{ type: 'send_email', config: { subject: 'Welcome', body: 'Hello' } }], isActive: true },
-          { id: 7, name: 'Unsupported multi-condition lead rule', triggerType: 'form_submitted', targetEntityType: 'lead_form', triggerConfig: {}, conditionLogic: 'all', conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }, { field: 'utmMedium', operator: 'equals', value: 'paid' }], actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7 } }], isActive: true }
+          { id: 7, name: 'Unsupported multi-condition lead rule', triggerType: 'form_submitted', targetEntityType: 'lead_form', triggerConfig: {}, conditionLogic: 'all', conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }, { field: 'utmMedium', operator: 'equals', value: 'paid' }], actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7 } }], isActive: true },
+          { id: 10, name: 'Legacy deal condition', triggerType: 'stage_changed', targetEntityType: 'deal', triggerConfig: { stageId: 12 }, conditionLogic: 'all', conditions: [{ field: 'valueAmount', operator: 'greaterThan', value: '5000' }], actions: [{ type: 'create_task', config: { title: 'Must remain hidden' } }], isActive: true }
         ] } })
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`)
@@ -65,12 +66,14 @@ describe('settings task automations route', () => {
     expect(await screen.findByRole('heading', { name: 'Qualify new deals' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Legacy email action' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Unsupported multi-condition lead rule' })).not.toBeInTheDocument()
-    expect(screen.getByText(/2 unsupported stored definitions hidden/i)).toBeInTheDocument()
+    expect(screen.getByText(/3 unsupported stored definitions hidden/i)).toBeInTheDocument()
     expect(screen.getByRole('list', { name: 'Task automation runs' })).toHaveTextContent('1/1 tasks created')
 
     fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Proposal follow-up' } })
     fireEvent.change(screen.getByLabelText('When'), { target: { value: 'stage_changed' } })
     fireEvent.change(screen.getByLabelText(/destination stage/i), { target: { value: '12' } })
+    fireEvent.change(screen.getByLabelText(/optional deal condition/i), { target: { value: 'valueAmount' } })
+    fireEvent.change(screen.getByLabelText('Deal condition value'), { target: { value: '5000' } })
     fireEvent.change(screen.getByLabelText('Task title'), { target: { value: 'Prepare proposal' } })
     fireEvent.change(screen.getByLabelText('Task description'), { target: { value: 'Confirm scope.' } })
     fireEvent.change(screen.getByLabelText('Due in days', { exact: false }), { target: { value: '2' } })
@@ -83,9 +86,9 @@ describe('settings task automations route', () => {
         description: 'Creates one assigned follow-up task from a deal event.',
         triggerType: 'stage_changed',
         targetEntityType: 'deal',
-        triggerConfig: { stageId: 12 },
+        triggerConfig: { stageId: 12, conditionContract: 'deal_snapshot_v1' },
         conditionLogic: 'all',
-        conditions: [],
+        conditions: [{ field: 'valueAmount', operator: 'greaterThan', value: '5000' }],
         actions: [{ type: 'create_task', config: { title: 'Prepare proposal', description: 'Confirm scope.' }, delayMinutes: 2880 }],
         isActive: true,
         position: 0
@@ -93,6 +96,7 @@ describe('settings task automations route', () => {
     })
     expect(await screen.findByRole('heading', { name: 'Proposal follow-up' })).toBeInTheDocument()
     expect(screen.getByText('When moved to Sales pipeline · Proposal')).toBeInTheDocument()
+    expect(screen.getByText(/only if value amount is greater than 5000/i)).toBeInTheDocument()
   })
 
   it('creates an executable durable lead follow-up rule with retained attribution conditions', async () => {

@@ -84,6 +84,15 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	if err != nil {
 		t.Fatalf("create deal-created rule: %v", err)
 	}
+	ownerConditionRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
+		Name: "Owned deal review", TriggerType: "record_created", TargetEntityType: "deal",
+		TriggerConfig: map[string]any{"conditionContract": moduleworkflowautomations.DealSnapshotConditionContract}, IsActive: &active,
+		Conditions: []moduleworkflowautomations.Condition{{Field: "ownerUserId", Operator: "exists"}},
+		Actions:    []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Review owned deal"}}},
+	})
+	if err != nil {
+		t.Fatalf("create owner-conditioned rule: %v", err)
+	}
 	if _, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
 		Name: "Proposal follow-up", TriggerType: "stage_changed", TargetEntityType: "deal", TriggerConfig: map[string]any{"stageId": proposalStageID}, IsActive: &active,
 		Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Prepare proposal"}, DelayMinutes: 2880}},
@@ -103,6 +112,24 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	}); err != nil {
 		t.Fatalf("create unsupported legacy rule: %v", err)
 	}
+	conditionedRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
+		Name: "Strategic proposal review", TriggerType: "stage_changed", TargetEntityType: "deal",
+		TriggerConfig: map[string]any{"stageId": proposalStageID, "conditionContract": moduleworkflowautomations.DealSnapshotConditionContract}, IsActive: &active,
+		Conditions: []moduleworkflowautomations.Condition{{Field: "valueAmount", Operator: "greaterThan", Value: "5000"}},
+		Actions:    []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Review strategic deal"}, DelayMinutes: 1440}},
+	})
+	if err != nil {
+		t.Fatalf("create executable conditioned rule: %v", err)
+	}
+	unmatchedRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
+		Name: "Very large proposal review", TriggerType: "stage_changed", TargetEntityType: "deal",
+		TriggerConfig: map[string]any{"stageId": proposalStageID, "conditionContract": moduleworkflowautomations.DealSnapshotConditionContract}, IsActive: &active,
+		Conditions: []moduleworkflowautomations.Condition{{Field: "valueAmount", Operator: "greaterThan", Value: "10000"}},
+		Actions:    []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Must exceed ten thousand"}}},
+	})
+	if err != nil {
+		t.Fatalf("create non-matching conditioned rule: %v", err)
+	}
 	if _, err := automations.Create(ctx, foreignOrganizationID, actorUserID, moduleworkflowautomations.Input{
 		Name: "Foreign rule", TriggerType: "record_created", TargetEntityType: "deal", IsActive: &active,
 		Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Foreign task"}}},
@@ -111,25 +138,45 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	}
 
 	deals := moduledeals.NewService(pool)
-	detail, err := deals.Create(ctx, organizationID, actorUserID, moduledeals.CreateInput{Name: "Automation opportunity", StageID: incomingStageID, OwnerUserID: dealOwnerUserID})
+	detail, err := deals.Create(ctx, organizationID, actorUserID, moduledeals.CreateInput{Name: "Automation opportunity", StageID: incomingStageID, OwnerUserID: dealOwnerUserID, ValueAmount: "7500", ValueCurrency: "USD"})
 	if err != nil {
 		t.Fatalf("create automated deal: %v", err)
 	}
 	dealID := detail.Summary.ID
 	assertAutomatedTask(t, pool, organizationID, dealID, "Qualify new deal", dealOwnerUserID, 1)
+	assertAutomatedTask(t, pool, organizationID, dealID, "Review owned deal", dealOwnerUserID, 1)
 
 	if _, err := deals.UpdateStage(ctx, organizationID, dealID, actorUserID, moduledeals.UpdateStageInput{StageID: proposalStageID}); err != nil {
 		t.Fatalf("move deal to proposal: %v", err)
 	}
 	assertAutomatedTask(t, pool, organizationID, dealID, "Prepare proposal", dealOwnerUserID, 1)
+	assertAutomatedTask(t, pool, organizationID, dealID, "Review strategic deal", dealOwnerUserID, 1)
+	assertAutomatedTask(t, pool, organizationID, dealID, "Must exceed ten thousand", 0, 0)
+	assertAutomatedTask(t, pool, organizationID, dealID, "Must remain hidden", 0, 0)
 	if _, err := deals.UpdateStage(ctx, organizationID, dealID, actorUserID, moduledeals.UpdateStageInput{StageID: proposalStageID}); err != nil {
 		t.Fatalf("repeat unchanged proposal stage: %v", err)
 	}
 	assertAutomatedTask(t, pool, organizationID, dealID, "Prepare proposal", dealOwnerUserID, 1)
 
 	var skippedRuns int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_automation_runs WHERE organization_id=$1 AND status='skipped'`, organizationID).Scan(&skippedRuns); err != nil || skippedRuns != 1 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_automation_runs WHERE organization_id=$1 AND status='skipped'`, organizationID).Scan(&skippedRuns); err != nil || skippedRuns != 2 {
 		t.Fatalf("unexpected skipped legacy rule runs: count=%d err=%v", skippedRuns, err)
+	}
+	var conditionMatched bool
+	var retainedValue, skipReason string
+	if err := pool.QueryRow(ctx, `
+		SELECT condition_result,trigger_payload_json->'conditionFields'->>'valueAmount',COALESCE(trigger_payload_json->>'skipReason','')
+		FROM workflow_automation_runs
+		WHERE organization_id=$1 AND automation_id=$2
+	`, organizationID, conditionedRule.ID).Scan(&conditionMatched, &retainedValue, &skipReason); err != nil || !conditionMatched || retainedValue != "7500.00" || skipReason != "" {
+		t.Fatalf("conditioned run evidence mismatch: matched=%t value=%q skip=%q err=%v", conditionMatched, retainedValue, skipReason, err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT condition_result,trigger_payload_json->'conditionFields'->>'valueAmount',COALESCE(trigger_payload_json->>'skipReason','')
+		FROM workflow_automation_runs
+		WHERE organization_id=$1 AND automation_id=$2
+	`, organizationID, unmatchedRule.ID).Scan(&conditionMatched, &retainedValue, &skipReason); err != nil || conditionMatched || retainedValue != "7500.00" || skipReason != "condition did not match" {
+		t.Fatalf("non-matching run evidence mismatch: matched=%t value=%q skip=%q err=%v", conditionMatched, retainedValue, skipReason, err)
 	}
 
 	var createdEventKey string
@@ -169,18 +216,50 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 		t.Fatalf("replay bulk deal archive: operation=%#v err=%v", replayed, err)
 	}
 	assertAutomatedTask(t, pool, organizationID, bulkDetail.Summary.ID, "Review archived deal", actorUserID, 1)
+	var unassignedDealID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO deals (organization_id,stage_id,name,status)
+		VALUES ($1,$2,'Unassigned opportunity','open') RETURNING id
+	`, organizationID, incomingStageID).Scan(&unassignedDealID); err != nil {
+		t.Fatalf("create unassigned deal fixture: %v", err)
+	}
+	unassignedTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin unassigned deal event: %v", err)
+	}
+	if err := moduleworkflowautomations.ExecuteDealTaskRules(ctx, unassignedTx, moduleworkflowautomations.DealTaskEvent{
+		OrganizationID: organizationID, ActorUserID: actorUserID, DealID: unassignedDealID,
+		DealName: "Unassigned opportunity", StageID: incomingStageID, StageName: "Incoming",
+		EventType: moduleworkflowautomations.DealEventCreated, EventKey: "unassigned-deal-created",
+	}); err != nil {
+		_ = unassignedTx.Rollback(ctx)
+		t.Fatalf("execute unassigned deal event: %v", err)
+	}
+	if err := unassignedTx.Commit(ctx); err != nil {
+		t.Fatalf("commit unassigned deal event: %v", err)
+	}
+	assertAutomatedTask(t, pool, organizationID, unassignedDealID, "Qualify new deal", actorUserID, 1)
+	assertAutomatedTask(t, pool, organizationID, unassignedDealID, "Review owned deal", 0, 0)
+	var retainedOwner *string
+	if err := pool.QueryRow(ctx, `
+		SELECT trigger_payload_json->'conditionFields'->>'ownerUserId',trigger_payload_json->>'skipReason'
+		FROM workflow_automation_runs
+		WHERE organization_id=$1 AND automation_id=$2 AND target_entity_id=$3
+	`, organizationID, ownerConditionRule.ID, unassignedDealID).Scan(&retainedOwner, &skipReason); err != nil || retainedOwner != nil || skipReason != "condition did not match" {
+		t.Fatalf("unassigned owner condition evidence mismatch: owner=%v skip=%q err=%v", retainedOwner, skipReason, err)
+	}
 
 	var foreignTasks, succeededRuns, executionAudits, definitionAudits int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM tasks WHERE organization_id=$1`, foreignOrganizationID).Scan(&foreignTasks); err != nil || foreignTasks != 0 {
 		t.Fatalf("foreign rule crossed tenant boundary: tasks=%d err=%v", foreignTasks, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_automation_runs WHERE organization_id=$1 AND status='succeeded'`, organizationID).Scan(&succeededRuns); err != nil || succeededRuns != 5 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_automation_runs WHERE organization_id=$1 AND status='succeeded'`, organizationID).Scan(&succeededRuns); err != nil || succeededRuns != 9 {
 		t.Fatalf("unexpected successful run count: count=%d err=%v", succeededRuns, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='workflow_automation.executed'`, organizationID).Scan(&executionAudits); err != nil || executionAudits != 5 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='workflow_automation.executed'`, organizationID).Scan(&executionAudits); err != nil || executionAudits != 9 {
 		t.Fatalf("unexpected automation audit count: count=%d err=%v", executionAudits, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='workflow_automation.created'`, organizationID).Scan(&definitionAudits); err != nil || definitionAudits != 4 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='workflow_automation.created'`, organizationID).Scan(&definitionAudits); err != nil || definitionAudits != 7 {
 		t.Fatalf("unexpected definition audit count: count=%d err=%v", definitionAudits, err)
 	}
 }

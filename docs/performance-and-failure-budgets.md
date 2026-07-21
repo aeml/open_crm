@@ -103,8 +103,8 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 690 KiB | 220 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.92 KiB/58.02 KiB entry, 54.78 KiB/15.63 KiB largest lazy
-chunk, and 687.01 KiB/217.51 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.92 KiB/58.01 KiB entry, 54.78 KiB/15.64 KiB largest lazy
+chunk, and 689.50 KiB/218.37 KiB total assets. The production contact, company,
 deal, and task routes are 29.81/9.19, 34.71/10.48, 54.78/15.63, and 24.67/7.31
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -205,6 +205,9 @@ the complete build measures 687.01/217.51 KiB, so only the reviewed aggregate
 ceilings advance to 690/220 KiB. Its route orchestration is now 298 lines and
 the separately tested pure catalog/form model is 209 lines, preserving the
 unchanged 500-line ceiling without changing bundle bytes.
+The event-time deal-condition slice keeps those ceilings unchanged: compact
+typed catalogs and shared validation leave the complete build at
+689.50/218.37 KiB, while the task-automation route remains 436 lines.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 

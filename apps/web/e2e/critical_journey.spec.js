@@ -405,11 +405,14 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByRole('link', { name: 'Automations', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Task automation rules' })).toBeVisible()
   await page.getByLabel('Rule name').fill(`New deal qualification ${runID}`)
+  await page.getByLabel(/Optional deal condition/i).selectOption('valueAmount')
+  await page.getByLabel('Deal condition value').fill('20000')
   await page.getByLabel('Task title').fill(automatedTaskTitle)
   await page.getByLabel('Task description').fill('Confirm fit and agree the next step.')
   await page.getByLabel('Due in days', { exact: false }).fill('1')
   await page.getByRole('button', { name: 'Create task rule' }).click()
   await expect(page.getByRole('heading', { name: `New deal qualification ${runID}` })).toBeVisible()
+  await expect(page.getByText('Only if value amount is greater than 20000', { exact: true })).toBeVisible()
 
   const quoteTemplateName = `Pilot services terms ${runID}`
   const quoteTemplateTerms = 'Net 30. Scope changes require written approval under the retained pilot services terms.'

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -18,9 +19,14 @@ const (
 	DealEventCreated      = "created"
 	DealEventStageChanged = "stage_changed"
 	DealEventArchived     = "archived"
-	maxExecutableActions  = 1
-	maxTaskTitleLength    = 200
-	maxTaskDescriptionLen = 2000
+	// DealSnapshotConditionContract explicitly opts a definition into the
+	// executable event-time deal-condition shape. Legacy stored conditions do
+	// not start executing merely because the runtime gains condition support.
+	DealSnapshotConditionContract = "deal_snapshot_v1"
+	maxExecutableActions          = 1
+	maxExecutableConditions       = 1
+	maxTaskTitleLength            = 200
+	maxTaskDescriptionLen         = 2000
 )
 
 type DealTaskEvent struct {
@@ -49,7 +55,7 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT id, name, trigger_config_json, conditions_json, actions_json
+		SELECT id, name, trigger_config_json, condition_logic, conditions_json, actions_json
 		FROM workflow_automations
 		WHERE organization_id = $1
 		  AND is_active = TRUE
@@ -63,12 +69,13 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 	type ruleRow struct {
 		id                          int64
 		name                        string
+		conditionLogic              string
 		config, conditions, actions []byte
 	}
 	rules := make([]ruleRow, 0)
 	for rows.Next() {
 		var rule ruleRow
-		if err := rows.Scan(&rule.id, &rule.name, &rule.config, &rule.conditions, &rule.actions); err != nil {
+		if err := rows.Scan(&rule.id, &rule.name, &rule.config, &rule.conditionLogic, &rule.conditions, &rule.actions); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan executable deal task rule: %w", err)
 		}
@@ -97,10 +104,24 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 			return fmt.Errorf("decode deal task rule actions: %w", err)
 		}
 
-		payload, err := json.Marshal(map[string]any{
+		executableShape := executableTaskActions(actions) && executableDealConditions(config, rule.conditionLogic, conditions)
+		conditionMatched := true
+		conditionFields := map[string]any{}
+		if executableShape && len(conditions) > 0 {
+			conditionFields, err = loadDealConditionFields(ctx, tx, event.OrganizationID, event.DealID)
+			if err != nil {
+				return err
+			}
+			conditionMatched = EvaluateConditions(rule.conditionLogic, conditions, conditionFields)
+		}
+		payloadValue := map[string]any{
 			"dealId": event.DealID, "dealName": event.DealName,
 			"event": event.EventType, "stageId": event.StageID, "stageName": event.StageName,
-		})
+		}
+		if len(conditions) > 0 && executableShape {
+			payloadValue["conditionFields"] = dealConditionEvidence(conditions, conditionFields)
+		}
+		payload, err := json.Marshal(payloadValue)
 		if err != nil {
 			return fmt.Errorf("encode deal task automation payload: %w", err)
 		}
@@ -119,14 +140,15 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 			return fmt.Errorf("reserve deal task automation run: %w", err)
 		}
 
-		if len(conditions) != 0 || !executableTaskActions(actions) {
-			if _, err := tx.Exec(ctx, `
-				UPDATE workflow_automation_runs
-				SET status='skipped', condition_result=FALSE, completed_at=NOW(), updated_at=NOW(),
-				    trigger_payload_json = jsonb_set(trigger_payload_json, '{skipReason}', '"unsupported rule shape"'::jsonb)
-				WHERE organization_id=$1 AND id=$2
-			`, event.OrganizationID, runID); err != nil {
-				return fmt.Errorf("skip unsupported deal task rule: %w", err)
+		if !executableShape {
+			if err := skipDealTaskRun(ctx, tx, event.OrganizationID, runID, "unsupported rule shape"); err != nil {
+				return err
+			}
+			continue
+		}
+		if !conditionMatched {
+			if err := skipDealTaskRun(ctx, tx, event.OrganizationID, runID, "condition did not match"); err != nil {
+				return err
 			}
 			continue
 		}
@@ -195,6 +217,49 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 	return nil
 }
 
+func loadDealConditionFields(ctx context.Context, tx pgx.Tx, organizationID, dealID int64) (map[string]any, error) {
+	var name, stageName, status, valueAmount, valueCurrency, expectedCloseDate string
+	var stageID int64
+	var ownerUserID, companyID, primaryContactID any
+	if err := tx.QueryRow(ctx, `
+		SELECT d.name,d.stage_id,ds.name,COALESCE(d.status,''),COALESCE(d.value_amount::text,''),
+		       COALESCE(d.value_currency,''),d.owner_user_id,d.company_id,
+		       d.primary_contact_id,COALESCE(TO_CHAR(d.expected_close_date,'YYYY-MM-DD'),'')
+		FROM deals d
+		JOIN deal_stages ds ON ds.organization_id=d.organization_id AND ds.id=d.stage_id
+		WHERE d.organization_id=$1 AND d.id=$2
+	`, organizationID, dealID).Scan(&name, &stageID, &stageName, &status, &valueAmount, &valueCurrency, &ownerUserID, &companyID, &primaryContactID, &expectedCloseDate); err != nil {
+		return nil, fmt.Errorf("load deal task condition snapshot: %w", err)
+	}
+	return map[string]any{
+		"name": name, "stageId": stageID, "stageName": stageName, "status": status,
+		"valueAmount": valueAmount, "valueCurrency": valueCurrency, "ownerUserId": ownerUserID,
+		"companyId": companyID, "primaryContactId": primaryContactID, "expectedCloseDate": expectedCloseDate,
+	}, nil
+}
+
+func dealConditionEvidence(conditions []Condition, fields map[string]any) map[string]any {
+	evidence := make(map[string]any, len(conditions))
+	for _, condition := range conditions {
+		if value, ok := fields[condition.Field]; ok {
+			evidence[condition.Field] = value
+		}
+	}
+	return evidence
+}
+
+func skipDealTaskRun(ctx context.Context, tx pgx.Tx, organizationID, runID int64, reason string) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE workflow_automation_runs
+		SET status='skipped', condition_result=FALSE, completed_at=NOW(), updated_at=NOW(),
+		    trigger_payload_json = jsonb_set(trigger_payload_json, '{skipReason}', to_jsonb($3::text))
+		WHERE organization_id=$1 AND id=$2
+	`, organizationID, runID, reason); err != nil {
+		return fmt.Errorf("skip deal task automation run: %w", err)
+	}
+	return nil
+}
+
 func dealTriggerType(eventType string) (string, error) {
 	switch eventType {
 	case DealEventCreated:
@@ -231,6 +296,60 @@ func executableTaskActions(actions []Action) bool {
 		title, ok := stringConfig(action.Config, "title")
 		description, _ := stringConfig(action.Config, "description")
 		if action.Type != "create_task" || !ok || action.ScheduledAt != nil || utf8.RuneCountInString(title) > maxTaskTitleLength || utf8.RuneCountInString(description) > maxTaskDescriptionLen || action.DelayMinutes < 0 || action.DelayMinutes > maxActionDelayMinutes || action.DelayMinutes%1440 != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func executableDealConditions(config map[string]any, logic string, conditions []Condition) bool {
+	if len(conditions) == 0 {
+		return true
+	}
+	contract, _ := stringConfig(config, "conditionContract")
+	if contract != DealSnapshotConditionContract || logic != "all" || len(conditions) > maxExecutableConditions {
+		return false
+	}
+	condition := conditions[0]
+	switch condition.Field {
+	case "valueAmount":
+		if condition.Operator == "exists" {
+			return true
+		}
+		if condition.Operator != "greaterThan" && condition.Operator != "lessThan" {
+			return false
+		}
+		value, err := strconv.ParseFloat(condition.Value, 64)
+		return err == nil && !math.IsInf(value, 0) && value >= 0
+	case "ownerUserId":
+		if condition.Operator == "exists" {
+			return true
+		}
+		return (condition.Operator == "equals" || condition.Operator == "notEquals") && integerConfig(condition.Value) > 0
+	case "valueCurrency":
+		return condition.Operator == "exists" || ((condition.Operator == "equals" || condition.Operator == "notEquals") && validCurrencyCode(condition.Value))
+	case "status":
+		if condition.Operator != "equals" && condition.Operator != "notEquals" {
+			return false
+		}
+		switch strings.ToLower(condition.Value) {
+		case "open", "won", "lost":
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func validCurrencyCode(value string) bool {
+	if len(value) != 3 {
+		return false
+	}
+	for index := range 3 {
+		character := value[index]
+		if (character < 'A' || character > 'Z') && (character < 'a' || character > 'z') {
 			return false
 		}
 	}
