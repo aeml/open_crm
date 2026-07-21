@@ -556,13 +556,17 @@ func replaceLinkedContacts(ctx context.Context, executor activityExecutor, organ
 	}
 
 	for index, contactID := range uniquePositiveIDs(linkedContactIDs) {
-		if _, err := executor.Exec(ctx, `
+		linked, err := executor.Exec(ctx, `
 			INSERT INTO contact_company_links (organization_id, contact_id, company_id, is_primary)
 			SELECT $1, c.id, $2, $3
 			FROM contacts c
 			WHERE c.organization_id = $1 AND c.id = $4 AND c.archived_at IS NULL
-		`, organizationID, companyID, index == 0, contactID); err != nil {
+		`, organizationID, companyID, index == 0, contactID)
+		if err != nil {
 			return err
+		}
+		if linked.RowsAffected() != 1 {
+			return ErrNotFound
 		}
 	}
 

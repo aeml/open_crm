@@ -92,8 +92,8 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.4.5` Mention And Follow Model: complete.
 - `0.4.6` Team Activity Digest: complete.
 - `0.4.7` Admin User Lifecycle Hardening: complete.
-- `0.4.8` Team Usage Reporting: planned.
-- `0.4.9` Team Release Review: planned.
+- `0.4.8` Team Usage Reporting: planned (deferred until a pilot defines privacy-safe adoption questions beyond the existing operational digest and sales reports).
+- `0.4.9` Team Release Review: in progress (technical tenant/role/browser review complete; approved pilot usage evidence pending).
 - `0.5.0` CRM Data Operations: complete.
 - `0.5.1` Bulk Actions: complete.
 - `0.5.2` Duplicate Management: complete.
@@ -458,7 +458,7 @@ holding every production route to the default 500-line ceiling with no explicit 
 
 ## Version 0.2.3 - Database Integrity
 
-Status: superseded by immutable delivery (`1.3.8`) and native signing (`1.3.9`).
+Status: complete.
 
 Goal: move important invariants closer to the data.
 
@@ -773,6 +773,13 @@ Completion notes:
 - All foreign-org operations return `404` (no existence leakage via `403`).
 - Uses existing `fakeXService` stubs and `authenticatedXServer` helpers; no new test infrastructure required.
 
+Convergence evidence (2026-07-21):
+
+- Added `docs/tenant-isolation-matrix.md` and an executable 24-row digest guard that binds every promoted Phase 2 service family to an exact freshly migrated PostgreSQL acceptance test. Missing files/tests, non-PostgreSQL substitutions, count changes, and undocumented evidence changes fail CI.
+- Added a real-PostgreSQL core boundary suite beneath the handler fakes. It seeds two workspaces and proves isolated lists plus non-disclosing contact/company/deal/task reads and mutations, saved-view writes, notes, linked records, stages, task entities, actors, and assignees; rejected transactions leave both owners' rows unchanged.
+- Fixed linked-contact replacement so a missing, archived, or foreign contact rejects and rolls back the company mutation instead of silently committing a partial relationship set. Deal assignment acceptance separately proves a foreign owner cannot create a notification.
+- Retained the two-context Chromium boundary for foreign contact, follower, touchpoint, quote, close, and portable-export requests.
+
 ## Version 0.3.8b - Dependency Hygiene
 
 Status: complete.
@@ -1022,7 +1029,7 @@ Completion notes:
 
 ## Version 0.4.8 - Team Usage Reporting
 
-Status: in progress (technical outcome complete; approved pilot usage evidence pending).
+Status: planned (deferred until a pilot defines a privacy-safe adoption question that the existing activity digest and sales reports do not already answer).
 
 Goal: give admins basic visibility into whether the CRM is being used.
 
@@ -1038,7 +1045,7 @@ Exit criteria:
 
 ## Version 0.4.9 - Team Release Review
 
-Status: complete.
+Status: in progress (technical review complete; approved pilot usage evidence pending).
 
 Goal: close the team workflow milestone before data operations work.
 

@@ -2,6 +2,7 @@ package deals_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -39,9 +40,12 @@ func TestDealAssignmentsAreTransactionalPreferenceAwareAndIdempotentAgainstPostg
 	}
 	defer pool.Close()
 
-	var organizationID, actorID, assigneeID, otherAssigneeID, pipelineID, stageID int64
+	var organizationID, foreignOrganizationID, actorID, assigneeID, otherAssigneeID, foreignAssigneeID, pipelineID, stageID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO organizations (name,slug) VALUES ('Deal assignment',$1) RETURNING id`, "deal-assignment-"+schema).Scan(&organizationID); err != nil {
 		t.Fatalf("create organization: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO organizations (name,slug) VALUES ('Foreign deal assignment',$1) RETURNING id`, "foreign-deal-assignment-"+schema).Scan(&foreignOrganizationID); err != nil {
+		t.Fatalf("create foreign organization: %v", err)
 	}
 	for _, user := range []struct {
 		email     string
@@ -51,11 +55,16 @@ func TestDealAssignmentsAreTransactionalPreferenceAwareAndIdempotentAgainstPostg
 		{"actor-" + schema + "@example.test", "Actor", &actorID},
 		{"assignee-" + schema + "@example.test", "Assignee", &assigneeID},
 		{"other-" + schema + "@example.test", "Other", &otherAssigneeID},
+		{"foreign-" + schema + "@example.test", "Foreign", &foreignAssigneeID},
 	} {
 		if err := pool.QueryRow(ctx, `INSERT INTO users (email,password_hash,first_name,last_name) VALUES ($1,'test-hash',$2,'User') RETURNING id`, user.email, user.firstName).Scan(user.id); err != nil {
 			t.Fatalf("create %s user: %v", user.firstName, err)
 		}
-		if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id,user_id,role) VALUES ($1,$2,'member')`, organizationID, *user.id); err != nil {
+		membershipOrganizationID := organizationID
+		if user.firstName == "Foreign" {
+			membershipOrganizationID = foreignOrganizationID
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id,user_id,role) VALUES ($1,$2,'member')`, membershipOrganizationID, *user.id); err != nil {
 			t.Fatalf("create %s membership: %v", user.firstName, err)
 		}
 	}
@@ -73,6 +82,13 @@ func TestDealAssignmentsAreTransactionalPreferenceAwareAndIdempotentAgainstPostg
 	}
 	dealID := created.Summary.ID
 	assertDealAssignmentNotification(t, ctx, pool, organizationID, assigneeID, dealID, 1, "deal:"+fmt.Sprint(dealID)+":assigned:"+fmt.Sprint(assigneeID)+":v0")
+	if _, err := service.Update(ctx, organizationID, dealID, actorID, moduledeals.UpdateInput{Name: "Cross-tenant owner must fail", OwnerUserID: foreignAssigneeID}); !errors.Is(err, moduledeals.ErrInvalidAssignee) {
+		t.Fatalf("foreign deal assignee returned %v", err)
+	}
+	var foreignNotifications int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM notifications WHERE organization_id=$1 OR user_id=$2`, foreignOrganizationID, foreignAssigneeID).Scan(&foreignNotifications); err != nil || foreignNotifications != 0 {
+		t.Fatalf("foreign assignment emitted notifications: count=%d err=%v", foreignNotifications, err)
+	}
 
 	if _, err := service.Update(ctx, organizationID, dealID, actorID, moduledeals.UpdateInput{Name: "Assigned deal renamed", OwnerUserID: assigneeID}); err != nil {
 		t.Fatalf("save unchanged owner: %v", err)
