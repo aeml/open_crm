@@ -136,6 +136,7 @@ export function CompanyWorkspace({
           entityType="company"
           isCreatingNote={work.isCreatingNote}
           isCreatingTask={work.isCreatingTask}
+          isLoading={isLoading}
           noteBody={work.noteBody}
           notes={work.notes}
           notesAria="Client notes list"

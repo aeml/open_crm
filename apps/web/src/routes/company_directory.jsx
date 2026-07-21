@@ -118,7 +118,7 @@ export function CompanyDirectory({
           ) : companies.map((company) => (
             <article className="record-row" key={company.id} role="listitem">
               <div>
-                {canWrite ? <input type="checkbox" aria-label={`Select ${company.name}`} checked={bulkEntityType === company.entityType && selectedClientIds.includes(company.entityId)} onChange={() => onToggleSelection(company)} /> : null}
+                {canWrite ? <input className="record-select-checkbox" type="checkbox" aria-label={`Select ${company.name}`} checked={bulkEntityType === company.entityType && selectedClientIds.includes(company.entityId)} onChange={() => onToggleSelection(company)} /> : null}
                 <button className="button button-ghost contact-link" type="button" onClick={() => onOpenClient(company)}>
                   {company.name}
                 </button>

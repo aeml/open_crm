@@ -519,6 +519,13 @@
   color: var(--text-muted);
 }
 
+.record-select-checkbox {
+  inline-size: 24px;
+  block-size: 24px;
+  margin: 0 var(--space-2) 0 0;
+  vertical-align: middle;
+}
+
 .record-row-active {
   border-color: var(--accent);
   background: rgba(39, 94, 254, 0.06);

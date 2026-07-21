@@ -124,6 +124,7 @@ describe('deals flow', () => {
 
     expect(await screen.findByRole('heading', { name: /deals/i })).toBeInTheDocument()
     expect(await screen.findByText(/northstar expansion/i)).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /select northstar expansion/i })).toHaveClass('record-select-checkbox')
     expect(screen.getByText(/showing 2 of 2 deals/i)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/search deals/i), { target: { value: 'bluebird' } })

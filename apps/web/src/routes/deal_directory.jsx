@@ -136,7 +136,7 @@ export function DealDirectory({
           ) : deals.map((deal) => (
             <article className="record-row" key={deal.id} role="listitem">
               <div>
-                {canWrite ? <input type="checkbox" aria-label={`Select ${deal.name}`} checked={selectedDealIds.includes(deal.id)} onChange={() => onToggleSelection(deal.id)} /> : null}
+                {canWrite ? <input className="record-select-checkbox" type="checkbox" aria-label={`Select ${deal.name}`} checked={selectedDealIds.includes(deal.id)} onChange={() => onToggleSelection(deal.id)} /> : null}
                 <button className="button button-ghost contact-link" type="button" onClick={() => onOpenDeal(deal)}>
                   {deal.name}
                 </button>

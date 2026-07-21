@@ -13,6 +13,7 @@ export function RecordWorkCards({
   entityType,
   isCreatingNote = false,
   isCreatingTask = false,
+  isLoading = false,
   noteBody,
   notes,
   notesAria = 'Notes list',
@@ -87,12 +88,13 @@ export function RecordWorkCards({
                   : `${followerState.followers.length} active follower${followerState.followers.length === 1 ? '' : 's'}`}
               </p>
             </div>
-            <Button className="button-secondary" type="button" onClick={toggleFollowing} disabled={isUpdatingFollow || !entityId}>
+            <Button className="button-secondary" type="button" onClick={toggleFollowing} disabled={isLoading || isUpdatingFollow || !entityId}>
               {isUpdatingFollow ? 'Loading…' : !followersLoaded ? 'Followers' : followerState.following ? 'Following' : 'Follow'}
             </Button>
           </div>
+          {isLoading ? <p className="field-hint" role="status">Loading notes, tasks, and activity…</p> : null}
           {followError ? <p className="field-hint" role="alert">{followError}</p> : null}
-          {canWrite ? (
+          {canWrite && !isLoading ? (
             <form className="auth-form" onSubmit={onCreateNote}>
               <Field label="New note">
                 <textarea className="text-input" value={noteBody} onChange={(event) => onSetNoteBody(event.target.value)} rows={4} />
@@ -130,7 +132,7 @@ export function RecordWorkCards({
             <h3>Tasks</h3>
             <Button className="button-secondary" type="button" onClick={onOpenTasks}>Open in tasks</Button>
           </div>
-          {canWrite ? (
+          {canWrite && !isLoading ? (
             <form className="auth-form" onSubmit={onCreateTask}>
               <Field label="Task title">
                 <input className="text-input" value={taskForm.title} onChange={(event) => onSetTaskForm((current) => ({ ...current, title: event.target.value }))} required />

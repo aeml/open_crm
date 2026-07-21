@@ -100,7 +100,7 @@ export function ContactListCard({
           ) : contacts.map((contact) => (
             <article className="record-row" key={contact.id} role="listitem">
               <div>
-                {canWrite ? <input type="checkbox" aria-label={`Select ${fullContactName(contact)}`} checked={bulkActions.selectedIds.includes(contact.id)} onChange={() => bulkActions.onSelectionChange((current) => current.includes(contact.id) ? current.filter((id) => id !== contact.id) : [...current, contact.id])} /> : null}
+                {canWrite ? <input className="record-select-checkbox" type="checkbox" aria-label={`Select ${fullContactName(contact)}`} checked={bulkActions.selectedIds.includes(contact.id)} onChange={() => bulkActions.onSelectionChange((current) => current.includes(contact.id) ? current.filter((id) => id !== contact.id) : [...current, contact.id])} /> : null}
                 <button className="button button-ghost contact-link" type="button" onClick={() => onOpenContact(contact)}>{fullContactName(contact)}</button>
                 <p>{contact.jobTitle || 'No title'}</p>
               </div>

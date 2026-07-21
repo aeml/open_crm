@@ -95,9 +95,9 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 656 KiB | 210 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 179.11 KiB/58.06 KiB entry, 48.31 KiB/13.88 KiB largest lazy
-chunk, and 655.26 KiB/209.21 KiB total assets. The production contact, company,
-deal, and task routes are 29.64/8.93, 34.66/10.20, 48.31/13.88, and 24.64/7.12
+Current production-URL evidence: 179.11 KiB/58.07 KiB entry, 48.37 KiB/13.89 KiB largest lazy
+chunk, and 655.67 KiB/209.25 KiB total assets. The production contact, company,
+deal, and task routes are 29.68/8.94, 34.71/10.22, 48.37/13.89, and 24.67/7.13
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
@@ -156,6 +156,12 @@ and accessible won-stage handoff UI. The same browser review corrected grouped
 activity-list semantics and badge contrast. Its measured 655.26/209.21 KiB build raises
 only the aggregate ceilings to 656/210 KiB; the 179.11/58.06 KiB entry,
 48.31/13.88 KiB largest route, and CSS ceilings remain unchanged.
+The populated-browser WCAG follow-up then gives shared record-selection
+checkboxes a 24-pixel target and explicit spacing across Contacts, Clients,
+Deals, and Tasks. The clean rerun also keeps record-work mutation forms hidden
+until their authoritative snapshot loads, so a late response cannot silently
+erase user input. Its measured 655.67/209.25 KiB build remains within the same
+656/210 KiB aggregate ceilings.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 

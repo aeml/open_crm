@@ -32,6 +32,23 @@ afterEach(() => {
 })
 
 describe('record collaboration controls', () => {
+  it('keeps record work mutations unavailable until the active snapshot has loaded', () => {
+    const props = recordWorkProps(11)
+    const { rerender } = render(<RecordWorkCards {...props} isLoading />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading notes, tasks, and activity')
+    expect(screen.getByRole('button', { name: 'Followers' })).toBeDisabled()
+    expect(screen.queryByLabelText('New note')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument()
+
+    rerender(<RecordWorkCards {...props} isLoading={false} />)
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Followers' })).toBeEnabled()
+    expect(screen.getByLabelText('New note')).toBeInTheDocument()
+    expect(screen.getByLabelText('Task title')).toBeInTheDocument()
+  })
+
   it('loads followers, follows idempotently, and inserts explicit teammate mentions', async () => {
     const fetchMock = vi.fn(async (input, options = {}) => {
       const url = String(input)

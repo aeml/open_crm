@@ -167,6 +167,7 @@ export function TaskDirectory({
               <div>
                 {canWrite ? (
                   <input
+                    className="record-select-checkbox"
                     type="checkbox"
                     aria-label={`Select ${task.title}`}
                     checked={selectedTaskIds.includes(task.id)}

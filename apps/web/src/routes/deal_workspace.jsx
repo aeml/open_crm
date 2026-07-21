@@ -107,6 +107,7 @@ export function DealWorkspace({
           entityType="deal"
           isCreatingNote={work.isCreatingNote}
           isCreatingTask={work.isCreatingTask}
+          isLoading={detail.isLoading}
           noteBody={work.noteBody}
           notes={work.notes}
           notesAria={labels.notesAria}

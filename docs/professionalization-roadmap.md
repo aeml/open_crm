@@ -444,7 +444,9 @@ controls wait for durable completion, suppress duplicate work actions, validate
 returned identities, and keep notes, tasks,
 activities, quote lines, and quote-signature evidence on the active deal; the guarded
 187-line commercial hook shares that contract. The generic follower control
-also rejects responses for an earlier record. Task filtering,
+also rejects responses for an earlier record. Shared record-work mutation forms
+remain unavailable until the selected record's authoritative work snapshot has
+loaded, preventing a late snapshot from silently erasing user input. Task filtering,
 sorting, labels, due-date view logic, a shared 98-line create/update form,
 207-line directory, and 64-line create/detail workspace plus tested 88-line
 quick-action and 128-line detail-state hooks leave `tasks.jsx` at 496 lines,
@@ -2314,9 +2316,9 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 179.11 KiB/58.06 KiB for the entry, 48.31 KiB/13.88 KiB
-for the largest lazy chunk, and 655.26 KiB/209.21 KiB total assets. The isolated
-public quote route is 6.35 KiB/2.28 KiB after adding the retry-safe signature
+CSS. Current production-URL evidence is 179.11 KiB/58.07 KiB for the entry, 48.37 KiB/13.89 KiB
+for the largest lazy chunk, and 655.67 KiB/209.25 KiB total assets. The isolated
+public quote route is 6.35 KiB/2.25 KiB after adding the retry-safe signature
 ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.24 KiB/4.51 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit

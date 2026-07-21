@@ -489,7 +489,11 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   const taskForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save task' }) })
   await taskForm.getByLabel('Task title').fill(`Prepare proposal ${runID}`)
   await taskForm.getByLabel('Task description').fill('Confirm scope and pricing with the client.')
-  await taskForm.getByRole('button', { name: 'Save task' }).click()
+  const [createdDealTaskResponse] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/tasks'),
+    taskForm.getByRole('button', { name: 'Save task' }).click()
+  ])
+  expect(createdDealTaskResponse.status()).toBe(201)
   await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(`Prepare proposal ${runID}`)).toBeVisible()
 
   await page.getByRole('link', { name: 'Reports', exact: true }).click()

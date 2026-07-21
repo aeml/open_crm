@@ -151,6 +151,7 @@ export function ContactWorkspace({
           entityType="contact"
           isCreatingNote={work.isCreatingNote}
           isCreatingTask={work.isCreatingTask}
+          isLoading={isLoading}
           noteBody={work.noteBody}
           notes={work.notes}
           onCreateNote={work.handleCreateNote}
