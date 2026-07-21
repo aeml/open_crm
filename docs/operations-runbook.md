@@ -1153,9 +1153,9 @@ bytes, tokens, or counters with ad hoc SQL.
 
 ### Data-quality review
 
-1. Open **Reports > Data quality**. These are live read-only queries, not the
-   custom report definitions farther down the page. Every member can review the
-   queues; no record is changed automatically.
+1. Open **Reports > Data quality**. These are fixed live read-only queries,
+   separate from the saved table reports farther down the page. Every member
+   can review the queues; no record is changed automatically.
 2. Select a 14, 30, 60, or 90 day stale-deal window. The API accepts only 7–365
    days. Each queue states its rule, shows the exact current tenant count, and
    lists up to 25 affected records with the specific reason and a direct link.
@@ -1171,6 +1171,29 @@ bytes, tokens, or counters with ad hoc SQL.
    and displayed generated time; capture the request ID from the API response or
    correlated request log. Compare only active records matching the displayed
    criterion; do not repair report counts or CRM rows with manual SQL.
+
+### Saved table report execution and recovery
+
+1. Open **Reports**. Owners, admins, and members can create or edit a saved
+   table report; viewers can run existing active reports but cannot change their
+   definitions. Production exposes only the executable table type. Chart,
+   dashboard, sharing, export, and scheduled-delivery definitions remain hidden.
+2. Choose contacts, companies, deals, or tasks; select result fields; then add
+   only the typed operators offered for each field. A row report uses **No
+   aggregation**. To summarize records, select count, sum, average, minimum, or
+   maximum and optionally group by one allowlisted field.
+3. Select **Run report**. Each request uses the session workspace, omits archived
+   rows, returns at most 100 rows per page and 100 pages, and stops after five
+   seconds. Page counts are deliberately not presented as an exact total.
+4. `REPORT_INACTIVE` means a writer must edit and activate the saved report.
+   `REPORT_TIMEOUT` means narrow the filters or grouping before retrying; capture
+   the request ID and route latency if the same bounded query repeats. A generic
+   validation error means a retained definition no longer matches the executable
+   typed field contract and should be corrected through the editor, not SQL.
+5. A missing report returns the same `404` for a nonexistent or foreign
+   definition. Do not diagnose tenant ownership from that response. Use the
+   authenticated request log and the digest-gated PostgreSQL evidence test when
+   investigating an isolation concern.
 
 ### Custom-field change and recovery
 

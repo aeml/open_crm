@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 
 afterEach(() => {
@@ -31,10 +31,13 @@ describe('reports route', () => {
         return sessionResponse()
       }
       if (path.endsWith('/api/report-definitions') && method === 'POST') {
-        return jsonResponse({ data: { definition: { id: 8, name: 'Pipeline revenue by stage', description: '', sourceType: 'deals', visualizationType: 'bar', columns: ['id', 'name', 'stageName', 'status'], filters: [{ field: 'status', operator: 'equals', value: 'open' }], groupBy: 'stageName', aggregation: { function: 'sum', field: 'valueAmount' }, isActive: true } } })
+        return jsonResponse({ data: { definition: { id: 8, name: 'Pipeline revenue by stage', description: '', sourceType: 'deals', visualizationType: 'table', columns: ['id', 'name', 'stageName', 'status'], filters: [{ field: 'status', operator: 'equals', value: 'open' }], groupBy: 'stageName', aggregation: { function: 'sum', field: 'valueAmount' }, isActive: true } } })
+      }
+      if (path.endsWith('/api/report-definitions/3/results')) {
+        return jsonResponse({ data: { definitionId: 3, definitionName: 'Contact source report', sourceType: 'contacts', columns: [{ key: 'leadSource', label: 'Lead source', dataType: 'text' }, { key: 'recordCount', label: 'Record count', dataType: 'integer' }], rows: [{ values: { leadSource: 'Referral', recordCount: '4' } }], page: 1, pageSize: 50, hasMore: false, generatedAt: '2026-07-21T18:00:00Z' } })
       }
       if (path.endsWith('/api/report-definitions')) {
-        return jsonResponse({ data: { definitions: [{ id: 3, name: 'Contact source report', description: 'Contacts by lead source', sourceType: 'contacts', visualizationType: 'pie', columns: ['firstName', 'lastName', 'email'], filters: [{ field: 'status', operator: 'equals', value: 'lead' }], groupBy: 'leadSource', aggregation: { function: 'count', field: '' }, isActive: true }] } })
+        return jsonResponse({ data: { definitions: [{ id: 3, name: 'Contact source report', description: 'Contacts by lead source', sourceType: 'contacts', visualizationType: 'table', columns: ['firstName', 'lastName', 'email'], filters: [{ field: 'status', operator: 'equals', value: 'lead' }], groupBy: 'leadSource', aggregation: { function: 'count', field: '' }, isActive: true, updatedAt: '2026-07-21T17:00:00Z' }] } })
       }
       return jsonResponse({ data: { unreadCount: 0 } })
     })
@@ -48,9 +51,15 @@ describe('reports route', () => {
     expect(await screen.findByRole('heading', { name: /contact source report/i })).toBeInTheDocument()
     expect(screen.getByText(/contacts by lead source/i)).toBeInTheDocument()
 
+    const savedReport = screen.getByRole('heading', { name: /contact source report/i }).closest('article')
+    fireEvent.click(within(savedReport).getByRole('button', { name: /run report/i }))
+    const results = await screen.findByRole('region', { name: /contact source report results/i })
+    expect(results).toHaveTextContent('Lead source')
+    expect(results).toHaveTextContent('Referral')
+    expect(results).toHaveTextContent('4')
+
     fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Pipeline revenue by stage' } })
     fireEvent.change(screen.getByLabelText(/^source object$/i), { target: { value: 'deals' } })
-    fireEvent.change(screen.getByLabelText(/^visualization$/i), { target: { value: 'bar' } })
     fireEvent.click(screen.getByRole('button', { name: /add filter/i }))
     fireEvent.change(screen.getByLabelText(/^filter field 1$/i), { target: { value: 'status' } })
     fireEvent.change(screen.getByLabelText(/^filter value 1$/i), { target: { value: 'open' } })
@@ -68,7 +77,7 @@ describe('reports route', () => {
         name: 'Pipeline revenue by stage',
         description: '',
         sourceType: 'deals',
-        visualizationType: 'bar',
+        visualizationType: 'table',
         columns: ['id', 'name', 'stageName', 'status'],
         filters: [{ field: 'status', operator: 'equals', value: 'open' }],
         groupBy: 'stageName',

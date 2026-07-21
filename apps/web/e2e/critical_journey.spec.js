@@ -622,6 +622,35 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(followUpReport.getByText(/How the follow-up queue is calculated/)).toBeVisible()
   const incompleteDealReport = page.getByRole('listitem').filter({ hasText: 'Incomplete open deals' })
   await expect(incompleteDealReport).toContainText('Missing expected close date')
+
+  const savedReportName = `Captured leads ${runID}`
+  const savedReportForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Create report definition' }) })
+  await savedReportForm.getByLabel('Name', { exact: true }).fill(savedReportName)
+  await savedReportForm.getByRole('button', { name: 'Add filter' }).click()
+  await savedReportForm.getByLabel('Filter field 1').selectOption('email')
+  await savedReportForm.getByLabel('Filter value 1').fill(publicLeadEmail)
+  const [savedReportResponse] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/report-definitions'),
+    savedReportForm.getByRole('button', { name: 'Create report definition' }).click()
+  ])
+  expect(savedReportResponse.status()).toBe(201)
+  const savedReportID = (await savedReportResponse.json()).data.definition.id
+  const savedReport = page.getByRole('listitem').filter({ has: page.getByRole('heading', { name: savedReportName, exact: true }) })
+  await expect(savedReport.getByText('Executable table', { exact: true })).toBeVisible()
+  await savedReport.getByRole('button', { name: 'Run report' }).click()
+  const savedReportResults = savedReport.getByRole('region', { name: `${savedReportName} results` })
+  await expect(savedReportResults.getByRole('columnheader', { name: 'Email' })).toBeVisible()
+  await expect(savedReportResults.getByText(publicLeadEmail, { exact: true })).toBeVisible()
+  const savedReportAccessibility = await new AxeBuilder({ page })
+    .include('.custom-report-results')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-saved-table-report', {
+    body: JSON.stringify({ url: page.url(), violations: savedReportAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(savedReportAccessibility.violations, 'saved table report must have no automated WCAG A/AA violations').toEqual([])
+
   await incompleteDealReport.getByRole('link', { name: `Website renewal ${runID}` }).click()
   await expect(page).toHaveURL(/\/deals\/\d+/)
 
@@ -900,6 +929,8 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     expect(crossTenantClose.status()).toBe(404)
     const crossTenantPortableExport = await otherContext.request.get(portableDownloadURL)
     expect(crossTenantPortableExport.status()).toBe(404)
+    const crossTenantSavedReport = await otherContext.request.get(`${apiURL}/api/report-definitions/${savedReportID}/results`)
+    expect(crossTenantSavedReport.status()).toBe(404)
   } finally {
     await otherContext.close()
   }

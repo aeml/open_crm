@@ -183,6 +183,9 @@ func registerFoundationRoutes(mux *http.ServeMux, dependencies Dependencies, rat
 	mux.HandleFunc("PATCH /api/report-definitions/{definitionID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateCustomReportDefinition(dependencies.AuthService, dependencies.CustomReportsService, w, r)
 	})
+	mux.HandleFunc("GET /api/report-definitions/{definitionID}/results", func(w http.ResponseWriter, r *http.Request) {
+		handleExecuteCustomReport(dependencies.AuthService, dependencies.CustomReportsService, w, r)
+	})
 	mux.HandleFunc("GET /api/data-quality/summary", func(w http.ResponseWriter, r *http.Request) {
 		handleDataQualitySummary(dependencies.AuthService, dependencies.DataQualityService, w, r)
 	})

@@ -20,6 +20,8 @@ type fakeCustomReportsService struct {
 	createErr       error
 	updateResult    modulecustomreports.Definition
 	updateErr       error
+	executeResult   modulecustomreports.Execution
+	executeErr      error
 	lastListOrgID   int64
 	lastCreateOrgID int64
 	lastCreateUser  int64
@@ -28,6 +30,9 @@ type fakeCustomReportsService struct {
 	lastUpdateID    int64
 	lastUpdateUser  int64
 	lastUpdateInput modulecustomreports.Input
+	lastExecuteOrg  int64
+	lastExecuteID   int64
+	lastExecute     modulecustomreports.ExecuteQuery
 }
 
 func (f *fakeCustomReportsService) ListByOrganization(_ context.Context, organizationID int64) ([]modulecustomreports.Definition, error) {
@@ -48,6 +53,13 @@ func (f *fakeCustomReportsService) Update(_ context.Context, organizationID, def
 	f.lastUpdateUser = actorUserID
 	f.lastUpdateInput = input
 	return f.updateResult, f.updateErr
+}
+
+func (f *fakeCustomReportsService) Execute(_ context.Context, organizationID, definitionID int64, query modulecustomreports.ExecuteQuery) (modulecustomreports.Execution, error) {
+	f.lastExecuteOrg = organizationID
+	f.lastExecuteID = definitionID
+	f.lastExecute = query
+	return f.executeResult, f.executeErr
 }
 
 func authenticatedCustomReportsServer(service *fakeCustomReportsService, role string) http.Handler {
@@ -153,5 +165,77 @@ func TestUpdateCustomReportDefinitionScopesToOrganization(t *testing.T) {
 	}
 	if service.lastUpdateInput.IsActive == nil || *service.lastUpdateInput.IsActive != inactive {
 		t.Fatalf("expected inactive update input, got %#v", service.lastUpdateInput.IsActive)
+	}
+}
+
+func TestExecuteCustomReportAllowsViewerAndScopesQuery(t *testing.T) {
+	value := "Qualified"
+	service := &fakeCustomReportsService{executeResult: modulecustomreports.Execution{
+		DefinitionID: 12, DefinitionName: "Qualified contacts", SourceType: "contacts",
+		Columns: []modulecustomreports.ResultColumn{{Key: "firstName", Label: "First name", DataType: "text"}},
+		Rows:    []modulecustomreports.ResultRow{{Values: map[string]*string{"firstName": &value}}}, Page: 2, PageSize: 25,
+	}}
+	server := authenticatedCustomReportsServer(service, "viewer")
+	request := httptest.NewRequest(http.MethodGet, "/api/report-definitions/12/results?page=2&pageSize=25", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if service.lastExecuteOrg != 42 || service.lastExecuteID != 12 || service.lastExecute.Page != 2 || service.lastExecute.PageSize != 25 {
+		t.Fatalf("unexpected execution scope: org=%d id=%d query=%#v", service.lastExecuteOrg, service.lastExecuteID, service.lastExecute)
+	}
+	var response customReportExecutionResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode execution response: %v", err)
+	}
+	if len(response.Data.Rows) != 1 || response.Data.Rows[0].Values["firstName"] == nil || *response.Data.Rows[0].Values["firstName"] != value {
+		t.Fatalf("unexpected execution payload: %#v", response.Data)
+	}
+}
+
+func TestExecuteCustomReportRejectsInvalidPaginationBeforeService(t *testing.T) {
+	service := &fakeCustomReportsService{}
+	server := authenticatedCustomReportsServer(service, "member")
+	request := httptest.NewRequest(http.MethodGet, "/api/report-definitions/12/results?page=101&pageSize=50", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	}
+	if service.lastExecuteID != 0 {
+		t.Fatal("invalid pagination reached the custom report service")
+	}
+}
+
+func TestExecuteCustomReportReturnsStableStateErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "inactive", err: modulecustomreports.ErrInactive, statusCode: http.StatusConflict, code: "REPORT_INACTIVE"},
+		{name: "visualization", err: modulecustomreports.ErrUnsupportedVisualization, statusCode: http.StatusConflict, code: "REPORT_NOT_EXECUTABLE"},
+		{name: "timeout", err: modulecustomreports.ErrQueryTimeout, statusCode: http.StatusGatewayTimeout, code: "REPORT_TIMEOUT"},
+		{name: "foreign", err: modulecustomreports.ErrNotFound, statusCode: http.StatusNotFound, code: "NOT_FOUND"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := authenticatedCustomReportsServer(&fakeCustomReportsService{executeErr: test.err}, "member")
+			request := httptest.NewRequest(http.MethodGet, "/api/report-definitions/12/results", nil)
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != test.statusCode || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"`+test.code+`"`)) {
+				t.Fatalf("expected %d/%s, got %d body=%s", test.statusCode, test.code, recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }

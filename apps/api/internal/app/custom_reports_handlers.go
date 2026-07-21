@@ -26,6 +26,13 @@ type customReportDefinitionResponse struct {
 	} `json:"meta"`
 }
 
+type customReportExecutionResponse struct {
+	Data modulecustomreports.Execution `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type customReportDefinitionRequest struct {
 	Name              string                          `json:"name"`
 	Description       string                          `json:"description"`
@@ -111,6 +118,36 @@ func handleUpdateCustomReportDefinition(auth authService, reports customReportsS
 	respondCustomReportDefinition(w, requestID, http.StatusOK, definition)
 }
 
+func handleExecuteCustomReport(auth authService, reports customReportsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if reports == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Custom reports service unavailable")
+		return
+	}
+	definitionID, ok := parsePathInt64(w, r, "definitionID")
+	if !ok {
+		return
+	}
+	page, validPage := parseOptionalBoundedPositiveInt(r.URL.Query().Get("page"), 1, 1, 100)
+	pageSize, validPageSize := parseOptionalBoundedPositiveInt(r.URL.Query().Get("pageSize"), 50, 1, 100)
+	if !validPage || !validPageSize {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Report page must be 1 through 100 and page size must be 1 through 100")
+		return
+	}
+	execution, err := reports.Execute(r.Context(), state.Organization.ID, definitionID, modulecustomreports.ExecuteQuery{Page: page, PageSize: pageSize})
+	if err != nil {
+		writeCustomReportExecutionError(w, requestID, err)
+		return
+	}
+	response := customReportExecutionResponse{Data: execution}
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
 func customReportDefinitionInput(request customReportDefinitionRequest) modulecustomreports.Input {
 	return modulecustomreports.Input{
 		Name:              request.Name,
@@ -142,5 +179,22 @@ func writeCustomReportDefinitionError(w http.ResponseWriter, requestID string, e
 		platformweb.WriteNotFound(w, requestID)
 	default:
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to save custom report definition")
+	}
+}
+
+func writeCustomReportExecutionError(w http.ResponseWriter, requestID string, err error) {
+	switch {
+	case errors.Is(err, modulecustomreports.ErrInvalidInput), errors.Is(err, modulecustomreports.ErrInvalidQuery):
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "The saved report contains an invalid field, filter, grouping, or aggregation")
+	case errors.Is(err, modulecustomreports.ErrInactive):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "REPORT_INACTIVE", "Activate this report before running it")
+	case errors.Is(err, modulecustomreports.ErrUnsupportedVisualization):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "REPORT_NOT_EXECUTABLE", "This visualization remains a definition and cannot run yet")
+	case errors.Is(err, modulecustomreports.ErrQueryTimeout):
+		platformweb.WriteError(w, http.StatusGatewayTimeout, requestID, "REPORT_TIMEOUT", "The report exceeded the five-second query limit")
+	case errors.Is(err, modulecustomreports.ErrNotFound):
+		platformweb.WriteNotFound(w, requestID)
+	default:
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to run custom report")
 	}
 }

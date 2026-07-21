@@ -53,7 +53,6 @@ if (!entry) {
 
 const asynchronousChunks = javascript.filter(({ name }) => name !== entry.name)
 for (const hiddenFoundation of [
-  'reports_foundation-',
   'settings_calendar-',
   'settings_lead_audiences-',
   'settings_lead_scoring-',
@@ -101,8 +100,8 @@ for (const chunk of asynchronousChunks) {
   enforce(`async chunk ${chunk.name} raw`, chunk.raw, 60 * 1024)
   enforce(`async chunk ${chunk.name} gzip`, chunk.gzip, 16 * 1024)
 }
-enforce('all JavaScript and CSS raw', totals.raw, 670 * 1024)
-enforce('all JavaScript and CSS gzip', totals.gzip, 214 * 1024)
+enforce('all JavaScript and CSS raw', totals.raw, 690 * 1024)
+enforce('all JavaScript and CSS gzip', totals.gzip, 220 * 1024)
 enforce('all CSS raw', cssTotals.raw, 20 * 1024)
 enforce('all CSS gzip', cssTotals.gzip, 5 * 1024)
 

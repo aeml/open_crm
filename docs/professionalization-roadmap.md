@@ -775,7 +775,7 @@ Completion notes:
 
 Convergence evidence (2026-07-21):
 
-- Added `docs/tenant-isolation-matrix.md` and an executable 24-row digest guard that binds every promoted Phase 2 service family to an exact freshly migrated PostgreSQL acceptance test. Missing files/tests, non-PostgreSQL substitutions, count changes, and undocumented evidence changes fail CI.
+- Added `docs/tenant-isolation-matrix.md` and an executable digest guard, now at 25 rows, that binds every promoted service family to an exact freshly migrated PostgreSQL acceptance test. Missing files/tests, non-PostgreSQL substitutions, count changes, and undocumented evidence changes fail CI.
 - Added a real-PostgreSQL core boundary suite beneath the handler fakes. It seeds two workspaces and proves isolated lists plus non-disclosing contact/company/deal/task reads and mutations, saved-view writes, notes, linked records, stages, task entities, actors, and assignees; rejected transactions leave both owners' rows unchanged.
 - Fixed linked-contact replacement so a missing, archived, or foreign contact rejects and rolls back the company mutation instead of silently committing a partial relationship set. Deal assignment acceptance separately proves a foreign owner cannot create a notification.
 - Retained the two-context Chromium boundary for foreign contact, follower, touchpoint, quote, close, and portable-export requests.
@@ -2325,22 +2325,24 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 178.93 KiB/58.03 KiB for the entry, 54.78 KiB/15.63 KiB
-for the largest lazy chunk, and 669.62 KiB/212.99 KiB total assets. The isolated
+CSS. Current production-URL evidence is 178.92 KiB/58.02 KiB for the entry, 54.78 KiB/15.63 KiB
+for the largest lazy chunk, and 686.77 KiB/217.54 KiB total assets. The isolated
 public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
 retry-safe signature ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB
-route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
-the incomplete booking-link, audience, lead-scoring, marketing-email, and
-nurture-campaign management routes, and the bundle gate rejects their accidental
-inclusion; this aligns normal exposure with executable behavior. The complete
+route and retry-key creation is a 0.15 KiB shared helper. Production builds include
+the 31.24/8.03 KiB bounded saved-table report route, whose non-table controls are
+filtered from production navigation. They omit booking-link, audience,
+lead-scoring, marketing-email, and nurture-campaign management routes; the bundle
+gate rejects those routes' accidental inclusion. The complete
 quote-template/approval outcome advanced the measured aggregate ceilings to
 659/211 KiB. The later durable and scheduled lead-follow-up outcomes keep their
 lazy settings route to 15.07/4.73 KiB and advance only the aggregate ceilings to 664/212 KiB;
 entry, per-route, and CSS limits remain unchanged.
 Reversible lead-submission review then extends its lazy lead-forms route to
-14.47/4.63 KiB and advances only the aggregate ceilings to 670/214 KiB;
-entry, per-route, and CSS limits remain unchanged. Tested route
+14.47/4.63 KiB and advances only the aggregate ceilings to 670/214 KiB; the
+saved-table outcome then advances only the aggregate ceilings to 690/220 KiB.
+Entry, per-route, CSS, and source limits remain unchanged. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 449 lines,
 companies at 458, deals at 473, and tasks at 496, down from 2,038, 1,364,
@@ -2674,13 +2676,13 @@ Goal: move from fixed reports to a self-service analytics layer.
 
 Progress:
 
-- `1.6.1` (custom report builder foundation): complete as a hidden foundation. Added organization-scoped custom report definitions for contacts, companies, deals, and tasks with validated selected fields, filters, grouping, and aggregation metadata plus authenticated list/create/update APIs. The builder UI remains development-only and is excluded from production navigation and bundles; production Reports contains only executable fixed reports. Runtime report query execution, chart rendering, dashboards, sharing permissions, scheduled delivery, exports, and analytics read-model/performance work remain future slices.
-- `1.6.2` (chart/visualization type foundation): complete as hidden metadata/editor work. Extended custom report definitions with validated visualization metadata for table, bar, line, funnel, pie, and KPI views and exposed it through authenticated APIs plus the development-only builder. Production navigation and bundles omit the non-executable selector until runtime chart rendering, report query execution, dashboard widgets, shared/personal layouts, and export rendering are complete.
+- `1.6.1` (saved table reports): production-capable for a bounded first outcome. Writers can create and edit contact, company, deal, and task table reports from production Reports; all members can run them. Static allowlists, parameterized typed filters, optional grouping/aggregation, archived-row exclusion, page/page-size ceilings, a five-second deadline, accessible result tables, stable failures, real-PostgreSQL all-source/cross-tenant acceptance, and the Chromium pilot journey cover execution. CSV export and pilot-scale performance evidence remain separate follow-up work.
+- `1.6.2` (chart/visualization type foundation): complete only as hidden metadata/editor work. Definitions can retain table, bar, line, funnel, pie, and KPI metadata, but production exposes table creation/execution only. Chart rendering, accessible alternatives, dashboards, sharing permissions, scheduled delivery, exports, and analytics read-model/performance work remain future slices.
 
 Candidate slices:
 
-- `1.6.1` Custom report builder (choose object, fields, filters, grouping, aggregation): foundation complete.
-- `1.6.2` Chart/visualization types (table, bar, line, funnel, pie, KPI): foundation complete.
+- `1.6.1` Saved table report builder and bounded tenant-safe execution: production-capable locally; pilot validation remains.
+- `1.6.2` Chart/visualization types (bar, line, funnel, pie, KPI): hidden foundation only.
 - `1.6.3` Configurable dashboards with draggable widgets, shared and personal.
 - `1.6.4` Pipeline/funnel conversion analytics and velocity metrics.
 - `1.6.5` Revenue, activity, and cohort analytics with date-range and owner filters.

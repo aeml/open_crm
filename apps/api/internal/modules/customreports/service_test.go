@@ -72,3 +72,47 @@ func TestValidateInputAcceptsBuilderFeatures(t *testing.T) {
 		t.Fatalf("expected builder features to validate: %v", err)
 	}
 }
+
+func TestReportExecutionRegistryMatchesDefinitionAllowlist(t *testing.T) {
+	for sourceType, allowedFields := range reportFieldsBySource {
+		source, ok := reportExecutionSources[sourceType]
+		if !ok {
+			t.Fatalf("execution registry is missing source %q", sourceType)
+		}
+		if len(source.Fields) != len(allowedFields) {
+			t.Fatalf("execution registry field count for %q is %d, want %d", sourceType, len(source.Fields), len(allowedFields))
+		}
+		for _, field := range allowedFields {
+			if _, ok := source.Fields[field]; !ok {
+				t.Fatalf("execution registry for %q is missing field %q", sourceType, field)
+			}
+		}
+	}
+}
+
+func TestValidateInputEnforcesTypedFiltersAndGrouping(t *testing.T) {
+	valid := []Input{
+		normalizeInput(Input{Name: "Text", SourceType: "contacts", Columns: []string{"firstName"}, Filters: []Filter{{Field: "firstName", Operator: "contains", Value: "Ada"}}, Aggregation: Aggregation{Function: "none"}}),
+		normalizeInput(Input{Name: "Numeric", SourceType: "deals", Columns: []string{"name"}, Filters: []Filter{{Field: "valueAmount", Operator: "greaterThan", Value: "1000.50"}}, Aggregation: Aggregation{Function: "none"}}),
+		normalizeInput(Input{Name: "Date", SourceType: "deals", Columns: []string{"name"}, Filters: []Filter{{Field: "expectedCloseDate", Operator: "before", Value: "2027-01-01"}}, Aggregation: Aggregation{Function: "none"}}),
+		normalizeInput(Input{Name: "Timestamp", SourceType: "tasks", Columns: []string{"title"}, Filters: []Filter{{Field: "dueAt", Operator: "after", Value: "2026-01-01T00:00:00Z"}}, Aggregation: Aggregation{Function: "none"}}),
+	}
+	for _, input := range valid {
+		if err := validateInput(input); err != nil {
+			t.Fatalf("valid typed filter rejected: input=%#v err=%v", input, err)
+		}
+	}
+
+	invalid := []Input{
+		normalizeInput(Input{Name: "Text comparison", SourceType: "contacts", Columns: []string{"firstName"}, Filters: []Filter{{Field: "firstName", Operator: "greaterThan", Value: "Ada"}}, Aggregation: Aggregation{Function: "none"}}),
+		normalizeInput(Input{Name: "Bad number", SourceType: "contacts", Columns: []string{"firstName"}, Filters: []Filter{{Field: "leadScore", Operator: "greaterThan", Value: "high"}}, Aggregation: Aggregation{Function: "none"}}),
+		normalizeInput(Input{Name: "Non SQL numeric", SourceType: "deals", Columns: []string{"name"}, Filters: []Filter{{Field: "valueAmount", Operator: "greaterThan", Value: "1/2"}}, Aggregation: Aggregation{Function: "none"}}),
+		normalizeInput(Input{Name: "Bad date", SourceType: "deals", Columns: []string{"name"}, Filters: []Filter{{Field: "expectedCloseDate", Operator: "before", Value: "tomorrow"}}, Aggregation: Aggregation{Function: "none"}}),
+		normalizeInput(Input{Name: "Ungrouped rows", SourceType: "contacts", Columns: []string{"firstName"}, GroupBy: "status", Aggregation: Aggregation{Function: "none"}}),
+	}
+	for _, input := range invalid {
+		if err := validateInput(input); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("invalid typed report accepted: input=%#v err=%v", input, err)
+		}
+	}
+}

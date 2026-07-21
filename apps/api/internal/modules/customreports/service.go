@@ -15,9 +15,13 @@ import (
 )
 
 var (
-	ErrDuplicateName = errors.New("custom report definition name already exists")
-	ErrInvalidInput  = errors.New("invalid custom report definition")
-	ErrNotFound      = errors.New("custom report definition not found")
+	ErrDuplicateName            = errors.New("custom report definition name already exists")
+	ErrInactive                 = errors.New("custom report definition is inactive")
+	ErrInvalidInput             = errors.New("invalid custom report definition")
+	ErrInvalidQuery             = errors.New("invalid custom report query")
+	ErrNotFound                 = errors.New("custom report definition not found")
+	ErrQueryTimeout             = errors.New("custom report query timed out")
+	ErrUnsupportedVisualization = errors.New("custom report visualization is not executable")
 )
 
 type Definition struct {
@@ -302,7 +306,7 @@ func normalizeOperator(operator string) string {
 }
 
 func validateInput(input Input) error {
-	if input.Name == "" || !isAllowedSource(input.SourceType) || !isAllowedVisualizationType(input.VisualizationType) || len(input.Columns) == 0 || len(input.Columns) > 20 || len(input.Filters) > 20 {
+	if input.Name == "" || len(input.Name) > 120 || len(input.Description) > 1000 || !isAllowedSource(input.SourceType) || !isAllowedVisualizationType(input.VisualizationType) || len(input.Columns) == 0 || len(input.Columns) > 20 || len(input.Filters) > 20 {
 		return ErrInvalidInput
 	}
 	for _, column := range input.Columns {
@@ -317,8 +321,14 @@ func validateInput(input Input) error {
 		if filter.Operator != "exists" && filter.Value == "" {
 			return ErrInvalidInput
 		}
+		if err := validateFilterValue(input.SourceType, filter); err != nil {
+			return err
+		}
 	}
 	if input.GroupBy != "" && !isAllowedField(input.SourceType, input.GroupBy) {
+		return ErrInvalidInput
+	}
+	if input.GroupBy != "" && input.Aggregation.Function == "none" {
 		return ErrInvalidInput
 	}
 	return validateAggregation(input.SourceType, input.Aggregation)

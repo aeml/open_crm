@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-21
 
-Evidence row count: `24`
+Evidence row count: `25`
 
-Evidence digest: `6dd816ad84231c991250e4685d12f5a51a560c878f7e9d0922ce6b2ed026c1c0`
+Evidence digest: `f6e61354ff37aeb92019a0a54315c45e61858eab024e0cb90d6520a862649a93`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -32,6 +32,7 @@ the assertions inside those tests remain the proof of behavior.
 | `core-csv-export` | `apps/api/internal/performance/pilot_load_postgres_test.go` | `TestPilotReadLoadAndFailureBudgetsAgainstPostgres` | A foreign marker is absent from the maximum supported contact export, including under representative multi-tenant load. |
 | `core-record-boundaries` | `apps/api/internal/app/core_tenant_isolation_postgres_test.go` | `TestCoreRecordTenantBoundariesAgainstPostgres` | Contacts, companies, deals, tasks, saved views, and notes reject foreign list/get/update/archive/delete, relationship, stage, entity, actor, and assignee paths without partial effects. |
 | `custom-fields` | `apps/api/internal/modules/customfields/service_postgres_test.go` | `TestCustomFieldsEndToEndAgainstPostgres` | Definitions, values, filters, imports, exports, and archive operations remain tenant scoped; a foreign definition ID is hidden. |
+| `custom-report-execution` | `apps/api/internal/modules/customreports/execution_postgres_test.go` | `TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres` | Contact, company, deal, and task table queries bind the owning organization, exclude archived and foreign markers, and reject cross-tenant definition IDs without disclosure. |
 | `data-quality` | `apps/api/internal/modules/dataquality/service_postgres_test.go` | `TestDataQualityReportsAreExplainableBusinessAwareAndTenantSafeAgainstPostgres` | Fixed-quality queues and counts exclude every seeded foreign record. |
 | `deal-assignments` | `apps/api/internal/modules/deals/assignment_notifications_postgres_test.go` | `TestDealAssignmentsAreTransactionalPreferenceAwareAndIdempotentAgainstPostgres` | A foreign owner is rejected before deal or notification effects; transactional notification failure also rolls back the assignment. |
 | `deal-close-and-handoff` | `apps/api/internal/modules/deals/win_loss_postgres_test.go` | `TestDealCloseReviewsKeepOutcomeContextCoherentAndTenantScopedAgainstPostgres` | Foreign stages/accounts cannot alter close state or handoff evidence; replay and reopening preserve the owning tenant's history. |
@@ -53,7 +54,7 @@ the assertions inside those tests remain the proof of behavior.
 
 - `apps/api/internal/app/cross_org_test.go` verifies that the core HTTP handlers
   translate service misses to non-disclosing `404` responses.
-- `apps/api/internal/app/security_inventory_test.go` digest-gates all 244
+- `apps/api/internal/app/security_inventory_test.go` digest-gates all 245
   registered routes, so a new selector must receive an explicit session/token
   tenant policy and test reference.
 - Role and viewer denial are handler concerns and remain covered by the route

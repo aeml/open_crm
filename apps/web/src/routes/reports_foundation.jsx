@@ -10,6 +10,7 @@ import { usePageTitle } from '../lib/use_page_title'
 import { DataQualityPanel } from './data_quality_panel'
 import { SalesActivityReport } from './sales_activity_report'
 import { FollowUpReport } from './follow_up_report'
+import { CustomReportResults } from './custom_report_results'
 
 const sourceOptions = [
   { value: 'contacts', label: 'Contacts' },
@@ -18,7 +19,7 @@ const sourceOptions = [
   { value: 'tasks', label: 'Tasks' }
 ]
 
-const visualizationOptions = [
+const allVisualizationOptions = [
   { value: 'table', label: 'Table' },
   { value: 'bar', label: 'Bar chart' },
   { value: 'line', label: 'Line chart' },
@@ -26,6 +27,10 @@ const visualizationOptions = [
   { value: 'pie', label: 'Pie chart' },
   { value: 'kpi', label: 'KPI card' }
 ]
+
+const visualizationOptions = import.meta.env.DEV
+  ? allVisualizationOptions
+  : allVisualizationOptions.filter((option) => option.value === 'table')
 
 const fieldOptionsBySource = {
   contacts: [
@@ -94,6 +99,19 @@ const operatorOptions = [
   { value: 'after', label: 'after' }
 ]
 
+const comparableFields = new Set(['id', 'ownerUserId', 'assignedToUserId', 'leadScore', 'valueAmount'])
+const temporalFields = new Set(['expectedCloseDate', 'dueAt', 'completedAt', 'createdAt', 'updatedAt'])
+
+function operatorsForField(field) {
+  if (comparableFields.has(field)) {
+    return operatorOptions.filter((option) => ['equals', 'notEquals', 'greaterThan', 'lessThan', 'exists'].includes(option.value))
+  }
+  if (temporalFields.has(field)) {
+    return operatorOptions.filter((option) => ['equals', 'notEquals', 'before', 'after', 'exists'].includes(option.value))
+  }
+  return operatorOptions.filter((option) => ['equals', 'notEquals', 'contains', 'exists'].includes(option.value))
+}
+
 const aggregationOptions = [
   { value: 'count', label: 'Count records' },
   { value: 'sum', label: 'Sum a numeric field' },
@@ -136,7 +154,7 @@ function emptyForm(sourceType = 'contacts') {
     columns: defaultColumns(sourceType),
     filters: [],
     groupBy: '',
-    aggregationFunction: 'count',
+    aggregationFunction: 'none',
     aggregationField: '',
     isActive: true
   }
@@ -292,7 +310,8 @@ export function ReportsFoundationRoute() {
     setForm((current) => ({
       ...current,
       aggregationFunction: functionName,
-      aggregationField: aggregationFieldOptions({ ...current, aggregationFunction: functionName })[0]?.value || ''
+      aggregationField: aggregationFieldOptions({ ...current, aggregationFunction: functionName })[0]?.value || '',
+      groupBy: functionName === 'none' ? '' : current.groupBy
     }))
   }
 
@@ -321,6 +340,9 @@ export function ReportsFoundationRoute() {
   }
 
   const aggregationFields = aggregationFieldOptions(form)
+  const visibleDefinitions = import.meta.env.DEV
+    ? definitions
+    : definitions.filter((definition) => definition.visualizationType === 'table')
 
   return (
     <section className="dashboard-grid settings-grid">
@@ -332,22 +354,22 @@ export function ReportsFoundationRoute() {
           <div className="section-header">
             <div>
               <h2>Reports</h2>
-              <p>Save reusable analytics definitions for {session?.organization?.name || 'your team'}. The focused quality reports above are live; custom definitions remain clearly labeled until the general report runner ships.</p>
+              <p>Build and run bounded saved table reports for {session?.organization?.name || 'your team'}. Chart, dashboard, sharing, export, and scheduling foundations remain hidden until their runtime outcomes are complete.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading report definitions...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadDefinitions()} retryLabel="Retry reports" /> : null}
           <div className="record-list" role="list" aria-label="Report definitions">
-            {!isLoading && definitions.length === 0 ? (
+            {!isLoading && visibleDefinitions.length === 0 ? (
               <article className="record-row" role="listitem">
                 <div>
                   <p>No report definitions yet.</p>
-                  <p className="field-hint">Save a source object, columns, filters, grouping, and aggregation so analytics queries can run from a clean definition later.</p>
+                  <p className="field-hint">Create a table report to query current workspace records with bounded, tenant-safe filters and pagination.</p>
                 </div>
               </article>
-            ) : definitions.map((definition) => (
-              <article className={definition.isActive ? 'record-row' : 'record-row record-row-alert'} key={definition.id} role="listitem">
+            ) : visibleDefinitions.map((definition) => (
+              <article className={definition.isActive ? 'record-row custom-report-row' : 'record-row record-row-alert custom-report-row'} key={definition.id} role="listitem">
                 <div>
                   <h3>{definition.name}</h3>
                   <p className="field-hint">{reportSummary(definition)}</p>
@@ -356,9 +378,10 @@ export function ReportsFoundationRoute() {
                 <div>
                   <span className="chip">{definition.isActive ? 'Active' : 'Inactive'}</span>
                   <span className="chip">{visualizationLabel(definition.visualizationType || 'table')}</span>
-                  <span className="chip">Definition only</span>
-                  {canManage ? <Button className="button-secondary" type="button" onClick={() => startEdit(definition)}>Edit</Button> : null}
+                  <span className="chip">{definition.visualizationType === 'table' ? 'Executable table' : 'Definition only'}</span>
+                  {canManage && (import.meta.env.DEV || definition.visualizationType === 'table') ? <Button className="button-secondary" type="button" onClick={() => startEdit(definition)}>Edit</Button> : null}
                 </div>
+                <CustomReportResults definition={definition} />
               </article>
             ))}
           </div>
@@ -370,7 +393,7 @@ export function ReportsFoundationRoute() {
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
             <div>
               <h2>{editingId ? 'Edit report definition' : 'New report definition'}</h2>
-              <p className="field-hint">This stores the builder definition. Running reports, charts, dashboards, and exports ship in later analytics slices.</p>
+              <p className="field-hint">Saved table reports execute immediately with tenant-safe fields, typed filters, optional grouping, and bounded pagination. Other visualization types remain development-only.</p>
             </div>
             <Field label="Name">
               <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Pipeline revenue by stage" required />
@@ -407,7 +430,7 @@ export function ReportsFoundationRoute() {
               <div className="section-header">
                 <div>
                   <h3>Filters</h3>
-                  <p className="field-hint">Filters are saved as metadata and applied by the future report runner.</p>
+                  <p className="field-hint">Filters are validated by field type and applied when the report runs.</p>
                 </div>
                 <Button className="button-secondary" type="button" onClick={addFilter}>Add filter</Button>
               </div>
@@ -415,18 +438,18 @@ export function ReportsFoundationRoute() {
               {form.filters.map((filter, index) => (
                 <div className="record-row" key={`${filter.field}-${index}`}>
                   <Field label={`Filter field ${index + 1}`}>
-                    <select className="text-input" value={filter.field} onChange={(event) => updateFilter(index, { field: event.target.value })}>
+                    <select className="text-input" value={filter.field} onChange={(event) => updateFilter(index, { field: event.target.value, operator: operatorsForField(event.target.value)[0].value, value: '' })}>
                       {fieldsForSource(form.sourceType).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </Field>
                   <Field label={`Filter operator ${index + 1}`}>
                     <select className="text-input" value={filter.operator} onChange={(event) => updateFilter(index, { operator: event.target.value, value: event.target.value === 'exists' ? '' : filter.value })}>
-                      {operatorOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      {operatorsForField(filter.field).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </Field>
                   {filter.operator !== 'exists' ? (
                     <Field label={`Filter value ${index + 1}`}>
-                      <input className="text-input" value={filter.value} onChange={(event) => updateFilter(index, { value: event.target.value })} placeholder="open" />
+                      <input className="text-input" value={filter.value} onChange={(event) => updateFilter(index, { value: event.target.value })} placeholder={temporalFields.has(filter.field) ? '2026-12-31 (UTC)' : 'open'} />
                     </Field>
                   ) : null}
                   <Button className="button-secondary" type="button" onClick={() => removeFilter(index)}>Remove</Button>
@@ -435,7 +458,7 @@ export function ReportsFoundationRoute() {
             </div>
 
             <Field label="Group by">
-              <select className="text-input" value={form.groupBy} onChange={(event) => setForm({ ...form, groupBy: event.target.value })}>
+              <select className="text-input" value={form.groupBy} disabled={form.aggregationFunction === 'none'} onChange={(event) => setForm({ ...form, groupBy: event.target.value })}>
                 <option value="">No grouping</option>
                 {fieldsForSource(form.sourceType).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
