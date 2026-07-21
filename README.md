@@ -176,7 +176,7 @@ WEB_BASE_URL=http://localhost:5173
 Frontend:
 - `.github/workflows/frontend-pages.yml`
 - Called by `.github/workflows/ci.yml` only after backend, frontend, real-PostgreSQL browser, and encrypted backup/restore jobs pass on `main`
-- Rebuilds the Pages artifact, deploys it, and verifies the published URL
+- Rebuilds the Pages artifact, publishes an exact commit marker, deploys it, and verifies the HTTPS URL reports that commit
 
 Backend:
 - `.github/workflows/backend-deploy.yml`

@@ -2337,13 +2337,17 @@ member deactivate/reactivate, required custom-field administration and dynamic
 import mapping with safe rollback, client/contact/deal/task creation, selected
 core/custom-field duplicate merge, reversible bulk client status changes,
 mentions/followed activity, task completion,
-logout/login persistence, and cross-tenant denial. Backend releases
-now use immutable commit-tagged images and exact release verification. New
-migrations declare expand or contract compatibility; ordinary destructive
-migrations are rejected. Disposable Compose acceptance proves operator rollback
-and automatic restoration of the last healthy image after failed readiness.
-Restore drills, broader load/failure testing, production-host recovery evidence,
-and the complete pilot journey remain before this review can be complete.
+logout/login persistence, and cross-tenant denial. Backend releases now use
+immutable commit-tagged images and exact release verification. Frontend Pages
+artifacts now carry an exact commit marker that the deploy reads back over HTTPS;
+the remaining plaintext-HTTP edge redirect is recorded as external item
+`P3-O5` because the Cloudflare-proxied Pages origin currently has no custom-domain
+certificate and must not have GitHub enforcement toggled blindly. New migrations
+declare expand or contract compatibility; ordinary destructive migrations are
+rejected. Disposable Compose acceptance proves operator rollback and automatic
+restoration of the last healthy image after failed readiness. Restore drills,
+broader load/failure testing, production-host recovery evidence, and the complete
+pilot journey remain before this review can be complete.
 
 Goal: close the reliability milestone before production beta.
 

@@ -908,13 +908,35 @@ encrypted backup/restore jobs pass on `main`. A failed test, vet, format, lint,
 audit, build, migration-integrity, browser, or recovery check prevents both
 deploy jobs from starting. The backend deploy also verifies the public
 `/healthz` and `/readyz` endpoints with bounded transport retries and exact
-release matching; the frontend deploy verifies the published Pages URL. If the
+release matching; the frontend artifact publishes `open-crm-release.txt` and
+the deploy verifies the exact commit marker over the published HTTPS URL. If the
 GitHub-hosted runner cannot reach the origin through its Cloudflare region, the
 backend job allows a four-minute public recovery window, emits a visible warning,
 and repeats the same bounded public-hostname health and exact-release checks from
 the production host. The window covers observed Cloudflare `522` recovery after
 a healthy container replacement without accepting local-only readiness. A
 reachable but wrong release never falls back and always fails the deployment.
+
+The exact-release HTTPS probe does not prove that the edge rejects plaintext
+HTTP. As observed on 2026-07-21, `http://crm.mendola.tech` still served the app,
+GitHub Pages reported HTTPS enforcement disabled, and the Cloudflare-proxied
+Pages origin did not present a certificate for the custom hostname. Treat this
+as open item `P3-O5`; do not enable the GitHub Pages flag against that origin.
+With approved Cloudflare access, first add a host-scoped permanent redirect from
+HTTP to the identical HTTPS URL, then verify from outside the edge:
+
+```sh
+curl --fail --silent --show-error --dump-header - \
+  http://crm.mendola.tech/settings/profile --output /dev/null
+curl --fail --silent --show-error \
+  "https://crm.mendola.tech/open-crm-release.txt?release=<git-commit-sha>"
+```
+
+The first response must be a single `301` or `308` with
+`Location: https://crm.mendola.tech/settings/profile`; the second body must be
+the exact intended full commit SHA. Recheck login and direct SPA routes for
+loops. Add HSTS only after an observation window proves every required hostname
+and callback works over HTTPS.
 
 Do not invoke the reusable deploy workflows directly. For a manual redeploy,
 rerun the successful CI workflow for the intended `main` commit so the same

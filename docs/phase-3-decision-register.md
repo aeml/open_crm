@@ -1,6 +1,6 @@
 # Phase 3 Decision and External-Evidence Register
 
-Last reconciled: 2026-07-20
+Last reconciled: 2026-07-21
 
 This register centralizes the items that cannot be completed safely through
 repository changes alone. It does not weaken the completion criteria in
@@ -42,6 +42,7 @@ and stop before any paid or production enablement not separately approved.
 | `P3-O2` | Approved metrics store and Alertmanager notification destination | Existing Prometheus rules can target email/chat/on-call. **Recommend the team's actually monitored pilot channel plus a secondary escalation.** | Production scrape success, synthetic alert receipt/resolve, provider/queue/backup incident drills, redaction review, and retention record. |
 | `P3-O3` | DNS/edge control and approval for a WAF/bot challenge | Managed edge challenge, self-hosted reverse-proxy challenge, or accept application-only budgets. **Recommend an edge challenge for public lead writes while retaining the PostgreSQL limiter as defense in depth.** | Allowed/rejected browser cases, callback exclusions, fail behavior, accessibility/privacy review, and alert evidence. |
 | `P3-O4` | Approved production-like load host/window and permission for disruptive recovery | Dedicated staging is preferred; a controlled production maintenance window is the fallback. **Recommend staging that matches CPU/RAM/PostgreSQL/proxy topology, followed by a bounded production smoke only.** | Same-release performance gate, deploy rollback, process/DB interruption recovery, tenant-isolation results, timings, and unresolved findings. |
+| `P3-O5` | DNS/Cloudflare control for the production frontend | On 2026-07-21 both HTTP and HTTPS served the app, GitHub Pages reported `https_enforced=false`, and the proxied Pages origin had no certificate for `crm.mendola.tech`. **Recommend enabling a host-scoped Cloudflare HTTP-to-HTTPS redirect first, verifying it externally, then provisioning/validating an origin certificate before considering GitHub Pages HTTPS enforcement. Do not flip the Pages flag against the current proxied origin.** | HTTP returns only a permanent redirect to the same HTTPS URL; HTTPS serves the exact deployed commit marker; login and SPA routes work; no redirect loop; HSTS is considered only after a successful observation window. |
 
 ## How this register is used
 
