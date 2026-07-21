@@ -2320,8 +2320,10 @@ contact creates across two tenants at a 1 s p95/3 s maximum budget, checks every
 new ID through the wrong tenant, verifies exact totals, and proves bounded
 closed-pool failure, one-connection pool exhaustion/recovery, and locked-table
 deadline/recovery. The same gate produces and parses the tenant-isolated 10,000-
-row contact export under a 5 s budget and maps/writes 1,000 contacts with
-duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, request deadline, and
+row contact export under a 5 s budget, runs a saved-report 100-row page under
+2 s, exports the same 10,000 records under 5 s with cross-tenant and audit
+checks, rejects row 10,001 without partial evidence, and maps/writes 1,000
+contacts with duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, request deadline, and
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
@@ -2331,8 +2333,10 @@ public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
 retry-safe signature ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds include
-the 31.49/8.12 KiB bounded saved-table report route, whose non-table controls are
-filtered from production navigation. They omit booking-link, audience,
+the 31.49/8.12 KiB bounded saved-table report route, whose 298-line
+orchestration and separately tested 209-line catalog/form model remain below
+the source ceiling and whose non-table controls are filtered from production
+navigation. They omit booking-link, audience,
 lead-scoring, marketing-email, and nurture-campaign management routes; the bundle
 gate rejects those routes' accidental inclusion. The complete
 quote-template/approval outcome advanced the measured aggregate ceilings to
@@ -2347,7 +2351,8 @@ splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 449 lines,
 companies at 458, deals at 473, and tasks at 496, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
-Remaining work is production-like host evidence and later provider/feature loads.
+Remaining work is production-like host evidence, real pilot traffic, and later
+provider/feature loads.
 
 ## Version 0.9.9 - Reliability Release Review
 
@@ -2676,7 +2681,7 @@ Goal: move from fixed reports to a self-service analytics layer.
 
 Progress:
 
-- `1.6.1` (saved table reports): production-capable for a bounded first outcome. Writers can create and edit contact, company, deal, and task table reports from production Reports; all members can run them; owners/admins can download the same saved query. Static allowlists, parameterized typed filters, optional grouping/aggregation, archived-row exclusion, page/page-size ceilings, a five-second deadline, accessible result tables, transactional actor revalidation/audit, a formula-safe BOM CSV, explicit 10,000-row refusal, stable failures, real-PostgreSQL all-source/cross-tenant/overflow acceptance, and the Chromium pilot journey cover execution and export. Pilot-scale performance evidence remains separate follow-up work.
+- `1.6.1` (saved table reports): production-capable for a bounded first outcome. Writers can create and edit contact, company, deal, and task table reports from production Reports; all members can run them; owners/admins can download the same saved query. Static allowlists, parameterized typed filters, optional grouping/aggregation, archived-row exclusion, page/page-size ceilings, a five-second deadline, accessible result tables, transactional actor revalidation/audit, a formula-safe BOM CSV, explicit 10,000-row refusal, stable failures, real-PostgreSQL all-source/cross-tenant/overflow acceptance, and the Chromium pilot journey cover execution and export. The 12-tenant PostgreSQL performance gate expands one workspace to 10,000 contacts and now checks a 100-row saved-report page within two seconds, the complete export within five seconds, cross-tenant denial, overflow refusal, and exact audit evidence. Production-like-host and real-pilot validation remain external follow-up work.
 - `1.6.2` (chart/visualization type foundation): complete only as hidden metadata/editor work. Definitions can retain table, bar, line, funnel, pie, and KPI metadata, but production exposes table creation/execution only. Chart rendering, accessible alternatives, dashboards, sharing permissions, scheduled delivery, chart/PDF exports, and analytics read-model/performance work remain future slices.
 
 Candidate slices:

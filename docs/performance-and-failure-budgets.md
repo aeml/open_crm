@@ -1,6 +1,6 @@
 # Performance And Failure Budgets
 
-Last reviewed: 2026-07-19
+Last reviewed: 2026-07-21
 
 These budgets are regression gates for the 5–50-person pilot profile. They are
 not a capacity guarantee for an arbitrary host, a substitute for production
@@ -30,6 +30,8 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Any mixed service read | 2 s |
 | Transactional contact-create p95 | 1 s |
 | Any transactional contact create | 3 s |
+| Saved-report page (100 rows) | 2 s |
+| Core or saved-report export (10,000 rows) | 5 s |
 | Mapped/deduplicated 1,000-row contact import | 10 s |
 | Exhausted one-connection pool deadline | 200 ms |
 | Closed database-pool failure | 1 s |
@@ -45,13 +47,19 @@ proves a real service read honors the same 200 ms deadline, releases the lock,
 and proves reads recover. The gate then exports the 10,000-row synchronous
 contact ceiling, verifies valid tenant-isolated CSV, and budgets it at 5 seconds.
 It inserts row 10,001 afterward and requires an explicit `ErrTooManyRows`
-failure, preventing a partial file from masquerading as a complete export.
+failure, preventing a partial file from masquerading as a complete export. The
+same fixture creates a saved contact report, budgets its first 100-row page at
+two seconds and its complete 10,000-row CSV at five seconds, verifies the parsed
+header and row count, and proves a foreign workspace cannot execute or export
+it. After row 10,001, saved-report export must also fail explicitly without
+creating a second `report.export_downloaded` audit event.
 It also maps and writes the complete 1,000-row synchronous import ceiling,
 including duplicate checks, activity/outcome ledgers, durable progress
 checkpoints, exact tenant totals, and foreign-tenant absence, within 10 seconds.
-Current local evidence was 806,068 export bytes in approximately 35 ms and a
-52,937-byte/1,000-row import in approximately 512 ms. Test failure output
-includes observed latency or the query plan/budget that regressed.
+Current local evidence was approximately 39 ms for the 806,068-byte core
+export, 8 ms for the 100-row saved-report page, 20 ms for the 453,869-byte
+saved-report export, and 552 ms for the 52,937-byte/1,000-row import. Test
+failure output includes observed latency or the query plan/budget that regressed.
 
 `apps/api/internal/modules/salesreports/query_plans_postgres_test.go` adds the
 sales-milestone plan gate. It seeds roughly ten months of mixed stage events and
@@ -194,8 +202,9 @@ client contract for the tenant-safe backend executor and audited CSV export.
 Its measured 31.49/8.12 KiB route keeps the entry and largest lazy route under
 their existing ceilings;
 the complete build measures 687.01/217.51 KiB, so only the reviewed aggregate
-ceilings advance to 690/220 KiB. The route source remains below the unchanged
-500-line ceiling and must be split before the next reporting slice.
+ceilings advance to 690/220 KiB. Its route orchestration is now 298 lines and
+the separately tested pure catalog/form model is 209 lines, preserving the
+unchanged 500-line ceiling without changing bundle bytes.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 

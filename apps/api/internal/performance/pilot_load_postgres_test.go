@@ -17,6 +17,7 @@ import (
 	moduledb "github.com/aeml/open_crm/apps/api/internal/db"
 	"github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	"github.com/aeml/open_crm/apps/api/internal/modules/contacts"
+	modulecustomreports "github.com/aeml/open_crm/apps/api/internal/modules/customreports"
 	"github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
@@ -38,6 +39,7 @@ const (
 	pilotWriteMaximum       = 3 * time.Second
 	pilotExportRows         = 10000
 	pilotExportMaximum      = 5 * time.Second
+	pilotReportPageMaximum  = 2 * time.Second
 	pilotImportRows         = 1000
 	pilotImportMaximum      = 10 * time.Second
 )
@@ -152,7 +154,7 @@ func TestPilotReadLoadAndFailureBudgetsAgainstPostgres(t *testing.T) {
 	}
 
 	assertSlowDatabaseDeadlineAndRecovery(t, ctx, pool, organizationID, contactService)
-	assertLargeTenantExportBudget(t, ctx, pool, organizationID, secondOrganizationID)
+	assertLargeTenantExportBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
 	assertTenantImportWriteBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
 
 	closedPool, err := moduledb.NewPool(ctx, moduledb.Config{DatabaseURL: schemaURL})
@@ -258,7 +260,7 @@ func assertSlowDatabaseDeadlineAndRecovery(t *testing.T, ctx context.Context, po
 	}
 }
 
-func assertLargeTenantExportBudget(t *testing.T, ctx context.Context, pool *moduledb.Pool, organizationID, otherOrganizationID int64) {
+func assertLargeTenantExportBudget(t *testing.T, ctx context.Context, pool *moduledb.Pool, organizationID, otherOrganizationID, actorUserID int64) {
 	t.Helper()
 	var existingRows int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM contacts WHERE organization_id=$1`, organizationID).Scan(&existingRows); err != nil {
@@ -306,6 +308,53 @@ func assertLargeTenantExportBudget(t *testing.T, ctx context.Context, pool *modu
 	if len(records) != pilotExportRows+1 {
 		t.Fatalf("maximum-size contact export rows=%d, want header plus %d rows", len(records), pilotExportRows)
 	}
+
+	reportService := modulecustomreports.NewService(pool)
+	report, err := reportService.Create(ctx, organizationID, actorUserID, modulecustomreports.Input{
+		Name:              "Pilot-scale contacts",
+		SourceType:        "contacts",
+		VisualizationType: "table",
+		Columns:           []string{"id", "email", "status"},
+		Aggregation:       modulecustomreports.Aggregation{Function: "none"},
+	})
+	if err != nil {
+		t.Fatalf("create pilot-scale saved report: %v", err)
+	}
+	pageStarted := time.Now()
+	page, err := reportService.Execute(ctx, organizationID, report.ID, modulecustomreports.ExecuteQuery{Page: 1, PageSize: 100})
+	pageElapsed := time.Since(pageStarted)
+	if err != nil || len(page.Rows) != 100 || !page.HasMore {
+		t.Fatalf("execute pilot-scale saved report: rows=%d hasMore=%t err=%v", len(page.Rows), page.HasMore, err)
+	}
+	if pageElapsed > pilotReportPageMaximum {
+		t.Fatalf("pilot-scale saved report page took %s; budget is %s", pageElapsed, pilotReportPageMaximum)
+	}
+	if _, err := reportService.Execute(ctx, otherOrganizationID, report.ID, modulecustomreports.ExecuteQuery{}); !errors.Is(err, modulecustomreports.ErrNotFound) {
+		t.Fatalf("foreign tenant executed pilot-scale saved report: %v", err)
+	}
+	reportExportStarted := time.Now()
+	reportFile, err := reportService.ExportCSV(ctx, organizationID, actorUserID, report.ID)
+	reportExportElapsed := time.Since(reportExportStarted)
+	if err != nil {
+		t.Fatalf("export pilot-scale saved report: %v", err)
+	}
+	if reportExportElapsed > pilotExportMaximum {
+		t.Fatalf("pilot-scale saved report export took %s; budget is %s", reportExportElapsed, pilotExportMaximum)
+	}
+	if reportFile.RowCount != pilotExportRows || bytes.Contains(reportFile.Content, []byte("foreign-export-marker@example.test")) {
+		t.Fatalf("unexpected pilot-scale saved report export: rows=%d foreignMarker=%t", reportFile.RowCount, bytes.Contains(reportFile.Content, []byte("foreign-export-marker@example.test")))
+	}
+	reportRecords, err := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(reportFile.Content, []byte{0xef, 0xbb, 0xbf}))).ReadAll()
+	if err != nil || len(reportRecords) != pilotExportRows+1 {
+		t.Fatalf("parse pilot-scale saved report CSV: rows=%d err=%v", len(reportRecords), err)
+	}
+	if _, err := reportService.ExportCSV(ctx, otherOrganizationID, actorUserID, report.ID); !errors.Is(err, modulecustomreports.ErrNotFound) {
+		t.Fatalf("foreign tenant exported pilot-scale saved report: %v", err)
+	}
+	var reportDownloadAuditCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND actor_user_id=$2 AND event_type='report.export_downloaded' AND entity_id=$3`, organizationID, actorUserID, report.ID).Scan(&reportDownloadAuditCount); err != nil || reportDownloadAuditCount != 1 {
+		t.Fatalf("pilot-scale saved report audit mismatch: count=%d err=%v", reportDownloadAuditCount, err)
+	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO contacts (organization_id, first_name, last_name, email, status)
 		VALUES ($1, 'Export', 'Over limit', 'large-export-over-limit@example.test', 'prospect')
@@ -315,7 +364,15 @@ func assertLargeTenantExportBudget(t *testing.T, ctx context.Context, pool *modu
 	if _, err := moduleexports.NewService(pool).ContactsCSV(ctx, organizationID, moduleexports.ContactsQuery{}); !errors.Is(err, moduleexports.ErrTooManyRows) {
 		t.Fatalf("over-limit export returned %v; expected explicit refusal instead of silent truncation", err)
 	}
+	if _, err := reportService.ExportCSV(ctx, organizationID, actorUserID, report.ID); !errors.Is(err, modulecustomreports.ErrTooManyRows) {
+		t.Fatalf("over-limit saved report export returned %v; expected explicit refusal instead of silent truncation", err)
+	}
+	var completedDownloadAuditCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='report.export_downloaded' AND entity_id=$2`, organizationID, report.ID).Scan(&completedDownloadAuditCount); err != nil || completedDownloadAuditCount != 1 {
+		t.Fatalf("oversized saved report export changed completed audit count: count=%d err=%v", completedDownloadAuditCount, err)
+	}
 	t.Logf("pilot_export_budget rows=%d bytes=%d elapsed=%s", len(records)-1, len(file.Content), elapsed)
+	t.Logf("pilot_saved_report_budget page_rows=%d page_elapsed=%s export_rows=%d export_bytes=%d export_elapsed=%s", len(page.Rows), pageElapsed, reportFile.RowCount, len(reportFile.Content), reportExportElapsed)
 }
 
 func seedPilotDataset(t *testing.T, ctx context.Context, pool *moduledb.Pool, schema string) (int64, int64, int64, int64) {

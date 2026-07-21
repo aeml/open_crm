@@ -1202,7 +1202,12 @@ bytes, tokens, or counters with ad hoc SQL.
    partial file or completed-download audit; narrow the saved filters before
    retrying. Members and viewers may run reports but cannot download this admin
    export. Treat a repeated timeout as a query/performance incident and retain
-   the request ID; do not bypass either ceiling with direct SQL.
+   the request ID; do not bypass either ceiling with direct SQL. The CI
+   PostgreSQL pilot gate expands one workspace to 10,000 contacts and requires
+   a 100-row saved-report page within two seconds plus the complete export
+   within five seconds, including foreign-workspace denial and overflow/audit
+   checks. Repeated production latency near either budget is an incident even
+   when the request still succeeds.
 
 ### Custom-field change and recovery
 
