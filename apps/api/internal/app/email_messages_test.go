@@ -12,41 +12,121 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
+	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
 
 type fakeEmailMessagesService struct {
-	orgResult          []moduleemailmessages.Message
-	entityResult       []moduleemailmessages.Message
-	senderResult       []moduleemailmessages.Message
-	mailboxResult      []moduleemailmessages.Message
-	sharedInboxResult  []moduleemailmessages.Message
-	getResult          moduleemailmessages.Message
-	getErr             error
-	updateResult       moduleemailmessages.Message
-	updateErr          error
-	recordErr          error
-	lastRecord         moduleemailmessages.RecordInput
-	lastOrgID          int64
-	lastGetID          int64
-	lastEntity         string
-	lastEntityID       int64
-	lastEntityViewer   int64
-	lastIncludePrivate bool
-	lastSenderID       int64
-	lastMailboxUserID  int64
-	lastSharedLimit    int
-	lastUpdateID       int64
-	lastUpdateInput    moduleemailmessages.SharedInboxUpdateInput
-	lastOpenedToken    string
-	lastClickedToken   string
-	clickTargetURL     string
-	clickErr           error
+	orgResult           []moduleemailmessages.Message
+	entityResult        []moduleemailmessages.Message
+	senderResult        []moduleemailmessages.Message
+	mailboxResult       []moduleemailmessages.Message
+	sharedInboxResult   []moduleemailmessages.Message
+	getResult           moduleemailmessages.Message
+	getErr              error
+	updateResult        moduleemailmessages.Message
+	updateErr           error
+	recordErr           error
+	lastRecord          moduleemailmessages.RecordInput
+	lastOrgID           int64
+	lastGetID           int64
+	lastEntity          string
+	lastEntityID        int64
+	lastEntityViewer    int64
+	lastIncludePrivate  bool
+	lastSenderID        int64
+	lastMailboxUserID   int64
+	lastSharedLimit     int
+	lastUpdateID        int64
+	lastUpdateInput     moduleemailmessages.SharedInboxUpdateInput
+	lastOpenedToken     string
+	lastClickedToken    string
+	clickTargetURL      string
+	clickErr            error
+	prepareReplyResult  moduleemailmessages.ReplyRequest
+	prepareReplyErr     error
+	replayReplyResult   moduleemailmessages.ReplyRequest
+	replayReplyFound    bool
+	replayReplyErr      error
+	claimReplyResult    moduleemailmessages.ReplyRequest
+	claimShouldSend     bool
+	claimReplyErr       error
+	completeReplyResult moduleemailmessages.ReplyRequest
+	completeReplyErr    error
+	failReplyResult     moduleemailmessages.ReplyRequest
+	failReplyErr        error
+	resolveReplyResult  moduleemailmessages.ReplyResolution
+	resolveReplyErr     error
+	threadMessages      []moduleemailmessages.Message
+	threadReplies       []moduleemailmessages.ReplyRequest
+	lastPrepareInput    moduleemailmessages.PrepareReplyInput
+	lastReplayInput     moduleemailmessages.PrepareReplyInput
+	lastClaimReplyID    int64
+	lastClaimActorID    int64
+	lastCompleteReplyID int64
+	lastCompleteReceipt moduleuseremail.SendReceipt
+	lastFailReplyID     int64
+	lastFailUncertain   bool
+	lastResolveReplyID  int64
+	lastResolveActorID  int64
+	lastResolution      string
+	lastThreadRootID    int64
+	lastThreadViewerID  int64
+	lastThreadPrivate   bool
+}
+
+func (f *fakeEmailMessagesService) ReplayReply(_ context.Context, organizationID int64, input moduleemailmessages.PrepareReplyInput) (moduleemailmessages.ReplyRequest, bool, error) {
+	f.lastOrgID = organizationID
+	f.lastReplayInput = input
+	return f.replayReplyResult, f.replayReplyFound, f.replayReplyErr
 }
 
 func (f *fakeEmailMessagesService) Record(_ context.Context, organizationID int64, input moduleemailmessages.RecordInput) error {
 	f.lastOrgID = organizationID
 	f.lastRecord = input
 	return f.recordErr
+}
+
+func (f *fakeEmailMessagesService) PrepareReply(_ context.Context, organizationID int64, input moduleemailmessages.PrepareReplyInput) (moduleemailmessages.ReplyRequest, error) {
+	f.lastOrgID = organizationID
+	f.lastPrepareInput = input
+	return f.prepareReplyResult, f.prepareReplyErr
+}
+
+func (f *fakeEmailMessagesService) ClaimReply(_ context.Context, organizationID, replyID, actorID int64) (moduleemailmessages.ReplyRequest, bool, error) {
+	f.lastOrgID = organizationID
+	f.lastClaimReplyID = replyID
+	f.lastClaimActorID = actorID
+	return f.claimReplyResult, f.claimShouldSend, f.claimReplyErr
+}
+
+func (f *fakeEmailMessagesService) CompleteReply(_ context.Context, organizationID, replyID int64, receipt moduleuseremail.SendReceipt) (moduleemailmessages.ReplyRequest, error) {
+	f.lastOrgID = organizationID
+	f.lastCompleteReplyID = replyID
+	f.lastCompleteReceipt = receipt
+	return f.completeReplyResult, f.completeReplyErr
+}
+
+func (f *fakeEmailMessagesService) FailReply(_ context.Context, organizationID, replyID int64, _ error, uncertain bool) (moduleemailmessages.ReplyRequest, error) {
+	f.lastOrgID = organizationID
+	f.lastFailReplyID = replyID
+	f.lastFailUncertain = uncertain
+	return f.failReplyResult, f.failReplyErr
+}
+
+func (f *fakeEmailMessagesService) ResolveReply(_ context.Context, organizationID, replyID, actorID int64, resolution string) (moduleemailmessages.ReplyResolution, error) {
+	f.lastOrgID = organizationID
+	f.lastResolveReplyID = replyID
+	f.lastResolveActorID = actorID
+	f.lastResolution = resolution
+	return f.resolveReplyResult, f.resolveReplyErr
+}
+
+func (f *fakeEmailMessagesService) ListThread(_ context.Context, organizationID, rootID, viewerID int64, includePrivate bool) ([]moduleemailmessages.Message, []moduleemailmessages.ReplyRequest, error) {
+	f.lastOrgID = organizationID
+	f.lastThreadRootID = rootID
+	f.lastThreadViewerID = viewerID
+	f.lastThreadPrivate = includePrivate
+	return f.threadMessages, f.threadReplies, nil
 }
 
 func (f *fakeEmailMessagesService) GetByID(_ context.Context, organizationID, messageID int64) (moduleemailmessages.Message, error) {

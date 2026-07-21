@@ -387,6 +387,13 @@ type mailboxSyncService interface {
 
 type emailMessagesService interface {
 	Record(context.Context, int64, moduleemailmessages.RecordInput) error
+	ReplayReply(context.Context, int64, moduleemailmessages.PrepareReplyInput) (moduleemailmessages.ReplyRequest, bool, error)
+	PrepareReply(context.Context, int64, moduleemailmessages.PrepareReplyInput) (moduleemailmessages.ReplyRequest, error)
+	ClaimReply(context.Context, int64, int64, int64) (moduleemailmessages.ReplyRequest, bool, error)
+	CompleteReply(context.Context, int64, int64, moduleuseremail.SendReceipt) (moduleemailmessages.ReplyRequest, error)
+	FailReply(context.Context, int64, int64, error, bool) (moduleemailmessages.ReplyRequest, error)
+	ResolveReply(context.Context, int64, int64, int64, string) (moduleemailmessages.ReplyResolution, error)
+	ListThread(context.Context, int64, int64, int64, bool) ([]moduleemailmessages.Message, []moduleemailmessages.ReplyRequest, error)
 	GetByID(context.Context, int64, int64) (moduleemailmessages.Message, error)
 	ListByOrganization(context.Context, int64, int) ([]moduleemailmessages.Message, error)
 	ListByEntity(context.Context, int64, string, int64, int64, bool) ([]moduleemailmessages.Message, error)

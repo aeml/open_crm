@@ -60,6 +60,28 @@ export async function getEmailMessage(messageId, { signal } = {}) {
   return payload?.data?.message
 }
 
+export async function getEmailThread(messageId, { signal } = {}) {
+  const payload = await apiRequest(`/api/email-threads/${messageId}`, { fallbackMessage: 'Unable to load email thread.', signal })
+
+  return { messages: payload?.data?.messages || [], replies: payload?.data?.replies || [] }
+}
+
+export async function sendEmailReply(messageId, body, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest(`/api/email-threads/${messageId}/reply`, {
+    method: 'POST', body: { body }, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: 'Unable to send email reply.', signal
+  })
+
+  return payload?.data?.reply
+}
+
+export async function resolveEmailReply(replyId, resolution, { signal } = {}) {
+  const payload = await apiRequest(`/api/email-replies/${replyId}/resolve`, {
+    method: 'POST', body: { resolution }, fallbackMessage: 'Unable to resolve email reply.', signal
+  })
+
+  return payload?.data?.reply
+}
+
 export async function updateSharedInboxEmailMessage(messageId, input, { signal } = {}) {
   const payload = await apiRequest(`/api/email-messages/${messageId}/shared-inbox`, { method: 'PATCH', body: input, fallbackMessage: 'Unable to update shared inbox message.', signal })
 

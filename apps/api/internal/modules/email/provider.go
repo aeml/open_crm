@@ -7,12 +7,15 @@ package email
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 )
+
+var ErrDeliveryUncertain = errors.New("email provider delivery outcome is uncertain")
 
 // Message is a single outbound email.
 type Message struct {
@@ -21,6 +24,8 @@ type Message struct {
 	TextBody           string
 	HTMLBody           string
 	MessageID          string
+	InReplyTo          string
+	References         []string
 	ListUnsubscribeURL string
 	Metadata           map[string]string
 }

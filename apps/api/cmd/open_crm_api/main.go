@@ -316,6 +316,7 @@ func main() {
 	}
 	if emailMessagesService != nil {
 		go emailMessagesService.RunTrackingRetentionScheduler(ctx, logger, 0, metrics)
+		go emailMessagesService.RunReplyRecoveryScheduler(ctx, logger, 0, metrics)
 	}
 
 	checkReadiness := func(ctx context.Context) error {
@@ -384,6 +385,16 @@ func main() {
 			snapshot.CustomerEmailBounces24h = stats.CustomerBounces24h
 			snapshot.CustomerEmailComplaints24h = stats.CustomerComplaints24h
 			snapshot.CustomerEmailUnapplied24h = stats.CustomerUnapplied24h
+		}
+		if emailMessagesService == nil {
+			snapshot.CollectionSuccess = false
+		} else if stats, err := emailMessagesService.ReplyOperationalStats(ctx); err != nil {
+			snapshot.CollectionSuccess = false
+		} else {
+			snapshot.EmailRepliesAvailable = true
+			snapshot.EmailRepliesSending = stats.Sending
+			snapshot.EmailRepliesStaleSending = stats.StaleSending
+			snapshot.EmailRepliesUncertain = stats.Uncertain
 		}
 		snapshot.Backup = platformtelemetry.ReadBackupStatus(env.BackupStatusPath)
 		return snapshot

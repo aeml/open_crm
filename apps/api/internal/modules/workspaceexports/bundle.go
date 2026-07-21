@@ -43,6 +43,7 @@ type manifest struct {
 	DatasetFormat               string           `json:"datasetFormat"`
 	DatasetCounts               map[string]int64 `json:"datasetCounts"`
 	OmittedPrivateEmailMessages int64            `json:"omittedPrivateEmailMessages"`
+	OmittedPrivateEmailReplies  int64            `json:"omittedPrivateEmailReplyRequests"`
 	SecurityExclusions          []string         `json:"securityExclusions"`
 	ExternalFiles               string           `json:"externalFiles"`
 }
@@ -71,6 +72,10 @@ func (s *Service) buildBundle(ctx context.Context, organizationID int64) (bundle
 	var omittedPrivateMessages int64
 	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM email_messages WHERE organization_id=$1 AND visibility <> 'shared'`, organizationID).Scan(&omittedPrivateMessages); err != nil {
 		return bundle{}, fmt.Errorf("count private workspace email: %w", err)
+	}
+	var omittedPrivateReplies int64
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM email_reply_requests WHERE organization_id=$1 AND visibility <> 'shared'`, organizationID).Scan(&omittedPrivateReplies); err != nil {
+		return bundle{}, fmt.Errorf("count private workspace email replies: %w", err)
 	}
 
 	temporary, err := os.CreateTemp("", "open-crm-workspace-export-*.zip")
@@ -104,6 +109,7 @@ func (s *Service) buildBundle(ctx context.Context, organizationID int64) (bundle
 		DatasetFormat:               "newline-delimited JSON (one PostgreSQL row per line)",
 		DatasetCounts:               counts,
 		OmittedPrivateEmailMessages: omittedPrivateMessages,
+		OmittedPrivateEmailReplies:  omittedPrivateReplies,
 		SecurityExclusions: []string{
 			"password hashes, password setup/reset tokens and delivery state, email verification tokens, and sessions",
 			"SMTP/IMAP passwords, OAuth access/refresh tokens, sync cursors, and email tracking tokens",
@@ -377,6 +383,16 @@ func buildPortableDatasets() []dataset {
 			FROM email_message_links link
 			JOIN email_messages message ON message.id=link.email_message_id
 			WHERE message.organization_id=$1 AND message.visibility='shared' ORDER BY link.id`},
+		{name: "email_reply_requests_shared", query: `
+			SELECT jsonb_build_object(
+				'id',id,'organization_id',organization_id,'source_message_id',source_message_id,
+				'thread_root_message_id',thread_root_message_id,'actor_user_id',actor_user_id,
+				'sender_email',sender_email,'recipient_email',recipient_email,'subject',subject,'body',body,
+				'visibility',visibility,'status',status,'outbound_email_message_id',outbound_email_message_id,
+				'last_error',last_error,'claimed_at',claimed_at,'finalized_at',finalized_at,
+				'created_at',created_at,'updated_at',updated_at
+			)
+			FROM email_reply_requests WHERE organization_id=$1 AND visibility='shared' ORDER BY id`},
 		{name: "email_sequence_steps", query: `
 			SELECT to_jsonb(step)
 			FROM email_sequence_steps step
@@ -421,6 +437,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"billing_invoices",
 		"email_messages",
 		"email_message_entity_links",
+		"email_reply_requests",
 		"user_email_accounts",
 		"background_jobs",
 		"billing_checkout_requests",

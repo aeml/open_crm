@@ -101,6 +101,29 @@ func BuildRFC822Message(fromName, fromEmail string, msg Message) ([]byte, error)
 			return nil, fmt.Errorf("invalid message id header")
 		}
 	}
+	inReplyTo := ""
+	if strings.TrimSpace(msg.InReplyTo) != "" {
+		inReplyTo = NormalizeMessageID(msg.InReplyTo)
+		if inReplyTo == "" {
+			return nil, fmt.Errorf("invalid in-reply-to header")
+		}
+	}
+	references := make([]string, 0, min(len(msg.References), MaxMessageIDReferences))
+	seenReferences := make(map[string]struct{})
+	for _, value := range msg.References {
+		messageReference := NormalizeMessageID(value)
+		if messageReference == "" {
+			return nil, fmt.Errorf("invalid references header")
+		}
+		if _, exists := seenReferences[messageReference]; exists {
+			continue
+		}
+		seenReferences[messageReference] = struct{}{}
+		references = append(references, messageReference)
+		if len(references) == MaxMessageIDReferences {
+			break
+		}
+	}
 	listUnsubscribeURL := ""
 	if strings.TrimSpace(msg.ListUnsubscribeURL) != "" {
 		listUnsubscribeURL = OneClickUnsubscribeURL(msg.ListUnsubscribeURL)
@@ -108,7 +131,7 @@ func BuildRFC822Message(fromName, fromEmail string, msg Message) ([]byte, error)
 			return nil, fmt.Errorf("invalid list unsubscribe URL")
 		}
 	}
-	return buildMessage(from, toAddress.Address, subject, msg.TextBody, msg.HTMLBody, messageID, listUnsubscribeURL), nil
+	return buildMessage(from, toAddress.Address, subject, msg.TextBody, msg.HTMLBody, messageID, inReplyTo, references, listUnsubscribeURL), nil
 }
 
 // OneClickUnsubscribeURL returns a bounded HTTPS URL that is safe to place in
@@ -159,21 +182,30 @@ func writeMessage(client *smtp.Client, from, to string, raw []byte) error {
 		return fmt.Errorf("smtp: data: %w", err)
 	}
 	if _, err := w.Write(raw); err != nil {
-		return fmt.Errorf("smtp: write: %w", err)
+		return fmt.Errorf("%w: smtp write: %v", ErrDeliveryUncertain, err)
 	}
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("smtp: close data: %w", err)
+		return fmt.Errorf("%w: smtp close data: %v", ErrDeliveryUncertain, err)
 	}
-	return client.Quit()
+	if err := client.Quit(); err != nil {
+		return fmt.Errorf("%w: smtp quit: %v", ErrDeliveryUncertain, err)
+	}
+	return nil
 }
 
-func buildMessage(from, to, subject, textBody, htmlBody, messageID, listUnsubscribeURL string) []byte {
+func buildMessage(from, to, subject, textBody, htmlBody, messageID, inReplyTo string, references []string, listUnsubscribeURL string) []byte {
 	var b strings.Builder
 	b.WriteString("From: " + from + "\r\n")
 	b.WriteString("To: " + to + "\r\n")
 	b.WriteString("Subject: " + subject + "\r\n")
 	if messageID != "" {
 		b.WriteString("Message-ID: " + messageID + "\r\n")
+	}
+	if inReplyTo != "" {
+		b.WriteString("In-Reply-To: " + inReplyTo + "\r\n")
+	}
+	if len(references) > 0 {
+		b.WriteString("References: " + strings.Join(references, " ") + "\r\n")
 	}
 	if listUnsubscribeURL != "" {
 		b.WriteString("List-Unsubscribe: <" + listUnsubscribeURL + ">\r\n")

@@ -229,6 +229,32 @@ func TestMigrationFilesIncludeEmailEngagementTrackingPrivacy(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeThreadedReplies(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "092_email_threaded_replies.sql") {
+		t.Fatal("expected threaded email replies migration to be registered")
+	}
+	sql := MigrationSQL("092_email_threaded_replies.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"thread_root_message_id",
+		"email_messages_default_thread_root",
+		"email_reply_requests",
+		"idempotency_key_hash",
+		"idx_email_reply_requests_stale_sending",
+		"idx_email_reply_requests_one_unresolved_actor_thread",
+		"resolved_roots AS MATERIALIZED",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT email_messages_thread_root_fk",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("threaded replies migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("092_email_threaded_replies.sql"); class != "expand" {
+		t.Fatalf("threaded replies deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeCollaboration(t *testing.T) {
 	sql := MigrationSQL("060_collaboration.sql")
 	if sql == "" {

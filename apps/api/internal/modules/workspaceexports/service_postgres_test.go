@@ -75,6 +75,23 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	`, organizationID); err != nil {
 		t.Fatalf("seed portable workspace email: %v", err)
 	}
+	var sharedMessageID, privateMessageID int64
+	if err := pool.QueryRow(ctx, `SELECT id FROM email_messages WHERE organization_id=$1 AND subject='Shared customer thread'`, organizationID).Scan(&sharedMessageID); err != nil {
+		t.Fatalf("load shared portable email: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT id FROM email_messages WHERE organization_id=$1 AND subject='Private mailbox thread'`, organizationID).Scan(&privateMessageID); err != nil {
+		t.Fatalf("load private portable email: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO email_reply_requests (
+		  organization_id,source_message_id,thread_root_message_id,actor_user_id,sender_email,recipient_email,
+		  subject,body,visibility,rfc_message_id,in_reply_to,idempotency_key_hash,request_sha256
+		) VALUES
+		($1,$2,$2,$3,'owner@portable.test','shared@portable.test','Re: Shared customer thread','Shared pending reply','shared','<reply-shared@crm.example.test>','<shared@crm.example.test>',$4,$5),
+		($1,$6,$6,$3,'owner@portable.test','private@portable.test','Re: Private mailbox thread','Private pending reply','private','<reply-private@crm.example.test>','<private@buyer.test>',$7,$8)
+	`, organizationID, sharedMessageID, ownerID, strings.Repeat("a", 64), strings.Repeat("b", 64), privateMessageID, strings.Repeat("c", 64), strings.Repeat("d", 64)); err != nil {
+		t.Fatalf("seed portable email reply intents: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO user_email_accounts (
 			organization_id,user_id,from_email,from_name,smtp_host,smtp_port,smtp_username,smtp_password_enc,
@@ -148,6 +165,10 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	if !strings.Contains(sharedMessages, "Shared customer thread") || strings.Contains(sharedMessages, "Private mailbox thread") || strings.Contains(sharedMessages, "tracking_token") || strings.Contains(sharedMessages, "rfc_message_id") || strings.Contains(sharedMessages, "in_reply_to") || strings.Contains(sharedMessages, "reference_message_ids") || strings.Contains(sharedMessages, "delivery_feedback_email_message_id") {
 		t.Fatalf("workspace email privacy boundary failed: %s", sharedMessages)
 	}
+	sharedReplies := string(files["data/email_reply_requests_shared.ndjson"])
+	if !strings.Contains(sharedReplies, "Shared pending reply") || strings.Contains(sharedReplies, "Private pending reply") || strings.Contains(sharedReplies, "idempotency_key_hash") || strings.Contains(sharedReplies, "request_sha256") || strings.Contains(sharedReplies, "rfc_message_id") || strings.Contains(sharedReplies, "in_reply_to") || strings.Contains(sharedReplies, strings.Repeat("a", 64)) {
+		t.Fatalf("workspace reply privacy/correlation boundary failed: %s", sharedReplies)
+	}
 	if _, exists := files["data/customer_email_feedback_events.ndjson"]; exists {
 		t.Fatal("workspace export included internal customer feedback correlation ledger")
 	}
@@ -158,7 +179,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		}
 	}
 	var manifestValue manifest
-	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.DatasetCounts["contacts"] != 1 {
+	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 {
 		t.Fatalf("unexpected workspace export manifest: manifest=%#v err=%v", manifestValue, err)
 	}
 	var downloadAudits int

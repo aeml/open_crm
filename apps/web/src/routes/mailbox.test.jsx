@@ -22,8 +22,8 @@ describe('mailbox route', () => {
           { id: 10, toEmail: 'lead@acme.test', subject: 'Following up', status: 'sent', entityType: 'deal', entityId: 22, engagementTrackingState: 'active', engagementTrackingExpiresAt: '2026-08-01T12:00:00Z', openCount: 2, clickCount: 1, createdAt: '2026-05-01T12:00:00Z' }
         ] } }) }
       }
-      if (path.endsWith('/api/email-messages/10')) {
-        return { ok: true, json: async () => ({ data: { message: { id: 10, toEmail: 'lead@acme.test', subject: 'Following up', body: 'Thanks for talking today.', status: 'sent', entityType: 'deal', entityId: 22, engagementTrackingState: 'active', engagementTrackingExpiresAt: '2026-08-01T12:00:00Z', openCount: 2, clickCount: 1, createdAt: '2026-05-01T12:00:00Z' } } }) }
+      if (path.endsWith('/api/email-threads/10')) {
+        return { ok: true, json: async () => ({ data: { messages: [{ id: 10, direction: 'outbound', toEmail: 'lead@acme.test', subject: 'Following up', body: 'Thanks for talking today.', status: 'sent', entityType: 'deal', entityId: 22, engagementTrackingState: 'active', engagementTrackingExpiresAt: '2026-08-01T12:00:00Z', openCount: 2, clickCount: 1, createdAt: '2026-05-01T12:00:00Z' }], replies: [] } }) }
       }
       return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
     })
@@ -61,8 +61,8 @@ describe('mailbox route', () => {
       if (path.endsWith('/api/me/email-messages')) {
         return { ok: true, json: async () => ({ data: { messages: [currentMessage] } }) }
       }
-      if (path.endsWith('/api/email-messages/11')) {
-        return { ok: true, json: async () => ({ data: { message: { ...currentMessage, body: 'Can we schedule Tuesday?' } } }) }
+      if (path.endsWith('/api/email-threads/11')) {
+        return { ok: true, json: async () => ({ data: { messages: [{ ...currentMessage, body: 'Can we schedule Tuesday?' }], replies: [] } }) }
       }
       if (path.endsWith('/api/email-messages/11/shared-inbox') && method === 'PATCH') {
         const input = JSON.parse(options.body)

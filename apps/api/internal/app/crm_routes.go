@@ -57,6 +57,15 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 	mux.HandleFunc("GET /api/email-messages/{messageID}", func(w http.ResponseWriter, r *http.Request) {
 		handleGetEmailMessage(dependencies.AuthService, dependencies.EmailMessagesService, w, r)
 	})
+	mux.HandleFunc("GET /api/email-threads/{messageID}", func(w http.ResponseWriter, r *http.Request) {
+		handleGetEmailThread(dependencies.AuthService, dependencies.EmailMessagesService, w, r)
+	})
+	mux.HandleFunc("POST /api/email-threads/{messageID}/reply", func(w http.ResponseWriter, r *http.Request) {
+		handleSendEmailReply(dependencies.AuthService, dependencies.UserEmailService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+	})
+	mux.HandleFunc("POST /api/email-replies/{replyID}/resolve", func(w http.ResponseWriter, r *http.Request) {
+		handleResolveEmailReply(dependencies.AuthService, dependencies.UserEmailService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+	})
 	mux.HandleFunc("GET /api/me/email-messages", func(w http.ResponseWriter, r *http.Request) {
 		handleListMyEmailMessages(dependencies.AuthService, dependencies.EmailMessagesService, w, r)
 	})

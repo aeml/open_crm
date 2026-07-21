@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
+import { EmailThread } from '../components/email_thread'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { emailEngagementSummary, emailMessageTimestamp, emailRecordLabel, emailRecordPath, formatEmailTimestamp, getEmailMessage, listMyEmailMessages, updateSharedInboxEmailMessage } from '../lib/email_messages'
+import { emailEngagementSummary, emailMessageTimestamp, emailRecordLabel, emailRecordPath, formatEmailTimestamp, listMyEmailMessages, updateSharedInboxEmailMessage } from '../lib/email_messages'
 import { usePageTitle } from '../lib/use_page_title'
 
 function isInbound(message) {
@@ -23,11 +24,9 @@ export function MailboxRoute() {
   const { session, canWrite } = useAuth()
   usePageTitle('Mailbox')
   const [messages, setMessages] = useState([])
-  const [selectedMessage, setSelectedMessage] = useState(null)
+  const [selectedMessageId, setSelectedMessageId] = useState(null)
   const [error, setError] = useState('')
-  const [detailError, setDetailError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
-  const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isSharing, setIsSharing] = useState(false)
 
   async function load({ signal } = {}) {
@@ -54,18 +53,7 @@ export function MailboxRoute() {
   }, [])
 
   async function handleSelectMessage(messageId) {
-    setIsDetailLoading(true)
-    setDetailError('')
-    try {
-      const message = await getEmailMessage(messageId)
-      setSelectedMessage(message)
-    } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setDetailError(loadError.message || 'Unable to load email message.')
-      }
-    } finally {
-      setIsDetailLoading(false)
-    }
+    setSelectedMessageId(messageId)
   }
 
   async function handlePrivacyChange(message, visibility) {
@@ -88,7 +76,6 @@ export function MailboxRoute() {
       }
       const updated = await updateSharedInboxEmailMessage(message.id, input)
       setMessages((current) => current.map((message) => (message.id === updated.id ? { ...message, ...updated } : message)))
-      setSelectedMessage((current) => (current?.id === updated.id ? { ...current, ...updated } : current))
     } catch (shareError) {
       if (!isAbortError(shareError)) {
         setError(shareError.message || 'Unable to change message privacy.')
@@ -146,21 +133,7 @@ export function MailboxRoute() {
               )
             })}
           </div>
-          {isDetailLoading ? <p className="field-hint">Loading message details...</p> : null}
-          {detailError ? <InlineError message={detailError} /> : null}
-          {selectedMessage ? (
-            <Card>
-              <div className="card-stack">
-                <div>
-                  <h3>{selectedMessage.subject}</h3>
-                  <p className="field-hint">{participantLabel(selectedMessage)} · {formatEmailTimestamp(emailMessageTimestamp(selectedMessage))}</p>
-                  {!isInbound(selectedMessage) ? <p className="field-hint">{emailEngagementSummary(selectedMessage)}</p> : null}
-                </div>
-                {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}
-                <pre className="field-hint message-body">{selectedMessage.body}</pre>
-              </div>
-            </Card>
-          ) : null}
+          {selectedMessageId ? <EmailThread messageId={selectedMessageId} canWrite={canWrite} currentUserId={session?.user?.id || 0} canManageReplies={['owner', 'admin'].includes(session?.membership?.role || '')} /> : null}
         </div>
       </Card>
     </section>

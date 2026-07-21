@@ -245,6 +245,42 @@ groups:
           summary: Open CRM email engagement retention has not completed for two hours
           runbook: docs/operations-runbook.md#email-engagement-tracking-privacy-and-retention
 
+      - alert: OpenCRMEmailReplyMetricsUnavailable
+        expr: open_crm_email_replies_available != 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM cannot read durable connected-mailbox reply health
+          runbook: docs/operations-runbook.md#connected-mailbox-reply-recovery
+
+      - alert: OpenCRMEmailReplyRecoveryErrors
+        expr: open_crm_email_reply_recovery_last_run_timestamp_seconds > 0 and open_crm_email_reply_recovery_last_run_success == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM interrupted-reply recovery is failing
+          runbook: docs/operations-runbook.md#connected-mailbox-reply-recovery
+
+      - alert: OpenCRMEmailReplyRecoveryStale
+        expr: open_crm_database_up == 1 and (open_crm_email_reply_recovery_last_run_timestamp_seconds == 0 or time() - open_crm_email_reply_recovery_last_run_timestamp_seconds > 300)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM interrupted-reply recovery has not completed for five minutes
+          runbook: docs/operations-runbook.md#connected-mailbox-reply-recovery
+
+      - alert: OpenCRMEmailRepliesNeedResolution
+        expr: open_crm_email_reply_uncertain > 0 or open_crm_email_reply_stale_sending > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Connected-mailbox replies require explicit operator resolution
+          runbook: docs/operations-runbook.md#connected-mailbox-reply-recovery
+
       - alert: OpenCRMBackupStatusUnavailable
         expr: open_crm_backup_status_available == 0
         for: 30m

@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
+import { EmailThread } from '../components/email_thread'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { emailMessageTimestamp, emailRecordLabel, emailRecordPath, formatEmailTimestamp, getEmailMessage, listSharedInboxEmailMessages, updateSharedInboxEmailMessage } from '../lib/email_messages'
+import { emailMessageTimestamp, emailRecordLabel, emailRecordPath, formatEmailTimestamp, listSharedInboxEmailMessages, updateSharedInboxEmailMessage } from '../lib/email_messages'
 import { usePageTitle } from '../lib/use_page_title'
 
 function assignmentLabel(message) {
@@ -16,9 +17,8 @@ export function TeamInboxRoute() {
   const { session, canWrite } = useAuth()
   usePageTitle('Team Inbox')
   const [messages, setMessages] = useState([])
-  const [selectedMessage, setSelectedMessage] = useState(null)
+  const [selectedMessageId, setSelectedMessageId] = useState(null)
   const [error, setError] = useState('')
-  const [detailError, setDetailError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isUpdating, setIsUpdating] = useState(false)
 
@@ -44,18 +44,10 @@ export function TeamInboxRoute() {
 
   function mergeUpdatedMessage(updated) {
     setMessages((current) => current.map((message) => (message.id === updated.id ? { ...message, ...updated } : message)))
-    setSelectedMessage((current) => (current?.id === updated.id ? { ...current, ...updated } : current))
   }
 
   async function handleSelectMessage(messageId) {
-    setDetailError('')
-    try {
-      setSelectedMessage(await getEmailMessage(messageId))
-    } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setDetailError(loadError.message || 'Unable to load email message.')
-      }
-    }
+    setSelectedMessageId(messageId)
   }
 
   async function updateMessage(message, input) {
@@ -121,19 +113,7 @@ export function TeamInboxRoute() {
               )
             })}
           </div>
-          {detailError ? <InlineError message={detailError} /> : null}
-          {selectedMessage ? (
-            <Card>
-              <div className="card-stack">
-                <div>
-                  <h3>{selectedMessage.subject}</h3>
-                  <p className="field-hint">From {selectedMessage.fromEmail || 'unknown sender'} · {formatEmailTimestamp(emailMessageTimestamp(selectedMessage))}</p>
-                  <p className="field-hint">{selectedMessage.sharedInboxStatus === 'closed' ? 'Closed' : 'Open'} · {assignmentLabel(selectedMessage)}</p>
-                </div>
-                <pre className="field-hint message-body">{selectedMessage.body}</pre>
-              </div>
-            </Card>
-          ) : null}
+          {selectedMessageId ? <EmailThread messageId={selectedMessageId} canWrite={canWrite} currentUserId={session?.user?.id || 0} canManageReplies={['owner', 'admin'].includes(session?.membership?.role || '')} /> : null}
         </div>
       </Card>
     </section>

@@ -21,8 +21,9 @@ durable queue state/lag, worker outcomes, Postmark/SMTP/Gmail/Microsoft send and
 OAuth-refresh outcomes, and verified
 backup/restore evidence. It also reports aggregate notification backlog, age,
 reviewed event mix, per-recipient concentration, notification retention, and
-email-engagement cleanup outcomes without tenant, recipient, message, or record
-labels. Password-recovery gauges report current
+email-engagement cleanup outcomes plus connected-mailbox reply claims,
+uncertain outcomes, and recovery-pass health without tenant, recipient,
+message, or record labels. Password-recovery gauges report current
 non-expired links plus stale-pending and latest-failed delivery counts without
 user, address, or tenant labels. System-email feedback gauges report aggregate
 Postmark bounces, complaints, and authenticated-but-unapplied events in the
@@ -68,7 +69,7 @@ The reference rules alert on metrics collection or database failure, sustained
 5xx ratio/p95 latency, queue collection/lag/dead letters/worker errors,
 provider failures, password-recovery and system-email feedback health,
 notification collection/retention/elevated recipient volume, email-engagement
-retention,
+retention, connected-mailbox reply recovery,
 backup evidence/failure/freshness, and restore-drill failure/freshness. They do
 not choose an Alertmanager destination. Before a
 pilot, the operator must route critical and warning alerts to an approved
@@ -1175,6 +1176,58 @@ the retention index exists and inspect lock contention before changing the
 bounded batch. A different retention period is a product/privacy policy change:
 review it, update UI copy, tests, this runbook, and the focused policy document
 together rather than changing timestamps in place.
+
+### Connected mailbox reply recovery
+
+Threaded replies in **Mailbox** and **Team Inbox** always use the acting
+teammate's own connected SMTP, Gmail, or Microsoft mailbox. Shared access never
+grants permission to send as the mailbox that received the original message.
+Private conversations remain visible to their mailbox owner and admins; only
+the original sender may retry an uncertain reply. See
+[email-threaded-replies.md](email-threaded-replies.md) for the state, privacy,
+and idempotency contract.
+
+The API writes a durable `prepared` intent before the provider boundary and
+claims it as `sending` once. A pass runs immediately at startup and every minute
+thereafter; it moves claims older than five minutes to `uncertain` without
+calling the provider. SMTP errors after message data begins, OAuth requests
+whose response cannot prove rejection, and provider-accepted messages whose CRM
+finalization failed also become uncertain. Open CRM never automatically retries
+these cases.
+
+1. Confirm `open_crm_email_replies_available` is `1`. Inspect
+   `open_crm_email_reply_sending`, `open_crm_email_reply_stale_sending`,
+   `open_crm_email_reply_uncertain`, and the recovery last-run metrics. These
+   values contain no workspace, mailbox, recipient, or message labels.
+2. If recovery fails or becomes stale, find `email reply recovery failed` in
+   structured logs, repair PostgreSQL/migration health, and let the next
+   one-minute pass retry. Do not update the reply ledger directly.
+3. For an uncertain item, the original sender checks the exact mailbox Sent
+   folder and recipient/thread before selecting **Retry explicitly**, **Confirm
+   sent**, or **Mark not sent**. Retry can duplicate a provider-accepted message
+   and therefore requires a warning confirmation. Owners/admins may confirm sent
+   or mark not sent after the same evidence review, but cannot retry as another
+   person.
+4. Confirm-sent records the durable outbound conversation entry without another
+   provider effect. Mark-not-sent closes the intent as failed. Suppression and
+   current connected-mailbox sender identity are checked again on an explicit
+   retry; either failure stops before the provider call.
+5. Resolve the alert only after no stale claims remain, every uncertain item has
+   evidence-backed resolution, the recovery success timestamp advances, and a
+   controlled new reply succeeds on the exact deployed release. Retain provider
+   evidence without copying message content or credentials into logs/tickets.
+
+An authorized database operator may inspect aggregate state only:
+
+```sql
+SELECT status, COUNT(*)
+FROM email_reply_requests
+GROUP BY status
+ORDER BY status;
+```
+
+Do not select bodies, addresses, message IDs, provider IDs, or idempotency
+digests for routine alert triage.
 
 ### Customer email delivery feedback
 

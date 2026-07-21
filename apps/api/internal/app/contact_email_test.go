@@ -28,6 +28,9 @@ type fakeUserEmailService struct {
 	sendBody           string
 	sendHTMLBody       string
 	listUnsubscribeURL string
+	sendMessageID      string
+	sendInReplyTo      string
+	sendReferences     []string
 	sendReceipt        moduleuseremail.SendReceipt
 	memberOK           bool
 	lastUpsertUserID   int64
@@ -81,6 +84,9 @@ func (f *fakeUserEmailService) SendMessageAs(_ context.Context, _, _ int64, mess
 	f.sendBody = message.TextBody
 	f.sendHTMLBody = message.HTMLBody
 	f.listUnsubscribeURL = message.ListUnsubscribeURL
+	f.sendMessageID = message.MessageID
+	f.sendInReplyTo = message.InReplyTo
+	f.sendReferences = append([]string(nil), message.References...)
 	return f.sendReceipt, f.sendErr
 }
 

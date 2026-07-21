@@ -70,6 +70,10 @@ type Collector struct {
 	emailTrackingRetentionPurged uint64
 	emailTrackingRetentionLastAt time.Time
 	emailTrackingRetentionLastOK bool
+	emailReplyRecoveryRuns       map[string]uint64
+	emailReplyRecoveryRecovered  uint64
+	emailReplyRecoveryLastAt     time.Time
+	emailReplyRecoveryLastOK     bool
 }
 
 func NewCollector() *Collector {
@@ -84,6 +88,7 @@ func NewCollector() *Collector {
 		retentionRuns:              make(map[string]uint64),
 		retentionRows:              make(map[string]uint64),
 		emailTrackingRetentionRuns: make(map[string]uint64),
+		emailReplyRecoveryRuns:     make(map[string]uint64),
 	}
 }
 
@@ -189,6 +194,10 @@ type RuntimeSnapshot struct {
 	CustomerEmailBounces24h        int64
 	CustomerEmailComplaints24h     int64
 	CustomerEmailUnapplied24h      int64
+	EmailRepliesAvailable          bool
+	EmailRepliesSending            int64
+	EmailRepliesStaleSending       int64
+	EmailRepliesUncertain          int64
 	Backup                         BackupStatus
 }
 
@@ -243,6 +252,10 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	emailTrackingRetentionPurged := c.emailTrackingRetentionPurged
 	emailTrackingRetentionLastAt := c.emailTrackingRetentionLastAt
 	emailTrackingRetentionLastOK := c.emailTrackingRetentionLastOK
+	emailReplyRecoveryRuns := copyMap(c.emailReplyRecoveryRuns)
+	emailReplyRecoveryRecovered := c.emailReplyRecoveryRecovered
+	emailReplyRecoveryLastAt := c.emailReplyRecoveryLastAt
+	emailReplyRecoveryLastOK := c.emailReplyRecoveryLastOK
 	startedAt := c.startedAt
 	c.mu.RUnlock()
 
@@ -318,6 +331,10 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 		Purged:    emailTrackingRetentionPurged,
 		LastRunAt: emailTrackingRetentionLastAt,
 		LastRunOK: emailTrackingRetentionLastOK,
+	})
+	writeEmailReplyMetrics(&output, snapshot, emailReplyRecoverySnapshot{
+		Runs: emailReplyRecoveryRuns, Recovered: emailReplyRecoveryRecovered,
+		LastRunAt: emailReplyRecoveryLastAt, LastRunOK: emailReplyRecoveryLastOK,
 	})
 	writeHelpType(&output, "open_crm_password_resets_available", "Whether aggregate password-reset health was collected successfully.", "gauge")
 	writeBool(&output, "open_crm_password_resets_available", snapshot.PasswordResetsAvailable)

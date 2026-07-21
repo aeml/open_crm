@@ -161,9 +161,21 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"email_messages_delivery_outcome_check",
 		"email_messages_delivery_outcome_shape_check",
 		"email_messages_delivery_feedback_message_fk",
+		"email_messages_thread_root_fk",
+		"email_messages_thread_root_present_check",
 		"customer_email_feedback_provider_check",
 		"customer_email_feedback_type_check",
 		"customer_email_feedback_event_unique",
+		"email_reply_requests_key_hash_check",
+		"email_reply_requests_request_hash_check",
+		"email_reply_requests_addresses_check",
+		"email_reply_requests_content_check",
+		"email_reply_requests_visibility_check",
+		"email_reply_requests_correlation_check",
+		"email_reply_requests_status_check",
+		"email_reply_requests_state_check",
+		"email_reply_requests_source_fk",
+		"email_reply_requests_thread_root_fk",
 		"notes_entity_type_check",
 		"tasks_entity_type_check",
 		"tasks_status_check",
@@ -255,6 +267,12 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_email_messages_org_mailbox_outbound_rfc_message",
 		"idx_customer_email_feedback_recent",
 		"idx_customer_email_feedback_unapplied",
+		"idx_email_messages_org_thread",
+		"idx_email_messages_org_rfc_message",
+		"idx_email_messages_org_provider_thread",
+		"idx_email_reply_requests_org_thread",
+		"idx_email_reply_requests_stale_sending",
+		"idx_email_reply_requests_one_unresolved_actor_thread",
 		"idx_organization_memberships_org_status",
 		"idx_record_followers_record",
 		"idx_record_followers_user",
@@ -296,6 +314,104 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 	}
 
 	assertPostgresIntegrityRules(t, ctx, pool)
+}
+
+func TestThreadedReplyMigrationBackfillsCompleteMailboxChains(t *testing.T) {
+	databaseURL := strings.TrimSpace(os.Getenv("OPEN_CRM_TEST_DATABASE_URL"))
+	if databaseURL == "" {
+		t.Skip("OPEN_CRM_TEST_DATABASE_URL is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	adminPool, err := NewPool(ctx, Config{DatabaseURL: databaseURL})
+	if err != nil {
+		t.Fatalf("connect to threaded-reply migration postgres: %v", err)
+	}
+	defer adminPool.Close()
+
+	schema := fmt.Sprintf("open_crm_thread_migration_%d", time.Now().UnixNano())
+	if _, err := adminPool.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+		t.Fatalf("create threaded-reply migration schema: %v", err)
+	}
+	defer adminPool.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`)
+
+	pool, err := NewPool(ctx, Config{DatabaseURL: databaseURLWithSearchPath(t, databaseURL, schema)})
+	if err != nil {
+		t.Fatalf("connect to threaded-reply migration schema: %v", err)
+	}
+	defer pool.Close()
+	for _, name := range MigrationFiles() {
+		if name == "092_email_threaded_replies.sql" {
+			break
+		}
+		tx, beginErr := pool.Begin(ctx)
+		if beginErr != nil {
+			t.Fatalf("begin historical migration %s: %v", name, beginErr)
+		}
+		if _, execErr := tx.Exec(ctx, MigrationSQL(name)); execErr != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("apply historical migration %s: %v", name, execErr)
+		}
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			t.Fatalf("commit historical migration %s: %v", name, commitErr)
+		}
+	}
+
+	var organizationID, mailboxUserID, otherMailboxUserID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO organizations (name,slug) VALUES ('Thread migration',$1) RETURNING id`, "thread-migration-"+schema).Scan(&organizationID); err != nil {
+		t.Fatalf("seed threaded-reply migration organization: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (email,password_hash,first_name,last_name) VALUES ($1,'hash','Mailbox','Owner') RETURNING id`, "mailbox-"+schema+"@example.test").Scan(&mailboxUserID); err != nil {
+		t.Fatalf("seed threaded-reply migration mailbox user: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (email,password_hash,first_name,last_name) VALUES ($1,'hash','Other','Mailbox') RETURNING id`, "other-"+schema+"@example.test").Scan(&otherMailboxUserID); err != nil {
+		t.Fatalf("seed threaded-reply migration other mailbox user: %v", err)
+	}
+	insertMessage := func(mailboxID int64, subject, rfcMessageID, inReplyTo string) int64 {
+		t.Helper()
+		var messageID int64
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO email_messages (
+			  organization_id,direction,from_email,to_email,subject,body,status,visibility,
+			  mailbox_user_id,rfc_message_id,in_reply_to,received_at
+			) VALUES ($1,'inbound','customer@example.test','mailbox@example.test',$3,'Body','received','private',$2,$4,$5,NOW())
+			RETURNING id
+		`, organizationID, mailboxID, subject, rfcMessageID, inReplyTo).Scan(&messageID); err != nil {
+			t.Fatalf("seed historical threaded email %q: %v", subject, err)
+		}
+		return messageID
+	}
+	rootID := insertMessage(mailboxUserID, "Root", "<root@example.test>", "")
+	childID := insertMessage(mailboxUserID, "Child", "<child@example.test>", "<root@example.test>")
+	grandchildID := insertMessage(mailboxUserID, "Grandchild", "<grandchild@example.test>", "<child@example.test>")
+	otherMailboxID := insertMessage(otherMailboxUserID, "Other mailbox", "<other@example.test>", "<root@example.test>")
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin threaded-reply migration: %v", err)
+	}
+	if _, err := tx.Exec(ctx, MigrationSQL("092_email_threaded_replies.sql")); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("apply threaded-reply migration: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit threaded-reply migration: %v", err)
+	}
+
+	for messageID, expectedRootID := range map[int64]int64{
+		rootID: rootID, childID: rootID, grandchildID: rootID, otherMailboxID: otherMailboxID,
+	} {
+		var actualRootID int64
+		if err := pool.QueryRow(ctx, `SELECT thread_root_message_id FROM email_messages WHERE id=$1`, messageID).Scan(&actualRootID); err != nil || actualRootID != expectedRootID {
+			t.Fatalf("message %d thread root=%d, want %d (err=%v)", messageID, actualRootID, expectedRootID, err)
+		}
+	}
+	insertedAfterMigration := insertMessage(mailboxUserID, "New root", "<new-root@example.test>", "")
+	var defaultedRootID int64
+	if err := pool.QueryRow(ctx, `SELECT thread_root_message_id FROM email_messages WHERE id=$1`, insertedAfterMigration).Scan(&defaultedRootID); err != nil || defaultedRootID != insertedAfterMigration {
+		t.Fatalf("post-migration insert root=%d, want self %d (err=%v)", defaultedRootID, insertedAfterMigration, err)
+	}
 }
 
 func databaseURLWithSearchPath(t *testing.T, rawURL, schema string) string {

@@ -32,8 +32,8 @@ describe('team inbox route', () => {
         currentMessage = { ...currentMessage, sharedInboxStatus: input.status || currentMessage.sharedInboxStatus, sharedInboxAssignedToUserId: input.assignedToUserId || currentMessage.sharedInboxAssignedToUserId || 0, sharedInboxAssignedToUserName: input.assignedToUserId ? 'Demo Owner' : currentMessage.sharedInboxAssignedToUserName || '', sharedInboxUpdatedAt: `2026-05-03T12:01:0${updateCount}.123456Z` }
         return jsonResponse({ data: { message: { ...currentMessage, body: 'Can you send pricing?' } } })
       }
-      if (path.endsWith('/api/email-messages/12')) {
-        return jsonResponse({ data: { message: { ...currentMessage, body: 'Can you send pricing?' } } })
+      if (path.endsWith('/api/email-threads/12')) {
+        return jsonResponse({ data: { messages: [{ ...currentMessage, body: 'Can you send pricing?' }], replies: [] } })
       }
       return jsonResponse({ data: { unreadCount: 0 } })
     })

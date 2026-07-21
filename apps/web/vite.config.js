@@ -22,7 +22,20 @@ export default defineConfig({
   base: pagesBase,
   cacheDir: process.env.VITE_CACHE_DIR || 'node_modules/.vite',
   build: {
-    outDir: process.env.VITE_OUT_DIR || 'dist'
+    outDir: process.env.VITE_OUT_DIR || 'dist',
+    rollupOptions: {
+      output: {
+        onlyExplicitManualChunks: true,
+        manualChunks(id) {
+          if (['/src/components/ui/button.jsx', '/src/components/ui/card.jsx', '/src/components/ui/field.jsx', '/src/components/ui/inline_error.jsx', '/src/lib/use_page_title.js'].some((path) => id.includes(path))) {
+            return 'ui'
+          }
+          if (id.includes('/src/routes/mailbox.jsx') || id.includes('/src/routes/team_inbox.jsx') || id.includes('/src/components/email_thread.jsx') || id.includes('/src/lib/email_messages.js')) {
+            return 'email-inbox'
+          }
+        }
+      }
+    }
   },
   plugins: [react(), thirdPartyNotices()]
 })
