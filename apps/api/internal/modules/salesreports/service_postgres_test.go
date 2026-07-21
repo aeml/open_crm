@@ -161,6 +161,18 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 	if _, err := pool.Exec(ctx, `UPDATE organization_memberships SET membership_status='disabled' WHERE organization_id=$1 AND user_id=$2`, organizationID, ownerBID); err != nil {
 		t.Fatalf("disable retained report owner: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE deal_stage_events
+		SET occurred_at=CASE
+			WHEN event_type='created' THEN NOW()-INTERVAL '20 days'
+			WHEN to_stage_id=$2 THEN NOW()-INTERVAL '15 days'
+			WHEN to_stage_id=$3 THEN NOW()-INTERVAL '5 days'
+			ELSE occurred_at
+		END
+		WHERE organization_id=$1 AND deal_id=$4
+	`, organizationID, stageIDs["Proposal"], stageIDs["Won"], dealA.Summary.ID); err != nil {
+		t.Fatalf("set exact funnel velocity evidence: %v", err)
+	}
 
 	service := modulesalesreports.NewService(pool)
 	report, err := service.Activity(ctx, organizationID, modulesalesreports.Query{})
@@ -216,6 +228,49 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 	if _, err := service.Activity(ctx, organizationID, modulesalesreports.Query{OwnerUserID: foreignUserID}); !errors.Is(err, modulesalesreports.ErrInvalidInput) {
 		t.Fatalf("foreign owner filter returned %v", err)
 	}
+	funnelAsOf := time.Now().UTC()
+	funnel, err := service.Funnel(ctx, organizationID, modulesalesreports.FunnelQuery{
+		PipelineID: pipelineID, EntryStageID: stageIDs["Open"],
+		FromDate: funnelAsOf.AddDate(0, 0, -29).Format("2006-01-02"), ToDate: funnelAsOf.Format("2006-01-02"), AsOfDate: funnelAsOf.Format("2006-01-02"),
+	})
+	if err != nil || funnel.HistoryComplete || funnel.PipelineName != "Renamed sales" || funnel.EntryStageName != "Open" || funnel.Totals != (modulesalesreports.FunnelTotals{CohortDeals: 1, WonDeals: 1, ClosedDeals: 1, WinRatePercent: "100.0", MedianDaysToWin: "15.0"}) || len(funnel.Semantics) == 0 {
+		t.Fatalf("unexpected exact pipeline funnel: report=%#v err=%v", funnel, err)
+	}
+	openFunnel := funnelStage(t, funnel, stageIDs["Open"])
+	if openFunnel.ReachedDeals != 1 || openFunnel.ReachRatePercent != "100.0" || openFunnel.ExitedDeals != 1 || openFunnel.ForwardOrWonDeals != 1 || openFunnel.ForwardExitRatePercent != "100.0" || openFunnel.MedianDaysToReach != "0.0" || openFunnel.MedianDaysInCompletedVisit != "5.0" {
+		t.Fatalf("unexpected entry-stage reach or velocity: %#v", openFunnel)
+	}
+	proposalFunnel := funnelStage(t, funnel, stageIDs["Proposal"])
+	if proposalFunnel.StageName != "Qualified later" || proposalFunnel.StageOutcome != "won" || proposalFunnel.ReachedDeals != 1 || proposalFunnel.ExitedDeals != 1 || proposalFunnel.ForwardOrWonDeals != 1 || proposalFunnel.MedianDaysToReach != "5.0" || proposalFunnel.MedianDaysInCompletedVisit != "10.0" {
+		t.Fatalf("current stage label or event-time velocity changed unexpectedly: %#v", proposalFunnel)
+	}
+	wonFunnel := funnelStage(t, funnel, stageIDs["Won"])
+	if wonFunnel.ReachedDeals != 1 || wonFunnel.CurrentlyInStageDeals != 1 || wonFunnel.MedianDaysToReach != "15.0" || wonFunnel.ExitedDeals != 0 || wonFunnel.MedianDaysInCompletedVisit != "" {
+		t.Fatalf("unexpected won-stage cohort evidence: %#v", wonFunnel)
+	}
+	filteredFunnel, err := service.Funnel(ctx, organizationID, modulesalesreports.FunnelQuery{
+		PipelineID: pipelineID, EntryStageID: stageIDs["Open"], OwnerUserID: ownerAID,
+		FromDate: funnelAsOf.AddDate(0, 0, -29).Format("2006-01-02"), ToDate: funnelAsOf.Format("2006-01-02"), AsOfDate: funnelAsOf.Format("2006-01-02"),
+	})
+	if err != nil || filteredFunnel.Totals != funnel.Totals {
+		t.Fatalf("retained creation-owner funnel filter changed cohort: report=%#v err=%v", filteredFunnel, err)
+	}
+	emptyFunnel, err := service.Funnel(ctx, organizationID, modulesalesreports.FunnelQuery{
+		PipelineID: pipelineID, EntryStageID: stageIDs["Open"], OwnerUserID: ownerBID,
+		FromDate: funnelAsOf.AddDate(0, 0, -29).Format("2006-01-02"), ToDate: funnelAsOf.Format("2006-01-02"), AsOfDate: funnelAsOf.Format("2006-01-02"),
+	})
+	if err != nil || emptyFunnel.Totals != (modulesalesreports.FunnelTotals{}) || len(emptyFunnel.Stages) != 4 {
+		t.Fatalf("zero-cohort pipeline shape failed: report=%#v err=%v", emptyFunnel, err)
+	}
+	for _, invalid := range []modulesalesreports.FunnelQuery{
+		{PipelineID: foreignPipelineID, EntryStageID: foreignStageID},
+		{PipelineID: pipelineID, EntryStageID: foreignStageID},
+		{PipelineID: pipelineID, EntryStageID: stageIDs["Open"], OwnerUserID: foreignUserID},
+	} {
+		if _, err := service.Funnel(ctx, organizationID, invalid); !errors.Is(err, modulesalesreports.ErrInvalidInput) {
+			t.Fatalf("foreign funnel filter %#v returned %v", invalid, err)
+		}
+	}
 	if _, err := service.Activity(ctx, organizationID, modulesalesreports.Query{FromDate: "2026-07-20", ToDate: "2026-07-19"}); !errors.Is(err, modulesalesreports.ErrInvalidInput) {
 		t.Fatalf("reversed date range returned %v", err)
 	}
@@ -268,6 +323,17 @@ func salesStage(t *testing.T, report modulesalesreports.Report, stageID int64) m
 	}
 	t.Fatalf("missing report stage %d in %#v", stageID, report.Stages)
 	return modulesalesreports.StageConversion{}
+}
+
+func funnelStage(t *testing.T, report modulesalesreports.FunnelReport, stageID int64) modulesalesreports.FunnelStage {
+	t.Helper()
+	for _, stage := range report.Stages {
+		if stage.StageID == stageID {
+			return stage
+		}
+	}
+	t.Fatalf("missing funnel stage %d in %#v", stageID, report.Stages)
+	return modulesalesreports.FunnelStage{}
 }
 
 func salesReportDatabaseURL(t *testing.T, rawURL, schema string) string {

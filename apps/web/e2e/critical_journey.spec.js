@@ -813,6 +813,38 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(closeReasonReport.getByRole('listitem').filter({ hasText: 'Best solution fit' })).toContainText('1')
   await expect(salesActivityCard.getByRole('list', { name: 'Recent deal events' }).getByText('Strong service fit and a clear implementation plan.', { exact: false })).toBeVisible()
 
+  const pipelineFunnel = page.locator('.pipeline-funnel-report-card')
+  await expect(pipelineFunnel.getByRole('heading', { name: 'Pipeline conversion and velocity' })).toBeVisible()
+  const pipelineFunnelSelect = pipelineFunnel.getByRole('combobox', { name: 'Pipeline', exact: true })
+  const pipelineFunnelEntryStage = pipelineFunnel.getByRole('combobox', { name: 'Entry stage', exact: true })
+  await pipelineFunnelSelect.selectOption({ label: 'Sales pipeline' })
+  await pipelineFunnelEntryStage.selectOption({ label: reviewedDiscoveryStage })
+  const funnelPipelineID = Number(await pipelineFunnelSelect.inputValue())
+  const funnelEntryStageID = Number(await pipelineFunnelEntryStage.inputValue())
+  expect(funnelPipelineID).toBeGreaterThan(0)
+  expect(funnelEntryStageID).toBeGreaterThan(0)
+  await pipelineFunnel.getByRole('button', { name: 'Run pipeline report' }).click()
+  const funnelTotals = pipelineFunnel.getByRole('list', { name: 'Pipeline cohort totals' })
+  await expect(funnelTotals.getByRole('listitem').filter({ hasText: 'Cohort deals' })).toContainText('1')
+  await expect(funnelTotals.getByRole('listitem').filter({ hasText: 'Won as of date' })).toContainText('1')
+  await expect(funnelTotals.getByRole('listitem').filter({ hasText: 'Closed win rate' })).toContainText('100.0%')
+  const funnelTable = pipelineFunnel.getByRole('table', { name: /Exact stage reach and elapsed-time metrics/ })
+  const discoveryFunnelRow = funnelTable.getByRole('row', { name: new RegExp(reviewedDiscoveryStage) })
+  await expect(discoveryFunnelRow.getByText('1 · 100.0%', { exact: true })).toHaveCount(2)
+  const wonFunnelRow = funnelTable.getByRole('row', { name: /Closed Won/ })
+  await expect(wonFunnelRow).toContainText('1 · 100.0%')
+  await pipelineFunnel.getByText('How this cohort and velocity report is calculated').click()
+  await expect(pipelineFunnel.getByText(/Cohorts observed for less time can show lower conversion/)).toBeVisible()
+  const pipelineFunnelAccessibility = await new AxeBuilder({ page })
+    .include('.pipeline-funnel-report-card')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-pipeline-cohort-velocity', {
+    body: JSON.stringify({ url: page.url(), violations: pipelineFunnelAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(pipelineFunnelAccessibility.violations, 'pipeline cohort and velocity report must have no automated WCAG A/AA violations').toEqual([])
+
   const clientActivity = page.locator('.client-activity-report-card')
   await expect(clientActivity.getByRole('heading', { name: 'Client activity' })).toBeVisible()
   const clientActivityTotals = clientActivity.getByRole('list', { name: 'Client activity totals' })
@@ -1016,6 +1048,8 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     expect(crossTenantClientActivityBody.data.count).toBe(0)
     expect(crossTenantClientActivityBody.data.totals.totalClients).toBe(0)
     expect(JSON.stringify(crossTenantClientActivityBody)).not.toContain(`Northstar Advisory ${runID}`)
+    const crossTenantFunnel = await otherContext.request.get(`${apiURL}/api/reports/pipeline-funnel?pipelineId=${funnelPipelineID}&entryStageId=${funnelEntryStageID}&from=${utcDateDaysFromNow(-29)}&to=${utcDateDaysFromNow(0)}&asOf=${utcDateDaysFromNow(0)}`)
+    expect(crossTenantFunnel.status()).toBe(400)
   } finally {
     await otherContext.close()
   }

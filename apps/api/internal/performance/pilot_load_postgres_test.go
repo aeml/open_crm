@@ -22,6 +22,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
+	modulesalesreports "github.com/aeml/open_crm/apps/api/internal/modules/salesreports"
 	"github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduletouchpoints "github.com/aeml/open_crm/apps/api/internal/modules/touchpoints"
 )
@@ -156,6 +157,7 @@ func TestPilotReadLoadAndFailureBudgetsAgainstPostgres(t *testing.T) {
 	}
 
 	assertSlowDatabaseDeadlineAndRecovery(t, ctx, pool, organizationID, contactService)
+	assertPipelineFunnelBudget(t, ctx, pool, organizationID, secondOrganizationID, stageID)
 	assertClientActivityBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
 	assertLargeTenantExportBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
 	assertTenantImportWriteBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
@@ -175,6 +177,59 @@ func TestPilotReadLoadAndFailureBudgetsAgainstPostgres(t *testing.T) {
 	if elapsed := time.Since(failureStarted); elapsed > time.Second {
 		t.Fatalf("database failure took %s to surface; expected a bounded failure", elapsed)
 	}
+}
+
+func assertPipelineFunnelBudget(t *testing.T, ctx context.Context, pool *moduledb.Pool, organizationID, otherOrganizationID, entryStageID int64) {
+	t.Helper()
+	var pipelineID int64
+	if err := pool.QueryRow(ctx, `SELECT pipeline_id FROM deal_stages WHERE organization_id=$1 AND id=$2`, organizationID, entryStageID).Scan(&pipelineID); err != nil {
+		t.Fatalf("load pilot funnel pipeline: %v", err)
+	}
+	var progressedStageID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO deal_stages (organization_id,pipeline_id,name,position,is_closed,is_won)
+		VALUES ($1,$2,'Progressed',2,FALSE,FALSE) RETURNING id
+	`, organizationID, pipelineID).Scan(&progressedStageID); err != nil {
+		t.Fatalf("create pilot funnel progressed stage: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO deal_stage_events (
+			organization_id,deal_id,deal_name,event_type,actor_user_id,
+			from_pipeline_id,from_pipeline_name,from_stage_id,from_stage_name,from_stage_position,from_stage_outcome,
+			to_pipeline_id,to_pipeline_name,to_stage_id,to_stage_name,to_stage_position,to_stage_outcome,occurred_at
+		)
+		SELECT deal.organization_id,deal.id,deal.name,'stage_changed',membership.user_id,
+		       pipeline.id,pipeline.name,entry_stage.id,entry_stage.name,entry_stage.position,'open',
+		       pipeline.id,pipeline.name,$3,'Progressed',2,'open',NOW()-INTERVAL '5 days'
+		FROM deals deal
+		JOIN deal_stages entry_stage ON entry_stage.organization_id=deal.organization_id AND entry_stage.id=deal.stage_id
+		JOIN deal_pipelines pipeline ON pipeline.organization_id=deal.organization_id AND pipeline.id=entry_stage.pipeline_id
+		JOIN LATERAL (SELECT user_id FROM organization_memberships WHERE organization_id=deal.organization_id ORDER BY user_id LIMIT 1) membership ON TRUE
+		WHERE deal.organization_id=$1 AND entry_stage.id=$2
+	`, organizationID, entryStageID, progressedStageID); err != nil {
+		t.Fatalf("seed pilot funnel transitions: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ANALYZE deal_stage_events; ANALYZE deal_stages`); err != nil {
+		t.Fatalf("analyze pilot funnel fixtures: %v", err)
+	}
+	now := time.Now().UTC()
+	query := modulesalesreports.FunnelQuery{
+		PipelineID: pipelineID, EntryStageID: entryStageID,
+		FromDate: now.AddDate(0, 0, -29).Format("2006-01-02"), ToDate: now.Format("2006-01-02"), AsOfDate: now.Format("2006-01-02"),
+	}
+	started := time.Now()
+	report, err := modulesalesreports.NewService(pool).Funnel(ctx, organizationID, query)
+	elapsed := time.Since(started)
+	if err != nil || report.Totals.CohortDeals != pilotDealsPerTenant || report.Totals.OpenDeals != pilotDealsPerTenant || len(report.Stages) != 2 || report.Stages[0].ExitedDeals != pilotDealsPerTenant || report.Stages[0].ForwardOrWonDeals != pilotDealsPerTenant || report.Stages[0].MedianDaysInCompletedVisit != "15.0" {
+		t.Fatalf("pilot funnel mismatch: report=%#v err=%v", report, err)
+	}
+	if elapsed > pilotReportPageMaximum {
+		t.Fatalf("pilot funnel took %s; budget is %s", elapsed, pilotReportPageMaximum)
+	}
+	if _, err := modulesalesreports.NewService(pool).Funnel(ctx, otherOrganizationID, query); !errors.Is(err, modulesalesreports.ErrInvalidInput) {
+		t.Fatalf("foreign tenant accepted pilot funnel IDs: %v", err)
+	}
+	t.Logf("pilot_pipeline_funnel_budget cohort=%d stages=%d elapsed=%s", report.Totals.CohortDeals, len(report.Stages), elapsed)
 }
 
 func assertClientActivityBudget(t *testing.T, ctx context.Context, pool *moduledb.Pool, organizationID, otherOrganizationID, actorUserID int64) {
@@ -539,6 +594,19 @@ func seedPilotDataset(t *testing.T, ctx context.Context, pool *moduledb.Pool, sc
 		t.Fatalf("seed pilot deals: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
+		INSERT INTO deal_stage_events (
+			organization_id,deal_id,deal_name,event_type,actor_user_id,
+			to_pipeline_id,to_pipeline_name,to_stage_id,to_stage_name,to_stage_position,to_stage_outcome,occurred_at
+		)
+		SELECT deal.organization_id,deal.id,deal.name,'created',$1,
+		       pipeline.id,pipeline.name,stage.id,stage.name,stage.position,'open',NOW()-INTERVAL '20 days'
+		FROM deals deal
+		JOIN deal_stages stage ON stage.organization_id=deal.organization_id AND stage.id=deal.stage_id
+		JOIN deal_pipelines pipeline ON pipeline.organization_id=stage.organization_id AND pipeline.id=stage.pipeline_id
+	`, userID); err != nil {
+		t.Fatalf("seed pilot deal stage events: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
 		INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, due_at, created_by_user_id)
 		SELECT organization_id,
 		       'contact',
@@ -551,7 +619,7 @@ func seedPilotDataset(t *testing.T, ctx context.Context, pool *moduledb.Pool, sc
 	`, userID); err != nil {
 		t.Fatalf("seed pilot tasks: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `ANALYZE organizations; ANALYZE contacts; ANALYZE companies; ANALYZE deals; ANALYZE tasks`); err != nil {
+	if _, err := pool.Exec(ctx, `ANALYZE organizations; ANALYZE contacts; ANALYZE companies; ANALYZE deals; ANALYZE deal_stage_events; ANALYZE tasks`); err != nil {
 		t.Fatalf("analyze pilot fixtures: %v", err)
 	}
 

@@ -60,12 +60,20 @@ qualifying note per client. The client-period gate requires exact 500-client/
 when the same query is executed for the separate tenant. This catches an
 unbounded linked-source aggregation or missing organization predicate before
 the report can be promoted.
+The same run also retains one creation event for each of 500 target deals and
+one later forward transition per deal. The fixed pipeline cohort gate requires
+exact cohort/current/reach/exit/forward totals and a 15.0-day median completed
+entry-stage visit under two seconds, then requires the same pipeline and stage
+IDs to fail closed for another workspace. This exercises the complete windowed
+cohort and velocity query rather than treating a small unit fixture as scale
+evidence.
 It also maps and writes the complete 1,000-row synchronous import ceiling,
 including duplicate checks, activity/outcome ledgers, durable progress
 checkpoints, exact tenant totals, and foreign-tenant absence, within 10 seconds.
-Current local evidence was approximately 39 ms for the 806,068-byte core
-export, 8 ms for the 100-row saved-report page, 20 ms for the 453,869-byte
-saved-report export, and 552 ms for the 52,937-byte/1,000-row import. Test
+Current local evidence was approximately 15 ms for the 500-deal cohort report,
+20 ms for the 500-client activity page, 33 ms for the 806,196-byte core export,
+8 ms for the 100-row saved-report page, 20 ms for the 453,869-byte saved-report
+export, and 1.06 s for the 52,937-byte/1,000-row import. Test
 failure output includes observed latency or the query plan/budget that regressed.
 
 `apps/api/internal/modules/salesreports/query_plans_postgres_test.go` adds the
@@ -107,11 +115,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 699 KiB | 220 KiB |
+| All JavaScript and CSS | 707 KiB | 222 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.92 KiB/58.01 KiB entry, 54.78 KiB/15.64 KiB largest lazy
-chunk, and 698.98 KiB/219.95 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.92 KiB/58.02 KiB entry, 54.78 KiB/15.63 KiB largest lazy
+chunk, and 706.51 KiB/221.54 KiB total assets. The production contact, company,
 deal, and task routes are 29.81/9.19, 34.71/10.48, 54.78/15.63, and 24.67/7.31
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -123,7 +131,7 @@ signup, import, merge, and bulk recovery paths. Production builds now omit the
 incomplete calling, SMS, calendar/booking-link, audience, lead-scoring,
 marketing-email, and nurture-campaign management surfaces; the bundle gate
 rejects their accidental inclusion. The saved-report route ships table and
-grouped numeric bar outcomes, but production filters its line/funnel/pie/KPI
+grouped numeric bar outcomes, but production filters its custom line/funnel/pie/KPI
 controls and definitions from navigation. This
 preserves normal navigation for production-capable outcomes while keeping
 unfinished foundations available in development.
@@ -131,10 +139,10 @@ Future frontend slices must remain within the ratcheted ceilings. The complete c
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget
-core record screens. Live data-quality, snapshot-backed sales activity,
-traceable stale follow-up queues, exact client-period activity, and the
+core record screens. Live data-quality, snapshot-backed sales activity, exact
+pipeline cohort conversion/velocity, traceable stale follow-up queues, exact client-period activity, and the
 saved-table/grouped-bar builder and results leave the Reports route at
-39.90 KiB/9.55 KiB;
+47.40 KiB/11.16 KiB;
 reusable activity and touchpoint/account/client-health context remains outside
 the parent record routes in 16.51 KiB/4.95 KiB and 17.52 KiB/4.99 KiB shared
 chunks; the complete Clients route is 31.36 KiB/9.09 KiB. Admin pipeline
@@ -235,6 +243,15 @@ remain unchanged. Saved-report orchestration remains 295 lines. The 2026-07-21
 local PostgreSQL 16.14 run completed the 500-client/100-row activity page in
 approximately 22.4 ms; that observation is diagnostic, while the checked
 two-second ceiling is authoritative.
+The exact pipeline cohort outcome adds a separate 193-line component and reuses
+the existing deal-stage ledger instead of activating stored custom-funnel
+metadata. It adds current-outcome, exact reach/exit, and elapsed-day medians with
+a five-second query deadline plus the 500-deal tenant gate above. The complete
+build is 706.51/221.54 KiB and the Reports route is 47.40/11.16 KiB, so the
+reviewed aggregate ceilings advance from 699/220 to 707/222 KiB while entry,
+per-async-chunk, and CSS ceilings remain unchanged. The 2026-07-21 local
+PostgreSQL 16.14 observation completed the 500-deal/two-stage cohort in about
+14.8 ms; the checked two-second ceiling remains authoritative.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 
@@ -295,7 +312,7 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 409 lines, down from 996. Its audited 247-route
+The API composition root is 409 lines, down from 996. Its audited 248-route
 surface is registered through 175-line platform, 294-line foundation, and
 342-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot

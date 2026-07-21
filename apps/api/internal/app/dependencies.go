@@ -379,6 +379,7 @@ type dataQualityService interface {
 
 type salesReportsService interface {
 	Activity(context.Context, int64, modulesalesreports.Query) (modulesalesreports.Report, error)
+	Funnel(context.Context, int64, modulesalesreports.FunnelQuery) (modulesalesreports.FunnelReport, error)
 }
 
 type touchpointsService interface {

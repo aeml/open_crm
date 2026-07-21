@@ -195,6 +195,9 @@ func registerFoundationRoutes(mux *http.ServeMux, dependencies Dependencies, rat
 	mux.HandleFunc("GET /api/reports/sales-activity", func(w http.ResponseWriter, r *http.Request) {
 		handleSalesActivityReport(dependencies.AuthService, dependencies.SalesReportsService, w, r)
 	})
+	mux.HandleFunc("GET /api/reports/pipeline-funnel", func(w http.ResponseWriter, r *http.Request) {
+		handlePipelineFunnelReport(dependencies.AuthService, dependencies.SalesReportsService, w, r)
+	})
 	mux.HandleFunc("GET /api/reports/follow-up", func(w http.ResponseWriter, r *http.Request) {
 		handleStaleTouchpoints(dependencies.AuthService, dependencies.TouchpointsService, w, r)
 	})

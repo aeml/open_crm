@@ -636,6 +636,41 @@ references.
    Record the filters, coverage time, generated time, and request ID when
    escalating a mismatch.
 
+### Pipeline cohort conversion and velocity reconciliation
+
+1. Open **Reports > Pipeline conversion & velocity**. This is the fixed,
+   executable cohort report at `/api/reports/pipeline-funnel`; it does not make
+   the separately stored custom-funnel metadata production-capable. Every active
+   member, including a viewer, may run the fixed report.
+2. Select one current pipeline and one exact entry stage, inclusive UTC cohort
+   creation dates, an optional teammate saved on the creation event, and a
+   separate inclusive **as of** date. From through as-of may span no more than
+   366 days, and as-of cannot be in the future. A malformed or foreign pipeline,
+   stage, or teammate is a non-disclosing `400`; do not substitute IDs from a
+   different workspace.
+3. Cohort membership is fixed by the durable deal-creation event. The report
+   shows each current configured stage label and order, but reach, exit, and
+   forward-or-won math uses retained event-time stage positions. A skipped stage
+   is not inferred, re-entry counts as another visit/exit, and moving to another
+   pipeline is an exit but not forward progress. Median reach, completed-visit,
+   and current-win values are elapsed 24-hour days, not calendar-day estimates.
+4. **Partial event history** has the same coverage boundary as Sales activity.
+   An as-of date before the requested cohort has fully matured is deliberate and
+   is disclosed by the report. Record the pipeline/stage IDs, cohort dates,
+   as-of date, teammate, coverage/generated times, release, and request ID when
+   reconciling a mismatch; do not rewrite `deal_stage_events` or infer missing
+   pre-ledger history from mutable deals.
+5. A `504 REPORT_TIMEOUT` means the bounded five-second query deadline elapsed.
+   Check database saturation, the request ID, and the sales event index plans,
+   then retry the same bounded query after recovery. Empty cohorts are valid;
+   compare their exact filters before treating them as a fault. The CI-gated
+   PostgreSQL performance test keeps a tenant-isolated 500-deal cohort under a
+   two-second ceiling.
+6. The report is current analysis, not an immutable snapshot, scheduled report,
+   or export promise. Preserve the selected filters outside Open CRM when an
+   approved operating review requires a retained comparison; add durable
+   snapshots only through a separately reviewed product slice.
+
 ### Contact/client touchpoints and follow-up reconciliation
 
 1. Open a Contact or Client and inspect **Follow-up** for its latest touch and

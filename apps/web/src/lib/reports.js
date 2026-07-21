@@ -59,3 +59,16 @@ export async function getSalesActivityReport({ from, to, ownerUserId = 0, signal
     dealEvents: Array.isArray(data.dealEvents) ? data.dealEvents : []
   }
 }
+
+export async function getPipelineFunnelReport({ pipelineId, entryStageId, from, to, asOf, ownerUserId = 0, signal } = {}) {
+  const params = new URLSearchParams({ pipelineId: String(pipelineId), entryStageId: String(entryStageId), from, to, asOf })
+  if (ownerUserId) params.set('ownerUserId', String(ownerUserId))
+  const payload = await apiRequest(`/api/reports/pipeline-funnel?${params.toString()}`, { fallbackMessage: 'Unable to load pipeline conversion and velocity.', signal })
+  const data = payload?.data || {}
+  return {
+    ...data,
+    totals: data.totals || {},
+    stages: Array.isArray(data.stages) ? data.stages : [],
+    semantics: Array.isArray(data.semantics) ? data.semantics : []
+  }
+}
