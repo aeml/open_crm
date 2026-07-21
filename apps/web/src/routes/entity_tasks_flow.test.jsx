@@ -232,7 +232,12 @@ describe('entity task visibility', () => {
       })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { items: [] } }) })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', vi.fn((url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      if (requestURL.pathname.endsWith('/api/quote-templates/policy')) return Promise.resolve({ ok: true, json: async () => ({ data: { policy: { approvalRequired: false, activeApprovers: 2 } } }) })
+      if (requestURL.pathname.endsWith('/api/quote-templates')) return Promise.resolve({ ok: true, json: async () => ({ data: { templates: [] } }) })
+      return fetchMock(url, options)
+    }))
     window.history.pushState({}, '', '/deals')
 
     render(<AppRouter />)

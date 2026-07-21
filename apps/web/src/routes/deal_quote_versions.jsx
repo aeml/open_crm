@@ -7,6 +7,7 @@ import { formatMoney, formatSignatureTime, quoteCurrencyDisclosure, signatureSta
 
 const deliveryStatusLabels = { sent: 'Sent', uncertain: 'Needs resolution', failed: 'Not sent', sending: 'Sending' }
 const quoteLifecycleLabels = { expired: 'Expired', superseded: 'Replaced' }
+const approvalStatusLabels = { not_required: 'Not required', pending: 'Pending independent review', approved: 'Approved', rejected: 'Rejected' }
 
 function DeliveryEvidence({ delivery, isResolving, onResolve, signature }) {
   return (
@@ -38,15 +39,48 @@ function DeliveryEvidence({ delivery, isResolving, onResolve, signature }) {
   )
 }
 
-function QuoteVersionRow({ canWrite, deal, isDelivering, isSnapshotPending, onDeliver, onReissue, onResolve, quote, resolvingDeliveryId, signatureRequests, validUntil }) {
+function QuoteApprovalEvidence({ canAdminister, currentUserId, isDeciding, onDecide, quote }) {
+  const [note, setNote] = useState('')
+  const approval = quote.approval || { required: false, status: 'not_required' }
+  const status = approval.status || (approval.required ? 'pending' : 'not_required')
+  const canDecide = canAdminister && status === 'pending' &&
+    String(approval.requestedByUserId || '') !== String(currentUserId) &&
+    String(quote.createdByUserId || '') !== String(currentUserId)
+
+  return (
+    <div className="inline-note" aria-label={`Approval evidence for ${quote.quoteNumber}`}>
+      <strong>Approval: {approvalStatusLabels[status] || status}</strong>
+      {approval.requestedAt ? <p className="field-hint">Requested {formatSignatureTime(approval.requestedAt)} by {approval.requestedByUserName} for this exact PDF digest.</p> : null}
+      {approval.decidedAt ? <p className="field-hint">Decided {formatSignatureTime(approval.decidedAt)} by {approval.decidedByUserName}.</p> : null}
+      {approval.decisionNote ? <p className="field-hint">Decision note: {approval.decisionNote}</p> : null}
+      {status === 'pending' && !canDecide ? <p className="field-hint">A different active owner or admin must review this immutable version before delivery.</p> : null}
+      {canDecide ? (
+        <div className="card-stack">
+          <Field label={`Review note for ${quote.quoteNumber}`}>
+            <textarea className="text-input" maxLength={1000} rows="3" value={note} onChange={(event) => setNote(event.target.value)} />
+          </Field>
+          <div className="button-row">
+            <Button type="button" disabled={isDeciding} onClick={() => onDecide(quote, 'approved', note)}>{isDeciding ? 'Recording…' : 'Approve exact PDF'}</Button>
+            <Button className="button-danger" type="button" disabled={isDeciding || !note.trim()} onClick={() => onDecide(quote, 'rejected', note)}>Reject with note</Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function QuoteVersionRow({ canAdminister, canWrite, currentUserId, deal, isDeciding, isDelivering, isSnapshotPending, onDecideApproval, onDeliver, onReissue, onResolve, quote, resolvingDeliveryId, signatureRequests, validUntil }) {
+  const deliveryDefaults = quote.deliveryDefaults || {}
   const [deliveryForm, setDeliveryForm] = useState(() => ({
-    subject: `Finalized quote ${quote.quoteNumber}`,
-    messageBody: `Hi ${quote.recipientName},\n\nPlease review ${quote.quoteNumber}.`,
-    requestSignature: false
+    subject: deliveryDefaults.subject || `Finalized quote ${quote.quoteNumber}`,
+    messageBody: deliveryDefaults.messageBody || `Hi ${quote.recipientName},\n\nPlease review ${quote.quoteNumber}.`,
+    requestSignature: Boolean(deliveryDefaults.requestSignature)
   }))
   const deliveries = quote.deliveries || []
   const unresolved = deliveries.some((delivery) => ['prepared', 'sending', 'uncertain'].includes(delivery.status))
   const lifecycleStatus = quote.lifecycleStatus || 'active'
+  const approvalStatus = quote.approval?.status || 'not_required'
+  const approvalBlocksDelivery = approvalStatus === 'pending' || approvalStatus === 'rejected'
   const signed = signatureRequests.some((request) => request.quoteId === quote.id && request.status === 'signed')
   const setField = (name) => (event) => setDeliveryForm((current) => ({ ...current, [name]: event.target.value }))
 
@@ -64,6 +98,7 @@ function QuoteVersionRow({ canWrite, deal, isDelivering, isSnapshotPending, onDe
           <p className="field-hint">
             Finalized {formatSignatureTime(quote.createdAt)} by {quote.createdByUserName} · SHA-256 {quote.pdfSha256}
           </p>
+          <p className="field-hint">{quote.template ? `${quote.template.name} · retained revision ${quote.template.revision}` : 'Custom terms · no reusable template linked'}</p>
           {quote.reissuedFromQuoteNumber || quote.reissuedByQuoteNumber ? <p className="field-hint">{quote.reissuedFromQuoteNumber ? `Reissued from immutable ${quote.reissuedFromQuoteNumber}.` : `Replaced by ${quote.reissuedByQuoteNumber}; use it for delivery.`}</p> : null}
           <p className="field-hint">{quoteCurrencyDisclosure(quote)}</p>
         </div>
@@ -74,6 +109,13 @@ function QuoteVersionRow({ canWrite, deal, isDelivering, isSnapshotPending, onDe
           </a>
         </div>
       </div>
+      <QuoteApprovalEvidence
+        canAdminister={canAdminister}
+        currentUserId={currentUserId}
+        isDeciding={isDeciding}
+        onDecide={onDecideApproval}
+        quote={quote}
+      />
       {deliveries.length > 0 ? (
         <div className="quote-delivery-list" aria-label={`Deliveries for ${quote.quoteNumber}`}>
           {deliveries.map((delivery) => (
@@ -97,7 +139,13 @@ function QuoteVersionRow({ canWrite, deal, isDelivering, isSnapshotPending, onDe
           )}
         </div>
       ) : null}
-      {canWrite && lifecycleStatus === 'active' ? (
+      {canWrite && lifecycleStatus === 'active' && approvalBlocksDelivery ? (
+        <div className="inline-note quote-delivery-alert" role="status">
+          <strong>{approvalStatus === 'rejected' ? 'Delivery blocked: approval was rejected.' : 'Delivery blocked until independent approval.'}</strong>
+          <p className="field-hint">The immutable PDF and decision evidence remain available above. Create a revised quote after a rejection.</p>
+        </div>
+      ) : null}
+      {canWrite && lifecycleStatus === 'active' && !approvalBlocksDelivery ? (
         <details className="quote-delivery-composer">
           <summary>{deliveries.length > 0 ? 'Deliver again' : 'Deliver by email'}</summary>
           <form className="auth-form" aria-label={`Deliver ${quote.quoteNumber}`} onSubmit={(event) => { event.preventDefault(); onDeliver(quote, deliveryForm) }}>
@@ -123,24 +171,35 @@ function QuoteVersionRow({ canWrite, deal, isDelivering, isSnapshotPending, onDe
 
 export function DealQuoteVersionsCard({
   areLineItemsDirty,
+  canAdminister,
   canWrite,
+  currentUserId,
   deal,
+  decidingQuoteId,
   deliveringQuoteId,
   form,
   isFinalizing,
   isSnapshotPending,
   lineItems,
   onDeliver,
+  onDecideApproval,
   onFinalize,
+  onQuoteTemplateChange,
   onReissue,
   onResolveDelivery,
   onSetForm,
   quotes,
+  quoteApprovalPolicy,
+  quoteTemplates,
   resolvingDeliveryId,
   signatureRequests
 }) {
   const setField = (name) => (event) => onSetForm((current) => ({ ...current, [name]: event.target.value }))
   const canFinalize = lineItems.length > 0 && !areLineItemsDirty
+  const availableTemplates = quoteTemplates || []
+  const approvalPolicy = quoteApprovalPolicy || { approvalRequired: false, activeApprovers: 0 }
+  const selectedTemplate = availableTemplates.find((template) => String(template.id) === String(form.templateId))
+  const approvalForced = Boolean(approvalPolicy.approvalRequired || selectedTemplate?.requiresApproval)
 
   return (
     <Card>
@@ -161,12 +220,16 @@ export function DealQuoteVersionsCard({
             </article>
           ) : quotes.map((quote) => (
             <QuoteVersionRow
+              canAdminister={canAdminister}
               canWrite={canWrite}
+              currentUserId={currentUserId}
               deal={deal}
+              isDeciding={decidingQuoteId === quote.id}
               isDelivering={deliveringQuoteId === quote.id}
               isSnapshotPending={isSnapshotPending}
               key={quote.id}
               onDeliver={onDeliver}
+              onDecideApproval={onDecideApproval}
               onReissue={onReissue}
               onResolve={onResolveDelivery}
               quote={quote}
@@ -178,6 +241,14 @@ export function DealQuoteVersionsCard({
         </div>
         {canWrite ? (
           <form className="auth-form" aria-label="Finalize quote form" onSubmit={onFinalize}>
+            <Field label="Quote template">
+              <select className="text-input" value={form.templateId || ''} onChange={onQuoteTemplateChange}>
+                <option value="">Custom terms</option>
+                {availableTemplates.filter((template) => template.isActive).map((template) => (
+                  <option key={template.id} value={template.id}>{template.name} (revision {template.revision})</option>
+                ))}
+              </select>
+            </Field>
             <Field label="Recipient name">
               <input className="text-input" maxLength={200} value={form.recipientName} onChange={setField('recipientName')} required />
             </Field>
@@ -188,8 +259,19 @@ export function DealQuoteVersionsCard({
               <input className="text-input" type="date" value={form.validUntil} onChange={setField('validUntil')} required />
             </Field>
             <Field label="Terms">
-              <textarea className="text-input" maxLength={10000} rows="4" value={form.terms} onChange={setField('terms')} required />
+              <textarea className="text-input" maxLength={10000} readOnly={Boolean(selectedTemplate)} rows="4" value={form.terms} onChange={setField('terms')} required />
             </Field>
+            {selectedTemplate ? <p className="field-hint">Terms are locked to {selectedTemplate.name} revision {selectedTemplate.revision}. Choose Custom terms to edit them.</p> : null}
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={approvalForced || Boolean(form.requestApproval)}
+                disabled={approvalForced}
+                onChange={(event) => onSetForm((current) => ({ ...current, requestApproval: event.target.checked }))}
+              />
+              Require independent owner/admin approval before delivery
+            </label>
+            {approvalPolicy.approvalRequired ? <p className="field-hint">Workspace policy requires approval. {approvalPolicy.activeApprovers} active owner/admin reviewer(s) are currently available.</p> : selectedTemplate?.requiresApproval ? <p className="field-hint">This template requires approval.</p> : null}
             {!canFinalize ? <p className="field-hint">Save line-item changes before finalizing.</p> : null}
             <Button type="submit" disabled={!canFinalize || isSnapshotPending}>
               {isFinalizing ? 'Finalizing...' : 'Finalize quote'}

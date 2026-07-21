@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { isAbortError } from '../lib/api'
 import { getDeal } from '../lib/deals'
 import { listProductCatalogItems } from '../lib/product_catalog'
+import { loadQuotePreparation } from '../lib/quote_templates'
 import { emptyCloseReview } from './deal_close_review'
 import { dealFormValues } from './deal_view'
 import { useDealCommercials } from './use_deal_commercials'
@@ -66,17 +67,18 @@ export function useDealDetail({ deals, navigateToDeal, pipelineReady, routeDealI
     setIsDetailLoading(true)
     navigateToDeal(deal.id)
     try {
-      const [dealData, loadedWork, loadedCatalog] = await Promise.all([
+      const [dealData, loadedWork, loadedCatalog, quotePreparation] = await Promise.all([
         getDeal(deal.id, { signal }),
         work.fetchWork(deal.id, { signal }),
-        listProductCatalogItems({ signal })
+        listProductCatalogItems({ signal }),
+        loadQuotePreparation({ signal })
       ])
       if (!selection.isCurrent(activeSelection)) return
       requireDealResponse(dealData, deal.id, 'Unable to load deal.')
       setDeals((current) => current.map((entry) => (entry.id === deal.id ? dealData.deal : entry)))
       setDetailForm(dealFormValues(dealData.deal))
       work.load({ ...loadedWork, activities: dealData.activities || [] })
-      commercial.load(dealData, loadedCatalog)
+      commercial.load(dealData, loadedCatalog, quotePreparation)
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError) && selection.isCurrent(activeSelection)) {
@@ -115,10 +117,11 @@ export function useDealDetail({ deals, navigateToDeal, pipelineReady, routeDealI
       commercial.reset()
       try {
         setIsDetailLoading(true)
-        const [dealData, loadedWork, loadedCatalog] = await Promise.all([
+        const [dealData, loadedWork, loadedCatalog, quotePreparation] = await Promise.all([
           getDeal(routeDealId, { signal }),
           work.fetchWork(routeDealId, { signal }),
-          listProductCatalogItems({ signal })
+          listProductCatalogItems({ signal }),
+          loadQuotePreparation({ signal })
         ])
         if (!selection.isCurrent(activeSelection)) return
         requireDealResponse(dealData, routeDealId, 'Unable to load deal.')
@@ -130,7 +133,7 @@ export function useDealDetail({ deals, navigateToDeal, pipelineReady, routeDealI
         setSelectedStageId(String(dealData.deal.stageId))
         setDetailForm(dealFormValues(dealData.deal))
         work.load({ ...loadedWork, activities: dealData.activities || [] })
-        commercial.load(dealData, loadedCatalog)
+        commercial.load(dealData, loadedCatalog, quotePreparation)
         setError('')
       } catch (loadError) {
         if (!isAbortError(loadError) && selection.isCurrent(activeSelection)) {

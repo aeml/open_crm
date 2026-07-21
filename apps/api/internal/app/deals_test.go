@@ -43,6 +43,10 @@ type fakeDealsService struct {
 	finalizeQuoteErr            error
 	reissueQuoteResult          moduledeals.QuoteVersion
 	reissueQuoteErr             error
+	decideApprovalResult        moduledeals.QuoteVersion
+	decideApprovalErr           error
+	pendingApprovalsResult      []moduledeals.PendingQuoteApproval
+	pendingApprovalsErr         error
 	quotePDFResult              moduledeals.QuotePDFFile
 	quotePDFErr                 error
 	replayQuoteDeliveryResult   moduledeals.QuoteDeliveryIntent
@@ -99,6 +103,12 @@ type fakeDealsService struct {
 	lastReissueQuoteID          int64
 	lastReissueQuoteActorID     int64
 	lastReissueQuoteInput       moduledeals.ReissueQuoteInput
+	lastApprovalOrgID           int64
+	lastApprovalDealID          int64
+	lastApprovalQuoteID         int64
+	lastApprovalActorID         int64
+	lastApprovalInput           moduledeals.QuoteApprovalDecisionInput
+	lastPendingApprovalsOrgID   int64
 	lastQuotePDFOrgID           int64
 	lastQuotePDFDealID          int64
 	lastQuotePDFQuoteID         int64
@@ -232,6 +242,20 @@ func (f *fakeDealsService) ReissueExpiredQuote(_ context.Context, organizationID
 	f.lastReissueQuoteActorID = actorUserID
 	f.lastReissueQuoteInput = input
 	return f.reissueQuoteResult, f.reissueQuoteErr
+}
+
+func (f *fakeDealsService) DecideQuoteApproval(_ context.Context, organizationID, dealID, quoteID, actorUserID int64, input moduledeals.QuoteApprovalDecisionInput) (moduledeals.QuoteVersion, error) {
+	f.lastApprovalOrgID = organizationID
+	f.lastApprovalDealID = dealID
+	f.lastApprovalQuoteID = quoteID
+	f.lastApprovalActorID = actorUserID
+	f.lastApprovalInput = input
+	return f.decideApprovalResult, f.decideApprovalErr
+}
+
+func (f *fakeDealsService) ListPendingQuoteApprovals(_ context.Context, organizationID int64) ([]moduledeals.PendingQuoteApproval, error) {
+	f.lastPendingApprovalsOrgID = organizationID
+	return f.pendingApprovalsResult, f.pendingApprovalsErr
 }
 
 func (f *fakeDealsService) GetQuotePDF(_ context.Context, organizationID, dealID, quoteID int64) (moduledeals.QuotePDFFile, error) {
@@ -633,7 +657,7 @@ func TestFinalizeAndDownloadDealQuoteUseCurrentTenant(t *testing.T) {
 		},
 	}
 	server := authenticatedDealsServer(service)
-	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes", bytes.NewBufferString(`{"recipientName":"Ava Stone","recipientEmail":"ava@bluebird.example","validUntil":"2026-08-20","terms":"Payment due in 30 days."}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes", bytes.NewBufferString(`{"recipientName":"Ava Stone","recipientEmail":"ava@bluebird.example","validUntil":"2026-08-20","terms":"Payment due in 30 days.","templateId":9,"templateRevision":3,"requestApproval":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", "quote-browser-key-0001")
 	addSessionCookie(request)
@@ -642,7 +666,7 @@ func TestFinalizeAndDownloadDealQuoteUseCurrentTenant(t *testing.T) {
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("finalize quote status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if service.lastFinalizeQuoteOrgID != 42 || service.lastFinalizeQuoteDealID != 12 || service.lastFinalizeQuoteActorID != 1 || service.lastFinalizeQuoteInput.IdempotencyKey != "quote-browser-key-0001" || service.lastFinalizeQuoteInput.Terms != "Payment due in 30 days." {
+	if service.lastFinalizeQuoteOrgID != 42 || service.lastFinalizeQuoteDealID != 12 || service.lastFinalizeQuoteActorID != 1 || service.lastFinalizeQuoteInput.IdempotencyKey != "quote-browser-key-0001" || service.lastFinalizeQuoteInput.Terms != "Payment due in 30 days." || service.lastFinalizeQuoteInput.TemplateID != 9 || service.lastFinalizeQuoteInput.TemplateRevision != 3 || !service.lastFinalizeQuoteInput.RequestApproval {
 		t.Fatalf("unexpected finalize quote routing/input: service=%#v", service)
 	}
 	var response struct {
@@ -705,6 +729,26 @@ func TestFinalizeDealQuoteRejectsMissingKeyAndIdempotencyConflict(t *testing.T) 
 	authenticatedDealsServer(&fakeDealsService{finalizeQuoteErr: moduledeals.ErrQuoteFXRateUnavailable}).ServeHTTP(missingRateRecorder, missingRateRequest)
 	if missingRateRecorder.Code != http.StatusUnprocessableEntity || !strings.Contains(missingRateRecorder.Body.String(), `"code":"QUOTE_FX_RATE_REQUIRED"`) || !strings.Contains(missingRateRecorder.Body.String(), "same idempotency key") {
 		t.Fatalf("missing quote rate status=%d body=%s", missingRateRecorder.Code, missingRateRecorder.Body.String())
+	}
+
+	for _, test := range []struct {
+		err  error
+		code string
+	}{
+		{moduledeals.ErrQuoteTemplateChanged, "QUOTE_TEMPLATE_CHANGED"},
+		{moduledeals.ErrQuoteApproverUnavailable, "QUOTE_APPROVER_REQUIRED"},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Idempotency-Key", "quote-template-error-key")
+		addSessionCookie(request)
+		recorder := httptest.NewRecorder()
+		authenticatedDealsServer(&fakeDealsService{finalizeQuoteErr: test.err}).ServeHTTP(recorder, request)
+		if (test.err == moduledeals.ErrQuoteTemplateChanged && recorder.Code != http.StatusConflict) ||
+			(test.err == moduledeals.ErrQuoteApproverUnavailable && recorder.Code != http.StatusUnprocessableEntity) ||
+			!strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
+			t.Fatalf("quote preparation error %s status=%d body=%s", test.code, recorder.Code, recorder.Body.String())
+		}
 	}
 
 	notFoundRequest := httptest.NewRequest(http.MethodGet, "/api/deals/12/quotes/71/pdf", nil)

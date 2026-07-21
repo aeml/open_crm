@@ -678,9 +678,14 @@ references.
    line-item edit may produce different content and filename. It is not customer
    evidence.
 3. **Finalize quote version** requires saved line items plus recipient, validity,
-   and terms. One transaction allocates the deal version and preserves the exact
-   identity, line-item, totals, terms, PDF bytes, SHA-256, and workspace-base
-   currency disclosure with activity/audit evidence. A foreign-currency quote
+   and terms. A writer may use custom terms or choose one exact active revision
+   from **Settings > Quote Templates**. A selected template locks its terms in
+   the UI and snapshots the template identity, revision, rendered delivery
+   subject/message, and signature default; later template edits never rewrite
+   an existing quote. One transaction allocates the deal version and preserves
+   the exact identity, line-item, totals, terms, preparation defaults, PDF bytes,
+   SHA-256, approval requirement, and workspace-base currency disclosure with
+   activity/audit evidence. A foreign-currency quote
    uses the newest tenant rate effective on or before the document's UTC date;
    future and other-tenant rates are ignored. `422 QUOTE_FX_RATE_REQUIRED`
    means no effective local rate exists: add it under **Settings > Business
@@ -706,8 +711,55 @@ references.
    quote currency. Later rate edits do not change retained versions, and a
    reissue selects the rate effective for its new document date. Pre-control
    versions remain labeled legacy rather than receiving an estimated backfill.
-   Reusable templates, approvals, and jurisdiction-specific policy
-   remain later Phase 4 quote/signature slices.
+   Template and independent-approval evidence follow the procedure below.
+
+### Quote preparation and independent approval
+
+1. Owners/admins manage reusable preparation under **Settings > Quote
+   Templates**. Names are unique among active templates. Terms, a 1–366-day
+   validity, delivery subject/message, supported merge fields, signature
+   default, and per-template approval policy are bounded. Editing creates a new
+   revision; archiving removes the template from future finalization without
+   changing any retained quote reference. A stale edit or archive returns
+   `409 QUOTE_TEMPLATE_CHANGED`; reload before retrying rather than overwriting
+   another administrator's revision.
+2. **Require approval for every quote** applies workspace-wide. Enabling it, or
+   saving a template that requires approval, needs at least one other active
+   owner/admin. Finalization rechecks the same independent-review condition so
+   a later membership change fails before a quote is created. Add/reactivate an
+   appropriate reviewer or make review optional; do not patch policy rows to
+   bypass `422 QUOTE_APPROVER_REQUIRED`.
+3. A required quote is created as **Pending independent review** and cannot be
+   delivered. The pending queue shows the quote number, deal, recipient, amount,
+   requester, time, and exact PDF SHA-256. A different active owner/admin must
+   download/review the retained PDF and choose **Approve exact PDF** or **Reject
+   with note**. The requester and quote creator cannot decide it. Approval
+   permits delivery but is not customer acceptance, signature, accounting
+   authorization, legal advice, or a deal close.
+4. Decisions are terminal and bind the approver, time, optional approval note or
+   required rejection note, quote identity, and retained PDF digest. The client
+   reuses the same 16–200-character idempotency key after a timeout. An exact
+   replay returns the evidence; a changed key/body or attempt to alter a
+   terminal decision returns `409 IDEMPOTENCY_CONFLICT`. A rejected version
+   stays immutable and non-deliverable; correct live data and finalize a new
+   version. An expired reissue retains the source template revision and creates
+   a fresh approval request when the source required review.
+5. Delivery preparation and provider claim both recheck approval. A prepared
+   effect therefore cannot cross the mailbox boundary when retained approved
+   evidence for the exact PDF digest is absent. `409 QUOTE_APPROVAL_REQUIRED`
+   means the retained decision is still pending; `409
+   QUOTE_APPROVAL_REJECTED` means a new corrected version is required. Never
+   update `deal_quote_approvals`, template revisions, quote hashes, or delivery
+   rows directly.
+6. Monitor `open_crm_quote_approval_pending`,
+   `open_crm_quote_approval_approved`, `open_crm_quote_approval_rejected`, and
+   `open_crm_quote_approval_oldest_pending_age_seconds`. The stale warning fires
+   when the oldest pending item exceeds 24 hours for 15 minutes. Confirm the
+   requester still needs the quote, the reviewer is active and independent,
+   and the PDF digest matches before deciding. Resolve the alert only after the
+   queue has been deliberately reviewed. Portable workspace export includes
+   templates, policy, and business decision evidence but excludes decision
+   idempotency/request hashes.
 
 ### Finalized quote delivery and receipt recovery
 
@@ -718,6 +770,10 @@ the exact mailbox sender, quote recipient, subject, body, stable RFC
 `Message-ID`, access expiry, and digest-only access/idempotency material before
 crossing the provider boundary. Never copy the customer token or link into an
 incident ticket or application log.
+
+For a review-required quote, delivery preparation and the provider claim both
+require retained `approved` evidence for the exact PDF digest. Pending or
+rejected versions never cross the mailbox boundary.
 
 1. Interpret delivery **Sent** only as provider acceptance plus committed CRM
    email, activity, and audit evidence. It does not prove inbox placement.
@@ -776,19 +832,19 @@ incident ticket or application log.
    the message arrived. A disabled sender cannot claim or retry it. An
    owner/admin must use the same Sent-folder evidence and resolution procedure
    above; never reactivate a teammate merely to bypass an unresolved effect.
-6. Customer preview, PDF, and signed-certificate routes are private/no-store
+7. Customer preview, PDF, and signed-certificate routes are private/no-store
    bearer links with shared PostgreSQL budgets of 120 reads/client/minute;
    receipt, sign, and decline each have 20 writes/client/minute. An invalid token
    is non-disclosing `404`; an expired link or signing deadline is `410`. If a
    customer needs access after expiry, review the quote and create a new
    delivery/request rather than extending stored timestamps.
-7. For a signed request, compare the customer and staff certificate response
+8. For a signed request, compare the customer and staff certificate response
    `X-Open-CRM-Content-SHA256`, then confirm the certificate includes the quote
    PDF digest, expected/typed names, consent, signing time, and authentication
    method. Do not regenerate or replace retained certificate bytes. Enforceability
    is agreement- and jurisdiction-dependent; escalate legal-policy questions
    instead of editing evidence.
-8. For **Convert signed quote to won**, first confirm the certificate digest and
+9. For **Convert signed quote to won**, first confirm the certificate digest and
    customer identity evidence, then choose the actual same-workspace won stage,
    required reason, and concise close notes. The action atomically commits the
    stage event, outcome, automation, client handoff, and immutable conversion
@@ -796,12 +852,12 @@ incident ticket or application log.
    only idempotency evidence prevents a second effect. A changed request
    conflicts, and a new key cannot reuse already converted evidence. The public
    signer never chooses the stage and never closes the deal automatically.
-9. To correct the outcome later, use the ordinary stage control to reopen the
+10. To correct the outcome later, use the ordinary stage control to reopen the
    deal. This clears current close context but retains the signed-quote
    conversion record. Retrying the original conversion returns the current deal
    and does not undo that deliberate correction. Never clear conversion columns,
    replace its activity, or regenerate certificate evidence with SQL.
-10. Resolve alerts only after recovery is succeeding, no stale sends remain,
+11. Resolve alerts only after recovery is succeeding, no stale sends remain,
    every uncertain item has explicit operator evidence, and expired unsigned
    and signed-unconverted requests have been reviewed. Portable workspace export
    includes delivery, receipt, consent, certificate, and conversion evidence

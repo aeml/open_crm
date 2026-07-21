@@ -22,6 +22,10 @@ type QuoteDeliveryOperationalStats struct {
 	Sending                      int64
 	StaleSending                 int64
 	Uncertain                    int64
+	ApprovalsPending             int64
+	ApprovalsApproved            int64
+	ApprovalsRejected            int64
+	OldestPendingApprovalAge     int64
 	SignaturesAwaitingResponse   int64
 	SignaturesExpired            int64
 	SignaturesSigned             int64
@@ -83,6 +87,7 @@ func (s *Service) QuoteDeliveryOperationalStats(ctx context.Context) (QuoteDeliv
 	now := s.clock().UTC()
 	err := s.pool.QueryRow(ctx, `
 		SELECT delivery.sending,delivery.stale_sending,delivery.uncertain,
+		       approval.pending,approval.approved,approval.rejected,approval.oldest_pending_age_seconds,
 		       signature.awaiting_response,signature.expired,signature.signed,
 		       signature.awaiting_conversion,signature.oldest_awaiting_conversion_age_seconds,
 		       signature.converted,
@@ -93,6 +98,15 @@ func (s *Service) QuoteDeliveryOperationalStats(ctx context.Context) (QuoteDeliv
 		         COUNT(*) FILTER (WHERE status='uncertain') AS uncertain
 		  FROM deal_quote_deliveries
 		) delivery
+		CROSS JOIN (
+		  SELECT COUNT(*) FILTER (WHERE status='pending') AS pending,
+		         COUNT(*) FILTER (WHERE status='approved') AS approved,
+		         COUNT(*) FILTER (WHERE status='rejected') AS rejected,
+		         GREATEST(0,COALESCE(EXTRACT(EPOCH FROM (
+		           CURRENT_TIMESTAMP-MIN(requested_at) FILTER (WHERE status='pending')
+		         ))::bigint,0)) AS oldest_pending_age_seconds
+		  FROM deal_quote_approvals
+		) approval
 		CROSS JOIN (
 		  SELECT COUNT(*) FILTER (
 		           WHERE request.status='sent' AND quote.valid_until >= $2::date
@@ -120,6 +134,7 @@ func (s *Service) QuoteDeliveryOperationalStats(ctx context.Context) (QuoteDeliv
 		) signature
 	`, now.Add(-staleQuoteDeliveryClaimAfter), now).Scan(
 		&stats.Sending, &stats.StaleSending, &stats.Uncertain,
+		&stats.ApprovalsPending, &stats.ApprovalsApproved, &stats.ApprovalsRejected, &stats.OldestPendingApprovalAge,
 		&stats.SignaturesAwaitingResponse, &stats.SignaturesExpired, &stats.SignaturesSigned,
 		&stats.SignaturesAwaitingConversion, &stats.OldestAwaitingConversionAge, &stats.SignaturesConverted,
 		&stats.SignaturesDeclined, &stats.SignaturesVoided,

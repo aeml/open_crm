@@ -20,40 +20,47 @@ const (
 )
 
 type QuoteVersion struct {
-	ID                      int64              `json:"id"`
-	Version                 int                `json:"version"`
-	QuoteNumber             string             `json:"quoteNumber"`
-	Status                  string             `json:"status"`
-	LifecycleStatus         string             `json:"lifecycleStatus"`
-	ReissuedFromQuoteID     int64              `json:"reissuedFromQuoteId"`
-	ReissuedFromQuoteNumber string             `json:"reissuedFromQuoteNumber"`
-	ReissuedByQuoteID       int64              `json:"reissuedByQuoteId"`
-	ReissuedByQuoteNumber   string             `json:"reissuedByQuoteNumber"`
-	RecipientName           string             `json:"recipientName"`
-	RecipientEmail          string             `json:"recipientEmail"`
-	Currency                string             `json:"currency"`
-	Subtotal                string             `json:"subtotal"`
-	DiscountTotal           string             `json:"discountTotal"`
-	TaxTotal                string             `json:"taxTotal"`
-	Total                   string             `json:"total"`
-	FXDisclosure            *QuoteFXDisclosure `json:"fxDisclosure,omitempty"`
-	ValidUntil              string             `json:"validUntil"`
-	Terms                   string             `json:"terms"`
-	PDFFilename             string             `json:"pdfFilename"`
-	PDFSHA256               string             `json:"pdfSha256"`
-	PDFByteSize             int64              `json:"pdfByteSize"`
-	CreatedByUserID         int64              `json:"createdByUserId"`
-	CreatedByUserName       string             `json:"createdByUserName"`
-	CreatedAt               string             `json:"createdAt"`
-	Deliveries              []QuoteDelivery    `json:"deliveries"`
+	ID                      int64                 `json:"id"`
+	Version                 int                   `json:"version"`
+	QuoteNumber             string                `json:"quoteNumber"`
+	Status                  string                `json:"status"`
+	LifecycleStatus         string                `json:"lifecycleStatus"`
+	ReissuedFromQuoteID     int64                 `json:"reissuedFromQuoteId"`
+	ReissuedFromQuoteNumber string                `json:"reissuedFromQuoteNumber"`
+	ReissuedByQuoteID       int64                 `json:"reissuedByQuoteId"`
+	ReissuedByQuoteNumber   string                `json:"reissuedByQuoteNumber"`
+	RecipientName           string                `json:"recipientName"`
+	RecipientEmail          string                `json:"recipientEmail"`
+	Currency                string                `json:"currency"`
+	Subtotal                string                `json:"subtotal"`
+	DiscountTotal           string                `json:"discountTotal"`
+	TaxTotal                string                `json:"taxTotal"`
+	Total                   string                `json:"total"`
+	FXDisclosure            *QuoteFXDisclosure    `json:"fxDisclosure,omitempty"`
+	ValidUntil              string                `json:"validUntil"`
+	Terms                   string                `json:"terms"`
+	Template                *QuoteTemplateRef     `json:"template,omitempty"`
+	DeliveryDefaults        QuoteDeliveryDefaults `json:"deliveryDefaults"`
+	Approval                QuoteApproval         `json:"approval"`
+	PDFFilename             string                `json:"pdfFilename"`
+	PDFSHA256               string                `json:"pdfSha256"`
+	PDFByteSize             int64                 `json:"pdfByteSize"`
+	CreatedByUserID         int64                 `json:"createdByUserId"`
+	CreatedByUserName       string                `json:"createdByUserName"`
+	CreatedAt               string                `json:"createdAt"`
+	Deliveries              []QuoteDelivery       `json:"deliveries"`
+	dealName                string
 }
 
 type FinalizeQuoteInput struct {
-	RecipientName  string `json:"recipientName"`
-	RecipientEmail string `json:"recipientEmail"`
-	ValidUntil     string `json:"validUntil"`
-	Terms          string `json:"terms"`
-	IdempotencyKey string `json:"-"`
+	RecipientName    string `json:"recipientName"`
+	RecipientEmail   string `json:"recipientEmail"`
+	ValidUntil       string `json:"validUntil"`
+	Terms            string `json:"terms"`
+	TemplateID       int64  `json:"templateId"`
+	TemplateRevision int    `json:"templateRevision"`
+	RequestApproval  bool   `json:"requestApproval"`
+	IdempotencyKey   string `json:"-"`
 }
 
 type ReissueQuoteInput struct {
@@ -107,6 +114,10 @@ func (s *Service) FinalizeQuote(ctx context.Context, organizationID, dealID, act
 	if len(detail.LineItems) == 0 {
 		return QuoteVersion{}, ErrInvalidQuote
 	}
+	preparation, approvalRequired, err := loadQuotePreparation(ctx, tx, organizationID, actorUserID, input)
+	if err != nil {
+		return QuoteVersion{}, err
+	}
 	var version int
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) + 1 FROM deal_quotes WHERE organization_id=$1 AND deal_id=$2`, organizationID, dealID).Scan(&version); err != nil {
 		return QuoteVersion{}, fmt.Errorf("allocate quote version: %w", err)
@@ -117,6 +128,12 @@ func (s *Service) FinalizeQuote(ctx context.Context, organizationID, dealID, act
 		return QuoteVersion{}, err
 	}
 	quoteNumber := fmt.Sprintf("Q-%d-V%d", dealID, version)
+	if err := snapshotQuoteDeliveryDefaults(&preparation, QuoteVersion{
+		QuoteNumber: quoteNumber, RecipientName: input.RecipientName, Total: detail.Totals.Total,
+		Currency: detail.Totals.Currency, ValidUntil: input.ValidUntil, dealName: detail.Summary.Name,
+	}); err != nil {
+		return QuoteVersion{}, err
+	}
 	pdfFilename := fmt.Sprintf("quote-%s-v%d.pdf", quoteFilename(detail.Summary.Name), version)
 	pdf := BuildQuotePDF(detail, QuotePDFInput{
 		OrganizationName: organizationName,
@@ -144,18 +161,36 @@ func (s *Service) FinalizeQuote(ctx context.Context, organizationID, dealID, act
 			currency,subtotal,discount_total,tax_total,total,quote_base_currency,
 			exchange_rate_to_base,exchange_rate_effective_date,exchange_rate_source,total_in_base_currency,valid_until,terms,
 			pdf_filename,pdf_content,pdf_sha256,idempotency_key_hash,request_sha256,
-			created_by_user_id,created_at
+			created_by_user_id,created_at,source_quote_template_id,quote_template_name,
+			quote_template_revision,delivery_subject_template,delivery_message_template,
+			delivery_subject_default,delivery_message_default,template_request_signature,template_requires_approval
 		)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14::numeric,$15::numeric,$16::numeric,
-		        $17,$18::numeric,$19::date,$20,$21::numeric,$22::date,$23,$24,$25,$26,$27,$28,$29,$30)
+		        $17,$18::numeric,$19::date,$20,$21::numeric,$22::date,$23,$24,$25,$26,$27,$28,$29,$30,
+		        NULLIF($31::bigint,0),CASE WHEN $31::bigint=0 THEN NULL ELSE $32::text END,
+		        CASE WHEN $31::bigint=0 THEN NULL ELSE $33::int END,
+		        CASE WHEN $31::bigint=0 THEN NULL ELSE $34::text END,
+		        CASE WHEN $31::bigint=0 THEN NULL ELSE $35::text END,
+		        CASE WHEN $31::bigint=0 THEN NULL ELSE $36::text END,
+		        CASE WHEN $31::bigint=0 THEN NULL ELSE $37::text END,
+		        CASE WHEN $31::bigint=0 THEN NULL ELSE $38::boolean END,
+		        CASE WHEN $31::bigint=0 THEN NULL ELSE $39::boolean END)
 		RETURNING id
 	`, organizationID, dealID, version, quoteNumber, organizationName, detail.Summary.Name,
 		detail.Summary.CompanyName, detail.Summary.PrimaryContactName, input.RecipientName, input.RecipientEmail, preparedByName,
 		detail.Totals.Currency, detail.Totals.Subtotal, detail.Totals.DiscountTotal, detail.Totals.TaxTotal, detail.Totals.Total,
 		fxDisclosure.BaseCurrency, fxDisclosure.RateToBase, fxDisclosure.EffectiveDate, fxDisclosure.Source, fxDisclosure.TotalInBase,
-		input.ValidUntil, input.Terms, pdf.Filename, pdf.Content, pdfHashText, keyHashText, requestHashText, actorUserID, createdAt).Scan(&quoteID)
+		input.ValidUntil, input.Terms, pdf.Filename, pdf.Content, pdfHashText, keyHashText, requestHashText, actorUserID, createdAt,
+		preparation.ID, preparation.Name, preparation.Revision, preparation.DeliverySubjectTemplate,
+		preparation.DeliveryMessageTemplate, preparation.DeliverySubjectDefault, preparation.DeliveryMessageDefault,
+		preparation.RequestSignature, preparation.RequiresApproval).Scan(&quoteID)
 	if err != nil {
 		return QuoteVersion{}, fmt.Errorf("persist finalized quote: %w", err)
+	}
+	if approvalRequired {
+		if err := insertQuoteApproval(ctx, tx, organizationID, dealID, quoteID, actorUserID, quoteNumber, pdfHashText); err != nil {
+			return QuoteVersion{}, err
+		}
 	}
 	quote, err := scanQuoteVersion(tx.QueryRow(ctx, `
 		SELECT `+quoteVersionColumns+`,prepared_by_name
@@ -182,9 +217,11 @@ func (s *Service) FinalizeQuote(ctx context.Context, organizationID, dealID, act
 		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
 		VALUES ($1,$2,'deal.quote_finalized','deal_quote',$3,'Finalized an immutable deal quote',
 		  jsonb_build_object('dealId',$4::bigint,'quoteNumber',$5::text,'version',$6::int,'pdfSha256',$7::text,
-		  'baseCurrency',$8::text,'rateToBase',$9::text,'rateEffectiveDate',$10::text,'rateSource',$11::text,'totalInBaseCurrency',$12::text))
+		  'baseCurrency',$8::text,'rateToBase',$9::text,'rateEffectiveDate',$10::text,'rateSource',$11::text,'totalInBaseCurrency',$12::text,
+		  'templateId',NULLIF($13::bigint,0),'templateRevision',NULLIF($14::int,0),'approvalRequired',$15::boolean))
 	`, organizationID, actorUserID, quote.ID, dealID, quoteNumber, version, pdfHashText,
-		fxDisclosure.BaseCurrency, fxDisclosure.RateToBase, fxDisclosure.EffectiveDate, fxDisclosure.Source, fxDisclosure.TotalInBase); err != nil {
+		fxDisclosure.BaseCurrency, fxDisclosure.RateToBase, fxDisclosure.EffectiveDate, fxDisclosure.Source, fxDisclosure.TotalInBase,
+		preparation.ID, preparation.Revision, approvalRequired); err != nil {
 		return QuoteVersion{}, fmt.Errorf("audit finalized quote: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -238,12 +275,19 @@ func (s *Service) ReissueExpiredQuote(ctx context.Context, organizationID, dealI
 	var sourceNumber, organizationName, dealName, companyName, primaryContactName string
 	var recipientName, recipientEmail, currency, subtotal, discountTotal, taxTotal, total, sourceValidUntil, terms string
 	var stageName, dealStatus, expectedCloseDate, preparedByName string
+	var sourceTemplate quotePreparationSnapshot
+	var sourceApprovalRequired bool
 	err = tx.QueryRow(ctx, `
 		SELECT q.quote_number,q.organization_name,q.deal_name,q.company_name,q.primary_contact_name,
 		       q.recipient_name,q.recipient_email,q.currency,q.subtotal::text,q.discount_total::text,
 		       q.tax_total::text,q.total::text,TO_CHAR(q.valid_until,'YYYY-MM-DD'),q.terms,
 		       stage.name,d.status,COALESCE(TO_CHAR(d.expected_close_date,'YYYY-MM-DD'),''),
-		       COALESCE(NULLIF(BTRIM(actor.first_name || ' ' || actor.last_name),''),actor.email)
+		       COALESCE(NULLIF(BTRIM(actor.first_name || ' ' || actor.last_name),''),actor.email),
+		       COALESCE(q.source_quote_template_id,0),COALESCE(q.quote_template_name,''),
+		       COALESCE(q.quote_template_revision,0),COALESCE(q.delivery_subject_template,''),
+		       COALESCE(q.delivery_message_template,''),COALESCE(q.template_request_signature,FALSE),
+		       COALESCE(q.template_requires_approval,FALSE),
+		       EXISTS(SELECT 1 FROM deal_quote_approvals approval WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id)
 		FROM deals d
 		JOIN deal_stages stage ON stage.organization_id=d.organization_id AND stage.id=d.stage_id
 		JOIN deal_quotes q ON q.organization_id=d.organization_id AND q.deal_id=d.id AND q.id=$3
@@ -256,6 +300,9 @@ func (s *Service) ReissueExpiredQuote(ctx context.Context, organizationID, dealI
 		&sourceNumber, &organizationName, &dealName, &companyName, &primaryContactName,
 		&recipientName, &recipientEmail, &currency, &subtotal, &discountTotal, &taxTotal, &total, &sourceValidUntil, &terms,
 		&stageName, &dealStatus, &expectedCloseDate, &preparedByName,
+		&sourceTemplate.ID, &sourceTemplate.Name, &sourceTemplate.Revision,
+		&sourceTemplate.DeliverySubjectTemplate, &sourceTemplate.DeliveryMessageTemplate,
+		&sourceTemplate.RequestSignature, &sourceTemplate.RequiresApproval, &sourceApprovalRequired,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return QuoteVersion{}, ErrNotFound
@@ -366,6 +413,12 @@ func (s *Service) ReissueExpiredQuote(ctx context.Context, organizationID, dealI
 	if len(detail.LineItems) == 0 {
 		return QuoteVersion{}, ErrQuoteReissueState
 	}
+	_, approvalRequired, err := loadQuotePreparation(ctx, tx, organizationID, actorUserID, FinalizeQuoteInput{
+		RequestApproval: sourceApprovalRequired || sourceTemplate.RequiresApproval,
+	})
+	if err != nil {
+		return QuoteVersion{}, err
+	}
 
 	var version int
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version),0)+1 FROM deal_quotes WHERE organization_id=$1 AND deal_id=$2`, organizationID, dealID).Scan(&version); err != nil {
@@ -377,6 +430,12 @@ func (s *Service) ReissueExpiredQuote(ctx context.Context, organizationID, dealI
 		return QuoteVersion{}, err
 	}
 	quoteNumber := fmt.Sprintf("Q-%d-V%d", dealID, version)
+	if err := snapshotQuoteDeliveryDefaults(&sourceTemplate, QuoteVersion{
+		QuoteNumber: quoteNumber, RecipientName: recipientName, Total: total,
+		Currency: currency, ValidUntil: input.ValidUntil, dealName: dealName,
+	}); err != nil {
+		return QuoteVersion{}, err
+	}
 	pdfFilename := fmt.Sprintf("quote-%s-v%d.pdf", quoteFilename(dealName), version)
 	pdf := BuildQuotePDF(detail, QuotePDFInput{
 		OrganizationName: organizationName, GeneratedByName: preparedByName, GeneratedAt: createdAt,
@@ -396,18 +455,37 @@ func (s *Service) ReissueExpiredQuote(ctx context.Context, organizationID, dealI
 		  discount_total,tax_total,total,quote_base_currency,exchange_rate_to_base,
 		  exchange_rate_effective_date,exchange_rate_source,total_in_base_currency,valid_until,terms,
 		  pdf_filename,pdf_content,pdf_sha256,idempotency_key_hash,request_sha256,created_by_user_id,
-		  created_at,reissued_from_quote_id
+		  created_at,reissued_from_quote_id,source_quote_template_id,quote_template_name,
+		  quote_template_revision,delivery_subject_template,delivery_message_template,
+		  delivery_subject_default,delivery_message_default,template_request_signature,template_requires_approval
 		) VALUES (
 		  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14::numeric,$15::numeric,$16::numeric,
-		  $17,$18::numeric,$19::date,$20,$21::numeric,$22::date,$23,$24,$25,$26,$27,$28,$29,$30,$31
+		  $17,$18::numeric,$19::date,$20,$21::numeric,$22::date,$23,$24,$25,$26,$27,$28,$29,$30,$31,
+		  NULLIF($32::bigint,0),CASE WHEN $32::bigint=0 THEN NULL ELSE $33::text END,
+		  CASE WHEN $32::bigint=0 THEN NULL ELSE $34::int END,
+		  CASE WHEN $32::bigint=0 THEN NULL ELSE $35::text END,
+		  CASE WHEN $32::bigint=0 THEN NULL ELSE $36::text END,
+		  CASE WHEN $32::bigint=0 THEN NULL ELSE $37::text END,
+		  CASE WHEN $32::bigint=0 THEN NULL ELSE $38::text END,
+		  CASE WHEN $32::bigint=0 THEN NULL ELSE $39::boolean END,
+		  CASE WHEN $32::bigint=0 THEN NULL ELSE $40::boolean END
 		) RETURNING id
 	`, organizationID, dealID, version, quoteNumber, organizationName, dealName, companyName,
 		primaryContactName, recipientName, recipientEmail, preparedByName, currency, subtotal, discountTotal,
 		taxTotal, total, fxDisclosure.BaseCurrency, fxDisclosure.RateToBase, fxDisclosure.EffectiveDate,
 		fxDisclosure.Source, fxDisclosure.TotalInBase, input.ValidUntil, terms, pdf.Filename, pdf.Content,
-		pdfHashText, keyHashText, requestHashText, actorUserID, createdAt, sourceQuoteID).Scan(&quoteID)
+		pdfHashText, keyHashText, requestHashText, actorUserID, createdAt, sourceQuoteID,
+		sourceTemplate.ID, sourceTemplate.Name, sourceTemplate.Revision,
+		sourceTemplate.DeliverySubjectTemplate, sourceTemplate.DeliveryMessageTemplate,
+		sourceTemplate.DeliverySubjectDefault, sourceTemplate.DeliveryMessageDefault,
+		sourceTemplate.RequestSignature, sourceTemplate.RequiresApproval).Scan(&quoteID)
 	if err != nil {
 		return QuoteVersion{}, fmt.Errorf("persist reissued quote: %w", err)
+	}
+	if approvalRequired {
+		if err := insertQuoteApproval(ctx, tx, organizationID, dealID, quoteID, actorUserID, quoteNumber, pdfHashText); err != nil {
+			return QuoteVersion{}, err
+		}
 	}
 	quote, err := scanQuoteVersion(tx.QueryRow(ctx, `
 		SELECT `+quoteVersionColumns+`,prepared_by_name
@@ -454,10 +532,12 @@ func (s *Service) ReissueExpiredQuote(ctx context.Context, organizationID, dealI
 		VALUES ($1,$2,'deal.quote_reissued','deal_quote',$3,'Reissued an expired immutable deal quote',
 		  jsonb_build_object('dealId',$4::bigint,'sourceQuoteId',$5::bigint,'sourceQuoteNumber',$6::text,
 		  'quoteNumber',$7::text,'version',$8::int,'validUntil',$9::text,'pdfSha256',$10::text,
-		  'baseCurrency',$11::text,'rateToBase',$12::text,'rateEffectiveDate',$13::text,'rateSource',$14::text,'totalInBaseCurrency',$15::text))
+		  'baseCurrency',$11::text,'rateToBase',$12::text,'rateEffectiveDate',$13::text,'rateSource',$14::text,'totalInBaseCurrency',$15::text,
+		  'templateId',NULLIF($16::bigint,0),'templateRevision',NULLIF($17::int,0),'approvalRequired',$18::boolean))
 	`, organizationID, actorUserID, quote.ID, dealID, sourceQuoteID, sourceNumber, quoteNumber, version,
 		input.ValidUntil, pdfHashText, fxDisclosure.BaseCurrency, fxDisclosure.RateToBase,
-		fxDisclosure.EffectiveDate, fxDisclosure.Source, fxDisclosure.TotalInBase); err != nil {
+		fxDisclosure.EffectiveDate, fxDisclosure.Source, fxDisclosure.TotalInBase,
+		sourceTemplate.ID, sourceTemplate.Revision, approvalRequired); err != nil {
 		return QuoteVersion{}, fmt.Errorf("audit quote reissue: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -539,6 +619,10 @@ func loadQuoteByIdempotencyKey(ctx context.Context, tx pgx.Tx, organizationID, a
 func scanQuoteVersion(scanner quoteScanner, extra ...*string) (QuoteVersion, error) {
 	var quote QuoteVersion
 	var fxBaseCurrency, fxRateToBase, fxEffectiveDate, fxSource, fxTotalInBase string
+	var templateID int64
+	var templateName, deliverySubjectTemplate, deliveryMessageTemplate, deliverySubjectDefault, deliveryMessageDefault string
+	var templateRevision int
+	var templateRequestSignature bool
 	destinations := []any{
 		&quote.ID, &quote.Version, &quote.QuoteNumber, &quote.Status, &quote.LifecycleStatus,
 		&quote.ReissuedFromQuoteID, &quote.ReissuedFromQuoteNumber, &quote.ReissuedByQuoteID, &quote.ReissuedByQuoteNumber,
@@ -546,6 +630,12 @@ func scanQuoteVersion(scanner quoteScanner, extra ...*string) (QuoteVersion, err
 		&quote.Currency, &quote.Subtotal, &quote.DiscountTotal, &quote.TaxTotal, &quote.Total,
 		&fxBaseCurrency, &fxRateToBase, &fxEffectiveDate, &fxSource, &fxTotalInBase, &quote.ValidUntil,
 		&quote.Terms, &quote.PDFFilename, &quote.PDFSHA256, &quote.PDFByteSize, &quote.CreatedByUserID, &quote.CreatedAt,
+		&templateID, &templateName, &templateRevision, &deliverySubjectTemplate, &deliveryMessageTemplate,
+		&deliverySubjectDefault, &deliveryMessageDefault, &templateRequestSignature,
+		&quote.Approval.ID, &quote.Approval.Required, &quote.Approval.Status,
+		&quote.Approval.RequestedByUserID, &quote.Approval.RequestedByUserName, &quote.Approval.RequestedAt,
+		&quote.Approval.DecidedByUserID, &quote.Approval.DecidedByUserName, &quote.Approval.DecidedAt, &quote.Approval.DecisionNote,
+		&quote.dealName,
 		&quote.CreatedByUserName,
 	}
 	for _, value := range extra {
@@ -560,6 +650,14 @@ func scanQuoteVersion(scanner quoteScanner, extra ...*string) (QuoteVersion, err
 			Source: fxSource, TotalInBase: fxTotalInBase,
 		}
 		quote.FXDisclosure.DisplayText = quoteFXDisplayText(quote.Currency, quote.Total, quote.FXDisclosure)
+	}
+	if templateID > 0 {
+		quote.Template = &QuoteTemplateRef{ID: templateID, Name: templateName, Revision: templateRevision}
+	}
+	if deliverySubjectDefault != "" && deliveryMessageDefault != "" {
+		quote.DeliveryDefaults = QuoteDeliveryDefaults{Subject: deliverySubjectDefault, MessageBody: deliveryMessageDefault, RequestSignature: templateRequestSignature}
+	} else {
+		quote.DeliveryDefaults = renderQuoteDeliveryDefaults(quote, deliverySubjectTemplate, deliveryMessageTemplate, templateRequestSignature)
 	}
 	return quote, nil
 }
@@ -581,7 +679,21 @@ const quoteVersionColumns = `
 	COALESCE(TO_CHAR(q.exchange_rate_effective_date,'YYYY-MM-DD'),''),COALESCE(q.exchange_rate_source,''),
 	COALESCE(q.total_in_base_currency::text,''),
 	TO_CHAR(q.valid_until,'YYYY-MM-DD'),q.terms,q.pdf_filename,q.pdf_sha256,OCTET_LENGTH(q.pdf_content),
-	q.created_by_user_id,TO_CHAR(q.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
+	q.created_by_user_id,TO_CHAR(q.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+	COALESCE(q.source_quote_template_id,0),COALESCE(q.quote_template_name,''),COALESCE(q.quote_template_revision,0),
+	COALESCE(q.delivery_subject_template,''),COALESCE(q.delivery_message_template,''),
+	COALESCE(q.delivery_subject_default,''),COALESCE(q.delivery_message_default,''),COALESCE(q.template_request_signature,FALSE),
+	COALESCE((SELECT approval.id FROM deal_quote_approvals approval WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id),0),
+	EXISTS(SELECT 1 FROM deal_quote_approvals approval WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id),
+	COALESCE((SELECT approval.status FROM deal_quote_approvals approval WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id),'not_required'),
+	COALESCE((SELECT approval.requested_by_user_id FROM deal_quote_approvals approval WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id),0),
+	COALESCE((SELECT COALESCE(NULLIF(BTRIM(requester.first_name || ' ' || requester.last_name),''),requester.email) FROM deal_quote_approvals approval JOIN users requester ON requester.id=approval.requested_by_user_id WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id),''),
+	COALESCE((SELECT TO_CHAR(approval.requested_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM deal_quote_approvals approval WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id),''),
+	COALESCE((SELECT approval.decided_by_user_id FROM deal_quote_approvals approval WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id),0),
+	COALESCE((SELECT COALESCE(NULLIF(BTRIM(decider.first_name || ' ' || decider.last_name),''),decider.email) FROM deal_quote_approvals approval JOIN users decider ON decider.id=approval.decided_by_user_id WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id),''),
+	COALESCE((SELECT TO_CHAR(approval.decided_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') FROM deal_quote_approvals approval WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id),''),
+	COALESCE((SELECT approval.decision_note FROM deal_quote_approvals approval WHERE approval.organization_id=q.organization_id AND approval.quote_id=q.id),''),
+	q.deal_name`
 
 func loadFinalizedQuoteSnapshot(ctx context.Context, tx pgx.Tx, organizationID, dealID, actorUserID int64) (Detail, string, string, error) {
 	detail := Detail{LineItems: []LineItem{}}
@@ -674,6 +786,7 @@ func validFinalizeQuoteInput(input FinalizeQuoteInput, validUntil, now time.Time
 	return len(input.RecipientName) >= 1 && len(input.RecipientName) <= 200 &&
 		validSignatureEmail(input.RecipientEmail) &&
 		len(input.Terms) >= 1 && len(input.Terms) <= maxQuoteTermsLength &&
+		((input.TemplateID == 0 && input.TemplateRevision == 0) || (input.TemplateID > 0 && input.TemplateRevision > 0)) &&
 		len(input.IdempotencyKey) >= 16 && len(input.IdempotencyKey) <= 200 &&
 		!validUntil.Before(today) && !validUntil.After(today.Add(maxQuoteValidity))
 }
@@ -691,12 +804,16 @@ func utcDate(value time.Time) time.Time {
 
 func finalizeQuoteRequestHash(dealID int64, input FinalizeQuoteInput) string {
 	payload, _ := json.Marshal(struct {
-		DealID         int64  `json:"dealId"`
-		RecipientName  string `json:"recipientName"`
-		RecipientEmail string `json:"recipientEmail"`
-		ValidUntil     string `json:"validUntil"`
-		Terms          string `json:"terms"`
-	}{dealID, input.RecipientName, input.RecipientEmail, input.ValidUntil, input.Terms})
+		DealID           int64  `json:"dealId"`
+		RecipientName    string `json:"recipientName"`
+		RecipientEmail   string `json:"recipientEmail"`
+		ValidUntil       string `json:"validUntil"`
+		Terms            string `json:"terms"`
+		TemplateID       int64  `json:"templateId"`
+		TemplateRevision int    `json:"templateRevision"`
+		RequestApproval  bool   `json:"requestApproval"`
+	}{dealID, input.RecipientName, input.RecipientEmail, input.ValidUntil, input.Terms,
+		input.TemplateID, input.TemplateRevision, input.RequestApproval})
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:])
 }

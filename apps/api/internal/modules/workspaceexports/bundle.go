@@ -338,6 +338,7 @@ var ordinaryOrganizationTables = []string{
 	"notifications",
 	"organization_exchange_rates",
 	"product_catalog_items",
+	"quote_templates",
 	"record_followers",
 	"sales_quotas",
 	"saved_views",
@@ -359,6 +360,9 @@ func buildPortableDatasets() []dataset {
 				'billing_last_invoice_event_id','billing_last_reconciliation_error'
 			]::text[]
 			FROM organizations o WHERE id=$1`},
+		{name: "organization_quote_policies", query: `
+			SELECT to_jsonb(policy)
+			FROM organization_quote_policies policy WHERE organization_id=$1 ORDER BY organization_id`},
 		{name: "members", query: `
 			SELECT jsonb_build_object(
 				'id',m.id,'user_id',u.id,'email',u.email,'first_name',u.first_name,'last_name',u.last_name,
@@ -387,6 +391,9 @@ func buildPortableDatasets() []dataset {
 				'receipt_confirmed_at',receipt_confirmed_at,'created_at',created_at,'updated_at',updated_at
 			)
 			FROM deal_quote_deliveries WHERE organization_id=$1 ORDER BY id`},
+		{name: "deal_quote_approvals", query: `
+			SELECT to_jsonb(approval) - ARRAY['decision_key_hash','decision_request_sha256']::text[]
+			FROM deal_quote_approvals approval WHERE organization_id=$1 ORDER BY id`},
 		{name: "deal_signature_requests", query: `
 			SELECT to_jsonb(signature) - ARRAY[
 			  'completion_idempotency_key_hash','completion_request_sha256',
@@ -457,8 +464,10 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 	}
 	for _, table := range []string{
 		"organization_memberships",
+		"organization_quote_policies",
 		"billing_invoices",
 		"deal_quotes",
+		"deal_quote_approvals",
 		"deal_quote_deliveries",
 		"deal_signature_requests",
 		"email_messages",

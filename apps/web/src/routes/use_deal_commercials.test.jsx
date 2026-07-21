@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   convertSignedQuoteToWon,
+  decideDealQuoteApproval,
   deliverDealQuote,
   finalizeDealQuote,
   replaceDealLineItems,
@@ -13,6 +14,7 @@ import { useDealSelection } from './use_deal_selection'
 
 vi.mock('../lib/deals', () => ({
   convertSignedQuoteToWon: vi.fn(),
+  decideDealQuoteApproval: vi.fn(),
   deliverDealQuote: vi.fn(),
   finalizeDealQuote: vi.fn(),
   replaceDealLineItems: vi.fn(),
@@ -31,6 +33,68 @@ beforeEach(() => {
 })
 
 describe('useDealCommercials', () => {
+  it('binds template terms and revision to finalization with the required approval policy', async () => {
+    const finalized = { id: 71, quoteNumber: 'Q-11-V1', recipientName: 'Ava', approval: { status: 'pending' } }
+    finalizeDealQuote.mockResolvedValue(finalized)
+    const onError = vi.fn()
+    const { result } = renderHook(() => {
+      const selection = useDealSelection(11)
+      return useDealCommercials({ selectedDealId: 11, selection, onDealUpdated: vi.fn(), onError })
+    })
+    const template = { id: 31, name: 'Services MSA', revision: 4, terms: 'Retained template terms.', defaultValidityDays: 45, requiresApproval: false, isActive: true }
+
+    act(() => {
+      result.current.load(
+        { deal: { id: 11, primaryContactName: 'Ava' }, lineItems: [{ id: 9 }], quotes: [] },
+        [],
+        { templates: [template], policy: { approvalRequired: true, activeApprovers: 2 } }
+      )
+    })
+    act(() => {
+      result.current.handleQuoteTemplateChange({ target: { value: '31' } })
+      result.current.setQuoteForm((current) => ({ ...current, recipientEmail: 'ava@example.test' }))
+    })
+
+    expect(result.current.quoteForm).toEqual(expect.objectContaining({
+      templateId: '31', templateRevision: 4, terms: 'Retained template terms.', requestApproval: true
+    }))
+    await act(async () => result.current.handleFinalizeQuote({ preventDefault: vi.fn() }))
+
+    expect(finalizeDealQuote).toHaveBeenCalledWith(11, expect.objectContaining({
+      recipientName: 'Ava',
+      recipientEmail: 'ava@example.test',
+      terms: 'Retained template terms.',
+      templateId: 31,
+      templateRevision: 4,
+      requestApproval: true
+    }), expect.stringMatching(/^quote-/))
+    expect(result.current.quotes).toEqual([finalized])
+  })
+
+  it('reuses an approval decision key after transport failure and replaces only the exact quote', async () => {
+    const quote = { id: 71, quoteNumber: 'Q-11-V1', approval: { status: 'pending' } }
+    const other = { id: 72, quoteNumber: 'Q-11-V2', approval: { status: 'not_required' } }
+    const approved = { ...quote, approval: { status: 'approved', decidedByUserName: 'Alex Admin' } }
+    decideDealQuoteApproval.mockRejectedValueOnce(new Error('Network failed')).mockResolvedValueOnce(approved)
+    const onError = vi.fn()
+    const { result } = renderHook(() => {
+      const selection = useDealSelection(11)
+      return useDealCommercials({ selectedDealId: 11, selection, onDealUpdated: vi.fn(), onError })
+    })
+    act(() => result.current.load({ deal: { id: 11 }, quotes: [quote, other] }))
+
+    await act(async () => result.current.handleDecideQuoteApproval(quote, 'approved', ' Exact digest reviewed. '))
+    await act(async () => result.current.handleDecideQuoteApproval(quote, 'approved', ' Exact digest reviewed. '))
+
+    expect(decideDealQuoteApproval).toHaveBeenCalledTimes(2)
+    expect(decideDealQuoteApproval.mock.calls[0][3]).toBe(decideDealQuoteApproval.mock.calls[1][3])
+    expect(decideDealQuoteApproval).toHaveBeenLastCalledWith(11, 71, {
+      decision: 'approved', note: 'Exact digest reviewed.'
+    }, expect.stringMatching(/^quote-approval-/))
+    expect(result.current.quotes).toEqual([approved, other])
+    expect(onError).toHaveBeenLastCalledWith('')
+  })
+
   it('reuses the finalization key for an identical retry and records one returned quote', async () => {
     const finalized = { id: 71, quoteNumber: 'Q-11-V1', recipientName: 'Ava' }
     finalizeDealQuote.mockRejectedValueOnce(new Error('Network failed')).mockResolvedValueOnce(finalized)

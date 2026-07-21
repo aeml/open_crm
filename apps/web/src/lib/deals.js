@@ -98,6 +98,10 @@ export function deliverDealQuote(dealID, quoteID, input, idempotencyKey, { signa
   return idempotentPost(`/api/deals/${dealID}/quotes/${quoteID}/deliveries`, input, idempotencyKey, 'Unable to deliver quote.', signal).then((data) => data?.delivery)
 }
 
+export function decideDealQuoteApproval(dealID, quoteID, input, idempotencyKey, { signal } = {}) {
+  return idempotentPost(`/api/deals/${dealID}/quotes/${quoteID}/approval`, input, idempotencyKey, 'Unable to decide quote approval.', signal).then((data) => data?.quote)
+}
+
 export async function resolveDealQuoteDelivery(deliveryID, resolution, { signal } = {}) {
   const payload = await apiRequest(`/api/deal-quote-deliveries/${deliveryID}/resolve`, {
     method: 'POST', body: { resolution }, fallbackMessage: 'Unable to resolve quote delivery.', signal

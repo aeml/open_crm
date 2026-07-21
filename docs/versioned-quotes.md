@@ -7,18 +7,60 @@ Open CRM has two deliberately different deal documents:
 
 ## Finalization contract
 
-A writer supplies a recipient name/email, validity date, terms, and a 16–200 character `Idempotency-Key`. At least one saved line item is required. The validity date must be today through 366 days from today.
+A writer supplies a recipient name/email, validity date, terms, and a 16–200
+character `Idempotency-Key`. They may also bind the request to one exact active
+template ID/revision and may request independent approval. At least one saved
+line item is required. The validity date must be today through 366 days from
+today.
 
 One PostgreSQL transaction:
 
 1. serializes the actor/key and locks the active tenant-scoped deal;
 2. returns an existing version for the same normalized request, or rejects changed-payload key reuse with `409`;
 3. allocates the next version for that deal;
-4. snapshots organization, deal, account/contact labels, recipient, preparer, validity, terms, currency, line items, and totals;
+4. snapshots organization, deal, account/contact labels, recipient, preparer,
+   validity, terms, currency, line items, totals, the exact template reference,
+   rendered delivery defaults, signature default, and approval requirement;
 5. stores the exact PDF (maximum 2 MiB) and its SHA-256 digest; and
 6. writes deal activity and a redacted audit event.
 
 Raw idempotency keys are never stored. A finalized quote has no edit/delete endpoint. The authenticated download requires the session organization, deal, and quote IDs to match and returns `Cache-Control: private, no-store` plus `X-Open-CRM-Content-SHA256`.
+
+## Preparation templates and independent approval contract
+
+Owners/admins manage tenant-scoped quote preparation under **Settings > Quote
+Templates**. A template has bounded terms, default validity, delivery
+subject/message merge fields, a signature default, and an optional approval
+requirement. Names are unique among active templates. Editing uses a required
+current revision and creates the next revision; archiving removes the template
+from future selection without changing a retained quote snapshot. Stale edits,
+archived revisions, a foreign template, or finalization terms that differ from
+the selected revision fail closed.
+
+Workspace policy, the selected template, or the writer can require approval.
+Enabling a required policy and finalizing a review-required quote both require
+a different active owner/admin. Finalization creates one pending decision bound
+to the requester, quote, and stored PDF SHA-256. The requester and quote creator
+cannot decide it. A different active owner/admin reviews the retained PDF and
+chooses one terminal `approved` or `rejected` result; rejection requires a
+bounded note. Decision idempotency is digest-only: exact replay returns the
+same evidence, while changed key/body reuse and attempts to alter a terminal
+decision conflict.
+
+Pending and rejected versions cannot be delivered. Delivery preparation and
+the mailbox-provider claim both require retained approved evidence for the
+exact PDF digest, so a provider effect cannot bypass review. Approval is an
+internal release control only: it is not customer acceptance, signature,
+accounting authorization, legal advice, or a deal close. Correct a rejected
+quote in live deal data and finalize a new immutable version; never mutate the
+rejected PDF or decision. Reissuing an expired version retains its exact source
+template revision and creates a fresh approval request when review was required.
+
+The pending queue, deal history, activity/audit records, notifications, and
+aggregate status/oldest-pending metrics expose the workflow without tenant,
+recipient, or document labels in telemetry. Portable workspace export retains
+templates, workspace policy, quote template snapshots, and approval evidence
+while excluding decision idempotency/request hashes.
 
 ## Operator reconciliation
 
@@ -66,11 +108,13 @@ date and a 16–200 character `Idempotency-Key`. Reissue is allowed only while
 the deal remains open, the source has no signed native evidence, no delivery is
 `prepared`, `sending`, or `uncertain`, and no replacement already exists. One
 transaction locks the deal, source quote, and signature state; copies the
-source recipient, terms, commercial labels, line items, currency, and totals;
+source recipient, terms, commercial labels, line items, currency, totals, and
+exact template/preparation snapshot;
 renders a new PDF with current open-deal stage/close-date context and the
 current preparer; stores a new version/digest; binds the source and replacement
 with a tenant-and-deal constrained lineage; voids an expired pending native
-signature request; and writes activity/audit evidence. Exact concurrent retry
+signature request; creates a fresh independent review when the source required
+approval; and writes activity/audit evidence. Exact concurrent retry
 returns the same replacement. Changed key reuse, a second replacement,
 cross-tenant lineage, signed evidence, or unresolved delivery fails closed.
 
@@ -85,7 +129,14 @@ lineage and all immutable versions while excluding replay hashes.
 
 Finalization alone does not send anything. A writer may deliberately deliver one immutable version through their connected SMTP, Google, or Microsoft mailbox. Quote delivery requires both a valid `CREDENTIAL_ENCRYPTION_KEY` and the public browser `WEB_BASE_URL`.
 
-Before the mailbox provider is called, Open CRM persists a tenant/quote/actor-scoped intent with the exact sender and recipient, subject/message snapshot, a stable RFC `Message-ID`, a digest-only idempotency key, and a digest-only customer access token. The customer link expires after the quote validity date plus 30 days, with a minimum lifetime of 24 hours. Only one unresolved delivery may exist per quote.
+Before the mailbox provider is called, Open CRM persists a
+tenant/quote/actor-scoped intent with the exact sender and recipient, the
+retained template subject/message defaults unless deliberately overridden, a
+stable RFC `Message-ID`, a digest-only idempotency key, and a digest-only
+customer access token. The customer link expires after the quote validity date
+plus 30 days, with a minimum lifetime of 24 hours. Only one unresolved delivery
+may exist per quote. A review-required quote must have retained approved
+evidence for its exact PDF digest at both preparation and provider claim.
 
 Delivery states have strict meanings:
 
@@ -118,4 +169,12 @@ A public signature never guesses a pipeline or closes a deal. While the deal is 
 
 One transaction locks the native signed request and deal, then binds the retained certificate to the selected stage and its immutable name snapshot, close reason and notes, closing actor/time, stage activity and event, matching task automation, and client handoff. A 16–200 character digest-only idempotency key makes an exact retry harmless. Changed reuse conflicts; a different key cannot convert terminal evidence again. Reopening the deal later clears its live close context through the normal stage control but intentionally retains the original quote-conversion evidence. Replaying the original conversion after that correction returns the current deal and does not silently re-close it.
 
-Aggregate metrics distinguish signed requests awaiting staff conversion from converted evidence. Portable workspace export includes consent, certificate, conversion outcome, reissue-lineage, and quote FX evidence but removes completion, conversion, finalization, and reissue replay hashes plus delivery secrets. Reusable terms/templates, approval, jurisdiction-specific legal policy, approved live-mailbox evidence, and pilot validation remain Phase 4 outcomes. The first-party ceremony is executable production-equivalent behavior, not a claim that every agreement is legally enforceable in every jurisdiction.
+Aggregate metrics distinguish signed requests awaiting staff conversion from
+converted evidence. Portable workspace export includes consent, certificate,
+conversion outcome, reissue lineage, quote preparation/approval, and FX
+evidence but removes completion, conversion, finalization, reissue, and
+approval replay hashes plus delivery secrets. Jurisdiction-specific legal and
+accounting policy, approved live-mailbox evidence, and pilot validation remain
+Phase 4 outcomes. The first-party ceremony is executable production-equivalent
+behavior, not a claim that every agreement is legally enforceable in every
+jurisdiction.

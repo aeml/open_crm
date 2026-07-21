@@ -52,7 +52,14 @@ if (!entry) {
 }
 
 const asynchronousChunks = javascript.filter(({ name }) => name !== entry.name)
-for (const hiddenFoundation of ['reports_foundation-', 'settings_calendar-', 'settings_marketing_email_campaigns-', 'settings_nurture_campaigns-']) {
+for (const hiddenFoundation of [
+  'reports_foundation-',
+  'settings_calendar-',
+  'settings_lead_audiences-',
+  'settings_lead_scoring-',
+  'settings_marketing_email_campaigns-',
+  'settings_nurture_campaigns-',
+]) {
   if (javascript.some(({ name }) => name.startsWith(hiddenFoundation))) {
     failures.push(`incomplete production route was bundled: ${hiddenFoundation}`)
   }
@@ -94,8 +101,8 @@ for (const chunk of asynchronousChunks) {
   enforce(`async chunk ${chunk.name} raw`, chunk.raw, 60 * 1024)
   enforce(`async chunk ${chunk.name} gzip`, chunk.gzip, 16 * 1024)
 }
-enforce('all JavaScript and CSS raw', totals.raw, 656 * 1024)
-enforce('all JavaScript and CSS gzip', totals.gzip, 210 * 1024)
+enforce('all JavaScript and CSS raw', totals.raw, 659 * 1024)
+enforce('all JavaScript and CSS gzip', totals.gzip, 211 * 1024)
 enforce('all CSS raw', cssTotals.raw, 20 * 1024)
 enforce('all CSS gzip', cssTotals.gzip, 5 * 1024)
 

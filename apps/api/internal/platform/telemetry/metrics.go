@@ -223,6 +223,10 @@ type RuntimeSnapshot struct {
 	QuoteDeliveriesSending         int64
 	QuoteDeliveriesStaleSending    int64
 	QuoteDeliveriesUncertain       int64
+	QuoteApprovalsPending          int64
+	QuoteApprovalsApproved         int64
+	QuoteApprovalsRejected         int64
+	QuoteOldestApprovalPendingAge  time.Duration
 	QuoteSignaturesAwaiting        int64
 	QuoteSignaturesExpired         int64
 	QuoteSignaturesSigned          int64

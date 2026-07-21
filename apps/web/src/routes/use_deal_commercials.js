@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import {
   convertSignedQuoteToWon,
+  decideDealQuoteApproval,
   deliverDealQuote,
   finalizeDealQuote,
   reissueExpiredDealQuote,
@@ -14,7 +15,8 @@ import {
   emptyLineTotals,
   emptyQuoteForm,
   lineItemFormFromCatalogItem,
-  lineItemPayload
+  lineItemPayload,
+  quoteValidUntil
 } from './deal_view'
 import { requireDealResponse } from './use_deal_selection'
 
@@ -27,6 +29,8 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
   const [lineItemForm, setLineItemForm] = useState(emptyLineItemForm)
   const [lineTotals, setLineTotals] = useState(emptyLineTotals)
   const [quotes, setQuotes] = useState([])
+  const [quoteTemplates, setQuoteTemplates] = useState([])
+  const [quoteApprovalPolicy, setQuoteApprovalPolicy] = useState({ approvalRequired: false, activeApprovers: 0 })
   const [quoteForm, setQuoteForm] = useState(() => emptyQuoteForm())
   const [signatureRequests, setSignatureRequests] = useState([])
   const [isSavingLineItems, setIsSavingLineItems] = useState(false)
@@ -34,11 +38,12 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
   const [deliveringQuoteId, setDeliveringQuoteId] = useState(null)
   const [reissuingQuoteId, setReissuingQuoteId] = useState(null)
   const [resolvingDeliveryId, setResolvingDeliveryId] = useState(null)
+  const [decidingQuoteId, setDecidingQuoteId] = useState(null)
   const [areLineItemsDirty, setAreLineItemsDirty] = useState(false)
   const [voidingSignatureRequestId, setVoidingSignatureRequestId] = useState(null)
   const [convertingSignatureRequestId, setConvertingSignatureRequestId] = useState(null)
   const idempotencyAttempts = useRef(new Map())
-  const isSnapshotPending = isSavingLineItems || isFinalizingQuote || reissuingQuoteId !== null || voidingSignatureRequestId !== null || convertingSignatureRequestId !== null
+  const isSnapshotPending = isSavingLineItems || isFinalizingQuote || reissuingQuoteId !== null || decidingQuoteId !== null || voidingSignatureRequestId !== null || convertingSignatureRequestId !== null
 
   function refresh(data) {
     setLineItems(data.lineItems || [])
@@ -47,13 +52,16 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setSignatureRequests(data.signatureRequests || [])
   }
 
-  function load(data, catalogItems) {
+  function load(data, catalogItems, preparation = {}) {
+    const policy = preparation.policy || { approvalRequired: false, activeApprovers: 0 }
     refresh(data)
     if (catalogItems) {
       setProductCatalogItems(catalogItems)
     }
+    setQuoteTemplates(preparation.templates || [])
+    setQuoteApprovalPolicy(policy)
     setLineItemForm(emptyLineItemForm)
-    setQuoteForm(emptyQuoteForm(data.deal?.primaryContactName || ''))
+    setQuoteForm(emptyQuoteForm(data.deal?.primaryContactName || '', policy.approvalRequired))
     setAreLineItemsDirty(false)
     idempotencyAttempts.current.clear()
     setIsSavingLineItems(false)
@@ -61,6 +69,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setDeliveringQuoteId(null)
     setReissuingQuoteId(null)
     setResolvingDeliveryId(null)
+    setDecidingQuoteId(null)
     setVoidingSignatureRequestId(null)
     setConvertingSignatureRequestId(null)
   }
@@ -70,6 +79,8 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setLineTotals(emptyLineTotals)
     setLineItemForm(emptyLineItemForm)
     setQuotes([])
+    setQuoteTemplates([])
+    setQuoteApprovalPolicy({ approvalRequired: false, activeApprovers: 0 })
     setQuoteForm(emptyQuoteForm())
     setAreLineItemsDirty(false)
     idempotencyAttempts.current.clear()
@@ -79,6 +90,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setDeliveringQuoteId(null)
     setReissuingQuoteId(null)
     setResolvingDeliveryId(null)
+    setDecidingQuoteId(null)
     setVoidingSignatureRequestId(null)
     setConvertingSignatureRequestId(null)
   }
@@ -106,6 +118,28 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       .filter((_, entryIndex) => entryIndex !== index)
       .map((item, entryIndex) => ({ ...item, position: entryIndex + 1 })))
     setAreLineItemsDirty(true)
+  }
+
+  function handleQuoteTemplateChange(event) {
+    const templateID = event.target.value
+    const template = quoteTemplates.find((entry) => String(entry.id) === templateID && entry.isActive)
+    if (!template) {
+      setQuoteForm((current) => ({
+        ...current,
+        templateId: '',
+        templateRevision: 0,
+        requestApproval: quoteApprovalPolicy.approvalRequired
+      }))
+      return
+    }
+    setQuoteForm((current) => ({
+      ...current,
+      templateId: String(template.id),
+      templateRevision: template.revision,
+      terms: template.terms,
+      validUntil: quoteValidUntil(template.defaultValidityDays),
+      requestApproval: quoteApprovalPolicy.approvalRequired || template.requiresApproval
+    }))
   }
 
   function idempotencyKey(name, payload, prefix) {
@@ -173,7 +207,10 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       recipientName: quoteForm.recipientName.trim(),
       recipientEmail: quoteForm.recipientEmail.trim(),
       validUntil: quoteForm.validUntil,
-      terms: quoteForm.terms.trim()
+      terms: quoteForm.terms.trim(),
+      templateId: Number.parseInt(quoteForm.templateId, 10) || 0,
+      templateRevision: Number.parseInt(quoteForm.templateRevision, 10) || 0,
+      requestApproval: Boolean(quoteForm.requestApproval)
     }
     const attemptName = 'quote'
     setIsFinalizingQuote(true)
@@ -182,7 +219,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       if (!quote?.id) throw new Error('Unable to finalize quote.')
       if (selection.isCurrent(operation.selection)) {
         setQuotes((current) => [quote, ...current.filter((entry) => entry.id !== quote.id)])
-        setQuoteForm(emptyQuoteForm(quote.recipientName))
+        setQuoteForm(emptyQuoteForm(quote.recipientName, quoteApprovalPolicy.approvalRequired))
         idempotencyAttempts.current.delete(attemptName)
         onError('')
       }
@@ -285,6 +322,33 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     }
   }
 
+  async function handleDecideQuoteApproval(quote, decision, note = '') {
+    const payload = { decision, note: note.trim() }
+    const attemptName = `quote-approval-${quote.id}`
+    const operation = selection.start(attemptName, selectedDealId, { group: 'deal-snapshot' })
+    if (!operation) return
+    setDecidingQuoteId(quote.id)
+    try {
+      const decided = await decideDealQuoteApproval(
+        operation.dealId,
+        quote.id,
+        payload,
+        idempotencyKey(attemptName, payload, 'quote-approval')
+      )
+      if (!decided?.id || decided.id !== quote.id) throw new Error('Unable to decide quote approval.')
+      if (selection.isCurrent(operation.selection)) {
+        setQuotes((current) => current.map((entry) => (entry.id === quote.id ? decided : entry)))
+        idempotencyAttempts.current.delete(attemptName)
+        onError('')
+      }
+    } catch (approvalError) {
+      if (selection.isCurrent(operation.selection)) onError(approvalError.message || 'Unable to decide quote approval.')
+    } finally {
+      selection.finish(operation)
+      if (selection.isCurrent(operation.selection)) setDecidingQuoteId(null)
+    }
+  }
+
   async function handleVoidSignatureRequest(requestID) {
     return mutateSnapshot(
       `signature-void-${requestID}`,
@@ -316,16 +380,19 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     handleAddLineItem,
     handleCatalogLineItemChange,
     handleConvertSignatureRequest,
+    handleDecideQuoteApproval,
     handleFinalizeQuote,
     handleDeliverQuote,
     handleReissueQuote,
     handleResolveQuoteDelivery,
     handleRemoveLineItem,
     handleSaveLineItems,
+    handleQuoteTemplateChange,
     handleVoidSignatureRequest,
     isFinalizingQuote,
     convertingSignatureRequestId,
     deliveringQuoteId,
+    decidingQuoteId,
     resolvingDeliveryId,
     isSavingLineItems,
     isSnapshotPending,
@@ -338,7 +405,9 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     refresh,
     reset,
     quoteForm,
+    quoteApprovalPolicy,
     quotes,
+    quoteTemplates,
     setLineItemForm,
     setQuoteForm,
     signatureRequests,

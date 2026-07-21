@@ -43,6 +43,61 @@ function renderCard(quote, overrides = {}) {
 }
 
 describe('DealQuoteVersionsCard expiration workflow', () => {
+	it('uses retained template delivery defaults only after independent approval', () => {
+	  const onDecideApproval = vi.fn()
+	  const pending = {
+	    ...baseQuote,
+	    createdByUserId: 1,
+	    template: { id: 4, name: 'Services MSA', revision: 2 },
+	    deliveryDefaults: { subject: 'Review Q-12-V1', messageBody: 'Please review retained terms.', requestSignature: true },
+	    approval: { required: true, status: 'pending', requestedByUserId: 1, requestedByUserName: 'Demo Owner', requestedAt: '2026-06-01T12:00:00Z' }
+	  }
+	  const { rerender } = renderCard(pending, { canAdminister: true, currentUserId: '2', onDecideApproval })
+
+	  expect(screen.getByText(/retained revision 2/i)).toBeInTheDocument()
+	  expect(screen.getByText(/delivery blocked until independent approval/i)).toBeInTheDocument()
+	  expect(screen.queryByText('Deliver by email')).not.toBeInTheDocument()
+	  fireEvent.click(screen.getByRole('button', { name: 'Approve exact PDF' }))
+	  expect(onDecideApproval).toHaveBeenCalledWith(pending, 'approved', '')
+
+	  const approved = { ...pending, approval: { ...pending.approval, status: 'approved', decidedByUserId: 2, decidedByUserName: 'Alex Admin', decidedAt: '2026-06-01T13:00:00Z' } }
+	  rerender(<DealQuoteVersionsCard
+	    areLineItemsDirty={false}
+	    canAdminister
+	    canWrite
+	    currentUserId="2"
+	    deal={{ id: 12, status: 'open' }}
+	    form={{ recipientName: '', recipientEmail: '', validUntil: '2099-12-31', terms: '', templateId: '' }}
+	    isFinalizing={false}
+	    isSnapshotPending={false}
+	    lineItems={[]}
+	    onDecideApproval={onDecideApproval}
+	    onDeliver={vi.fn()}
+	    onFinalize={vi.fn()}
+	    onReissue={vi.fn()}
+	    onResolveDelivery={vi.fn()}
+	    onSetForm={vi.fn()}
+	    quotes={[approved]}
+	    resolvingDeliveryId={null}
+	    signatureRequests={[]}
+	  />)
+	  expect(screen.getByText('Deliver by email')).toBeInTheDocument()
+	  expect(screen.getByLabelText(/email subject for Q-12-V1/i)).toHaveValue('Review Q-12-V1')
+	  expect(screen.getByLabelText(/message for Q-12-V1/i)).toHaveValue('Please review retained terms.')
+	  expect(screen.getByRole('checkbox', { name: /request signature from Ava Stone/i })).toBeChecked()
+	})
+
+  it('prevents the quote creator from deciding their own pending approval', () => {
+    renderCard({
+      ...baseQuote,
+      createdByUserId: 1,
+      approval: { required: true, status: 'pending', requestedByUserId: 1, requestedByUserName: 'Demo Owner' }
+    }, { canAdminister: true, currentUserId: '1', onDecideApproval: vi.fn() })
+
+    expect(screen.queryByRole('button', { name: 'Approve exact PDF' })).not.toBeInTheDocument()
+    expect(screen.getByText(/different active owner or admin/i)).toBeInTheDocument()
+  })
+
 	it('shows the immutable reporting-currency snapshot and preserves the customer amount', () => {
 		renderCard({
 		  ...baseQuote,

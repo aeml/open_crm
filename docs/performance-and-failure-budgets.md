@@ -92,12 +92,12 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 656 KiB | 210 KiB |
+| All JavaScript and CSS | 659 KiB | 211 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 179.11 KiB/58.06 KiB entry, 48.74 KiB/14.01 KiB largest lazy
-chunk, and 655.97 KiB/209.43 KiB total assets. The production contact, company,
-deal, and task routes are 29.68/8.94, 34.71/10.22, 48.74/14.01, and 24.67/7.13
+Current production-URL evidence: 178.92 KiB/58.02 KiB entry, 54.78 KiB/15.63 KiB largest lazy
+chunk, and 658.59 KiB/210.07 KiB total assets. The production contact, company,
+deal, and task routes are 29.81/9.19, 34.71/10.48, 54.78/15.63, and 24.67/7.31
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
@@ -105,10 +105,11 @@ revision-bound sequence approval and outcome summary remain in a 5.46 KiB/1.87 K
 7.37 KiB/2.61 KiB background-operations route includes labeled replay, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
 signup, import, merge, and bulk recovery paths. Production builds now omit the
-incomplete calling, SMS, calendar/booking-link, marketing-email, and
-nurture-campaign management surfaces; the bundle gate rejects their accidental
-inclusion. This restored aggregate headroom while making production exposure
-match executable behavior.
+incomplete calling, SMS, calendar/booking-link, audience, lead-scoring,
+marketing-email, and nurture-campaign management surfaces; the bundle gate
+rejects their accidental inclusion. This preserves normal navigation for
+production-capable outcomes while keeping unfinished foundations available in
+development.
 Future frontend slices must remain within the ratcheted ceilings. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
@@ -166,6 +167,12 @@ Active quote expiration and immutable reissue then consolidate retry-safe deal
 snapshot mutations and keep the complete replacement controls inside the
 existing Deals route. Its measured build remains 655.97/209.43 KiB, with a
 48.74/14.01 KiB largest route, under the unchanged ceilings.
+Revisioned quote preparation and independent exact-PDF approval then add a
+9.49/3.11 KiB settings route and bounded deal controls while removing the
+incomplete audience and lead-scoring routes from production. The measured
+178.92/58.02 KiB entry and 54.78/15.63 KiB largest route remain below their
+unchanged limits. The complete user outcome measures 658.59/210.07 KiB in
+aggregate, so only the aggregate ceilings advance to 659/211 KiB.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 

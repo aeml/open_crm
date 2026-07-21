@@ -63,6 +63,14 @@ func handleFinalizeDealQuote(auth authService, deals dealsService, w http.Respon
 			platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "QUOTE_FX_RATE_REQUIRED", "Add a valid exchange rate effective today for the quote currency and workspace base currency, then retry with the same idempotency key")
 			return
 		}
+		if errors.Is(err, moduledeals.ErrQuoteTemplateChanged) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "QUOTE_TEMPLATE_CHANGED", "The selected quote template changed; reload it before finalizing")
+			return
+		}
+		if errors.Is(err, moduledeals.ErrQuoteApproverUnavailable) {
+			platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "QUOTE_APPROVER_REQUIRED", "Add another active owner or admin before requesting independent approval")
+			return
+		}
 		if errors.Is(err, moduledeals.ErrQuoteIdempotencyConflict) {
 			platformweb.WriteError(w, http.StatusConflict, requestID, "IDEMPOTENCY_CONFLICT", "That idempotency key was already used for another quote request")
 			return
@@ -140,6 +148,8 @@ func handleReissueExpiredDealQuote(auth authService, deals dealsService, w http.
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a future validity date within one year")
 		case errors.Is(err, moduledeals.ErrQuoteFXRateUnavailable):
 			platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "QUOTE_FX_RATE_REQUIRED", "Add a valid exchange rate effective today for the quote currency and workspace base currency, then retry with the same idempotency key")
+		case errors.Is(err, moduledeals.ErrQuoteApproverUnavailable):
+			platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "QUOTE_APPROVER_REQUIRED", "Add another active owner or admin before reissuing a quote that requires independent approval")
 		case errors.Is(err, moduledeals.ErrQuoteIdempotencyConflict):
 			platformweb.WriteError(w, http.StatusConflict, requestID, "IDEMPOTENCY_CONFLICT", "That idempotency key was already used for another quote request")
 		case errors.Is(err, moduledeals.ErrQuoteAlreadyReissued):
@@ -411,6 +421,10 @@ func writeQuoteDeliveryServiceError(w http.ResponseWriter, requestID string, err
 		platformweb.WriteError(w, http.StatusConflict, requestID, "SIGNATURE_EXPIRED", "Finalize a new quote before requesting a signature")
 	case errors.Is(err, moduledeals.ErrQuoteExpired):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "QUOTE_EXPIRED", "Reissue this expired quote before delivering it again")
+	case errors.Is(err, moduledeals.ErrQuoteApprovalRequired):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "QUOTE_APPROVAL_REQUIRED", "Another owner or admin must approve this exact quote PDF before delivery")
+	case errors.Is(err, moduledeals.ErrQuoteApprovalRejected):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "QUOTE_APPROVAL_REJECTED", "This quote was rejected; create a corrected immutable version before delivery")
 	case errors.Is(err, moduledeals.ErrQuoteDeliveryUnavailable):
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Quote delivery requires a configured credential key and public web URL")
 	default:

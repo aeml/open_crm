@@ -53,6 +53,7 @@ import (
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	modulepasswordreset "github.com/aeml/open_crm/apps/api/internal/modules/passwordreset"
 	moduleproductcatalog "github.com/aeml/open_crm/apps/api/internal/modules/productcatalog"
+	modulequotetemplates "github.com/aeml/open_crm/apps/api/internal/modules/quotetemplates"
 	moduleratelimits "github.com/aeml/open_crm/apps/api/internal/modules/ratelimits"
 	modulesalesreports "github.com/aeml/open_crm/apps/api/internal/modules/salesreports"
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
@@ -127,6 +128,7 @@ func main() {
 	var billingService *modulebilling.Service
 	var emailTemplatesService *moduleemailtemplates.Service
 	var productCatalogService *moduleproductcatalog.Service
+	var quoteTemplatesService *modulequotetemplates.Service
 	var leadFormsService *moduleleadforms.Service
 	var leadAudiencesService *moduleleadaudiences.Service
 	var marketingCampaignsService *modulemarketingcampaigns.Service
@@ -198,6 +200,7 @@ func main() {
 			orgProfileService = moduleorgprofile.NewService(pool)
 			emailTemplatesService = moduleemailtemplates.NewService(pool)
 			productCatalogService = moduleproductcatalog.NewService(pool)
+			quoteTemplatesService = modulequotetemplates.NewService(pool)
 			leadFormsService = moduleleadforms.NewServiceWithCapacity(pool, billingService, billingService.Hosted())
 			leadAudiencesService = moduleleadaudiences.NewService(pool)
 			marketingCampaignsService = modulemarketingcampaigns.NewService(pool)
@@ -411,6 +414,10 @@ func main() {
 			snapshot.QuoteDeliveriesSending = stats.Sending
 			snapshot.QuoteDeliveriesStaleSending = stats.StaleSending
 			snapshot.QuoteDeliveriesUncertain = stats.Uncertain
+			snapshot.QuoteApprovalsPending = stats.ApprovalsPending
+			snapshot.QuoteApprovalsApproved = stats.ApprovalsApproved
+			snapshot.QuoteApprovalsRejected = stats.ApprovalsRejected
+			snapshot.QuoteOldestApprovalPendingAge = time.Duration(stats.OldestPendingApprovalAge) * time.Second
 			snapshot.QuoteSignaturesAwaiting = stats.SignaturesAwaitingResponse
 			snapshot.QuoteSignaturesExpired = stats.SignaturesExpired
 			snapshot.QuoteSignaturesSigned = stats.SignaturesSigned
@@ -463,6 +470,7 @@ func main() {
 		EmailFeedbackService:            emailFeedbackService,
 		EmailTemplatesService:           emailTemplatesService,
 		ProductCatalogService:           productCatalogService,
+		QuoteTemplatesService:           quoteTemplatesService,
 		LeadFormsService:                leadFormsService,
 		LeadAudiencesService:            leadAudiencesService,
 		MarketingCampaignsService:       marketingCampaignsService,

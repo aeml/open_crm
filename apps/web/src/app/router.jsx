@@ -37,12 +37,13 @@ const SettingsBillingRoute = lazyRoute(() => import('../routes/settings_billing'
 const SettingsEmailTemplatesRoute = lazyRoute(() => import('../routes/settings_email_templates'), 'SettingsEmailTemplatesRoute')
 const SettingsEmailSequencesRoute = lazyRoute(() => import('../routes/settings_email_sequences'), 'SettingsEmailSequencesRoute')
 const SettingsProductCatalogRoute = lazyRoute(() => import('../routes/settings_product_catalog'), 'SettingsProductCatalogRoute')
+const SettingsQuoteTemplatesRoute = lazyRoute(() => import('../routes/settings_quote_templates'), 'SettingsQuoteTemplatesRoute')
 const SettingsLeadFormsRoute = lazyRoute(() => import('../routes/settings_lead_forms'), 'SettingsLeadFormsRoute')
 const SettingsLandingPagesRoute = lazyRoute(() => import('../routes/settings_landing_pages'), 'SettingsLandingPagesRoute')
-const SettingsLeadAudiencesRoute = lazyRoute(() => import('../routes/settings_lead_audiences'), 'SettingsLeadAudiencesRoute')
+const SettingsLeadAudiencesRoute = showFoundationRoutes ? lazyRoute(() => import('../routes/settings_lead_audiences'), 'SettingsLeadAudiencesRoute') : null
 const SettingsMarketingEmailCampaignsRoute = showFoundationRoutes ? lazyRoute(() => import('../routes/settings_marketing_email_campaigns'), 'SettingsMarketingEmailCampaignsRoute') : null
 const SettingsNurtureCampaignsRoute = showFoundationRoutes ? lazyRoute(() => import('../routes/settings_nurture_campaigns'), 'SettingsNurtureCampaignsRoute') : null
-const SettingsLeadScoringRoute = lazyRoute(() => import('../routes/settings_lead_scoring'), 'SettingsLeadScoringRoute')
+const SettingsLeadScoringRoute = showFoundationRoutes ? lazyRoute(() => import('../routes/settings_lead_scoring'), 'SettingsLeadScoringRoute') : null
 const SettingsLeadWidgetsRoute = lazyRoute(() => import('../routes/settings_lead_widgets'), 'SettingsLeadWidgetsRoute')
 const SettingsAutomationsRoute = lazyRoute(() => import('../routes/settings_automations'), 'SettingsAutomationsRoute')
 const SettingsCalendarRoute = showFoundationRoutes ? lazyRoute(() => import('../routes/settings_calendar'), 'SettingsCalendarRoute') : null
@@ -96,12 +97,13 @@ export function AppRouter() {
               <Route path="settings/email-templates" element={<SettingsEmailTemplatesRoute />} />
               <Route path="settings/email-sequences" element={<SettingsEmailSequencesRoute />} />
               <Route path="settings/product-catalog" element={<SettingsProductCatalogRoute />} />
+              <Route path="settings/quote-templates" element={<SettingsQuoteTemplatesRoute />} />
               <Route path="settings/lead-forms" element={<SettingsLeadFormsRoute />} />
               <Route path="settings/landing-pages" element={<SettingsLandingPagesRoute />} />
-              <Route path="settings/lead-audiences" element={<SettingsLeadAudiencesRoute />} />
+              {showFoundationRoutes ? <Route path="settings/lead-audiences" element={<SettingsLeadAudiencesRoute />} /> : null}
               {showFoundationRoutes ? <Route path="settings/marketing-email-campaigns" element={<SettingsMarketingEmailCampaignsRoute />} /> : null}
               {showFoundationRoutes ? <Route path="settings/nurture-campaigns" element={<SettingsNurtureCampaignsRoute />} /> : null}
-              <Route path="settings/lead-scoring" element={<SettingsLeadScoringRoute />} />
+              {showFoundationRoutes ? <Route path="settings/lead-scoring" element={<SettingsLeadScoringRoute />} /> : null}
               <Route path="settings/lead-widgets" element={<SettingsLeadWidgetsRoute />} />
               <Route path="settings/automations" element={<SettingsAutomationsRoute />} />
               {showFoundationRoutes ? <Route path="settings/calendar" element={<SettingsCalendarRoute />} /> : null}

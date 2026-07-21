@@ -15,14 +15,21 @@ export const emptyLineTotals = { subtotal: '0', discountTotal: '0', taxTotal: '0
 
 export const emptyDealMeta = { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0', currency: 'USD', missingRateCurrencies: [] }
 
-export function emptyQuoteForm(recipientName = '') {
+export function quoteValidUntil(defaultValidityDays = 30) {
   const validUntil = new Date()
-  validUntil.setUTCDate(validUntil.getUTCDate() + 30)
+  validUntil.setUTCDate(validUntil.getUTCDate() + defaultValidityDays)
+  return validUntil.toISOString().slice(0, 10)
+}
+
+export function emptyQuoteForm(recipientName = '', requestApproval = false) {
   return {
     recipientName,
     recipientEmail: '',
-    validUntil: validUntil.toISOString().slice(0, 10),
-    terms: 'Payment due within 30 days of invoice.'
+    validUntil: quoteValidUntil(),
+    terms: 'Payment due within 30 days of invoice.',
+    templateId: '',
+    templateRevision: 0,
+    requestApproval
   }
 }
 

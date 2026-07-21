@@ -94,6 +94,34 @@ func TestMigrationFilesIncludeQuoteFXDisclosure(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeQuoteTemplatesApprovals(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "100_quote_templates_approvals.sql") {
+		t.Fatal("expected quote templates and approvals migration to be registered")
+	}
+	sql := MigrationSQL("100_quote_templates_approvals.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"CREATE TABLE quote_templates",
+		"organization_quote_policies",
+		"source_quote_template_id",
+		"delivery_subject_default",
+		"delivery_message_default",
+		"deal_quotes_template_snapshot_check",
+		"deal_quote_approvals",
+		"quote_pdf_sha256",
+		"decision_key_hash",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT deal_quotes_source_template_fk",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("quote templates and approvals migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("100_quote_templates_approvals.sql"); class != "expand" {
+		t.Fatalf("quote templates and approvals deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeDealQuoteDeliveries(t *testing.T) {
 	if !slices.Contains(MigrationFiles(), "094_deal_quote_deliveries.sql") {
 		t.Fatal("expected deal quote deliveries migration to be registered")

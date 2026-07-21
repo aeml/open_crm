@@ -191,6 +191,16 @@ func (s *Service) PrepareQuoteDelivery(ctx context.Context, organizationID, deal
 	if err != nil {
 		return QuoteDeliveryIntent{}, fmt.Errorf("load finalized quote for delivery: %w", err)
 	}
+	approvalStatus, err := quoteApprovalStatus(ctx, tx, organizationID, dealID, quoteID)
+	if err != nil {
+		return QuoteDeliveryIntent{}, err
+	}
+	if approvalStatus == "pending" {
+		return QuoteDeliveryIntent{}, ErrQuoteApprovalRequired
+	}
+	if approvalStatus == "rejected" {
+		return QuoteDeliveryIntent{}, ErrQuoteApprovalRejected
+	}
 	validThrough, err := time.Parse(time.DateOnly, validUntil)
 	if err != nil {
 		return QuoteDeliveryIntent{}, fmt.Errorf("parse finalized quote validity: %w", err)
@@ -308,6 +318,16 @@ func (s *Service) ClaimQuoteDelivery(ctx context.Context, organizationID, delive
 			return QuoteDeliveryIntent{}, false, fmt.Errorf("commit quote delivery state read: %w", err)
 		}
 		return s.quoteDeliveryIntent(delivery), false, nil
+	}
+	approvalStatus, err := quoteApprovalStatus(ctx, tx, organizationID, delivery.DealID, delivery.QuoteID)
+	if err != nil {
+		return QuoteDeliveryIntent{}, false, err
+	}
+	if approvalStatus == "pending" {
+		return QuoteDeliveryIntent{}, false, ErrQuoteApprovalRequired
+	}
+	if approvalStatus == "rejected" {
+		return QuoteDeliveryIntent{}, false, ErrQuoteApprovalRejected
 	}
 	var quoteExpired bool
 	if err := tx.QueryRow(ctx, `

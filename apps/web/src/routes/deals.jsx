@@ -2,6 +2,8 @@ import { useEffect, useMemo } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { archiveDeal, createDeal, updateDeal, updateDealStage } from '../lib/deals'
 import { isAbortError } from '../lib/api'
+import { listProductCatalogItems } from '../lib/product_catalog'
+import { loadQuotePreparation } from '../lib/quote_templates'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
 import {
@@ -37,6 +39,7 @@ export function DealsRoute() {
   const routeDealId = Number.parseInt(dealId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
+  const canAdminister = ['owner', 'admin'].includes(session?.membership?.role || '')
   const labels = pipelineLabels(businessType)
   usePageTitle(labels.collection)
   const initialSearch = searchParams.get('q') || ''
@@ -216,15 +219,23 @@ export function DealsRoute() {
       }))
       setForm((current) => ({ ...emptyForm, stageId: current.stageId || form.stageId || (filteredStages[0] ? String(filteredStages[0].id) : stages[0] ? String(stages[0].id) : '') }))
       if (dealSelection.isCurrent(operation.selection)) {
+        const [catalogResult, preparationResult] = await Promise.allSettled([
+          listProductCatalogItems(),
+          loadQuotePreparation()
+        ])
+        if (!dealSelection.isCurrent(operation.selection)) return
+        const loadedCatalog = catalogResult.status === 'fulfilled' ? catalogResult.value : []
+        const quotePreparation = preparationResult.status === 'fulfilled' ? preparationResult.value : {}
+        const preparationFailed = catalogResult.status === 'rejected' || preparationResult.status === 'rejected'
         const activeSelection = dealSelection.begin(data.deal.id)
         setSelectedDealId(data.deal.id)
         setSelectedStageId(String(data.deal.stageId))
         setStageCloseReview(emptyCloseReview)
         setDetailForm(dealFormValues(data.deal))
         loadWork({ activities: data.activities || [] })
-        loadCommercials(data)
+        loadCommercials(data, loadedCatalog, quotePreparation)
         navigate(buildDealsPath(data.deal.id))
-        setError('')
+        setError(preparationFailed ? 'Deal created, but quote preparation settings could not be loaded. Reload this deal before preparing a quote.' : '')
         try {
           const work = await fetchWork(data.deal.id, { signal: activeSelection.controller.signal })
           if (dealSelection.isCurrent(activeSelection)) loadWork({ ...work, activities: data.activities || [] })
@@ -441,10 +452,12 @@ export function DealsRoute() {
 
       {selectedDeal ? (
         <DealWorkspace
+          canAdminister={canAdminister}
           canWrite={canWrite}
           commercial={dealCommercial}
           companies={companyOptions}
           contacts={contactOptions}
+          currentUserId={currentUserId}
           deal={selectedDeal}
           detail={{ form: detailForm, isLoading: isDetailLoading, onArchive: handleArchive, onSetForm: setDetailForm, onSubmit: handleUpdate }}
           emailRecipients={dealEmailRecipients}

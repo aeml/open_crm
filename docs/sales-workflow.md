@@ -78,10 +78,13 @@ advancement, and cross-tenant denial.
   preserve the exact recipient, terms, validity, line-item/totals snapshot, PDF
   bytes, and SHA-256 digest. Connected-mailbox delivery may request the native
   recipient-link ceremony, which retains exact-name consent and a certificate;
-  staff cannot forge completion. A separate staff decision now binds signed
-  evidence to a selected won outcome and handoff without granting that authority
-  to the public signer. Approval, reusable terms/FX/expiration policy,
-  jurisdiction review, and pilot evidence remain incomplete.
+  staff cannot forge completion. Revisioned preparation templates snapshot exact
+  terms and delivery defaults, and a template or workspace policy can require a
+  different active owner/admin to approve the retained PDF digest before any
+  delivery. A separate staff decision binds signed evidence to a selected won
+  outcome and handoff without granting that authority to the public signer.
+  Accounting policy, jurisdiction review, approved mailbox evidence, and pilot
+  evidence remain incomplete.
 - Only the exposed deal-task rule subset executes. Stored broad workflow
   definitions, branching, approvals, scheduled actions, and other action types
   remain hidden foundations.

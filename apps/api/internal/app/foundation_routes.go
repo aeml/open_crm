@@ -3,6 +3,27 @@ package app
 import "net/http"
 
 func registerFoundationRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimiter rateLimitService) {
+	mux.HandleFunc("GET /api/quote-templates", func(w http.ResponseWriter, r *http.Request) {
+		handleListQuoteTemplates(dependencies.AuthService, dependencies.QuoteTemplatesService, w, r)
+	})
+	mux.HandleFunc("GET /api/quote-templates/policy", func(w http.ResponseWriter, r *http.Request) {
+		handleGetQuoteTemplatePolicy(dependencies.AuthService, dependencies.QuoteTemplatesService, w, r)
+	})
+	mux.HandleFunc("GET /api/quote-templates/merge-tokens", func(w http.ResponseWriter, r *http.Request) {
+		handleListQuoteTemplateMergeTokens(dependencies.AuthService, w, r)
+	})
+	mux.HandleFunc("POST /api/quote-templates", func(w http.ResponseWriter, r *http.Request) {
+		handleCreateQuoteTemplate(dependencies.AuthService, dependencies.QuoteTemplatesService, w, r)
+	})
+	mux.HandleFunc("PATCH /api/quote-templates/{templateID}", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateQuoteTemplate(dependencies.AuthService, dependencies.QuoteTemplatesService, w, r)
+	})
+	mux.HandleFunc("DELETE /api/quote-templates/{templateID}", func(w http.ResponseWriter, r *http.Request) {
+		handleArchiveQuoteTemplate(dependencies.AuthService, dependencies.QuoteTemplatesService, w, r)
+	})
+	mux.HandleFunc("PUT /api/quote-templates/policy", func(w http.ResponseWriter, r *http.Request) {
+		handleUpdateQuoteTemplatePolicy(dependencies.AuthService, dependencies.QuoteTemplatesService, w, r)
+	})
 	mux.HandleFunc("GET /api/email-templates", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailTemplates(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
 	})

@@ -335,6 +335,15 @@ groups:
           summary: Finalized-quote deliveries require explicit operator resolution
           runbook: docs/operations-runbook.md#finalized-quote-delivery-and-receipt-recovery
 
+      - alert: OpenCRMQuoteApprovalsStale
+        expr: open_crm_quote_approval_pending > 0 and open_crm_quote_approval_oldest_pending_age_seconds > 86400
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Immutable quote PDFs have awaited independent approval for more than one day
+          runbook: docs/operations-runbook.md#quote-preparation-and-independent-approval
+
       - alert: OpenCRMQuoteSignaturesExpired
         expr: open_crm_quote_signature_expired > 0
         for: 15m

@@ -7,10 +7,12 @@ import { DealQuoteVersionsCard } from './deal_quote_versions'
 import { RecordWorkCards } from './record_work'
 
 export function DealWorkspace({
+  canAdminister,
   canWrite,
   commercial,
   companies,
   contacts,
+  currentUserId,
   deal,
   detail,
   emailRecipients,
@@ -53,19 +55,26 @@ export function DealWorkspace({
         />
         <DealQuoteVersionsCard
           areLineItemsDirty={commercial.areLineItemsDirty}
+          canAdminister={canAdminister}
           canWrite={canWrite}
+          currentUserId={currentUserId}
           deal={deal}
+          decidingQuoteId={commercial.decidingQuoteId}
           deliveringQuoteId={commercial.deliveringQuoteId}
           form={commercial.quoteForm}
           isFinalizing={commercial.isFinalizingQuote}
           isSnapshotPending={commercial.isSnapshotPending}
           lineItems={commercial.lineItems}
           onDeliver={commercial.handleDeliverQuote}
+          onDecideApproval={commercial.handleDecideQuoteApproval}
           onFinalize={commercial.handleFinalizeQuote}
+          onQuoteTemplateChange={commercial.handleQuoteTemplateChange}
           onReissue={commercial.handleReissueQuote}
           onSetForm={commercial.setQuoteForm}
           onResolveDelivery={commercial.handleResolveQuoteDelivery}
           quotes={commercial.quotes}
+          quoteApprovalPolicy={commercial.quoteApprovalPolicy}
+          quoteTemplates={commercial.quoteTemplates}
           resolvingDeliveryId={commercial.resolvingDeliveryId}
           signatureRequests={commercial.signatureRequests}
         />

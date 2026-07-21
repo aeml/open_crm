@@ -47,7 +47,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	}
 	defer pool.Close()
 
-	var organizationID, ownerID, foreignOrganizationID, foreignOwnerID int64
+	var organizationID, ownerID, approverID, foreignOrganizationID, foreignOwnerID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO organizations (name,slug,plan,subscription_status) VALUES ('Portable Pilot','Portable Pilot','pro','active') RETURNING id`).Scan(&organizationID); err != nil {
 		t.Fatalf("create workspace export organization: %v", err)
 	}
@@ -56,6 +56,12 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id,user_id,role) VALUES ($1,$2,'owner')`, organizationID, ownerID); err != nil {
 		t.Fatalf("create workspace export membership: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (email,password_hash,first_name,last_name,email_verified_at) VALUES ('approver@portable.test','secret-password-hash','Priya','Approver',NOW()) RETURNING id`).Scan(&approverID); err != nil {
+		t.Fatalf("create workspace export quote approver: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id,user_id,role) VALUES ($1,$2,'admin')`, organizationID, approverID); err != nil {
+		t.Fatalf("create workspace export approver membership: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `INSERT INTO organizations (name,slug) VALUES ('Foreign Workspace','foreign-workspace') RETURNING id`).Scan(&foreignOrganizationID); err != nil {
 		t.Fatalf("create foreign organization: %v", err)
@@ -156,6 +162,37 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		FROM deal_quote_line_items WHERE organization_id=$1 AND quote_id=$2
 	`, organizationID, quoteID, replacementQuoteID); err != nil {
 		t.Fatalf("seed portable replacement quote line: %v", err)
+	}
+	var quoteTemplateID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO quote_templates (
+			organization_id,name,terms,default_validity_days,delivery_subject_template,
+			delivery_message_template,request_signature,requires_approval,created_by_user_id,updated_by_user_id
+		) VALUES ($1,'Portable proposal','Portable quote terms',30,'Quote {{quote_number}}','Hi {{recipient_name}}',TRUE,TRUE,$2,$2)
+		RETURNING id
+	`, organizationID, ownerID).Scan(&quoteTemplateID); err != nil {
+		t.Fatalf("seed portable quote template: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO organization_quote_policies (organization_id,approval_required,updated_by_user_id) VALUES ($1,TRUE,$2)`, organizationID, ownerID); err != nil {
+		t.Fatalf("seed portable quote approval policy: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE deal_quotes SET source_quote_template_id=$2,quote_template_name='Portable proposal',quote_template_revision=1,
+			delivery_subject_template='Quote {{quote_number}}',delivery_message_template='Hi {{recipient_name}}',
+			delivery_subject_default='Portable finalized quote',delivery_message_default='Hi Portable Buyer',
+			template_request_signature=TRUE,template_requires_approval=TRUE
+		WHERE organization_id=$1 AND id=$3
+	`, organizationID, quoteTemplateID, replacementQuoteID); err != nil {
+		t.Fatalf("seed portable quote template snapshot: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO deal_quote_approvals (
+			organization_id,deal_id,quote_id,quote_pdf_sha256,status,requested_by_user_id,decided_by_user_id,
+			decided_at,decision_note,decision_key_hash,decision_request_sha256
+		) VALUES ($1,(SELECT deal_id FROM deal_quotes WHERE organization_id=$1 AND id=$3),$3,repeat('d',64),'approved',$2,$4,
+			NOW(),'Scope and totals approved.',repeat('3',64),repeat('4',64))
+	`, organizationID, ownerID, replacementQuoteID, approverID); err != nil {
+		t.Fatalf("seed portable quote approval evidence: %v", err)
 	}
 	var quoteDealID int64
 	if err := pool.QueryRow(ctx, `SELECT deal_id FROM deal_quotes WHERE organization_id=$1 AND id=$2`, organizationID, quoteID).Scan(&quoteDealID); err != nil {
@@ -299,10 +336,12 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	worker := modulejobs.NewWorker(queue, map[string]modulejobs.Handler{JobType: service.HandleJob}, "workspace-export-test", nil)
 	summary, err := worker.RunOnce(ctx)
 	if err != nil || summary.Succeeded != 1 {
-		t.Fatalf("generate workspace export: summary=%#v err=%v", summary, err)
+		var lastError string
+		_ = pool.QueryRow(ctx, `SELECT COALESCE(last_error,'') FROM background_jobs WHERE organization_id=$1 AND job_type=$2 ORDER BY id DESC LIMIT 1`, organizationID, JobType).Scan(&lastError)
+		t.Fatalf("generate workspace export: summary=%#v err=%v job_error=%s", summary, err, lastError)
 	}
 	history, err := service.List(ctx, organizationID)
-	if err != nil || len(history) != 4 || history[0].ID != requested.ID || history[0].Status != "ready" || history[0].ContentSHA256 == "" || history[0].ByteSize <= 0 || history[0].DatasetCounts["contacts"] != 1 || history[0].DatasetCounts["deal_quotes"] != 2 || history[0].DatasetCounts["deal_quote_line_items"] != 2 || history[0].DatasetCounts["deal_quote_deliveries"] != 1 || history[0].DatasetCounts["deal_signature_requests"] != 1 || history[0].DatasetCounts["email_messages_shared"] != 1 {
+	if err != nil || len(history) != 4 || history[0].ID != requested.ID || history[0].Status != "ready" || history[0].ContentSHA256 == "" || history[0].ByteSize <= 0 || history[0].DatasetCounts["contacts"] != 1 || history[0].DatasetCounts["deal_quotes"] != 2 || history[0].DatasetCounts["deal_quote_line_items"] != 2 || history[0].DatasetCounts["deal_quote_deliveries"] != 1 || history[0].DatasetCounts["deal_quote_approvals"] != 1 || history[0].DatasetCounts["quote_templates"] != 1 || history[0].DatasetCounts["organization_quote_policies"] != 1 || history[0].DatasetCounts["deal_signature_requests"] != 1 || history[0].DatasetCounts["email_messages_shared"] != 1 {
 		t.Fatalf("unexpected workspace export history: history=%#v err=%v", history, err)
 	}
 	var retainedReady, cappedExpired int
@@ -343,6 +382,17 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	if !strings.Contains(string(files["data/deal_quote_line_items.ndjson"]), "Portable service") {
 		t.Fatalf("portable finalized quote line missing: %s", files["data/deal_quote_line_items.ndjson"])
 	}
+	portableTemplates := string(files["data/quote_templates.ndjson"])
+	portablePolicy := string(files["data/organization_quote_policies.ndjson"])
+	portableApprovals := string(files["data/deal_quote_approvals.ndjson"])
+	if !strings.Contains(portableTemplates, "Portable proposal") || !strings.Contains(portableTemplates, "Portable quote terms") || !strings.Contains(portablePolicy, `"approval_required": true`) || !strings.Contains(portableApprovals, "Scope and totals approved.") || !strings.Contains(portableApprovals, strings.Repeat("d", 64)) {
+		t.Fatalf("portable quote preparation/approval evidence missing: templates=%s policy=%s approvals=%s", portableTemplates, portablePolicy, portableApprovals)
+	}
+	for _, secret := range []string{"decision_key_hash", "decision_request_sha256", strings.Repeat("3", 64), strings.Repeat("4", 64)} {
+		if strings.Contains(portableApprovals, secret) {
+			t.Fatalf("workspace export leaked quote approval replay correlation %q: %s", secret, portableApprovals)
+		}
+	}
 	portableDeliveries := string(files["data/deal_quote_deliveries.ndjson"])
 	if !strings.Contains(portableDeliveries, "Portable finalized quote") || !strings.Contains(portableDeliveries, `"status": "sent"`) || !strings.Contains(portableDeliveries, `"access_count": 2`) || !strings.Contains(portableDeliveries, `"download_count": 1`) || !strings.Contains(portableDeliveries, "receipt_confirmed_at") {
 		t.Fatalf("portable quote delivery evidence missing: %s", portableDeliveries)
@@ -379,7 +429,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		}
 	}
 	var manifestValue manifest
-	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 2 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["deal_signature_requests"] != 1 || manifestValue.DatasetCounts["lead_capture_forms"] != 1 || manifestValue.DatasetCounts["lead_capture_submissions"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 {
+	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 2 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["deal_quote_approvals"] != 1 || manifestValue.DatasetCounts["quote_templates"] != 1 || manifestValue.DatasetCounts["organization_quote_policies"] != 1 || manifestValue.DatasetCounts["deal_signature_requests"] != 1 || manifestValue.DatasetCounts["lead_capture_forms"] != 1 || manifestValue.DatasetCounts["lead_capture_submissions"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 {
 		t.Fatalf("unexpected workspace export manifest: manifest=%#v err=%v", manifestValue, err)
 	}
 	var downloadAudits int

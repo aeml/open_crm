@@ -125,6 +125,8 @@ type dealsService interface {
 	ReplaceLineItems(context.Context, int64, int64, int64, moduledeals.LineItemsInput) (moduledeals.Detail, error)
 	FinalizeQuote(context.Context, int64, int64, int64, moduledeals.FinalizeQuoteInput) (moduledeals.QuoteVersion, error)
 	ReissueExpiredQuote(context.Context, int64, int64, int64, int64, moduledeals.ReissueQuoteInput) (moduledeals.QuoteVersion, error)
+	DecideQuoteApproval(context.Context, int64, int64, int64, int64, moduledeals.QuoteApprovalDecisionInput) (moduledeals.QuoteVersion, error)
+	ListPendingQuoteApprovals(context.Context, int64) ([]moduledeals.PendingQuoteApproval, error)
 	GetQuotePDF(context.Context, int64, int64, int64) (moduledeals.QuotePDFFile, error)
 	ReplayQuoteDelivery(context.Context, int64, int64, int64, int64, moduledeals.QuoteDeliveryInput) (moduledeals.QuoteDeliveryIntent, bool, error)
 	PrepareQuoteDelivery(context.Context, int64, int64, int64, int64, moduledeals.QuoteDeliveryInput) (moduledeals.QuoteDeliveryIntent, error)
@@ -466,6 +468,7 @@ type Dependencies struct {
 	EmailFeedbackService            emailFeedbackService
 	EmailTemplatesService           emailTemplatesService
 	ProductCatalogService           productCatalogService
+	QuoteTemplatesService           quoteTemplatesService
 	LeadFormsService                leadFormsService
 	LeadAudiencesService            leadAudiencesService
 	MarketingCampaignsService       marketingCampaignsService

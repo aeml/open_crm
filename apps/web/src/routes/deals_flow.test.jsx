@@ -520,6 +520,14 @@ describe('deals flow', () => {
         })
       }
 
+      if (requestURL.pathname.endsWith('/api/quote-templates/policy')) {
+        return jsonResponse({ data: { policy: { approvalRequired: false, activeApprovers: 2 } } })
+      }
+
+      if (requestURL.pathname.endsWith('/api/quote-templates')) {
+        return jsonResponse({ data: { templates: [] } })
+      }
+
       if (requestURL.pathname.endsWith('/api/saved-views') && method === 'GET' && requestURL.searchParams.get('entityType') === 'deals') {
         return jsonResponse({
           data: {
@@ -1092,7 +1100,16 @@ describe('deals flow', () => {
         })
       })
 
-    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('fetch', vi.fn((url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      if (requestURL.pathname.endsWith('/api/quote-templates/policy')) {
+        return Promise.resolve({ ok: true, json: async () => ({ data: { policy: { approvalRequired: false, activeApprovers: 2 } } }) })
+      }
+      if (requestURL.pathname.endsWith('/api/quote-templates')) {
+        return Promise.resolve({ ok: true, json: async () => ({ data: { templates: [] } }) })
+      }
+      return fetchMock(url, options)
+    }))
     window.history.pushState({}, '', '/deals/12')
 
     render(<AppRouter />)
