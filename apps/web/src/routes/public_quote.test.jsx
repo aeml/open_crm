@@ -11,7 +11,7 @@ describe('public quote receipt', () => {
     let receiptConfirmedAt = ''
     const quote = () => ({
       organizationName: 'Acme, Inc.', quoteNumber: 'Q-12-V1', dealName: 'Bluebird Rollout', recipientName: 'Ava Stone',
-      currency: 'USD', total: '308.00', validUntil: '2026-08-20', terms: 'Net 30. Scope changes require approval.',
+	  currency: 'EUR', total: '308.00', fxDisclosure: { baseCurrency: 'USD', rateToBase: '1.10000000', effectiveDate: '2026-07-20', source: 'ECB reference', totalInBaseCurrency: '338.80', displayText: 'USD 338.80 reporting equivalent at 1 EUR = 1.10000000 USD (ECB reference, effective 2026-07-20). Customer amount remains EUR 308.00.' }, validUntil: '2026-08-20', terms: 'Net 30. Scope changes require approval.',
       pdfFilename: 'quote-bluebird-rollout-v1.pdf', pdfSha256: 'a'.repeat(64), sentAt: '2026-07-21T12:00:00Z', receiptConfirmedAt
     })
     const fetchMock = vi.fn(async (rawURL, options = {}) => {
@@ -34,7 +34,9 @@ describe('public quote receipt', () => {
     render(<AppRouter />)
 
     expect(await screen.findByRole('heading', { name: 'Q-12-V1' })).toBeInTheDocument()
-    expect(screen.getByText('$308.00')).toBeInTheDocument()
+	expect(screen.getAllByText('€308.00').length).toBeGreaterThan(0)
+	expect(screen.getByText(/USD 338\.80 reporting equivalent/i)).toHaveTextContent('ECB reference, effective 2026-07-20')
+	expect(screen.getByText(/USD 338\.80 reporting equivalent/i)).toHaveTextContent('Customer amount remains EUR 308.00')
     expect(screen.getByText(/net 30\. scope changes require approval/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /download finalized pdf/i })).toHaveAttribute('href', 'https://crmserver.mendola.tech/api/public/quotes/secure-customer-token/pdf')
     expect(screen.getByText(/receipt is not acceptance/i)).toBeInTheDocument()

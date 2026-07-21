@@ -622,7 +622,8 @@ func TestFinalizeAndDownloadDealQuoteUseCurrentTenant(t *testing.T) {
 		ID: 71, Version: 2, QuoteNumber: "Q-12-V2", Status: "finalized",
 		RecipientName: "Ava Stone", RecipientEmail: "ava@bluebird.example", Currency: "USD",
 		Subtotal: "300.00", DiscountTotal: "20.00", TaxTotal: "28.00", Total: "308.00",
-		ValidUntil: "2026-08-20", Terms: "Payment due in 30 days.", PDFFilename: "quote-bluebird-rollout-v2.pdf",
+		FXDisclosure: &moduledeals.QuoteFXDisclosure{BaseCurrency: "USD", RateToBase: "1.00000000", EffectiveDate: "2026-07-21", Source: "identity", TotalInBase: "308.00"},
+		ValidUntil:   "2026-08-20", Terms: "Payment due in 30 days.", PDFFilename: "quote-bluebird-rollout-v2.pdf",
 		PDFSHA256: strings.Repeat("a", 64), PDFByteSize: 512, CreatedByUserID: 1, CreatedByUserName: "Demo Owner", CreatedAt: "2026-07-21T10:00:00Z",
 	}
 	service := &fakeDealsService{
@@ -649,7 +650,7 @@ func TestFinalizeAndDownloadDealQuoteUseCurrentTenant(t *testing.T) {
 			Quote moduledeals.QuoteVersion `json:"quote"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.Data.Quote.ID != quote.ID || response.Data.Quote.PDFSHA256 != quote.PDFSHA256 {
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.Data.Quote.ID != quote.ID || response.Data.Quote.PDFSHA256 != quote.PDFSHA256 || response.Data.Quote.FXDisclosure == nil || response.Data.Quote.FXDisclosure.TotalInBase != "308.00" {
 		t.Fatalf("unexpected quote response: %#v err=%v", response, err)
 	}
 
@@ -694,6 +695,16 @@ func TestFinalizeDealQuoteRejectsMissingKeyAndIdempotencyConflict(t *testing.T) 
 	authenticatedDealsServer(&fakeDealsService{finalizeQuoteErr: moduledeals.ErrInvalidQuote}).ServeHTTP(invalidRecorder, invalidRequest)
 	if invalidRecorder.Code != http.StatusBadRequest || !strings.Contains(invalidRecorder.Body.String(), "validity date") {
 		t.Fatalf("invalid quote status=%d body=%s", invalidRecorder.Code, invalidRecorder.Body.String())
+	}
+
+	missingRateRequest := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes", strings.NewReader(body))
+	missingRateRequest.Header.Set("Content-Type", "application/json")
+	missingRateRequest.Header.Set("Idempotency-Key", "quote-browser-key-missing-rate")
+	addSessionCookie(missingRateRequest)
+	missingRateRecorder := httptest.NewRecorder()
+	authenticatedDealsServer(&fakeDealsService{finalizeQuoteErr: moduledeals.ErrQuoteFXRateUnavailable}).ServeHTTP(missingRateRecorder, missingRateRequest)
+	if missingRateRecorder.Code != http.StatusUnprocessableEntity || !strings.Contains(missingRateRecorder.Body.String(), `"code":"QUOTE_FX_RATE_REQUIRED"`) || !strings.Contains(missingRateRecorder.Body.String(), "same idempotency key") {
+		t.Fatalf("missing quote rate status=%d body=%s", missingRateRecorder.Code, missingRateRecorder.Body.String())
 	}
 
 	notFoundRequest := httptest.NewRequest(http.MethodGet, "/api/deals/12/quotes/71/pdf", nil)
@@ -742,6 +753,15 @@ func TestReissueExpiredDealQuoteValidatesStateAndPreservesIdempotency(t *testing
 				t.Fatalf("reissue error status=%d body=%s", recorder.Code, recorder.Body.String())
 			}
 		})
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/reissue", strings.NewReader(`{"validUntil":"2026-09-20"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "quote-reissue-handler-rate")
+	addSessionCookie(request)
+	recorder = httptest.NewRecorder()
+	authenticatedDealsServer(&fakeDealsService{reissueQuoteErr: moduledeals.ErrQuoteFXRateUnavailable}).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity || !strings.Contains(recorder.Body.String(), `"code":"QUOTE_FX_RATE_REQUIRED"`) {
+		t.Fatalf("reissue missing quote rate status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -943,13 +963,13 @@ func TestSendDealQuoteReturnsDurableSuppressionFailure(t *testing.T) {
 }
 
 func TestPublicDealQuotePreviewDownloadAndReceiptAreUnauthenticatedAndPrivate(t *testing.T) {
-	quote := moduledeals.PublicQuote{OrganizationName: "Acme", QuoteNumber: "Q-12-V2", DealName: "Launch", RecipientName: "Avery", Currency: "USD", Total: "308.00", ValidUntil: "2026-08-20", Terms: "Net 30", PDFFilename: "quote.pdf", PDFSHA256: strings.Repeat("a", 64), SentAt: "2026-07-21T12:00:00Z"}
+	quote := moduledeals.PublicQuote{OrganizationName: "Acme", QuoteNumber: "Q-12-V2", DealName: "Launch", RecipientName: "Avery", Currency: "EUR", Total: "308.00", FXDisclosure: &moduledeals.QuoteFXDisclosure{BaseCurrency: "USD", RateToBase: "1.10000000", EffectiveDate: "2026-07-21", Source: "ECB", TotalInBase: "338.80"}, ValidUntil: "2026-08-20", Terms: "Net 30", PDFFilename: "quote.pdf", PDFSHA256: strings.Repeat("a", 64), SentAt: "2026-07-21T12:00:00Z"}
 	service := &fakeDealsService{publicQuoteResult: quote, publicQuotePDFResult: moduledeals.QuotePDFFile{Filename: "quote.pdf", Content: []byte("%PDF-1.4 public"), ContentSHA256: quote.PDFSHA256}}
 	server := NewServer(config.Env{}, Dependencies{DealsService: service})
 
 	preview := httptest.NewRecorder()
 	server.ServeHTTP(preview, httptest.NewRequest(http.MethodGet, "/api/public/quotes/secure-token", nil))
-	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), quote.QuoteNumber) || preview.Header().Get("Cache-Control") != "private, no-store" || preview.Header().Get("Referrer-Policy") != "no-referrer" {
+	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), quote.QuoteNumber) || !strings.Contains(preview.Body.String(), `"rateToBase":"1.10000000"`) || preview.Header().Get("Cache-Control") != "private, no-store" || preview.Header().Get("Referrer-Policy") != "no-referrer" {
 		t.Fatalf("public quote preview status=%d headers=%v body=%s", preview.Code, preview.Header(), preview.Body.String())
 	}
 

@@ -7,7 +7,7 @@ import { isAbortError } from '../lib/api'
 import { confirmPublicDealQuoteReceipt, getPublicDealQuote, publicQuotePDFURL, publicSignatureCertificateURL, updatePublicDealQuote } from '../lib/deals'
 import { createIdempotencyKey } from '../lib/idempotency'
 import { usePageTitle } from '../lib/use_page_title'
-import { formatMoney, formatSignatureTime } from './deal_view'
+import { formatMoney, formatSignatureTime, quoteCurrencyDisclosure } from './deal_view'
 
 export function PublicQuoteRoute() {
   const [params] = useSearchParams()
@@ -96,6 +96,7 @@ export function PublicQuoteRoute() {
               <dl className="public-quote-facts">
                 <div><dt>Project</dt><dd>{quote.dealName}</dd></div>
                 <div><dt>Valid through</dt><dd>{quote.validUntil}</dd></div>
+                <div><dt>Currency disclosure</dt><dd>{quoteCurrencyDisclosure(quote)}</dd></div>
                 <div><dt>PDF SHA-256</dt><dd><code>{quote.pdfSha256}</code></dd></div>
               </dl>
               <section>

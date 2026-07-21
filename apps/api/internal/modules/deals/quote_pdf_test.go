@@ -91,6 +91,27 @@ func TestBuildQuotePDFIncludesFinalizedVersionContract(t *testing.T) {
 	}
 }
 
+func TestBuildQuotePDFDisclosesReportingCurrencyWithoutChangingAmountDue(t *testing.T) {
+	file := BuildQuotePDF(Detail{
+		Summary:   Summary{Name: "European rollout", StageName: "Proposal", Status: "open"},
+		LineItems: []LineItem{{Name: "Implementation", Quantity: "1", UnitName: "project", UnitPrice: "100.00", DiscountAmount: "0.00", TaxRate: "0.00", Total: "100.00", Currency: "EUR", Position: 1}},
+		Totals:    DealTotals{Subtotal: "100.00", DiscountTotal: "0.00", TaxTotal: "0.00", Total: "100.00", Currency: "EUR"},
+	}, QuotePDFInput{
+		GeneratedAt: time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC), QuoteNumber: "Q-8-V1",
+		RecipientName: "Avery", RecipientEmail: "avery@example.test", ValidUntil: "2026-08-20", Terms: "Net 30.",
+		FXDisclosure: &QuoteFXDisclosure{BaseCurrency: "USD", RateToBase: "1.10000000", EffectiveDate: "2026-07-20", Source: "ECB reference", TotalInBase: "110.00"},
+	})
+	for _, expected := range [][]byte{
+		[]byte("Currency disclosure"), []byte("Rate: 1 EUR = 1.10000000 USD"),
+		[]byte("Effective: 2026-07-20 | Source: ECB reference"), []byte("Reporting equivalent: USD 110.00"),
+		[]byte("Customer amount due remains EUR 100.00"),
+	} {
+		if !bytes.Contains(file.Content, expected) {
+			t.Fatalf("quote FX disclosure missing %q", expected)
+		}
+	}
+}
+
 func TestBuildQuotePDFPreservesCommonWinAnsiText(t *testing.T) {
 	file := BuildQuotePDF(Detail{
 		Summary: Summary{Name: "Café renewal"},

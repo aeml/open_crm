@@ -679,8 +679,13 @@ references.
    evidence.
 3. **Finalize quote version** requires saved line items plus recipient, validity,
    and terms. One transaction allocates the deal version and preserves the exact
-   identity, line-item, totals, terms, PDF bytes, and SHA-256 snapshot with
-   activity/audit evidence. Unsaved line changes block the UI action. Downloads
+   identity, line-item, totals, terms, PDF bytes, SHA-256, and workspace-base
+   currency disclosure with activity/audit evidence. A foreign-currency quote
+   uses the newest tenant rate effective on or before the document's UTC date;
+   future and other-tenant rates are ignored. `422 QUOTE_FX_RATE_REQUIRED`
+   means no effective local rate exists: add it under **Settings > Business
+   Profile**, then retry the identical request with the same idempotency key.
+   Unsaved line changes block the UI action. Downloads
    are tenant/deal/quote scoped and private/no-store. Follow the retry, digest,
    and correction procedure in `docs/versioned-quotes.md`; never edit a stored
    version in place.
@@ -696,8 +701,12 @@ references.
    currency, and saved activity before editing. A failed cross-tenant or invalid
    catalog reference changes nothing. Correct through the deal UI and download
    a new draft or finalized version; do not edit line items, quote/proposal rows,
-   stored bytes, timestamps, or activity with ad hoc SQL. Reusable templates,
-   approvals, quote-level FX disclosure, and jurisdiction-specific policy
+   stored bytes, timestamps, or activity with ad hoc SQL. The PDF/customer page
+   labels converted totals as reporting equivalents; the amount due remains the
+   quote currency. Later rate edits do not change retained versions, and a
+   reissue selects the rate effective for its new document date. Pre-control
+   versions remain labeled legacy rather than receiving an estimated backfill.
+   Reusable templates, approvals, and jurisdiction-specific policy
    remain later Phase 4 quote/signature slices.
 
 ### Finalized quote delivery and receipt recovery

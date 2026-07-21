@@ -71,6 +71,29 @@ func TestMigrationFilesIncludeQuoteExpirationReissue(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeQuoteFXDisclosure(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "099_quote_fx_disclosure.sql") {
+		t.Fatal("expected quote FX disclosure migration to be registered")
+	}
+	sql := MigrationSQL("099_quote_fx_disclosure.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"quote_base_currency",
+		"exchange_rate_to_base",
+		"exchange_rate_effective_date",
+		"exchange_rate_source",
+		"total_in_base_currency",
+		"deal_quotes_fx_snapshot_check",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("quote FX disclosure migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("099_quote_fx_disclosure.sql"); class != "expand" {
+		t.Fatalf("quote FX disclosure deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeDealQuoteDeliveries(t *testing.T) {
 	if !slices.Contains(MigrationFiles(), "094_deal_quote_deliveries.sql") {
 		t.Fatal("expected deal quote deliveries migration to be registered")

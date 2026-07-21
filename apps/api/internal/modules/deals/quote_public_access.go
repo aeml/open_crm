@@ -18,6 +18,7 @@ type PublicQuote struct {
 	RecipientName      string                `json:"recipientName"`
 	Currency           string                `json:"currency"`
 	Total              string                `json:"total"`
+	FXDisclosure       *QuoteFXDisclosure    `json:"fxDisclosure,omitempty"`
 	ValidUntil         string                `json:"validUntil"`
 	Terms              string                `json:"terms"`
 	PDFFilename        string                `json:"pdfFilename"`
@@ -166,12 +167,16 @@ func (s *Service) ConfirmPublicQuoteReceipt(ctx context.Context, token string) (
 
 func loadPublicQuote(ctx context.Context, tx pgx.Tx, tokenDigest string, now time.Time) (PublicQuote, int64, time.Time, error) {
 	var quote PublicQuote
+	var fxBaseCurrency, fxRateToBase, fxEffectiveDate, fxSource, fxTotalInBase string
 	var deliveryID int64
 	var signatureID int64
 	var signature PublicQuoteSignature
 	var expiresAt time.Time
 	err := tx.QueryRow(ctx, `
 		SELECT q.organization_name,q.quote_number,q.deal_name,q.recipient_name,q.currency,q.total::text,
+		       COALESCE(q.quote_base_currency,''),COALESCE(q.exchange_rate_to_base::text,''),
+		       COALESCE(TO_CHAR(q.exchange_rate_effective_date,'YYYY-MM-DD'),''),COALESCE(q.exchange_rate_source,''),
+		       COALESCE(q.total_in_base_currency::text,''),
 		       TO_CHAR(q.valid_until,'YYYY-MM-DD'),q.terms,q.pdf_filename,q.pdf_sha256,
 		       TO_CHAR(delivery.sent_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		       COALESCE(TO_CHAR(delivery.receipt_confirmed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
@@ -190,6 +195,7 @@ func loadPublicQuote(ctx context.Context, tx pgx.Tx, tokenDigest string, now tim
 		FOR UPDATE OF delivery FOR SHARE OF q
 	`, tokenDigest).Scan(
 		&quote.OrganizationName, &quote.QuoteNumber, &quote.DealName, &quote.RecipientName, &quote.Currency, &quote.Total,
+		&fxBaseCurrency, &fxRateToBase, &fxEffectiveDate, &fxSource, &fxTotalInBase,
 		&quote.ValidUntil, &quote.Terms, &quote.PDFFilename, &quote.PDFSHA256, &quote.SentAt, &quote.ReceiptConfirmedAt,
 		&deliveryID, &expiresAt, &signatureID, &signature.Status, &signature.SignerName, &signature.ConsentText,
 		&signature.SignedName, &signature.SignedAt, &signature.DeclinedAt, &signature.VoidedAt,
@@ -200,6 +206,13 @@ func loadPublicQuote(ctx context.Context, tx pgx.Tx, tokenDigest string, now tim
 	}
 	if err != nil {
 		return PublicQuote{}, 0, time.Time{}, fmt.Errorf("load public quote: %w", err)
+	}
+	if fxBaseCurrency != "" {
+		quote.FXDisclosure = &QuoteFXDisclosure{
+			BaseCurrency: fxBaseCurrency, RateToBase: fxRateToBase, EffectiveDate: fxEffectiveDate,
+			Source: fxSource, TotalInBase: fxTotalInBase,
+		}
+		quote.FXDisclosure.DisplayText = quoteFXDisplayText(quote.Currency, quote.Total, quote.FXDisclosure)
 	}
 	if signatureID > 0 {
 		validUntil, parseErr := time.Parse(time.DateOnly, quote.ValidUntil)

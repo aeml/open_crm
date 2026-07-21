@@ -28,12 +28,14 @@ export function emptyQuoteForm(recipientName = '') {
 
 export function formatMoney(value, currency = 'USD') {
   const amount = Number.parseFloat(value || '0')
-  if (!Number.isFinite(amount)) {
-    return '$0.00'
-  }
-  const normalizedCurrency = String(currency || 'USD').toUpperCase()
-  const safeCurrency = /^[A-Z]{3}$/.test(normalizedCurrency) ? normalizedCurrency : 'USD'
+  const normalized = String(currency || 'USD').toUpperCase()
+  if (!Number.isFinite(amount)) return '$0.00'
+  const safeCurrency = /^[A-Z]{3}$/.test(normalized) ? normalized : 'USD'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: safeCurrency }).format(amount)
+}
+
+export function quoteCurrencyDisclosure(quote) {
+  return quote.fxDisclosure?.displayText || 'Legacy version: FX snapshot unavailable.'
 }
 
 export function formatSignatureTime(value) {
@@ -118,54 +120,31 @@ export function lineItemPayload(item, index) {
 }
 
 export function pipelineLabels(businessType) {
-  if (businessType === 'services' || businessType === 'construction-services') {
-    return {
-      collection: 'Jobs',
-      singular: 'Job',
-      createHeading: 'New job',
-      createDescription: 'Create jobs against the real org stage list.',
-      summaryOpen: 'Open jobs',
-      summaryWon: 'Won jobs',
-      searchLabel: 'Search jobs',
-      companyLabel: 'Client',
-      companyEmpty: 'No client linked',
-      contactLabel: 'Primary contact',
-      contactEmpty: 'No primary contact',
-      valueLabel: 'Job value',
-      dateLabel: 'Target date',
-      showingLabel: 'jobs',
-      listAria: 'Jobs list',
-      notesAria: 'Job notes list',
-      tasksAria: 'Job tasks list',
-      activityAria: 'Job activity list',
-      archiveAction: 'Archive job',
-      moveAction: 'Move job to stage',
-      moveLabel: 'Move job stage'
-    }
-  }
-
+  const jobs = businessType === 'services' || businessType === 'construction-services'
+  const singular = jobs ? 'Job' : 'Deal'
+  const lower = singular.toLowerCase()
   return {
-    collection: 'Deals',
-    singular: 'Deal',
-    createHeading: 'New deal',
-    createDescription: 'Create pipeline entries against the real org stage list.',
-    summaryOpen: 'Open deals',
-    summaryWon: 'Won deals',
-    searchLabel: 'Search deals',
-    companyLabel: 'Company',
-    companyEmpty: 'No company linked',
+    collection: `${singular}s`,
+    singular,
+    createHeading: `New ${lower}`,
+    createDescription: jobs ? 'Create jobs against the real org stage list.' : 'Create pipeline entries against the real org stage list.',
+    summaryOpen: `Open ${lower}s`,
+    summaryWon: `Won ${lower}s`,
+    searchLabel: `Search ${lower}s`,
+    companyLabel: jobs ? 'Client' : 'Company',
+    companyEmpty: jobs ? 'No client linked' : 'No company linked',
     contactLabel: 'Primary contact',
     contactEmpty: 'No primary contact',
-    valueLabel: 'Value amount',
-    dateLabel: 'Expected close date',
-    showingLabel: 'deals',
-    listAria: 'Deals list',
-    notesAria: 'Deal notes list',
-    tasksAria: 'Deal tasks list',
-    activityAria: 'Deal activity list',
-    archiveAction: 'Archive deal',
-    moveAction: 'Move to stage',
-    moveLabel: 'Move stage'
+    valueLabel: jobs ? 'Job value' : 'Value amount',
+    dateLabel: jobs ? 'Target date' : 'Expected close date',
+    showingLabel: `${lower}s`,
+    listAria: `${singular}s list`,
+    notesAria: `${singular} notes list`,
+    tasksAria: `${singular} tasks list`,
+    activityAria: `${singular} activity list`,
+    archiveAction: `Archive ${lower}`,
+    moveAction: jobs ? 'Move job to stage' : 'Move to stage',
+    moveLabel: jobs ? 'Move job stage' : 'Move stage'
   }
 }
 

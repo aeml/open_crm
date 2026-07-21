@@ -23,6 +23,7 @@ var (
 	ErrInvalidDealPipeline        = errors.New("invalid deal pipeline")
 	ErrInvalidLineItems           = errors.New("invalid deal line items")
 	ErrInvalidQuote               = errors.New("invalid deal quote")
+	ErrQuoteFXRateUnavailable     = errors.New("deal quote exchange rate unavailable")
 	ErrQuoteIdempotencyConflict   = errors.New("deal quote idempotency key was used for another request")
 	ErrQuoteExpired               = errors.New("deal quote expired")
 	ErrQuoteAlreadyReissued       = errors.New("deal quote already reissued")

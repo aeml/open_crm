@@ -20,31 +20,32 @@ const (
 )
 
 type QuoteVersion struct {
-	ID                      int64           `json:"id"`
-	Version                 int             `json:"version"`
-	QuoteNumber             string          `json:"quoteNumber"`
-	Status                  string          `json:"status"`
-	LifecycleStatus         string          `json:"lifecycleStatus"`
-	ReissuedFromQuoteID     int64           `json:"reissuedFromQuoteId"`
-	ReissuedFromQuoteNumber string          `json:"reissuedFromQuoteNumber"`
-	ReissuedByQuoteID       int64           `json:"reissuedByQuoteId"`
-	ReissuedByQuoteNumber   string          `json:"reissuedByQuoteNumber"`
-	RecipientName           string          `json:"recipientName"`
-	RecipientEmail          string          `json:"recipientEmail"`
-	Currency                string          `json:"currency"`
-	Subtotal                string          `json:"subtotal"`
-	DiscountTotal           string          `json:"discountTotal"`
-	TaxTotal                string          `json:"taxTotal"`
-	Total                   string          `json:"total"`
-	ValidUntil              string          `json:"validUntil"`
-	Terms                   string          `json:"terms"`
-	PDFFilename             string          `json:"pdfFilename"`
-	PDFSHA256               string          `json:"pdfSha256"`
-	PDFByteSize             int64           `json:"pdfByteSize"`
-	CreatedByUserID         int64           `json:"createdByUserId"`
-	CreatedByUserName       string          `json:"createdByUserName"`
-	CreatedAt               string          `json:"createdAt"`
-	Deliveries              []QuoteDelivery `json:"deliveries"`
+	ID                      int64              `json:"id"`
+	Version                 int                `json:"version"`
+	QuoteNumber             string             `json:"quoteNumber"`
+	Status                  string             `json:"status"`
+	LifecycleStatus         string             `json:"lifecycleStatus"`
+	ReissuedFromQuoteID     int64              `json:"reissuedFromQuoteId"`
+	ReissuedFromQuoteNumber string             `json:"reissuedFromQuoteNumber"`
+	ReissuedByQuoteID       int64              `json:"reissuedByQuoteId"`
+	ReissuedByQuoteNumber   string             `json:"reissuedByQuoteNumber"`
+	RecipientName           string             `json:"recipientName"`
+	RecipientEmail          string             `json:"recipientEmail"`
+	Currency                string             `json:"currency"`
+	Subtotal                string             `json:"subtotal"`
+	DiscountTotal           string             `json:"discountTotal"`
+	TaxTotal                string             `json:"taxTotal"`
+	Total                   string             `json:"total"`
+	FXDisclosure            *QuoteFXDisclosure `json:"fxDisclosure,omitempty"`
+	ValidUntil              string             `json:"validUntil"`
+	Terms                   string             `json:"terms"`
+	PDFFilename             string             `json:"pdfFilename"`
+	PDFSHA256               string             `json:"pdfSha256"`
+	PDFByteSize             int64              `json:"pdfByteSize"`
+	CreatedByUserID         int64              `json:"createdByUserId"`
+	CreatedByUserName       string             `json:"createdByUserName"`
+	CreatedAt               string             `json:"createdAt"`
+	Deliveries              []QuoteDelivery    `json:"deliveries"`
 }
 
 type FinalizeQuoteInput struct {
@@ -110,7 +111,11 @@ func (s *Service) FinalizeQuote(ctx context.Context, organizationID, dealID, act
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) + 1 FROM deal_quotes WHERE organization_id=$1 AND deal_id=$2`, organizationID, dealID).Scan(&version); err != nil {
 		return QuoteVersion{}, fmt.Errorf("allocate quote version: %w", err)
 	}
-	createdAt := time.Now().UTC()
+	createdAt := s.clock().UTC()
+	fxDisclosure, err := loadQuoteFXDisclosure(ctx, tx, organizationID, detail.Totals.Currency, detail.Totals.Total, createdAt)
+	if err != nil {
+		return QuoteVersion{}, err
+	}
 	quoteNumber := fmt.Sprintf("Q-%d-V%d", dealID, version)
 	pdfFilename := fmt.Sprintf("quote-%s-v%d.pdf", quoteFilename(detail.Summary.Name), version)
 	pdf := BuildQuotePDF(detail, QuotePDFInput{
@@ -123,6 +128,7 @@ func (s *Service) FinalizeQuote(ctx context.Context, organizationID, dealID, act
 		ValidUntil:       input.ValidUntil,
 		Terms:            input.Terms,
 		Filename:         pdfFilename,
+		FXDisclosure:     fxDisclosure,
 	})
 	if len(pdf.Content) < 100 || len(pdf.Content) > maxQuotePDFBytes {
 		return QuoteVersion{}, ErrInvalidQuote
@@ -135,15 +141,18 @@ func (s *Service) FinalizeQuote(ctx context.Context, organizationID, dealID, act
 		INSERT INTO deal_quotes (
 			organization_id,deal_id,version,quote_number,organization_name,deal_name,
 			company_name,primary_contact_name,recipient_name,recipient_email,prepared_by_name,
-			currency,subtotal,discount_total,tax_total,total,valid_until,terms,
+			currency,subtotal,discount_total,tax_total,total,quote_base_currency,
+			exchange_rate_to_base,exchange_rate_effective_date,exchange_rate_source,total_in_base_currency,valid_until,terms,
 			pdf_filename,pdf_content,pdf_sha256,idempotency_key_hash,request_sha256,
 			created_by_user_id,created_at
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14::numeric,$15::numeric,$16::numeric,$17::date,$18,$19,$20,$21,$22,$23,$24,$25)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14::numeric,$15::numeric,$16::numeric,
+		        $17,$18::numeric,$19::date,$20,$21::numeric,$22::date,$23,$24,$25,$26,$27,$28,$29,$30)
 		RETURNING id
 	`, organizationID, dealID, version, quoteNumber, organizationName, detail.Summary.Name,
 		detail.Summary.CompanyName, detail.Summary.PrimaryContactName, input.RecipientName, input.RecipientEmail, preparedByName,
 		detail.Totals.Currency, detail.Totals.Subtotal, detail.Totals.DiscountTotal, detail.Totals.TaxTotal, detail.Totals.Total,
+		fxDisclosure.BaseCurrency, fxDisclosure.RateToBase, fxDisclosure.EffectiveDate, fxDisclosure.Source, fxDisclosure.TotalInBase,
 		input.ValidUntil, input.Terms, pdf.Filename, pdf.Content, pdfHashText, keyHashText, requestHashText, actorUserID, createdAt).Scan(&quoteID)
 	if err != nil {
 		return QuoteVersion{}, fmt.Errorf("persist finalized quote: %w", err)
@@ -171,8 +180,11 @@ func (s *Service) FinalizeQuote(ctx context.Context, organizationID, dealID, act
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
-		VALUES ($1,$2,'deal.quote_finalized','deal_quote',$3,'Finalized an immutable deal quote',jsonb_build_object('dealId',$4::bigint,'quoteNumber',$5::text,'version',$6::int,'pdfSha256',$7::text))
-	`, organizationID, actorUserID, quote.ID, dealID, quoteNumber, version, pdfHashText); err != nil {
+		VALUES ($1,$2,'deal.quote_finalized','deal_quote',$3,'Finalized an immutable deal quote',
+		  jsonb_build_object('dealId',$4::bigint,'quoteNumber',$5::text,'version',$6::int,'pdfSha256',$7::text,
+		  'baseCurrency',$8::text,'rateToBase',$9::text,'rateEffectiveDate',$10::text,'rateSource',$11::text,'totalInBaseCurrency',$12::text))
+	`, organizationID, actorUserID, quote.ID, dealID, quoteNumber, version, pdfHashText,
+		fxDisclosure.BaseCurrency, fxDisclosure.RateToBase, fxDisclosure.EffectiveDate, fxDisclosure.Source, fxDisclosure.TotalInBase); err != nil {
 		return QuoteVersion{}, fmt.Errorf("audit finalized quote: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -360,12 +372,16 @@ func (s *Service) ReissueExpiredQuote(ctx context.Context, organizationID, dealI
 		return QuoteVersion{}, fmt.Errorf("allocate reissued quote version: %w", err)
 	}
 	createdAt := s.clock().UTC()
+	fxDisclosure, err := loadQuoteFXDisclosure(ctx, tx, organizationID, currency, total, createdAt)
+	if err != nil {
+		return QuoteVersion{}, err
+	}
 	quoteNumber := fmt.Sprintf("Q-%d-V%d", dealID, version)
 	pdfFilename := fmt.Sprintf("quote-%s-v%d.pdf", quoteFilename(dealName), version)
 	pdf := BuildQuotePDF(detail, QuotePDFInput{
 		OrganizationName: organizationName, GeneratedByName: preparedByName, GeneratedAt: createdAt,
 		QuoteNumber: quoteNumber, RecipientName: recipientName, RecipientEmail: recipientEmail,
-		ValidUntil: input.ValidUntil, Terms: terms, Filename: pdfFilename,
+		ValidUntil: input.ValidUntil, Terms: terms, Filename: pdfFilename, FXDisclosure: fxDisclosure,
 	})
 	if len(pdf.Content) < 100 || len(pdf.Content) > maxQuotePDFBytes {
 		return QuoteVersion{}, ErrInvalidQuote
@@ -377,16 +393,19 @@ func (s *Service) ReissueExpiredQuote(ctx context.Context, organizationID, dealI
 		INSERT INTO deal_quotes (
 		  organization_id,deal_id,version,quote_number,organization_name,deal_name,company_name,
 		  primary_contact_name,recipient_name,recipient_email,prepared_by_name,currency,subtotal,
-		  discount_total,tax_total,total,valid_until,terms,pdf_filename,pdf_content,pdf_sha256,
-		  idempotency_key_hash,request_sha256,created_by_user_id,created_at,reissued_from_quote_id
+		  discount_total,tax_total,total,quote_base_currency,exchange_rate_to_base,
+		  exchange_rate_effective_date,exchange_rate_source,total_in_base_currency,valid_until,terms,
+		  pdf_filename,pdf_content,pdf_sha256,idempotency_key_hash,request_sha256,created_by_user_id,
+		  created_at,reissued_from_quote_id
 		) VALUES (
 		  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14::numeric,$15::numeric,$16::numeric,
-		  $17::date,$18,$19,$20,$21,$22,$23,$24,$25,$26
+		  $17,$18::numeric,$19::date,$20,$21::numeric,$22::date,$23,$24,$25,$26,$27,$28,$29,$30,$31
 		) RETURNING id
 	`, organizationID, dealID, version, quoteNumber, organizationName, dealName, companyName,
 		primaryContactName, recipientName, recipientEmail, preparedByName, currency, subtotal, discountTotal,
-		taxTotal, total, input.ValidUntil, terms, pdf.Filename, pdf.Content, pdfHashText, keyHashText,
-		requestHashText, actorUserID, createdAt, sourceQuoteID).Scan(&quoteID)
+		taxTotal, total, fxDisclosure.BaseCurrency, fxDisclosure.RateToBase, fxDisclosure.EffectiveDate,
+		fxDisclosure.Source, fxDisclosure.TotalInBase, input.ValidUntil, terms, pdf.Filename, pdf.Content,
+		pdfHashText, keyHashText, requestHashText, actorUserID, createdAt, sourceQuoteID).Scan(&quoteID)
 	if err != nil {
 		return QuoteVersion{}, fmt.Errorf("persist reissued quote: %w", err)
 	}
@@ -432,8 +451,13 @@ func (s *Service) ReissueExpiredQuote(ctx context.Context, organizationID, dealI
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
-		VALUES ($1,$2,'deal.quote_reissued','deal_quote',$3,'Reissued an expired immutable deal quote',jsonb_build_object('dealId',$4::bigint,'sourceQuoteId',$5::bigint,'sourceQuoteNumber',$6::text,'quoteNumber',$7::text,'version',$8::int,'validUntil',$9::text,'pdfSha256',$10::text))
-	`, organizationID, actorUserID, quote.ID, dealID, sourceQuoteID, sourceNumber, quoteNumber, version, input.ValidUntil, pdfHashText); err != nil {
+		VALUES ($1,$2,'deal.quote_reissued','deal_quote',$3,'Reissued an expired immutable deal quote',
+		  jsonb_build_object('dealId',$4::bigint,'sourceQuoteId',$5::bigint,'sourceQuoteNumber',$6::text,
+		  'quoteNumber',$7::text,'version',$8::int,'validUntil',$9::text,'pdfSha256',$10::text,
+		  'baseCurrency',$11::text,'rateToBase',$12::text,'rateEffectiveDate',$13::text,'rateSource',$14::text,'totalInBaseCurrency',$15::text))
+	`, organizationID, actorUserID, quote.ID, dealID, sourceQuoteID, sourceNumber, quoteNumber, version,
+		input.ValidUntil, pdfHashText, fxDisclosure.BaseCurrency, fxDisclosure.RateToBase,
+		fxDisclosure.EffectiveDate, fxDisclosure.Source, fxDisclosure.TotalInBase); err != nil {
 		return QuoteVersion{}, fmt.Errorf("audit quote reissue: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -514,11 +538,13 @@ func loadQuoteByIdempotencyKey(ctx context.Context, tx pgx.Tx, organizationID, a
 
 func scanQuoteVersion(scanner quoteScanner, extra ...*string) (QuoteVersion, error) {
 	var quote QuoteVersion
+	var fxBaseCurrency, fxRateToBase, fxEffectiveDate, fxSource, fxTotalInBase string
 	destinations := []any{
 		&quote.ID, &quote.Version, &quote.QuoteNumber, &quote.Status, &quote.LifecycleStatus,
 		&quote.ReissuedFromQuoteID, &quote.ReissuedFromQuoteNumber, &quote.ReissuedByQuoteID, &quote.ReissuedByQuoteNumber,
 		&quote.RecipientName, &quote.RecipientEmail,
-		&quote.Currency, &quote.Subtotal, &quote.DiscountTotal, &quote.TaxTotal, &quote.Total, &quote.ValidUntil,
+		&quote.Currency, &quote.Subtotal, &quote.DiscountTotal, &quote.TaxTotal, &quote.Total,
+		&fxBaseCurrency, &fxRateToBase, &fxEffectiveDate, &fxSource, &fxTotalInBase, &quote.ValidUntil,
 		&quote.Terms, &quote.PDFFilename, &quote.PDFSHA256, &quote.PDFByteSize, &quote.CreatedByUserID, &quote.CreatedAt,
 		&quote.CreatedByUserName,
 	}
@@ -527,6 +553,13 @@ func scanQuoteVersion(scanner quoteScanner, extra ...*string) (QuoteVersion, err
 	}
 	if err := scanner.Scan(destinations...); err != nil {
 		return QuoteVersion{}, err
+	}
+	if fxBaseCurrency != "" {
+		quote.FXDisclosure = &QuoteFXDisclosure{
+			BaseCurrency: fxBaseCurrency, RateToBase: fxRateToBase, EffectiveDate: fxEffectiveDate,
+			Source: fxSource, TotalInBase: fxTotalInBase,
+		}
+		quote.FXDisclosure.DisplayText = quoteFXDisplayText(quote.Currency, quote.Total, quote.FXDisclosure)
 	}
 	return quote, nil
 }
@@ -544,6 +577,9 @@ const quoteVersionColumns = `
 	COALESCE((SELECT reissue.quote_number FROM deal_quotes reissue WHERE reissue.organization_id=q.organization_id AND reissue.reissued_from_quote_id=q.id),''),
 	q.recipient_name,q.recipient_email,
 	q.currency,q.subtotal::text,q.discount_total::text,q.tax_total::text,q.total::text,
+	COALESCE(q.quote_base_currency,''),COALESCE(q.exchange_rate_to_base::text,''),
+	COALESCE(TO_CHAR(q.exchange_rate_effective_date,'YYYY-MM-DD'),''),COALESCE(q.exchange_rate_source,''),
+	COALESCE(q.total_in_base_currency::text,''),
 	TO_CHAR(q.valid_until,'YYYY-MM-DD'),q.terms,q.pdf_filename,q.pdf_sha256,OCTET_LENGTH(q.pdf_content),
 	q.created_by_user_id,TO_CHAR(q.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
 

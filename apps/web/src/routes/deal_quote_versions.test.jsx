@@ -43,6 +43,16 @@ function renderCard(quote, overrides = {}) {
 }
 
 describe('DealQuoteVersionsCard expiration workflow', () => {
+	it('shows the immutable reporting-currency snapshot and preserves the customer amount', () => {
+		renderCard({
+		  ...baseQuote,
+		  currency: 'EUR',
+		  fxDisclosure: { baseCurrency: 'USD', rateToBase: '1.10000000', effectiveDate: '2026-06-01', source: 'ECB reference', totalInBaseCurrency: '338.80', displayText: 'USD 338.80 reporting equivalent at 1 EUR = 1.10000000 USD (ECB reference, effective 2026-06-01). Customer amount remains EUR 308.00.' }
+		})
+		expect(screen.getByText(/USD 338\.80 reporting equivalent/i)).toHaveTextContent('1 EUR = 1.10000000 USD')
+		expect(screen.getByText(/USD 338\.80 reporting equivalent/i)).toHaveTextContent('Customer amount remains EUR 308.00')
+	})
+
   it('blocks delivery and creates a dated replacement from an expired version', () => {
     const quote = { ...baseQuote, lifecycleStatus: 'expired' }
     const { onReissue } = renderCard(quote)

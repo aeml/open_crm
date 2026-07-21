@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -237,6 +239,14 @@ func normalizeExchangeRateInput(input ExchangeRateInput, now time.Time) (Exchang
 	}
 	if !validCurrency(input.QuoteCurrency) {
 		return ExchangeRateInput{}, ErrInvalidInput
+	}
+	if utf8.RuneCountInString(input.Source) > 200 {
+		return ExchangeRateInput{}, ErrInvalidInput
+	}
+	for _, character := range input.Source {
+		if unicode.IsControl(character) {
+			return ExchangeRateInput{}, ErrInvalidInput
+		}
 	}
 	if _, err := time.Parse(dateLayout, input.EffectiveDate); err != nil {
 		return ExchangeRateInput{}, ErrInvalidInput

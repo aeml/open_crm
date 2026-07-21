@@ -183,7 +183,7 @@ export function BusinessProfileRoute() {
               <input className="text-input" type="date" value={rateForm.effectiveDate} onChange={(event) => setRateForm((current) => ({ ...current, effectiveDate: event.target.value }))} disabled={!canManageProfile} required />
             </Field>
             <Field label="Source">
-              <input className="text-input" value={rateForm.source} onChange={(event) => setRateForm((current) => ({ ...current, source: event.target.value }))} disabled={!canManageProfile} placeholder="manual" />
+              <input className="text-input" maxLength={200} value={rateForm.source} onChange={(event) => setRateForm((current) => ({ ...current, source: event.target.value }))} disabled={!canManageProfile} placeholder="manual" />
             </Field>
             <Button type="submit" disabled={!canManageProfile || isSavingRate}>{isSavingRate ? 'Saving rate…' : 'Save exchange rate'}</Button>
           </form>

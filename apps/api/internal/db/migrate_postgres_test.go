@@ -77,6 +77,7 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"deal_quotes_request_hash_check",
 		"deal_quotes_reissued_from_fk",
 		"deal_quotes_reissued_from_self_check",
+		"deal_quotes_fx_snapshot_check",
 		"deal_quote_line_items_quote_fk",
 		"deal_quote_line_items_name_check",
 		"deal_quote_line_items_snapshot_check",

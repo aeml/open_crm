@@ -2,6 +2,7 @@ package orgprofile
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,6 +25,8 @@ func TestNormalizeExchangeRateInputRejectsInvalidValues(t *testing.T) {
 		{QuoteCurrency: "EUR", RateToBase: "0"},
 		{QuoteCurrency: "EUR", RateToBase: "not-a-rate"},
 		{QuoteCurrency: "EUR", RateToBase: "1.08", EffectiveDate: "06/20/2026"},
+		{QuoteCurrency: "EUR", RateToBase: "1.08", Source: "line one\nline two"},
+		{QuoteCurrency: "EUR", RateToBase: "1.08", Source: strings.Repeat("x", 201)},
 	} {
 		_, err := normalizeExchangeRateInput(input, time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC))
 		if !errors.Is(err, ErrInvalidInput) {

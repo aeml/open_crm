@@ -28,6 +28,32 @@ Raw idempotency keys are never stored. A finalized quote has no edit/delete endp
 4. Do not update `deal_quotes`, `deal_quote_line_items`, PDF bytes, hashes, version numbers, activity, or audit evidence with ad hoc SQL. Correct live data and finalize a new version.
 5. Portable workspace export contains quote snapshots, line snapshots, and PDF bytes while excluding internal idempotency/request hashes.
 
+## Currency-disclosure contract
+
+Every newly finalized or reissued quote retains the workspace base currency
+used for reporting. When the quote currency matches it, the snapshot records an
+identity rate. Otherwise, finalization locks and selects the newest
+tenant/base/quote-currency rate whose `effective_date` is on or before the
+document's UTC date. It stores that rate, effective date, source, and rounded
+base-currency total with the immutable quote. A future rate or a rate belonging
+to another workspace/base pair is never substituted.
+
+If no valid effective rate exists, finalization or reissue returns `422
+QUOTE_FX_RATE_REQUIRED` without creating a quote, activity, audit event, or
+provider effect. Configure the rate under **Settings > Business Profile**, then
+retry the identical request with the same idempotency key. Do not invent a
+rate, backdate a quote, or patch the quote tables.
+
+The retained PDF, staff version row, customer page, audit metadata, and portable
+export expose the same disclosure. The base-currency number is explicitly a
+reporting equivalent: the customer's amount due remains the quote currency and
+total. Later edits to the workspace base currency or rate table never rewrite an
+existing PDF or snapshot. Reissuing an expired version creates a new document
+and therefore selects the rate effective for the replacement date while
+preserving the source version's earlier disclosure. Versions created before
+this control are labeled as legacy with no FX snapshot; their immutable PDFs
+are not rewritten or backfilled with an estimate.
+
 ## Expiration and reissue contract
 
 A quote is active through the end of its UTC `valid_until` date. After that
@@ -92,4 +118,4 @@ A public signature never guesses a pipeline or closes a deal. While the deal is 
 
 One transaction locks the native signed request and deal, then binds the retained certificate to the selected stage and its immutable name snapshot, close reason and notes, closing actor/time, stage activity and event, matching task automation, and client handoff. A 16–200 character digest-only idempotency key makes an exact retry harmless. Changed reuse conflicts; a different key cannot convert terminal evidence again. Reopening the deal later clears its live close context through the normal stage control but intentionally retains the original quote-conversion evidence. Replaying the original conversion after that correction returns the current deal and does not silently re-close it.
 
-Aggregate metrics distinguish signed requests awaiting staff conversion from converted evidence. Portable workspace export includes consent, certificate, conversion outcome, and reissue-lineage evidence but removes completion, conversion, finalization, and reissue replay hashes plus delivery secrets. Reusable terms/templates, approval, quote-level FX disclosure, jurisdiction-specific legal policy, approved live-mailbox evidence, and pilot validation remain Phase 4 outcomes. The first-party ceremony is executable production-equivalent behavior, not a claim that every agreement is legally enforceable in every jurisdiction.
+Aggregate metrics distinguish signed requests awaiting staff conversion from converted evidence. Portable workspace export includes consent, certificate, conversion outcome, reissue-lineage, and quote FX evidence but removes completion, conversion, finalization, and reissue replay hashes plus delivery secrets. Reusable terms/templates, approval, jurisdiction-specific legal policy, approved live-mailbox evidence, and pilot validation remain Phase 4 outcomes. The first-party ceremony is executable production-equivalent behavior, not a claim that every agreement is legally enforceable in every jurisdiction.

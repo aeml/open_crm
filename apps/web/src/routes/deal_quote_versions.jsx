@@ -3,7 +3,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
 import { quoteVersionPDFURL } from '../lib/deals'
-import { formatMoney, formatSignatureTime, signatureStatusLabel } from './deal_view'
+import { formatMoney, formatSignatureTime, quoteCurrencyDisclosure, signatureStatusLabel } from './deal_view'
 
 const deliveryStatusLabels = { sent: 'Sent', uncertain: 'Needs resolution', failed: 'Not sent', sending: 'Sending' }
 const quoteLifecycleLabels = { expired: 'Expired', superseded: 'Replaced' }
@@ -65,6 +65,7 @@ function QuoteVersionRow({ canWrite, deal, isDelivering, isSnapshotPending, onDe
             Finalized {formatSignatureTime(quote.createdAt)} by {quote.createdByUserName} · SHA-256 {quote.pdfSha256}
           </p>
           {quote.reissuedFromQuoteNumber || quote.reissuedByQuoteNumber ? <p className="field-hint">{quote.reissuedFromQuoteNumber ? `Reissued from immutable ${quote.reissuedFromQuoteNumber}.` : `Replaced by ${quote.reissuedByQuoteNumber}; use it for delivery.`}</p> : null}
+          <p className="field-hint">{quoteCurrencyDisclosure(quote)}</p>
         </div>
         <div>
           <p>{formatMoney(quote.total, quote.currency)}</p>

@@ -131,12 +131,14 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO deal_quotes (
 			organization_id,deal_id,version,quote_number,organization_name,deal_name,recipient_name,
-			recipient_email,prepared_by_name,currency,subtotal,discount_total,tax_total,total,valid_until,
+			recipient_email,prepared_by_name,currency,subtotal,discount_total,tax_total,total,
+			quote_base_currency,exchange_rate_to_base,exchange_rate_effective_date,exchange_rate_source,total_in_base_currency,valid_until,
 			terms,pdf_filename,pdf_content,pdf_sha256,idempotency_key_hash,request_sha256,created_by_user_id,
 			created_at,reissued_from_quote_id
 		)
 		SELECT organization_id,deal_id,2,'Q-PORTABLE-V2',organization_name,deal_name,recipient_name,
-			recipient_email,prepared_by_name,currency,subtotal,discount_total,tax_total,total,CURRENT_DATE+60,
+			recipient_email,prepared_by_name,currency,subtotal,discount_total,tax_total,total,
+			'USD',1,CURRENT_DATE,'identity',total,CURRENT_DATE+60,
 			terms,'quote-portable-v2.pdf',convert_to(repeat('R',100),'UTF8'),repeat('d',64),repeat('e',64),
 			repeat('f',64),$2,NOW(),id
 		FROM deal_quotes WHERE organization_id=$1 AND id=$3
@@ -335,7 +337,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		}
 	}
 	portableQuotes := string(files["data/deal_quotes.ndjson"])
-	if !strings.Contains(portableQuotes, "Q-PORTABLE-V1") || !strings.Contains(portableQuotes, "Q-PORTABLE-V2") || !strings.Contains(portableQuotes, `"reissued_from_quote_id": `+strconv.FormatInt(quoteID, 10)) || !strings.Contains(portableQuotes, "Portable quote terms") || !strings.Contains(portableQuotes, "pdf_content") || strings.Contains(portableQuotes, "idempotency_key_hash") || strings.Contains(portableQuotes, "request_sha256") || strings.Contains(portableQuotes, strings.Repeat("b", 64)) || strings.Contains(portableQuotes, strings.Repeat("e", 64)) {
+	if !strings.Contains(portableQuotes, "Q-PORTABLE-V1") || !strings.Contains(portableQuotes, "Q-PORTABLE-V2") || !strings.Contains(portableQuotes, `"reissued_from_quote_id": `+strconv.FormatInt(quoteID, 10)) || !strings.Contains(portableQuotes, `"quote_base_currency": "USD"`) || !strings.Contains(portableQuotes, `"exchange_rate_source": "identity"`) || !strings.Contains(portableQuotes, `"total_in_base_currency": 125.00`) || !strings.Contains(portableQuotes, "Portable quote terms") || !strings.Contains(portableQuotes, "pdf_content") || strings.Contains(portableQuotes, "idempotency_key_hash") || strings.Contains(portableQuotes, "request_sha256") || strings.Contains(portableQuotes, strings.Repeat("b", 64)) || strings.Contains(portableQuotes, strings.Repeat("e", 64)) {
 		t.Fatalf("workspace quote portability/privacy boundary failed: %s", portableQuotes)
 	}
 	if !strings.Contains(string(files["data/deal_quote_line_items.ndjson"]), "Portable service") {

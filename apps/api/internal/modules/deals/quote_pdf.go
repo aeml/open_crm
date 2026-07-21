@@ -30,6 +30,7 @@ type QuotePDFInput struct {
 	ValidUntil       string
 	Terms            string
 	Filename         string
+	FXDisclosure     *QuoteFXDisclosure
 }
 
 type QuotePDFFile struct {
@@ -128,6 +129,29 @@ func buildQuotePDFLines(detail Detail, organizationName, generatedBy string, inp
 			fmt.Sprintf("Tax: %s", quoteMoney(detail.Totals.TaxTotal, currency)),
 			fmt.Sprintf("Total: %s", quoteMoney(detail.Totals.Total, currency)),
 		)
+	}
+
+	if strings.TrimSpace(input.QuoteNumber) != "" && input.FXDisclosure != nil {
+		disclosure := input.FXDisclosure
+		lines = append(lines, "", "Currency disclosure")
+		if currency == disclosure.BaseCurrency {
+			lines = append(lines,
+				fmt.Sprintf("Quote currency matches workspace base currency %s; no conversion was applied.", currency),
+				fmt.Sprintf("Base-currency total: %s", quoteMoney(disclosure.TotalInBase, disclosure.BaseCurrency)),
+			)
+		} else {
+			lines = append(lines,
+				fmt.Sprintf("Workspace base currency: %s", disclosure.BaseCurrency),
+				fmt.Sprintf("Rate: 1 %s = %s %s", currency, disclosure.RateToBase, disclosure.BaseCurrency),
+			)
+			lines = appendWrappedQuoteLine(lines,
+				fmt.Sprintf("Effective: %s | Source: %s", disclosure.EffectiveDate, disclosure.Source), "   ")
+			lines = append(lines,
+				fmt.Sprintf("Reporting equivalent: %s", quoteMoney(disclosure.TotalInBase, disclosure.BaseCurrency)),
+			)
+			lines = appendWrappedQuoteLine(lines,
+				fmt.Sprintf("Customer amount due remains %s; the %s equivalent is a reporting disclosure.", quoteMoney(detail.Totals.Total, currency), disclosure.BaseCurrency), "   ")
+		}
 	}
 
 	if strings.TrimSpace(input.QuoteNumber) == "" {

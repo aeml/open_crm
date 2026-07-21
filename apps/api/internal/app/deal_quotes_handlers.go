@@ -59,6 +59,10 @@ func handleFinalizeDealQuote(auth authService, deals dealsService, w http.Respon
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Save at least one line item and provide a recipient, terms, and a validity date within one year")
 			return
 		}
+		if errors.Is(err, moduledeals.ErrQuoteFXRateUnavailable) {
+			platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "QUOTE_FX_RATE_REQUIRED", "Add a valid exchange rate effective today for the quote currency and workspace base currency, then retry with the same idempotency key")
+			return
+		}
 		if errors.Is(err, moduledeals.ErrQuoteIdempotencyConflict) {
 			platformweb.WriteError(w, http.StatusConflict, requestID, "IDEMPOTENCY_CONFLICT", "That idempotency key was already used for another quote request")
 			return
@@ -134,6 +138,8 @@ func handleReissueExpiredDealQuote(auth authService, deals dealsService, w http.
 			return
 		case errors.Is(err, moduledeals.ErrInvalidQuote):
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a future validity date within one year")
+		case errors.Is(err, moduledeals.ErrQuoteFXRateUnavailable):
+			platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "QUOTE_FX_RATE_REQUIRED", "Add a valid exchange rate effective today for the quote currency and workspace base currency, then retry with the same idempotency key")
 		case errors.Is(err, moduledeals.ErrQuoteIdempotencyConflict):
 			platformweb.WriteError(w, http.StatusConflict, requestID, "IDEMPOTENCY_CONFLICT", "That idempotency key was already used for another quote request")
 		case errors.Is(err, moduledeals.ErrQuoteAlreadyReissued):
