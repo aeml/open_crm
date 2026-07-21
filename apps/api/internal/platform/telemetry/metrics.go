@@ -226,6 +226,9 @@ type RuntimeSnapshot struct {
 	QuoteSignaturesAwaiting        int64
 	QuoteSignaturesExpired         int64
 	QuoteSignaturesSigned          int64
+	QuoteSignaturesPending         int64
+	QuoteOldestPendingAge          time.Duration
+	QuoteSignaturesConverted       int64
 	QuoteSignaturesDeclined        int64
 	QuoteSignaturesVoided          int64
 	Backup                         BackupStatus

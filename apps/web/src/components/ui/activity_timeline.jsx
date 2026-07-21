@@ -113,19 +113,21 @@ export function ActivityTimeline({ activities = [], emptyMessage = 'No activity 
           </select>
         </label>
       ) : null}
-      <div className="record-list activity-timeline-list" role="list" aria-label={ariaLabel}>
+      <div className="record-list activity-timeline-list">
         {groups.map((group) => (
           <section className="activity-day" key={group.dateLabel} aria-label={group.dateLabel}>
             <p className="activity-day-heading">{group.dateLabel}</p>
-            {group.items.map((activity) => (
-              <article className="record-row activity-row" key={activity.id} role="listitem">
-                <div>
-                  <p className="activity-summary">{activity.summary || activityLabel(activity.action)}</p>
-                  <p className="field-hint">{formatActivityTime(activity.date)}</p>
-                </div>
-                <span className="activity-badge">{activityGroupLabel(activity.action)}</span>
-              </article>
-            ))}
+            <div className="activity-day-items" role="list" aria-label={`${ariaLabel}: ${group.dateLabel}`}>
+              {group.items.map((activity) => (
+                <article className="record-row activity-row" key={activity.id} role="listitem">
+                  <div>
+                    <p className="activity-summary">{activity.summary || activityLabel(activity.action)}</p>
+                    <p className="field-hint">{formatActivityTime(activity.date)}</p>
+                  </div>
+                  <span className="activity-badge">{activityGroupLabel(activity.action)}</span>
+                </article>
+              ))}
+            </div>
           </section>
         ))}
       </div>

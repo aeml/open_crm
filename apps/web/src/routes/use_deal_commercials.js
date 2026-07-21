@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import {
+  convertSignedQuoteToWon,
   deliverDealQuote,
   finalizeDealQuote,
   replaceDealLineItems,
@@ -33,9 +34,11 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
   const [resolvingDeliveryId, setResolvingDeliveryId] = useState(null)
   const [areLineItemsDirty, setAreLineItemsDirty] = useState(false)
   const [voidingSignatureRequestId, setVoidingSignatureRequestId] = useState(null)
+  const [convertingSignatureRequestId, setConvertingSignatureRequestId] = useState(null)
   const quoteAttempt = useRef(null)
   const deliveryAttempts = useRef(new Map())
-  const isSnapshotPending = isSavingLineItems || isFinalizingQuote || voidingSignatureRequestId !== null
+  const conversionAttempts = useRef(new Map())
+  const isSnapshotPending = isSavingLineItems || isFinalizingQuote || voidingSignatureRequestId !== null || convertingSignatureRequestId !== null
 
   function refresh(data) {
     setLineItems(data.lineItems || [])
@@ -54,11 +57,13 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setAreLineItemsDirty(false)
     quoteAttempt.current = null
     deliveryAttempts.current.clear()
+    conversionAttempts.current.clear()
     setIsSavingLineItems(false)
     setIsFinalizingQuote(false)
     setDeliveringQuoteId(null)
     setResolvingDeliveryId(null)
     setVoidingSignatureRequestId(null)
+    setConvertingSignatureRequestId(null)
   }
 
   function reset() {
@@ -70,12 +75,14 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setAreLineItemsDirty(false)
     quoteAttempt.current = null
     deliveryAttempts.current.clear()
+    conversionAttempts.current.clear()
     setSignatureRequests([])
     setIsSavingLineItems(false)
     setIsFinalizingQuote(false)
     setDeliveringQuoteId(null)
     setResolvingDeliveryId(null)
     setVoidingSignatureRequestId(null)
+    setConvertingSignatureRequestId(null)
   }
 
   function handleCatalogLineItemChange(event) {
@@ -270,9 +277,47 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     }
   }
 
+  async function handleConvertSignatureRequest(requestID, input) {
+    const operation = selection.start(`signature-convert-${requestID}`, selectedDealId, { group: 'deal-snapshot' })
+    if (!operation) return
+    const payload = {
+      stageId: Number.parseInt(input.stageId, 10),
+      closeReasonCode: input.closeReasonCode,
+      closeNotes: input.closeNotes.trim()
+    }
+    const fingerprint = JSON.stringify(payload)
+    const prior = conversionAttempts.current.get(requestID)
+    if (prior?.fingerprint !== fingerprint) {
+      conversionAttempts.current.set(requestID, { fingerprint, key: createIdempotencyKey('signed-quote-conversion') })
+    }
+    setConvertingSignatureRequestId(requestID)
+    try {
+      const data = requireDealResponse(
+        await convertSignedQuoteToWon(operation.dealId, requestID, payload, conversionAttempts.current.get(requestID).key),
+        operation.dealId,
+        'Unable to convert signed quote to a won deal.'
+      )
+      const isCurrent = selection.isCurrent(operation.selection)
+      if (selection.canApply(operation)) onDealUpdated(data, operation.dealId, isCurrent)
+      if (isCurrent) {
+        refresh(data)
+        conversionAttempts.current.delete(requestID)
+        onError('')
+      }
+    } catch (conversionError) {
+      if (selection.isCurrent(operation.selection)) {
+        onError(conversionError.message || 'Unable to convert signed quote to a won deal.')
+      }
+    } finally {
+      selection.finish(operation)
+      if (selection.isCurrent(operation.selection)) setConvertingSignatureRequestId(null)
+    }
+  }
+
   return {
     handleAddLineItem,
     handleCatalogLineItemChange,
+    handleConvertSignatureRequest,
     handleFinalizeQuote,
     handleDeliverQuote,
     handleResolveQuoteDelivery,
@@ -280,6 +325,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     handleSaveLineItems,
     handleVoidSignatureRequest,
     isFinalizingQuote,
+    convertingSignatureRequestId,
     deliveringQuoteId,
     resolvingDeliveryId,
     isSavingLineItems,

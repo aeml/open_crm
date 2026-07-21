@@ -126,6 +126,29 @@ func TestMigrationFilesIncludeQuoteSignatureCeremony(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeSignedQuoteConversion(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "097_signed_quote_conversion.sql") {
+		t.Fatal("expected signed quote conversion migration to be registered")
+	}
+	sql := MigrationSQL("097_signed_quote_conversion.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"conversion_stage_id",
+		"conversion_close_reason_code",
+		"conversion_activity_id",
+		"conversion_idempotency_key_hash",
+		"deal_signature_requests_conversion_shape_check",
+		"idx_deal_signature_requests_signed_unconverted",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("signed quote conversion migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("097_signed_quote_conversion.sql"); class != "expand" {
+		t.Fatalf("signed quote conversion deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeBackgroundJobs(t *testing.T) {
 	sql := MigrationSQL("056_background_jobs.sql")
 	if sql == "" {

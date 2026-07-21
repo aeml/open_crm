@@ -516,10 +516,24 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await noteForm.getByRole('button', { name: 'Add note' }).click()
   await expect(page.getByRole('list', { name: 'Deal notes list' }).getByText(`@${invitedEmail}`, { exact: false })).toBeVisible()
 
-  await page.getByLabel('Move stage').selectOption({ label: 'Sales pipeline: Closed Won' })
-  await page.getByLabel('Won reason').selectOption('solution_fit')
-  await page.getByLabel('Close notes').fill('Strong service fit and a clear implementation plan.')
-  await page.getByRole('button', { name: 'Move to stage' }).click()
+  const conversionSignatureRow = page.getByRole('list', { name: 'Deal quote signature requests' }).getByRole('listitem').filter({ hasText: `Q-${configuredDealID}-V1 · Avery Buyer` })
+  await conversionSignatureRow.getByText('Convert signed quote to won', { exact: true }).click()
+  const signedQuoteConversion = conversionSignatureRow.getByRole('form', { name: `Convert Q-${configuredDealID}-V1 to won` })
+  await signedQuoteConversion.getByLabel(`Won stage for Q-${configuredDealID}-V1`).selectOption({ label: 'Closed Won' })
+  await signedQuoteConversion.getByLabel('Won reason').selectOption('solution_fit')
+  await signedQuoteConversion.getByLabel('Close notes').fill('Strong service fit and a clear implementation plan.')
+  const signedConversionAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-signed-quote-conversion', {
+    body: JSON.stringify({ url: page.url(), violations: signedConversionAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(signedConversionAccessibility.violations, 'signed quote conversion must have no automated WCAG A/AA violations').toEqual([])
+  await signedQuoteConversion.getByRole('button', { name: 'Convert signed quote and hand off client' }).click()
+  await expect(conversionSignatureRow.getByText('Converted to Closed Won', { exact: true })).toBeVisible()
+  await expect(conversionSignatureRow).toContainText('Best solution fit · Strong service fit and a clear implementation plan.')
+  await expect(conversionSignatureRow).toContainText('Later stage changes do not erase this retained conversion evidence.')
   const closeReview = page.getByLabel('Deal close review')
   await expect(closeReview.getByRole('heading', { name: 'Won outcome' })).toBeVisible()
   await expect(closeReview).toContainText('Best solution fit')

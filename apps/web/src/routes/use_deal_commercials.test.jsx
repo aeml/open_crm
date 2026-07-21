@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  convertSignedQuoteToWon,
   deliverDealQuote,
   finalizeDealQuote,
   replaceDealLineItems,
@@ -11,6 +12,7 @@ import { useDealCommercials } from './use_deal_commercials'
 import { useDealSelection } from './use_deal_selection'
 
 vi.mock('../lib/deals', () => ({
+  convertSignedQuoteToWon: vi.fn(),
   deliverDealQuote: vi.fn(),
   finalizeDealQuote: vi.fn(),
   replaceDealLineItems: vi.fn(),
@@ -184,6 +186,37 @@ describe('useDealCommercials', () => {
     expect(voidDealSignatureRequest).toHaveBeenCalledWith(11, 91)
     expect(result.current.signatureRequests[0].status).toBe('voided')
     expect(onDealUpdated).toHaveBeenCalledWith(expect.objectContaining({ deal: { id: 11 } }), 11, true)
+    expect(onError).toHaveBeenLastCalledWith('')
+  })
+
+  it('reuses conversion idempotency across a retry and applies one returned won snapshot', async () => {
+    const signed = { id: 91, quoteId: 71, quoteNumber: 'Q-11-V1', provider: 'open_crm_native', status: 'signed' }
+    const converted = {
+      deal: { id: 11, status: 'won', stageId: 5 },
+      signatureRequests: [{ ...signed, conversionStageId: 5, conversionStageName: 'Closed Won', convertedAt: '2026-07-21T08:30:00Z' }]
+    }
+    convertSignedQuoteToWon.mockRejectedValueOnce(new Error('Network failed')).mockResolvedValueOnce(converted)
+    const onDealUpdated = vi.fn()
+    const onError = vi.fn()
+    const { result } = renderHook(() => {
+      const selection = useDealSelection(11)
+      return useDealCommercials({ selectedDealId: 11, selection, onDealUpdated, onError })
+    })
+    act(() => result.current.load({ deal: { id: 11, status: 'open' }, signatureRequests: [signed] }))
+    const input = { stageId: '5', closeReasonCode: 'solution_fit', closeNotes: ' Signed scope accepted. ' }
+
+    await act(async () => result.current.handleConvertSignatureRequest(91, input))
+    await act(async () => result.current.handleConvertSignatureRequest(91, input))
+
+    expect(convertSignedQuoteToWon).toHaveBeenCalledTimes(2)
+    expect(convertSignedQuoteToWon.mock.calls[0][3]).toBe(convertSignedQuoteToWon.mock.calls[1][3])
+    expect(convertSignedQuoteToWon).toHaveBeenLastCalledWith(11, 91, {
+      stageId: 5,
+      closeReasonCode: 'solution_fit',
+      closeNotes: 'Signed scope accepted.'
+    }, expect.stringMatching(/^signed-quote-conversion-/))
+    expect(onDealUpdated).toHaveBeenCalledWith(converted, 11, true)
+    expect(result.current.signatureRequests[0].conversionStageName).toBe('Closed Won')
     expect(onError).toHaveBeenLastCalledWith('')
   })
 })

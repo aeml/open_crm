@@ -388,7 +388,10 @@ func buildPortableDatasets() []dataset {
 			)
 			FROM deal_quote_deliveries WHERE organization_id=$1 ORDER BY id`},
 		{name: "deal_signature_requests", query: `
-			SELECT to_jsonb(signature) - ARRAY['completion_idempotency_key_hash','completion_request_sha256']::text[]
+			SELECT to_jsonb(signature) - ARRAY[
+			  'completion_idempotency_key_hash','completion_request_sha256',
+			  'conversion_idempotency_key_hash','conversion_request_sha256'
+			]::text[]
 			FROM deal_signature_requests signature WHERE organization_id=$1 ORDER BY id`},
 		{name: "email_messages_shared", query: `
 			SELECT to_jsonb(m) - ARRAY['tracking_token','provider_message_id','provider_thread_id','rfc_message_id','in_reply_to','reference_message_ids','delivery_feedback_email_message_id']::text[]

@@ -19,14 +19,17 @@ type QuoteDeliveryRecoverySummary struct {
 }
 
 type QuoteDeliveryOperationalStats struct {
-	Sending                    int64
-	StaleSending               int64
-	Uncertain                  int64
-	SignaturesAwaitingResponse int64
-	SignaturesExpired          int64
-	SignaturesSigned           int64
-	SignaturesDeclined         int64
-	SignaturesVoided           int64
+	Sending                      int64
+	StaleSending                 int64
+	Uncertain                    int64
+	SignaturesAwaitingResponse   int64
+	SignaturesExpired            int64
+	SignaturesSigned             int64
+	SignaturesAwaitingConversion int64
+	OldestAwaitingConversionAge  int64
+	SignaturesConverted          int64
+	SignaturesDeclined           int64
+	SignaturesVoided             int64
 }
 
 type QuoteDeliveryRecoveryObserver interface {
@@ -81,6 +84,8 @@ func (s *Service) QuoteDeliveryOperationalStats(ctx context.Context) (QuoteDeliv
 	err := s.pool.QueryRow(ctx, `
 		SELECT delivery.sending,delivery.stale_sending,delivery.uncertain,
 		       signature.awaiting_response,signature.expired,signature.signed,
+		       signature.awaiting_conversion,signature.oldest_awaiting_conversion_age_seconds,
+		       signature.converted,
 		       signature.declined,signature.voided
 		FROM (
 		  SELECT COUNT(*) FILTER (WHERE status='sending') AS sending,
@@ -96,10 +101,17 @@ func (s *Service) QuoteDeliveryOperationalStats(ctx context.Context) (QuoteDeliv
 		         COUNT(*) FILTER (
 		           WHERE request.status='sent' AND (quote.valid_until < $2::date OR delivery.access_expires_at <= $2)
 		         ) AS expired,
-		         COUNT(*) FILTER (WHERE request.status='signed') AS signed,
-		         COUNT(*) FILTER (WHERE request.status='declined') AS declined,
-		         COUNT(*) FILTER (WHERE request.status='voided') AS voided
+		         COUNT(*) FILTER (WHERE request.provider='open_crm_native' AND request.status='signed') AS signed,
+		         COUNT(*) FILTER (WHERE request.provider='open_crm_native' AND request.status='signed' AND request.converted_at IS NULL AND deal.status='open' AND deal.archived_at IS NULL) AS awaiting_conversion,
+		         GREATEST(0,COALESCE(EXTRACT(EPOCH FROM (
+		           CURRENT_TIMESTAMP-MIN(request.signed_at) FILTER (WHERE request.provider='open_crm_native' AND request.status='signed' AND request.converted_at IS NULL AND deal.status='open' AND deal.archived_at IS NULL)
+		         ))::bigint,0)) AS oldest_awaiting_conversion_age_seconds,
+		         COUNT(*) FILTER (WHERE request.provider='open_crm_native' AND request.status='signed' AND request.converted_at IS NOT NULL) AS converted,
+		         COUNT(*) FILTER (WHERE request.provider='open_crm_native' AND request.status='declined') AS declined,
+		         COUNT(*) FILTER (WHERE request.provider='open_crm_native' AND request.status='voided') AS voided
 		  FROM deal_signature_requests request
+		  JOIN deals deal
+		    ON deal.organization_id=request.organization_id AND deal.id=request.deal_id
 		  JOIN deal_quotes quote
 		    ON quote.organization_id=request.organization_id AND quote.id=request.quote_id
 		  JOIN deal_quote_deliveries delivery
@@ -109,6 +121,7 @@ func (s *Service) QuoteDeliveryOperationalStats(ctx context.Context) (QuoteDeliv
 	`, now.Add(-staleQuoteDeliveryClaimAfter), now).Scan(
 		&stats.Sending, &stats.StaleSending, &stats.Uncertain,
 		&stats.SignaturesAwaitingResponse, &stats.SignaturesExpired, &stats.SignaturesSigned,
+		&stats.SignaturesAwaitingConversion, &stats.OldestAwaitingConversionAge, &stats.SignaturesConverted,
 		&stats.SignaturesDeclined, &stats.SignaturesVoided,
 	)
 	if err != nil {

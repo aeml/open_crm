@@ -134,6 +134,13 @@ export async function voidDealSignatureRequest(dealID, requestID, { signal } = {
   return payload?.data
 }
 
+export async function convertSignedQuoteToWon(dealID, requestID, input, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest(`/api/deals/${dealID}/signature-requests/${requestID}/convert-to-won`, {
+    method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: 'Unable to convert signed quote to a won deal.', signal
+  })
+  return payload?.data
+}
+
 export async function archiveDeal(dealID, { signal } = {}) {
   return apiRequest(`/api/deals/${dealID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive deal.', signal })
 }

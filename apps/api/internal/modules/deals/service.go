@@ -20,26 +20,28 @@ import (
 )
 
 var (
-	ErrInvalidDealPipeline      = errors.New("invalid deal pipeline")
-	ErrInvalidLineItems         = errors.New("invalid deal line items")
-	ErrInvalidQuote             = errors.New("invalid deal quote")
-	ErrQuoteIdempotencyConflict = errors.New("deal quote idempotency key was used for another request")
-	ErrQuoteDeliveryInvalid     = errors.New("invalid deal quote delivery")
-	ErrQuoteDeliveryConflict    = errors.New("deal quote delivery idempotency key was used for another request")
-	ErrQuoteDeliveryState       = errors.New("deal quote delivery is not in the required state")
-	ErrQuoteDeliveryForbidden   = errors.New("deal quote delivery forbidden")
-	ErrQuoteDeliveryUnavailable = errors.New("deal quote delivery is not configured")
-	ErrQuoteAccessInvalid       = errors.New("invalid deal quote access token")
-	ErrQuoteAccessExpired       = errors.New("deal quote access token expired")
-	ErrInvalidSignatureRequest  = errors.New("invalid deal signature request")
-	ErrSignatureConflict        = errors.New("signature idempotency key was used for another completion")
-	ErrSignatureState           = errors.New("signature request is not in the required state")
-	ErrSignatureExpired         = errors.New("signature request expired")
-	ErrInvalidDealFilter        = errors.New("invalid deal filter")
-	ErrInvalidCloseReview       = errors.New("invalid deal close review")
-	ErrWonDealAccountRequired   = errors.New("won deal account required")
-	ErrInvalidAssignee          = moduleusers.ErrInvalidAssignee
-	ErrNotFound                 = errors.New("deal not found")
+	ErrInvalidDealPipeline        = errors.New("invalid deal pipeline")
+	ErrInvalidLineItems           = errors.New("invalid deal line items")
+	ErrInvalidQuote               = errors.New("invalid deal quote")
+	ErrQuoteIdempotencyConflict   = errors.New("deal quote idempotency key was used for another request")
+	ErrQuoteDeliveryInvalid       = errors.New("invalid deal quote delivery")
+	ErrQuoteDeliveryConflict      = errors.New("deal quote delivery idempotency key was used for another request")
+	ErrQuoteDeliveryState         = errors.New("deal quote delivery is not in the required state")
+	ErrQuoteDeliveryForbidden     = errors.New("deal quote delivery forbidden")
+	ErrQuoteDeliveryUnavailable   = errors.New("deal quote delivery is not configured")
+	ErrQuoteAccessInvalid         = errors.New("invalid deal quote access token")
+	ErrQuoteAccessExpired         = errors.New("deal quote access token expired")
+	ErrInvalidSignatureRequest    = errors.New("invalid deal signature request")
+	ErrSignatureConflict          = errors.New("signature idempotency key was used for another completion")
+	ErrSignatureState             = errors.New("signature request is not in the required state")
+	ErrSignatureExpired           = errors.New("signature request expired")
+	ErrInvalidSignatureConversion = errors.New("invalid signed quote conversion")
+	ErrSignatureConversionState   = errors.New("signed quote is not in the required conversion state")
+	ErrInvalidDealFilter          = errors.New("invalid deal filter")
+	ErrInvalidCloseReview         = errors.New("invalid deal close review")
+	ErrWonDealAccountRequired     = errors.New("won deal account required")
+	ErrInvalidAssignee            = moduleusers.ErrInvalidAssignee
+	ErrNotFound                   = errors.New("deal not found")
 )
 
 var (
@@ -151,32 +153,41 @@ type LineItemsInput struct {
 }
 
 type SignatureRequest struct {
-	ID              int64  `json:"id"`
-	QuoteID         int64  `json:"quoteId"`
-	DeliveryID      int64  `json:"deliveryId"`
-	QuoteNumber     string `json:"quoteNumber"`
-	SignerName      string `json:"signerName"`
-	SignerEmail     string `json:"signerEmail"`
-	Status          string `json:"status"`
-	Provider        string `json:"provider"`
-	ExternalID      string `json:"externalId"`
-	QuoteFileName   string `json:"quoteFileName"`
-	SignedName      string `json:"signedName"`
-	ConsentText     string `json:"consentText"`
-	ConsentedAt     string `json:"consentedAt"`
-	Authentication  string `json:"authenticationMethod"`
-	DeclinedReason  string `json:"declinedReason"`
-	CertificateName string `json:"certificateFilename"`
-	CertificateSHA  string `json:"certificateSha256"`
-	SigningExpired  bool   `json:"signingExpired"`
-	SentAt          string `json:"sentAt"`
-	SignedAt        string `json:"signedAt"`
-	DeclinedAt      string `json:"declinedAt"`
-	VoidedAt        string `json:"voidedAt"`
-	CreatedByUserID int64  `json:"createdByUserId"`
-	UpdatedByUserID int64  `json:"updatedByUserId"`
-	CreatedAt       string `json:"createdAt"`
-	UpdatedAt       string `json:"updatedAt"`
+	ID                         int64  `json:"id"`
+	QuoteID                    int64  `json:"quoteId"`
+	DeliveryID                 int64  `json:"deliveryId"`
+	QuoteNumber                string `json:"quoteNumber"`
+	SignerName                 string `json:"signerName"`
+	SignerEmail                string `json:"signerEmail"`
+	Status                     string `json:"status"`
+	Provider                   string `json:"provider"`
+	ExternalID                 string `json:"externalId"`
+	QuoteFileName              string `json:"quoteFileName"`
+	SignedName                 string `json:"signedName"`
+	ConsentText                string `json:"consentText"`
+	ConsentedAt                string `json:"consentedAt"`
+	Authentication             string `json:"authenticationMethod"`
+	DeclinedReason             string `json:"declinedReason"`
+	CertificateName            string `json:"certificateFilename"`
+	CertificateSHA             string `json:"certificateSha256"`
+	SigningExpired             bool   `json:"signingExpired"`
+	ConversionStageID          int64  `json:"conversionStageId"`
+	ConversionStageName        string `json:"conversionStageName"`
+	ConversionCloseReasonCode  string `json:"conversionCloseReasonCode"`
+	ConversionCloseReasonLabel string `json:"conversionCloseReasonLabel"`
+	ConversionCloseNotes       string `json:"conversionCloseNotes"`
+	ConversionActivityID       int64  `json:"conversionActivityId"`
+	ConvertedByUserID          int64  `json:"convertedByUserId"`
+	ConvertedByUserName        string `json:"convertedByUserName"`
+	ConvertedAt                string `json:"convertedAt"`
+	SentAt                     string `json:"sentAt"`
+	SignedAt                   string `json:"signedAt"`
+	DeclinedAt                 string `json:"declinedAt"`
+	VoidedAt                   string `json:"voidedAt"`
+	CreatedByUserID            int64  `json:"createdByUserId"`
+	UpdatedByUserID            int64  `json:"updatedByUserId"`
+	CreatedAt                  string `json:"createdAt"`
+	UpdatedAt                  string `json:"updatedAt"`
 }
 
 type PipelineInput struct {
@@ -240,6 +251,13 @@ type UpdateStageInput struct {
 	StageID         int64  `json:"stageId"`
 	CloseReasonCode string `json:"closeReasonCode"`
 	CloseNotes      string `json:"closeNotes"`
+}
+
+type SignatureConversionInput struct {
+	StageID         int64  `json:"stageId"`
+	CloseReasonCode string `json:"closeReasonCode"`
+	CloseNotes      string `json:"closeNotes"`
+	IdempotencyKey  string `json:"-"`
 }
 
 type Service struct {
@@ -675,91 +693,8 @@ func (s *Service) UpdateStage(ctx context.Context, organizationID, dealID, actor
 	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
 		return Detail{}, err
 	}
-	var dealName string
-	var previousStageID, ownerUserID, companyID, primaryContactID int64
-	if err := tx.QueryRow(ctx, `
-		SELECT name, stage_id, COALESCE(owner_user_id, $3), COALESCE(company_id,0), COALESCE(primary_contact_id,0)
-		FROM deals
-		WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL
-		FOR UPDATE
-	`, organizationID, dealID, actorUserID).Scan(&dealName, &previousStageID, &ownerUserID, &companyID, &primaryContactID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Detail{}, ErrNotFound
-		}
-		return Detail{}, fmt.Errorf("lock deal for stage update: %w", err)
-	}
-
-	previousStage, err := loadStageEventSnapshot(ctx, tx, organizationID, previousStageID)
-	if err != nil {
-		return Detail{}, fmt.Errorf("lookup previous stage: %w", err)
-	}
-	nextStage, err := loadStageEventSnapshot(ctx, tx, organizationID, input.StageID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Detail{}, ErrNotFound
-		}
-		return Detail{}, fmt.Errorf("lookup stage: %w", err)
-	}
-	if previousStageID == input.StageID {
-		if err := tx.Commit(ctx); err != nil {
-			return Detail{}, fmt.Errorf("commit unchanged deal stage: %w", err)
-		}
-		return s.GetByID(ctx, organizationID, dealID)
-	}
-	review, err := normalizeCloseReview(nextStage.Outcome, input.CloseReasonCode, input.CloseNotes)
-	if err != nil {
+	if _, err := moveDealStageInTx(ctx, tx, organizationID, dealID, actorUserID, input); err != nil {
 		return Detail{}, err
-	}
-	if nextStage.Outcome == "won" && companyID <= 0 && primaryContactID <= 0 {
-		return Detail{}, ErrWonDealAccountRequired
-	}
-	if nextStage.Outcome == "won" {
-		if err := requireDealRelationships(ctx, tx, organizationID, companyID, primaryContactID); err != nil {
-			if errors.Is(err, ErrNotFound) {
-				return Detail{}, ErrWonDealAccountRequired
-			}
-			return Detail{}, err
-		}
-	}
-
-	updated, err := tx.Exec(ctx, `
-		UPDATE deals
-		SET stage_id = $3,
-		    status = $5,
-		    close_reason_code = $6,
-		    close_reason_label = $7,
-		    close_notes = $8,
-		    closed_at = CASE WHEN $5 IN ('won','lost') THEN NOW() END,
-		    closed_by_user_id = CASE WHEN $5 IN ('won','lost') THEN NULLIF($9,0) END,
-		    updated_at = NOW(),
-		    owner_user_id = COALESCE(owner_user_id, $4)
-		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, dealID, input.StageID, actorUserID, nextStage.Outcome, review.Code, review.Label, review.Notes, actorUserID)
-	if err != nil {
-		return Detail{}, fmt.Errorf("update deal stage: %w", err)
-	}
-	if updated.RowsAffected() == 0 {
-		return Detail{}, ErrNotFound
-	}
-
-	activityID, err := insertActivityID(ctx, tx, organizationID, dealID, actorUserID, "deal.stage_changed", closeActivitySummary(nextStage.StageName, nextStage.Outcome, review))
-	if err != nil {
-		return Detail{}, fmt.Errorf("insert stage activity: %w", err)
-	}
-	if err := insertDealStageEvent(ctx, tx, organizationID, dealID, dealName, "stage_changed", activityID, actorUserID, ownerUserID, &previousStage, nextStage, review); err != nil {
-		return Detail{}, err
-	}
-	if nextStage.Outcome == "won" {
-		if err := handoffWonDeal(ctx, tx, organizationID, dealID, actorUserID); err != nil {
-			return Detail{}, err
-		}
-	}
-	if err := moduleworkflowautomations.ExecuteDealTaskRules(ctx, tx, moduleworkflowautomations.DealTaskEvent{
-		OrganizationID: organizationID, ActorUserID: actorUserID, DealID: dealID, DealName: dealName,
-		StageID: input.StageID, StageName: nextStage.StageName, OwnerUserID: ownerUserID,
-		EventType: moduleworkflowautomations.DealEventStageChanged, EventKey: fmt.Sprintf("deal:%d:activity:%d", dealID, activityID),
-	}); err != nil {
-		return Detail{}, fmt.Errorf("execute deal-stage task rules: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -1278,6 +1213,15 @@ func (s *Service) listSignatureRequests(ctx context.Context, organizationID, dea
 			COALESCE(certificate_filename,''),
 			COALESCE(certificate_sha256,''),
 			COALESCE((SELECT quote.valid_until < (NOW() AT TIME ZONE 'UTC')::date FROM deal_quotes quote WHERE quote.organization_id=deal_signature_requests.organization_id AND quote.id=deal_signature_requests.quote_id),FALSE),
+			COALESCE(conversion_stage_id,0),
+			COALESCE(conversion_stage_name,''),
+			COALESCE(conversion_close_reason_code,''),
+			COALESCE(conversion_close_reason_label,''),
+			COALESCE(conversion_close_notes,''),
+			COALESCE(conversion_activity_id,0),
+			COALESCE(converted_by_user_id,0),
+			COALESCE((SELECT NULLIF(CONCAT_WS(' ', user_row.first_name, user_row.last_name),'') FROM users user_row WHERE user_row.id=deal_signature_requests.converted_by_user_id),''),
+			COALESCE(TO_CHAR(converted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
 			COALESCE(TO_CHAR(sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
 			COALESCE(TO_CHAR(signed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
 			COALESCE(TO_CHAR(declined_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
@@ -1317,6 +1261,15 @@ func (s *Service) listSignatureRequests(ctx context.Context, organizationID, dea
 			&request.CertificateName,
 			&request.CertificateSHA,
 			&request.SigningExpired,
+			&request.ConversionStageID,
+			&request.ConversionStageName,
+			&request.ConversionCloseReasonCode,
+			&request.ConversionCloseReasonLabel,
+			&request.ConversionCloseNotes,
+			&request.ConversionActivityID,
+			&request.ConvertedByUserID,
+			&request.ConvertedByUserName,
+			&request.ConvertedAt,
 			&request.SentAt,
 			&request.SignedAt,
 			&request.DeclinedAt,

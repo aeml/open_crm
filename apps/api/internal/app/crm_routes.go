@@ -201,6 +201,9 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 	mux.HandleFunc("POST /api/deals/{dealID}/signature-requests/{requestID}/void", func(w http.ResponseWriter, r *http.Request) {
 		handleVoidDealSignatureRequest(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
+	mux.HandleFunc("POST /api/deals/{dealID}/signature-requests/{requestID}/convert-to-won", func(w http.ResponseWriter, r *http.Request) {
+		handleConvertSignedQuoteToWon(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
 	mux.HandleFunc("GET /api/deals/{dealID}/signature-requests/{requestID}/certificate", func(w http.ResponseWriter, r *http.Request) {
 		handleDownloadDealSignatureCertificate(dependencies.AuthService, dependencies.DealsService, w, r)
 	})

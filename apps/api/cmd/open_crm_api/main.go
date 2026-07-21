@@ -414,6 +414,9 @@ func main() {
 			snapshot.QuoteSignaturesAwaiting = stats.SignaturesAwaitingResponse
 			snapshot.QuoteSignaturesExpired = stats.SignaturesExpired
 			snapshot.QuoteSignaturesSigned = stats.SignaturesSigned
+			snapshot.QuoteSignaturesPending = stats.SignaturesAwaitingConversion
+			snapshot.QuoteOldestPendingAge = time.Duration(stats.OldestAwaitingConversionAge) * time.Second
+			snapshot.QuoteSignaturesConverted = stats.SignaturesConverted
 			snapshot.QuoteSignaturesDeclined = stats.SignaturesDeclined
 			snapshot.QuoteSignaturesVoided = stats.SignaturesVoided
 		}

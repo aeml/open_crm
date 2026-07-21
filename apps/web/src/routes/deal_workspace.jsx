@@ -70,10 +70,14 @@ export function DealWorkspace({
         />
         <DealSignatureCard
           canWrite={canWrite}
+          convertingID={commercial.convertingSignatureRequestId}
+          deal={deal}
           dealID={deal.id}
           isSnapshotPending={commercial.isSnapshotPending}
+          onConvert={commercial.handleConvertSignatureRequest}
           onVoid={commercial.handleVoidSignatureRequest}
           requests={commercial.signatureRequests}
+          stages={stage.stages}
           voidingID={commercial.voidingSignatureRequestId}
         />
         <DealStageMover

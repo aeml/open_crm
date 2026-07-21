@@ -139,6 +139,7 @@ type dealsService interface {
 	GetSignatureCertificate(context.Context, int64, int64, int64) (moduledeals.QuotePDFFile, error)
 	GetPublicSignatureCertificate(context.Context, string) (moduledeals.QuotePDFFile, error)
 	VoidSignatureRequest(context.Context, int64, int64, int64, int64) (moduledeals.Detail, error)
+	ConvertSignedQuoteToWon(context.Context, int64, int64, int64, int64, moduledeals.SignatureConversionInput) (moduledeals.Detail, error)
 }
 
 type tasksService interface {

@@ -130,6 +130,17 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT deal_id FROM deal_quotes WHERE organization_id=$1 AND id=$2`, organizationID, quoteID).Scan(&quoteDealID); err != nil {
 		t.Fatalf("load portable quote deal: %v", err)
 	}
+	var conversionStageID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO deal_stages (organization_id,pipeline_id,name,position,probability_percent,is_closed,is_won)
+		SELECT $1,stage.pipeline_id,'Closed Won',2,100,TRUE,TRUE
+		FROM deals deal
+		JOIN deal_stages stage ON stage.organization_id=deal.organization_id AND stage.id=deal.stage_id
+		WHERE deal.organization_id=$1 AND deal.id=$2
+		RETURNING id
+	`, organizationID, quoteDealID).Scan(&conversionStageID); err != nil {
+		t.Fatalf("seed portable won stage: %v", err)
+	}
 	var signatureRequestID int64
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO deal_signature_requests (
@@ -145,6 +156,33 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		) RETURNING id
 	`, organizationID, quoteDealID, quoteID, ownerID).Scan(&signatureRequestID); err != nil {
 		t.Fatalf("seed portable quote signature evidence: %v", err)
+	}
+	var conversionActivityID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO activities (organization_id,entity_type,entity_id,actor_user_id,action,summary)
+		VALUES ($1,'deal',$2,$3,'deal.stage_changed','Stage changed to Closed Won (Best solution fit)')
+		RETURNING id
+	`, organizationID, quoteDealID, ownerID).Scan(&conversionActivityID); err != nil {
+		t.Fatalf("seed portable quote conversion activity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE deals
+		SET stage_id=$3,status='won',close_reason_code='solution_fit',close_reason_label='Best solution fit',
+		    close_notes='Signed scope accepted.',closed_at=NOW(),closed_by_user_id=$4
+		WHERE organization_id=$1 AND id=$2
+	`, organizationID, quoteDealID, conversionStageID, ownerID); err != nil {
+		t.Fatalf("seed portable won deal evidence: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE deal_signature_requests
+		SET conversion_stage_id=$2,conversion_stage_name='Closed Won',
+		    conversion_close_reason_code='solution_fit',conversion_close_reason_label='Best solution fit',
+		    conversion_close_notes='Signed scope accepted.',conversion_activity_id=$3,
+		    converted_by_user_id=$4,converted_at=NOW(),
+		    conversion_idempotency_key_hash=repeat('6',64),conversion_request_sha256=repeat('5',64)
+		WHERE organization_id=$1 AND id=$5
+	`, organizationID, conversionStageID, conversionActivityID, ownerID, signatureRequestID); err != nil {
+		t.Fatalf("seed portable quote conversion evidence: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO deal_quote_deliveries (
@@ -284,10 +322,10 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		}
 	}
 	portableSignatures := string(files["data/deal_signature_requests.ndjson"])
-	if !strings.Contains(portableSignatures, "signature-certificate-q-portable-v1.pdf") || !strings.Contains(portableSignatures, strings.Repeat("9", 64)) || !strings.Contains(portableSignatures, "recipient_email_link") || !strings.Contains(portableSignatures, "consent_text_snapshot") || !strings.Contains(portableSignatures, "certificate_content") {
+	if !strings.Contains(portableSignatures, "signature-certificate-q-portable-v1.pdf") || !strings.Contains(portableSignatures, strings.Repeat("9", 64)) || !strings.Contains(portableSignatures, "recipient_email_link") || !strings.Contains(portableSignatures, "consent_text_snapshot") || !strings.Contains(portableSignatures, "certificate_content") || !strings.Contains(portableSignatures, "Closed Won") || !strings.Contains(portableSignatures, "Best solution fit") || !strings.Contains(portableSignatures, "Signed scope accepted.") || !strings.Contains(portableSignatures, "conversion_activity_id") || !strings.Contains(portableSignatures, "converted_at") {
 		t.Fatalf("portable quote signature evidence missing: %s", portableSignatures)
 	}
-	for _, secret := range []string{"completion_idempotency_key_hash", "completion_request_sha256", strings.Repeat("7", 64), strings.Repeat("8", 64)} {
+	for _, secret := range []string{"completion_idempotency_key_hash", "completion_request_sha256", "conversion_idempotency_key_hash", "conversion_request_sha256", strings.Repeat("7", 64), strings.Repeat("8", 64), strings.Repeat("6", 64), strings.Repeat("5", 64)} {
 		if strings.Contains(portableSignatures, secret) {
 			t.Fatalf("workspace export leaked signature replay correlation %q: %s", secret, portableSignatures)
 		}

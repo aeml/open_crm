@@ -92,12 +92,12 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 652 KiB | 209 KiB |
+| All JavaScript and CSS | 656 KiB | 210 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 179.11 KiB/58.06 KiB entry, 45.22 KiB/13.20 KiB largest lazy
-chunk, and 651.83 KiB/208.45 KiB total assets. The production contact, company,
-deal, and task routes are 29.64/8.93, 34.66/10.20, 45.22/13.20, and 24.64/7.12
+Current production-URL evidence: 179.11 KiB/58.06 KiB entry, 48.31 KiB/13.88 KiB largest lazy
+chunk, and 655.26 KiB/209.21 KiB total assets. The production contact, company,
+deal, and task routes are 29.64/8.93, 34.66/10.20, 48.31/13.88, and 24.64/7.12
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
@@ -150,6 +150,12 @@ consent/status/certificate UI, staff evidence and recovery controls, and retry-s
 public mutations. After consolidating those public actions and preserving a
 44-pixel disclosure target, its measured 651.83/208.45 KiB build raises only the aggregate ceilings to 652/209 KiB; the
 6.35/2.28 KiB public quote route, entry, per-route, and CSS limits remain bounded.
+Deliberate signed-quote conversion then reuses the close-review and deal-snapshot
+controls while adding retained conversion evidence, retry-safe mutation state,
+and accessible won-stage handoff UI. The same browser review corrected grouped
+activity-list semantics and badge contrast. Its measured 655.26/209.21 KiB build raises
+only the aggregate ceilings to 656/210 KiB; the 179.11/58.06 KiB entry,
+48.31/13.88 KiB largest route, and CSS ceilings remain unchanged.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 

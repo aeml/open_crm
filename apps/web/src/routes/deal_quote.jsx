@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
 import { signatureCertificateURL } from '../lib/deals'
+import { CloseReviewFields, emptyCloseReview } from './deal_close_review'
 import { formatMoney, formatSignatureTime, signatureStatusLabel } from './deal_view'
 
 export function DealLineItemsCard({
@@ -101,7 +103,41 @@ export function DealLineItemsCard({
   )
 }
 
-export function DealSignatureCard({ canWrite, dealID, isSnapshotPending, onVoid, requests, voidingID }) {
+function SignedQuoteConversion({ deal, isConverting, isSnapshotPending, onConvert, request, stages }) {
+  const [form, setForm] = useState({ stageId: '', ...emptyCloseReview })
+  const wonStages = stages.filter((stage) => stage.isClosed && stage.isWon)
+  if (request.convertedAt) {
+    return (
+      <div className="inline-note" aria-label={`Signed quote conversion for ${request.quoteNumber}`}>
+        <strong>Converted to {request.conversionStageName}</strong>
+        <p className="field-hint">{request.conversionCloseReasonLabel}{request.conversionCloseNotes ? ` · ${request.conversionCloseNotes}` : ''}</p>
+        <p className="field-hint">Converted {formatSignatureTime(request.convertedAt)}{request.convertedByUserName ? ` by ${request.convertedByUserName}` : ''}. Later stage changes do not erase this retained conversion evidence.</p>
+      </div>
+    )
+  }
+  if (deal.status !== 'open') {
+    return <p className="field-hint">This signed quote was not used to close the deal. Conversion is available only while the deal is open.</p>
+  }
+  return (
+    <details className="quote-delivery-composer">
+      <summary>Convert signed quote to won</summary>
+      <form className="auth-form" aria-label={`Convert ${request.quoteNumber} to won`} onSubmit={(event) => { event.preventDefault(); onConvert(request.id, form) }}>
+        <p className="field-hint">This deliberate action atomically links the certificate to the won outcome, close review, stage history, automation, and customer handoff.</p>
+        <Field label={`Won stage for ${request.quoteNumber}`}>
+          <select className="text-input" value={form.stageId} onChange={(event) => setForm((current) => ({ ...current, stageId: event.target.value }))} required>
+            <option value="">Choose a won stage</option>
+            {wonStages.map((stage) => <option key={stage.id} value={stage.id}>{stage.name}</option>)}
+          </select>
+        </Field>
+        <CloseReviewFields outcome="won" value={form} onChange={setForm} />
+        {wonStages.length === 0 ? <p className="form-error" role="alert">Configure a won stage before converting this signed quote.</p> : null}
+        <Button type="submit" disabled={isSnapshotPending || isConverting || wonStages.length === 0 || !form.stageId || !form.closeReasonCode}>{isConverting ? 'Converting…' : 'Convert signed quote and hand off client'}</Button>
+      </form>
+    </details>
+  )
+}
+
+export function DealSignatureCard({ canWrite, convertingID, deal, dealID, isSnapshotPending, onConvert, onVoid, requests, stages, voidingID }) {
   return (
     <Card>
       <div className="card-stack">
@@ -131,6 +167,16 @@ export function DealSignatureCard({ canWrite, dealID, isSnapshotPending, onVoid,
                 )}
                 {request.status === 'signed' ? <p className="field-hint">Typed signature: {request.signedName} · consent recorded {formatSignatureTime(request.consentedAt)}</p> : null}
                 {request.status === 'declined' && request.declinedReason ? <p className="field-hint">Recipient reason: {request.declinedReason}</p> : null}
+                {canWrite && request.provider === 'open_crm_native' && request.status === 'signed' ? (
+                  <SignedQuoteConversion
+                    deal={deal}
+                    isConverting={convertingID === request.id}
+                    isSnapshotPending={isSnapshotPending}
+                    onConvert={onConvert}
+                    request={request}
+                    stages={stages}
+                  />
+                ) : null}
               </div>
               <div>
                 <p>{request.status === 'signed' ? `Signed ${formatSignatureTime(request.signedAt)}` : `Updated ${formatSignatureTime(request.updatedAt)}`}</p>

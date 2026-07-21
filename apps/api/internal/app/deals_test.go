@@ -63,6 +63,8 @@ type fakeDealsService struct {
 	publicQuotePDFErr           error
 	voidSignatureResult         moduledeals.Detail
 	voidSignatureErr            error
+	convertSignatureResult      moduledeals.Detail
+	convertSignatureErr         error
 	lastListStagesOrgID         int64
 	lastListOrgID               int64
 	lastListQuery               moduledeals.ListQuery
@@ -102,6 +104,11 @@ type fakeDealsService struct {
 	lastVoidSignatureDealID     int64
 	lastVoidSignatureID         int64
 	lastVoidSignatureActorID    int64
+	lastConvertSignatureOrgID   int64
+	lastConvertSignatureDealID  int64
+	lastConvertSignatureID      int64
+	lastConvertSignatureActorID int64
+	lastConvertSignatureInput   moduledeals.SignatureConversionInput
 	lastListPipelinesOrgID      int64
 	lastCreatePipelineOrgID     int64
 	lastCreatePipelineActorID   int64
@@ -281,6 +288,15 @@ func (f *fakeDealsService) VoidSignatureRequest(_ context.Context, organizationI
 	f.lastVoidSignatureID = requestID
 	f.lastVoidSignatureActorID = actorUserID
 	return f.voidSignatureResult, f.voidSignatureErr
+}
+
+func (f *fakeDealsService) ConvertSignedQuoteToWon(_ context.Context, organizationID, dealID, requestID, actorUserID int64, input moduledeals.SignatureConversionInput) (moduledeals.Detail, error) {
+	f.lastConvertSignatureOrgID = organizationID
+	f.lastConvertSignatureDealID = dealID
+	f.lastConvertSignatureID = requestID
+	f.lastConvertSignatureActorID = actorUserID
+	f.lastConvertSignatureInput = input
+	return f.convertSignatureResult, f.convertSignatureErr
 }
 
 func authenticatedDealsServer(service *fakeDealsService) http.Handler {
@@ -1129,5 +1145,54 @@ func TestVoidDealSignatureRequestUsesCurrentOrganization(t *testing.T) {
 	}
 	if len(response.Data.SignatureRequests) != 1 || response.Data.SignatureRequests[0].Status != "voided" {
 		t.Fatalf("unexpected signature response: %#v", response.Data.SignatureRequests)
+	}
+}
+
+func TestConvertSignedQuoteToWonUsesCurrentOrganizationAndIdempotency(t *testing.T) {
+	result := moduledeals.Detail{
+		Summary: moduledeals.Summary{ID: 12, Name: "Bluebird Expansion", StageID: 5, StageName: "Closed Won", Status: "won", CloseReasonCode: "solution_fit", CloseReasonLabel: "Best solution fit"},
+		SignatureRequests: []moduledeals.SignatureRequest{{
+			ID: 41, QuoteID: 71, QuoteNumber: "Q-12-V1", Status: "signed", Provider: "open_crm_native",
+			ConversionStageID: 5, ConversionStageName: "Closed Won", ConversionCloseReasonCode: "solution_fit",
+			ConversionCloseReasonLabel: "Best solution fit", ConvertedByUserID: 1, ConvertedAt: "2026-07-21T08:30:00Z",
+		}},
+	}
+	service := &fakeDealsService{convertSignatureResult: result}
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/signature-requests/41/convert-to-won", strings.NewReader(`{"stageId":5,"closeReasonCode":"solution_fit","closeNotes":"Signed scope accepted."}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "signed-quote-conversion-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	authenticatedDealsServer(service).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("signed quote conversion status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.lastConvertSignatureOrgID != 42 || service.lastConvertSignatureDealID != 12 || service.lastConvertSignatureID != 41 || service.lastConvertSignatureActorID != 1 {
+		t.Fatalf("unexpected conversion routing: service=%#v", service)
+	}
+	if service.lastConvertSignatureInput.StageID != 5 || service.lastConvertSignatureInput.CloseReasonCode != "solution_fit" || service.lastConvertSignatureInput.CloseNotes != "Signed scope accepted." || service.lastConvertSignatureInput.IdempotencyKey != "signed-quote-conversion-0001" {
+		t.Fatalf("unexpected conversion input: %#v", service.lastConvertSignatureInput)
+	}
+	if !strings.Contains(recorder.Body.String(), `"status":"won"`) || !strings.Contains(recorder.Body.String(), `"conversionStageName":"Closed Won"`) {
+		t.Fatalf("conversion response omitted outcome evidence: %s", recorder.Body.String())
+	}
+
+	missingKey := httptest.NewRequest(http.MethodPost, "/api/deals/12/signature-requests/41/convert-to-won", strings.NewReader(`{"stageId":5,"closeReasonCode":"solution_fit"}`))
+	missingKey.Header.Set("Content-Type", "application/json")
+	addSessionCookie(missingKey)
+	missingRecorder := httptest.NewRecorder()
+	authenticatedDealsServer(service).ServeHTTP(missingRecorder, missingKey)
+	if missingRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("conversion without idempotency key status=%d body=%s", missingRecorder.Code, missingRecorder.Body.String())
+	}
+
+	stateRequest := httptest.NewRequest(http.MethodPost, "/api/deals/12/signature-requests/41/convert-to-won", strings.NewReader(`{"stageId":5,"closeReasonCode":"solution_fit"}`))
+	stateRequest.Header.Set("Content-Type", "application/json")
+	stateRequest.Header.Set("Idempotency-Key", "signed-quote-conversion-state-0001")
+	addSessionCookie(stateRequest)
+	stateRecorder := httptest.NewRecorder()
+	authenticatedDealsServer(&fakeDealsService{convertSignatureErr: moduledeals.ErrSignatureConversionState}).ServeHTTP(stateRecorder, stateRequest)
+	if stateRecorder.Code != http.StatusConflict || !strings.Contains(stateRecorder.Body.String(), "SIGNATURE_CONVERSION_STATE") {
+		t.Fatalf("invalid conversion state status=%d body=%s", stateRecorder.Code, stateRecorder.Body.String())
 	}
 }

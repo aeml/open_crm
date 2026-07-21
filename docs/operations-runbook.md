@@ -697,8 +697,8 @@ references.
    catalog reference changes nothing. Correct through the deal UI and download
    a new draft or finalized version; do not edit line items, quote/proposal rows,
    stored bytes, timestamps, or activity with ad hoc SQL. Reusable templates,
-   approvals, active expiration/reissue workflow, signed-quote close conversion,
-   and jurisdiction-specific policy remain later Phase 4 quote/signature slices.
+   approvals, active expiration/reissue workflow, and jurisdiction-specific
+   policy remain later Phase 4 quote/signature slices.
 
 ### Finalized quote delivery and receipt recovery
 
@@ -727,8 +727,15 @@ incident ticket or application log.
    Also monitor `open_crm_quote_signature_awaiting_response`,
    `open_crm_quote_signature_expired`, `open_crm_quote_signature_signed`,
    `open_crm_quote_signature_declined`, and
-   `open_crm_quote_signature_voided`. An expired unsigned request alerts after
-   15 minutes so the sender can review and deliberately reissue if appropriate.
+   `open_crm_quote_signature_voided`, plus
+   `open_crm_quote_signature_awaiting_conversion` and
+   `open_crm_quote_signature_converted`. An expired unsigned request alerts
+   after 15 minutes so the sender can review and deliberately reissue if
+   appropriate. A signed request on an open, unarchived deal awaiting conversion
+   alerts after 30 minutes; it requires a staff business decision, not an
+   automatic stage change. A signed request on a deal deliberately closed or
+   archived another way remains retained evidence but is not an actionable
+   conversion alert.
 3. For **Needs resolution**, the original sender searches the exact quote
    recipient/subject/time and RFC `Message-ID` in the connected mailbox Sent
    folder. If present, choose **Confirm in Sent folder**. If definitely absent,
@@ -763,11 +770,25 @@ incident ticket or application log.
    method. Do not regenerate or replace retained certificate bytes. Enforceability
    is agreement- and jurisdiction-dependent; escalate legal-policy questions
    instead of editing evidence.
-8. Resolve alerts only after recovery is succeeding, no stale sends remain,
+8. For **Convert signed quote to won**, first confirm the certificate digest and
+   customer identity evidence, then choose the actual same-workspace won stage,
+   required reason, and concise close notes. The action atomically commits the
+   stage event, outcome, automation, client handoff, and immutable conversion
+   snapshots. If the request times out, retry the identical request; its digest-
+   only idempotency evidence prevents a second effect. A changed request
+   conflicts, and a new key cannot reuse already converted evidence. The public
+   signer never chooses the stage and never closes the deal automatically.
+9. To correct the outcome later, use the ordinary stage control to reopen the
+   deal. This clears current close context but retains the signed-quote
+   conversion record. Retrying the original conversion returns the current deal
+   and does not undo that deliberate correction. Never clear conversion columns,
+   replace its activity, or regenerate certificate evidence with SQL.
+10. Resolve alerts only after recovery is succeeding, no stale sends remain,
    every uncertain item has explicit operator evidence, and expired unsigned
-   requests have been reviewed. Portable workspace export includes delivery,
-   receipt, consent, and certificate evidence while excluding bearer tokens,
-   replay hashes, and provider/RFC correlation identifiers.
+   and signed-unconverted requests have been reviewed. Portable workspace export
+   includes delivery, receipt, consent, certificate, and conversion evidence
+   while excluding bearer tokens, replay hashes, and provider/RFC correlation
+   identifiers.
 
 See `docs/versioned-quotes.md` for the immutable snapshot, idempotency, and
 customer-evidence boundary. Never repair `deal_quote_deliveries`,
@@ -785,6 +806,10 @@ bytes, tokens, or counters with ad hoc SQL.
    automation in one transaction. The live deal and its latest close event
    should therefore agree. Sales reporting counts real transitions; reopening
    and closing again creates another outcome rather than rewriting history.
+   When the close came from a native signed quote, the same transaction also
+   binds the certificate/request to that activity and client handoff. Its
+   retained stage and close snapshots remain historical evidence if the live
+   deal is later reopened.
 3. To correct a mistaken close, move the deal back to an open stage. This clears
    current close context while preserving the original event. Then move it to
    the correct closed stage with the corrected reason/notes. Reports retain both

@@ -439,6 +439,11 @@
   gap: var(--space-2);
 }
 
+.activity-day-items {
+  display: grid;
+  gap: var(--space-2);
+}
+
 .activity-day-heading {
   color: var(--text-muted);
   font-size: 0.82rem;
@@ -460,7 +465,7 @@
   padding: 0.35rem 0.65rem;
   border-radius: 999px;
   background: rgba(39, 94, 254, 0.08);
-  color: var(--accent);
+  color: var(--accent-strong);
   font-size: 0.78rem;
   font-weight: 800;
 }

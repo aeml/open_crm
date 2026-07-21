@@ -103,6 +103,56 @@ func handleVoidDealSignatureRequest(auth authService, deals dealsService, w http
 	respondDealDetail(w, r, http.StatusOK, result)
 }
 
+func handleConvertSignedQuoteToWon(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgWriter(auth, w, r)
+	if !ok {
+		return
+	}
+	if deals == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
+		return
+	}
+	dealID, ok := parsePathInt64(w, r, "dealID")
+	if !ok {
+		return
+	}
+	signatureID, ok := parsePathInt64(w, r, "requestID")
+	if !ok {
+		return
+	}
+	idempotencyKey, ok := signatureIdempotencyKey(w, r, requestID)
+	if !ok {
+		return
+	}
+	var input moduledeals.SignatureConversionInput
+	if !decodeJSONRequest(w, r, requestID, &input) {
+		return
+	}
+	input.IdempotencyKey = idempotencyKey
+	result, err := deals.ConvertSignedQuoteToWon(r.Context(), state.Organization.ID, dealID, signatureID, state.User.ID, input)
+	if err != nil {
+		switch {
+		case writeResourceNotFound(w, requestID, err):
+			return
+		case errors.Is(err, moduledeals.ErrInvalidSignatureConversion):
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose a won stage for this signed quote")
+		case errors.Is(err, moduledeals.ErrInvalidCloseReview):
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose a valid won reason; notes may be up to 2,000 characters")
+		case errors.Is(err, moduledeals.ErrWonDealAccountRequired):
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Link a company or primary contact before converting this signed quote")
+		case errors.Is(err, moduledeals.ErrSignatureConflict):
+			platformweb.WriteError(w, http.StatusConflict, requestID, "IDEMPOTENCY_CONFLICT", "That idempotency key was already used for another signed quote conversion")
+		case errors.Is(err, moduledeals.ErrSignatureConversionState):
+			platformweb.WriteError(w, http.StatusConflict, requestID, "SIGNATURE_CONVERSION_STATE", "Only unconverted native signed evidence on an open deal can be converted")
+		default:
+			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to convert signed quote to a won deal")
+		}
+		return
+	}
+	respondDealDetail(w, r, http.StatusOK, result)
+}
+
 func handleDownloadDealSignatureCertificate(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgMember(auth, w, r)

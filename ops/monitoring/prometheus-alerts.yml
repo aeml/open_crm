@@ -344,6 +344,15 @@ groups:
           summary: Sent quote-signature requests have expired without a recipient decision
           runbook: docs/operations-runbook.md#finalized-quote-delivery-and-receipt-recovery
 
+      - alert: OpenCRMQuoteSignaturesAwaitingConversion
+        expr: open_crm_quote_signature_awaiting_conversion > 0 and open_crm_quote_signature_oldest_awaiting_conversion_age_seconds > 1800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Signed quotes are awaiting deliberate won-deal conversion and client handoff
+          runbook: docs/operations-runbook.md#finalized-quote-delivery-and-receipt-recovery
+
       - alert: OpenCRMBackupStatusUnavailable
         expr: open_crm_backup_status_available == 0
         for: 30m

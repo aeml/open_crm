@@ -5,8 +5,8 @@ Last reviewed: 2026-07-21
 This is the supported pilot sales path. It joins the production-capable pieces
 that are otherwise described individually in the capability matrix. The native
 quote-signing path is executable production-equivalent behavior but remains a
-foundation until signed-close conversion, policy review, provider evidence, and
-pilot validation pass; the hidden general workflow builder is not promoted.
+foundation until policy review, provider evidence, and pilot validation pass;
+the hidden general workflow builder is not promoted.
 
 ## Pilot path
 
@@ -22,12 +22,16 @@ pilot validation pass; the hidden general workflow builder is not promoted.
    items, and stage movement. Forecasts use the configured probability saved on
    each current stage and disclose excluded currency/date cases.
 5. Moving a deal into won or lost requires a fixed outcome-specific reason and
-   accepts optional notes. Reopening clears the live close context but retains
-   the immutable event-time outcome history. A win also requires a company or
-   primary contact. It promotes the explicitly linked organization to customer;
-   only a company-less win promotes its primary contact as an individual client.
-   The same transaction records the handoff, and reopening does not erase the
-   customer relationship.
+   accepts optional notes. After a native signature, a writer can instead
+   deliberately select a won stage and close review from the signature row. The
+   public signer never closes the deal. That conversion atomically binds the
+   retained certificate to the outcome, stage event, task automation, actor,
+   and client handoff. Reopening clears the live close context but retains both
+   immutable event-time history and signed-quote conversion evidence; replaying
+   the original conversion does not re-close the deal. A win also requires a
+   company or primary contact. It promotes the explicitly linked organization
+   to customer; only a company-less win promotes its primary contact as an
+   individual client. Reopening does not erase the customer relationship.
 6. The won-deal link opens a compact account summary built from the existing
    client, won deals, open client tasks, recent client notes, and key people;
    the ordinary detail workflows remain the source of truth beneath it.
@@ -46,9 +50,10 @@ pilot validation pass; the hidden general workflow builder is not promoted.
 
 The clean PostgreSQL-backed Chromium journey performs this sequence as one
 workflow, including a pipeline rename after deal creation, forecast continuity,
-automated-task creation, reminder visibility, report reconciliation, close
-review, post-sale health triage, recurring renewal advancement, and cross-tenant
-denial.
+automated-task creation, reminder visibility, real-SMTP delivery, public signing,
+matching customer/staff certificate evidence, deliberate signed-quote conversion,
+report reconciliation, close review, post-sale health triage, recurring renewal
+advancement, and cross-tenant denial.
 
 ## Reporting semantics and scale boundary
 
@@ -73,9 +78,10 @@ denial.
   preserve the exact recipient, terms, validity, line-item/totals snapshot, PDF
   bytes, and SHA-256 digest. Connected-mailbox delivery may request the native
   recipient-link ceremony, which retains exact-name consent and a certificate;
-  staff cannot forge completion. Approval, automatic signed-close conversion,
-  reusable terms/FX/expiration policy, jurisdiction review, and pilot evidence
-  remain incomplete.
+  staff cannot forge completion. A separate staff decision now binds signed
+  evidence to a selected won outcome and handoff without granting that authority
+  to the public signer. Approval, reusable terms/FX/expiration policy,
+  jurisdiction review, and pilot evidence remain incomplete.
 - Only the exposed deal-task rule subset executes. Stored broad workflow
   definitions, branching, approvals, scheduled actions, and other action types
   remain hidden foundations.
