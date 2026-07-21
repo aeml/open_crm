@@ -50,7 +50,7 @@ function isExecutableTaskRule(automation) {
   const allowedFields = new Set(['sourceUrl', 'leadSource', 'utmSource', 'utmMedium', 'utmCampaign'])
   const allowedOperators = new Set(['equals', 'notEquals', 'contains', 'exists'])
   const conditions = automation.conditions || []
-  return event === 'lead_form_submitted' && conditions.length <= 10 &&
+  return event === 'lead_form_submitted' && conditions.length <= 1 &&
     (!automation.triggerConfig?.formId || (Number.isInteger(formID) && formID > 0)) &&
     Number.isInteger(assigneeID) && assigneeID > 0 &&
     conditions.every((condition) => allowedFields.has(condition.field) && allowedOperators.has(condition.operator) && (condition.operator === 'exists' || Boolean(String(condition.value || '').trim())))

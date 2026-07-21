@@ -40,7 +40,8 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/workflow-automations')) {
         return jsonResponse({ data: { automations: [
           { id: 5, name: 'Qualify new deals', triggerType: 'record_created', targetEntityType: 'deal', triggerConfig: {}, conditions: [], actions: [{ type: 'create_task', config: { title: 'Qualify deal' }, delayMinutes: 1440 }], isActive: true },
-          { id: 6, name: 'Legacy email action', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditions: [], actions: [{ type: 'send_email', config: { subject: 'Welcome', body: 'Hello' } }], isActive: true }
+          { id: 6, name: 'Legacy email action', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditions: [], actions: [{ type: 'send_email', config: { subject: 'Welcome', body: 'Hello' } }], isActive: true },
+          { id: 7, name: 'Unsupported multi-condition lead rule', triggerType: 'form_submitted', targetEntityType: 'lead_form', triggerConfig: {}, conditionLogic: 'all', conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }, { field: 'utmMedium', operator: 'equals', value: 'paid' }], actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7 } }], isActive: true }
         ] } })
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`)
@@ -53,7 +54,8 @@ describe('settings task automations route', () => {
     expect(await screen.findByRole('heading', { name: /task automation rules/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Qualify new deals' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Legacy email action' })).not.toBeInTheDocument()
-    expect(screen.getByText(/1 stored legacy workflow definition is hidden/i)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Unsupported multi-condition lead rule' })).not.toBeInTheDocument()
+    expect(screen.getByText(/2 stored legacy workflow definitions are hidden/i)).toBeInTheDocument()
     expect(screen.getByRole('list', { name: 'Task automation runs' })).toHaveTextContent('1/1 tasks created')
 
     fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Proposal follow-up' } })
