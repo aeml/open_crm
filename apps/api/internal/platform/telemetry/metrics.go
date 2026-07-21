@@ -241,6 +241,11 @@ type RuntimeSnapshot struct {
 	WorkflowRunsFailed24h          int64
 	WorkflowRunsSkipped24h         int64
 	WorkflowOldestActiveAge        time.Duration
+	LeadReviewsAvailable           bool
+	LeadReviewsUnreviewed          int64
+	LeadReviewsLegitimate          int64
+	LeadReviewsSpam                int64
+	LeadReviewOldestUnreviewedAge  time.Duration
 	Backup                         BackupStatus
 }
 
@@ -395,6 +400,7 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 		LastRunAt: quoteDeliveryRecoveryLastAt, LastRunOK: quoteDeliveryRecoveryLastOK,
 	})
 	writeWorkflowAutomationMetrics(&output, snapshot)
+	writeLeadSubmissionReviewMetrics(&output, snapshot)
 	writeHelpType(&output, "open_crm_password_resets_available", "Whether aggregate password-reset health was collected successfully.", "gauge")
 	writeBool(&output, "open_crm_password_resets_available", snapshot.PasswordResetsAvailable)
 	writeHelpType(&output, "open_crm_password_reset_outstanding", "Current non-expired one-time password-reset tokens across all users.", "gauge")

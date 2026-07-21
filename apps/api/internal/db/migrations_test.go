@@ -1774,3 +1774,30 @@ func TestMigrationFilesIncludeWorkflowRunOperationsMigrations(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationFilesIncludeLeadSubmissionReview(t *testing.T) {
+	const name = "103_lead_submission_review.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("lead submission review migration %s is missing", name)
+	}
+	for _, fragment := range []string{
+		"-- open-crm-deploy: expand",
+		"review_status",
+		"quarantined_contact_at",
+		"lead_capture_submission_review_requests",
+		"key_digest",
+		"lead_capture_submissions_reviewer_membership_fk",
+		"idx_lead_capture_submissions_org_id_unique",
+		"idx_lead_capture_submissions_org_review_created",
+		"idx_lead_capture_submissions_review_created",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(MigrationSQL(name), fragment) {
+			t.Fatalf("lead submission review migration missing %q", fragment)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("lead submission review migration class=%q", class)
+	}
+}

@@ -17,61 +17,71 @@ import (
 )
 
 type fakeLeadFormsService struct {
-	listResult            []moduleleadforms.Form
-	listErr               error
-	createResult          moduleleadforms.Form
-	createErr             error
-	updateResult          moduleleadforms.Form
-	updateErr             error
-	pageListResult        []moduleleadforms.LandingPage
-	pageListErr           error
-	pageCreateResult      moduleleadforms.LandingPage
-	pageCreateErr         error
-	pageUpdateResult      moduleleadforms.LandingPage
-	pageUpdateErr         error
-	publicPageResult      moduleleadforms.PublicLandingPage
-	publicPageErr         error
-	widgetListResult      []moduleleadforms.ChatWidget
-	widgetListErr         error
-	widgetCreateResult    moduleleadforms.ChatWidget
-	widgetCreateErr       error
-	widgetUpdateResult    moduleleadforms.ChatWidget
-	widgetUpdateErr       error
-	publicWidgetResult    moduleleadforms.PublicChatWidget
-	publicWidgetErr       error
-	challengeResult       moduleleadforms.SubmissionChallenge
-	challengeErr          error
-	submitResult          moduleleadforms.SubmissionResult
-	submitErr             error
-	lastListOrgID         int64
-	lastCreateOrgID       int64
-	lastCreateUserID      int64
-	lastCreateInput       moduleleadforms.Input
-	lastUpdateOrgID       int64
-	lastUpdateID          int64
-	lastUpdateUserID      int64
-	lastUpdateInput       moduleleadforms.Input
-	lastPageListOrg       int64
-	lastPageCreateOrg     int64
-	lastPageCreateUser    int64
-	lastPageCreateInput   moduleleadforms.LandingPageInput
-	lastPageUpdateOrg     int64
-	lastPageUpdateID      int64
-	lastPageUpdateUser    int64
-	lastPageUpdateInput   moduleleadforms.LandingPageInput
-	lastPublicPageSlug    string
-	lastWidgetListOrg     int64
-	lastWidgetCreateOrg   int64
-	lastWidgetCreateUser  int64
-	lastWidgetCreateInput moduleleadforms.ChatWidgetInput
-	lastWidgetUpdateOrg   int64
-	lastWidgetUpdateID    int64
-	lastWidgetUpdateUser  int64
-	lastWidgetUpdateInput moduleleadforms.ChatWidgetInput
-	lastPublicWidgetID    string
-	lastChallengePublicID string
-	lastPublicID          string
-	lastSubmitInput       moduleleadforms.SubmissionInput
+	listResult             []moduleleadforms.Form
+	listErr                error
+	createResult           moduleleadforms.Form
+	createErr              error
+	updateResult           moduleleadforms.Form
+	updateErr              error
+	pageListResult         []moduleleadforms.LandingPage
+	pageListErr            error
+	pageCreateResult       moduleleadforms.LandingPage
+	pageCreateErr          error
+	pageUpdateResult       moduleleadforms.LandingPage
+	pageUpdateErr          error
+	publicPageResult       moduleleadforms.PublicLandingPage
+	publicPageErr          error
+	widgetListResult       []moduleleadforms.ChatWidget
+	widgetListErr          error
+	widgetCreateResult     moduleleadforms.ChatWidget
+	widgetCreateErr        error
+	widgetUpdateResult     moduleleadforms.ChatWidget
+	widgetUpdateErr        error
+	publicWidgetResult     moduleleadforms.PublicChatWidget
+	publicWidgetErr        error
+	challengeResult        moduleleadforms.SubmissionChallenge
+	challengeErr           error
+	submitResult           moduleleadforms.SubmissionResult
+	submitErr              error
+	lastListOrgID          int64
+	lastCreateOrgID        int64
+	lastCreateUserID       int64
+	lastCreateInput        moduleleadforms.Input
+	lastUpdateOrgID        int64
+	lastUpdateID           int64
+	lastUpdateUserID       int64
+	lastUpdateInput        moduleleadforms.Input
+	lastPageListOrg        int64
+	lastPageCreateOrg      int64
+	lastPageCreateUser     int64
+	lastPageCreateInput    moduleleadforms.LandingPageInput
+	lastPageUpdateOrg      int64
+	lastPageUpdateID       int64
+	lastPageUpdateUser     int64
+	lastPageUpdateInput    moduleleadforms.LandingPageInput
+	lastPublicPageSlug     string
+	lastWidgetListOrg      int64
+	lastWidgetCreateOrg    int64
+	lastWidgetCreateUser   int64
+	lastWidgetCreateInput  moduleleadforms.ChatWidgetInput
+	lastWidgetUpdateOrg    int64
+	lastWidgetUpdateID     int64
+	lastWidgetUpdateUser   int64
+	lastWidgetUpdateInput  moduleleadforms.ChatWidgetInput
+	lastPublicWidgetID     string
+	lastChallengePublicID  string
+	lastPublicID           string
+	lastSubmitInput        moduleleadforms.SubmissionInput
+	reviewListResult       moduleleadforms.SubmissionReviewPage
+	reviewListErr          error
+	reviewResult           moduleleadforms.ReviewedSubmission
+	reviewErr              error
+	lastReviewListOrgID    int64
+	lastReviewListQuery    moduleleadforms.SubmissionReviewQuery
+	lastReviewOrgID        int64
+	lastReviewSubmissionID int64
+	lastReviewActorID      int64
+	lastReviewInput        moduleleadforms.SubmissionReviewInput
 }
 
 func (f *fakeLeadFormsService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleleadforms.Form, error) {
@@ -92,6 +102,20 @@ func (f *fakeLeadFormsService) Update(_ context.Context, organizationID, formID,
 	f.lastUpdateUserID = actorUserID
 	f.lastUpdateInput = input
 	return f.updateResult, f.updateErr
+}
+
+func (f *fakeLeadFormsService) ListSubmissionReviews(_ context.Context, organizationID int64, query moduleleadforms.SubmissionReviewQuery) (moduleleadforms.SubmissionReviewPage, error) {
+	f.lastReviewListOrgID = organizationID
+	f.lastReviewListQuery = query
+	return f.reviewListResult, f.reviewListErr
+}
+
+func (f *fakeLeadFormsService) ReviewSubmission(_ context.Context, organizationID, submissionID, actorUserID int64, input moduleleadforms.SubmissionReviewInput) (moduleleadforms.ReviewedSubmission, error) {
+	f.lastReviewOrgID = organizationID
+	f.lastReviewSubmissionID = submissionID
+	f.lastReviewActorID = actorUserID
+	f.lastReviewInput = input
+	return f.reviewResult, f.reviewErr
 }
 
 func (f *fakeLeadFormsService) ListLandingPagesByOrganization(_ context.Context, organizationID int64) ([]moduleleadforms.LandingPage, error) {
@@ -258,6 +282,82 @@ func TestUpdateLeadCaptureFormScopesToOrganization(t *testing.T) {
 	}
 	if service.lastUpdateInput.IsActive == nil || *service.lastUpdateInput.IsActive != inactive {
 		t.Fatalf("expected inactive update input, got %#v", service.lastUpdateInput.IsActive)
+	}
+}
+
+func TestListLeadSubmissionReviewsRequiresAdminAndScopesFilters(t *testing.T) {
+	service := &fakeLeadFormsService{reviewListResult: moduleleadforms.SubmissionReviewPage{
+		Submissions: []moduleleadforms.ReviewedSubmission{{ID: 17, FormID: 9, ContactID: 22, ReviewStatus: moduleleadforms.ReviewStatusUnreviewed}},
+		Counts:      moduleleadforms.SubmissionReviewCounts{Unreviewed: 1},
+		Limit:       50,
+	}}
+	server := authenticatedLeadFormsServer(service, "admin")
+	request := httptest.NewRequest(http.MethodGet, "/api/lead-capture-submissions?status=unreviewed&formId=9", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || service.lastReviewListOrgID != 42 || service.lastReviewListQuery.Status != "unreviewed" || service.lastReviewListQuery.FormID != 9 {
+		t.Fatalf("unexpected review list routing: status=%d org=%d query=%#v body=%s", recorder.Code, service.lastReviewListOrgID, service.lastReviewListQuery, recorder.Body.String())
+	}
+	memberService := &fakeLeadFormsService{}
+	memberServer := authenticatedLeadFormsServer(memberService, "member")
+	memberRequest := httptest.NewRequest(http.MethodGet, "/api/lead-capture-submissions", nil)
+	addSessionCookie(memberRequest)
+	memberRecorder := httptest.NewRecorder()
+	memberServer.ServeHTTP(memberRecorder, memberRequest)
+	if memberRecorder.Code != http.StatusForbidden || memberService.lastReviewListOrgID != 0 {
+		t.Fatalf("member reached sensitive review queue: status=%d org=%d", memberRecorder.Code, memberService.lastReviewListOrgID)
+	}
+}
+
+func TestReviewLeadSubmissionPassesTenantActorAndIdempotency(t *testing.T) {
+	service := &fakeLeadFormsService{reviewResult: moduleleadforms.ReviewedSubmission{ID: 17, ContactID: 22, ReviewStatus: moduleleadforms.ReviewStatusSpam}}
+	server := authenticatedLeadFormsServer(service, "owner")
+	request := httptest.NewRequest(http.MethodPost, "/api/lead-capture-submissions/17/review", bytes.NewBufferString(`{"status":"spam","note":"Bot inquiry"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "lead-review-handler-key-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || service.lastReviewOrgID != 42 || service.lastReviewSubmissionID != 17 || service.lastReviewActorID != 1 {
+		t.Fatalf("unexpected review routing: status=%d org=%d submission=%d actor=%d body=%s", recorder.Code, service.lastReviewOrgID, service.lastReviewSubmissionID, service.lastReviewActorID, recorder.Body.String())
+	}
+	if service.lastReviewInput.Status != "spam" || service.lastReviewInput.Note != "Bot inquiry" || service.lastReviewInput.IdempotencyKey != "lead-review-handler-key-0001" {
+		t.Fatalf("unexpected review input: %#v", service.lastReviewInput)
+	}
+}
+
+func TestReviewLeadSubmissionMapsStableRecoveryErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+		code string
+	}{
+		{name: "invalid", err: moduleleadforms.ErrInvalidReview, want: http.StatusBadRequest, code: "BAD_REQUEST"},
+		{name: "missing", err: moduleleadforms.ErrNotFound, want: http.StatusNotFound, code: "NOT_FOUND"},
+		{name: "idempotency", err: moduleleadforms.ErrReviewIdempotencyConflict, want: http.StatusConflict, code: "IDEMPOTENCY_CONFLICT"},
+		{name: "changed", err: moduleleadforms.ErrReviewConflict, want: http.StatusConflict, code: "REVIEW_CONFLICT"},
+		{name: "capacity", err: modulebilling.ErrCapacityUnavailable, want: http.StatusServiceUnavailable, code: "CAPACITY_UNAVAILABLE"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &fakeLeadFormsService{reviewErr: test.err}
+			server := authenticatedLeadFormsServer(service, "admin")
+			request := httptest.NewRequest(http.MethodPost, "/api/lead-capture-submissions/17/review", bytes.NewBufferString(`{"status":"spam"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Idempotency-Key", "lead-review-handler-key-0002")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != test.want || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"`+test.code+`"`)) {
+				t.Fatalf("unexpected review error response: status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 

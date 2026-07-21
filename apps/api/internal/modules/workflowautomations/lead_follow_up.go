@@ -42,14 +42,15 @@ type leadFollowUpSnapshot struct {
 }
 
 type leadFollowUpPayload struct {
-	Event          string               `json:"event"`
-	FormID         int64                `json:"formId"`
-	FormPublicID   string               `json:"formPublicId"`
-	SubmissionID   int64                `json:"submissionId"`
-	ContactID      int64                `json:"contactId"`
-	Definition     leadFollowUpSnapshot `json:"definition"`
-	CreatedTaskID  int64                `json:"createdTaskId,omitempty"`
-	TerminalReason string               `json:"terminalReason,omitempty"`
+	Event                 string               `json:"event"`
+	FormID                int64                `json:"formId"`
+	FormPublicID          string               `json:"formPublicId"`
+	SubmissionID          int64                `json:"submissionId"`
+	ContactID             int64                `json:"contactId"`
+	Definition            leadFollowUpSnapshot `json:"definition"`
+	RecoveryReviewVersion int                  `json:"recoveryReviewVersion,omitempty"`
+	CreatedTaskID         int64                `json:"createdTaskId,omitempty"`
+	TerminalReason        string               `json:"terminalReason,omitempty"`
 }
 
 func validateLeadFollowUpReferences(ctx context.Context, tx pgx.Tx, organizationID int64, input Input) error {

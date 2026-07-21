@@ -45,3 +45,14 @@ func TestPublicChallengeLedgerIsClassifiedButNotPortable(t *testing.T) {
 		}
 	}
 }
+
+func TestLeadReviewRequestLedgerIsClassifiedButNotPortable(t *testing.T) {
+	if _, ok := classifiedOrganizationTables["lead_capture_submission_review_requests"]; !ok {
+		t.Fatal("lead review request ledger must remain explicitly classified")
+	}
+	for _, current := range portableDatasets {
+		if current.name == "lead_capture_submission_review_requests" {
+			t.Fatal("lead review request security ledger must not be portable")
+		}
+	}
+}

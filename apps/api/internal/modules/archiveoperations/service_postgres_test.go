@@ -123,6 +123,32 @@ func TestArchiveRecoveryIsTenantSafeDependencyAwareAndAuditedAgainstPostgres(t *
 	if _, err := service.Restore(ctx, organizationID, ownerID, "contact", mergedSourceID); !errors.Is(err, modulearchiveoperations.ErrConflict) || !strings.Contains(err.Error(), "duplicate merge") {
 		t.Fatalf("expected permanent merge-source conflict, got %v", err)
 	}
+
+	spamContactID := archiveInsertContact(t, ctx, pool, organizationID, ownerID, "Spam", "Candidate", true)
+	var formID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO lead_capture_forms (organization_id,public_id,name,slug,title,fields_json,success_message,consent_text)
+		VALUES ($1,$2,'Spam review','spam-review','Spam review','[]'::jsonb,'Thanks','I agree') RETURNING id
+	`, organizationID, "lf-spam-"+schema).Scan(&formID); err != nil {
+		t.Fatalf("create spam review form: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO lead_capture_submissions (
+		  organization_id,form_id,contact_id,payload_json,consent_text_snapshot,consented_at,
+		  review_status,review_version,reviewed_at,reviewed_by_user_id,quarantined_contact_at
+		)
+		SELECT $1,$2,$3,'{}'::jsonb,'I agree',NOW(),'spam',1,NOW(),$4,archived_at
+		FROM contacts WHERE organization_id=$1 AND id=$3
+	`, organizationID, formID, spamContactID, ownerID); err != nil {
+		t.Fatalf("create spam quarantine evidence: %v", err)
+	}
+	spamRecords, err := service.List(ctx, organizationID, modulearchiveoperations.ListQuery{EntityType: "contact", Search: "Spam Candidate"})
+	if err != nil || len(spamRecords) != 1 || !strings.Contains(spamRecords[0].RestoreBlockedReason, "Lead Forms") {
+		t.Fatalf("expected visible spam recovery boundary: records=%#v err=%v", spamRecords, err)
+	}
+	if _, err := service.Restore(ctx, organizationID, ownerID, "contact", spamContactID); !errors.Is(err, modulearchiveoperations.ErrConflict) || !strings.Contains(err.Error(), "Lead Forms") {
+		t.Fatalf("generic archive restore bypassed spam quarantine: %v", err)
+	}
 }
 
 func archiveInsertOrganization(t *testing.T, ctx context.Context, pool *moduledb.Pool, name, slug string) int64 {

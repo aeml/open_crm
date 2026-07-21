@@ -85,11 +85,19 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 			) RETURNING id
 		), submission AS (
 			INSERT INTO lead_capture_submissions (
-				organization_id,form_id,payload_json,source_url,lead_source,consent_text_snapshot,consented_at
+				organization_id,form_id,payload_json,source_url,lead_source,consent_text_snapshot,consented_at,
+				review_status,review_version,review_note,reviewed_at,reviewed_by_user_id
 			)
 			SELECT $1,id,'{"message":"Portable inquiry"}'::jsonb,'https://portable.test/contact','Website',
-				'I agree that Portable Pilot may contact me.',NOW()
+				'I agree that Portable Pilot may contact me.',NOW(),
+				'legitimate',1,'Verified pilot inquiry.',NOW(),$2
 			FROM form RETURNING id,form_id
+		), review_request AS (
+			INSERT INTO lead_capture_submission_review_requests (
+				organization_id,submission_id,key_digest,request_sha256,result_review_version
+			)
+			SELECT $1,id,repeat('3',64),repeat('4',64),1 FROM submission
+			RETURNING submission_id
 		)
 		INSERT INTO lead_capture_submission_challenges (
 			organization_id,form_id,token_digest,consent_text_snapshot,request_digest,submission_id,
@@ -97,7 +105,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		)
 		SELECT $1,form_id,repeat('1',64),'I agree that Portable Pilot may contact me.',repeat('2',64),id,
 			NOW()-INTERVAL '3 seconds',NOW()-INTERVAL '1 second',NOW()+INTERVAL '30 minutes',NOW()
-		FROM submission
+		FROM submission JOIN review_request ON review_request.submission_id=submission.id
 	`, organizationID, ownerID); err != nil {
 		t.Fatalf("seed portable lead consent evidence: %v", err)
 	}
@@ -364,13 +372,16 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	}
 	portableLeadForms := string(files["data/lead_capture_forms.ndjson"])
 	portableLeadSubmissions := string(files["data/lead_capture_submissions.ndjson"])
-	if !strings.Contains(portableLeadForms, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "consented_at") || !strings.Contains(portableLeadSubmissions, "Portable inquiry") {
+	if !strings.Contains(portableLeadForms, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "consented_at") || !strings.Contains(portableLeadSubmissions, "Portable inquiry") || !strings.Contains(portableLeadSubmissions, "Verified pilot inquiry.") || !strings.Contains(portableLeadSubmissions, `"review_status": "legitimate"`) {
 		t.Fatalf("portable lead consent evidence missing: forms=%s submissions=%s", portableLeadForms, portableLeadSubmissions)
 	}
 	if _, exists := files["data/lead_capture_submission_challenges.ndjson"]; exists {
 		t.Fatal("workspace export included internal public challenge ledger")
 	}
-	for _, secret := range []string{strings.Repeat("1", 64), strings.Repeat("2", 64), "token_digest", "request_digest"} {
+	if _, exists := files["data/lead_capture_submission_review_requests.ndjson"]; exists {
+		t.Fatal("workspace export included internal lead review request ledger")
+	}
+	for _, secret := range []string{strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64), strings.Repeat("4", 64), "token_digest", "request_digest", "last_review_key_digest", "last_review_request_sha256"} {
 		if strings.Contains(portableLeadForms, secret) || strings.Contains(portableLeadSubmissions, secret) {
 			t.Fatalf("workspace export leaked public challenge correlation %q", secret)
 		}

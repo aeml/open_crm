@@ -24,7 +24,10 @@ reviewed event mix, per-recipient concentration, notification retention, and
 email-engagement cleanup outcomes plus connected-mailbox reply claims,
 uncertain outcomes, and recovery-pass health without tenant, recipient,
 message, or record labels. Public-lead counters report only bounded challenge,
-accepted, replayed, rejected, and internal-error outcomes. Password-recovery gauges report current
+accepted, replayed, rejected, and internal-error outcomes. Lead-review gauges
+report aggregate unreviewed, legitimate, and spam states plus the age of the
+oldest unreviewed submission without tenant, form, contact, or payload labels.
+Password-recovery gauges report current
 non-expired links plus stale-pending and latest-failed delivery counts without
 user, address, or tenant labels. System-email feedback gauges report aggregate
 Postmark bounces, complaints, and authenticated-but-unapplied events in the
@@ -71,7 +74,8 @@ The reference rules alert on metrics collection or database failure, sustained
 provider failures, password-recovery and system-email feedback health,
 notification collection/retention/elevated recipient volume, email-engagement
 retention, connected-mailbox reply recovery, public-lead internal errors and
-elevated rejections,
+elevated rejections, unavailable lead-review health and submissions left
+unreviewed for more than one day,
 backup evidence/failure/freshness, and restore-drill failure/freshness. They do
 not choose an Alertmanager destination. Before a
 pilot, the operator must route critical and warning alerts to an approved
@@ -956,7 +960,8 @@ bytes, tokens, or counters with ad hoc SQL.
    Once due, `queued` or `running` should be transient. `succeeded` names the
    created task. `skipped` means the captured condition did not match or the
    retained contact/source was no longer eligible. `cancelled` means
-   an operator deactivated the rule before execution. `failed` is terminal and
+   an operator deactivated the rule or quarantined its source submission before
+   execution. `failed` is terminal and
    most commonly means the captured assignee is no longer active; choose an
    active assignee for future submissions and create/reassign the current
    follow-up through normal task controls.
@@ -977,6 +982,55 @@ bytes, tokens, or counters with ad hoc SQL.
    schedule and durable job before replay.
    `OpenCRMWorkflowRunFailed` indicates terminal failures that require an
    operator review even when the queue itself is healthy.
+
+### Lead submission spam review and recovery
+
+1. Owners/admins open **Settings > Lead Forms**. **Lead submission review**
+   defaults to the newest 50 unreviewed inquiries and can filter by exact form
+   or `unreviewed`, `legitimate`, or `spam` state. It shows retained business
+   fields, attribution, contact state, and bounded follow-up
+   counts. This queue contains customer-provided data and is deliberately not
+   visible to members or viewers.
+2. Before using follow-up automation as an operating SLA, choose a creation
+   delay that leaves the team a realistic review window. **Mark spam** requires
+   confirmation and accepts an optional internal note. One transaction records
+   activity/audit evidence, archives the exact contact created by that
+   submission, cancels every still-queued lead-follow-up run, and completes its
+   unclaimed durable job as a safe no-op. A worker already holding the run lock
+   finishes first; if it committed a task, that task and run remain explicit
+   history and the review result reports the completed effect.
+3. Do not restore a spam contact from **Archived Records**. That screen names
+   the quarantine and refuses the generic restore so review and automation state
+   cannot diverge. Use **Recover as legitimate** in Lead Forms. Recovery restores
+   only a contact whose exact archive timestamp belongs to that spam decision,
+   checks hosted contact capacity, records a new review version, and creates one
+   successor for the latest spam-cancelled run per rule. It never rewrites a
+   cancelled run or duplicates a task already completed. The successor honors
+   the original future schedule, or becomes runnable now when that boundary has
+   passed.
+4. Exact retries use a tenant/submission-bound digest-only request ledger.
+   Replays at the same review version return the retained effect counts; a
+   historical delayed retry returns the current decision without reapplying its
+   older effects. Changed key reuse fails with `IDEMPOTENCY_CONFLICT`. The ledger
+   is internal security material and is excluded from workspace exports.
+   `REVIEW_CONFLICT` means the
+   contact or review changed between the capacity preflight and transaction;
+   refresh before deciding again. `PLAN_LIMIT_REACHED` means the archived contact
+   cannot currently be restored under the managed plan. Never edit submission,
+   contact, run, job, activity, or audit rows directly to bypass these guards.
+5. Monitor `open_crm_lead_reviews_available`,
+   `open_crm_lead_reviews{state="unreviewed"}`, and
+   `open_crm_lead_review_oldest_unreviewed_age_seconds`.
+   `OpenCRMLeadReviewMetricsUnavailable` means the aggregate review read failed.
+   `OpenCRMLeadReviewStale` means at least one inquiry has waited more than the
+   provisional 24-hour review window; inspect the admin queue and staffing before
+   changing the threshold. These aggregate metrics expose no tenant, form,
+   contact, or submitted-value labels.
+6. This workflow is human classification and recovery, not a reputation engine,
+   volumetric edge control, or automatic qualification/routing system. Keep the
+   scoring/routing foundation hidden until an approved edge/WAF, configurable
+   mapping, simulation, observability, and acceptance evidence complete that
+   separate outcome.
 
 ### Bulk change recovery
 

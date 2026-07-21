@@ -98,6 +98,7 @@ test('critical public and authenticated surfaces meet automated WCAG A/AA rules'
     ['/settings/profile', 'My Profile', 'profile-and-session-security'],
     ['/settings/users', 'Users', 'team-access'],
     ['/settings/imports', 'Data imports', 'data-imports'],
+    ['/settings/lead-forms', 'Lead Forms', 'lead-submission-review'],
     ['/settings/email-sequences', 'Email Sequences', 'email-sequence-approval'],
     ['/settings/billing', 'Plan & Billing', 'billing-and-export']
   ]

@@ -41,6 +41,9 @@ describe('settings lead forms route', () => {
       if (path.endsWith('/api/notifications/unread-count')) {
         return jsonResponse({ data: { unreadCount: 0 } })
       }
+	  if (path.endsWith('/api/lead-capture-submissions')) {
+		return jsonResponse({ data: { submissions: [], counts: { unreviewed: 0, legitimate: 0, spam: 0 }, limit: 50 } })
+	  }
       if (path.endsWith('/api/lead-capture-forms') && method === 'POST') {
         return jsonResponse({ data: { form: { id: 8, name: 'Demo request', slug: 'demo-request', publicId: 'lf_created', title: 'Book a demo', description: '', successMessage: 'Thanks!', sourceLabel: 'Demo form', consentText: 'I agree to be contacted about this request.', isActive: true, submissionCount: 0, fields: standardFields } } })
       }
@@ -81,4 +84,73 @@ describe('settings lead forms route', () => {
     })
     expect(await screen.findByRole('heading', { name: /demo request/i })).toBeInTheDocument()
   })
+
+	it('quarantines and recovers captured spam with explicit workflow effects', async () => {
+		let reviewStatus = 'unreviewed'
+		const reviewCalls = []
+		const submission = (status = reviewStatus) => ({
+			id: 17,
+			formId: 3,
+			formName: 'Website Leads',
+			contactId: 22,
+			contactName: 'Taylor Inbound',
+			contactEmail: 'taylor@example.test',
+			contactActive: status !== 'spam',
+			contactQuarantined: status === 'spam',
+			values: { firstName: 'Taylor', message: 'Need a CRM pilot' },
+			leadSource: 'Website form',
+			utmSource: 'pilot',
+			reviewStatus: status,
+			reviewVersion: status === 'unreviewed' ? 0 : 1,
+			reviewNote: '',
+			queuedFollowUpRuns: status === 'unreviewed' ? 1 : 0,
+			cancelledFollowUpRuns: status === 'spam' ? 1 : 0,
+			completedFollowUpRuns: 0,
+			createdAt: '2026-07-21T12:00:00Z'
+		})
+		const fetchMock = vi.fn(async (url, options = {}) => {
+			const requestURL = new URL(String(url), 'http://localhost')
+			const path = requestURL.pathname
+			const method = options.method || 'GET'
+			if (path.endsWith('/auth/me')) return sessionResponse()
+			if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+			if (path.endsWith('/api/lead-capture-forms')) {
+				return jsonResponse({ data: { forms: [{ id: 3, name: 'Website Leads', publicId: 'lf_existing', isActive: true, fields: standardFields }] } })
+			}
+			if (path.endsWith('/api/lead-capture-submissions') && method === 'GET') {
+				const requestedStatus = requestURL.searchParams.get('status') || ''
+				return jsonResponse({ data: {
+					submissions: !requestedStatus || requestedStatus === reviewStatus ? [submission()] : [],
+					counts: { unreviewed: reviewStatus === 'unreviewed' ? 1 : 0, legitimate: reviewStatus === 'legitimate' ? 1 : 0, spam: reviewStatus === 'spam' ? 1 : 0 },
+					limit: 50
+				} })
+			}
+			if (path.endsWith('/api/lead-capture-submissions/17/review') && method === 'POST') {
+				const body = JSON.parse(options.body)
+				reviewCalls.push({ body, headers: options.headers })
+				reviewStatus = body.status
+				return jsonResponse({ data: { submission: { ...submission(), effects: body.status === 'spam' ? { cancelledRuns: 1, completedRuns: 1 } : { recoveredRuns: 1 } } } })
+			}
+			throw new Error(`Unexpected fetch: ${method} ${path}`)
+		})
+
+		vi.stubGlobal('fetch', fetchMock)
+		vi.spyOn(window, 'confirm').mockReturnValue(true)
+		window.history.pushState({}, '', '/settings/lead-forms')
+		render(<AppRouter />)
+
+		expect(await screen.findByRole('heading', { name: 'Lead submission review' })).toBeInTheDocument()
+		expect(await screen.findByRole('heading', { name: 'Taylor Inbound' })).toBeInTheDocument()
+		fireEvent.change(screen.getByLabelText(/^Review note for Taylor Inbound/), { target: { value: 'Obvious bot inquiry' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Mark spam' }))
+		expect(await screen.findByText('Lead quarantined. 1 queued follow-up cancelled. 1 completed follow-up remains as history.')).toBeInTheDocument()
+		expect(reviewCalls[0].body).toEqual({ status: 'spam', note: 'Obvious bot inquiry' })
+		expect(reviewCalls[0].headers['Idempotency-Key']).toMatch(/^lead-review-/)
+
+		fireEvent.change(screen.getByLabelText('Review status'), { target: { value: 'spam' } })
+		expect(await screen.findByRole('button', { name: 'Recover as legitimate' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Recover as legitimate' }))
+		expect(await screen.findByText(/Lead restored as legitimate\. 1 follow-up rescheduled/)).toBeInTheDocument()
+		expect(reviewCalls[1].body.status).toBe('legitimate')
+	})
 })

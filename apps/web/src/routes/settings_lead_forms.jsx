@@ -7,6 +7,7 @@ import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { createLeadCaptureForm, listLeadCaptureForms, publicLeadCaptureFormChallengeURL, publicLeadCaptureFormSubmitURL, updateLeadCaptureForm } from '../lib/lead_forms'
 import { usePageTitle } from '../lib/use_page_title'
+import { LeadSubmissionReview } from './lead_submission_review'
 
 const defaultFields = [
   { key: 'firstName', label: 'First name', fieldType: 'text', required: true, mapTo: 'firstName' },
@@ -240,6 +241,8 @@ export function SettingsLeadFormsRoute() {
           </div>
         </div>
       </Card>
+
+	  {canManage ? <Card><LeadSubmissionReview forms={forms} /></Card> : null}
 
       {canManage ? (
         <Card>

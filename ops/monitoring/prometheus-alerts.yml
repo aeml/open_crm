@@ -209,6 +209,25 @@ groups:
           summary: Open CRM is rejecting elevated public lead submissions
           runbook: docs/operations-runbook.md#public-endpoint-abuse-controls
 
+      - alert: OpenCRMLeadReviewMetricsUnavailable
+        expr: open_crm_lead_reviews_available != 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM cannot collect lead-submission review health
+          runbook: docs/operations-runbook.md#lead-submission-spam-review-and-recovery
+
+      - alert: OpenCRMLeadReviewStale
+        expr: open_crm_lead_reviews{state="unreviewed"} > 0 and open_crm_lead_review_oldest_unreviewed_age_seconds > 86400
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: A captured lead has awaited review for more than 24 hours
+          description: Review the bounded queue in Settings > Lead Forms before relying on automatic qualification or routing.
+          runbook: docs/operations-runbook.md#lead-submission-spam-review-and-recovery
+
       - alert: OpenCRMNotificationMetricsUnavailable
         expr: open_crm_notifications_available == 0
         for: 5m

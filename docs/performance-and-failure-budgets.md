@@ -92,11 +92,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 664 KiB | 212 KiB |
+| All JavaScript and CSS | 670 KiB | 214 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.93 KiB/58.02 KiB entry, 54.78 KiB/15.63 KiB largest lazy
-chunk, and 663.93 KiB/211.31 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.93 KiB/58.03 KiB entry, 54.78 KiB/15.63 KiB largest lazy
+chunk, and 669.85 KiB/213.04 KiB total assets. The production contact, company,
 deal, and task routes are 29.81/9.19, 34.71/10.48, 54.78/15.63, and 24.67/7.31
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -182,6 +182,10 @@ Whole-day scheduling for that exact outcome, separate from the task due offset,
 then keeps the route at 15.07/4.73 KiB and the complete build at
 663.93/211.31 KiB. The entry remains 178.93/58.02 KiB and the largest lazy chunk
 54.78/15.63 KiB, so every existing ceiling remains unchanged.
+Reversible lead-submission spam review and recovery then extends the already
+lazy lead-forms settings route to 14.47/4.63 KiB. The complete production build
+measures 669.85/213.04 KiB while the entry and largest route remain unchanged,
+so only the aggregate ceilings advance to 670/214 KiB.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 

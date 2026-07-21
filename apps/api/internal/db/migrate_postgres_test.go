@@ -128,6 +128,20 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"lead_capture_forms_slug_check",
 		"lead_capture_forms_fields_json_array_check",
 		"lead_capture_submissions_payload_json_object_check",
+		"lead_capture_submissions_review_status_present",
+		"lead_capture_submissions_review_version_present",
+		"lead_capture_submissions_review_status_check",
+		"lead_capture_submissions_review_version_check",
+		"lead_capture_submissions_review_note_check",
+		"lead_capture_submissions_review_evidence_check",
+		"lead_capture_submissions_quarantine_state_check",
+		"lead_capture_submissions_reviewer_membership_fk",
+		"lead_capture_submission_review_requests_submission_fk",
+		"lead_capture_submission_review_requests_key_check",
+		"lead_capture_submission_review_requests_request_check",
+		"lead_capture_submission_review_requests_version_check",
+		"lead_capture_submission_review_requests_effects_check",
+		"lead_capture_submission_review_requests_org_key_unique",
 		"lead_capture_forms_org_id_unique",
 		"lead_landing_pages_form_org_fk",
 		"lead_landing_pages_slug_check",
@@ -294,6 +308,9 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_lead_capture_forms_org_active",
 		"idx_lead_capture_submissions_org_form_created",
 		"idx_lead_capture_submissions_org_attribution",
+		"idx_lead_capture_submissions_org_id_unique",
+		"idx_lead_capture_submissions_org_review_created",
+		"idx_lead_capture_submissions_review_created",
 		"idx_lead_landing_pages_slug_unique",
 		"idx_lead_landing_pages_org_active",
 		"idx_lead_landing_pages_org_form",
@@ -560,6 +577,9 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	expectExecError(t, ctx, pool, `INSERT INTO organizations (name, slug, business_type) VALUES ('Bad Org', 'bad-org', 'invalid')`)
 	expectExecError(t, ctx, pool, `INSERT INTO organizations (name, slug, base_currency) VALUES ('Bad Currency Org', 'bad-currency-org', 'US')`)
 	expectExecError(t, ctx, pool, `INSERT INTO organization_memberships (organization_id, user_id, role) VALUES ($1, $2, 'superuser')`, organizationID, userID)
+	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id, user_id, role) VALUES ($1, $2, 'owner')`, organizationID, userID); err != nil {
+		t.Fatalf("insert organization membership: %v", err)
+	}
 	expectExecError(t, ctx, pool, `INSERT INTO deal_pipelines (organization_id, name, position) VALUES ($1, 'Duplicate Position', 1)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO deal_pipelines (organization_id, name, position) VALUES ($1, 'sales pipeline', 2)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO deal_stages (organization_id, pipeline_id, name, position) VALUES ($1, $2, 'Duplicate Position', 1)`, organizationID, pipelineID)
@@ -581,6 +601,17 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	}
 	expectExecError(t, ctx, pool, `INSERT INTO lead_capture_forms (organization_id, public_id, name, slug, title, fields_json) VALUES ($1, 'lf_test_2', 'Lead Form 2', 'lead-form', 'Lead Form 2', '[]'::jsonb)`, organizationID)
 	expectExecError(t, ctx, pool, `INSERT INTO lead_capture_submissions (organization_id, form_id, payload_json) VALUES ($1, $2, '[]'::jsonb)`, organizationID, leadFormID)
+	var leadSubmissionID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO lead_capture_submissions (organization_id, form_id, payload_json) VALUES ($1, $2, '{}'::jsonb) RETURNING id`, organizationID, leadFormID).Scan(&leadSubmissionID); err != nil {
+		t.Fatalf("insert lead capture submission: %v", err)
+	}
+	expectExecError(t, ctx, pool, `UPDATE lead_capture_submissions SET review_status='spam' WHERE id=$1`, leadSubmissionID)
+	var outsiderUserID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO users (email,password_hash,first_name,last_name) VALUES ('outsider@example.com','hash','Outsider','User') RETURNING id`).Scan(&outsiderUserID); err != nil {
+		t.Fatalf("insert outsider user: %v", err)
+	}
+	expectExecError(t, ctx, pool, `UPDATE lead_capture_submissions SET review_status='legitimate',reviewed_at=NOW(),reviewed_by_user_id=$2 WHERE id=$1`, leadSubmissionID, outsiderUserID)
+	expectExecError(t, ctx, pool, `INSERT INTO lead_capture_submission_review_requests (organization_id,submission_id,key_digest,request_sha256,result_review_version) VALUES ($1,$2,'short',repeat('b',64),0)`, organizationID, leadSubmissionID)
 	expectExecError(t, ctx, pool, `INSERT INTO lead_landing_pages (organization_id, public_id, lead_capture_form_id, name, slug, title, theme) VALUES ($1, 'lp_bad', $2, 'Bad Page', 'Bad Slug', 'Bad Page', 'light')`, organizationID, leadFormID)
 	expectExecError(t, ctx, pool, `INSERT INTO lead_landing_pages (organization_id, public_id, lead_capture_form_id, name, slug, title, theme) VALUES ($1, 'lp_bad_theme', $2, 'Bad Page', 'bad-page', 'Bad Page', 'neon')`, organizationID, leadFormID)
 	if _, err := pool.Exec(ctx, `INSERT INTO lead_landing_pages (organization_id, public_id, lead_capture_form_id, name, slug, title, theme) VALUES ($1, 'lp_test', $2, 'Landing Page', 'landing-page', 'Landing Page', 'light')`, organizationID, leadFormID); err != nil {

@@ -120,6 +120,13 @@ func (s *Service) Restore(ctx context.Context, organizationID, actorUserID int64
 	if err != nil {
 		return Record{}, err
 	}
+	spamQuarantined, err := isSpamQuarantinedLead(ctx, tx, organizationID, entityType, entityID, record.ArchivedAt)
+	if err != nil {
+		return Record{}, err
+	}
+	if spamQuarantined {
+		return Record{}, fmt.Errorf("%w: recover this spam-quarantined lead from Lead Forms", ErrConflict)
+	}
 	blocked, err := isDuplicateMergeSource(ctx, tx, organizationID, entityType, entityID)
 	if err != nil {
 		return Record{}, err
@@ -211,6 +218,11 @@ const archivedRecordsQuery = `
 	       trim(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) AS owner_name,
 	       a.archived_at,
 	       CASE
+	         WHEN a.entity_type = 'contact' AND EXISTS (
+	           SELECT 1 FROM lead_capture_submissions submission
+	           WHERE submission.organization_id=$1 AND submission.contact_id=a.entity_id
+	             AND submission.review_status='spam' AND submission.quarantined_contact_at=a.archived_at
+	         ) THEN 'Recover this spam-quarantined lead from Lead Forms.'
 	         WHEN a.entity_type IN ('contact','company') AND EXISTS (
 	           SELECT 1 FROM duplicate_merge_operations dmo
 	           WHERE dmo.organization_id = $1 AND dmo.entity_type = a.entity_type AND dmo.source_entity_id = a.entity_id
@@ -280,6 +292,23 @@ func isDuplicateMergeSource(ctx context.Context, tx pgx.Tx, organizationID int64
 	var blocked bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM duplicate_merge_operations WHERE organization_id=$1 AND entity_type=$2 AND source_entity_id=$3)`, organizationID, entityType, entityID).Scan(&blocked); err != nil {
 		return false, fmt.Errorf("check duplicate merge history: %w", err)
+	}
+	return blocked, nil
+}
+
+func isSpamQuarantinedLead(ctx context.Context, tx pgx.Tx, organizationID int64, entityType string, entityID int64, archivedAt time.Time) (bool, error) {
+	if entityType != "contact" {
+		return false, nil
+	}
+	var blocked bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM lead_capture_submissions
+		  WHERE organization_id=$1 AND contact_id=$2 AND review_status='spam'
+		    AND quarantined_contact_at=$3
+		)
+	`, organizationID, entityID, archivedAt).Scan(&blocked); err != nil {
+		return false, fmt.Errorf("check spam-quarantined lead history: %w", err)
 	}
 	return blocked, nil
 }

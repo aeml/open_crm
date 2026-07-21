@@ -72,6 +72,12 @@ func registerFoundationRoutes(mux *http.ServeMux, dependencies Dependencies, rat
 	mux.HandleFunc("PATCH /api/lead-capture-forms/{formID}", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateLeadCaptureForm(dependencies.AuthService, dependencies.LeadFormsService, w, r)
 	})
+	mux.HandleFunc("GET /api/lead-capture-submissions", func(w http.ResponseWriter, r *http.Request) {
+		handleListLeadSubmissionReviews(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
+	mux.HandleFunc("POST /api/lead-capture-submissions/{submissionID}/review", func(w http.ResponseWriter, r *http.Request) {
+		handleReviewLeadSubmission(dependencies.AuthService, dependencies.LeadFormsService, w, r)
+	})
 	mux.HandleFunc("GET /api/lead-landing-pages", func(w http.ResponseWriter, r *http.Request) {
 		handleListLeadLandingPages(dependencies.AuthService, dependencies.LeadFormsService, w, r)
 	})

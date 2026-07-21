@@ -241,6 +241,33 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(leadFollowUpRun).toContainText('1/1 tasks created', { timeout: 30000 })
   await expect(leadFollowUpRun.getByText('succeeded', { exact: true })).toBeVisible()
 
+	await page.getByRole('link', { name: 'Lead Forms', exact: true }).click()
+	const capturedSubmission = page.getByRole('list', { name: 'Lead submissions awaiting review' }).getByRole('listitem').filter({ hasText: publicLeadEmail })
+	await expect(capturedSubmission).toBeVisible()
+	const leadReviewAccessibility = await new AxeBuilder({ page })
+		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+		.analyze()
+	await test.info().attach('axe-lead-submission-review', {
+		body: JSON.stringify({ url: page.url(), violations: leadReviewAccessibility.violations }, null, 2),
+		contentType: 'application/json'
+	})
+	expect(leadReviewAccessibility.violations, 'lead submission review must have no automated WCAG A/AA violations').toEqual([])
+	await capturedSubmission.getByLabel(/^Review note for Taylor Inbound/).fill('Browser-tested spam recovery')
+	page.once('dialog', (dialog) => dialog.accept())
+	await capturedSubmission.getByRole('button', { name: 'Mark spam' }).click()
+	await expect(page.getByText(/Lead quarantined\. 0 queued follow-ups cancelled\. 1 completed follow-up remains as history\./)).toBeVisible()
+
+	await page.getByRole('link', { name: 'Contacts', exact: true }).click()
+	await page.getByLabel('Search contacts').fill(publicLeadEmail)
+	await expect(page.getByRole('listitem').filter({ hasText: publicLeadEmail })).toHaveCount(0)
+
+	await page.getByRole('link', { name: 'Lead Forms', exact: true }).click()
+	await page.getByLabel('Review status').selectOption('spam')
+	const quarantinedSubmission = page.getByRole('list', { name: 'Lead submissions awaiting review' }).getByRole('listitem').filter({ hasText: publicLeadEmail })
+	await expect(quarantinedSubmission).toBeVisible()
+	await quarantinedSubmission.getByRole('button', { name: 'Recover as legitimate' }).click()
+	await expect(page.getByText(/Lead restored as legitimate\. 0 follow-ups rescheduled\./)).toBeVisible()
+
   await page.getByRole('link', { name: 'Contacts', exact: true }).click()
   await page.getByLabel('Search contacts').fill(publicLeadEmail)
   const capturedLeadRow = page.getByRole('listitem').filter({ hasText: publicLeadEmail })

@@ -308,6 +308,8 @@ type leadFormsService interface {
 	ListByOrganization(context.Context, int64) ([]moduleleadforms.Form, error)
 	Create(context.Context, int64, int64, moduleleadforms.Input) (moduleleadforms.Form, error)
 	Update(context.Context, int64, int64, int64, moduleleadforms.Input) (moduleleadforms.Form, error)
+	ListSubmissionReviews(context.Context, int64, moduleleadforms.SubmissionReviewQuery) (moduleleadforms.SubmissionReviewPage, error)
+	ReviewSubmission(context.Context, int64, int64, int64, moduleleadforms.SubmissionReviewInput) (moduleleadforms.ReviewedSubmission, error)
 	ListLandingPagesByOrganization(context.Context, int64) ([]moduleleadforms.LandingPage, error)
 	CreateLandingPage(context.Context, int64, int64, moduleleadforms.LandingPageInput) (moduleleadforms.LandingPage, error)
 	UpdateLandingPage(context.Context, int64, int64, int64, moduleleadforms.LandingPageInput) (moduleleadforms.LandingPage, error)

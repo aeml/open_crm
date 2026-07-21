@@ -448,6 +448,17 @@ func main() {
 			snapshot.WorkflowRunsSkipped24h = stats.SkippedLast24h
 			snapshot.WorkflowOldestActiveAge = time.Duration(stats.OldestActiveAge) * time.Second
 		}
+		if leadFormsService == nil {
+			snapshot.CollectionSuccess = false
+		} else if stats, err := leadFormsService.SubmissionReviewOperationalStats(ctx); err != nil {
+			snapshot.CollectionSuccess = false
+		} else {
+			snapshot.LeadReviewsAvailable = true
+			snapshot.LeadReviewsUnreviewed = stats.Unreviewed
+			snapshot.LeadReviewsLegitimate = stats.Legitimate
+			snapshot.LeadReviewsSpam = stats.Spam
+			snapshot.LeadReviewOldestUnreviewedAge = time.Duration(stats.OldestUnreviewedAge) * time.Second
+		}
 		snapshot.Backup = platformtelemetry.ReadBackupStatus(env.BackupStatusPath)
 		return snapshot
 	}

@@ -480,6 +480,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"billing_usage_snapshots",
 		"billing_capacity_reservations",
 		"lead_capture_submission_challenges",
+		"lead_capture_submission_review_requests",
 		"sessions",
 		"system_email_feedback_events",
 		"customer_email_feedback_events",
