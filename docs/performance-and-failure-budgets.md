@@ -95,14 +95,14 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 650 KiB | 207 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current evidence: 179.33 KiB/58.13 KiB entry, 39.39 KiB/11.47 KiB largest lazy
-chunk, and 645.38 KiB/206.97 KiB total assets. The production contact, company,
-deal, and task routes are 29.52/8.92, 34.81/10.27, 39.39/11.48, and 24.78/7.19
+Current production-URL evidence: 179.11 KiB/58.06 KiB entry, 44.69 KiB/12.87 KiB largest lazy
+chunk, and 647.48 KiB/206.96 KiB total assets. The production contact, company,
+deal, and task routes are 29.64/8.93, 34.66/10.20, 44.69/12.87, and 24.64/7.12
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
-portable workspace export, and measured usage remain isolated in a 14.35 KiB/4.56 KiB settings route. Its
-OAuth-mailbox peer remains separately lazy loaded at 10.53 KiB/3.20 KiB, and
-revision-bound sequence approval and outcome summary remain in a 5.53 KiB/1.94 KiB route. The
-7.52 KiB/2.67 KiB background-operations route includes labeled replay, while a
+portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
+OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
+revision-bound sequence approval and outcome summary remain in a 5.46 KiB/1.87 KiB route. The
+7.37 KiB/2.61 KiB background-operations route includes labeled replay, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
 signup, import, merge, and bulk recovery paths. Production builds now omit the
 incomplete calling, SMS, calendar/booking-link, marketing-email, and

@@ -58,13 +58,15 @@ describe('public lead widget route', () => {
 
     expect(await screen.findByRole('heading', { name: /need help/i })).toBeInTheDocument()
     expect(screen.getByText(/tell us what you need/i)).toBeInTheDocument()
+    const submitButton = screen.getByRole('button', { name: /^send$/i })
+    await waitFor(() => expect(submitButton).toBeEnabled())
 
     fireEvent.change(screen.getByLabelText(/^first name$/i), { target: { value: 'Ada' } })
     fireEvent.change(screen.getByLabelText(/^last name$/i), { target: { value: 'Lovelace' } })
     fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'ada@example.com' } })
     fireEvent.change(screen.getByLabelText(/^message$/i), { target: { value: 'Can we talk?' } })
     fireEvent.click(screen.getByRole('checkbox', { name: /receive a reply about this request/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^send$/i }))
+    fireEvent.click(submitButton)
 
     expect(await screen.findByRole('status')).toHaveTextContent(/thanks/i)
     await waitFor(() => {

@@ -2313,9 +2313,9 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current evidence is 179.33 KiB/58.13 KiB for the entry, 39.39 KiB/11.47 KiB
-for the largest lazy chunk, and 645.38 KiB/206.97 KiB total assets. Hosted
-billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.35 KiB/4.56 KiB
+CSS. Current production-URL evidence is 179.11 KiB/58.06 KiB for the entry, 44.69 KiB/12.87 KiB
+for the largest lazy chunk, and 647.48 KiB/206.96 KiB total assets. Hosted
+billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.24 KiB/4.51 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
 routes, and the bundle gate rejects their accidental inclusion; this aligns

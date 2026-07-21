@@ -5,27 +5,21 @@ import { isAbortError } from '../lib/api'
 import { issuePublicLeadSubmissionChallenge, submitPublicLeadCaptureForm, waitForPublicLeadChallenge } from '../lib/lead_forms'
 
 function initialValues(fields = []) {
-  return fields.reduce((values, field) => ({ ...values, [field.key]: '' }), {})
+  return Object.fromEntries(fields.map((field) => [field.key, '']))
 }
 
 function inputType(field) {
-  if (field.fieldType === 'email') return 'email'
-  if (field.fieldType === 'tel') return 'tel'
-  if (field.fieldType === 'hidden') return 'hidden'
-  return 'text'
+  return ['email', 'tel', 'hidden'].includes(field.fieldType) ? field.fieldType : 'text'
 }
 
 function attributionFromLocation(form) {
   if (typeof window === 'undefined') return { leadSource: form?.sourceLabel || '' }
   const params = new URL(window.location.href).searchParams
-  return {
-    leadSource: form?.sourceLabel || '',
-    utmSource: params.get('utm_source') || params.get('utmSource') || '',
-    utmMedium: params.get('utm_medium') || params.get('utmMedium') || '',
-    utmCampaign: params.get('utm_campaign') || params.get('utmCampaign') || '',
-    utmTerm: params.get('utm_term') || params.get('utmTerm') || '',
-    utmContent: params.get('utm_content') || params.get('utmContent') || ''
+  const attribution = { leadSource: form?.sourceLabel || '' }
+  for (const name of ['Source', 'Medium', 'Campaign', 'Term', 'Content']) {
+    attribution[`utm${name}`] = params.get(`utm_${name.toLowerCase()}`) || params.get(`utm${name}`) || ''
   }
+  return attribution
 }
 
 export function PublicLeadCaptureForm({ className = 'auth-form landing-page-form', form, submitLabel = 'Submit', submittingLabel = 'Submitting...', textareaRows = 4 }) {
@@ -43,13 +37,10 @@ export function PublicLeadCaptureForm({ className = 'auth-form landing-page-form
     setChallenge(nextChallenge || null)
   }
 
-  async function refresh(publicId) {
-    try {
-      await prepare(publicId)
-    } catch (refreshError) {
-      setChallenge(null)
+  function refresh(publicId) {
+    return prepare(publicId).catch((refreshError) => {
       setError(refreshError.message || 'Unable to prepare the form.')
-    }
+    })
   }
 
   useEffect(() => {
@@ -108,13 +99,12 @@ export function PublicLeadCaptureForm({ className = 'auth-form landing-page-form
           </Field>
         )
       ))}
-      <label className="field-hint lead-consent-control">
+      <label className="field-hint checkbox-row">
         <input type="checkbox" checked={consentGranted} onChange={(event) => setConsentGranted(event.target.checked)} required />
         <span>{challenge?.consentText || form.consentText || 'I agree to be contacted about this request.'}</span>
       </label>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
-      {status ? <p className="inline-note" role="status">{status}</p> : null}
-      {!challenge && !error && !status ? <p className="field-hint" role="status">Preparing secure form...</p> : null}
+      {status || (!challenge && !error) ? <p className={status ? 'inline-note' : 'field-hint'} role="status">{status || 'Preparing secure form...'}</p> : null}
       <Button type="submit" disabled={isSubmitting || !challenge}>{isSubmitting ? submittingLabel : submitLabel}</Button>
     </form>
   )

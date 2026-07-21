@@ -58,13 +58,15 @@ describe('public landing page route', () => {
 
     expect(await screen.findByRole('heading', { name: /book a demo/i })).toBeInTheDocument()
     expect(screen.getByText(/talk to our team about your pipeline/i)).toBeInTheDocument()
+    const submitButton = screen.getByRole('button', { name: /request demo/i })
+    await waitFor(() => expect(submitButton).toBeEnabled())
 
     fireEvent.change(screen.getByLabelText(/^first name$/i), { target: { value: 'Ada' } })
     fireEvent.change(screen.getByLabelText(/^last name$/i), { target: { value: 'Lovelace' } })
     fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'ada@example.com' } })
     fireEvent.change(screen.getByLabelText(/^message$/i), { target: { value: 'I want a walkthrough.' } })
     fireEvent.click(screen.getByRole('checkbox', { name: /receive a reply about this demo request/i }))
-    fireEvent.click(screen.getByRole('button', { name: /request demo/i }))
+    fireEvent.click(submitButton)
 
     expect(await screen.findByRole('status')).toHaveTextContent(/thanks/i)
     await waitFor(() => {
