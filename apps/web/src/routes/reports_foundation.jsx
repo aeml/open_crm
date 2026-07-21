@@ -13,12 +13,14 @@ import { FollowUpReport } from './follow_up_report'
 import { CustomReportResults } from './custom_report_results'
 import {
   aggregationFieldOptions,
-  aggregationOptions,
+  aggregationOptionsForVisualization,
   defaultColumns,
   emptyFilter,
   emptyForm,
   fieldsForSource,
+  formWithVisualization,
   formFromDefinition,
+  isExecutableReportDefinition,
   operatorsForField,
   payloadFromForm,
   reportSummary,
@@ -78,16 +80,9 @@ export function ReportsFoundationRoute() {
   }
 
   function setSourceType(sourceType) {
-    setForm((current) => ({
-      ...current,
-      sourceType,
-      visualizationType: 'table',
-      columns: defaultColumns(sourceType),
-      filters: [],
-      groupBy: '',
-      aggregationFunction: 'count',
-      aggregationField: ''
-    }))
+    setForm((current) => formWithVisualization({
+      ...current, sourceType, columns: defaultColumns(sourceType), filters: [], groupBy: '', aggregationFunction: 'count', aggregationField: ''
+    }, current.visualizationType))
   }
 
   function toggleColumn(column) {
@@ -150,7 +145,7 @@ export function ReportsFoundationRoute() {
   const aggregationFields = aggregationFieldOptions(form)
   const visibleDefinitions = import.meta.env.DEV
     ? definitions
-    : definitions.filter((definition) => definition.visualizationType === 'table')
+    : definitions.filter(isExecutableReportDefinition)
 
   return (
     <section className="dashboard-grid settings-grid">
@@ -162,7 +157,7 @@ export function ReportsFoundationRoute() {
           <div className="section-header">
             <div>
               <h2>Reports</h2>
-              <p>Build, run, and export bounded saved table reports for {session?.organization?.name || 'your team'}. Chart, dashboard, sharing, and scheduling foundations remain hidden until their runtime outcomes are complete.</p>
+              <p>Build, run, and export bounded saved table or grouped bar reports for {session?.organization?.name || 'your team'}. Other charts, dashboards, sharing, and scheduling remain hidden.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading report definitions...</p> : null}
@@ -173,7 +168,7 @@ export function ReportsFoundationRoute() {
               <article className="record-row" role="listitem">
                 <div>
                   <p>No report definitions yet.</p>
-                  <p className="field-hint">Create a table report to query current workspace records with bounded, tenant-safe filters and pagination.</p>
+                  <p className="field-hint">Create a table or grouped bar report with bounded, tenant-safe filters and pagination.</p>
                 </div>
               </article>
             ) : visibleDefinitions.map((definition) => (
@@ -186,8 +181,8 @@ export function ReportsFoundationRoute() {
                 <div>
                   <span className="chip">{definition.isActive ? 'Active' : 'Inactive'}</span>
                   <span className="chip">{visualizationLabel(definition.visualizationType || 'table')}</span>
-                  <span className="chip">{definition.visualizationType === 'table' ? 'Executable table' : 'Definition only'}</span>
-                  {canManage && (import.meta.env.DEV || definition.visualizationType === 'table') ? <Button className="button-secondary" type="button" onClick={() => startEdit(definition)}>Edit</Button> : null}
+                  <span className="chip">{isExecutableReportDefinition(definition) ? `Executable ${definition.visualizationType}` : 'Definition only'}</span>
+                  {canManage && (import.meta.env.DEV || isExecutableReportDefinition(definition)) ? <Button className="button-secondary" type="button" onClick={() => startEdit(definition)}>Edit</Button> : null}
                 </div>
                 <CustomReportResults definition={definition} canExport={canExport} />
               </article>
@@ -201,7 +196,7 @@ export function ReportsFoundationRoute() {
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
             <div>
               <h2>{editingId ? 'Edit report definition' : 'New report definition'}</h2>
-              <p className="field-hint">Saved table reports execute immediately with tenant-safe fields, typed filters, optional grouping, and bounded pagination. Other visualization types remain development-only.</p>
+              <p className="field-hint">Tables show selected fields. Grouped bars require one category plus a count, sum, or average and always include an exact accessible data table.</p>
             </div>
             <Field label="Name">
               <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Pipeline revenue by stage" required />
@@ -215,12 +210,12 @@ export function ReportsFoundationRoute() {
               </select>
             </Field>
             <Field label="Visualization">
-              <select className="text-input" value={form.visualizationType} onChange={(event) => setForm({ ...form, visualizationType: event.target.value })}>
+              <select className="text-input" value={form.visualizationType} onChange={(event) => setForm(formWithVisualization(form, event.target.value))}>
                 {visualizationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </Field>
 
-            <div className="card-stack">
+            {form.visualizationType === 'table' ? <div className="card-stack">
               <div>
                 <h3>Fields</h3>
                 <p className="field-hint">Choose at least one field to include in the report output.</p>
@@ -232,7 +227,7 @@ export function ReportsFoundationRoute() {
                   </label>
                 ))}
               </div>
-            </div>
+            </div> : null}
 
             <div className="card-stack">
               <div className="section-header">
@@ -265,15 +260,15 @@ export function ReportsFoundationRoute() {
               ))}
             </div>
 
-            <Field label="Group by">
-              <select className="text-input" value={form.groupBy} disabled={form.aggregationFunction === 'none'} onChange={(event) => setForm({ ...form, groupBy: event.target.value })}>
-                <option value="">No grouping</option>
+            <Field label={form.visualizationType === 'bar' ? 'Category (group by)' : 'Group by'}>
+              <select className="text-input" value={form.groupBy} required={form.visualizationType === 'bar'} disabled={form.aggregationFunction === 'none'} onChange={(event) => setForm({ ...form, groupBy: event.target.value })}>
+                {form.visualizationType === 'table' ? <option value="">No grouping</option> : null}
                 {fieldsForSource(form.sourceType).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </Field>
             <Field label="Aggregation">
               <select className="text-input" value={form.aggregationFunction} onChange={(event) => setAggregationFunction(event.target.value)}>
-                {aggregationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                {aggregationOptionsForVisualization(form.visualizationType, form.sourceType).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </Field>
             {aggregationFields.length > 0 ? (

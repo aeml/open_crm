@@ -1837,3 +1837,27 @@ func TestMigrationFilesIncludeAuditRetentionExport(t *testing.T) {
 		t.Fatalf("audit retention/export deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeCustomReportGroupedBarContract(t *testing.T) {
+	const name = "105_custom_report_grouped_bar_contract.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	sql := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"visualization_contract",
+		"grouped_bar_v1",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT custom_report_definitions_visualization_contract_check",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("grouped bar contract migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("grouped bar contract deployment class = %q", class)
+	}
+}

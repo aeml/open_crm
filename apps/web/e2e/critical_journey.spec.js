@@ -665,6 +665,37 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   })
   expect(savedReportAccessibility.violations, 'saved table report must have no automated WCAG A/AA violations').toEqual([])
 
+  const barReportName = `Contacts by status ${runID}`
+  await savedReportForm.getByLabel('Name', { exact: true }).fill(barReportName)
+  await savedReportForm.getByLabel('Visualization').selectOption('bar')
+  await savedReportForm.getByLabel('Category (group by)').selectOption('status')
+  const [barReportResponse] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/report-definitions'),
+    savedReportForm.getByRole('button', { name: 'Create report definition' }).click()
+  ])
+  expect(barReportResponse.status()).toBe(201)
+  const barReportID = (await barReportResponse.json()).data.definition.id
+  const barReport = page.getByRole('listitem').filter({ has: page.getByRole('heading', { name: barReportName, exact: true }) })
+  await expect(barReport.getByText('Executable bar', { exact: true })).toBeVisible()
+  await barReport.getByRole('button', { name: 'Run report' }).click()
+  await expect(barReport.getByRole('img', { name: new RegExp(`${barReportName} grouped bar chart`) })).toBeVisible()
+  const barReportData = barReport.getByRole('region', { name: `${barReportName} chart data` })
+  await expect(barReportData.getByRole('columnheader', { name: 'Status' })).toBeVisible()
+  await expect(barReportData.getByRole('columnheader', { name: 'Record count' })).toBeVisible()
+  await expect(barReportData.getByText('lead', { exact: true })).toBeVisible()
+  const barReportExport = await page.context().request.get(await barReport.getByRole('link', { name: 'Download CSV' }).getAttribute('href'))
+  expect(barReportExport.status()).toBe(200)
+  expect((await barReportExport.body()).toString('utf8')).toContain('Status,Record count')
+  const barReportAccessibility = await new AxeBuilder({ page })
+    .include('.custom-report-results')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-saved-report-table-and-bar', {
+    body: JSON.stringify({ url: page.url(), violations: barReportAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(barReportAccessibility.violations, 'saved table and grouped bar reports must have no automated WCAG A/AA violations').toEqual([])
+
   await incompleteDealReport.getByRole('link', { name: `Website renewal ${runID}` }).click()
   await expect(page).toHaveURL(/\/deals\/\d+/)
 
@@ -947,6 +978,10 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     expect(crossTenantSavedReport.status()).toBe(404)
     const crossTenantSavedReportExport = await otherContext.request.get(`${apiURL}/api/report-definitions/${savedReportID}/export.csv`)
     expect(crossTenantSavedReportExport.status()).toBe(404)
+    const crossTenantBarReport = await otherContext.request.get(`${apiURL}/api/report-definitions/${barReportID}/results`)
+    expect(crossTenantBarReport.status()).toBe(404)
+    const crossTenantBarReportExport = await otherContext.request.get(`${apiURL}/api/report-definitions/${barReportID}/export.csv`)
+    expect(crossTenantBarReportExport.status()).toBe(404)
   } finally {
     await otherContext.close()
   }

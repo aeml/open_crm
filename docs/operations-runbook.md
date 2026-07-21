@@ -1182,16 +1182,19 @@ bytes, tokens, or counters with ad hoc SQL.
    correlated request log. Compare only active records matching the displayed
    criterion; do not repair report counts or CRM rows with manual SQL.
 
-### Saved table report execution and recovery
+### Saved table and grouped bar report execution and recovery
 
 1. Open **Reports**. Owners, admins, and members can create or edit a saved
-   table report; viewers can run existing active reports but cannot change their
-   definitions. Production exposes only the executable table type. Chart,
-   dashboard, sharing, and scheduled-delivery definitions remain hidden.
-2. Choose contacts, companies, deals, or tasks; select result fields; then add
-   only the typed operators offered for each field. A row report uses **No
-   aggregation**. To summarize records, select count, sum, average, minimum, or
-   maximum and optionally group by one allowlisted field.
+   table or grouped bar report; viewers can run existing active reports but
+   cannot change their definitions. Production hides pre-contract grouped bars,
+   line, funnel, pie, KPI, dashboard, sharing, and scheduled-delivery
+   definitions.
+2. Choose contacts, companies, deals, or tasks and add only the typed operators
+   offered for each field. A table selects result fields and can use **No
+   aggregation** or a supported summary. A grouped bar selects exactly one
+   category and a record count, numeric sum, or numeric average. It stores no
+   ignored row fields and always renders the exact values again in an accessible
+   data table.
 3. Select **Run report**. Each request uses the session workspace, omits archived
    rows, returns at most 100 rows per page and 100 pages, and stops after five
    seconds. Page counts are deliberately not presented as an exact total.
@@ -1199,7 +1202,11 @@ bytes, tokens, or counters with ad hoc SQL.
    `REPORT_TIMEOUT` means narrow the filters or grouping before retrying; capture
    the request ID and route latency if the same bounded query repeats. A generic
    validation error means a retained definition no longer matches the executable
-   typed field contract and should be corrected through the editor, not SQL.
+   typed field/visualization contract and should be corrected through the
+   editor, not SQL. `REPORT_NOT_EXECUTABLE` identifies an unversioned historical
+   bar or a retained line, funnel, pie, or KPI foundation that remains
+   intentionally hidden. Recreate an old bar through the production builder if
+   its grouping and aggregation are still wanted; do not promote it with SQL.
 5. A missing report returns the same `404` for a nonexistent or foreign
    definition. Do not diagnose tenant ownership from that response. Use the
    authenticated request log and the digest-gated PostgreSQL evidence test when
@@ -1214,10 +1221,10 @@ bytes, tokens, or counters with ad hoc SQL.
    export. Treat a repeated timeout as a query/performance incident and retain
    the request ID; do not bypass either ceiling with direct SQL. The CI
    PostgreSQL pilot gate expands one workspace to 10,000 contacts and requires
-   a 100-row saved-report page within two seconds plus the complete export
-   within five seconds, including foreign-workspace denial and overflow/audit
-   checks. Repeated production latency near either budget is an incident even
-   when the request still succeeds.
+   a 100-row table page plus the complete grouped-bar aggregation within two
+   seconds and each export within five seconds, including foreign-workspace
+   denial and overflow/audit checks. Repeated production latency near either
+   budget is an incident even when the request still succeeds.
 
 ### Custom-field change and recovery
 

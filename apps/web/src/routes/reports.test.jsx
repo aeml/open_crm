@@ -31,10 +31,13 @@ describe('reports route', () => {
         return sessionResponse()
       }
       if (path.endsWith('/api/report-definitions') && method === 'POST') {
-        return jsonResponse({ data: { definition: { id: 8, name: 'Pipeline revenue by stage', description: '', sourceType: 'deals', visualizationType: 'table', columns: ['id', 'name', 'stageName', 'status'], filters: [{ field: 'status', operator: 'equals', value: 'open' }], groupBy: 'stageName', aggregation: { function: 'sum', field: 'valueAmount' }, isActive: true } } })
+        return jsonResponse({ data: { definition: { id: 8, name: 'Pipeline revenue by stage', description: '', sourceType: 'deals', visualizationType: 'bar', visualizationContract: 'grouped_bar_v1', columns: [], filters: [{ field: 'status', operator: 'equals', value: 'open' }], groupBy: 'stageName', aggregation: { function: 'sum', field: 'valueAmount' }, isActive: true } } })
+      }
+      if (path.endsWith('/api/report-definitions/8/results')) {
+        return jsonResponse({ data: { definitionId: 8, definitionName: 'Pipeline revenue by stage', sourceType: 'deals', visualizationType: 'bar', visualizationContract: 'grouped_bar_v1', columns: [{ key: 'stageName', label: 'Stage', dataType: 'text' }, { key: 'sumValueAmount', label: 'SUM Value amount', dataType: 'numeric' }], rows: [{ values: { stageName: 'Discovery', sumValueAmount: '25000.00' } }], page: 1, pageSize: 50, hasMore: false, generatedAt: '2026-07-21T18:00:00Z' } })
       }
       if (path.endsWith('/api/report-definitions/3/results')) {
-        return jsonResponse({ data: { definitionId: 3, definitionName: 'Contact source report', sourceType: 'contacts', columns: [{ key: 'leadSource', label: 'Lead source', dataType: 'text' }, { key: 'recordCount', label: 'Record count', dataType: 'integer' }], rows: [{ values: { leadSource: 'Referral', recordCount: '4' } }], page: 1, pageSize: 50, hasMore: false, generatedAt: '2026-07-21T18:00:00Z' } })
+        return jsonResponse({ data: { definitionId: 3, definitionName: 'Contact source report', sourceType: 'contacts', visualizationType: 'table', visualizationContract: '', columns: [{ key: 'leadSource', label: 'Lead source', dataType: 'text' }, { key: 'recordCount', label: 'Record count', dataType: 'integer' }], rows: [{ values: { leadSource: 'Referral', recordCount: '4' } }], page: 1, pageSize: 50, hasMore: false, generatedAt: '2026-07-21T18:00:00Z' } })
       }
       if (path.endsWith('/api/report-definitions')) {
         return jsonResponse({ data: { definitions: [{ id: 3, name: 'Contact source report', description: 'Contacts by lead source', sourceType: 'contacts', visualizationType: 'table', columns: ['firstName', 'lastName', 'email'], filters: [{ field: 'status', operator: 'equals', value: 'lead' }], groupBy: 'leadSource', aggregation: { function: 'count', field: '' }, isActive: true, updatedAt: '2026-07-21T17:00:00Z' }] } })
@@ -62,10 +65,11 @@ describe('reports route', () => {
 
     fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Pipeline revenue by stage' } })
     fireEvent.change(screen.getByLabelText(/^source object$/i), { target: { value: 'deals' } })
+    fireEvent.change(screen.getByLabelText(/^visualization$/i), { target: { value: 'bar' } })
     fireEvent.click(screen.getByRole('button', { name: /add filter/i }))
     fireEvent.change(screen.getByLabelText(/^filter field 1$/i), { target: { value: 'status' } })
     fireEvent.change(screen.getByLabelText(/^filter value 1$/i), { target: { value: 'open' } })
-    fireEvent.change(screen.getByLabelText(/^group by$/i), { target: { value: 'stageName' } })
+    fireEvent.change(screen.getByLabelText(/^category \(group by\)$/i), { target: { value: 'stageName' } })
     fireEvent.change(screen.getByLabelText(/^aggregation$/i), { target: { value: 'sum' } })
     fireEvent.change(screen.getByLabelText(/^aggregation field$/i), { target: { value: 'valueAmount' } })
     fireEvent.click(screen.getByRole('button', { name: /create report definition/i }))
@@ -79,14 +83,20 @@ describe('reports route', () => {
         name: 'Pipeline revenue by stage',
         description: '',
         sourceType: 'deals',
-        visualizationType: 'table',
-        columns: ['id', 'name', 'stageName', 'status'],
+        visualizationType: 'bar',
+        visualizationContract: 'grouped_bar_v1',
+        columns: [],
         filters: [{ field: 'status', operator: 'equals', value: 'open' }],
         groupBy: 'stageName',
         aggregation: { function: 'sum', field: 'valueAmount' },
         isActive: true
       })
     })
-    expect(await screen.findByRole('heading', { name: /pipeline revenue by stage/i })).toBeInTheDocument()
+    const barReportHeading = await screen.findByRole('heading', { name: /pipeline revenue by stage/i })
+    const barReport = barReportHeading.closest('article')
+    fireEvent.click(within(barReport).getByRole('button', { name: /run report/i }))
+    expect(await within(barReport).findByRole('img', { name: /pipeline revenue by stage grouped bar chart/i })).toBeInTheDocument()
+    expect(within(barReport).getByRole('region', { name: /pipeline revenue by stage chart data/i })).toHaveTextContent('Discovery')
+    expect(within(barReport).getByRole('region', { name: /pipeline revenue by stage chart data/i })).toHaveTextContent('25000.00')
   })
 })

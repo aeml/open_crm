@@ -89,7 +89,7 @@ func authenticatedCustomReportsServer(service *fakeCustomReportsService, role st
 }
 
 func TestListCustomReportDefinitionsScopesToOrganization(t *testing.T) {
-	service := &fakeCustomReportsService{listResult: []modulecustomreports.Definition{{ID: 5, Name: "Pipeline revenue", SourceType: "deals", VisualizationType: "bar", Columns: []string{"name", "valueAmount"}, Filters: []modulecustomreports.Filter{{Field: "status", Operator: "equals", Value: "open"}}, GroupBy: "stageName", Aggregation: modulecustomreports.Aggregation{Function: "sum", Field: "valueAmount"}, IsActive: true}}}
+	service := &fakeCustomReportsService{listResult: []modulecustomreports.Definition{{ID: 5, Name: "Pipeline revenue", SourceType: "deals", VisualizationType: "bar", VisualizationContract: "grouped_bar_v1", Columns: []string{}, Filters: []modulecustomreports.Filter{{Field: "status", Operator: "equals", Value: "open"}}, GroupBy: "stageName", Aggregation: modulecustomreports.Aggregation{Function: "sum", Field: "valueAmount"}, IsActive: true}}}
 	server := authenticatedCustomReportsServer(service, "member")
 
 	request := httptest.NewRequest(http.MethodGet, "/api/report-definitions", nil)
@@ -121,7 +121,7 @@ func TestCreateCustomReportDefinitionRequiresWriterAndUsesCurrentOrganization(t 
 	service := &fakeCustomReportsService{createResult: modulecustomreports.Definition{ID: 8, Name: "Contact source report", SourceType: "contacts", IsActive: true}}
 	server := authenticatedCustomReportsServer(service, "member")
 
-	body := bytes.NewBufferString(`{"name":"Contact source report","description":"Contacts by source","sourceType":"contacts","visualizationType":"pie","columns":["firstName","lastName","email"],"filters":[{"field":"status","operator":"equals","value":"lead"}],"groupBy":"leadSource","aggregation":{"function":"count"},"isActive":true}`)
+	body := bytes.NewBufferString(`{"name":"Contact source report","description":"Contacts by source","sourceType":"contacts","visualizationType":"bar","visualizationContract":"grouped_bar_v1","columns":[],"filters":[{"field":"status","operator":"equals","value":"lead"}],"groupBy":"leadSource","aggregation":{"function":"count"},"isActive":true}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/report-definitions", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -132,7 +132,7 @@ func TestCreateCustomReportDefinitionRequiresWriterAndUsesCurrentOrganization(t 
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
 	}
-	if service.lastCreateOrgID != 42 || service.lastCreateUser != 1 || service.lastCreateInput.SourceType != "contacts" || service.lastCreateInput.VisualizationType != "pie" || len(service.lastCreateInput.Columns) != 3 || len(service.lastCreateInput.Filters) != 1 || service.lastCreateInput.GroupBy != "leadSource" || service.lastCreateInput.Aggregation.Function != "count" {
+	if service.lastCreateOrgID != 42 || service.lastCreateUser != 1 || service.lastCreateInput.SourceType != "contacts" || service.lastCreateInput.VisualizationType != "bar" || service.lastCreateInput.VisualizationContract != "grouped_bar_v1" || len(service.lastCreateInput.Columns) != 0 || len(service.lastCreateInput.Filters) != 1 || service.lastCreateInput.GroupBy != "leadSource" || service.lastCreateInput.Aggregation.Function != "count" {
 		t.Fatalf("unexpected custom report create input: org=%d user=%d input=%#v", service.lastCreateOrgID, service.lastCreateUser, service.lastCreateInput)
 	}
 }
@@ -184,7 +184,7 @@ func TestUpdateCustomReportDefinitionScopesToOrganization(t *testing.T) {
 func TestExecuteCustomReportAllowsViewerAndScopesQuery(t *testing.T) {
 	value := "Qualified"
 	service := &fakeCustomReportsService{executeResult: modulecustomreports.Execution{
-		DefinitionID: 12, DefinitionName: "Qualified contacts", SourceType: "contacts",
+		DefinitionID: 12, DefinitionName: "Qualified contacts", SourceType: "contacts", VisualizationType: "bar", VisualizationContract: "grouped_bar_v1",
 		Columns: []modulecustomreports.ResultColumn{{Key: "firstName", Label: "First name", DataType: "text"}},
 		Rows:    []modulecustomreports.ResultRow{{Values: map[string]*string{"firstName": &value}}}, Page: 2, PageSize: 25,
 	}}
@@ -207,6 +207,12 @@ func TestExecuteCustomReportAllowsViewerAndScopesQuery(t *testing.T) {
 	}
 	if len(response.Data.Rows) != 1 || response.Data.Rows[0].Values["firstName"] == nil || *response.Data.Rows[0].Values["firstName"] != value {
 		t.Fatalf("unexpected execution payload: %#v", response.Data)
+	}
+	if response.Data.VisualizationType != "bar" {
+		t.Fatalf("expected visualization contract in execution payload, got %#v", response.Data)
+	}
+	if response.Data.VisualizationContract != "grouped_bar_v1" {
+		t.Fatalf("expected versioned visualization contract in execution payload, got %#v", response.Data)
 	}
 }
 

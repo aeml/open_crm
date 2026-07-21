@@ -79,8 +79,8 @@ func (s *Service) ExportCSV(ctx context.Context, organizationID, actorUserID, de
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
-		VALUES ($1,$2,'report.export_downloaded','report_definition',$3,'Downloaded saved report CSV',jsonb_build_object('sourceType',$4::text,'rowCount',$5::integer,'columnCount',$6::integer))
-	`, organizationID, actorUserID, definition.ID, definition.SourceType, len(rows), len(columns)); err != nil {
+		VALUES ($1,$2,'report.export_downloaded','report_definition',$3,'Downloaded saved report CSV',jsonb_build_object('sourceType',$4::text,'rowCount',$5::integer,'columnCount',$6::integer,'visualizationType',$7::text,'visualizationContract',$8::text))
+	`, organizationID, actorUserID, definition.ID, definition.SourceType, len(rows), len(columns), definition.VisualizationType, definition.VisualizationContract); err != nil {
 		return CSVFile{}, fmt.Errorf("record custom report export audit: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

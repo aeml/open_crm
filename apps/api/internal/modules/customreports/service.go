@@ -27,18 +27,19 @@ var (
 )
 
 type Definition struct {
-	ID                int64       `json:"id"`
-	Name              string      `json:"name"`
-	Description       string      `json:"description"`
-	SourceType        string      `json:"sourceType"`
-	VisualizationType string      `json:"visualizationType"`
-	Columns           []string    `json:"columns"`
-	Filters           []Filter    `json:"filters"`
-	GroupBy           string      `json:"groupBy"`
-	Aggregation       Aggregation `json:"aggregation"`
-	IsActive          bool        `json:"isActive"`
-	CreatedAt         time.Time   `json:"createdAt"`
-	UpdatedAt         time.Time   `json:"updatedAt"`
+	ID                    int64       `json:"id"`
+	Name                  string      `json:"name"`
+	Description           string      `json:"description"`
+	SourceType            string      `json:"sourceType"`
+	VisualizationType     string      `json:"visualizationType"`
+	VisualizationContract string      `json:"visualizationContract"`
+	Columns               []string    `json:"columns"`
+	Filters               []Filter    `json:"filters"`
+	GroupBy               string      `json:"groupBy"`
+	Aggregation           Aggregation `json:"aggregation"`
+	IsActive              bool        `json:"isActive"`
+	CreatedAt             time.Time   `json:"createdAt"`
+	UpdatedAt             time.Time   `json:"updatedAt"`
 }
 
 type Filter struct {
@@ -53,15 +54,16 @@ type Aggregation struct {
 }
 
 type Input struct {
-	Name              string      `json:"name"`
-	Description       string      `json:"description"`
-	SourceType        string      `json:"sourceType"`
-	VisualizationType string      `json:"visualizationType"`
-	Columns           []string    `json:"columns"`
-	Filters           []Filter    `json:"filters"`
-	GroupBy           string      `json:"groupBy"`
-	Aggregation       Aggregation `json:"aggregation"`
-	IsActive          *bool       `json:"isActive"`
+	Name                  string      `json:"name"`
+	Description           string      `json:"description"`
+	SourceType            string      `json:"sourceType"`
+	VisualizationType     string      `json:"visualizationType"`
+	VisualizationContract string      `json:"visualizationContract"`
+	Columns               []string    `json:"columns"`
+	Filters               []Filter    `json:"filters"`
+	GroupBy               string      `json:"groupBy"`
+	Aggregation           Aggregation `json:"aggregation"`
+	IsActive              *bool       `json:"isActive"`
 }
 
 type Service struct {
@@ -109,7 +111,7 @@ func scanDefinition(row rowScanner) (Definition, error) {
 	var columnsJSON []byte
 	var filtersJSON []byte
 	var aggregationJSON []byte
-	if err := row.Scan(&definition.ID, &definition.Name, &definition.Description, &definition.SourceType, &definition.VisualizationType, &columnsJSON, &filtersJSON, &definition.GroupBy, &aggregationJSON, &definition.IsActive, &definition.CreatedAt, &definition.UpdatedAt); err != nil {
+	if err := row.Scan(&definition.ID, &definition.Name, &definition.Description, &definition.SourceType, &definition.VisualizationType, &definition.VisualizationContract, &columnsJSON, &filtersJSON, &definition.GroupBy, &aggregationJSON, &definition.IsActive, &definition.CreatedAt, &definition.UpdatedAt); err != nil {
 		return Definition{}, err
 	}
 	if len(columnsJSON) > 0 {
@@ -158,6 +160,7 @@ func normalizeInput(input Input) Input {
 	input.Description = strings.TrimSpace(input.Description)
 	input.SourceType = strings.ToLower(strings.TrimSpace(input.SourceType))
 	input.VisualizationType = normalizeVisualizationType(input.VisualizationType)
+	input.VisualizationContract = strings.ToLower(strings.TrimSpace(input.VisualizationContract))
 	input.Columns = normalizeColumns(input.Columns)
 	input.Filters = normalizeFilters(input.Filters)
 	input.GroupBy = strings.TrimSpace(input.GroupBy)
@@ -241,7 +244,7 @@ func normalizeOperator(operator string) string {
 }
 
 func validateInput(input Input) error {
-	if input.Name == "" || len(input.Name) > 120 || len(input.Description) > 1000 || !isAllowedSource(input.SourceType) || !isAllowedVisualizationType(input.VisualizationType) || len(input.Columns) == 0 || len(input.Columns) > 20 || len(input.Filters) > 20 {
+	if input.Name == "" || len(input.Name) > 120 || len(input.Description) > 1000 || !isAllowedSource(input.SourceType) || !isAllowedVisualizationType(input.VisualizationType) || len(input.Columns) > 20 || len(input.Filters) > 20 {
 		return ErrInvalidInput
 	}
 	for _, column := range input.Columns {
@@ -266,7 +269,10 @@ func validateInput(input Input) error {
 	if input.GroupBy != "" && input.Aggregation.Function == "none" {
 		return ErrInvalidInput
 	}
-	return validateAggregation(input.SourceType, input.Aggregation)
+	if err := validateAggregation(input.SourceType, input.Aggregation); err != nil {
+		return err
+	}
+	return validateVisualizationInput(input)
 }
 
 func validateAggregation(sourceType string, aggregation Aggregation) error {
@@ -350,7 +356,7 @@ func mapSaveError(err error) error {
 	return fmt.Errorf("save custom report definition: %w", err)
 }
 
-const definitionReturningColumns = `id, name, description, source_type, visualization_type, columns_json, filters_json, group_by, aggregation_json, is_active, created_at, updated_at`
+const definitionReturningColumns = `id, name, description, source_type, visualization_type, COALESCE(visualization_contract, '') AS visualization_contract, columns_json, filters_json, group_by, aggregation_json, is_active, created_at, updated_at`
 
 const definitionSelect = `
 	SELECT ` + definitionReturningColumns + `

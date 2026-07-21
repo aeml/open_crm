@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -355,6 +356,47 @@ func assertLargeTenantExportBudget(t *testing.T, ctx context.Context, pool *modu
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND actor_user_id=$2 AND event_type='report.export_downloaded' AND entity_id=$3`, organizationID, actorUserID, report.ID).Scan(&reportDownloadAuditCount); err != nil || reportDownloadAuditCount != 1 {
 		t.Fatalf("pilot-scale saved report audit mismatch: count=%d err=%v", reportDownloadAuditCount, err)
 	}
+	barReport, err := reportService.Create(ctx, organizationID, actorUserID, modulecustomreports.Input{
+		Name: "Pilot-scale contacts by status", SourceType: "contacts", VisualizationType: "bar", VisualizationContract: "grouped_bar_v1",
+		GroupBy: "status", Aggregation: modulecustomreports.Aggregation{Function: "count"},
+	})
+	if err != nil {
+		t.Fatalf("create pilot-scale grouped bar report: %v", err)
+	}
+	barStarted := time.Now()
+	barPage, err := reportService.Execute(ctx, organizationID, barReport.ID, modulecustomreports.ExecuteQuery{Page: 1, PageSize: 100})
+	barElapsed := time.Since(barStarted)
+	barTotal := 0
+	for _, row := range barPage.Rows {
+		if value := row.Values["recordCount"]; value != nil {
+			count, parseErr := strconv.Atoi(*value)
+			if parseErr != nil {
+				t.Fatalf("parse pilot grouped bar count %q: %v", *value, parseErr)
+			}
+			barTotal += count
+		}
+	}
+	if err != nil || barPage.VisualizationType != "bar" || barTotal != pilotExportRows || barPage.HasMore {
+		t.Fatalf("execute pilot-scale grouped bar report: rows=%d total=%d hasMore=%t err=%v", len(barPage.Rows), barTotal, barPage.HasMore, err)
+	}
+	if barElapsed > pilotReportPageMaximum {
+		t.Fatalf("pilot-scale grouped bar report took %s; budget is %s", barElapsed, pilotReportPageMaximum)
+	}
+	if _, err := reportService.Execute(ctx, otherOrganizationID, barReport.ID, modulecustomreports.ExecuteQuery{}); !errors.Is(err, modulecustomreports.ErrNotFound) {
+		t.Fatalf("foreign tenant executed pilot-scale grouped bar report: %v", err)
+	}
+	barExportStarted := time.Now()
+	barExport, err := reportService.ExportCSV(ctx, organizationID, actorUserID, barReport.ID)
+	barExportElapsed := time.Since(barExportStarted)
+	if err != nil || barExport.RowCount != len(barPage.Rows) {
+		t.Fatalf("export pilot-scale grouped bar report: rows=%d err=%v", barExport.RowCount, err)
+	}
+	if barExportElapsed > pilotExportMaximum {
+		t.Fatalf("pilot-scale grouped bar export took %s; budget is %s", barExportElapsed, pilotExportMaximum)
+	}
+	if _, err := reportService.ExportCSV(ctx, otherOrganizationID, actorUserID, barReport.ID); !errors.Is(err, modulecustomreports.ErrNotFound) {
+		t.Fatalf("foreign tenant exported pilot-scale grouped bar report: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO contacts (organization_id, first_name, last_name, email, status)
 		VALUES ($1, 'Export', 'Over limit', 'large-export-over-limit@example.test', 'prospect')
@@ -373,6 +415,7 @@ func assertLargeTenantExportBudget(t *testing.T, ctx context.Context, pool *modu
 	}
 	t.Logf("pilot_export_budget rows=%d bytes=%d elapsed=%s", len(records)-1, len(file.Content), elapsed)
 	t.Logf("pilot_saved_report_budget page_rows=%d page_elapsed=%s export_rows=%d export_bytes=%d export_elapsed=%s", len(page.Rows), pageElapsed, reportFile.RowCount, len(reportFile.Content), reportExportElapsed)
+	t.Logf("pilot_grouped_bar_budget categories=%d total=%d page_elapsed=%s export_elapsed=%s", len(barPage.Rows), barTotal, barElapsed, barExportElapsed)
 }
 
 func seedPilotDataset(t *testing.T, ctx context.Context, pool *moduledb.Pool, schema string) (int64, int64, int64, int64) {

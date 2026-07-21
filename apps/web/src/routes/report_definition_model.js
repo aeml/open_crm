@@ -5,9 +5,13 @@ export const sourceOptions = [
   { value: 'tasks', label: 'Tasks' }
 ]
 
-const allVisualizationOptions = [
+const productionVisualizationOptions = [
   { value: 'table', label: 'Table' },
-  { value: 'bar', label: 'Bar chart' },
+  { value: 'bar', label: 'Bar chart' }
+]
+
+const developmentVisualizationOptions = [
+  ...productionVisualizationOptions,
   { value: 'line', label: 'Line chart' },
   { value: 'funnel', label: 'Funnel' },
   { value: 'pie', label: 'Pie chart' },
@@ -15,8 +19,8 @@ const allVisualizationOptions = [
 ]
 
 export const visualizationOptions = import.meta.env.DEV
-  ? allVisualizationOptions
-  : allVisualizationOptions.filter((option) => option.value === 'table')
+  ? developmentVisualizationOptions
+  : productionVisualizationOptions
 
 const fieldOptionsBySource = {
   contacts: [
@@ -74,6 +78,12 @@ const numericFieldsBySource = {
   deals: ['valueAmount']
 }
 
+export const groupedBarVisualizationContract = 'grouped_bar_v1'
+
+export function isExecutableReportDefinition(definition) {
+  return definition.visualizationType === 'table' || (definition.visualizationType === 'bar' && definition.visualizationContract === groupedBarVisualizationContract)
+}
+
 const operatorOptions = [
   { value: 'equals', label: 'equals' },
   { value: 'notEquals', label: 'does not equal' },
@@ -107,6 +117,12 @@ export const aggregationOptions = [
   { value: 'none', label: 'No aggregation' }
 ]
 
+export function aggregationOptionsForVisualization(visualizationType, sourceType) {
+  if (visualizationType !== 'bar') return aggregationOptions
+  const functions = numericFieldsBySource[sourceType]?.length ? ['count', 'sum', 'avg'] : ['count']
+  return aggregationOptions.filter((option) => functions.includes(option.value))
+}
+
 export function fieldsForSource(sourceType) {
   return fieldOptionsBySource[sourceType] || fieldOptionsBySource.contacts
 }
@@ -137,6 +153,7 @@ export function emptyForm(sourceType = 'contacts') {
     description: '',
     sourceType,
     visualizationType: 'table',
+    visualizationContract: '',
     columns: defaultColumns(sourceType),
     filters: [],
     groupBy: '',
@@ -146,13 +163,29 @@ export function emptyForm(sourceType = 'contacts') {
   }
 }
 
+function defaultGroupBy(sourceType) {
+  const fields = fieldsForSource(sourceType)
+  return fields.find((field) => field.value === 'status')?.value || fields.find((field) => field.value !== 'id')?.value || fields[0]?.value || ''
+}
+
+export function formWithVisualization(form, visualizationType) {
+  if (visualizationType === 'bar') {
+    const allowedFunctions = aggregationOptionsForVisualization('bar', form.sourceType).map((option) => option.value)
+    const aggregationFunction = allowedFunctions.includes(form.aggregationFunction) ? form.aggregationFunction : 'count'
+    const next = { ...form, visualizationType, visualizationContract: groupedBarVisualizationContract, columns: [], groupBy: form.groupBy || defaultGroupBy(form.sourceType), aggregationFunction }
+    return { ...next, aggregationField: aggregationFieldOptions(next)[0]?.value || '' }
+  }
+  return { ...form, visualizationType, visualizationContract: '', columns: form.columns.length ? form.columns : defaultColumns(form.sourceType) }
+}
+
 export function formFromDefinition(definition) {
   const sourceType = definition.sourceType || 'contacts'
-  return {
+  const form = {
     name: definition.name || '',
     description: definition.description || '',
     sourceType,
     visualizationType: definition.visualizationType || 'table',
+    visualizationContract: definition.visualizationContract || '',
     columns: definition.columns?.length ? definition.columns : defaultColumns(sourceType),
     filters: definition.filters || [],
     groupBy: definition.groupBy || '',
@@ -160,6 +193,7 @@ export function formFromDefinition(definition) {
     aggregationField: definition.aggregation?.field || '',
     isActive: definition.isActive !== false
   }
+  return definition.visualizationType === 'bar' ? formWithVisualization(form, 'bar') : form
 }
 
 export function aggregationFieldOptions(form) {
@@ -190,7 +224,8 @@ export function payloadFromForm(form) {
     description: form.description,
     sourceType: form.sourceType,
     visualizationType: form.visualizationType,
-    columns: form.columns,
+    visualizationContract: form.visualizationType === 'bar' ? groupedBarVisualizationContract : '',
+    columns: form.visualizationType === 'bar' ? [] : form.columns,
     filters,
     groupBy: form.groupBy,
     aggregation: {
@@ -205,5 +240,6 @@ export function reportSummary(definition) {
   const columns = definition.columns || []
   const filters = definition.filters || []
   const group = definition.groupBy ? `grouped by ${fieldLabel(definition.sourceType, definition.groupBy)}` : 'no grouping'
-  return `${visualizationLabel(definition.visualizationType || 'table')} | ${sourceLabel(definition.sourceType)} | ${columns.length} field${columns.length === 1 ? '' : 's'} | ${filters.length} filter${filters.length === 1 ? '' : 's'} | ${group} | ${aggregationSummary(definition)}`
+  const output = definition.visualizationType === 'bar' ? '' : ` | ${columns.length} field${columns.length === 1 ? '' : 's'}`
+  return `${visualizationLabel(definition.visualizationType || 'table')} | ${sourceLabel(definition.sourceType)}${output} | ${filters.length} filter${filters.length === 1 ? '' : 's'} | ${group} | ${aggregationSummary(definition)}`
 }

@@ -39,15 +39,17 @@ type ResultRow struct {
 }
 
 type Execution struct {
-	DefinitionID   int64          `json:"definitionId"`
-	DefinitionName string         `json:"definitionName"`
-	SourceType     string         `json:"sourceType"`
-	Columns        []ResultColumn `json:"columns"`
-	Rows           []ResultRow    `json:"rows"`
-	Page           int            `json:"page"`
-	PageSize       int            `json:"pageSize"`
-	HasMore        bool           `json:"hasMore"`
-	GeneratedAt    time.Time      `json:"generatedAt"`
+	DefinitionID          int64          `json:"definitionId"`
+	DefinitionName        string         `json:"definitionName"`
+	SourceType            string         `json:"sourceType"`
+	VisualizationType     string         `json:"visualizationType"`
+	VisualizationContract string         `json:"visualizationContract"`
+	Columns               []ResultColumn `json:"columns"`
+	Rows                  []ResultRow    `json:"rows"`
+	Page                  int            `json:"page"`
+	PageSize              int            `json:"pageSize"`
+	HasMore               bool           `json:"hasMore"`
+	GeneratedAt           time.Time      `json:"generatedAt"`
 }
 
 type reportFieldSpec struct {
@@ -95,15 +97,17 @@ func (s *Service) Execute(ctx context.Context, organizationID, definitionID int6
 		resultRows = resultRows[:query.PageSize]
 	}
 	return Execution{
-		DefinitionID:   definition.ID,
-		DefinitionName: definition.Name,
-		SourceType:     definition.SourceType,
-		Columns:        columns,
-		Rows:           resultRows,
-		Page:           query.Page,
-		PageSize:       query.PageSize,
-		HasMore:        hasMore,
-		GeneratedAt:    time.Now().UTC(),
+		DefinitionID:          definition.ID,
+		DefinitionName:        definition.Name,
+		SourceType:            definition.SourceType,
+		VisualizationType:     definition.VisualizationType,
+		VisualizationContract: definition.VisualizationContract,
+		Columns:               columns,
+		Rows:                  resultRows,
+		Page:                  query.Page,
+		PageSize:              query.PageSize,
+		HasMore:               hasMore,
+		GeneratedAt:           time.Now().UTC(),
 	}, nil
 }
 
@@ -130,18 +134,19 @@ func loadExecutableDefinition(ctx context.Context, querier executionQuerier, org
 	if !definition.IsActive {
 		return Definition{}, Input{}, ErrInactive
 	}
-	if definition.VisualizationType != "table" {
+	if !isExecutableVisualization(definition) {
 		return Definition{}, Input{}, ErrUnsupportedVisualization
 	}
 	input := normalizeInput(Input{
-		Name:              definition.Name,
-		Description:       definition.Description,
-		SourceType:        definition.SourceType,
-		VisualizationType: definition.VisualizationType,
-		Columns:           definition.Columns,
-		Filters:           definition.Filters,
-		GroupBy:           definition.GroupBy,
-		Aggregation:       definition.Aggregation,
+		Name:                  definition.Name,
+		Description:           definition.Description,
+		SourceType:            definition.SourceType,
+		VisualizationType:     definition.VisualizationType,
+		VisualizationContract: definition.VisualizationContract,
+		Columns:               definition.Columns,
+		Filters:               definition.Filters,
+		GroupBy:               definition.GroupBy,
+		Aggregation:           definition.Aggregation,
 	})
 	if err := validateInput(input); err != nil {
 		return Definition{}, Input{}, ErrInvalidInput

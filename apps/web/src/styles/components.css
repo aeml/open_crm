@@ -548,6 +548,32 @@
   text-align: left;
 }
 
+.report-bar-chart {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.report-bar-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) minmax(8rem, 4fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.report-bar-track {
+  min-height: 1.25rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.report-bar-track > span {
+  display: block;
+  min-height: 1.25rem;
+  background: var(--accent);
+}
+
 .table-scroll {
   max-width: 100%;
   overflow-x: auto;
@@ -666,6 +692,10 @@
 
   .custom-report-row > .custom-report-results:last-child {
     grid-column: 1;
+  }
+
+  .report-bar-row {
+    grid-template-columns: minmax(5rem, 1fr) minmax(6rem, 2fr) auto;
   }
 
   .record-row > div:last-child {

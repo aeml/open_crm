@@ -171,6 +171,23 @@ func TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres(t *testin
 	if err != nil || len(deals.Rows) != 1 || reportValue(deals, 0, "stageName") != "Discovery" || reportValue(deals, 0, "sumValueAmount") != "1750.50" {
 		t.Fatalf("unexpected grouped deal report: result=%#v err=%v", deals, err)
 	}
+	barReport := createCustomReport(t, ctx, service, organizationID, ownerID, modulecustomreports.Input{
+		Name: "Pipeline value bars", SourceType: "deals", VisualizationType: "bar", VisualizationContract: "grouped_bar_v1",
+		Filters: []modulecustomreports.Filter{{Field: "status", Operator: "equals", Value: "open"}},
+		GroupBy: "stageName", Aggregation: modulecustomreports.Aggregation{Function: "sum", Field: "valueAmount"},
+	})
+	bars, err := service.Execute(ctx, organizationID, barReport.ID, modulecustomreports.ExecuteQuery{PageSize: 25})
+	if err != nil || bars.VisualizationType != "bar" || len(bars.Columns) != 2 || len(bars.Rows) != 1 || reportValue(bars, 0, "stageName") != "Discovery" || reportValue(bars, 0, "sumValueAmount") != "1750.50" {
+		t.Fatalf("unexpected grouped bar report: result=%#v err=%v", bars, err)
+	}
+	barExport, err := service.ExportCSV(ctx, organizationID, ownerID, barReport.ID)
+	if err != nil || barExport.RowCount != 1 || !bytes.Contains(barExport.Content, []byte("Stage,SUM Value amount")) || !bytes.Contains(barExport.Content, []byte("Discovery,1750.50")) {
+		t.Fatalf("unexpected grouped bar export: file=%#v err=%v", barExport, err)
+	}
+	var barExportVisualization, barExportContract string
+	if err := pool.QueryRow(ctx, `SELECT metadata_json->>'visualizationType', metadata_json->>'visualizationContract' FROM audit_events WHERE organization_id=$1 AND event_type='report.export_downloaded' AND entity_id=$2`, organizationID, barReport.ID).Scan(&barExportVisualization, &barExportContract); err != nil || barExportVisualization != "bar" || barExportContract != "grouped_bar_v1" {
+		t.Fatalf("unexpected grouped bar export audit: visualization=%q contract=%q err=%v", barExportVisualization, barExportContract, err)
+	}
 
 	taskReport := createCustomReport(t, ctx, service, organizationID, ownerID, modulecustomreports.Input{
 		Name: "Tasks due this year", SourceType: "tasks", VisualizationType: "table", Columns: []string{"title", "dueAt"},
@@ -189,6 +206,9 @@ func TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres(t *testin
 	}
 	if _, err := service.Execute(ctx, organizationID, foreignReport.ID, modulecustomreports.ExecuteQuery{}); !errors.Is(err, modulecustomreports.ErrNotFound) {
 		t.Fatalf("local tenant executed foreign report: %v", err)
+	}
+	if _, err := service.Execute(ctx, foreignOrganizationID, barReport.ID, modulecustomreports.ExecuteQuery{}); !errors.Is(err, modulecustomreports.ErrNotFound) {
+		t.Fatalf("foreign tenant executed local grouped bar report: %v", err)
 	}
 
 	exportReport := createCustomReport(t, ctx, service, organizationID, ownerID, modulecustomreports.Input{
@@ -234,6 +254,9 @@ func TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres(t *testin
 	}
 	if _, err := service.ExportCSV(ctx, foreignOrganizationID, foreignOwnerID, contactReport.ID); !errors.Is(err, modulecustomreports.ErrNotFound) {
 		t.Fatalf("foreign tenant exported local report: %v", err)
+	}
+	if _, err := service.ExportCSV(ctx, foreignOrganizationID, foreignOwnerID, barReport.ID); !errors.Is(err, modulecustomreports.ErrNotFound) {
+		t.Fatalf("foreign tenant exported local grouped bar report: %v", err)
 	}
 	if _, err := service.ExportCSV(ctx, organizationID, foreignOwnerID, exportReport.ID); !errors.Is(err, modulecustomreports.ErrForbidden) {
 		t.Fatalf("foreign actor exported local report: %v", err)
@@ -285,10 +308,21 @@ func TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres(t *testin
 		t.Fatalf("inactive report execution returned %v", err)
 	}
 	chartReport := createCustomReport(t, ctx, service, organizationID, ownerID, modulecustomreports.Input{
-		Name: "Future chart", SourceType: "deals", VisualizationType: "bar", Columns: []string{"name"}, GroupBy: "stageName", Aggregation: modulecustomreports.Aggregation{Function: "sum", Field: "valueAmount"},
+		Name: "Future chart", SourceType: "deals", VisualizationType: "line", Columns: []string{"name"}, GroupBy: "stageName", Aggregation: modulecustomreports.Aggregation{Function: "sum", Field: "valueAmount"},
 	})
 	if _, err := service.Execute(ctx, organizationID, chartReport.ID, modulecustomreports.ExecuteQuery{}); !errors.Is(err, modulecustomreports.ErrUnsupportedVisualization) {
 		t.Fatalf("unfinished chart execution returned %v", err)
+	}
+	var legacyBarID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO custom_report_definitions (organization_id,name,source_type,visualization_type,columns_json,group_by,aggregation_json,created_by_user_id,updated_by_user_id)
+		VALUES ($1,'Legacy metadata bar','contacts','bar','[]'::jsonb,'status','{"function":"count","field":""}'::jsonb,$2,$2)
+		RETURNING id
+	`, organizationID, ownerID).Scan(&legacyBarID); err != nil {
+		t.Fatalf("seed legacy grouped bar metadata: %v", err)
+	}
+	if _, err := service.Execute(ctx, organizationID, legacyBarID, modulecustomreports.ExecuteQuery{}); !errors.Is(err, modulecustomreports.ErrUnsupportedVisualization) {
+		t.Fatalf("legacy grouped bar metadata became executable: %v", err)
 	}
 	if _, err := service.Execute(ctx, organizationID, pageReport.ID, modulecustomreports.ExecuteQuery{Page: 101, PageSize: 50}); !errors.Is(err, modulecustomreports.ErrInvalidQuery) {
 		t.Fatalf("unbounded report page returned %v", err)

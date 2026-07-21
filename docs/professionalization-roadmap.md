@@ -2320,22 +2320,22 @@ contact creates across two tenants at a 1 s p95/3 s maximum budget, checks every
 new ID through the wrong tenant, verifies exact totals, and proves bounded
 closed-pool failure, one-connection pool exhaustion/recovery, and locked-table
 deadline/recovery. The same gate produces and parses the tenant-isolated 10,000-
-row contact export under a 5 s budget, runs a saved-report 100-row page under
-2 s, exports the same 10,000 records under 5 s with cross-tenant and audit
+row contact export under a 5 s budget, runs a saved-table 100-row page and a
+complete grouped-bar aggregation under 2 s, exports both under 5 s with cross-tenant and audit
 checks, rejects row 10,001 without partial evidence, and maps/writes 1,000
 contacts with duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, request deadline, and
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 178.92 KiB/58.01 KiB for the entry, 54.78 KiB/15.64 KiB
-for the largest lazy chunk, and 689.50 KiB/218.37 KiB total assets. The isolated
+CSS. Current production-URL evidence is 178.92 KiB/58.03 KiB for the entry, 54.78 KiB/15.64 KiB
+for the largest lazy chunk, and 692.40 KiB/219.14 KiB total assets. The isolated
 public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
 retry-safe signature ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds include
-the 31.49/8.12 KiB bounded saved-table report route, whose 298-line
-orchestration and separately tested 209-line catalog/form model remain below
-the source ceiling and whose non-table controls are filtered from production
+the 33.91/8.81 KiB bounded saved-table/grouped-bar report route, whose 293-line
+orchestration, separately tested 245-line catalog/form model, and 33/26-line
+bar/table renderers remain below the source ceiling and whose line/funnel/pie/KPI controls are filtered from production
 navigation. They omit booking-link, audience,
 lead-scoring, marketing-email, and nurture-campaign management routes; the bundle
 gate rejects those routes' accidental inclusion. The complete
@@ -2346,6 +2346,8 @@ entry, per-route, and CSS limits remain unchanged.
 Reversible lead-submission review then extends its lazy lead-forms route to
 14.47/4.63 KiB and advances only the aggregate ceilings to 670/214 KiB; the
 saved-table outcome then advances only the aggregate ceilings to 690/220 KiB.
+The complete grouped-bar outcome advances only the aggregate raw ceiling to
+693 KiB while gzip remains at 220 KiB.
 Entry, per-route, CSS, and source limits remain unchanged. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 449 lines,
@@ -2685,13 +2687,13 @@ Goal: move from fixed reports to a self-service analytics layer.
 
 Progress:
 
-- `1.6.1` (saved table reports): production-capable for a bounded first outcome. Writers can create and edit contact, company, deal, and task table reports from production Reports; all members can run them; owners/admins can download the same saved query. Static allowlists, parameterized typed filters, optional grouping/aggregation, archived-row exclusion, page/page-size ceilings, a five-second deadline, accessible result tables, transactional actor revalidation/audit, a formula-safe BOM CSV, explicit 10,000-row refusal, stable failures, real-PostgreSQL all-source/cross-tenant/overflow acceptance, and the Chromium pilot journey cover execution and export. The 12-tenant PostgreSQL performance gate expands one workspace to 10,000 contacts and now checks a 100-row saved-report page within two seconds, the complete export within five seconds, cross-tenant denial, overflow refusal, and exact audit evidence. Production-like-host and real-pilot validation remain external follow-up work.
-- `1.6.2` (chart/visualization type foundation): complete only as hidden metadata/editor work. Definitions can retain table, bar, line, funnel, pie, and KPI metadata, but production exposes table creation/execution only. Chart rendering, accessible alternatives, dashboards, sharing permissions, scheduled delivery, chart/PDF exports, and analytics read-model/performance work remain future slices.
+- `1.6.1` (saved table reports): production-capable for a bounded first outcome. Writers can create and edit contact, company, deal, and task table reports from production Reports; all members can run them; owners/admins can download the same saved query. Static allowlists, parameterized typed filters, optional grouping/aggregation, archived-row exclusion, page/page-size ceilings, a five-second deadline, accessible result tables, transactional actor revalidation/audit, a formula-safe BOM CSV, explicit 10,000-row refusal, stable failures, real-PostgreSQL all-source/cross-tenant/overflow acceptance, and the Chromium pilot journey cover execution and export. The 12-tenant PostgreSQL performance gate expands one workspace to 10,000 contacts and checks a 100-row saved-report page within two seconds, the complete export within five seconds, cross-tenant denial, overflow refusal, and exact audit evidence. Production-like-host and real-pilot validation remain external follow-up work.
+- `1.6.2` (grouped bar reports): production-capable for one bounded chart outcome. Production accepts only exactly one allowlisted category plus a record count, numeric sum, or numeric average and no ignored row columns. Migration `105_custom_report_grouped_bar_contract.sql` leaves every historical metadata-only bar unmarked; only a deliberately saved `grouped_bar_v1` definition executes or appears in normal navigation. It executes and exports through the same tenant-bound, archived-row-excluding, five-second report engine; includes visualization type/contract in execution and audit evidence; rejects mismatched client responses; and pairs every visual bar set with its exact paged accessible data table. Unit/handler/UI, real-PostgreSQL migration upgrade coverage for historical and rolling-old-app bars, freshly migrated PostgreSQL execution/export/legacy/foreign-tenant, 10,000-row performance, and two-workspace Chromium/WCAG evidence cover the outcome. Line, funnel, pie, and KPI metadata remain hidden foundations; dashboards, sharing, scheduled delivery, chart/PDF export, and broader read models remain incomplete. Pilot validation remains external follow-up work.
 
 Candidate slices:
 
 - `1.6.1` Saved table report builder, bounded tenant-safe execution, and admin audited CSV export: production-capable locally; pilot validation remains.
-- `1.6.2` Chart/visualization types (bar, line, funnel, pie, KPI): hidden foundation only.
+- `1.6.2` Grouped bar report with exact accessible table and audited CSV: production-capable locally; pilot validation remains. Line, funnel, pie, and KPI remain hidden foundations.
 - `1.6.3` Configurable dashboards with draggable widgets, shared and personal.
 - `1.6.4` Pipeline/funnel conversion analytics and velocity metrics.
 - `1.6.5` Revenue, activity, and cohort analytics with date-range and owner filters.

@@ -26,6 +26,7 @@ export async function getReportResults(definitionId, { page = 1, pageSize = 50, 
     ...data,
     columns: Array.isArray(data.columns) ? data.columns : [],
     rows: Array.isArray(data.rows) ? data.rows : [],
+    visualizationContract: data.visualizationContract || '',
     page: data.page || page,
     pageSize: data.pageSize || pageSize,
     hasMore: data.hasMore === true

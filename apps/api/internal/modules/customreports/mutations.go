@@ -34,10 +34,10 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		return Definition{}, err
 	}
 	definition, err := scanDefinition(tx.QueryRow(ctx, `
-		INSERT INTO custom_report_definitions (organization_id, name, description, source_type, visualization_type, columns_json, filters_json, group_by, aggregation_json, is_active, created_by_user_id, updated_by_user_id)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9::jsonb, $10, $11, $11)
+		INSERT INTO custom_report_definitions (organization_id, name, description, source_type, visualization_type, visualization_contract, columns_json, filters_json, group_by, aggregation_json, is_active, created_by_user_id, updated_by_user_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10::jsonb, $11, $12, $12)
 		RETURNING `+definitionReturningColumns+`
-	`, organizationID, input.Name, input.Description, input.SourceType, input.VisualizationType, string(columnsJSON), string(filtersJSON), input.GroupBy, string(aggregationJSON), isActive, actorUserID))
+	`, organizationID, input.Name, input.Description, input.SourceType, input.VisualizationType, input.VisualizationContract, string(columnsJSON), string(filtersJSON), input.GroupBy, string(aggregationJSON), isActive, actorUserID))
 	if err != nil {
 		return Definition{}, mapSaveError(err)
 	}
@@ -81,16 +81,17 @@ func (s *Service) Update(ctx context.Context, organizationID, definitionID, acto
 		    description = $4,
 		    source_type = $5,
 		    visualization_type = $6,
-		    columns_json = $7::jsonb,
-		    filters_json = $8::jsonb,
-		    group_by = $9,
-		    aggregation_json = $10::jsonb,
-		    is_active = COALESCE($11::boolean, is_active),
-		    updated_by_user_id = $12,
+		    visualization_contract = $7,
+		    columns_json = $8::jsonb,
+		    filters_json = $9::jsonb,
+		    group_by = $10,
+		    aggregation_json = $11::jsonb,
+		    is_active = COALESCE($12::boolean, is_active),
+		    updated_by_user_id = $13,
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2
 		RETURNING `+definitionReturningColumns+`
-	`, organizationID, definitionID, input.Name, input.Description, input.SourceType, input.VisualizationType, string(columnsJSON), string(filtersJSON), input.GroupBy, string(aggregationJSON), isActive, actorUserID))
+	`, organizationID, definitionID, input.Name, input.Description, input.SourceType, input.VisualizationType, input.VisualizationContract, string(columnsJSON), string(filtersJSON), input.GroupBy, string(aggregationJSON), isActive, actorUserID))
 	if err != nil {
 		return Definition{}, mapSaveError(err)
 	}
@@ -134,8 +135,8 @@ func requireActiveReportRole(ctx context.Context, tx pgx.Tx, organizationID, act
 func recordDefinitionAudit(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64, definition Definition, eventType, summary string) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
-		VALUES ($1,$2,$3,'report_definition',$4,$5,jsonb_build_object('sourceType',$6::text,'visualizationType',$7::text,'isActive',$8::boolean))
-	`, organizationID, actorUserID, eventType, definition.ID, summary, definition.SourceType, definition.VisualizationType, definition.IsActive); err != nil {
+		VALUES ($1,$2,$3,'report_definition',$4,$5,jsonb_build_object('sourceType',$6::text,'visualizationType',$7::text,'visualizationContract',$8::text,'isActive',$9::boolean))
+	`, organizationID, actorUserID, eventType, definition.ID, summary, definition.SourceType, definition.VisualizationType, definition.VisualizationContract, definition.IsActive); err != nil {
 		return fmt.Errorf("record custom report audit: %w", err)
 	}
 	return nil

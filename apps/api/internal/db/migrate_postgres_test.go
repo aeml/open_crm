@@ -501,6 +501,121 @@ func TestThreadedReplyMigrationBackfillsCompleteMailboxChains(t *testing.T) {
 	}
 }
 
+func TestGroupedBarContractMigrationKeepsHistoricalBarsInert(t *testing.T) {
+	databaseURL := strings.TrimSpace(os.Getenv("OPEN_CRM_TEST_DATABASE_URL"))
+	if databaseURL == "" {
+		t.Skip("OPEN_CRM_TEST_DATABASE_URL is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	adminPool, err := NewPool(ctx, Config{DatabaseURL: databaseURL})
+	if err != nil {
+		t.Fatalf("connect to grouped-bar migration postgres: %v", err)
+	}
+	defer adminPool.Close()
+
+	schema := fmt.Sprintf("open_crm_bar_migration_%d", time.Now().UnixNano())
+	if _, err := adminPool.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+		t.Fatalf("create grouped-bar migration schema: %v", err)
+	}
+	defer adminPool.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`)
+
+	pool, err := NewPool(ctx, Config{DatabaseURL: databaseURLWithSearchPath(t, databaseURL, schema)})
+	if err != nil {
+		t.Fatalf("connect to grouped-bar migration schema: %v", err)
+	}
+	defer pool.Close()
+	for _, name := range MigrationFiles() {
+		if name == "105_custom_report_grouped_bar_contract.sql" {
+			break
+		}
+		tx, beginErr := pool.Begin(ctx)
+		if beginErr != nil {
+			t.Fatalf("begin historical migration %s: %v", name, beginErr)
+		}
+		if _, execErr := tx.Exec(ctx, MigrationSQL(name)); execErr != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("apply historical migration %s: %v", name, execErr)
+		}
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			t.Fatalf("commit historical migration %s: %v", name, commitErr)
+		}
+	}
+
+	var organizationID, userID, historicalBarID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO organizations (name,slug) VALUES ('Bar migration',$1) RETURNING id`, "bar-migration-"+schema).Scan(&organizationID); err != nil {
+		t.Fatalf("seed grouped-bar migration organization: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (email,password_hash,first_name,last_name) VALUES ($1,'hash','Bar','Owner') RETURNING id`, "bar-migration-"+schema+"@example.test").Scan(&userID); err != nil {
+		t.Fatalf("seed grouped-bar migration user: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO custom_report_definitions (
+		  organization_id,name,source_type,visualization_type,columns_json,group_by,
+		  aggregation_json,created_by_user_id,updated_by_user_id
+		) VALUES ($1,'Historical bar','contacts','bar','[]'::jsonb,'status',
+		  '{"function":"count","field":""}'::jsonb,$2,$2)
+		RETURNING id
+	`, organizationID, userID).Scan(&historicalBarID); err != nil {
+		t.Fatalf("seed historical grouped bar: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin grouped-bar contract migration: %v", err)
+	}
+	if _, err := tx.Exec(ctx, MigrationSQL("105_custom_report_grouped_bar_contract.sql")); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("apply grouped-bar contract migration: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit grouped-bar contract migration: %v", err)
+	}
+
+	var historicalContract string
+	if err := pool.QueryRow(ctx, `SELECT visualization_contract FROM custom_report_definitions WHERE id=$1`, historicalBarID).Scan(&historicalContract); err != nil || historicalContract != "" {
+		t.Fatalf("historical grouped bar contract=%q, want empty (err=%v)", historicalContract, err)
+	}
+	var rollingContract string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO custom_report_definitions (
+		  organization_id,name,source_type,visualization_type,columns_json,group_by,
+		  aggregation_json,created_by_user_id,updated_by_user_id
+		) VALUES ($1,'Rolling old-app bar','contacts','bar','[]'::jsonb,'status',
+		  '{"function":"count","field":""}'::jsonb,$2,$2)
+		RETURNING visualization_contract
+	`, organizationID, userID).Scan(&rollingContract); err != nil || rollingContract != "" {
+		t.Fatalf("rolling old-app grouped bar contract=%q, want empty (err=%v)", rollingContract, err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO custom_report_definitions (
+		  organization_id,name,source_type,visualization_type,visualization_contract,
+		  columns_json,group_by,aggregation_json,created_by_user_id,updated_by_user_id
+		) VALUES ($1,'Versioned grouped bar','contacts','bar','grouped_bar_v1',
+		  '[]'::jsonb,'status','{"function":"count","field":""}'::jsonb,$2,$2)
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert versioned grouped bar: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO custom_report_definitions (
+		  organization_id,name,source_type,visualization_type,visualization_contract,
+		  columns_json,aggregation_json,created_by_user_id,updated_by_user_id
+		) VALUES ($1,'Invalid marked table','contacts','table','grouped_bar_v1',
+		  '["firstName"]'::jsonb,'{"function":"none","field":""}'::jsonb,$2,$2)
+	`, organizationID, userID); err == nil {
+		t.Fatal("grouped-bar execution contract was accepted for a table")
+	}
+	var constraintValidated bool
+	if err := pool.QueryRow(ctx, `
+		SELECT convalidated
+		FROM pg_constraint
+		WHERE conname='custom_report_definitions_visualization_contract_check'
+	`).Scan(&constraintValidated); err != nil || !constraintValidated {
+		t.Fatalf("grouped-bar contract constraint validated=%t err=%v", constraintValidated, err)
+	}
+}
+
 func databaseURLWithSearchPath(t *testing.T, rawURL, schema string) string {
 	t.Helper()
 

@@ -3,11 +3,9 @@ import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { isAbortError } from '../lib/api'
 import { getReportResults, reportExportURL } from '../lib/reports'
-
-function displayValue(value) {
-  if (value === null || value === undefined || value === '') return '—'
-  return String(value)
-}
+import { CustomReportBar } from './custom_report_bar'
+import { CustomReportTable } from './custom_report_table'
+import { isExecutableReportDefinition } from './report_definition_model'
 
 function generatedLabel(value) {
   if (!value) return ''
@@ -40,6 +38,9 @@ export function CustomReportResults({ definition, canExport = false }) {
     setError('')
     try {
       const nextResult = await getReportResults(definition.id, { page: nextPage, pageSize: 50, signal: controller.signal })
+      if (nextResult.definitionId !== definition.id || nextResult.visualizationType !== definition.visualizationType || nextResult.visualizationContract !== (definition.visualizationContract || '') || nextResult.sourceType !== definition.sourceType) {
+        throw new Error('The saved report returned results for a different definition.')
+      }
       setResult(nextResult)
       setPage(nextResult.page || nextPage)
     } catch (runError) {
@@ -54,7 +55,7 @@ export function CustomReportResults({ definition, canExport = false }) {
     }
   }
 
-  if (definition.visualizationType !== 'table') {
+  if (!isExecutableReportDefinition(definition)) {
     return <p className="field-hint">This saved visualization remains hidden from execution until its chart renderer is complete.</p>
   }
   if (!definition.isActive) {
@@ -72,23 +73,7 @@ export function CustomReportResults({ definition, canExport = false }) {
       {error ? <InlineError message={error} onRetry={() => runReport(page)} retryLabel="Retry report" /> : null}
       {result ? (
         <>
-          <div className="table-scroll" tabIndex="0" role="region" aria-label={`${definition.name} results`}>
-            <table className="data-table">
-              <caption>{definition.name} · page {result.page}</caption>
-              <thead>
-                <tr>{result.columns.map((column) => <th scope="col" key={column.key}>{column.label}</th>)}</tr>
-              </thead>
-              <tbody>
-                {result.rows.length === 0 ? (
-                  <tr><td colSpan={Math.max(1, result.columns.length)}>No records match this saved report.</td></tr>
-                ) : result.rows.map((row, rowIndex) => (
-                  <tr key={`${result.page}-${rowIndex}`}>
-                    {result.columns.map((column) => <td key={column.key}>{displayValue(row.values?.[column.key])}</td>)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {definition.visualizationType === 'bar' ? <CustomReportBar definition={definition} result={result} /> : <CustomReportTable definition={definition} result={result} />}
           <div className="section-header">
             <p className="field-hint" role="status">
               Page {result.page} · {result.rows.length} result{result.rows.length === 1 ? '' : 's'}{generatedLabel(result.generatedAt) ? ` · generated ${generatedLabel(result.generatedAt)}` : ''}

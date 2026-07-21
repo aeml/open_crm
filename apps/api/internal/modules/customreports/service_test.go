@@ -10,14 +10,14 @@ func TestNormalizeInputTrimsReportDefinition(t *testing.T) {
 		Name:              "  Pipeline revenue  ",
 		Description:       "  Revenue by stage  ",
 		SourceType:        " DEALS ",
-		VisualizationType: " BAR ",
+		VisualizationType: " TABLE ",
 		Columns:           []string{" name ", "stageName", "name", "", " valueAmount "},
 		Filters:           []Filter{{Field: " status ", Operator: "not_equals", Value: " lost "}, {Field: "", Operator: "equals", Value: "ignored"}},
 		GroupBy:           " stageName ",
 		Aggregation:       Aggregation{Function: "average", Field: " valueAmount "},
 	})
 
-	if input.Name != "Pipeline revenue" || input.Description != "Revenue by stage" || input.SourceType != "deals" || input.VisualizationType != "bar" || input.GroupBy != "stageName" {
+	if input.Name != "Pipeline revenue" || input.Description != "Revenue by stage" || input.SourceType != "deals" || input.VisualizationType != "table" || input.GroupBy != "stageName" {
 		t.Fatalf("unexpected normalized report input: %#v", input)
 	}
 	if len(input.Columns) != 3 || input.Columns[0] != "name" || input.Columns[2] != "valueAmount" {
@@ -70,6 +70,32 @@ func TestValidateInputAcceptsBuilderFeatures(t *testing.T) {
 
 	if err := validateInput(input); err != nil {
 		t.Fatalf("expected builder features to validate: %v", err)
+	}
+}
+
+func TestValidateInputEnforcesGroupedBarContract(t *testing.T) {
+	valid := []Input{
+		normalizeInput(Input{Name: "Contacts by source", SourceType: "contacts", VisualizationType: "bar", VisualizationContract: groupedBarContract, GroupBy: "leadSource", Aggregation: Aggregation{Function: "count"}}),
+		normalizeInput(Input{Name: "Pipeline by stage", SourceType: "deals", VisualizationType: "bar", VisualizationContract: groupedBarContract, GroupBy: "stageName", Aggregation: Aggregation{Function: "sum", Field: "valueAmount"}}),
+	}
+	for _, input := range valid {
+		if err := validateInput(input); err != nil {
+			t.Fatalf("valid grouped bar report rejected: input=%#v err=%v", input, err)
+		}
+	}
+
+	invalid := []Input{
+		normalizeInput(Input{Name: "Legacy bar without contract", SourceType: "contacts", VisualizationType: "bar", GroupBy: "status", Aggregation: Aggregation{Function: "count"}}),
+		normalizeInput(Input{Name: "Bar with row columns", SourceType: "contacts", VisualizationType: "bar", VisualizationContract: groupedBarContract, Columns: []string{"email"}, GroupBy: "status", Aggregation: Aggregation{Function: "count"}}),
+		normalizeInput(Input{Name: "Bar without category", SourceType: "contacts", VisualizationType: "bar", VisualizationContract: groupedBarContract, Aggregation: Aggregation{Function: "count"}}),
+		normalizeInput(Input{Name: "Bar without aggregation", SourceType: "contacts", VisualizationType: "bar", VisualizationContract: groupedBarContract, GroupBy: "status", Aggregation: Aggregation{Function: "none"}}),
+		normalizeInput(Input{Name: "Bar with text minimum", SourceType: "contacts", VisualizationType: "bar", VisualizationContract: groupedBarContract, GroupBy: "status", Aggregation: Aggregation{Function: "min", Field: "email"}}),
+		normalizeInput(Input{Name: "Table with bar contract", SourceType: "contacts", VisualizationType: "table", VisualizationContract: groupedBarContract, Columns: []string{"email"}, Aggregation: Aggregation{Function: "none"}}),
+	}
+	for _, input := range invalid {
+		if err := validateInput(input); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("invalid grouped bar report accepted: input=%#v err=%v", input, err)
+		}
 	}
 }
 
