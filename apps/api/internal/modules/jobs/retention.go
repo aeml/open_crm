@@ -23,6 +23,7 @@ var retentionEligibleJobTypes = []string{
 	"email_sequence.send",
 	"mailbox.sync",
 	"task.reminder",
+	"workflow.lead_follow_up",
 	"workspace.export.generate",
 }
 

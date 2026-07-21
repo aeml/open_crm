@@ -2317,8 +2317,8 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 178.92 KiB/58.02 KiB for the entry, 54.78 KiB/15.63 KiB
-for the largest lazy chunk, and 658.59 KiB/210.07 KiB total assets. The isolated
+CSS. Current production-URL evidence is 178.93 KiB/58.02 KiB for the entry, 54.78 KiB/15.63 KiB
+for the largest lazy chunk, and 663.23 KiB/211.14 KiB total assets. The isolated
 public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
 retry-safe signature ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB
@@ -2326,8 +2326,10 @@ route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, audience, lead-scoring, marketing-email, and
 nurture-campaign management routes, and the bundle gate rejects their accidental
 inclusion; this aligns normal exposure with executable behavior. The complete
-quote-template/approval outcome advances only the measured aggregate ceilings
-to 659/211 KiB while entry, per-route, and CSS limits remain unchanged. Tested route
+quote-template/approval outcome advanced the measured aggregate ceilings to
+659/211 KiB. The later durable lead-follow-up outcome keeps its lazy settings
+route to 14.71/4.67 KiB and advances only the aggregate ceilings to 664/212 KiB;
+entry, per-route, and CSS limits remain unchanged. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 449 lines,
 companies at 458, deals at 473, and tasks at 496, down from 2,038, 1,364,
@@ -2610,15 +2612,15 @@ Status: in progress.
 
 Goal: let admins automate CRM work without code — a core differentiator across all SaaS CRMs.
 
-Convergence reconciliation (2026-07-19): the broad definition, condition,
+Convergence reconciliation (2026-07-21): the broad definition, condition,
 action, timing, approval, and run artifacts described below remain a stored/API
 foundation, but their former general-purpose visual editor is no longer exposed
 in normal product navigation. Version `0.6.3` replaced that surface with a
-bounded deal follow-up task editor and implemented only that subset's
-transactional, idempotent runtime. Conditions, other targets/actions, scheduled
-or approval steps, provider dispatch, and general retry orchestration still do
-not execute and must not be inferred complete from the historical foundation
-entries.
+bounded task-automation editor and implemented transactional, idempotent deal
+event tasks. Version `1.5.8` adds one durable conditional lead-form follow-up
+task outcome. Other targets/actions, nested branches, scheduled or approval
+steps, provider dispatch, and general retry orchestration still do not execute
+and must not be inferred complete from the historical foundation entries.
 
 Progress:
 
@@ -2629,6 +2631,7 @@ Progress:
 - `1.5.5` (scheduled/time-delay action foundation): complete. Added validated per-action timing metadata for relative `delayMinutes` and absolute `scheduledAt` plans, normalized scheduled action times to UTC, exposed timing controls in the visual builder, and added a pure planned-action-time helper for the future background runner. Trigger detection, action queue persistence, due-action selection, provider dispatch, run history, loop protection, and retry/idempotency remain future slices.
 - `1.5.6` (approval/human-in-the-loop action foundation): complete. Added a validated `request_approval` workflow action definition with approval name, approver role, and message metadata; normalized approver roles for admin, owner, and record-owner routing; exposed approval action fields in the visual builder; and kept advanced JSON editing as the persisted source of truth. Approval queues, runtime pause/resume behavior, approver notifications, audit history, and execution gating remain future slices.
 - `1.5.7` (automation run history/retry foundation): complete. Added persistent workflow automation run records with per-automation idempotency keys, statuses, trigger payload metadata, condition results, action progress, retry count, error text, and UTC timestamps; exposed recent run history through an authenticated API and Settings > Automations panel; and added service helpers for future idempotent run recording and terminal completion. Trigger detection, action queue execution, provider dispatch, loop protection, retry scheduling, and action-level attempt history remain future slices.
+- `1.5.8` (durable lead follow-up task automation): complete locally. Owners/admins can bind one exact active lead form or every active form, an optional attribution condition, one active teammate, literal task content, and a 0–365-day due offset. Accepted public submissions snapshot that exact executable definition and enqueue one tenant-scoped `workflow.lead_follow_up` job in the same transaction as the contact/submission. The worker rehydrates retained source records, rechecks rule activation and assignee membership, evaluates the captured condition, and commits the task, reminders, assignment notification, activity, audit, and terminal run evidence atomically. Stable run/job/task identities make capture retries and lost acknowledgements harmless; managed hosted suspension defers through the shared billing guard; deactivation cancels queued effects; mismatches skip safely; inactive assignees fail visibly. Migration `101_workflow_run_operations.sql` bounds aggregate active/recent-terminal health scans without tenant or record labels. Aggregate metrics, validated alerts, admin run inspection with active-run polling, disposable-PostgreSQL replay/tenant/negative-path tests, and the Chromium pilot journey cover the local outcome. Broader targets/actions, nested branching, scheduling, approvals, and provider effects remain hidden foundations.
 
 Candidate slices:
 
@@ -2639,6 +2642,7 @@ Candidate slices:
 - `1.5.5` Scheduled and time-delay actions on the background job runner (`0.9.3`): foundation complete.
 - `1.5.6` Approval steps and human-in-the-loop actions: foundation complete.
 - `1.5.7` Automation run history, error handling, and safe retry/idempotency: foundation complete.
+- `1.5.8` Lead-form submission to assigned follow-up task: complete locally; pilot validation remains.
 
 Exit criteria:
 

@@ -926,6 +926,50 @@ bytes, tokens, or counters with ad hoc SQL.
    Review that task explicitly during rollback; never delete run/audit rows or
    task history with ad hoc SQL.
 
+### Durable lead follow-up automation
+
+1. Owners and admins manage this bounded outcome under **Settings >
+   Automations**. A rule chooses one exact active lead form (or every active
+   form), zero or one attribution condition (`leadSource`, `utmSource`,
+   `utmMedium`, `utmCampaign`, or `sourceUrl`), one exact active teammate, a
+   literal task title/description, and a 0–365 whole-day due offset. Other
+   target/action/timing/approval shapes remain hidden and do not execute.
+2. An accepted public submission snapshots the exact authorized definition and
+   enqueues one `workflow.lead_follow_up` job in the same transaction as its
+   contact, activity, submission, consent evidence, and challenge consumption.
+   Editing the rule afterward cannot change queued work. Deactivating it stops
+   queued work deliberately; it does not remove tasks already committed.
+3. The worker rehydrates the retained submission, form, and contact; rechecks
+   tenant ownership, rule activation, the optional condition, and active
+   assignee membership; and commits the task, due/overdue reminder state,
+   assignment notification, `task.automated` activity,
+   `workflow_automation.executed` audit event, and terminal run together.
+   Managed hosted suspension uses the ordinary durable billing deferral and
+   preserves attempts; self-hosted workspaces are never subject to that policy.
+4. Inspect **Recent task automation runs** and **Settings > Operations** before
+   escalating. `queued` or `running` should be transient. `succeeded` names the
+   created task. `skipped` means the captured condition did not match or the
+   retained contact/source was no longer eligible. `cancelled` means
+   an operator deactivated the rule before execution. `failed` is terminal and
+   most commonly means the captured assignee is no longer active; choose an
+   active assignee for future submissions and create/reassign the current
+   follow-up through normal task controls.
+5. Queue claims and task creation are replay-safe. If a worker loses its
+   acknowledgement after commit, the repeated job returns the same task from
+   the terminal run instead of creating another. Use the normal dead-letter
+   replay control only after fixing a transient dependency. Do not rewrite
+   `background_jobs`, `workflow_automation_runs`, tasks, activities, or audit
+   rows with manual SQL.
+6. Monitor `open_crm_workflow_runs{status="queued"}`,
+   `open_crm_workflow_runs{status="running"}`,
+   `open_crm_workflow_runs_failed_24h`,
+   `open_crm_workflow_runs_skipped_24h`, and
+   `open_crm_workflow_oldest_active_age_seconds`. The
+   `OpenCRMWorkflowRunStalled` alert indicates an active run older than the
+   normal recovery window; correlate its run and durable job before replay.
+   `OpenCRMWorkflowRunFailed` indicates terminal failures that require an
+   operator review even when the queue itself is healthy.
+
 ### Bulk change recovery
 
 1. Open the affected Contacts, Clients, Deals, or Tasks list and expand

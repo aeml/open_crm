@@ -362,6 +362,26 @@ groups:
           summary: Signed quotes are awaiting deliberate won-deal conversion and client handoff
           runbook: docs/operations-runbook.md#finalized-quote-delivery-and-receipt-recovery
 
+      - alert: OpenCRMWorkflowRunStalled
+        expr: open_crm_workflow_runs_available == 1 and open_crm_workflow_oldest_active_age_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: A durable workflow run has remained active for too long
+          description: Inspect the workflow run and background job queues before replaying or editing the rule.
+          runbook: docs/operations-runbook.md#durable-lead-follow-up-automation
+
+      - alert: OpenCRMWorkflowRunFailed
+        expr: open_crm_workflow_runs_available == 1 and open_crm_workflow_runs_failed_24h > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A workflow run ended in a terminal failure
+          description: Inspect the retained run reason; lead follow-up failures commonly require choosing an active assignee.
+          runbook: docs/operations-runbook.md#durable-lead-follow-up-automation
+
       - alert: OpenCRMBackupStatusUnavailable
         expr: open_crm_backup_status_available == 0
         for: 30m

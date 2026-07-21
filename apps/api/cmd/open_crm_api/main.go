@@ -302,6 +302,15 @@ func main() {
 		if sequenceRunnerService != nil && sequenceRunnerService.Configured() {
 			jobHandlers[moduleemailsequences.SequenceSendJobType] = sequenceRunnerService.HandleJob
 		}
+		if workflowAutomationsService != nil {
+			jobHandlers[moduleworkflowautomations.LeadFollowUpJobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
+				result, err := workflowAutomationsService.HandleLeadFollowUpJob(ctx, job)
+				if errors.Is(err, moduleworkflowautomations.ErrInvalidLeadFollowUpJob) {
+					return nil, modulejobs.Permanent(err)
+				}
+				return result, err
+			}
+		}
 		if billingService != nil {
 			for jobType, handler := range jobHandlers {
 				if jobType != modulebilling.ReconciliationJobType && jobType != modulebilling.UsageSnapshotJobType && jobType != moduleworkspaceexports.JobType {
@@ -426,6 +435,18 @@ func main() {
 			snapshot.QuoteSignaturesConverted = stats.SignaturesConverted
 			snapshot.QuoteSignaturesDeclined = stats.SignaturesDeclined
 			snapshot.QuoteSignaturesVoided = stats.SignaturesVoided
+		}
+		if workflowAutomationsService == nil {
+			snapshot.CollectionSuccess = false
+		} else if stats, err := workflowAutomationsService.OperationalStats(ctx); err != nil {
+			snapshot.CollectionSuccess = false
+		} else {
+			snapshot.WorkflowRunsAvailable = true
+			snapshot.WorkflowRunsQueued = stats.Queued
+			snapshot.WorkflowRunsRunning = stats.Running
+			snapshot.WorkflowRunsFailed24h = stats.FailedLast24h
+			snapshot.WorkflowRunsSkipped24h = stats.SkippedLast24h
+			snapshot.WorkflowOldestActiveAge = time.Duration(stats.OldestActiveAge) * time.Second
 		}
 		snapshot.Backup = platformtelemetry.ReadBackupStatus(env.BackupStatusPath)
 		return snapshot

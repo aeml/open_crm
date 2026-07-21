@@ -33,6 +33,8 @@ describe('settings task automations route', () => {
       if (path.endsWith('/auth/me')) return sessionResponse()
       if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
       if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [{ id: 3, name: 'Sales pipeline', stages: [{ id: 11, name: 'Discovery' }, { id: 12, name: 'Proposal' }] }] } })
+      if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
       if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [{ id: 21, automationId: 5, automationName: 'Qualify new deals', triggerEventKey: 'deal:7:activity:90', status: 'succeeded', actionsTotal: 1, actionsCompleted: 1, createdAt: '2026-07-19T12:00:00Z' }] } })
       if (path.endsWith('/api/workflow-automations') && method === 'POST') return jsonResponse({ data: { automation: createdRule } }, 201)
       if (path.endsWith('/api/workflow-automations')) {
@@ -79,5 +81,105 @@ describe('settings task automations route', () => {
     })
     expect(await screen.findByRole('heading', { name: 'Proposal follow-up' })).toBeInTheDocument()
     expect(screen.getByText('When moved to Sales pipeline · Proposal')).toBeInTheDocument()
+  })
+
+  it('creates an executable durable lead follow-up rule with retained attribution conditions', async () => {
+    const createdRule = {
+      id: 9,
+      name: 'Partner lead follow-up',
+      triggerType: 'form_submitted',
+      targetEntityType: 'lead_form',
+      triggerConfig: { formId: 31 },
+      conditionLogic: 'all',
+      conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }],
+      actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7 }, delayMinutes: 1440 }],
+      isActive: true,
+      position: 0
+    }
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const path = requestURL.pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [] } })
+      if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [{ id: 31, name: 'Partner inquiry', isActive: true }] } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [{ id: 7, firstName: 'Riley', lastName: 'Chen', email: 'riley@example.test', status: 'active' }] } })
+      if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [] } })
+      if (path.endsWith('/api/workflow-automations') && method === 'POST') return jsonResponse({ data: { automation: createdRule } }, 201)
+      if (path.endsWith('/api/workflow-automations')) return jsonResponse({ data: { automations: [] } })
+      throw new Error(`Unexpected fetch: ${method} ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/automations')
+
+    render(<AppRouter />)
+
+    await screen.findByRole('heading', { name: /task automation rules/i })
+    fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Partner lead follow-up' } })
+    fireEvent.change(screen.getByLabelText('When'), { target: { value: 'lead_form_submitted' } })
+    fireEvent.change(screen.getByRole('combobox', { name: /^Lead form/ }), { target: { value: '31' } })
+    fireEvent.change(screen.getByLabelText('Optional attribution condition'), { target: { value: 'utmSource' } })
+    fireEvent.change(screen.getByLabelText('Condition value'), { target: { value: 'partner' } })
+    fireEvent.change(screen.getByLabelText('Assign task to'), { target: { value: '7' } })
+    fireEvent.change(screen.getByLabelText('Task title'), { target: { value: 'Call partner lead' } })
+    fireEvent.change(screen.getByLabelText('Due in days', { exact: false }), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create task rule' }))
+
+    await waitFor(() => {
+      const createCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations') && call[1]?.method === 'POST')
+      expect(JSON.parse(createCall[1].body)).toEqual({
+        name: 'Partner lead follow-up',
+        description: 'Creates one durable assigned follow-up task from an accepted lead form submission.',
+        triggerType: 'form_submitted',
+        targetEntityType: 'lead_form',
+        triggerConfig: { formId: 31 },
+        conditionLogic: 'all',
+        conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }],
+        actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7 }, delayMinutes: 1440 }],
+        isActive: true,
+        position: 0
+      })
+    })
+    expect(await screen.findByRole('heading', { name: 'Partner lead follow-up' })).toBeInTheDocument()
+    expect(screen.getByText('When Partner inquiry is submitted')).toBeInTheDocument()
+    expect(screen.getByText(/assign to Riley Chen/i)).toBeInTheDocument()
+  })
+
+  it('refreshes an active durable run until its terminal task evidence is visible', async () => {
+    const rule = {
+      id: 9,
+      name: 'Inbound lead follow-up',
+      triggerType: 'form_submitted',
+      targetEntityType: 'lead_form',
+      triggerConfig: { formId: 31 },
+      conditionLogic: 'all',
+      conditions: [],
+      actions: [{ type: 'create_task', config: { title: 'Call inbound lead', assignedToUserId: 7 }, delayMinutes: 0 }],
+      isActive: true
+    }
+    let runReads = 0
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [] } })
+      if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [{ id: 31, name: 'Website', isActive: true }] } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [{ id: 7, firstName: 'Riley', lastName: 'Chen', status: 'active' }] } })
+      if (path.endsWith('/api/workflow-automations')) return jsonResponse({ data: { automations: [rule] } })
+      if (path.endsWith('/api/workflow-automation-runs')) {
+        runReads += 1
+        return jsonResponse({ data: { runs: [{ id: 44, automationId: 9, automationName: rule.name, status: runReads === 1 ? 'queued' : 'succeeded', actionsTotal: 1, actionsCompleted: runReads === 1 ? 0 : 1, createdAt: '2026-07-21T12:00:00Z' }] } })
+      }
+      throw new Error(`Unexpected fetch: ${path}`)
+    }))
+    window.history.pushState({}, '', '/settings/automations')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText('queued', { exact: true })).toBeInTheDocument()
+    expect(await screen.findByText('succeeded', { exact: true }, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByText(/1\/1 tasks created/)).toBeInTheDocument()
+    expect(runReads).toBeGreaterThanOrEqual(2)
   })
 })

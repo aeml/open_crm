@@ -281,6 +281,9 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		return Automation{}, fmt.Errorf("begin create workflow automation: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := validateLeadFollowUpReferences(ctx, tx, organizationID, input); err != nil {
+		return Automation{}, err
+	}
 	var automationID int64
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO workflow_automations (organization_id, name, description, trigger_type, target_entity_type, trigger_config_json, condition_logic, conditions_json, actions_json, is_active, position, created_by_user_id, updated_by_user_id)
@@ -328,6 +331,9 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 		return Automation{}, fmt.Errorf("begin update workflow automation: %w", err)
 	}
 	defer tx.Rollback(ctx)
+	if err := validateLeadFollowUpReferences(ctx, tx, organizationID, input); err != nil {
+		return Automation{}, err
+	}
 	updated, err := tx.Exec(ctx, `
 		UPDATE workflow_automations
 		SET name = $3,

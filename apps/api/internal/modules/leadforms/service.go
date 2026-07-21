@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
+	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -739,6 +740,15 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 		RETURNING id, form_id, COALESCE(contact_id, 0), created_at
 	`, organizationID, form.ID, contactID, string(payloadJSON), sourceURL, attribution.LeadSource, attribution.UTMSource, attribution.UTMMedium, attribution.UTMCampaign, attribution.UTMTerm, attribution.UTMContent, challenge.consentText, now).Scan(&submission.ID, &submission.FormID, &submission.ContactID, &submission.CreatedAt); err != nil {
 		return SubmissionResult{}, fmt.Errorf("insert lead capture submission: %w", err)
+	}
+	if err := moduleworkflowautomations.CaptureLeadFormSubmitted(ctx, tx, moduleworkflowautomations.LeadFormSubmittedEvent{
+		OrganizationID: organizationID,
+		FormID:         form.ID,
+		FormPublicID:   form.PublicID,
+		SubmissionID:   submission.ID,
+		ContactID:      contactID,
+	}); err != nil {
+		return SubmissionResult{}, fmt.Errorf("capture lead follow-up workflows: %w", err)
 	}
 	command, err := tx.Exec(ctx, `
 		UPDATE lead_capture_submission_challenges

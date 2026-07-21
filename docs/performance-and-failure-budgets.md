@@ -92,11 +92,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 659 KiB | 211 KiB |
+| All JavaScript and CSS | 664 KiB | 212 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.92 KiB/58.02 KiB entry, 54.78 KiB/15.63 KiB largest lazy
-chunk, and 658.59 KiB/210.07 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.93 KiB/58.02 KiB entry, 54.78 KiB/15.63 KiB largest lazy
+chunk, and 663.23 KiB/211.14 KiB total assets. The production contact, company,
 deal, and task routes are 29.81/9.19, 34.71/10.48, 54.78/15.63, and 24.67/7.31
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -173,6 +173,11 @@ incomplete audience and lead-scoring routes from production. The measured
 178.92/58.02 KiB entry and 54.78/15.63 KiB largest route remain below their
 unchanged limits. The complete user outcome measures 658.59/210.07 KiB in
 aggregate, so only the aggregate ceilings advance to 659/211 KiB.
+Durable conditional lead-form follow-up then extends the already-lazy task
+automation route to 14.71/4.67 KiB without changing the entry or largest route.
+The complete production build measures 663.23/211.14 KiB in aggregate, so only
+the aggregate ceilings advance to 664/212 KiB; all entry, per-route, and CSS
+ceilings remain unchanged.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 
