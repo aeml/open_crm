@@ -49,6 +49,28 @@ func TestMigrationFilesIncludeVersionedDealQuotes(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeQuoteExpirationReissue(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "098_quote_expiration_reissue.sql") {
+		t.Fatal("expected quote expiration reissue migration to be registered")
+	}
+	sql := MigrationSQL("098_quote_expiration_reissue.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"reissued_from_quote_id",
+		"deal_quotes_reissued_from_fk",
+		"deal_quotes_reissued_from_self_check",
+		"idx_deal_quotes_one_reissue",
+		"idx_deal_quotes_org_expiration",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("quote expiration reissue migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("098_quote_expiration_reissue.sql"); class != "expand" {
+		t.Fatalf("quote expiration reissue deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeDealQuoteDeliveries(t *testing.T) {
 	if !slices.Contains(MigrationFiles(), "094_deal_quote_deliveries.sql") {
 		t.Fatal("expected deal quote deliveries migration to be registered")

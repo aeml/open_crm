@@ -62,6 +62,7 @@ export function DealWorkspace({
           lineItems={commercial.lineItems}
           onDeliver={commercial.handleDeliverQuote}
           onFinalize={commercial.handleFinalizeQuote}
+          onReissue={commercial.handleReissueQuote}
           onSetForm={commercial.setQuoteForm}
           onResolveDelivery={commercial.handleResolveQuoteDelivery}
           quotes={commercial.quotes}

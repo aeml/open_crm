@@ -167,6 +167,46 @@ func TestQuoteSignatureDeclineVoidFailureAndExpiryAgainstPostgres(t *testing.T) 
 	}); !errors.Is(err, moduledeals.ErrSignatureExpired) {
 		t.Fatalf("expired quote signature delivery returned %v", err)
 	}
+
+	if _, err := pool.Exec(ctx, `UPDATE deal_quotes SET valid_until=(NOW() AT TIME ZONE 'UTC')::date+1 WHERE organization_id=$1 AND id=$2`, organizationID, quote.ID); err != nil {
+		t.Fatalf("reopen quote validity for claim race: %v", err)
+	}
+	racingIntent, err := service.PrepareQuoteDelivery(ctx, organizationID, dealID, quote.ID, actorUserID, moduledeals.QuoteDeliveryInput{
+		Subject: "Please sign", MessageBody: "Please review and sign.", IdempotencyKey: "signature-expiry-claim-race-0001",
+		SenderEmail: "seller@example.test", RequestSignature: true,
+	})
+	if err != nil {
+		t.Fatalf("prepare signature expiry claim race: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE deal_quotes SET valid_until=(NOW() AT TIME ZONE 'UTC')::date-1 WHERE organization_id=$1 AND id=$2`, organizationID, quote.ID); err != nil {
+		t.Fatalf("expire quote before provider claim: %v", err)
+	}
+	if _, shouldSend, err := service.ClaimQuoteDelivery(ctx, organizationID, racingIntent.Delivery.ID, actorUserID); !errors.Is(err, moduledeals.ErrSignatureExpired) || shouldSend {
+		t.Fatalf("expired prepared signature claim crossed boundary: send=%t err=%v", shouldSend, err)
+	}
+	var raceDeliveryStatus, raceSignatureStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM deal_quote_deliveries WHERE id=$1`, racingIntent.Delivery.ID).Scan(&raceDeliveryStatus); err != nil || raceDeliveryStatus != "failed" {
+		t.Fatalf("expired prepared delivery was not failed: status=%q err=%v", raceDeliveryStatus, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status FROM deal_signature_requests WHERE id=$1`, racingIntent.Delivery.SignatureRequestID).Scan(&raceSignatureStatus); err != nil || raceSignatureStatus != "voided" {
+		t.Fatalf("expired prepared signature was not voided: status=%q err=%v", raceSignatureStatus, err)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE deal_quotes SET valid_until=(NOW() AT TIME ZONE 'UTC')::date+1 WHERE organization_id=$1 AND id=$2`, organizationID, quote.ID); err != nil {
+		t.Fatalf("reopen quote validity for review claim race: %v", err)
+	}
+	reviewIntent, err := service.PrepareQuoteDelivery(ctx, organizationID, dealID, quote.ID, actorUserID, moduledeals.QuoteDeliveryInput{
+		Subject: "Review quote", MessageBody: "Please review.", IdempotencyKey: "review-expiry-claim-race-0001", SenderEmail: "seller@example.test",
+	})
+	if err != nil {
+		t.Fatalf("prepare review expiry claim race: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE deal_quotes SET valid_until=(NOW() AT TIME ZONE 'UTC')::date-1 WHERE organization_id=$1 AND id=$2`, organizationID, quote.ID); err != nil {
+		t.Fatalf("expire review quote before provider claim: %v", err)
+	}
+	if _, shouldSend, err := service.ClaimQuoteDelivery(ctx, organizationID, reviewIntent.Delivery.ID, actorUserID); !errors.Is(err, moduledeals.ErrQuoteExpired) || shouldSend {
+		t.Fatalf("expired prepared review claim crossed boundary: send=%t err=%v", shouldSend, err)
+	}
 }
 
 func sendPreparedSignature(t *testing.T, ctx context.Context, service *moduledeals.Service, organizationID, dealID, quoteID, actorUserID int64, key string) (moduledeals.QuoteDeliveryIntent, string) {

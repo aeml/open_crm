@@ -20,26 +20,31 @@ const (
 )
 
 type QuoteVersion struct {
-	ID                int64           `json:"id"`
-	Version           int             `json:"version"`
-	QuoteNumber       string          `json:"quoteNumber"`
-	Status            string          `json:"status"`
-	RecipientName     string          `json:"recipientName"`
-	RecipientEmail    string          `json:"recipientEmail"`
-	Currency          string          `json:"currency"`
-	Subtotal          string          `json:"subtotal"`
-	DiscountTotal     string          `json:"discountTotal"`
-	TaxTotal          string          `json:"taxTotal"`
-	Total             string          `json:"total"`
-	ValidUntil        string          `json:"validUntil"`
-	Terms             string          `json:"terms"`
-	PDFFilename       string          `json:"pdfFilename"`
-	PDFSHA256         string          `json:"pdfSha256"`
-	PDFByteSize       int64           `json:"pdfByteSize"`
-	CreatedByUserID   int64           `json:"createdByUserId"`
-	CreatedByUserName string          `json:"createdByUserName"`
-	CreatedAt         string          `json:"createdAt"`
-	Deliveries        []QuoteDelivery `json:"deliveries"`
+	ID                      int64           `json:"id"`
+	Version                 int             `json:"version"`
+	QuoteNumber             string          `json:"quoteNumber"`
+	Status                  string          `json:"status"`
+	LifecycleStatus         string          `json:"lifecycleStatus"`
+	ReissuedFromQuoteID     int64           `json:"reissuedFromQuoteId"`
+	ReissuedFromQuoteNumber string          `json:"reissuedFromQuoteNumber"`
+	ReissuedByQuoteID       int64           `json:"reissuedByQuoteId"`
+	ReissuedByQuoteNumber   string          `json:"reissuedByQuoteNumber"`
+	RecipientName           string          `json:"recipientName"`
+	RecipientEmail          string          `json:"recipientEmail"`
+	Currency                string          `json:"currency"`
+	Subtotal                string          `json:"subtotal"`
+	DiscountTotal           string          `json:"discountTotal"`
+	TaxTotal                string          `json:"taxTotal"`
+	Total                   string          `json:"total"`
+	ValidUntil              string          `json:"validUntil"`
+	Terms                   string          `json:"terms"`
+	PDFFilename             string          `json:"pdfFilename"`
+	PDFSHA256               string          `json:"pdfSha256"`
+	PDFByteSize             int64           `json:"pdfByteSize"`
+	CreatedByUserID         int64           `json:"createdByUserId"`
+	CreatedByUserName       string          `json:"createdByUserName"`
+	CreatedAt               string          `json:"createdAt"`
+	Deliveries              []QuoteDelivery `json:"deliveries"`
 }
 
 type FinalizeQuoteInput struct {
@@ -47,6 +52,11 @@ type FinalizeQuoteInput struct {
 	RecipientEmail string `json:"recipientEmail"`
 	ValidUntil     string `json:"validUntil"`
 	Terms          string `json:"terms"`
+	IdempotencyKey string `json:"-"`
+}
+
+type ReissueQuoteInput struct {
+	ValidUntil     string `json:"validUntil"`
 	IdempotencyKey string `json:"-"`
 }
 
@@ -171,6 +181,268 @@ func (s *Service) FinalizeQuote(ctx context.Context, organizationID, dealID, act
 	return quote, nil
 }
 
+// ReissueExpiredQuote creates a new immutable version from the expired
+// version's recipient, terms, commercial identity, line items, and totals. It
+// never edits or replaces the original evidence. Current open-deal stage and
+// close-date context plus the current actor are rendered into the new PDF so
+// the replacement remains an honest new document rather than a mutated copy.
+func (s *Service) ReissueExpiredQuote(ctx context.Context, organizationID, dealID, sourceQuoteID, actorUserID int64, input ReissueQuoteInput) (QuoteVersion, error) {
+	if s == nil || s.pool == nil {
+		return QuoteVersion{}, fmt.Errorf("deals service not configured")
+	}
+	input.ValidUntil = strings.TrimSpace(input.ValidUntil)
+	input.IdempotencyKey = strings.TrimSpace(input.IdempotencyKey)
+	validUntil, err := time.Parse(time.DateOnly, input.ValidUntil)
+	if err != nil || !validQuoteReissueInput(input, validUntil, s.clock().UTC()) || organizationID <= 0 || dealID <= 0 || sourceQuoteID <= 0 || actorUserID <= 0 {
+		return QuoteVersion{}, ErrInvalidQuote
+	}
+	keyHash := sha256.Sum256([]byte(input.IdempotencyKey))
+	keyHashText := hex.EncodeToString(keyHash[:])
+	requestHashText := reissueQuoteRequestHash(dealID, sourceQuoteID, input)
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return QuoteVersion{}, fmt.Errorf("begin quote reissue transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, fmt.Sprintf("deal-quote-reissue:%d:%d:%s", organizationID, actorUserID, keyHashText)); err != nil {
+		return QuoteVersion{}, fmt.Errorf("lock quote reissue idempotency key: %w", err)
+	}
+	existing, existingRequestHash, err := loadQuoteByIdempotencyKey(ctx, tx, organizationID, actorUserID, keyHashText)
+	if err == nil {
+		if existingRequestHash != requestHashText || existing.ReissuedFromQuoteID != sourceQuoteID {
+			return QuoteVersion{}, ErrQuoteIdempotencyConflict
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return QuoteVersion{}, fmt.Errorf("commit idempotent quote reissue replay: %w", err)
+		}
+		existing.Deliveries = []QuoteDelivery{}
+		return existing, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return QuoteVersion{}, fmt.Errorf("load idempotent quote reissue: %w", err)
+	}
+
+	var sourceNumber, organizationName, dealName, companyName, primaryContactName string
+	var recipientName, recipientEmail, currency, subtotal, discountTotal, taxTotal, total, sourceValidUntil, terms string
+	var stageName, dealStatus, expectedCloseDate, preparedByName string
+	err = tx.QueryRow(ctx, `
+		SELECT q.quote_number,q.organization_name,q.deal_name,q.company_name,q.primary_contact_name,
+		       q.recipient_name,q.recipient_email,q.currency,q.subtotal::text,q.discount_total::text,
+		       q.tax_total::text,q.total::text,TO_CHAR(q.valid_until,'YYYY-MM-DD'),q.terms,
+		       stage.name,d.status,COALESCE(TO_CHAR(d.expected_close_date,'YYYY-MM-DD'),''),
+		       COALESCE(NULLIF(BTRIM(actor.first_name || ' ' || actor.last_name),''),actor.email)
+		FROM deals d
+		JOIN deal_stages stage ON stage.organization_id=d.organization_id AND stage.id=d.stage_id
+		JOIN deal_quotes q ON q.organization_id=d.organization_id AND q.deal_id=d.id AND q.id=$3
+		JOIN organization_memberships membership ON membership.organization_id=d.organization_id
+		  AND membership.user_id=$4 AND membership.membership_status='active'
+		JOIN users actor ON actor.id=membership.user_id
+		WHERE d.organization_id=$1 AND d.id=$2 AND d.archived_at IS NULL AND d.status='open'
+		FOR UPDATE OF d,q
+	`, organizationID, dealID, sourceQuoteID, actorUserID).Scan(
+		&sourceNumber, &organizationName, &dealName, &companyName, &primaryContactName,
+		&recipientName, &recipientEmail, &currency, &subtotal, &discountTotal, &taxTotal, &total, &sourceValidUntil, &terms,
+		&stageName, &dealStatus, &expectedCloseDate, &preparedByName,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return QuoteVersion{}, ErrNotFound
+	}
+	if err != nil {
+		return QuoteVersion{}, fmt.Errorf("lock expired quote for reissue: %w", err)
+	}
+	sourceValidity, err := time.Parse(time.DateOnly, sourceValidUntil)
+	if err != nil {
+		return QuoteVersion{}, fmt.Errorf("parse source quote validity: %w", err)
+	}
+	today := utcDate(s.clock().UTC())
+	if !sourceValidity.Before(today) {
+		return QuoteVersion{}, ErrQuoteReissueState
+	}
+
+	var reissuedByQuoteID int64
+	err = tx.QueryRow(ctx, `
+		SELECT id FROM deal_quotes
+		WHERE organization_id=$1 AND reissued_from_quote_id=$2
+		FOR SHARE
+	`, organizationID, sourceQuoteID).Scan(&reissuedByQuoteID)
+	if err == nil {
+		return QuoteVersion{}, ErrQuoteAlreadyReissued
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return QuoteVersion{}, fmt.Errorf("check quote reissue lineage: %w", err)
+	}
+
+	var unresolvedDelivery bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+		  SELECT 1 FROM deal_quote_deliveries
+		  WHERE organization_id=$1 AND quote_id=$2 AND status IN ('prepared','sending','uncertain')
+		)
+	`, organizationID, sourceQuoteID).Scan(&unresolvedDelivery); err != nil {
+		return QuoteVersion{}, fmt.Errorf("check unresolved quote deliveries: %w", err)
+	}
+	if unresolvedDelivery {
+		return QuoteVersion{}, ErrQuoteReissueState
+	}
+
+	requestRows, err := tx.Query(ctx, `
+		SELECT id,status FROM deal_signature_requests
+		WHERE organization_id=$1 AND quote_id=$2 AND provider='open_crm_native'
+		ORDER BY id FOR UPDATE
+	`, organizationID, sourceQuoteID)
+	if err != nil {
+		return QuoteVersion{}, fmt.Errorf("lock quote signature requests for reissue: %w", err)
+	}
+	var activeSignatureRequestID int64
+	for requestRows.Next() {
+		var requestID int64
+		var status string
+		if err := requestRows.Scan(&requestID, &status); err != nil {
+			requestRows.Close()
+			return QuoteVersion{}, fmt.Errorf("scan quote signature request for reissue: %w", err)
+		}
+		if status == "signed" {
+			requestRows.Close()
+			return QuoteVersion{}, ErrQuoteReissueState
+		}
+		if status == "draft" || status == "sent" {
+			activeSignatureRequestID = requestID
+		}
+	}
+	if err := requestRows.Err(); err != nil {
+		requestRows.Close()
+		return QuoteVersion{}, fmt.Errorf("iterate quote signature requests for reissue: %w", err)
+	}
+	requestRows.Close()
+
+	detail := Detail{
+		Summary: Summary{
+			ID: dealID, Name: dealName, StageName: stageName, Status: dealStatus,
+			ValueAmount: total, ValueCurrency: currency, ExpectedCloseDate: expectedCloseDate,
+			CompanyName: companyName, PrimaryContactName: primaryContactName,
+		},
+		LineItems: []LineItem{},
+		Totals:    DealTotals{Currency: currency, Subtotal: subtotal, DiscountTotal: discountTotal, TaxTotal: taxTotal, Total: total},
+	}
+	lineRows, err := tx.Query(ctx, `
+		SELECT COALESCE(source_line_item_id,0),COALESCE(source_catalog_item_id,0),name,sku,item_type,
+		       quantity::text,unit_name,unit_price::text,subtotal::text,discount_amount::text,
+		       tax_rate::text,tax_amount::text,total::text,currency,position
+		FROM deal_quote_line_items
+		WHERE organization_id=$1 AND quote_id=$2
+		ORDER BY position,id
+	`, organizationID, sourceQuoteID)
+	if err != nil {
+		return QuoteVersion{}, fmt.Errorf("load expired quote line items: %w", err)
+	}
+	for lineRows.Next() {
+		var item LineItem
+		if err := lineRows.Scan(&item.ID, &item.ProductCatalogItemID, &item.Name, &item.SKU, &item.ItemType,
+			&item.Quantity, &item.UnitName, &item.UnitPrice, &item.Subtotal, &item.DiscountAmount,
+			&item.TaxRate, &item.TaxAmount, &item.Total, &item.Currency, &item.Position); err != nil {
+			lineRows.Close()
+			return QuoteVersion{}, fmt.Errorf("scan expired quote line item: %w", err)
+		}
+		detail.LineItems = append(detail.LineItems, item)
+	}
+	if err := lineRows.Err(); err != nil {
+		lineRows.Close()
+		return QuoteVersion{}, fmt.Errorf("iterate expired quote line items: %w", err)
+	}
+	lineRows.Close()
+	if len(detail.LineItems) == 0 {
+		return QuoteVersion{}, ErrQuoteReissueState
+	}
+
+	var version int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version),0)+1 FROM deal_quotes WHERE organization_id=$1 AND deal_id=$2`, organizationID, dealID).Scan(&version); err != nil {
+		return QuoteVersion{}, fmt.Errorf("allocate reissued quote version: %w", err)
+	}
+	createdAt := s.clock().UTC()
+	quoteNumber := fmt.Sprintf("Q-%d-V%d", dealID, version)
+	pdfFilename := fmt.Sprintf("quote-%s-v%d.pdf", quoteFilename(dealName), version)
+	pdf := BuildQuotePDF(detail, QuotePDFInput{
+		OrganizationName: organizationName, GeneratedByName: preparedByName, GeneratedAt: createdAt,
+		QuoteNumber: quoteNumber, RecipientName: recipientName, RecipientEmail: recipientEmail,
+		ValidUntil: input.ValidUntil, Terms: terms, Filename: pdfFilename,
+	})
+	if len(pdf.Content) < 100 || len(pdf.Content) > maxQuotePDFBytes {
+		return QuoteVersion{}, ErrInvalidQuote
+	}
+	pdfHash := sha256.Sum256(pdf.Content)
+	pdfHashText := hex.EncodeToString(pdfHash[:])
+	var quoteID int64
+	err = tx.QueryRow(ctx, `
+		INSERT INTO deal_quotes (
+		  organization_id,deal_id,version,quote_number,organization_name,deal_name,company_name,
+		  primary_contact_name,recipient_name,recipient_email,prepared_by_name,currency,subtotal,
+		  discount_total,tax_total,total,valid_until,terms,pdf_filename,pdf_content,pdf_sha256,
+		  idempotency_key_hash,request_sha256,created_by_user_id,created_at,reissued_from_quote_id
+		) VALUES (
+		  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14::numeric,$15::numeric,$16::numeric,
+		  $17::date,$18,$19,$20,$21,$22,$23,$24,$25,$26
+		) RETURNING id
+	`, organizationID, dealID, version, quoteNumber, organizationName, dealName, companyName,
+		primaryContactName, recipientName, recipientEmail, preparedByName, currency, subtotal, discountTotal,
+		taxTotal, total, input.ValidUntil, terms, pdf.Filename, pdf.Content, pdfHashText, keyHashText,
+		requestHashText, actorUserID, createdAt, sourceQuoteID).Scan(&quoteID)
+	if err != nil {
+		return QuoteVersion{}, fmt.Errorf("persist reissued quote: %w", err)
+	}
+	quote, err := scanQuoteVersion(tx.QueryRow(ctx, `
+		SELECT `+quoteVersionColumns+`,prepared_by_name
+		FROM deal_quotes q WHERE organization_id=$1 AND deal_id=$2 AND id=$3
+	`, organizationID, dealID, quoteID))
+	if err != nil {
+		return QuoteVersion{}, fmt.Errorf("load reissued quote: %w", err)
+	}
+	for _, item := range detail.LineItems {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO deal_quote_line_items (
+			  organization_id,quote_id,source_line_item_id,source_catalog_item_id,name,sku,item_type,
+			  quantity,unit_name,unit_price,subtotal,discount_amount,tax_rate,tax_amount,total,currency,position
+			) VALUES ($1,$2,NULLIF($3,0),NULLIF($4,0),$5,$6,$7,$8::numeric,$9,$10::numeric,$11::numeric,$12::numeric,$13::numeric,$14::numeric,$15::numeric,$16,$17)
+		`, organizationID, quote.ID, item.ID, item.ProductCatalogItemID, item.Name, item.SKU, item.ItemType,
+			item.Quantity, item.UnitName, item.UnitPrice, item.Subtotal, item.DiscountAmount, item.TaxRate,
+			item.TaxAmount, item.Total, item.Currency, item.Position); err != nil {
+			return QuoteVersion{}, fmt.Errorf("persist reissued quote line item: %w", err)
+		}
+	}
+	if activeSignatureRequestID > 0 {
+		if _, err := tx.Exec(ctx, `
+			UPDATE deal_signature_requests
+			SET status='voided',voided_at=NOW(),updated_by_user_id=$3,updated_at=NOW()
+			WHERE organization_id=$1 AND id=$2 AND status IN ('draft','sent')
+		`, organizationID, activeSignatureRequestID, actorUserID); err != nil {
+			return QuoteVersion{}, fmt.Errorf("void expired quote signature request: %w", err)
+		}
+		if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.signature_request_voided", fmt.Sprintf("Expired signature request for %s was voided during quote reissue", recipientName)); err != nil {
+			return QuoteVersion{}, fmt.Errorf("record reissue signature recovery activity: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
+			VALUES ($1,$2,'deal.signature_request_voided','deal_signature_request',$3,'Voided an expired signature request during quote reissue',jsonb_build_object('dealId',$4::bigint,'sourceQuoteId',$5::bigint,'replacementQuoteId',$6::bigint))
+		`, organizationID, actorUserID, activeSignatureRequestID, dealID, sourceQuoteID, quote.ID); err != nil {
+			return QuoteVersion{}, fmt.Errorf("audit reissue signature recovery: %w", err)
+		}
+	}
+	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.quote_reissued", fmt.Sprintf("Reissued expired quote %s as %s", sourceNumber, quoteNumber)); err != nil {
+		return QuoteVersion{}, fmt.Errorf("insert quote reissue activity: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
+		VALUES ($1,$2,'deal.quote_reissued','deal_quote',$3,'Reissued an expired immutable deal quote',jsonb_build_object('dealId',$4::bigint,'sourceQuoteId',$5::bigint,'sourceQuoteNumber',$6::text,'quoteNumber',$7::text,'version',$8::int,'validUntil',$9::text,'pdfSha256',$10::text))
+	`, organizationID, actorUserID, quote.ID, dealID, sourceQuoteID, sourceNumber, quoteNumber, version, input.ValidUntil, pdfHashText); err != nil {
+		return QuoteVersion{}, fmt.Errorf("audit quote reissue: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return QuoteVersion{}, fmt.Errorf("commit quote reissue: %w", err)
+	}
+	quote.Deliveries = []QuoteDelivery{}
+	return quote, nil
+}
+
 func (s *Service) GetQuotePDF(ctx context.Context, organizationID, dealID, quoteID int64) (QuotePDFFile, error) {
 	if s == nil || s.pool == nil || organizationID <= 0 || dealID <= 0 || quoteID <= 0 {
 		return QuotePDFFile{}, ErrNotFound
@@ -243,7 +515,9 @@ func loadQuoteByIdempotencyKey(ctx context.Context, tx pgx.Tx, organizationID, a
 func scanQuoteVersion(scanner quoteScanner, extra ...*string) (QuoteVersion, error) {
 	var quote QuoteVersion
 	destinations := []any{
-		&quote.ID, &quote.Version, &quote.QuoteNumber, &quote.Status, &quote.RecipientName, &quote.RecipientEmail,
+		&quote.ID, &quote.Version, &quote.QuoteNumber, &quote.Status, &quote.LifecycleStatus,
+		&quote.ReissuedFromQuoteID, &quote.ReissuedFromQuoteNumber, &quote.ReissuedByQuoteID, &quote.ReissuedByQuoteNumber,
+		&quote.RecipientName, &quote.RecipientEmail,
 		&quote.Currency, &quote.Subtotal, &quote.DiscountTotal, &quote.TaxTotal, &quote.Total, &quote.ValidUntil,
 		&quote.Terms, &quote.PDFFilename, &quote.PDFSHA256, &quote.PDFByteSize, &quote.CreatedByUserID, &quote.CreatedAt,
 		&quote.CreatedByUserName,
@@ -258,7 +532,17 @@ func scanQuoteVersion(scanner quoteScanner, extra ...*string) (QuoteVersion, err
 }
 
 const quoteVersionColumns = `
-	q.id,q.version,q.quote_number,q.status,q.recipient_name,q.recipient_email,
+	q.id,q.version,q.quote_number,q.status,
+	CASE
+	  WHEN EXISTS (SELECT 1 FROM deal_quotes reissue WHERE reissue.organization_id=q.organization_id AND reissue.reissued_from_quote_id=q.id) THEN 'superseded'
+	  WHEN q.valid_until < (NOW() AT TIME ZONE 'UTC')::date THEN 'expired'
+	  ELSE 'active'
+	END,
+	COALESCE(q.reissued_from_quote_id,0),
+	COALESCE((SELECT source.quote_number FROM deal_quotes source WHERE source.organization_id=q.organization_id AND source.id=q.reissued_from_quote_id),''),
+	COALESCE((SELECT reissue.id FROM deal_quotes reissue WHERE reissue.organization_id=q.organization_id AND reissue.reissued_from_quote_id=q.id),0),
+	COALESCE((SELECT reissue.quote_number FROM deal_quotes reissue WHERE reissue.organization_id=q.organization_id AND reissue.reissued_from_quote_id=q.id),''),
+	q.recipient_name,q.recipient_email,
 	q.currency,q.subtotal::text,q.discount_total::text,q.tax_total::text,q.total::text,
 	TO_CHAR(q.valid_until,'YYYY-MM-DD'),q.terms,q.pdf_filename,q.pdf_sha256,OCTET_LENGTH(q.pdf_content),
 	q.created_by_user_id,TO_CHAR(q.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`
@@ -350,12 +634,23 @@ func normalizeFinalizeQuoteInput(input FinalizeQuoteInput) FinalizeQuoteInput {
 }
 
 func validFinalizeQuoteInput(input FinalizeQuoteInput, validUntil, now time.Time) bool {
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	today := utcDate(now)
 	return len(input.RecipientName) >= 1 && len(input.RecipientName) <= 200 &&
 		validSignatureEmail(input.RecipientEmail) &&
 		len(input.Terms) >= 1 && len(input.Terms) <= maxQuoteTermsLength &&
 		len(input.IdempotencyKey) >= 16 && len(input.IdempotencyKey) <= 200 &&
 		!validUntil.Before(today) && !validUntil.After(today.Add(maxQuoteValidity))
+}
+
+func validQuoteReissueInput(input ReissueQuoteInput, validUntil, now time.Time) bool {
+	today := utcDate(now)
+	return len(input.IdempotencyKey) >= 16 && len(input.IdempotencyKey) <= 200 &&
+		validUntil.After(today) && !validUntil.After(today.Add(maxQuoteValidity))
+}
+
+func utcDate(value time.Time) time.Time {
+	value = value.UTC()
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func finalizeQuoteRequestHash(dealID int64, input FinalizeQuoteInput) string {
@@ -366,6 +661,17 @@ func finalizeQuoteRequestHash(dealID int64, input FinalizeQuoteInput) string {
 		ValidUntil     string `json:"validUntil"`
 		Terms          string `json:"terms"`
 	}{dealID, input.RecipientName, input.RecipientEmail, input.ValidUntil, input.Terms})
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:])
+}
+
+func reissueQuoteRequestHash(dealID, sourceQuoteID int64, input ReissueQuoteInput) string {
+	payload, _ := json.Marshal(struct {
+		Operation     string `json:"operation"`
+		DealID        int64  `json:"dealId"`
+		SourceQuoteID int64  `json:"sourceQuoteId"`
+		ValidUntil    string `json:"validUntil"`
+	}{"reissue_expired_quote", dealID, sourceQuoteID, input.ValidUntil})
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:])
 }

@@ -28,6 +28,33 @@ Raw idempotency keys are never stored. A finalized quote has no edit/delete endp
 4. Do not update `deal_quotes`, `deal_quote_line_items`, PDF bytes, hashes, version numbers, activity, or audit evidence with ad hoc SQL. Correct live data and finalize a new version.
 5. Portable workspace export contains quote snapshots, line snapshots, and PDF bytes while excluding internal idempotency/request hashes.
 
+## Expiration and reissue contract
+
+A quote is active through the end of its UTC `valid_until` date. After that
+date every new delivery—review-only or signature-bearing—is rejected before an
+intent or provider call. Staff see the version as **Expired** rather than a
+generic finalized record.
+
+A writer may deliberately reissue an expired version with a future validity
+date and a 16–200 character `Idempotency-Key`. Reissue is allowed only while
+the deal remains open, the source has no signed native evidence, no delivery is
+`prepared`, `sending`, or `uncertain`, and no replacement already exists. One
+transaction locks the deal, source quote, and signature state; copies the
+source recipient, terms, commercial labels, line items, currency, and totals;
+renders a new PDF with current open-deal stage/close-date context and the
+current preparer; stores a new version/digest; binds the source and replacement
+with a tenant-and-deal constrained lineage; voids an expired pending native
+signature request; and writes activity/audit evidence. Exact concurrent retry
+returns the same replacement. Changed key reuse, a second replacement,
+cross-tenant lineage, signed evidence, or unresolved delivery fails closed.
+
+The source version becomes **Replaced**, but its PDF, digest, deliveries,
+receipt, signature/certificate evidence, and timestamps never change. A later
+expired replacement may itself be reissued, forming an explicit one-to-one
+chain. Commercial changes are not a reissue: edit the live deal and finalize a
+deliberately new version instead. Portable workspace export retains the
+lineage and all immutable versions while excluding replay hashes.
+
 ## Delivery and receipt contract
 
 Finalization alone does not send anything. A writer may deliberately deliver one immutable version through their connected SMTP, Google, or Microsoft mailbox. Quote delivery requires both a valid `CREDENTIAL_ENCRYPTION_KEY` and the public browser `WEB_BASE_URL`.
@@ -53,7 +80,7 @@ Portable workspace export includes delivery status, sender/recipient snapshots, 
 
 ## Native signature contract
 
-A writer may select **Request electronic signature** while delivering a finalized version. An already-expired quote is rejected before an intent or provider effect exists; finalize a new version rather than sending an unusable signing link. The delivery transaction creates one native request bound by database constraints to that exact quote, deal, recipient, PDF filename, and delivery. Provider acceptance changes the request from `draft` to `sent`; a definite provider failure, a confirmed-not-sent resolution, or sender deactivation before the provider call voids it. An ambiguous send leaves the delivery recoverable and does not activate or duplicate the ceremony. Only one native `draft`, `sent`, or `signed` request may exist for a quote.
+A writer may select **Request electronic signature** while delivering a finalized version. An already-expired quote is rejected before an intent or provider effect exists; use the explicit reissue flow when its commercial content remains correct. The delivery transaction creates one native request bound by database constraints to that exact quote, deal, recipient, PDF filename, and delivery. Provider acceptance changes the request from `draft` to `sent`; a definite provider failure, a confirmed-not-sent resolution, or sender deactivation before the provider call voids it. An ambiguous send leaves the delivery recoverable and does not activate or duplicate the ceremony. Only one native `draft`, `sent`, or `signed` request may exist for a quote.
 
 The recipient-specific email link is the authentication method. Signing is available only while both the public delivery link and the quote-validity day remain open. The recipient must type the expected name exactly after whitespace normalization and explicitly accept the immutable consent statement. Sign and decline require a 16–200 character idempotency key; only SHA-256 key/request digests are stored. An exact replay returns the original terminal result, changed reuse conflicts, and a new key cannot alter a terminal request. Staff can void an unsigned sent request but cannot create detached requests or mark one signed/declined. Historical manual tracking rows remain visible as read-only non-evidence.
 
@@ -65,4 +92,4 @@ A public signature never guesses a pipeline or closes a deal. While the deal is 
 
 One transaction locks the native signed request and deal, then binds the retained certificate to the selected stage and its immutable name snapshot, close reason and notes, closing actor/time, stage activity and event, matching task automation, and client handoff. A 16–200 character digest-only idempotency key makes an exact retry harmless. Changed reuse conflicts; a different key cannot convert terminal evidence again. Reopening the deal later clears its live close context through the normal stage control but intentionally retains the original quote-conversion evidence. Replaying the original conversion after that correction returns the current deal and does not silently re-close it.
 
-Aggregate metrics distinguish signed requests awaiting staff conversion from converted evidence. Portable workspace export includes consent, certificate, and conversion outcome evidence but removes both completion and conversion replay hashes plus delivery secrets. Reusable terms/templates, approval, quote-level FX disclosure, active expiration/reissue workflow, jurisdiction-specific legal policy, approved live-mailbox evidence, and pilot validation remain Phase 4 outcomes. The first-party ceremony is executable production-equivalent behavior, not a claim that every agreement is legally enforceable in every jurisdiction.
+Aggregate metrics distinguish signed requests awaiting staff conversion from converted evidence. Portable workspace export includes consent, certificate, conversion outcome, and reissue-lineage evidence but removes completion, conversion, finalization, and reissue replay hashes plus delivery secrets. Reusable terms/templates, approval, quote-level FX disclosure, jurisdiction-specific legal policy, approved live-mailbox evidence, and pilot validation remain Phase 4 outcomes. The first-party ceremony is executable production-equivalent behavior, not a claim that every agreement is legally enforceable in every jurisdiction.

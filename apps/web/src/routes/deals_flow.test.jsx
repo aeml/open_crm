@@ -854,9 +854,9 @@ describe('deals flow', () => {
       }))
     })
 
-    fireEvent.change(screen.getByLabelText(/quote recipient email/i), { target: { value: 'ava@bluebird.example' } })
-    fireEvent.change(screen.getByLabelText(/quote terms/i), { target: { value: 'Net 30. Scope changes require approval.' } })
-    fireEvent.click(screen.getByRole('button', { name: /finalize quote version/i }))
+    fireEvent.change(screen.getByLabelText(/recipient email/i), { target: { value: 'ava@bluebird.example' } })
+    fireEvent.change(screen.getByLabelText(/^terms$/i), { target: { value: 'Net 30. Scope changes require approval.' } })
+    fireEvent.click(screen.getByRole('button', { name: /^finalize quote$/i }))
 
     expect(await screen.findByRole('link', { name: /download q-12-v1/i })).toHaveAttribute('href', 'https://crmserver.mendola.tech/api/deals/12/quotes/71/pdf')
     expect(screen.getByText(/sha-256 a{64}/i)).toBeInTheDocument()
@@ -868,15 +868,15 @@ describe('deals flow', () => {
       }))
     })
 
-    fireEvent.click(screen.getByText(/deliver this version by email/i))
-    fireEvent.change(screen.getByLabelText(/delivery message for q-12-v1/i), { target: { value: 'Hi Ava, please review this finalized quote.' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: /request electronic signature from ava stone/i }))
-    fireEvent.click(screen.getByRole('button', { name: /send signature request/i }))
+    fireEvent.click(screen.getByText(/deliver by email/i))
+    fireEvent.change(screen.getByLabelText(/message for q-12-v1/i), { target: { value: 'Hi Ava, please review this finalized quote.' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /request signature from ava stone/i }))
+    fireEvent.click(screen.getByRole('button', { name: /send for signature/i }))
 
     expect(await screen.findByText(/^sent$/i)).toBeInTheDocument()
     expect(screen.getByText(/link accesses: 0/i)).toBeInTheDocument()
     expect(screen.getByText(/receipt not confirmed/i)).toBeInTheDocument()
-    expect(screen.getByText(/electronic signature: sent/i)).toBeInTheDocument()
+    expect(screen.getByText(/signature: sent/i)).toBeInTheDocument()
     expect(screen.getByText(/q-12-v1 · ava stone/i)).toBeInTheDocument()
     expect(screen.getByText(/immutable file: quote-bluebird-rollout-v1.pdf/i)).toBeInTheDocument()
     await waitFor(() => {

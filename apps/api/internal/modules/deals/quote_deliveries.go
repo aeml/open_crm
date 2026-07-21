@@ -196,8 +196,11 @@ func (s *Service) PrepareQuoteDelivery(ctx context.Context, organizationID, deal
 		return QuoteDeliveryIntent{}, fmt.Errorf("parse finalized quote validity: %w", err)
 	}
 	now := s.clock().UTC()
-	if input.RequestSignature && !validThrough.Add(24*time.Hour).After(now) {
-		return QuoteDeliveryIntent{}, ErrSignatureExpired
+	if !validThrough.Add(24 * time.Hour).After(now) {
+		if input.RequestSignature {
+			return QuoteDeliveryIntent{}, ErrSignatureExpired
+		}
+		return QuoteDeliveryIntent{}, ErrQuoteExpired
 	}
 	accessExpiresAt := validThrough.Add(24*time.Hour - time.Second).Add(quoteDeliveryGracePeriod)
 	if accessExpiresAt.Before(now.Add(24 * time.Hour)) {
@@ -305,6 +308,53 @@ func (s *Service) ClaimQuoteDelivery(ctx context.Context, organizationID, delive
 			return QuoteDeliveryIntent{}, false, fmt.Errorf("commit quote delivery state read: %w", err)
 		}
 		return s.quoteDeliveryIntent(delivery), false, nil
+	}
+	var quoteExpired bool
+	if err := tx.QueryRow(ctx, `
+		SELECT valid_until < (NOW() AT TIME ZONE 'UTC')::date
+		FROM deal_quotes
+		WHERE organization_id=$1 AND id=$2 AND deal_id=$3
+		FOR SHARE
+	`, organizationID, delivery.QuoteID, delivery.DealID).Scan(&quoteExpired); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return QuoteDeliveryIntent{}, false, ErrNotFound
+		}
+		return QuoteDeliveryIntent{}, false, fmt.Errorf("revalidate quote delivery expiration: %w", err)
+	}
+	if quoteExpired {
+		now := s.clock().UTC()
+		delivery, err = scanQuoteDelivery(tx.QueryRow(ctx, `
+			UPDATE deal_quote_deliveries
+			SET status='failed',last_error='The quote expired before mailbox delivery. Reissue it before sending.',
+			    finalized_at=$3,updated_at=$3
+			WHERE organization_id=$1 AND id=$2 AND status='prepared'
+			RETURNING `+quoteDeliveryColumns+`
+		`, organizationID, deliveryID, now))
+		if err != nil {
+			return QuoteDeliveryIntent{}, false, fmt.Errorf("fail expired prepared quote delivery: %w", err)
+		}
+		if delivery.SignatureRequestID > 0 {
+			if _, err := tx.Exec(ctx, `
+				UPDATE deal_signature_requests
+				SET status='voided',voided_at=$3,updated_at=$3
+				WHERE organization_id=$1 AND id=$2 AND status='draft'
+			`, organizationID, delivery.SignatureRequestID, now); err != nil {
+				return QuoteDeliveryIntent{}, false, fmt.Errorf("void expired prepared signature request: %w", err)
+			}
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
+			VALUES ($1,$2,'deal.quote_delivery_failed','deal_quote_delivery',$3,'Stopped an expired quote before mailbox delivery',jsonb_build_object('dealId',$4::bigint,'quoteId',$5::bigint,'signatureRequestId',NULLIF($6::bigint,0)))
+		`, organizationID, actorUserID, delivery.ID, delivery.DealID, delivery.QuoteID, delivery.SignatureRequestID); err != nil {
+			return QuoteDeliveryIntent{}, false, fmt.Errorf("audit expired quote delivery: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return QuoteDeliveryIntent{}, false, fmt.Errorf("commit expired quote delivery failure: %w", err)
+		}
+		if delivery.SignatureRequestID > 0 {
+			return s.quoteDeliveryIntent(delivery), false, ErrSignatureExpired
+		}
+		return s.quoteDeliveryIntent(delivery), false, ErrQuoteExpired
 	}
 	delivery, err = scanQuoteDelivery(tx.QueryRow(ctx, `
 		UPDATE deal_quote_deliveries

@@ -133,6 +133,19 @@ func TestViewerCannotDeliverDealQuote(t *testing.T) {
 	}
 }
 
+func TestViewerCannotReissueExpiredDealQuote(t *testing.T) {
+	server := serverWithRole("viewer", Dependencies{DealsService: &fakeDealsService{}})
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/reissue", bytes.NewBufferString(`{"validUntil":"2026-09-20"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "viewer-quote-reissue-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer reissuing quote, got %d", recorder.Code)
+	}
+}
+
 func TestViewerCannotCreateTask(t *testing.T) {
 	server := serverWithRole("viewer", Dependencies{
 		TasksService: &fakeTasksService{},

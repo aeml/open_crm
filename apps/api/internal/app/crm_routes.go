@@ -174,6 +174,9 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 	mux.HandleFunc("GET /api/deals/{dealID}/quotes/{quoteID}/pdf", func(w http.ResponseWriter, r *http.Request) {
 		handleDownloadFinalizedDealQuotePDF(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
+	mux.HandleFunc("POST /api/deals/{dealID}/quotes/{quoteID}/reissue", func(w http.ResponseWriter, r *http.Request) {
+		handleReissueExpiredDealQuote(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
 	mux.HandleFunc("POST /api/deals/{dealID}/quotes/{quoteID}/deliveries", func(w http.ResponseWriter, r *http.Request) {
 		handleSendDealQuote(dependencies.AuthService, dependencies.DealsService, dependencies.UserEmailService, dependencies.EmailSuppressionsService, w, r)
 	})

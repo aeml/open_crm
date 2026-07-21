@@ -1,5 +1,11 @@
 import { apiRequest, apiURL } from './api'
 
+function idempotentPost(path, input, idempotencyKey, fallbackMessage, signal) {
+  return apiRequest(path, {
+    method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage, signal
+  }).then((payload) => payload?.data)
+}
+
 export async function listDealPipelines({ signal } = {}) {
   const payload = await apiRequest('/api/deal-pipelines', { fallbackMessage: 'Unable to load deal pipelines.', signal })
 
@@ -80,27 +86,16 @@ export async function replaceDealLineItems(dealID, input, { signal } = {}) {
   return payload?.data
 }
 
-export async function finalizeDealQuote(dealID, input, idempotencyKey, { signal } = {}) {
-  const payload = await apiRequest(`/api/deals/${dealID}/quotes`, {
-    method: 'POST',
-    body: input,
-    headers: { 'Idempotency-Key': idempotencyKey },
-    fallbackMessage: 'Unable to finalize quote.',
-    signal
-  })
-
-  return payload?.data?.quote
+export function finalizeDealQuote(dealID, input, idempotencyKey, { signal } = {}) {
+  return idempotentPost(`/api/deals/${dealID}/quotes`, input, idempotencyKey, 'Unable to finalize quote.', signal).then((data) => data?.quote)
 }
 
-export async function deliverDealQuote(dealID, quoteID, input, idempotencyKey, { signal } = {}) {
-  const payload = await apiRequest(`/api/deals/${dealID}/quotes/${quoteID}/deliveries`, {
-    method: 'POST',
-    body: input,
-    headers: { 'Idempotency-Key': idempotencyKey },
-    fallbackMessage: 'Unable to deliver quote.',
-    signal
-  })
-  return payload?.data?.delivery
+export function reissueExpiredDealQuote(dealID, quoteID, input, idempotencyKey, { signal } = {}) {
+  return idempotentPost(`/api/deals/${dealID}/quotes/${quoteID}/reissue`, input, idempotencyKey, 'Unable to reissue expired quote.', signal)
+}
+
+export function deliverDealQuote(dealID, quoteID, input, idempotencyKey, { signal } = {}) {
+  return idempotentPost(`/api/deals/${dealID}/quotes/${quoteID}/deliveries`, input, idempotencyKey, 'Unable to deliver quote.', signal).then((data) => data?.delivery)
 }
 
 export async function resolveDealQuoteDelivery(deliveryID, resolution, { signal } = {}) {
@@ -122,11 +117,8 @@ export async function confirmPublicDealQuoteReceipt(token, { signal } = {}) {
   return payload?.data?.quote
 }
 
-export async function updatePublicDealQuote(token, action, input, idempotencyKey, { signal } = {}) {
-  const payload = await apiRequest(`/api/public/quotes/${encodeURIComponent(token)}/${action}`, {
-    method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: `Unable to ${action === 'signature' ? 'sign' : 'decline'} quote.`, signal
-  })
-  return payload?.data?.quote
+export function updatePublicDealQuote(token, action, input, idempotencyKey, { signal } = {}) {
+  return idempotentPost(`/api/public/quotes/${encodeURIComponent(token)}/${action}`, input, idempotencyKey, `Unable to ${action === 'signature' ? 'sign' : 'decline'} quote.`, signal).then((data) => data?.quote)
 }
 
 export async function voidDealSignatureRequest(dealID, requestID, { signal } = {}) {
@@ -134,11 +126,8 @@ export async function voidDealSignatureRequest(dealID, requestID, { signal } = {
   return payload?.data
 }
 
-export async function convertSignedQuoteToWon(dealID, requestID, input, idempotencyKey, { signal } = {}) {
-  const payload = await apiRequest(`/api/deals/${dealID}/signature-requests/${requestID}/convert-to-won`, {
-    method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: 'Unable to convert signed quote to a won deal.', signal
-  })
-  return payload?.data
+export function convertSignedQuoteToWon(dealID, requestID, input, idempotencyKey, { signal } = {}) {
+  return idempotentPost(`/api/deals/${dealID}/signature-requests/${requestID}/convert-to-won`, input, idempotencyKey, 'Unable to convert signed quote to a won deal.', signal)
 }
 
 export async function archiveDeal(dealID, { signal } = {}) {

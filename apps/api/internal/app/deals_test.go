@@ -41,6 +41,8 @@ type fakeDealsService struct {
 	replaceLineItemsErr         error
 	finalizeQuoteResult         moduledeals.QuoteVersion
 	finalizeQuoteErr            error
+	reissueQuoteResult          moduledeals.QuoteVersion
+	reissueQuoteErr             error
 	quotePDFResult              moduledeals.QuotePDFFile
 	quotePDFErr                 error
 	replayQuoteDeliveryResult   moduledeals.QuoteDeliveryIntent
@@ -92,6 +94,11 @@ type fakeDealsService struct {
 	lastFinalizeQuoteDealID     int64
 	lastFinalizeQuoteActorID    int64
 	lastFinalizeQuoteInput      moduledeals.FinalizeQuoteInput
+	lastReissueQuoteOrgID       int64
+	lastReissueQuoteDealID      int64
+	lastReissueQuoteID          int64
+	lastReissueQuoteActorID     int64
+	lastReissueQuoteInput       moduledeals.ReissueQuoteInput
 	lastQuotePDFOrgID           int64
 	lastQuotePDFDealID          int64
 	lastQuotePDFQuoteID         int64
@@ -216,6 +223,15 @@ func (f *fakeDealsService) FinalizeQuote(_ context.Context, organizationID, deal
 	f.lastFinalizeQuoteActorID = actorUserID
 	f.lastFinalizeQuoteInput = input
 	return f.finalizeQuoteResult, f.finalizeQuoteErr
+}
+
+func (f *fakeDealsService) ReissueExpiredQuote(_ context.Context, organizationID, dealID, quoteID, actorUserID int64, input moduledeals.ReissueQuoteInput) (moduledeals.QuoteVersion, error) {
+	f.lastReissueQuoteOrgID = organizationID
+	f.lastReissueQuoteDealID = dealID
+	f.lastReissueQuoteID = quoteID
+	f.lastReissueQuoteActorID = actorUserID
+	f.lastReissueQuoteInput = input
+	return f.reissueQuoteResult, f.reissueQuoteErr
 }
 
 func (f *fakeDealsService) GetQuotePDF(_ context.Context, organizationID, dealID, quoteID int64) (moduledeals.QuotePDFFile, error) {
@@ -689,6 +705,46 @@ func TestFinalizeDealQuoteRejectsMissingKeyAndIdempotencyConflict(t *testing.T) 
 	}
 }
 
+func TestReissueExpiredDealQuoteValidatesStateAndPreservesIdempotency(t *testing.T) {
+	result := moduledeals.QuoteVersion{ID: 72, Version: 2, QuoteNumber: "Q-12-V2", LifecycleStatus: "active", ReissuedFromQuoteID: 71}
+	service := &fakeDealsService{reissueQuoteResult: result, getResult: moduledeals.Detail{Summary: moduledeals.Summary{ID: 12}, Quotes: []moduledeals.QuoteVersion{result}}}
+	server := authenticatedDealsServer(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/reissue", strings.NewReader(`{"validUntil":"2026-09-20"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "quote-reissue-handler-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated || !strings.Contains(recorder.Body.String(), `"quoteNumber":"Q-12-V2"`) {
+		t.Fatalf("reissue quote status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.lastReissueQuoteOrgID != 42 || service.lastReissueQuoteDealID != 12 || service.lastReissueQuoteID != 71 || service.lastReissueQuoteActorID != 1 || service.lastReissueQuoteInput.ValidUntil != "2026-09-20" || service.lastReissueQuoteInput.IdempotencyKey != "quote-reissue-handler-0001" {
+		t.Fatalf("unexpected reissue input: %#v", service)
+	}
+
+	for _, test := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{name: "already reissued", err: moduledeals.ErrQuoteAlreadyReissued, code: "QUOTE_ALREADY_REISSUED"},
+		{name: "unsafe state", err: moduledeals.ErrQuoteReissueState, code: "QUOTE_REISSUE_STATE"},
+		{name: "changed replay", err: moduledeals.ErrQuoteIdempotencyConflict, code: "IDEMPOTENCY_CONFLICT"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/reissue", strings.NewReader(`{"validUntil":"2026-09-20"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Idempotency-Key", "quote-reissue-handler-0002")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			authenticatedDealsServer(&fakeDealsService{reissueQuoteErr: test.err}).ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
+				t.Fatalf("reissue error status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestSendDealQuoteUsesDurableIntentAndConnectedMailbox(t *testing.T) {
 	prepared := moduledeals.QuoteDeliveryIntent{
 		Delivery: moduledeals.QuoteDelivery{
@@ -766,6 +822,29 @@ func TestSendDealQuoteRejectsExpiredSignatureBeforeProviderCall(t *testing.T) {
 	}
 	if accounts.sendCalled {
 		t.Fatal("expired signature delivery crossed the provider boundary")
+	}
+}
+
+func TestSendDealQuoteRejectsExpiredReviewBeforeProviderCall(t *testing.T) {
+	service := &fakeDealsService{prepareQuoteDeliveryErr: moduledeals.ErrQuoteExpired}
+	accounts := &fakeUserEmailService{account: moduleuseremail.Account{FromEmail: "owner@acme.test"}}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User: moduleauth.User{ID: 1, Email: "owner@acme.test"}, Organization: moduleauth.Organization{ID: 42, Name: "Acme"}, Membership: moduleauth.Membership{Role: "owner"},
+		}},
+		DealsService: service, UserEmailService: accounts,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/deliveries", strings.NewReader(`{"subject":"Quote Q-12-V2","messageBody":"Please review this quote."}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "quote-review-expired-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"QUOTE_EXPIRED"`) {
+		t.Fatalf("expired quote delivery status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if accounts.sendCalled {
+		t.Fatal("expired quote review crossed the provider boundary")
 	}
 }
 

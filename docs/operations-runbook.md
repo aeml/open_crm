@@ -697,8 +697,8 @@ references.
    catalog reference changes nothing. Correct through the deal UI and download
    a new draft or finalized version; do not edit line items, quote/proposal rows,
    stored bytes, timestamps, or activity with ad hoc SQL. Reusable templates,
-   approvals, active expiration/reissue workflow, and jurisdiction-specific
-   policy remain later Phase 4 quote/signature slices.
+   approvals, quote-level FX disclosure, and jurisdiction-specific policy
+   remain later Phase 4 quote/signature slices.
 
 ### Finalized quote delivery and receipt recovery
 
@@ -743,7 +743,16 @@ incident ticket or application log.
    provider attempt using the same durable delivery and stable message ID, so
    approve it only after the Sent-folder check. Owners/admins may confirm or
    reject another sender's delivery but cannot retry as that sender.
-4. A definitely failed signature delivery voids its attached draft request and
+4. An expired quote cannot start any new review or signature delivery. If its
+   commercial content remains correct, use **Reissue this commercial version**
+   with a new future validity date. This creates a new PDF/version/digest and
+   preserves an explicit source/replacement lineage. It also voids an expired
+   pending signature request in the same transaction. Reissue is blocked for a
+   signed quote, a quote with `prepared`, `sending`, or `uncertain` delivery,
+   a closed/archived deal, or a source already replaced. Resolve ambiguous
+   delivery first; revise live deal data and finalize normally when commercial
+   content changed. Never extend `valid_until` or repair lineage with SQL.
+5. A definitely failed signature delivery voids its attached draft request and
    permits a new delivery/request. Marking an uncertain delivery **not sent**
    does the same; confirming it sent activates the existing request. Never
    create or repair a request independently of its delivery. Suppression and
@@ -752,7 +761,7 @@ incident ticket or application log.
    link, or customer decision by editing the database; correct the source state
    and use the normal UI. Use the request ID and aggregate/provider telemetry
    rather than expecting raw infrastructure errors in the quote record.
-5. Disabling or revoking the sender atomically fails any `prepared` delivery
+6. Disabling or revoking the sender atomically fails any `prepared` delivery
    before a provider call and voids its draft signature request. It moves an
    already claimed `sending` delivery to `uncertain` without guessing whether
    the message arrived. A disabled sender cannot claim or retry it. An

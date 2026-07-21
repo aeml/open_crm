@@ -124,6 +124,7 @@ type dealsService interface {
 	UpdateStage(context.Context, int64, int64, int64, moduledeals.UpdateStageInput) (moduledeals.Detail, error)
 	ReplaceLineItems(context.Context, int64, int64, int64, moduledeals.LineItemsInput) (moduledeals.Detail, error)
 	FinalizeQuote(context.Context, int64, int64, int64, moduledeals.FinalizeQuoteInput) (moduledeals.QuoteVersion, error)
+	ReissueExpiredQuote(context.Context, int64, int64, int64, int64, moduledeals.ReissueQuoteInput) (moduledeals.QuoteVersion, error)
 	GetQuotePDF(context.Context, int64, int64, int64) (moduledeals.QuotePDFFile, error)
 	ReplayQuoteDelivery(context.Context, int64, int64, int64, int64, moduledeals.QuoteDeliveryInput) (moduledeals.QuoteDeliveryIntent, bool, error)
 	PrepareQuoteDelivery(context.Context, int64, int64, int64, int64, moduledeals.QuoteDeliveryInput) (moduledeals.QuoteDeliveryIntent, error)

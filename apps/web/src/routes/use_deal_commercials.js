@@ -3,6 +3,7 @@ import {
   convertSignedQuoteToWon,
   deliverDealQuote,
   finalizeDealQuote,
+  reissueExpiredDealQuote,
   replaceDealLineItems,
   resolveDealQuoteDelivery,
   voidDealSignatureRequest
@@ -31,14 +32,13 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
   const [isSavingLineItems, setIsSavingLineItems] = useState(false)
   const [isFinalizingQuote, setIsFinalizingQuote] = useState(false)
   const [deliveringQuoteId, setDeliveringQuoteId] = useState(null)
+  const [reissuingQuoteId, setReissuingQuoteId] = useState(null)
   const [resolvingDeliveryId, setResolvingDeliveryId] = useState(null)
   const [areLineItemsDirty, setAreLineItemsDirty] = useState(false)
   const [voidingSignatureRequestId, setVoidingSignatureRequestId] = useState(null)
   const [convertingSignatureRequestId, setConvertingSignatureRequestId] = useState(null)
-  const quoteAttempt = useRef(null)
-  const deliveryAttempts = useRef(new Map())
-  const conversionAttempts = useRef(new Map())
-  const isSnapshotPending = isSavingLineItems || isFinalizingQuote || voidingSignatureRequestId !== null || convertingSignatureRequestId !== null
+  const idempotencyAttempts = useRef(new Map())
+  const isSnapshotPending = isSavingLineItems || isFinalizingQuote || reissuingQuoteId !== null || voidingSignatureRequestId !== null || convertingSignatureRequestId !== null
 
   function refresh(data) {
     setLineItems(data.lineItems || [])
@@ -55,12 +55,11 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setLineItemForm(emptyLineItemForm)
     setQuoteForm(emptyQuoteForm(data.deal?.primaryContactName || ''))
     setAreLineItemsDirty(false)
-    quoteAttempt.current = null
-    deliveryAttempts.current.clear()
-    conversionAttempts.current.clear()
+    idempotencyAttempts.current.clear()
     setIsSavingLineItems(false)
     setIsFinalizingQuote(false)
     setDeliveringQuoteId(null)
+    setReissuingQuoteId(null)
     setResolvingDeliveryId(null)
     setVoidingSignatureRequestId(null)
     setConvertingSignatureRequestId(null)
@@ -73,13 +72,12 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setQuotes([])
     setQuoteForm(emptyQuoteForm())
     setAreLineItemsDirty(false)
-    quoteAttempt.current = null
-    deliveryAttempts.current.clear()
-    conversionAttempts.current.clear()
+    idempotencyAttempts.current.clear()
     setSignatureRequests([])
     setIsSavingLineItems(false)
     setIsFinalizingQuote(false)
     setDeliveringQuoteId(null)
+    setReissuingQuoteId(null)
     setResolvingDeliveryId(null)
     setVoidingSignatureRequestId(null)
     setConvertingSignatureRequestId(null)
@@ -108,6 +106,36 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       .filter((_, entryIndex) => entryIndex !== index)
       .map((item, entryIndex) => ({ ...item, position: entryIndex + 1 })))
     setAreLineItemsDirty(true)
+  }
+
+  function idempotencyKey(name, payload, prefix) {
+    const fingerprint = JSON.stringify(payload)
+    const prior = idempotencyAttempts.current.get(name)
+    if (prior?.fingerprint !== fingerprint) {
+      idempotencyAttempts.current.set(name, { fingerprint, key: createIdempotencyKey(prefix) })
+    }
+    return idempotencyAttempts.current.get(name).key
+  }
+
+  async function mutateSnapshot(operationName, pendingID, setPending, request, message, onSuccess) {
+    const operation = selection.start(operationName, selectedDealId, { group: 'deal-snapshot' })
+    if (!operation) return
+    setPending(pendingID)
+    try {
+      const data = requireDealResponse(await request(operation.dealId), operation.dealId, message)
+      const isCurrent = selection.isCurrent(operation.selection)
+      if (selection.canApply(operation)) onDealUpdated(data, operation.dealId, isCurrent)
+      if (isCurrent) {
+        refresh(data)
+        onSuccess?.()
+        onError('')
+      }
+    } catch (error) {
+      if (selection.isCurrent(operation.selection)) onError(error.message || message)
+    } finally {
+      selection.finish(operation)
+      if (selection.isCurrent(operation.selection)) setPending(null)
+    }
   }
 
   async function handleSaveLineItems() {
@@ -147,18 +175,15 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       validUntil: quoteForm.validUntil,
       terms: quoteForm.terms.trim()
     }
-    const fingerprint = JSON.stringify(input)
-    if (quoteAttempt.current?.fingerprint !== fingerprint) {
-      quoteAttempt.current = { fingerprint, key: createIdempotencyKey('quote') }
-    }
+    const attemptName = 'quote'
     setIsFinalizingQuote(true)
     try {
-      const quote = await finalizeDealQuote(operation.dealId, input, quoteAttempt.current.key)
+      const quote = await finalizeDealQuote(operation.dealId, input, idempotencyKey(attemptName, input, 'quote'))
       if (!quote?.id) throw new Error('Unable to finalize quote.')
       if (selection.isCurrent(operation.selection)) {
         setQuotes((current) => [quote, ...current.filter((entry) => entry.id !== quote.id)])
         setQuoteForm(emptyQuoteForm(quote.recipientName))
-        quoteAttempt.current = null
+        idempotencyAttempts.current.delete(attemptName)
         onError('')
       }
     } catch (quoteError) {
@@ -206,19 +231,15 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     const operation = selection.start(`quote-delivery-${quote.id}`, selectedDealId)
     if (!operation) return
     const payload = { subject: input.subject.trim(), messageBody: input.messageBody.trim(), requestSignature: Boolean(input.requestSignature) }
-    const fingerprint = JSON.stringify(payload)
-    const prior = deliveryAttempts.current.get(quote.id)
-    if (prior?.fingerprint !== fingerprint) {
-      deliveryAttempts.current.set(quote.id, { fingerprint, key: createIdempotencyKey('quote-delivery') })
-    }
+    const attemptName = `delivery-${quote.id}`
     setDeliveringQuoteId(quote.id)
     try {
-      const delivery = await deliverDealQuote(operation.dealId, quote.id, payload, deliveryAttempts.current.get(quote.id).key)
+      const delivery = await deliverDealQuote(operation.dealId, quote.id, payload, idempotencyKey(attemptName, payload, 'quote-delivery'))
       if (!delivery?.id) throw new Error('Unable to deliver quote.')
       if (selection.isCurrent(operation.selection)) {
         replaceQuoteDelivery(quote.id, delivery)
         replaceSignatureFromDelivery(quote, delivery)
-        if (delivery.status === 'sent' || delivery.status === 'failed') deliveryAttempts.current.delete(quote.id)
+        if (delivery.status === 'sent' || delivery.status === 'failed') idempotencyAttempts.current.delete(attemptName)
         onError('')
       }
     } catch (deliveryError) {
@@ -227,6 +248,19 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       selection.finish(operation)
       if (selection.isCurrent(operation.selection)) setDeliveringQuoteId(null)
     }
+  }
+
+  async function handleReissueQuote(quote, validUntil) {
+    const payload = { validUntil }
+    const attemptName = `quote-reissue-${quote.id}`
+    return mutateSnapshot(
+      attemptName,
+      quote.id,
+      setReissuingQuoteId,
+      (dealID) => reissueExpiredDealQuote(dealID, quote.id, payload, idempotencyKey(attemptName, payload, 'quote-reissue')),
+      'Unable to reissue expired quote.',
+      () => idempotencyAttempts.current.delete(attemptName)
+    )
   }
 
   async function handleResolveQuoteDelivery(quoteID, deliveryID, resolution) {
@@ -240,7 +274,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
         replaceQuoteDelivery(quoteID, delivery)
         const quote = quotes.find((entry) => entry.id === quoteID)
         if (quote) replaceSignatureFromDelivery(quote, delivery)
-        if (delivery.status === 'sent' || delivery.status === 'failed') deliveryAttempts.current.delete(quoteID)
+        if (delivery.status === 'sent' || delivery.status === 'failed') idempotencyAttempts.current.delete(`delivery-${quoteID}`)
         onError('')
       }
     } catch (resolutionError) {
@@ -252,66 +286,30 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
   }
 
   async function handleVoidSignatureRequest(requestID) {
-    const operation = selection.start(`signature-void-${requestID}`, selectedDealId, { group: 'deal-snapshot' })
-    if (!operation) return
-    setVoidingSignatureRequestId(requestID)
-    try {
-      const data = requireDealResponse(
-        await voidDealSignatureRequest(operation.dealId, requestID),
-        operation.dealId,
-        'Unable to void signature request.'
-      )
-      const isCurrent = selection.isCurrent(operation.selection)
-      if (selection.canApply(operation)) onDealUpdated(data, operation.dealId, isCurrent)
-      if (isCurrent) {
-        refresh(data)
-        onError('')
-      }
-    } catch (signatureError) {
-      if (selection.isCurrent(operation.selection)) {
-        onError(signatureError.message || 'Unable to void signature request.')
-      }
-    } finally {
-      selection.finish(operation)
-      if (selection.isCurrent(operation.selection)) setVoidingSignatureRequestId(null)
-    }
+    return mutateSnapshot(
+      `signature-void-${requestID}`,
+      requestID,
+      setVoidingSignatureRequestId,
+      (dealID) => voidDealSignatureRequest(dealID, requestID),
+      'Unable to void signature request.'
+    )
   }
 
   async function handleConvertSignatureRequest(requestID, input) {
-    const operation = selection.start(`signature-convert-${requestID}`, selectedDealId, { group: 'deal-snapshot' })
-    if (!operation) return
     const payload = {
       stageId: Number.parseInt(input.stageId, 10),
       closeReasonCode: input.closeReasonCode,
       closeNotes: input.closeNotes.trim()
     }
-    const fingerprint = JSON.stringify(payload)
-    const prior = conversionAttempts.current.get(requestID)
-    if (prior?.fingerprint !== fingerprint) {
-      conversionAttempts.current.set(requestID, { fingerprint, key: createIdempotencyKey('signed-quote-conversion') })
-    }
-    setConvertingSignatureRequestId(requestID)
-    try {
-      const data = requireDealResponse(
-        await convertSignedQuoteToWon(operation.dealId, requestID, payload, conversionAttempts.current.get(requestID).key),
-        operation.dealId,
-        'Unable to convert signed quote to a won deal.'
-      )
-      const isCurrent = selection.isCurrent(operation.selection)
-      if (selection.canApply(operation)) onDealUpdated(data, operation.dealId, isCurrent)
-      if (isCurrent) {
-        refresh(data)
-        conversionAttempts.current.delete(requestID)
-        onError('')
-      }
-    } catch (conversionError) {
-      if (selection.isCurrent(operation.selection)) {
-        onError(conversionError.message || 'Unable to convert signed quote to a won deal.')
-      }
-    } finally {
-      selection.finish(operation)
-      if (selection.isCurrent(operation.selection)) setConvertingSignatureRequestId(null)
-    }
+    const attemptName = `signature-convert-${requestID}`
+    return mutateSnapshot(
+      attemptName,
+      requestID,
+      setConvertingSignatureRequestId,
+      (dealID) => convertSignedQuoteToWon(dealID, requestID, payload, idempotencyKey(attemptName, payload, 'signed-quote-conversion')),
+      'Unable to convert signed quote to a won deal.',
+      () => idempotencyAttempts.current.delete(attemptName)
+    )
   }
 
   return {
@@ -320,6 +318,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     handleConvertSignatureRequest,
     handleFinalizeQuote,
     handleDeliverQuote,
+    handleReissueQuote,
     handleResolveQuoteDelivery,
     handleRemoveLineItem,
     handleSaveLineItems,
