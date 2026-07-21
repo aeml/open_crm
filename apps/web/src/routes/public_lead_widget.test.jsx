@@ -30,6 +30,7 @@ describe('public lead widget route', () => {
               description: 'We will follow up shortly.',
               successMessage: 'Thanks. We will be in touch soon.',
               sourceLabel: 'Website widget',
+              consentText: 'I agree to receive a reply about this request.',
               isActive: true,
               fields: [
                 { key: 'firstName', label: 'First name', fieldType: 'text', required: true, mapTo: 'firstName' },
@@ -40,6 +41,9 @@ describe('public lead widget route', () => {
             }
           }
         })
+      }
+      if (path.endsWith('/api/public/lead-capture-forms/lf_public/challenge') && method === 'POST') {
+        return jsonResponse({ data: { challenge: { token: 'widget-challenge-token', consentText: 'I agree to receive a reply about this request.', notBefore: '2020-01-01T00:00:00Z', expiresAt: '2030-01-01T00:00:00Z' } } }, 201)
       }
       if (path.endsWith('/api/public/lead-capture-forms/lf_public/submissions') && method === 'POST') {
         return jsonResponse({ data: { successMessage: 'Thanks. We will be in touch soon.' } }, 201)
@@ -59,6 +63,7 @@ describe('public lead widget route', () => {
     fireEvent.change(screen.getByLabelText(/^last name$/i), { target: { value: 'Lovelace' } })
     fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'ada@example.com' } })
     fireEvent.change(screen.getByLabelText(/^message$/i), { target: { value: 'Can we talk?' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /receive a reply about this request/i }))
     fireEvent.click(screen.getByRole('button', { name: /^send$/i }))
 
     expect(await screen.findByRole('status')).toHaveTextContent(/thanks/i)
@@ -82,7 +87,9 @@ describe('public lead widget route', () => {
           utmCampaign: 'widget-demo',
           utmTerm: '',
           utmContent: ''
-        }
+        },
+        challengeToken: 'widget-challenge-token',
+        consentGranted: true
       })
     })
   })

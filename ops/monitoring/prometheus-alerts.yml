@@ -191,6 +191,24 @@ groups:
           summary: Open CRM is rejecting elevated public endpoint traffic
           runbook: docs/operations-runbook.md#public-endpoint-abuse-controls
 
+      - alert: OpenCRMLeadSubmissionErrors
+        expr: sum(increase(open_crm_lead_submission_outcomes_total{outcome="error"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM public lead capture is failing internally
+          runbook: docs/operations-runbook.md#public-endpoint-abuse-controls
+
+      - alert: OpenCRMLeadSubmissionRejectionsHigh
+        expr: sum(increase(open_crm_lead_submission_outcomes_total{outcome="rejected"}[10m])) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM is rejecting elevated public lead submissions
+          runbook: docs/operations-runbook.md#public-endpoint-abuse-controls
+
       - alert: OpenCRMNotificationMetricsUnavailable
         expr: open_crm_notifications_available == 0
         for: 5m

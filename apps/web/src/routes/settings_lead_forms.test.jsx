@@ -42,10 +42,10 @@ describe('settings lead forms route', () => {
         return jsonResponse({ data: { unreadCount: 0 } })
       }
       if (path.endsWith('/api/lead-capture-forms') && method === 'POST') {
-        return jsonResponse({ data: { form: { id: 8, name: 'Demo request', slug: 'demo-request', publicId: 'lf_created', title: 'Book a demo', description: '', successMessage: 'Thanks!', sourceLabel: 'Demo form', isActive: true, submissionCount: 0, fields: standardFields } } })
+        return jsonResponse({ data: { form: { id: 8, name: 'Demo request', slug: 'demo-request', publicId: 'lf_created', title: 'Book a demo', description: '', successMessage: 'Thanks!', sourceLabel: 'Demo form', consentText: 'I agree to be contacted about this request.', isActive: true, submissionCount: 0, fields: standardFields } } })
       }
       if (path.endsWith('/api/lead-capture-forms')) {
-        return jsonResponse({ data: { forms: [{ id: 3, name: 'Website Leads', slug: 'website-leads', publicId: 'lf_existing', title: 'Talk to sales', description: 'Main website form', successMessage: 'Thanks!', sourceLabel: 'Website form', isActive: true, submissionCount: 2, fields: standardFields }] } })
+        return jsonResponse({ data: { forms: [{ id: 3, name: 'Website Leads', slug: 'website-leads', publicId: 'lf_existing', title: 'Talk to sales', description: 'Main website form', successMessage: 'Thanks!', sourceLabel: 'Website form', consentText: 'I agree to receive a reply.', isActive: true, submissionCount: 2, fields: standardFields }] } })
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })
@@ -58,6 +58,7 @@ describe('settings lead forms route', () => {
     expect(await screen.findByRole('heading', { name: /lead forms/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /website leads/i })).toBeInTheDocument()
     expect(screen.getByDisplayValue(/api\/public\/lead-capture-forms\/lf_existing\/submissions/)).toBeInTheDocument()
+    expect(screen.getByDisplayValue(/api\/public\/lead-capture-forms\/lf_existing\/challenge/).value).toContain('consentGranted')
 
     fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Demo request' } })
     fireEvent.change(screen.getByLabelText(/slug/i), { target: { value: 'demo-request' } })
@@ -74,6 +75,7 @@ describe('settings lead forms route', () => {
       const body = JSON.parse(createCall[1].body)
       expect(body.name).toBe('Demo request')
       expect(body.slug).toBe('demo-request')
+      expect(body.consentText).toBe('I agree to be contacted about this request.')
       expect(body.fields.find((field) => field.key === 'firstName').mapTo).toBe('firstName')
       expect(body.fields.find((field) => field.key === 'message').mapTo).toBe('')
     })

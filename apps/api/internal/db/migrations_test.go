@@ -73,6 +73,33 @@ func TestMigrationFilesIncludeDealQuoteDeliveries(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludePublicLeadConsentChallenges(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "095_public_lead_consent_challenges.sql") {
+		t.Fatal("expected public lead consent challenge migration to be registered")
+	}
+	sql := MigrationSQL("095_public_lead_consent_challenges.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"consent_text",
+		"consent_text_snapshot",
+		"lead_capture_submission_challenges",
+		"token_digest",
+		"request_digest",
+		"lead_capture_submission_challenges_consumption_check",
+		"idx_lead_capture_submission_challenges_cleanup",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("public lead consent challenge migration missing %q", expected)
+		}
+	}
+	if strings.Contains(sql, "remote_addr_digest") || strings.Contains(sql, "user_agent_digest") {
+		t.Fatal("public lead challenge migration must not add network or browser identifiers")
+	}
+	if class := MigrationDeploymentClass("095_public_lead_consent_challenges.sql"); class != "expand" {
+		t.Fatalf("public lead consent challenge deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeBackgroundJobs(t *testing.T) {
 	sql := MigrationSQL("056_background_jobs.sql")
 	if sql == "" {

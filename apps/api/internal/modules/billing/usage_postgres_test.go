@@ -149,6 +149,20 @@ func TestUsageReconciliationAgainstPostgres(t *testing.T) {
 	}
 
 	service := NewService(pool, newStripeProvider(ProviderConfig{}))
+	usageTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin storage source inspection: %v", err)
+	}
+	storageTables, err := tenantStorageTables(ctx, usageTx)
+	_ = usageTx.Rollback(ctx)
+	if err != nil {
+		t.Fatalf("inspect storage sources: %v", err)
+	}
+	for _, table := range storageTables {
+		if table.name == "lead_capture_submission_challenges" {
+			t.Fatal("public challenge security ledger must not count as billable storage")
+		}
+	}
 	usage, err := service.Usage(ctx, organizationID)
 	if err != nil {
 		t.Fatalf("reconcile usage: %v", err)

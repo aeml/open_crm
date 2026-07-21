@@ -15,7 +15,7 @@ describe('AppShell', () => {
     expect(screen.getByText(/pipeline at a glance/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /dashboard/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /clients/i })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /contacts/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /contacts/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /log out/i })).toBeInTheDocument()
   })
 })

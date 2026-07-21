@@ -5,7 +5,7 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { createLeadCaptureForm, listLeadCaptureForms, publicLeadCaptureFormSubmitURL, updateLeadCaptureForm } from '../lib/lead_forms'
+import { createLeadCaptureForm, listLeadCaptureForms, publicLeadCaptureFormChallengeURL, publicLeadCaptureFormSubmitURL, updateLeadCaptureForm } from '../lib/lead_forms'
 import { usePageTitle } from '../lib/use_page_title'
 
 const defaultFields = [
@@ -24,6 +24,7 @@ function emptyForm() {
     description: '',
     successMessage: 'Thanks. We will be in touch soon.',
     sourceLabel: 'Lead capture form',
+    consentText: 'I agree to be contacted about this request.',
     isActive: true,
     fields: defaultFields.map((field) => ({ ...field }))
   }
@@ -37,6 +38,7 @@ function formFromLeadForm(form) {
     description: form.description || '',
     successMessage: form.successMessage || 'Thanks. We will be in touch soon.',
     sourceLabel: form.sourceLabel || 'Lead capture form',
+    consentText: form.consentText || 'I agree to be contacted about this request.',
     isActive: form.isActive !== false,
     fields: (form.fields && form.fields.length > 0 ? form.fields : defaultFields).map((field) => ({ ...field }))
   }
@@ -50,6 +52,7 @@ function leadFormPayload(form) {
     description: form.description,
     successMessage: form.successMessage,
     sourceLabel: form.sourceLabel,
+    consentText: form.consentText,
     isActive: form.isActive,
     fields: form.fields
   }
@@ -62,13 +65,22 @@ function fieldInputType(field) {
   return 'text'
 }
 
+function escapeHTML(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
 function embedSnippet(form) {
   const action = publicLeadCaptureFormSubmitURL(form.publicId || '')
+  const challengeURL = publicLeadCaptureFormChallengeURL(form.publicId || '')
   const controls = (form.fields || defaultFields).map((field) => {
     if (field.fieldType === 'textarea') {
-      return `  <label>${field.label}\n    <textarea name="${field.key}"${field.required ? ' required' : ''}></textarea>\n  </label>`
+      return `  <label>${escapeHTML(field.label)}\n    <textarea name="${escapeHTML(field.key)}"${field.required ? ' required' : ''}></textarea>\n  </label>`
     }
-    return `  <label>${field.label}\n    <input name="${field.key}" type="${fieldInputType(field)}"${field.required ? ' required' : ''}>\n  </label>`
+    return `  <label>${escapeHTML(field.label)}\n    <input name="${escapeHTML(field.key)}" type="${fieldInputType(field)}"${field.required ? ' required' : ''}>\n  </label>`
   })
 
   return [
@@ -81,8 +93,28 @@ function embedSnippet(form) {
     '  <input type="hidden" name="utm_campaign" value="">',
     '  <input type="hidden" name="utm_term" value="">',
     '  <input type="hidden" name="utm_content" value="">',
-    '  <button type="submit">Submit</button>',
-    '</form>'
+    `  <label><input type="checkbox" name="consentGranted" value="true" required> <span data-open-crm-consent>${escapeHTML(form.consentText || 'I agree to be contacted about this request.')}</span></label>`,
+    '  <input type="hidden" name="challengeToken">',
+    '  <p data-open-crm-status role="status">Preparing secure form...</p>',
+    '  <button type="submit" disabled>Submit</button>',
+    '</form>',
+    '<script>',
+    '(() => {',
+    '  const form = document.currentScript.previousElementSibling',
+    '  const button = form.querySelector(\'button[type="submit"]\')',
+    '  const status = form.querySelector(\'[data-open-crm-status]\')',
+    `  fetch(${JSON.stringify(challengeURL)}, { method: 'POST', headers: { Accept: 'application/json' } })`,
+    '    .then((response) => response.ok ? response.json() : Promise.reject(new Error(\'challenge failed\')))',
+    '    .then((payload) => {',
+    '      const challenge = payload.data.challenge',
+    '      form.elements.challengeToken.value = challenge.token',
+    '      form.querySelector(\'[data-open-crm-consent]\').textContent = challenge.consentText',
+    '      const delay = Math.max(0, Date.parse(challenge.notBefore) - Date.now())',
+    '      setTimeout(() => { button.disabled = false; status.textContent = \'\' }, delay)',
+    '    })',
+    '    .catch(() => { status.textContent = \'This form is temporarily unavailable.\' })',
+    '})()',
+    '</script>'
   ].join('\n')
 }
 
@@ -233,6 +265,9 @@ export function SettingsLeadFormsRoute() {
             </Field>
             <Field label="Source label">
               <input className="text-input" value={form.sourceLabel} onChange={(event) => setForm({ ...form, sourceLabel: event.target.value })} required />
+            </Field>
+            <Field label="Consent statement" hint="Visitors must actively confirm this statement. The exact text is retained with each accepted submission.">
+              <textarea className="text-input" rows={3} maxLength={1000} value={form.consentText} onChange={(event) => setForm({ ...form, consentText: event.target.value })} required />
             </Field>
             <label className="field-hint">
               <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active lead form

@@ -168,9 +168,47 @@ func TestEveryCapacityIncreasingPathUsesHostedReservationsAgainstPostgres(t *tes
 		return err
 	})
 	assertLimitReached(t, "public lead capture", func() error {
-		_, err := forms.SubmitByPublicID(ctx, "lf_capacity_paths", moduleleadforms.SubmissionInput{Values: map[string]string{"first": "Public", "last": "Lead"}})
+		challenge, err := forms.IssueSubmissionChallenge(ctx, "lf_capacity_paths")
+		if err != nil {
+			return err
+		}
+		if _, err := pool.Exec(ctx, `
+			UPDATE lead_capture_submission_challenges
+			SET issued_at=NOW()-INTERVAL '3 seconds',not_before=NOW()-INTERVAL '1 second'
+			WHERE organization_id=$1 AND consumed_at IS NULL
+		`, organizationID); err != nil {
+			return err
+		}
+		_, err = forms.SubmitByPublicID(ctx, "lf_capacity_paths", moduleleadforms.SubmissionInput{
+			Values: map[string]string{"first": "Public", "last": "Lead"}, ChallengeToken: challenge.Token, ConsentGranted: true,
+		})
 		return err
 	})
+	if _, err := pool.Exec(ctx, `UPDATE contacts SET archived_at=NOW() WHERE organization_id=$1 AND id=$2`, organizationID, activeContactID); err != nil {
+		t.Fatalf("free capacity for public lead replay acceptance: %v", err)
+	}
+	replayChallenge, err := forms.IssueSubmissionChallenge(ctx, "lf_capacity_paths")
+	if err != nil {
+		t.Fatalf("issue public lead replay challenge: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE lead_capture_submission_challenges
+		SET issued_at=NOW()-INTERVAL '3 seconds',not_before=NOW()-INTERVAL '1 second'
+		WHERE organization_id=$1 AND consumed_at IS NULL
+	`, organizationID); err != nil {
+		t.Fatalf("mature public lead replay challenge: %v", err)
+	}
+	replayInput := moduleleadforms.SubmissionInput{
+		Values: map[string]string{"first": "Replay", "last": "Lead"}, ChallengeToken: replayChallenge.Token, ConsentGranted: true,
+	}
+	acceptedLead, err := forms.SubmitByPublicID(ctx, "lf_capacity_paths", replayInput)
+	if err != nil || acceptedLead.Replayed || acceptedLead.Submission.ContactID <= 0 {
+		t.Fatalf("accept public lead at final capacity slot: result=%+v err=%v", acceptedLead, err)
+	}
+	replayedLead, err := forms.SubmitByPublicID(ctx, "lf_capacity_paths", replayInput)
+	if err != nil || !replayedLead.Replayed || replayedLead.Submission.ID != acceptedLead.Submission.ID || replayedLead.Submission.ContactID != acceptedLead.Submission.ContactID {
+		t.Fatalf("exact public lead replay failed at full capacity: accepted=%+v replay=%+v err=%v", acceptedLead, replayedLead, err)
+	}
 	assertLimitReached(t, "contact import", func() error {
 		_, err := imports.Execute(ctx, moduleimports.ExecuteInput{
 			OrganizationID: organizationID, ActorUserID: ownerID, EntityType: "contacts",

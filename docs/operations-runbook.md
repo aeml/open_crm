@@ -23,7 +23,8 @@ backup/restore evidence. It also reports aggregate notification backlog, age,
 reviewed event mix, per-recipient concentration, notification retention, and
 email-engagement cleanup outcomes plus connected-mailbox reply claims,
 uncertain outcomes, and recovery-pass health without tenant, recipient,
-message, or record labels. Password-recovery gauges report current
+message, or record labels. Public-lead counters report only bounded challenge,
+accepted, replayed, rejected, and internal-error outcomes. Password-recovery gauges report current
 non-expired links plus stale-pending and latest-failed delivery counts without
 user, address, or tenant labels. System-email feedback gauges report aggregate
 Postmark bounces, complaints, and authenticated-but-unapplied events in the
@@ -69,7 +70,8 @@ The reference rules alert on metrics collection or database failure, sustained
 5xx ratio/p95 latency, queue collection/lag/dead letters/worker errors,
 provider failures, password-recovery and system-email feedback health,
 notification collection/retention/elevated recipient volume, email-engagement
-retention, connected-mailbox reply recovery,
+retention, connected-mailbox reply recovery, public-lead internal errors and
+elevated rejections,
 backup evidence/failure/freshness, and restore-drill failure/freshness. They do
 not choose an Alertmanager destination. Before a
 pilot, the operator must route critical and warning alerts to an approved
@@ -922,7 +924,7 @@ rows, activity, audit, PDF bytes, tokens, or counters with ad hoc SQL.
 
 ## Public Endpoint Abuse Controls
 
-Authentication, workspace bootstrap, password setup, public lead submissions,
+Authentication, workspace bootstrap, password setup, public lead challenges and submissions,
 public landing/widget reads, Stripe/Postmark webhook delivery, unsubscribe
 links, and email open/click tracking use separate fixed-window per-client
 limits.
@@ -948,6 +950,29 @@ never the raw forwarded or peer address. Counters clamp at `limit + 1`, expired
 rows are deleted in bounded opportunistic batches, and a store error fails the
 request closed with `503 RATE_LIMIT_UNAVAILABLE` and `Retry-After: 1`.
 
+Public lead reads use their existing 120/client/minute scope. Challenge issuance
+and submission each use a distinct 20/client/minute scope, so blind challenge
+traffic cannot consume the same counter as a visitor's completed write. An
+active form issues a random 256-bit token, stores only its SHA-256 digest and the
+exact consent statement, makes it usable after two seconds, and expires it after
+30 minutes. Issuance opportunistically removes expired challenges older than 24
+hours in a bounded `SKIP LOCKED` batch. Submission requires the exact consent
+checkbox and challenge-bound statement; contact, activity, submission consent
+evidence, and challenge consumption commit together. A retry with the exact
+normalized request returns the original result, while changed, premature,
+expired, cross-form, and cross-tenant attempts receive stable non-effect errors.
+New submissions leave the legacy `remote_addr` and `user_agent` columns empty;
+historical values were not rewritten by the expand migration and remain subject
+to the approved retention/deletion policy.
+
+Hosted `/lp/...` pages and `/widget/...` surfaces are same-origin. An embed on a
+different website must add that website's exact scheme/host/port to
+`CORS_ALLOWED_ORIGINS`, because its credential-free preparation script must read
+the challenge response. Verify the browser's challenge request, consent text,
+two-second preparation delay, submission success, and expected Origin before
+publishing. Do not use `*`, weaken the CSRF origin policy, or copy challenge
+tokens into logs while troubleshooting.
+
 Monitor `open_crm_rate_limit_decisions_total{scope,outcome}`. The reference
 rules alert on any sustained `error` decision and elevated `rejected` traffic.
 For a store-error alert, first correlate `open_crm_database_up`, `/readyz`, and
@@ -957,12 +982,18 @@ bounded scope and compare route/status request rates. Do not query or export
 individual client digests as user identifiers, and do not delete active buckets
 to bypass a limit. If legitimate provider webhook traffic exceeds its budget,
 validate provider source and signature evidence before changing the static
-policy in code and rerunning the concurrency tests.
+policy in code and rerunning the concurrency tests. Also monitor
+`open_crm_lead_submission_outcomes_total{outcome}`. Any `error` indicates an
+internal/storage failure; correlate it with readiness, database locks, contact
+capacity, and bounded route logs. Elevated `rejected` volume can be ordinary
+invalid or automated traffic, so compare challenge issuance, acceptance, replay,
+and rate-limit outcomes before blocking a source at the approved edge.
 
 These application budgets coordinate replicas but are not a volumetric DDoS
-boundary or a reputation system. An approved production edge/WAF plus lead-form
-bot challenge and explicit consent remain required before promoting public lead
-generation beyond foundation maturity.
+boundary or a reputation system. The delayed one-time lead challenge raises the
+cost of blind submissions but does not replace an approved production edge/WAF,
+IP/domain reputation, or an accessible escalation challenge. Validate that edge
+boundary before promoting public lead generation beyond foundation maturity.
 
 ## Deploy
 

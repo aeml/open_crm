@@ -118,6 +118,11 @@ func TestSessionManagementIsPrivateGlobalAndAuditedAgainstPostgres(t *testing.T)
 	if _, err := service.CurrentSession(ctx, currentToken); err != nil {
 		t.Fatalf("bulk revocation ended current session: %v", err)
 	}
+	canceledCtx, cancelCurrentSession := context.WithCancel(ctx)
+	cancelCurrentSession()
+	if _, err := service.CurrentSession(canceledCtx, currentToken); !errors.Is(err, context.Canceled) || errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("canceled lookup must remain an infrastructure error, got %v", err)
+	}
 }
 
 func sessionInsertOrganization(t *testing.T, ctx context.Context, pool *moduledb.Pool, name, slug string) int64 {

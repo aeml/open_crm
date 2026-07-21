@@ -70,7 +70,13 @@ func registerFoundationRoutes(mux *http.ServeMux, dependencies Dependencies, rat
 		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.lead-submission", publicWriteRateLimit, publicRateWindow, "Too many lead submissions", w, r) {
 			return
 		}
-		handleSubmitPublicLeadCaptureForm(dependencies.LeadFormsService, w, r)
+		handleSubmitPublicLeadCaptureForm(dependencies.LeadFormsService, dependencies.Metrics, w, r)
+	})
+	mux.HandleFunc("POST /api/public/lead-capture-forms/{publicID}/challenge", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.lead-challenge", publicWriteRateLimit, publicRateWindow, "Too many lead form challenges", w, r) {
+			return
+		}
+		handleIssuePublicLeadSubmissionChallenge(dependencies.LeadFormsService, dependencies.Metrics, w, r)
 	})
 	mux.HandleFunc("GET /api/lead-chat-widgets", func(w http.ResponseWriter, r *http.Request) {
 		handleListLeadChatWidgets(dependencies.AuthService, dependencies.LeadFormsService, w, r)

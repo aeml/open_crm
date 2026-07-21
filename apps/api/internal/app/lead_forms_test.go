@@ -39,6 +39,8 @@ type fakeLeadFormsService struct {
 	widgetUpdateErr       error
 	publicWidgetResult    moduleleadforms.PublicChatWidget
 	publicWidgetErr       error
+	challengeResult       moduleleadforms.SubmissionChallenge
+	challengeErr          error
 	submitResult          moduleleadforms.SubmissionResult
 	submitErr             error
 	lastListOrgID         int64
@@ -67,6 +69,7 @@ type fakeLeadFormsService struct {
 	lastWidgetUpdateUser  int64
 	lastWidgetUpdateInput moduleleadforms.ChatWidgetInput
 	lastPublicWidgetID    string
+	lastChallengePublicID string
 	lastPublicID          string
 	lastSubmitInput       moduleleadforms.SubmissionInput
 }
@@ -141,6 +144,11 @@ func (f *fakeLeadFormsService) GetPublicChatWidget(_ context.Context, publicID s
 	return f.publicWidgetResult, f.publicWidgetErr
 }
 
+func (f *fakeLeadFormsService) IssueSubmissionChallenge(_ context.Context, publicID string) (moduleleadforms.SubmissionChallenge, error) {
+	f.lastChallengePublicID = publicID
+	return f.challengeResult, f.challengeErr
+}
+
 func (f *fakeLeadFormsService) SubmitByPublicID(_ context.Context, publicID string, input moduleleadforms.SubmissionInput) (moduleleadforms.SubmissionResult, error) {
 	f.lastPublicID = publicID
 	f.lastSubmitInput = input
@@ -193,7 +201,7 @@ func TestCreateLeadCaptureFormRequiresAdminAndUsesCurrentOrganization(t *testing
 	service := &fakeLeadFormsService{createResult: moduleleadforms.Form{ID: 7, Name: "Website Leads", PublicID: "lf_created", CreatedAt: time.Now()}}
 	server := authenticatedLeadFormsServer(service, "owner")
 
-	body := bytes.NewBufferString(`{"name":"Website Leads","fields":[{"key":"firstName","label":"First name","fieldType":"text","required":true,"mapTo":"firstName"},{"key":"lastName","label":"Last name","fieldType":"text","required":true,"mapTo":"lastName"}]}`)
+	body := bytes.NewBufferString(`{"name":"Website Leads","consentText":"I agree that Acme may contact me.","fields":[{"key":"firstName","label":"First name","fieldType":"text","required":true,"mapTo":"firstName"},{"key":"lastName","label":"Last name","fieldType":"text","required":true,"mapTo":"lastName"}]}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/lead-capture-forms", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -204,7 +212,7 @@ func TestCreateLeadCaptureFormRequiresAdminAndUsesCurrentOrganization(t *testing
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
 	}
-	if service.lastCreateOrgID != 42 || service.lastCreateUserID != 1 || service.lastCreateInput.Name != "Website Leads" {
+	if service.lastCreateOrgID != 42 || service.lastCreateUserID != 1 || service.lastCreateInput.Name != "Website Leads" || service.lastCreateInput.ConsentText != "I agree that Acme may contact me." {
 		t.Fatalf("unexpected create routing/input: org=%d user=%d input=%#v", service.lastCreateOrgID, service.lastCreateUserID, service.lastCreateInput)
 	}
 }
@@ -257,7 +265,7 @@ func TestSubmitPublicLeadCaptureFormDoesNotRequireAuth(t *testing.T) {
 	service := &fakeLeadFormsService{submitResult: moduleleadforms.SubmissionResult{Submission: moduleleadforms.Submission{ID: 11, FormID: 9, ContactID: 22}, SuccessMessage: "Thanks"}}
 	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
 
-	body := bytes.NewBufferString(`{"values":{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.com"},"sourceUrl":"https://example.com/contact?utm_source=google","attribution":{"leadSource":"Website form","utmCampaign":"spring-demo"}}`)
+	body := bytes.NewBufferString(`{"values":{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.com"},"sourceUrl":"https://example.com/contact?utm_source=google","attribution":{"leadSource":"Website form","utmCampaign":"spring-demo"},"challengeToken":"challenge-token","consentGranted":true}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/public/lead-capture-forms/lf_public/submissions", body)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Forwarded-For", "203.0.113.10, 10.0.0.2")
@@ -272,8 +280,8 @@ func TestSubmitPublicLeadCaptureFormDoesNotRequireAuth(t *testing.T) {
 	if service.lastPublicID != "lf_public" || service.lastSubmitInput.Values["firstName"] != "Ada" || service.lastSubmitInput.SourceURL != "https://example.com/contact?utm_source=google" {
 		t.Fatalf("unexpected submission input: publicID=%q input=%#v", service.lastPublicID, service.lastSubmitInput)
 	}
-	if service.lastSubmitInput.RemoteAddr != "203.0.113.10" || service.lastSubmitInput.UserAgent != "LeadFormTest/1.0" {
-		t.Fatalf("expected request metadata, got %#v", service.lastSubmitInput)
+	if service.lastSubmitInput.ChallengeToken != "challenge-token" || !service.lastSubmitInput.ConsentGranted {
+		t.Fatalf("expected challenge and consent, got %#v", service.lastSubmitInput)
 	}
 	if service.lastSubmitInput.Attribution.LeadSource != "Website form" || service.lastSubmitInput.Attribution.UTMCampaign != "spring-demo" {
 		t.Fatalf("expected attribution metadata, got %#v", service.lastSubmitInput.Attribution)
@@ -306,11 +314,44 @@ func TestSubmitPublicLeadCaptureFormHidesSuspendedTenant(t *testing.T) {
 	}
 }
 
+func TestSubmitPublicLeadCaptureFormMapsChallengeAndConsentErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+		retryAfter string
+	}{
+		{name: "consent required", err: moduleleadforms.ErrConsentRequired, statusCode: http.StatusUnprocessableEntity, code: "CONSENT_REQUIRED"},
+		{name: "challenge not ready", err: moduleleadforms.ErrChallengeNotReady, statusCode: http.StatusTooEarly, code: "SUBMISSION_CHALLENGE_NOT_READY", retryAfter: "2"},
+		{name: "challenge invalid", err: moduleleadforms.ErrChallengeInvalid, statusCode: http.StatusConflict, code: "SUBMISSION_CHALLENGE_INVALID"},
+	}
+
+	for _, current := range tests {
+		t.Run(current.name, func(t *testing.T) {
+			service := &fakeLeadFormsService{submitErr: current.err}
+			server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
+			request := httptest.NewRequest(http.MethodPost, "/api/public/lead-capture-forms/lf_public/submissions", bytes.NewBufferString(`{"values":{"firstName":"Ada"},"challengeToken":"opaque","consentGranted":true}`))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != current.statusCode || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"`+current.code+`"`)) {
+				t.Fatalf("unexpected response: status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if recorder.Header().Get("Retry-After") != current.retryAfter {
+				t.Fatalf("Retry-After=%q, want %q", recorder.Header().Get("Retry-After"), current.retryAfter)
+			}
+		})
+	}
+}
+
 func TestSubmitPublicLeadCaptureFormAcceptsFormEncodedBody(t *testing.T) {
 	service := &fakeLeadFormsService{submitResult: moduleleadforms.SubmissionResult{Submission: moduleleadforms.Submission{ID: 12, FormID: 9, ContactID: 23}, SuccessMessage: "Thanks"}}
 	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
 
-	body := strings.NewReader("firstName=Grace&lastName=Hopper&sourceUrl=https%3A%2F%2Fexample.com%2Fdemo&leadSource=Partner%20site&utm_source=partner&utm_campaign=fall-demo")
+	body := strings.NewReader("firstName=Grace&lastName=Hopper&sourceUrl=https%3A%2F%2Fexample.com%2Fdemo&leadSource=Partner%20site&utm_source=partner&utm_campaign=fall-demo&challengeToken=form-token&consentGranted=on")
 	request := httptest.NewRequest(http.MethodPost, "/api/public/lead-capture-forms/lf_public/submissions", body)
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	recorder := httptest.NewRecorder()
@@ -325,6 +366,28 @@ func TestSubmitPublicLeadCaptureFormAcceptsFormEncodedBody(t *testing.T) {
 	}
 	if service.lastSubmitInput.Values["utm_source"] != "" || service.lastSubmitInput.Attribution.LeadSource != "Partner site" || service.lastSubmitInput.Attribution.UTMSource != "partner" || service.lastSubmitInput.Attribution.UTMCampaign != "fall-demo" {
 		t.Fatalf("unexpected form encoded attribution: values=%#v attribution=%#v", service.lastSubmitInput.Values, service.lastSubmitInput.Attribution)
+	}
+	if service.lastSubmitInput.ChallengeToken != "form-token" || !service.lastSubmitInput.ConsentGranted || service.lastSubmitInput.Values["challengeToken"] != "" || service.lastSubmitInput.Values["consentGranted"] != "" {
+		t.Fatalf("challenge controls leaked into submitted values: %#v", service.lastSubmitInput)
+	}
+}
+
+func TestIssuePublicLeadSubmissionChallengeDoesNotRequireAuth(t *testing.T) {
+	now := time.Now().UTC()
+	service := &fakeLeadFormsService{challengeResult: moduleleadforms.SubmissionChallenge{
+		Token: "opaque-token", ConsentText: "I agree to be contacted.", NotBefore: now.Add(time.Second), ExpiresAt: now.Add(30 * time.Minute),
+	}}
+	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
+	request := httptest.NewRequest(http.MethodPost, "/api/public/lead-capture-forms/lf_public/challenge", nil)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated || service.lastChallengePublicID != "lf_public" {
+		t.Fatalf("unexpected challenge response: status=%d publicID=%q body=%s", recorder.Code, service.lastChallengePublicID, recorder.Body.String())
+	}
+	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"consentText":"I agree to be contacted."`)) || !bytes.Contains(recorder.Body.Bytes(), []byte(`"token":"opaque-token"`)) {
+		t.Fatalf("challenge response omitted bounded public evidence: %s", recorder.Body.String())
 	}
 }
 

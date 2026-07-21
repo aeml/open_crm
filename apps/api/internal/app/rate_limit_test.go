@@ -77,6 +77,7 @@ func TestEveryPublicMutationAndTokenSurfaceUsesAnExplicitAbuseBudget(t *testing.
 		{http.MethodPost, "/auth/setup-password", "auth.setup-password", authRateLimit, authRateWindow},
 		{http.MethodPost, "/api/billing/webhooks/stripe", "billing.stripe-webhook", publicReadRateLimit, publicRateWindow},
 		{http.MethodGet, "/api/public/landing-pages/demo", "public.landing-page", publicReadRateLimit, publicRateWindow},
+		{http.MethodPost, "/api/public/lead-capture-forms/demo/challenge", "public.lead-challenge", publicWriteRateLimit, publicRateWindow},
 		{http.MethodPost, "/api/public/lead-capture-forms/demo/submissions", "public.lead-submission", publicWriteRateLimit, publicRateWindow},
 		{http.MethodGet, "/api/public/lead-chat-widgets/demo", "public.lead-widget", publicReadRateLimit, publicRateWindow},
 		{http.MethodGet, "/api/public/quotes/demo", "public.quote", publicReadRateLimit, publicRateWindow},

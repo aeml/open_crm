@@ -37,6 +37,10 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 	collector.ObserveJob("email_sequence.send", "retryable")
 	collector.ObserveJob("mailbox.sync", "deferred")
 	collector.ObserveRateLimit("public.lead-submission", "rejected")
+	collector.ObserveLeadSubmission("challenge_issued")
+	collector.ObserveLeadSubmission("accepted")
+	collector.ObserveLeadSubmission("replayed")
+	collector.ObserveLeadSubmission("unexpected")
 	collector.ObserveNotificationRetention("success", 4, 2)
 	collector.ObserveNotificationRetention("unexpected-outcome", -1, 3)
 	collector.ObserveEmailTrackingRetention("success", 5)
@@ -113,6 +117,10 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 		`open_crm_background_job_outcomes_total{job_type="email_sequence.send",outcome="retryable"} 1`,
 		`open_crm_background_job_outcomes_total{job_type="mailbox.sync",outcome="deferred"} 1`,
 		`open_crm_rate_limit_decisions_total{scope="public.lead-submission",outcome="rejected"} 1`,
+		`open_crm_lead_submission_outcomes_total{outcome="challenge_issued"} 1`,
+		`open_crm_lead_submission_outcomes_total{outcome="accepted"} 1`,
+		`open_crm_lead_submission_outcomes_total{outcome="replayed"} 1`,
+		`open_crm_lead_submission_outcomes_total{outcome="error"} 1`,
 		`open_crm_background_jobs{status="dead"} 1`,
 		`open_crm_background_job_oldest_ready_lag_seconds 180`,
 		`open_crm_notifications_available 1`,

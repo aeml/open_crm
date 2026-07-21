@@ -68,6 +68,32 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO contacts (organization_id,first_name,last_name,email,custom_fields) VALUES ($1,'Morgan','Pilot','morgan@portable.test','{"region":"West"}'::jsonb)`, organizationID); err != nil {
 		t.Fatalf("seed portable workspace contact: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+		WITH form AS (
+			INSERT INTO lead_capture_forms (
+				organization_id,public_id,name,slug,title,fields_json,consent_text,created_by_user_id,updated_by_user_id
+			) VALUES (
+				$1,'lf_portable','Portable lead form','portable-lead','Portable lead form','[]'::jsonb,
+				'I agree that Portable Pilot may contact me.',$2,$2
+			) RETURNING id
+		), submission AS (
+			INSERT INTO lead_capture_submissions (
+				organization_id,form_id,payload_json,source_url,lead_source,consent_text_snapshot,consented_at
+			)
+			SELECT $1,id,'{"message":"Portable inquiry"}'::jsonb,'https://portable.test/contact','Website',
+				'I agree that Portable Pilot may contact me.',NOW()
+			FROM form RETURNING id,form_id
+		)
+		INSERT INTO lead_capture_submission_challenges (
+			organization_id,form_id,token_digest,consent_text_snapshot,request_digest,submission_id,
+			issued_at,not_before,expires_at,consumed_at
+		)
+		SELECT $1,form_id,repeat('1',64),'I agree that Portable Pilot may contact me.',repeat('2',64),id,
+			NOW()-INTERVAL '3 seconds',NOW()-INTERVAL '1 second',NOW()+INTERVAL '30 minutes',NOW()
+		FROM submission
+	`, organizationID, ownerID); err != nil {
+		t.Fatalf("seed portable lead consent evidence: %v", err)
+	}
 	var quoteID int64
 	if err := pool.QueryRow(ctx, `
 		WITH pipeline AS (
@@ -212,6 +238,19 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	if !bytes.Contains(files["data/contacts.ndjson"], []byte(`"morgan@portable.test"`)) {
 		t.Fatalf("portable contact missing: %s", files["data/contacts.ndjson"])
 	}
+	portableLeadForms := string(files["data/lead_capture_forms.ndjson"])
+	portableLeadSubmissions := string(files["data/lead_capture_submissions.ndjson"])
+	if !strings.Contains(portableLeadForms, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "consented_at") || !strings.Contains(portableLeadSubmissions, "Portable inquiry") {
+		t.Fatalf("portable lead consent evidence missing: forms=%s submissions=%s", portableLeadForms, portableLeadSubmissions)
+	}
+	if _, exists := files["data/lead_capture_submission_challenges.ndjson"]; exists {
+		t.Fatal("workspace export included internal public challenge ledger")
+	}
+	for _, secret := range []string{strings.Repeat("1", 64), strings.Repeat("2", 64), "token_digest", "request_digest"} {
+		if strings.Contains(portableLeadForms, secret) || strings.Contains(portableLeadSubmissions, secret) {
+			t.Fatalf("workspace export leaked public challenge correlation %q", secret)
+		}
+	}
 	portableQuotes := string(files["data/deal_quotes.ndjson"])
 	if !strings.Contains(portableQuotes, "Q-PORTABLE-V1") || !strings.Contains(portableQuotes, "Portable quote terms") || !strings.Contains(portableQuotes, "pdf_content") || strings.Contains(portableQuotes, "idempotency_key_hash") || strings.Contains(portableQuotes, "request_sha256") || strings.Contains(portableQuotes, strings.Repeat("b", 64)) {
 		t.Fatalf("workspace quote portability/privacy boundary failed: %s", portableQuotes)
@@ -246,7 +285,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		}
 	}
 	var manifestValue manifest
-	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 1 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 {
+	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 1 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["lead_capture_forms"] != 1 || manifestValue.DatasetCounts["lead_capture_submissions"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 {
 		t.Fatalf("unexpected workspace export manifest: manifest=%#v err=%v", manifestValue, err)
 	}
 	var downloadAudits int

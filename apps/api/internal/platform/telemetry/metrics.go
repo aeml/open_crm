@@ -51,6 +51,10 @@ type rateLimitKey struct {
 	outcome string
 }
 
+type leadSubmissionKey struct {
+	outcome string
+}
+
 // Collector stores process-local counters. Durable queue gauges and backup
 // timestamps are supplied at scrape time through RuntimeSnapshot.
 type Collector struct {
@@ -62,6 +66,7 @@ type Collector struct {
 	providerSeconds                map[providerKey]float64
 	jobOutcomes                    map[jobKey]uint64
 	rateLimits                     map[rateLimitKey]uint64
+	leadSubmissions                map[leadSubmissionKey]uint64
 	retentionRuns                  map[string]uint64
 	retentionRows                  map[string]uint64
 	retentionLastAt                time.Time
@@ -89,6 +94,7 @@ func NewCollector() *Collector {
 		providerSeconds:            make(map[providerKey]float64),
 		jobOutcomes:                make(map[jobKey]uint64),
 		rateLimits:                 make(map[rateLimitKey]uint64),
+		leadSubmissions:            make(map[leadSubmissionKey]uint64),
 		retentionRuns:              make(map[string]uint64),
 		retentionRows:              make(map[string]uint64),
 		emailTrackingRetentionRuns: make(map[string]uint64),
@@ -168,6 +174,16 @@ func (c *Collector) ObserveRateLimit(scope, outcome string) {
 	}
 	c.mu.Lock()
 	c.rateLimits[key]++
+	c.mu.Unlock()
+}
+
+func (c *Collector) ObserveLeadSubmission(outcome string) {
+	if c == nil {
+		return
+	}
+	key := leadSubmissionKey{outcome: finiteLeadSubmissionOutcome(outcome)}
+	c.mu.Lock()
+	c.leadSubmissions[key]++
 	c.mu.Unlock()
 }
 
@@ -253,6 +269,7 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	providerSeconds := copyMap(c.providerSeconds)
 	jobOutcomes := copyMap(c.jobOutcomes)
 	rateLimits := copyMap(c.rateLimits)
+	leadSubmissions := copyMap(c.leadSubmissions)
 	retentionRuns := copyMap(c.retentionRuns)
 	retentionRows := copyMap(c.retentionRows)
 	retentionLastAt := c.retentionLastAt
@@ -319,6 +336,12 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	rateLimitKeys := sortedKeys(rateLimits, func(key rateLimitKey) string { return key.scope + "\x00" + key.outcome })
 	for _, key := range rateLimitKeys {
 		fmt.Fprintf(&output, "open_crm_rate_limit_decisions_total{scope=%s,outcome=%s} %d\n", quote(key.scope), quote(key.outcome), rateLimits[key])
+	}
+
+	writeHelpType(&output, "open_crm_lead_submission_outcomes_total", "Public lead challenge and submission outcomes without tenant, visitor, or form labels.", "counter")
+	leadSubmissionKeys := sortedKeys(leadSubmissions, func(key leadSubmissionKey) string { return key.outcome })
+	for _, key := range leadSubmissionKeys {
+		fmt.Fprintf(&output, "open_crm_lead_submission_outcomes_total{outcome=%s} %d\n", quote(key.outcome), leadSubmissions[key])
 	}
 
 	writeHelpType(&output, "open_crm_background_jobs_available", "Whether durable queue gauges were collected successfully.", "gauge")
@@ -431,6 +454,15 @@ func finiteJobOutcome(value string) string {
 func finiteRateLimitOutcome(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "allowed", "rejected", "error":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "error"
+	}
+}
+
+func finiteLeadSubmissionOutcome(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "challenge_issued", "accepted", "replayed", "rejected", "error":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return "error"

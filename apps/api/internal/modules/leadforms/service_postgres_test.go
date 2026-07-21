@@ -62,7 +62,12 @@ func TestPublicSubmissionHonorsHostedWritePolicyAgainstPostgres(t *testing.T) {
 	}
 
 	service := NewService(pool, true)
-	input := SubmissionInput{Values: map[string]string{"first": "Ada", "last": "Lovelace"}}
+	challenge, err := service.IssueSubmissionChallenge(ctx, "lf_policy_test")
+	if err != nil {
+		t.Fatalf("issue suspended form challenge: %v", err)
+	}
+	service.now = func() time.Time { return challenge.NotBefore.Add(time.Millisecond) }
+	input := SubmissionInput{Values: map[string]string{"first": "Ada", "last": "Lovelace"}, ChallengeToken: challenge.Token, ConsentGranted: true}
 	if _, err := service.SubmitByPublicID(ctx, "lf_policy_test", input); !errors.Is(err, modulebilling.ErrSubscriptionInactive) {
 		t.Fatalf("expected suspended public submission to be rejected, got %v", err)
 	}
@@ -72,6 +77,7 @@ func TestPublicSubmissionHonorsHostedWritePolicyAgainstPostgres(t *testing.T) {
 	}
 
 	selfHosted := NewService(pool)
+	selfHosted.now = service.now
 	selfHostedResult, err := selfHosted.SubmitByPublicID(ctx, "lf_policy_test", input)
 	if err != nil || selfHostedResult.Submission.ContactID <= 0 {
 		t.Fatalf("self-hosted billing state restricted public lead capture: result=%#v err=%v", selfHostedResult, err)
@@ -80,6 +86,12 @@ func TestPublicSubmissionHonorsHostedWritePolicyAgainstPostgres(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE organizations SET subscription_status='active' WHERE id=$1`, organizationID); err != nil {
 		t.Fatalf("recover subscription: %v", err)
 	}
+	recoveredChallenge, err := service.IssueSubmissionChallenge(ctx, "lf_policy_test")
+	if err != nil {
+		t.Fatalf("issue recovered form challenge: %v", err)
+	}
+	service.now = func() time.Time { return recoveredChallenge.NotBefore.Add(time.Millisecond) }
+	input.ChallengeToken = recoveredChallenge.Token
 	result, err := service.SubmitByPublicID(ctx, "lf_policy_test", input)
 	if err != nil || result.Submission.ContactID <= 0 {
 		t.Fatalf("expected recovered public submission to succeed: result=%#v err=%v", result, err)

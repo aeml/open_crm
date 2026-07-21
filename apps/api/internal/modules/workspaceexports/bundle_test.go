@@ -34,3 +34,14 @@ func TestEveryPortableDatasetNameIsUnique(t *testing.T) {
 		seen[current.name] = struct{}{}
 	}
 }
+
+func TestPublicChallengeLedgerIsClassifiedButNotPortable(t *testing.T) {
+	if _, ok := classifiedOrganizationTables["lead_capture_submission_challenges"]; !ok {
+		t.Fatal("public challenge ledger must remain explicitly classified")
+	}
+	for _, current := range portableDatasets {
+		if current.name == "lead_capture_submission_challenges" {
+			t.Fatal("public challenge security ledger must not be portable")
+		}
+	}
+}

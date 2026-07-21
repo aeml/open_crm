@@ -463,6 +463,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"billing_webhook_events",
 		"billing_usage_snapshots",
 		"billing_capacity_reservations",
+		"lead_capture_submission_challenges",
 		"sessions",
 		"system_email_feedback_events",
 		"customer_email_feedback_events",
@@ -483,7 +484,7 @@ record per line. manifest.json lists record counts and security exclusions.
 Archived records, configuration, CRM history, audit history, compliance
 suppressions, and shared communication content are included. Authentication
 secrets, provider credentials, session material, private mailbox messages, and
-internal delivery/billing job ledgers are deliberately excluded. External file
+internal delivery, billing, and public-request challenge ledgers are deliberately excluded. External file
 references are preserved where they are ordinary record fields, but Open CRM
 does not currently store uploaded attachment bodies for inclusion.
 

@@ -173,8 +173,11 @@ func (s *Service) CurrentSession(ctx context.Context, sessionToken string) (Sess
 		&state.Organization.BusinessType,
 		&state.Membership.Role,
 	)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return SessionState{}, ErrUnauthorized
+	}
+	if err != nil {
+		return SessionState{}, fmt.Errorf("load current session: %w", err)
 	}
 
 	_, _ = s.pool.Exec(ctx, `UPDATE sessions SET last_seen_at = NOW() WHERE token_hash = $1`, tokenHash)

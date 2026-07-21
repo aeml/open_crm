@@ -2,12 +2,12 @@ package app
 
 import (
 	"errors"
-	"net"
 	"net/http"
 	"strings"
 
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
+	platformtelemetry "github.com/aeml/open_crm/apps/api/internal/platform/telemetry"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
@@ -38,6 +38,15 @@ type leadCaptureSubmissionResponse struct {
 	} `json:"meta"`
 }
 
+type leadCaptureSubmissionChallengeResponse struct {
+	Data struct {
+		Challenge moduleleadforms.SubmissionChallenge `json:"challenge"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type leadCaptureFormRequest struct {
 	Name           string                  `json:"name"`
 	Slug           string                  `json:"slug"`
@@ -46,19 +55,22 @@ type leadCaptureFormRequest struct {
 	Fields         []moduleleadforms.Field `json:"fields"`
 	SuccessMessage string                  `json:"successMessage"`
 	SourceLabel    string                  `json:"sourceLabel"`
+	ConsentText    string                  `json:"consentText"`
 	IsActive       *bool                   `json:"isActive"`
 }
 
 type leadCaptureSubmissionRequest struct {
-	Values      map[string]string           `json:"values"`
-	SourceURL   string                      `json:"sourceUrl"`
-	LeadSource  string                      `json:"leadSource"`
-	UTMSource   string                      `json:"utmSource"`
-	UTMMedium   string                      `json:"utmMedium"`
-	UTMCampaign string                      `json:"utmCampaign"`
-	UTMTerm     string                      `json:"utmTerm"`
-	UTMContent  string                      `json:"utmContent"`
-	Attribution moduleleadforms.Attribution `json:"attribution"`
+	Values         map[string]string           `json:"values"`
+	SourceURL      string                      `json:"sourceUrl"`
+	LeadSource     string                      `json:"leadSource"`
+	UTMSource      string                      `json:"utmSource"`
+	UTMMedium      string                      `json:"utmMedium"`
+	UTMCampaign    string                      `json:"utmCampaign"`
+	UTMTerm        string                      `json:"utmTerm"`
+	UTMContent     string                      `json:"utmContent"`
+	Attribution    moduleleadforms.Attribution `json:"attribution"`
+	ChallengeToken string                      `json:"challengeToken"`
+	ConsentGranted bool                        `json:"consentGranted"`
 }
 
 func handleListLeadCaptureForms(auth authService, forms leadFormsService, w http.ResponseWriter, r *http.Request) {
@@ -136,30 +148,65 @@ func handleUpdateLeadCaptureForm(auth authService, forms leadFormsService, w htt
 	respondLeadCaptureForm(w, requestID, http.StatusOK, form)
 }
 
-func handleSubmitPublicLeadCaptureForm(forms leadFormsService, w http.ResponseWriter, r *http.Request) {
+func handleIssuePublicLeadSubmissionChallenge(forms leadFormsService, metrics *platformtelemetry.Collector, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	if forms == nil {
+		metrics.ObserveLeadSubmission("error")
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Lead capture forms service unavailable")
 		return
 	}
 	publicID := strings.TrimSpace(r.PathValue("publicID"))
 	if publicID == "" {
+		metrics.ObserveLeadSubmission("rejected")
+		platformweb.WriteNotFound(w, requestID)
+		return
+	}
+	challenge, err := forms.IssueSubmissionChallenge(r.Context(), publicID)
+	if err != nil {
+		if errors.Is(err, moduleleadforms.ErrNotFound) {
+			metrics.ObserveLeadSubmission("rejected")
+			platformweb.WriteNotFound(w, requestID)
+			return
+		}
+		metrics.ObserveLeadSubmission("error")
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to prepare lead capture form")
+		return
+	}
+	metrics.ObserveLeadSubmission("challenge_issued")
+	response := leadCaptureSubmissionChallengeResponse{}
+	response.Data.Challenge = challenge
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusCreated, response)
+}
+
+func handleSubmitPublicLeadCaptureForm(forms leadFormsService, metrics *platformtelemetry.Collector, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	if forms == nil {
+		metrics.ObserveLeadSubmission("error")
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Lead capture forms service unavailable")
+		return
+	}
+	publicID := strings.TrimSpace(r.PathValue("publicID"))
+	if publicID == "" {
+		metrics.ObserveLeadSubmission("rejected")
 		platformweb.WriteNotFound(w, requestID)
 		return
 	}
 
 	request, ok := decodeLeadCaptureSubmissionRequest(w, r, requestID)
 	if !ok {
+		metrics.ObserveLeadSubmission("rejected")
 		return
 	}
 	result, err := forms.SubmitByPublicID(r.Context(), publicID, moduleleadforms.SubmissionInput{
-		Values:      request.Values,
-		SourceURL:   request.SourceURL,
-		Attribution: leadCaptureSubmissionAttribution(request),
-		RemoteAddr:  clientIP(r),
-		UserAgent:   r.UserAgent(),
+		Values:         request.Values,
+		SourceURL:      request.SourceURL,
+		Attribution:    leadCaptureSubmissionAttribution(request),
+		ChallengeToken: request.ChallengeToken,
+		ConsentGranted: request.ConsentGranted,
 	})
 	if err != nil {
+		metrics.ObserveLeadSubmission(leadSubmissionErrorOutcome(err))
 		writeLeadCaptureSubmissionError(w, requestID, err)
 		return
 	}
@@ -167,6 +214,11 @@ func handleSubmitPublicLeadCaptureForm(forms leadFormsService, w http.ResponseWr
 	response := leadCaptureSubmissionResponse{}
 	response.Data.SuccessMessage = result.SuccessMessage
 	response.Meta.RequestID = requestID
+	if result.Replayed {
+		metrics.ObserveLeadSubmission("replayed")
+	} else {
+		metrics.ObserveLeadSubmission("accepted")
+	}
 	platformweb.WriteJSON(w, http.StatusCreated, response)
 }
 
@@ -186,6 +238,7 @@ func leadCaptureFormInput(request leadCaptureFormRequest) moduleleadforms.Input 
 		Fields:         request.Fields,
 		SuccessMessage: request.SuccessMessage,
 		SourceLabel:    request.SourceLabel,
+		ConsentText:    request.ConsentText,
 		IsActive:       request.IsActive,
 	}
 }
@@ -206,6 +259,10 @@ func decodeLeadCaptureSubmissionRequest(w http.ResponseWriter, r *http.Request, 
 			switch key {
 			case "sourceUrl":
 				request.SourceURL = values[0]
+			case "challengeToken":
+				request.ChallengeToken = values[0]
+			case "consentGranted":
+				request.ConsentGranted = strings.EqualFold(strings.TrimSpace(values[0]), "true") || strings.TrimSpace(values[0]) == "1" || strings.EqualFold(strings.TrimSpace(values[0]), "on")
 			case "leadSource", "lead_source":
 				request.Attribution.LeadSource = values[0]
 			case "utmSource", "utm_source":
@@ -275,6 +332,13 @@ func writeLeadCaptureSubmissionError(w http.ResponseWriter, requestID string, er
 	switch {
 	case errors.Is(err, moduleleadforms.ErrInvalidSubmission):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide all required lead capture fields")
+	case errors.Is(err, moduleleadforms.ErrConsentRequired):
+		platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "CONSENT_REQUIRED", "Confirm that the team may contact you about this request")
+	case errors.Is(err, moduleleadforms.ErrChallengeNotReady):
+		w.Header().Set("Retry-After", "2")
+		platformweb.WriteError(w, http.StatusTooEarly, requestID, "SUBMISSION_CHALLENGE_NOT_READY", "Please wait briefly before submitting this form")
+	case errors.Is(err, moduleleadforms.ErrChallengeInvalid):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "SUBMISSION_CHALLENGE_INVALID", "Refresh the form and try again")
 	case errors.Is(err, moduleleadforms.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	case errors.Is(err, modulebilling.ErrSubscriptionInactive), errors.Is(err, modulebilling.ErrLimitReached), errors.Is(err, modulebilling.ErrCapacityUnavailable), errors.Is(err, modulebilling.ErrCapacityReservationExpired):
@@ -284,15 +348,17 @@ func writeLeadCaptureSubmissionError(w http.ResponseWriter, requestID string, er
 	}
 }
 
-func clientIP(r *http.Request) string {
-	if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
-		if before, _, found := strings.Cut(forwardedFor, ","); found {
-			return strings.TrimSpace(before)
-		}
-		return forwardedFor
+func leadSubmissionErrorOutcome(err error) string {
+	switch {
+	case errors.Is(err, moduleleadforms.ErrInvalidSubmission),
+		errors.Is(err, moduleleadforms.ErrConsentRequired),
+		errors.Is(err, moduleleadforms.ErrChallengeNotReady),
+		errors.Is(err, moduleleadforms.ErrChallengeInvalid),
+		errors.Is(err, moduleleadforms.ErrNotFound),
+		errors.Is(err, modulebilling.ErrSubscriptionInactive),
+		errors.Is(err, modulebilling.ErrLimitReached):
+		return "rejected"
+	default:
+		return "error"
 	}
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && host != "" {
-		return host
-	}
-	return strings.TrimSpace(r.RemoteAddr)
 }

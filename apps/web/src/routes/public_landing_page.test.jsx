@@ -30,6 +30,7 @@ describe('public landing page route', () => {
               description: 'We will follow up shortly.',
               successMessage: 'Thanks. We will be in touch soon.',
               sourceLabel: 'Website form',
+              consentText: 'I agree to receive a reply about this demo request.',
               isActive: true,
               fields: [
                 { key: 'firstName', label: 'First name', fieldType: 'text', required: true, mapTo: 'firstName' },
@@ -40,6 +41,9 @@ describe('public landing page route', () => {
             }
           }
         })
+      }
+      if (path.endsWith('/api/public/lead-capture-forms/lf_public/challenge') && method === 'POST') {
+        return jsonResponse({ data: { challenge: { token: 'lead-challenge-token', consentText: 'I agree to receive a reply about this demo request.', notBefore: '2020-01-01T00:00:00Z', expiresAt: '2030-01-01T00:00:00Z' } } }, 201)
       }
       if (path.endsWith('/api/public/lead-capture-forms/lf_public/submissions') && method === 'POST') {
         return jsonResponse({ data: { successMessage: 'Thanks. We will be in touch soon.' } }, 201)
@@ -59,6 +63,7 @@ describe('public landing page route', () => {
     fireEvent.change(screen.getByLabelText(/^last name$/i), { target: { value: 'Lovelace' } })
     fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'ada@example.com' } })
     fireEvent.change(screen.getByLabelText(/^message$/i), { target: { value: 'I want a walkthrough.' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /receive a reply about this demo request/i }))
     fireEvent.click(screen.getByRole('button', { name: /request demo/i }))
 
     expect(await screen.findByRole('status')).toHaveTextContent(/thanks/i)
@@ -82,7 +87,9 @@ describe('public landing page route', () => {
           utmCampaign: 'spring-demo',
           utmTerm: 'crm',
           utmContent: 'headline'
-        }
+        },
+        challengeToken: 'lead-challenge-token',
+        consentGranted: true
       })
     })
   })

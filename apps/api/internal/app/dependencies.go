@@ -309,6 +309,7 @@ type leadFormsService interface {
 	CreateChatWidget(context.Context, int64, int64, moduleleadforms.ChatWidgetInput) (moduleleadforms.ChatWidget, error)
 	UpdateChatWidget(context.Context, int64, int64, int64, moduleleadforms.ChatWidgetInput) (moduleleadforms.ChatWidget, error)
 	GetPublicChatWidget(context.Context, string) (moduleleadforms.PublicChatWidget, error)
+	IssueSubmissionChallenge(context.Context, string) (moduleleadforms.SubmissionChallenge, error)
 	SubmitByPublicID(context.Context, string, moduleleadforms.SubmissionInput) (moduleleadforms.SubmissionResult, error)
 }
 

@@ -10,6 +10,7 @@ const foundationLinks = import.meta.env.DEV ? [
 const baseLinks = [
   ['/dashboard', 'Dashboard'],
   ['/reports', 'Reports'],
+  ['/contacts', 'Contacts'],
   ['/companies', 'Companies', false, 'companies'],
   ['/deals', 'Deals', false, 'deals'],
   ['/tasks', 'Tasks', false, 'tasks'],

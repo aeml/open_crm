@@ -580,67 +580,26 @@ describe('AppRouter', () => {
     })
   })
 
-  it('redirects the old contacts workspace route to clients', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            user: {
-              id: 1,
-              email: 'owner@acme.test',
-              firstName: 'Demo',
-              lastName: 'Owner'
-            },
-            organization: {
-              id: 1,
-              name: 'Acme, Inc.',
-              slug: 'acme-inc',
-              businessType: 'general'
-            },
-            membership: {
-              role: 'owner'
-            }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: { unreadCount: 0 } })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            companies: [
-              { id: 5, name: 'Northstar Logistics', industry: 'Logistics', phone: '555-0200', website: 'https://northstar.example', status: 'prospect' }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            users: [
-              { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
-            ]
-          }
-        })
-      })
+  it('loads the contact workspace directly', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      if (requestURL.pathname.endsWith('/auth/me')) {
+        return { ok: true, json: async () => ({ data: { user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' }, organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' }, membership: { role: 'owner' } } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/notifications/unread-count')) {
+        return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/contacts')) {
+        return { ok: true, json: async () => ({ data: { contacts: [{ id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead' }], meta: { page: 1, pageSize: 20, total: 1 } } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/users')) {
+        return { ok: true, json: async () => ({ data: { users: [{ id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }] } }) }
+      }
+      if (requestURL.pathname.endsWith('/api/custom-fields')) {
+        return { ok: true, json: async () => ({ data: { definitions: [] } }) }
+      }
+      throw new Error(`Unexpected fetch: ${requestURL.pathname}${requestURL.search}`)
+    })
 
     vi.stubGlobal('fetch', fetchMock)
 
@@ -648,10 +607,9 @@ describe('AppRouter', () => {
 
     render(<AppRouter />)
 
-    expect(await screen.findByText(/see client ownership, linked people, and live pipeline in one place/i)).toBeInTheDocument()
-    await waitFor(() => {
-      expect(window.location.pathname).toBe('/companies')
-    })
+    expect(await screen.findByRole('heading', { name: 'Contacts' })).toBeInTheDocument()
+    expect(await screen.findByText('morgan@acme.test')).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/contacts')
   })
 
   it('logs out from the app header and returns to login', async () => {
