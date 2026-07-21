@@ -16,6 +16,7 @@ import (
 var (
 	ErrInvalidInput = errors.New("invalid touchpoint query")
 	ErrNotFound     = errors.New("touchpoint record not found")
+	ErrQueryTimeout = errors.New("touchpoint query timed out")
 )
 
 const (
@@ -301,7 +302,11 @@ func touchpointCTE(entityType string, restricted bool) string {
 	if restricted {
 		restriction = " AND target.id=$3"
 	}
-	return `WITH record_entities AS (` + recordEntitiesSQL(entityType, restriction) + `
+	return touchpointCTEForRecords(recordEntitiesSQL(entityType, restriction))
+}
+
+func touchpointCTEForRecords(recordsSQL string) string {
+	return `WITH record_entities AS (` + recordsSQL + `
 	), all_touches AS (
 		SELECT re.target_id,'note'::text source_type,n.id source_id,
 		       CASE WHEN n.body ILIKE 'Sent email:%' THEN 'email.sent' ELSE 'note.created' END action,

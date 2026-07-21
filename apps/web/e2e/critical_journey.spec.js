@@ -21,6 +21,11 @@ function datetimeLocalDaysFromNow(days) {
   return value.toISOString().slice(0, 16)
 }
 
+function utcDateDaysFromNow(days) {
+  const value = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+  return value.toISOString().slice(0, 10)
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -808,6 +813,29 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(closeReasonReport.getByRole('listitem').filter({ hasText: 'Best solution fit' })).toContainText('1')
   await expect(salesActivityCard.getByRole('list', { name: 'Recent deal events' }).getByText('Strong service fit and a clear implementation plan.', { exact: false })).toBeVisible()
 
+  const clientActivity = page.locator('.client-activity-report-card')
+  await expect(clientActivity.getByRole('heading', { name: 'Client activity' })).toBeVisible()
+  const clientActivityTotals = clientActivity.getByRole('list', { name: 'Client activity totals' })
+  await expect(clientActivityTotals.getByRole('listitem').filter({ hasText: 'Clients' })).toContainText('1')
+  await expect(clientActivityTotals.getByRole('listitem').filter({ hasText: 'With activity' })).toContainText('1')
+  await expect(clientActivityTotals.getByRole('listitem').filter({ hasText: 'Notes added' })).toContainText('2')
+  await expect(clientActivityTotals.getByRole('listitem').filter({ hasText: 'Tasks completed' })).toContainText('1')
+  const clientActivityTable = clientActivity.getByRole('table', { name: /Client activity from/ })
+  const northstarActivity = clientActivityTable.getByRole('row', { name: new RegExp(`^Northstar Advisory ${runID}`) })
+  await expect(northstarActivity).toBeVisible()
+  await expect(northstarActivity.getByRole('link', { name: `Completed task: ${renewalTaskTitle}` })).toHaveAttribute('href', /^\/companies\/\d+$/)
+  await clientActivity.getByText('How client activity is calculated').click()
+  await expect(clientActivity.getByText(/This report does not infer historical health changes/)).toBeVisible()
+  const clientActivityAccessibility = await new AxeBuilder({ page })
+    .include('.client-activity-report-card')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-client-period-activity', {
+    body: JSON.stringify({ url: page.url(), violations: clientActivityAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(clientActivityAccessibility.violations, 'client-period activity must have no automated WCAG A/AA violations').toEqual([])
+
   await page.getByRole('link', { name: 'Tasks', exact: true }).click()
   await expect(page.getByText(/Overdue \d+ · Due soon [1-9]\d*/)).toBeVisible()
   await page.getByLabel('Task view').selectOption('dueSoon')
@@ -982,6 +1010,12 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     expect(crossTenantBarReport.status()).toBe(404)
     const crossTenantBarReportExport = await otherContext.request.get(`${apiURL}/api/report-definitions/${barReportID}/export.csv`)
     expect(crossTenantBarReportExport.status()).toBe(404)
+    const crossTenantClientActivity = await otherContext.request.get(`${apiURL}/api/reports/client-activity?entityType=company&from=${utcDateDaysFromNow(-29)}&to=${utcDateDaysFromNow(0)}`)
+    expect(crossTenantClientActivity.status()).toBe(200)
+    const crossTenantClientActivityBody = await crossTenantClientActivity.json()
+    expect(crossTenantClientActivityBody.data.count).toBe(0)
+    expect(crossTenantClientActivityBody.data.totals.totalClients).toBe(0)
+    expect(JSON.stringify(crossTenantClientActivityBody)).not.toContain(`Northstar Advisory ${runID}`)
   } finally {
     await otherContext.close()
   }

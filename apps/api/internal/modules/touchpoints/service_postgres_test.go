@@ -229,6 +229,49 @@ func TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres(t *testi
 		t.Fatalf("unexpected stale companies: report=%#v err=%v", companyReport, err)
 	}
 
+	activityFrom := now.Add(-30 * 24 * time.Hour).Format("2006-01-02")
+	activityTo := now.Format("2006-01-02")
+	companyActivity, err := service.ClientActivity(ctx, organizationID, viewerID, moduletouchpoints.ClientActivityQuery{
+		EntityType: "company", FromDate: activityFrom, ToDate: activityTo,
+	})
+	if err != nil || companyActivity.Count != 3 || len(companyActivity.Records) != 3 || companyActivity.Totals != (moduletouchpoints.ClientActivityTotals{TotalClients: 3, ClientsWithActivity: 1, ClientsWithoutActivity: 2, QualifyingTouches: 6, NotesAdded: 1, TasksCompleted: 1}) {
+		t.Fatalf("unexpected viewer company activity: report=%#v err=%v", companyActivity, err)
+	}
+	linkedActivity := clientActivityRecordByID(t, companyActivity.Records, linkedCompanyID)
+	if linkedActivity.QualifyingTouches != 6 || linkedActivity.NotesAdded != 1 || linkedActivity.TasksCompleted != 1 || linkedActivity.ActiveDays != 6 || linkedActivity.LastTouchInPeriod == nil || linkedActivity.LastTouchInPeriod.SourceType != "email" || linkedActivity.LastTouchInPeriod.RecordEntityType != "contact" || linkedActivity.LastTouchInPeriod.RecordEntityID != touchedContactID {
+		t.Fatalf("linked contact period work did not roll up traceably: %#v", linkedActivity)
+	}
+	if companyActivity.Records[0].QualifyingTouches != 0 || len(companyActivity.Semantics) == 0 {
+		t.Fatalf("no-activity clients were not prioritized or semantics were omitted: %#v", companyActivity)
+	}
+	withoutActivity, err := service.ClientActivity(ctx, organizationID, viewerID, moduletouchpoints.ClientActivityQuery{
+		EntityType: "company", FromDate: activityFrom, ToDate: activityTo, Activity: "without_activity", OwnerUserID: ownerID, Limit: 1,
+	})
+	if err != nil || withoutActivity.Count != 2 || len(withoutActivity.Records) != 1 || withoutActivity.OwnerUserID != ownerID || withoutActivity.Totals != companyActivity.Totals {
+		t.Fatalf("client activity filter or retained owner totals failed: report=%#v err=%v", withoutActivity, err)
+	}
+	ownerCompanyActivity, err := service.ClientActivity(ctx, organizationID, ownerID, moduletouchpoints.ClientActivityQuery{
+		EntityType: "company", FromDate: activityFrom, ToDate: activityTo, Activity: "with_activity",
+	})
+	if err != nil || ownerCompanyActivity.Count != 1 || ownerCompanyActivity.Totals.QualifyingTouches != 7 || len(ownerCompanyActivity.Records) != 1 || ownerCompanyActivity.Records[0].LastTouchInPeriod == nil || ownerCompanyActivity.Records[0].LastTouchInPeriod.SourceType != "meeting" {
+		t.Fatalf("record owner client activity lost private context: report=%#v err=%v", ownerCompanyActivity, err)
+	}
+	viewerContactActivity, err := service.ClientActivity(ctx, organizationID, viewerID, moduletouchpoints.ClientActivityQuery{
+		EntityType: "contact", FromDate: activityFrom, ToDate: activityTo,
+	})
+	if err != nil || viewerContactActivity.Totals != (moduletouchpoints.ClientActivityTotals{TotalClients: 3, ClientsWithoutActivity: 3}) || hasClientActivityRecord(viewerContactActivity.Records, touchedContactID) || hasClientActivityRecord(viewerContactActivity.Records, foreignContactID) {
+		t.Fatalf("viewer individual-client activity leaked private, non-client, or foreign work: report=%#v err=%v", viewerContactActivity, err)
+	}
+	ownerContactActivity, err := service.ClientActivity(ctx, organizationID, ownerID, moduletouchpoints.ClientActivityQuery{
+		EntityType: "contact", FromDate: activityFrom, ToDate: activityTo, Activity: "with_activity",
+	})
+	if err != nil || ownerContactActivity.Count != 1 || ownerContactActivity.Totals.ClientsWithActivity != 1 || len(ownerContactActivity.Records) != 1 || ownerContactActivity.Records[0].EntityID != privateContactID || ownerContactActivity.Records[0].LastTouchInPeriod == nil || ownerContactActivity.Records[0].LastTouchInPeriod.Action != "email.received" {
+		t.Fatalf("mailbox-owner individual-client activity lost private context: report=%#v err=%v", ownerContactActivity, err)
+	}
+	if _, err := service.ClientActivity(ctx, organizationID, viewerID, moduletouchpoints.ClientActivityQuery{EntityType: "company", FromDate: activityFrom, ToDate: activityTo, OwnerUserID: foreignUserID}); !errors.Is(err, moduletouchpoints.ErrInvalidInput) {
+		t.Fatalf("foreign owner client activity filter returned %v", err)
+	}
+
 	companyHealth, err := service.Health(ctx, organizationID, viewerID, moduletouchpoints.HealthQuery{EntityType: "company", StaleDays: 30})
 	if err != nil || companyHealth.Count != 3 || companyHealth.Totals != (moduletouchpoints.HealthTotals{Total: 3, Healthy: 1, Watch: 1, NeedsAttention: 1}) || len(companyHealth.Records) != 3 {
 		t.Fatalf("unexpected company health totals: report=%#v err=%v", companyHealth, err)
@@ -274,6 +317,18 @@ func TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres(t *testi
 			t.Fatalf("invalid health query %#v returned %v", query, err)
 		}
 	}
+	for _, query := range []moduletouchpoints.ClientActivityQuery{
+		{EntityType: "deal", FromDate: activityFrom, ToDate: activityTo},
+		{EntityType: "company", FromDate: "2026-01-01", ToDate: ""},
+		{EntityType: "company", FromDate: "2027-01-01", ToDate: "2026-01-01"},
+		{EntityType: "company", FromDate: "2025-01-01", ToDate: "2026-01-02"},
+		{EntityType: "company", FromDate: activityFrom, ToDate: activityTo, Activity: "historical_health"},
+		{EntityType: "company", FromDate: activityFrom, ToDate: activityTo, Limit: 101},
+	} {
+		if _, err := service.ClientActivity(ctx, organizationID, viewerID, query); !errors.Is(err, moduletouchpoints.ErrInvalidInput) {
+			t.Fatalf("invalid client activity query %#v returned %v", query, err)
+		}
+	}
 	if len(contactReport.Semantics) == 0 || len(companySummary.Semantics) == 0 {
 		t.Fatalf("touchpoint inference was not explained: report=%#v summary=%#v", contactReport, companySummary)
 	}
@@ -291,6 +346,26 @@ func healthRecordByID(t *testing.T, records []moduletouchpoints.HealthRecord, en
 }
 
 func hasHealthRecord(records []moduletouchpoints.HealthRecord, entityID int64) bool {
+	for _, record := range records {
+		if record.EntityID == entityID {
+			return true
+		}
+	}
+	return false
+}
+
+func clientActivityRecordByID(t *testing.T, records []moduletouchpoints.ClientActivityRecord, entityID int64) moduletouchpoints.ClientActivityRecord {
+	t.Helper()
+	for _, record := range records {
+		if record.EntityID == entityID {
+			return record
+		}
+	}
+	t.Fatalf("client activity record %d missing from %#v", entityID, records)
+	return moduletouchpoints.ClientActivityRecord{}
+}
+
+func hasClientActivityRecord(records []moduletouchpoints.ClientActivityRecord, entityID int64) bool {
 	for _, record := range records {
 		if record.EntityID == entityID {
 			return true

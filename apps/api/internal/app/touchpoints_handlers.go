@@ -31,6 +31,13 @@ type clientHealthResponse struct {
 	} `json:"meta"`
 }
 
+type clientActivityResponse struct {
+	Data moduletouchpoints.ClientActivityReport `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 func handleStaleTouchpoints(auth authService, service touchpointsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgMember(auth, w, r)
@@ -89,6 +96,36 @@ func handleTouchpointSummary(auth authService, service touchpointsService, w htt
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
+func handleClientActivity(auth authService, service touchpointsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if service == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Client activity reporting service unavailable")
+		return
+	}
+	ownerUserID, validOwner := parseOptionalPositiveQueryID(r.URL.Query().Get("ownerUserId"))
+	limit, validLimit := parseOptionalBoundedPositiveInt(r.URL.Query().Get("limit"), 0, 1, 100)
+	if !validOwner || !validLimit {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", moduletouchpoints.ErrInvalidInput.Error())
+		return
+	}
+	report, err := service.ClientActivity(r.Context(), state.Organization.ID, state.User.ID, moduletouchpoints.ClientActivityQuery{
+		EntityType: strings.TrimSpace(r.URL.Query().Get("entityType")),
+		FromDate:   strings.TrimSpace(r.URL.Query().Get("from")), ToDate: strings.TrimSpace(r.URL.Query().Get("to")),
+		Activity: strings.TrimSpace(r.URL.Query().Get("activity")), OwnerUserID: ownerUserID, Limit: limit,
+	})
+	if err != nil {
+		writeTouchpointError(w, requestID, err, "Unable to load client activity")
+		return
+	}
+	response := clientActivityResponse{Data: report}
+	response.Meta.RequestID = requestID
+	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
 func handleClientHealth(auth authService, service touchpointsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgMember(auth, w, r)
@@ -136,6 +173,10 @@ func writeTouchpointError(w http.ResponseWriter, requestID string, err error, sa
 	}
 	if errors.Is(err, moduletouchpoints.ErrNotFound) {
 		platformweb.WriteNotFound(w, requestID)
+		return
+	}
+	if errors.Is(err, moduletouchpoints.ErrQueryTimeout) {
+		platformweb.WriteError(w, http.StatusGatewayTimeout, requestID, "REPORT_TIMEOUT", "The report exceeded its five-second execution limit")
 		return
 	}
 	platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", safeMessage)

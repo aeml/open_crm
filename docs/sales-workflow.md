@@ -47,13 +47,19 @@ the hidden general workflow builder is not promoted.
 9. **Reports** reconciles deal creation and movement, won/lost outcomes and
    reasons, notes, task work, teammate ownership/actors, and recent deal events
    over a bounded UTC date range. Deal exports retain the current close context.
+10. **Reports > Client activity** then reconciles current organization or
+    individual clients over an inclusive UTC period. Current-owner and
+    with/without-activity filters, exact note/task/touch/day counts, and the
+    latest source link identify post-sale work and put clients with no qualifying
+    activity first without fabricating historical health changes.
 
 The clean PostgreSQL-backed Chromium journey performs this sequence as one
 workflow, including a pipeline rename after deal creation, forecast continuity,
 automated-task creation, reminder visibility, real-SMTP delivery, public signing,
 matching customer/staff certificate evidence, deliberate signed-quote conversion,
 report reconciliation, close review, post-sale health triage, recurring renewal
-advancement, and cross-tenant denial.
+advancement, exact client-period source/count reconciliation with WCAG, and
+cross-tenant collection exclusion.
 
 ## Reporting semantics and scale boundary
 
@@ -74,6 +80,13 @@ advancement, and cross-tenant denial.
   at 100 rows across at most 100 pages. Owners/admins can download the same query
   as a formula-safe audited CSV; the server refuses row 10,001 instead of
   returning a partial file.
+- Client activity is a separate bounded fixed report over current active
+  customers. Company rows combine direct work with work on currently linked
+  contacts and deduplicate each source event per client; individual rows remain
+  contact-scoped. It shares viewer-aware touchpoint privacy, filters on current
+  retained owner, prioritizes no-activity rows, returns at most 100 records under
+  a five-second deadline, and never presents current derived health as a past
+  health snapshot.
 - PostgreSQL regression tests seed and analyze mixed multi-tenant event and
   audit history, then require tenant/date and owner/date report paths to use
   their reviewed organization-scoped indexes under normal planning. Activity

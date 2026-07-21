@@ -697,6 +697,37 @@ references.
    through normal application workflows; the derived health value is not a
    mutable status and must not be patched with ad hoc SQL.
 
+### Client-period activity reconciliation
+
+1. Open **Reports > Client activity**. Every active member, including a viewer,
+   may select organization customers or individual clients, an inclusive UTC
+   from/to window of at most 366 days, current retained owner, and all/with/
+   without activity. The default is the latest 30 UTC calendar days. Results
+   stop at 100 rows and put no-activity clients first; narrow owner or activity
+   when the screen says more rows match.
+2. Organization counts combine direct client work with work on contacts that
+   are currently linked to that company. Individual counts stay contact-scoped.
+   The touchpoint source/deduplication and private email/meeting visibility rules
+   above apply unchanged, so authorized viewers can legitimately see different
+   totals. The owner filter is the client's current retained owner, not a
+   reconstructed event-time owner.
+3. **Touches** counts qualifying notes, durable task completions, successful
+   calls/SMS, scheduled meetings, and visible sent/received email in the period.
+   **Notes**, **Tasks completed**, and **Active days** are exact subsets/context;
+   the latest-period link identifies the source record. Creation, edits,
+   failures, reminders, future due dates, and health derivations do not count.
+4. The report totals honor client type, date window, viewer privacy, and current
+   owner but intentionally remain unchanged when switching between all/with/
+   without activity; the match count and rows honor that last filter. A
+   `REPORT_TIMEOUT` means the five-second query deadline was reached. Narrow the
+   period or owner, retain the request ID and filters, and investigate database
+   health/query plans before retrying; do not increase the deadline ad hoc.
+5. This is a current-client period rollup, not a historical-health ledger.
+   Never infer a prior Healthy/Watch/Needs-attention state from today's derived
+   state or patch counts with SQL. Correct the source record or current link in
+   normal product workflows, and add snapshots only through a separately
+   reviewed persisted contract if pilot decisions require real health changes.
+
 ### Client review and renewal task recovery
 
 1. An active customer company or individual client may have one review or

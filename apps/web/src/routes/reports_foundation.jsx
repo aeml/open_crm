@@ -9,6 +9,7 @@ import { createReportDefinition, listReportDefinitions, updateReportDefinition }
 import { usePageTitle } from '../lib/use_page_title'
 import { DataQualityPanel } from './data_quality_panel'
 import { SalesActivityReport } from './sales_activity_report'
+import { ClientActivityReport } from './client_activity_report'
 import { FollowUpReport } from './follow_up_report'
 import { CustomReportResults } from './custom_report_results'
 import {
@@ -150,6 +151,7 @@ export function ReportsFoundationRoute() {
   return (
     <section className="dashboard-grid settings-grid">
       <SalesActivityReport />
+      <ClientActivityReport />
       <FollowUpReport />
       <DataQualityPanel />
       <Card>

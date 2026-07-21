@@ -45,7 +45,7 @@ the assertions inside those tests remain the proof of behavior.
 | `sales-activity-reporting` | `apps/api/internal/modules/salesreports/service_postgres_test.go` | `TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAgainstPostgres` | Event snapshots and rollups exclude foreign deals; foreign owner filters reject rather than disclose. |
 | `session-management` | `apps/api/internal/modules/auth/sessions_postgres_test.go` | `TestSessionManagementIsPrivateGlobalAndAuditedAgainstPostgres` | A user cannot list or revoke another user's session, including a session in a foreign workspace. |
 | `task-reminders` | `apps/api/internal/modules/taskreminders/service_postgres_test.go` | `TestTaskRemindersAreDurablePreferenceAwareAndIdempotentAgainstPostgres` | A foreign tenant cannot consume another tenant's reminder job or receive its notification/activity effects. |
-| `touchpoints` | `apps/api/internal/modules/touchpoints/service_postgres_test.go` | `TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres` | Foreign contact/client IDs and activity remain absent from history, follow-up queues, and health summaries. |
+| `touchpoints` | `apps/api/internal/modules/touchpoints/service_postgres_test.go` | `TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres` | Foreign contact/client IDs and activity remain absent from history, follow-up queues, client-period counts, source links, and health summaries; private sources remain viewer-aware. |
 | `user-lifecycle` | `apps/api/internal/modules/users/lifecycle_postgres_test.go` | `TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPostgres` | Foreign targets and reassignment users reject; membership, sessions, work, history, and audit stay in the owning workspace. |
 | `workspace-bootstrap` | `apps/api/internal/modules/onboarding/service_postgres_test.go` | `TestVerifiedWorkspaceSignupIsIdempotentAndStartsTrialAfterVerificationAgainstPostgres` | Provisioning commits one isolated organization/owner/pipeline only after token verification; conflicting retry identity cannot create a second tenant. |
 | `workspace-portability` | `apps/api/internal/modules/workspaceexports/service_postgres_test.go` | `TestWorkspaceExportLifecycleAgainstPostgres` | Dataset queries, job/artifact IDs, downloads, redaction, checksum evidence, and expiry remain tenant scoped. |
@@ -54,7 +54,7 @@ the assertions inside those tests remain the proof of behavior.
 
 - `apps/api/internal/app/cross_org_test.go` verifies that the core HTTP handlers
   translate service misses to non-disclosing `404` responses.
-- `apps/api/internal/app/security_inventory_test.go` digest-gates all 246
+- `apps/api/internal/app/security_inventory_test.go` digest-gates all 247
   registered routes, so a new selector must receive an explicit session/token
   tenant policy and test reference.
 - Role and viewer denial are handler concerns and remain covered by the route
@@ -63,7 +63,9 @@ the assertions inside those tests remain the proof of behavior.
   whenever their IDs cross the service boundary.
 - `apps/web/e2e/critical_journey.spec.js` creates two real browser contexts and
   workspaces against PostgreSQL, then proves foreign contact, follower,
-  touchpoint, quote, close, and portable-export requests return `404`.
+  touchpoint, quote, close, and portable-export requests return `404`; the
+  other workspace's client-period collection remains `200` but contains none
+  of the pilot workspace's clients, counts, or sources.
 - Composite tenant foreign keys are used where stable relational tables permit
   them. Polymorphic record IDs are revalidated under the tenant predicate at
   the transactional service boundary.

@@ -121,7 +121,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.7.4` Service Or Job Tracking: complete.
 - `0.7.5` Account Notes And Internal Handoff: complete.
 - `0.7.6` Customer Segment Views: complete.
-- `0.7.7` Customer Activity Reports: planned (deferred to Phase 4 reporting convergence).
+- `0.7.7` Customer Activity Reports: complete locally; pilot validation remains.
 - `0.7.8` Customer Data Review: complete.
 - `0.7.9` Customer Operations Review: in progress (technical review complete; approved pilot usage evidence pending).
 - `0.8.0` Integrations Foundation: planned.
@@ -380,9 +380,9 @@ Exit criteria:
 - Handler files are easier to review in isolation.
 - No behavior changes beyond tested refactors.
 
-Current convergence evidence: `app.go` is now 380 lines and uses the default
-500-line CI ceiling. All 213 explicit registrations live in focused 172-line
-platform, 246-line foundation, and 267-line core-CRM files, called centrally by
+Current convergence evidence: `app.go` is now 409 lines and uses the default
+500-line CI ceiling. All 247 explicit registrations live in focused 175-line
+platform, 294-line foundation, and 342-line core-CRM files, called centrally by
 `NewServer`; package-wide inventory and hosted-write-policy scans preserve the
 complete route set after the split. HTTP rate limiting, proxy-aware client
 identity, CSRF/CORS, and security/release headers live in a focused 285-line
@@ -1874,7 +1874,7 @@ audience behavior are not inferred or added.
 
 ## Version 0.7.7 - Customer Activity Reports
 
-Status: planned (deferred to Phase 4 reporting convergence).
+Status: complete locally; pilot validation remains.
 
 Goal: show post-sale work and customer engagement patterns.
 
@@ -1888,15 +1888,23 @@ Exit criteria:
 - Customer operations activity is visible by period.
 - Reports help operators decide where to focus.
 
-Deferral decision (2026-07-19): the live follow-up queue, client-health report,
-account touchpoint history, and period/teammate sales-activity report already
-provide safe operational evidence and source links. They do not constitute the
-promised customer-only period report, and derived health intentionally has no
-fabricated change history. Building another overlapping report now would widen
-the reporting family while its general runtime is still incomplete. The
-customer-only period view, exact client-rollup semantics, and any persisted
-health snapshots therefore remain part of the required Phase 4 reporting
-convergence; current surfaces keep their narrower production-capable labels.
+Completion evidence (2026-07-21): **Reports > Client activity** now gives every
+member an exact customer-only period view for current active organization
+customers or individual client contacts. From/to are inclusive UTC dates capped
+at 366 days; current retained owner and all/with/without-activity filters are
+explicit; no-activity clients sort first. Company counts deduplicate direct work
+with work on currently linked people and reuse the viewer-aware touchpoint
+privacy contract. Rows show qualifying touches, notes, completed tasks, active
+days, and a latest source-record link; exact totals remain independent of the
+activity filter and follow the selected current owner. The query is fully
+parameterized, returns at most 100 rows under a five-second deadline, and emits
+stable invalid-input and timeout errors. Handler/normalization/UI tests,
+freshly migrated PostgreSQL rollup/privacy/retained-owner/foreign-tenant
+acceptance, a tenant-isolated 500-client page under two seconds, and the
+two-workspace Chromium source-link/WCAG/foreign-collection journey cover the
+local outcome. The UI and runbook explicitly refuse to infer historical health
+changes from current derived state; real snapshots remain a separate future
+decision if pilot questions require them.
 
 ## Version 0.7.8 - Customer Data Review
 
@@ -2320,21 +2328,23 @@ contact creates across two tenants at a 1 s p95/3 s maximum budget, checks every
 new ID through the wrong tenant, verifies exact totals, and proves bounded
 closed-pool failure, one-connection pool exhaustion/recovery, and locked-table
 deadline/recovery. The same gate produces and parses the tenant-isolated 10,000-
-row contact export under a 5 s budget, runs a saved-table 100-row page and a
-complete grouped-bar aggregation under 2 s, exports both under 5 s with cross-tenant and audit
+row contact export under a 5 s budget, runs a 500-client period rollup and
+100-row page, a saved-table 100-row page, and a complete grouped-bar aggregation
+under 2 s, exports both saved types under 5 s with cross-tenant and audit
 checks, rejects row 10,001 without partial evidence, and maps/writes 1,000
 contacts with duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, request deadline, and
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 178.92 KiB/58.03 KiB for the entry, 54.78 KiB/15.64 KiB
-for the largest lazy chunk, and 692.40 KiB/219.14 KiB total assets. The isolated
+CSS. Current production-URL evidence is 178.92 KiB/58.01 KiB for the entry, 54.78 KiB/15.64 KiB
+for the largest lazy chunk, and 698.98 KiB/219.95 KiB total assets. The isolated
 public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
 retry-safe signature ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds include
-the 33.91/8.81 KiB bounded saved-table/grouped-bar report route, whose 293-line
-orchestration, separately tested 245-line catalog/form model, and 33/26-line
+the 39.90/9.55 KiB bounded client-period/saved-table/grouped-bar Reports route,
+whose client-period component is 162 lines, saved-report orchestration is 295
+lines, separately tested catalog/form model is 245 lines, and 33/26-line
 bar/table renderers remain below the source ceiling and whose line/funnel/pie/KPI controls are filtered from production
 navigation. They omit booking-link, audience,
 lead-scoring, marketing-email, and nurture-campaign management routes; the bundle
@@ -2347,7 +2357,8 @@ Reversible lead-submission review then extends its lazy lead-forms route to
 14.47/4.63 KiB and advances only the aggregate ceilings to 670/214 KiB; the
 saved-table outcome then advances only the aggregate ceilings to 690/220 KiB.
 The complete grouped-bar outcome advances only the aggregate raw ceiling to
-693 KiB while gzip remains at 220 KiB.
+693 KiB; client-period activity advances it to 699 KiB while gzip remains at
+220 KiB.
 Entry, per-route, CSS, and source limits remain unchanged. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 449 lines,
@@ -2687,6 +2698,7 @@ Goal: move from fixed reports to a self-service analytics layer.
 
 Progress:
 
+- `0.7.7` (customer-only period activity): production-capable as a bounded fixed report. It supplies exact current-client, date, owner, with/without-activity, source-link, privacy, tenant, timeout, and 500-client performance semantics without inventing historical health snapshots. Pilot validation remains external follow-up work.
 - `1.6.1` (saved table reports): production-capable for a bounded first outcome. Writers can create and edit contact, company, deal, and task table reports from production Reports; all members can run them; owners/admins can download the same saved query. Static allowlists, parameterized typed filters, optional grouping/aggregation, archived-row exclusion, page/page-size ceilings, a five-second deadline, accessible result tables, transactional actor revalidation/audit, a formula-safe BOM CSV, explicit 10,000-row refusal, stable failures, real-PostgreSQL all-source/cross-tenant/overflow acceptance, and the Chromium pilot journey cover execution and export. The 12-tenant PostgreSQL performance gate expands one workspace to 10,000 contacts and checks a 100-row saved-report page within two seconds, the complete export within five seconds, cross-tenant denial, overflow refusal, and exact audit evidence. Production-like-host and real-pilot validation remain external follow-up work.
 - `1.6.2` (grouped bar reports): production-capable for one bounded chart outcome. Production accepts only exactly one allowlisted category plus a record count, numeric sum, or numeric average and no ignored row columns. Migration `105_custom_report_grouped_bar_contract.sql` leaves every historical metadata-only bar unmarked; only a deliberately saved `grouped_bar_v1` definition executes or appears in normal navigation. It executes and exports through the same tenant-bound, archived-row-excluding, five-second report engine; includes visualization type/contract in execution and audit evidence; rejects mismatched client responses; and pairs every visual bar set with its exact paged accessible data table. Unit/handler/UI, real-PostgreSQL migration upgrade coverage for historical and rolling-old-app bars, freshly migrated PostgreSQL execution/export/legacy/foreign-tenant, 10,000-row performance, and two-workspace Chromium/WCAG evidence cover the outcome. Line, funnel, pie, and KPI metadata remain hidden foundations; dashboards, sharing, scheduled delivery, chart/PDF export, and broader read models remain incomplete. Pilot validation remains external follow-up work.
 

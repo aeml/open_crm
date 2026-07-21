@@ -23,6 +23,7 @@ import (
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
 	"github.com/aeml/open_crm/apps/api/internal/modules/tasks"
+	moduletouchpoints "github.com/aeml/open_crm/apps/api/internal/modules/touchpoints"
 )
 
 const (
@@ -155,6 +156,7 @@ func TestPilotReadLoadAndFailureBudgetsAgainstPostgres(t *testing.T) {
 	}
 
 	assertSlowDatabaseDeadlineAndRecovery(t, ctx, pool, organizationID, contactService)
+	assertClientActivityBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
 	assertLargeTenantExportBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
 	assertTenantImportWriteBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
 
@@ -173,6 +175,43 @@ func TestPilotReadLoadAndFailureBudgetsAgainstPostgres(t *testing.T) {
 	if elapsed := time.Since(failureStarted); elapsed > time.Second {
 		t.Fatalf("database failure took %s to surface; expected a bounded failure", elapsed)
 	}
+}
+
+func assertClientActivityBudget(t *testing.T, ctx context.Context, pool *moduledb.Pool, organizationID, otherOrganizationID, actorUserID int64) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `UPDATE companies SET status='customer',owner_user_id=$2 WHERE organization_id=$1`, organizationID, actorUserID); err != nil {
+		t.Fatalf("seed pilot client activity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO notes (organization_id,entity_type,entity_id,body,created_by_user_id,created_at)
+		SELECT organization_id,'company',id,'Pilot client update',$2,NOW()-INTERVAL '1 day'
+		FROM companies WHERE organization_id=$1
+	`, organizationID, actorUserID); err != nil {
+		t.Fatalf("seed pilot client activity notes: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ANALYZE companies; ANALYZE notes`); err != nil {
+		t.Fatalf("analyze pilot client activity: %v", err)
+	}
+	service := moduletouchpoints.NewService(pool)
+	to := time.Now().UTC()
+	started := time.Now()
+	report, err := service.ClientActivity(ctx, organizationID, actorUserID, moduletouchpoints.ClientActivityQuery{
+		EntityType: "company", FromDate: to.AddDate(0, 0, -29).Format("2006-01-02"), ToDate: to.Format("2006-01-02"), Limit: 100,
+	})
+	elapsed := time.Since(started)
+	if err != nil || report.Count != pilotCompaniesPerTenant || len(report.Records) != 100 || report.Totals != (moduletouchpoints.ClientActivityTotals{TotalClients: pilotCompaniesPerTenant, ClientsWithActivity: pilotCompaniesPerTenant, QualifyingTouches: pilotCompaniesPerTenant, NotesAdded: pilotCompaniesPerTenant}) {
+		t.Fatalf("pilot client activity mismatch: report=%#v err=%v", report, err)
+	}
+	if elapsed > pilotReportPageMaximum {
+		t.Fatalf("pilot client activity report took %s; budget is %s", elapsed, pilotReportPageMaximum)
+	}
+	foreign, err := service.ClientActivity(ctx, otherOrganizationID, actorUserID, moduletouchpoints.ClientActivityQuery{
+		EntityType: "company", FromDate: to.AddDate(0, 0, -29).Format("2006-01-02"), ToDate: to.Format("2006-01-02"), Limit: 100,
+	})
+	if err != nil || foreign.Count != 0 || foreign.Totals.TotalClients != 0 || len(foreign.Records) != 0 {
+		t.Fatalf("pilot client activity crossed tenant boundary: report=%#v err=%v", foreign, err)
+	}
+	t.Logf("pilot_client_activity_budget clients=%d touches=%d rows=%d elapsed=%s", report.Totals.TotalClients, report.Totals.QualifyingTouches, len(report.Records), elapsed)
 }
 
 func assertTenantImportWriteBudget(t *testing.T, ctx context.Context, pool *moduledb.Pool, organizationID, otherOrganizationID, actorUserID int64) {

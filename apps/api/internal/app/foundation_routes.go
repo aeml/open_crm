@@ -198,6 +198,9 @@ func registerFoundationRoutes(mux *http.ServeMux, dependencies Dependencies, rat
 	mux.HandleFunc("GET /api/reports/follow-up", func(w http.ResponseWriter, r *http.Request) {
 		handleStaleTouchpoints(dependencies.AuthService, dependencies.TouchpointsService, w, r)
 	})
+	mux.HandleFunc("GET /api/reports/client-activity", func(w http.ResponseWriter, r *http.Request) {
+		handleClientActivity(dependencies.AuthService, dependencies.TouchpointsService, w, r)
+	})
 	mux.HandleFunc("GET /api/reports/client-health", func(w http.ResponseWriter, r *http.Request) {
 		handleClientHealth(dependencies.AuthService, dependencies.TouchpointsService, w, r)
 	})

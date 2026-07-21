@@ -30,6 +30,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Any mixed service read | 2 s |
 | Transactional contact-create p95 | 1 s |
 | Any transactional contact create | 3 s |
+| Client-period activity page (500 clients, 100 returned) | 2 s |
 | Saved-report page (100 rows) | 2 s |
 | Core or saved-report export (10,000 rows) | 5 s |
 | Mapped/deduplicated 1,000-row contact import | 10 s |
@@ -53,6 +54,12 @@ two seconds and its complete 10,000-row CSV at five seconds, verifies the parsed
 header and row count, and proves a foreign workspace cannot execute or export
 it. After row 10,001, saved-report export must also fail explicitly without
 creating a second `report.export_downloaded` audit event.
+The same 500-company tenant is promoted to active clients and receives one
+qualifying note per client. The client-period gate requires exact 500-client/
+500-touch totals, a bounded 100-row page under two seconds, and an empty report
+when the same query is executed for the separate tenant. This catches an
+unbounded linked-source aggregation or missing organization predicate before
+the report can be promoted.
 It also maps and writes the complete 1,000-row synchronous import ceiling,
 including duplicate checks, activity/outcome ledgers, durable progress
 checkpoints, exact tenant totals, and foreign-tenant absence, within 10 seconds.
@@ -100,11 +107,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 693 KiB | 220 KiB |
+| All JavaScript and CSS | 699 KiB | 220 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.92 KiB/58.03 KiB entry, 54.78 KiB/15.64 KiB largest lazy
-chunk, and 692.40 KiB/219.14 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.92 KiB/58.01 KiB entry, 54.78 KiB/15.64 KiB largest lazy
+chunk, and 698.98 KiB/219.95 KiB total assets. The production contact, company,
 deal, and task routes are 29.81/9.19, 34.71/10.48, 54.78/15.63, and 24.67/7.31
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -124,9 +131,10 @@ Future frontend slices must remain within the ratcheted ceilings. The complete c
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget
-core record screens. Live data-quality, snapshot-backed sales activity, and
-traceable stale follow-up queues plus the saved-table/grouped-bar builder and
-results leave the Reports route at 33.91 KiB/8.81 KiB;
+core record screens. Live data-quality, snapshot-backed sales activity,
+traceable stale follow-up queues, exact client-period activity, and the
+saved-table/grouped-bar builder and results leave the Reports route at
+39.90 KiB/9.55 KiB;
 reusable activity and touchpoint/account/client-health context remains outside
 the parent record routes in 16.51 KiB/4.95 KiB and 17.52 KiB/4.99 KiB shared
 chunks; the complete Clients route is 31.36 KiB/9.09 KiB. Admin pipeline
@@ -217,6 +225,16 @@ under the existing report latency budgets. The complete build measures
 raw ceiling advances from 690 to 693 KiB; entry, async, gzip, and CSS ceilings
 remain unchanged. Its 293-line orchestration, 245-line pure model, and 33/26-line
 bar/table renderers remain below the default source ceiling.
+The customer-only period activity outcome adds one focused 162-line component
+that reuses viewer-aware touchpoint semantics, gives current clients an exact
+bounded date/owner/activity rollup with source links, and adds a 500-client
+tenant-isolated PostgreSQL page budget under two seconds. The complete build is
+698.98/219.95 KiB and the Reports route is 39.90/9.55 KiB, so only the aggregate
+raw ceiling advances from 693 to 699 KiB; entry, async, gzip, and CSS ceilings
+remain unchanged. Saved-report orchestration remains 295 lines. The 2026-07-21
+local PostgreSQL 16.14 run completed the 500-client/100-row activity page in
+approximately 22.4 ms; that observation is diagnostic, while the checked
+two-second ceiling is authoritative.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 
@@ -277,9 +295,9 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 380 lines, down from 996. Its audited 213-route
-surface is registered through 172-line platform, 246-line foundation, and
-267-line core-CRM files. The security inventory and hosted-write-policy tests
+The API composition root is 409 lines, down from 996. Its audited 247-route
+surface is registered through 175-line platform, 294-line foundation, and
+342-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot
 silently remove a route from either guard. Shared handler helpers are isolated
 in a 250-line file, invitation delivery is isolated in a 123-line handler, and

@@ -14,15 +14,22 @@ import (
 )
 
 type fakeTouchpointsService struct {
-	report          moduletouchpoints.Report
-	health          moduletouchpoints.HealthReport
-	summary         moduletouchpoints.Summary
-	err             error
-	lastOrgID       int64
-	lastViewerID    int64
-	lastQuery       moduletouchpoints.Query
-	lastHealthQuery moduletouchpoints.HealthQuery
-	lastEntityID    int64
+	report            moduletouchpoints.Report
+	activityReport    moduletouchpoints.ClientActivityReport
+	health            moduletouchpoints.HealthReport
+	summary           moduletouchpoints.Summary
+	err               error
+	lastOrgID         int64
+	lastViewerID      int64
+	lastQuery         moduletouchpoints.Query
+	lastActivityQuery moduletouchpoints.ClientActivityQuery
+	lastHealthQuery   moduletouchpoints.HealthQuery
+	lastEntityID      int64
+}
+
+func (f *fakeTouchpointsService) ClientActivity(_ context.Context, organizationID, viewerUserID int64, query moduletouchpoints.ClientActivityQuery) (moduletouchpoints.ClientActivityReport, error) {
+	f.lastOrgID, f.lastViewerID, f.lastActivityQuery = organizationID, viewerUserID, query
+	return f.activityReport, f.err
 }
 
 func (f *fakeTouchpointsService) Health(_ context.Context, organizationID, viewerUserID int64, query moduletouchpoints.HealthQuery) (moduletouchpoints.HealthReport, error) {
@@ -84,6 +91,18 @@ func TestClientHealthAllowsViewerAndScopesFilters(t *testing.T) {
 	}
 }
 
+func TestClientActivityAllowsViewerAndScopesPeriodFilters(t *testing.T) {
+	service := &fakeTouchpointsService{activityReport: moduletouchpoints.ClientActivityReport{Count: 2, Totals: moduletouchpoints.ClientActivityTotals{ClientsWithoutActivity: 1}}}
+	request := httptest.NewRequest(http.MethodGet, "/api/reports/client-activity?entityType=company&from=2026-07-01&to=2026-07-21&activity=without_activity&ownerUserId=9&limit=50", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	touchpointsServer(service).ServeHTTP(recorder, request)
+	want := moduletouchpoints.ClientActivityQuery{EntityType: "company", FromDate: "2026-07-01", ToDate: "2026-07-21", Activity: "without_activity", OwnerUserID: 9, Limit: 50}
+	if recorder.Code != http.StatusOK || service.lastOrgID != 42 || service.lastViewerID != 7 || service.lastActivityQuery != want || !strings.Contains(recorder.Body.String(), `"clientsWithoutActivity":1`) {
+		t.Fatalf("unexpected client activity report: status=%d service=%#v body=%s", recorder.Code, service, recorder.Body.String())
+	}
+}
+
 func TestTouchpointsRejectMalformedInputWithoutCallingService(t *testing.T) {
 	tests := []string{
 		"/api/reports/follow-up?entityType=contact&ownerUserId=invalid",
@@ -92,6 +111,8 @@ func TestTouchpointsRejectMalformedInputWithoutCallingService(t *testing.T) {
 		"/api/reports/client-health?entityType=company&staleDays=invalid",
 		"/api/reports/client-health?entityType=company&ownerUserId=invalid",
 		"/api/reports/client-health?entityType=company&limit=101",
+		"/api/reports/client-activity?entityType=company&ownerUserId=invalid",
+		"/api/reports/client-activity?entityType=company&limit=101",
 		"/api/touchpoints/contact/not-an-id",
 		"/api/touchpoints/contact/1?staleDays=invalid",
 	}
@@ -112,9 +133,9 @@ func TestTouchpointErrorsAreBounded(t *testing.T) {
 		err    error
 		status int
 		body   string
-	}{{moduletouchpoints.ErrInvalidInput, http.StatusBadRequest, "invalid touchpoint query"}, {moduletouchpoints.ErrNotFound, http.StatusNotFound, "NOT_FOUND"}, {errors.New("database secret"), http.StatusInternalServerError, "Unable to load"}} {
+	}{{moduletouchpoints.ErrInvalidInput, http.StatusBadRequest, "invalid touchpoint query"}, {moduletouchpoints.ErrNotFound, http.StatusNotFound, "NOT_FOUND"}, {moduletouchpoints.ErrQueryTimeout, http.StatusGatewayTimeout, "REPORT_TIMEOUT"}, {errors.New("database secret"), http.StatusInternalServerError, "Unable to load"}} {
 		service := &fakeTouchpointsService{err: testCase.err}
-		for _, target := range []string{"/api/reports/follow-up?entityType=contact", "/api/reports/client-health?entityType=company", "/api/touchpoints/contact/1"} {
+		for _, target := range []string{"/api/reports/follow-up?entityType=contact", "/api/reports/client-activity?entityType=company", "/api/reports/client-health?entityType=company", "/api/touchpoints/contact/1"} {
 			request := httptest.NewRequest(http.MethodGet, target, nil)
 			addSessionCookie(request)
 			recorder := httptest.NewRecorder()
@@ -127,7 +148,7 @@ func TestTouchpointErrorsAreBounded(t *testing.T) {
 }
 
 func TestTouchpointsRequireSessionBeforeConfiguredService(t *testing.T) {
-	for _, target := range []string{"/api/reports/follow-up?entityType=contact", "/api/reports/client-health?entityType=company", "/api/touchpoints/contact/1"} {
+	for _, target := range []string{"/api/reports/follow-up?entityType=contact", "/api/reports/client-activity?entityType=company", "/api/reports/client-health?entityType=company", "/api/touchpoints/contact/1"} {
 		request := httptest.NewRequest(http.MethodGet, target, nil)
 		recorder := httptest.NewRecorder()
 		touchpointsServer(nil).ServeHTTP(recorder, request)

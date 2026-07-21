@@ -15,6 +15,19 @@ export async function getClientHealthReport({ entityType = 'company', status = '
   return { ...data, totals: data.totals || { total: 0, healthy: 0, watch: 0, needsAttention: 0 }, records: Array.isArray(data.records) ? data.records : [], semantics: Array.isArray(data.semantics) ? data.semantics : [] }
 }
 
+export async function getClientActivityReport({ entityType = 'company', from, to, activity = 'all', ownerUserId = 0, limit = 25, signal } = {}) {
+  const params = new URLSearchParams({ entityType, from, to, activity, limit: String(limit) })
+  if (ownerUserId) params.set('ownerUserId', String(ownerUserId))
+  const payload = await apiRequest(`/api/reports/client-activity?${params.toString()}`, { fallbackMessage: 'Unable to load client activity.', signal })
+  const data = payload?.data || {}
+  return {
+    ...data,
+    totals: data.totals || { totalClients: 0, clientsWithActivity: 0, clientsWithoutActivity: 0, qualifyingTouches: 0, notesAdded: 0, tasksCompleted: 0 },
+    records: Array.isArray(data.records) ? data.records : [],
+    semantics: Array.isArray(data.semantics) ? data.semantics : []
+  }
+}
+
 export async function getFollowUpReport({ entityType = 'contact', staleDays = 30, ownerUserId = 0, limit = 25, signal } = {}) {
   const params = new URLSearchParams({ entityType, staleDays: String(staleDays), limit: String(limit) })
   if (ownerUserId) params.set('ownerUserId', String(ownerUserId))
