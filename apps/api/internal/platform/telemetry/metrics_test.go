@@ -43,6 +43,8 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 	collector.ObserveEmailTrackingRetention("unexpected-outcome", -1)
 	collector.ObserveEmailReplyRecovery("success", 2)
 	collector.ObserveEmailReplyRecovery("unexpected-outcome", -1)
+	collector.ObserveQuoteDeliveryRecovery("success", 3)
+	collector.ObserveQuoteDeliveryRecovery("unexpected-outcome", -1)
 
 	handler := collector.Handler("monitoring-token-that-is-at-least-32", func(context.Context) RuntimeSnapshot {
 		return RuntimeSnapshot{
@@ -79,6 +81,10 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 			EmailRepliesSending:            2,
 			EmailRepliesStaleSending:       1,
 			EmailRepliesUncertain:          4,
+			QuoteDeliveriesAvailable:       true,
+			QuoteDeliveriesSending:         3,
+			QuoteDeliveriesStaleSending:    2,
+			QuoteDeliveriesUncertain:       5,
 			Backup: BackupStatus{
 				Available:                   true,
 				LastSuccessAt:               time.Unix(100, 0),
@@ -134,6 +140,14 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 		`open_crm_email_reply_recovery_runs_total{outcome="error"} 1`,
 		`open_crm_email_reply_recovered_total 2`,
 		`open_crm_email_reply_recovery_last_run_success 0`,
+		`open_crm_quote_deliveries_available 1`,
+		`open_crm_quote_delivery_sending 3`,
+		`open_crm_quote_delivery_stale_sending 2`,
+		`open_crm_quote_delivery_uncertain 5`,
+		`open_crm_quote_delivery_recovery_runs_total{outcome="success"} 1`,
+		`open_crm_quote_delivery_recovery_runs_total{outcome="error"} 1`,
+		`open_crm_quote_delivery_recovered_total 3`,
+		`open_crm_quote_delivery_recovery_last_run_success 0`,
 		`open_crm_password_resets_available 1`,
 		`open_crm_password_reset_outstanding 3`,
 		`open_crm_password_reset_delivery_stale_pending 1`,

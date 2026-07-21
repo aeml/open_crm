@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,89 +14,108 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
+	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
 
 type fakeDealsService struct {
-	listPipelinesResult        []moduledeals.Pipeline
-	listPipelinesErr           error
-	createPipelineResult       moduledeals.Pipeline
-	createPipelineErr          error
-	configurePipelineResult    moduledeals.Pipeline
-	configurePipelineErr       error
-	listStagesResult           []moduledeals.Stage
-	listStagesErr              error
-	listResult                 moduledeals.ListResult
-	listErr                    error
-	getResult                  moduledeals.Detail
-	getErr                     error
-	createResult               moduledeals.Detail
-	createErr                  error
-	updateResult               moduledeals.Detail
-	updateErr                  error
-	archiveErr                 error
-	updateStageResult          moduledeals.Detail
-	updateStageErr             error
-	replaceLineItemsResult     moduledeals.Detail
-	replaceLineItemsErr        error
-	finalizeQuoteResult        moduledeals.QuoteVersion
-	finalizeQuoteErr           error
-	quotePDFResult             moduledeals.QuotePDFFile
-	quotePDFErr                error
-	createSignatureResult      moduledeals.Detail
-	createSignatureErr         error
-	updateSignatureResult      moduledeals.Detail
-	updateSignatureErr         error
-	lastListStagesOrgID        int64
-	lastListOrgID              int64
-	lastListQuery              moduledeals.ListQuery
-	lastGetOrgID               int64
-	lastGetDealID              int64
-	lastCreateOrgID            int64
-	lastCreateActorID          int64
-	lastCreateInput            moduledeals.CreateInput
-	lastUpdateOrgID            int64
-	lastUpdateDealID           int64
-	lastUpdateActorID          int64
-	lastUpdateInput            moduledeals.UpdateInput
-	lastArchiveOrgID           int64
-	lastArchiveDealID          int64
-	lastArchiveActorID         int64
-	lastUpdateStageOrgID       int64
-	lastUpdateStageDealID      int64
-	lastUpdateStageActorID     int64
-	lastUpdateStageInput       moduledeals.UpdateStageInput
-	lastLineItemsOrgID         int64
-	lastLineItemsDealID        int64
-	lastLineItemsActorID       int64
-	lastLineItemsInput         moduledeals.LineItemsInput
-	lastFinalizeQuoteOrgID     int64
-	lastFinalizeQuoteDealID    int64
-	lastFinalizeQuoteActorID   int64
-	lastFinalizeQuoteInput     moduledeals.FinalizeQuoteInput
-	lastQuotePDFOrgID          int64
-	lastQuotePDFDealID         int64
-	lastQuotePDFQuoteID        int64
-	lastCreateSignatureOrgID   int64
-	lastCreateSignatureDealID  int64
-	lastCreateSignatureActorID int64
-	lastCreateSignatureInput   moduledeals.SignatureRequestInput
-	lastUpdateSignatureOrgID   int64
-	lastUpdateSignatureDealID  int64
-	lastUpdateSignatureID      int64
-	lastUpdateSignatureActorID int64
-	lastUpdateSignatureInput   moduledeals.SignatureStatusInput
-	lastListPipelinesOrgID     int64
-	lastCreatePipelineOrgID    int64
-	lastCreatePipelineActorID  int64
-	lastCreatePipelineInput    moduledeals.PipelineInput
-	lastConfigureOperation     string
-	lastConfigureOrgID         int64
-	lastConfigurePipelineID    int64
-	lastConfigureStageID       int64
-	lastConfigureActorID       int64
-	lastPipelineUpdateInput    moduledeals.PipelineUpdateInput
-	lastStageDefinitionInput   moduledeals.StageDefinitionInput
-	lastStageOrderInput        moduledeals.StageOrderInput
+	listPipelinesResult         []moduledeals.Pipeline
+	listPipelinesErr            error
+	createPipelineResult        moduledeals.Pipeline
+	createPipelineErr           error
+	configurePipelineResult     moduledeals.Pipeline
+	configurePipelineErr        error
+	listStagesResult            []moduledeals.Stage
+	listStagesErr               error
+	listResult                  moduledeals.ListResult
+	listErr                     error
+	getResult                   moduledeals.Detail
+	getErr                      error
+	createResult                moduledeals.Detail
+	createErr                   error
+	updateResult                moduledeals.Detail
+	updateErr                   error
+	archiveErr                  error
+	updateStageResult           moduledeals.Detail
+	updateStageErr              error
+	replaceLineItemsResult      moduledeals.Detail
+	replaceLineItemsErr         error
+	finalizeQuoteResult         moduledeals.QuoteVersion
+	finalizeQuoteErr            error
+	quotePDFResult              moduledeals.QuotePDFFile
+	quotePDFErr                 error
+	replayQuoteDeliveryResult   moduledeals.QuoteDeliveryIntent
+	replayQuoteDeliveryFound    bool
+	replayQuoteDeliveryErr      error
+	prepareQuoteDeliveryResult  moduledeals.QuoteDeliveryIntent
+	prepareQuoteDeliveryErr     error
+	claimQuoteDeliveryResult    moduledeals.QuoteDeliveryIntent
+	claimQuoteDeliverySend      bool
+	claimQuoteDeliveryErr       error
+	completeQuoteDeliveryResult moduledeals.QuoteDelivery
+	completeQuoteDeliveryErr    error
+	failQuoteDeliveryResult     moduledeals.QuoteDelivery
+	failQuoteDeliveryErr        error
+	resolveQuoteDeliveryResult  moduledeals.QuoteDeliveryResolution
+	resolveQuoteDeliveryErr     error
+	publicQuoteResult           moduledeals.PublicQuote
+	publicQuoteErr              error
+	publicQuotePDFResult        moduledeals.QuotePDFFile
+	publicQuotePDFErr           error
+	createSignatureResult       moduledeals.Detail
+	createSignatureErr          error
+	updateSignatureResult       moduledeals.Detail
+	updateSignatureErr          error
+	lastListStagesOrgID         int64
+	lastListOrgID               int64
+	lastListQuery               moduledeals.ListQuery
+	lastGetOrgID                int64
+	lastGetDealID               int64
+	lastCreateOrgID             int64
+	lastCreateActorID           int64
+	lastCreateInput             moduledeals.CreateInput
+	lastUpdateOrgID             int64
+	lastUpdateDealID            int64
+	lastUpdateActorID           int64
+	lastUpdateInput             moduledeals.UpdateInput
+	lastArchiveOrgID            int64
+	lastArchiveDealID           int64
+	lastArchiveActorID          int64
+	lastUpdateStageOrgID        int64
+	lastUpdateStageDealID       int64
+	lastUpdateStageActorID      int64
+	lastUpdateStageInput        moduledeals.UpdateStageInput
+	lastLineItemsOrgID          int64
+	lastLineItemsDealID         int64
+	lastLineItemsActorID        int64
+	lastLineItemsInput          moduledeals.LineItemsInput
+	lastFinalizeQuoteOrgID      int64
+	lastFinalizeQuoteDealID     int64
+	lastFinalizeQuoteActorID    int64
+	lastFinalizeQuoteInput      moduledeals.FinalizeQuoteInput
+	lastQuotePDFOrgID           int64
+	lastQuotePDFDealID          int64
+	lastQuotePDFQuoteID         int64
+	lastCreateSignatureOrgID    int64
+	lastCreateSignatureDealID   int64
+	lastCreateSignatureActorID  int64
+	lastCreateSignatureInput    moduledeals.SignatureRequestInput
+	lastUpdateSignatureOrgID    int64
+	lastUpdateSignatureDealID   int64
+	lastUpdateSignatureID       int64
+	lastUpdateSignatureActorID  int64
+	lastUpdateSignatureInput    moduledeals.SignatureStatusInput
+	lastListPipelinesOrgID      int64
+	lastCreatePipelineOrgID     int64
+	lastCreatePipelineActorID   int64
+	lastCreatePipelineInput     moduledeals.PipelineInput
+	lastConfigureOperation      string
+	lastConfigureOrgID          int64
+	lastConfigurePipelineID     int64
+	lastConfigureStageID        int64
+	lastConfigureActorID        int64
+	lastPipelineUpdateInput     moduledeals.PipelineUpdateInput
+	lastStageDefinitionInput    moduledeals.StageDefinitionInput
+	lastStageOrderInput         moduledeals.StageOrderInput
 }
 
 func (f *fakeDealsService) ListPipelinesByOrganization(_ context.Context, organizationID int64) ([]moduledeals.Pipeline, error) {
@@ -198,6 +218,42 @@ func (f *fakeDealsService) GetQuotePDF(_ context.Context, organizationID, dealID
 	f.lastQuotePDFDealID = dealID
 	f.lastQuotePDFQuoteID = quoteID
 	return f.quotePDFResult, f.quotePDFErr
+}
+
+func (f *fakeDealsService) ReplayQuoteDelivery(_ context.Context, _, _, _, _ int64, _ moduledeals.QuoteDeliveryInput) (moduledeals.QuoteDeliveryIntent, bool, error) {
+	return f.replayQuoteDeliveryResult, f.replayQuoteDeliveryFound, f.replayQuoteDeliveryErr
+}
+
+func (f *fakeDealsService) PrepareQuoteDelivery(_ context.Context, _, _, _, _ int64, _ moduledeals.QuoteDeliveryInput) (moduledeals.QuoteDeliveryIntent, error) {
+	return f.prepareQuoteDeliveryResult, f.prepareQuoteDeliveryErr
+}
+
+func (f *fakeDealsService) ClaimQuoteDelivery(_ context.Context, _, _, _ int64) (moduledeals.QuoteDeliveryIntent, bool, error) {
+	return f.claimQuoteDeliveryResult, f.claimQuoteDeliverySend, f.claimQuoteDeliveryErr
+}
+
+func (f *fakeDealsService) CompleteQuoteDelivery(_ context.Context, _, _ int64, _ moduleuseremail.SendReceipt) (moduledeals.QuoteDelivery, error) {
+	return f.completeQuoteDeliveryResult, f.completeQuoteDeliveryErr
+}
+
+func (f *fakeDealsService) FailQuoteDelivery(_ context.Context, _, _ int64, _ error, _ bool) (moduledeals.QuoteDelivery, error) {
+	return f.failQuoteDeliveryResult, f.failQuoteDeliveryErr
+}
+
+func (f *fakeDealsService) ResolveQuoteDelivery(_ context.Context, _, _, _ int64, _ string) (moduledeals.QuoteDeliveryResolution, error) {
+	return f.resolveQuoteDeliveryResult, f.resolveQuoteDeliveryErr
+}
+
+func (f *fakeDealsService) GetPublicQuote(_ context.Context, _ string) (moduledeals.PublicQuote, error) {
+	return f.publicQuoteResult, f.publicQuoteErr
+}
+
+func (f *fakeDealsService) GetPublicQuotePDF(_ context.Context, _ string) (moduledeals.QuotePDFFile, error) {
+	return f.publicQuotePDFResult, f.publicQuotePDFErr
+}
+
+func (f *fakeDealsService) ConfirmPublicQuoteReceipt(_ context.Context, _ string) (moduledeals.PublicQuote, error) {
+	return f.publicQuoteResult, f.publicQuoteErr
 }
 
 func (f *fakeDealsService) CreateSignatureRequest(_ context.Context, organizationID, dealID, actorUserID int64, input moduledeals.SignatureRequestInput) (moduledeals.Detail, error) {
@@ -604,6 +660,178 @@ func TestFinalizeDealQuoteRejectsMissingKeyAndIdempotencyConflict(t *testing.T) 
 	authenticatedDealsServer(&fakeDealsService{quotePDFErr: moduledeals.ErrNotFound}).ServeHTTP(notFoundRecorder, notFoundRequest)
 	if notFoundRecorder.Code != http.StatusNotFound {
 		t.Fatalf("missing finalized quote status=%d body=%s", notFoundRecorder.Code, notFoundRecorder.Body.String())
+	}
+}
+
+func TestSendDealQuoteUsesDurableIntentAndConnectedMailbox(t *testing.T) {
+	prepared := moduledeals.QuoteDeliveryIntent{
+		Delivery: moduledeals.QuoteDelivery{
+			ID: 91, DealID: 12, QuoteID: 71, ActorUserID: 1, SenderEmail: "owner@acme.test",
+			RecipientEmail: "buyer@example.test", Subject: "Quote Q-12-V2", MessageBody: "Please review this quote.",
+			RFCMessageID: "<quote-91@acme.test>", Status: "prepared",
+		},
+		AccessURL: "https://crm.example.test/quote?token=secure-quote-token",
+	}
+	claimed := prepared
+	claimed.Delivery.Status = "sending"
+	completed := claimed.Delivery
+	completed.Status = "sent"
+	completed.SentAt = "2026-07-21T12:00:00Z"
+	service := &fakeDealsService{
+		prepareQuoteDeliveryResult:  prepared,
+		claimQuoteDeliveryResult:    claimed,
+		claimQuoteDeliverySend:      true,
+		completeQuoteDeliveryResult: completed,
+	}
+	accounts := &fakeUserEmailService{
+		configured: true, account: moduleuseremail.Account{FromEmail: "owner@acme.test"},
+		sendReceipt: moduleuseremail.SendReceipt{RFCMessageID: prepared.Delivery.RFCMessageID, ProviderMessageID: "provider-91"},
+	}
+	suppressions := &fakeEmailSuppressionsService{}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User: moduleauth.User{ID: 1, Email: "owner@acme.test"}, Organization: moduleauth.Organization{ID: 42, Name: "Acme"}, Membership: moduleauth.Membership{Role: "owner"},
+		}},
+		DealsService: service, UserEmailService: accounts, EmailSuppressionsService: suppressions,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/deliveries", strings.NewReader(`{"subject":"Quote Q-12-V2","messageBody":"Please review this quote."}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "quote-delivery-browser-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("send quote status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !accounts.sendCalled || accounts.sendTo != "buyer@example.test" || accounts.sendSubject != "Quote Q-12-V2" || accounts.sendMessageID != prepared.Delivery.RFCMessageID {
+		t.Fatalf("unexpected quote provider message: accounts=%#v", accounts)
+	}
+	if !strings.Contains(accounts.sendBody, prepared.AccessURL) || !strings.Contains(accounts.sendBody, "not a signature or acceptance") {
+		t.Fatalf("quote email omitted secure link/disclaimer: %q", accounts.sendBody)
+	}
+	if !suppressions.isCalled || suppressions.lastOrgID != 42 || suppressions.lastEmail != "buyer@example.test" {
+		t.Fatalf("quote delivery suppression check missing: %#v", suppressions)
+	}
+	if strings.Contains(recorder.Body.String(), "secure-quote-token") {
+		t.Fatalf("authenticated quote response leaked bearer URL: %s", recorder.Body.String())
+	}
+}
+
+func TestSendDealQuotePersistsUncertainProviderOutcome(t *testing.T) {
+	intent := moduledeals.QuoteDeliveryIntent{
+		Delivery:  moduledeals.QuoteDelivery{ID: 92, ActorUserID: 1, SenderEmail: "owner@acme.test", RecipientEmail: "buyer@example.test", Subject: "Quote", MessageBody: "Review", RFCMessageID: "<quote-92@acme.test>", Status: "prepared"},
+		AccessURL: "https://crm.example.test/quote?token=uncertain-token",
+	}
+	claimed := intent
+	claimed.Delivery.Status = "sending"
+	service := &fakeDealsService{
+		prepareQuoteDeliveryResult: intent, claimQuoteDeliveryResult: claimed, claimQuoteDeliverySend: true,
+		failQuoteDeliveryResult: moduledeals.QuoteDelivery{ID: 92, Status: "uncertain", LastError: "Check Sent"},
+	}
+	accounts := &fakeUserEmailService{account: moduleuseremail.Account{FromEmail: "owner@acme.test"}, sendErr: moduleuseremail.ErrOAuthDeliveryUncertain}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService:  &fakeAuthService{currentSessionResult: moduleauth.SessionState{User: moduleauth.User{ID: 1}, Organization: moduleauth.Organization{ID: 42}, Membership: moduleauth.Membership{Role: "member"}}},
+		DealsService: service, UserEmailService: accounts,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/deliveries", strings.NewReader(`{"subject":"Quote","messageBody":"Review"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "quote-delivery-uncertain-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted || !strings.Contains(recorder.Body.String(), `"status":"uncertain"`) {
+		t.Fatalf("uncertain quote delivery status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSendDealQuoteReturnsDurableDefiniteProviderFailure(t *testing.T) {
+	intent := moduledeals.QuoteDeliveryIntent{
+		Delivery:  moduledeals.QuoteDelivery{ID: 93, ActorUserID: 1, SenderEmail: "owner@acme.test", RecipientEmail: "buyer@example.test", Subject: "Quote", MessageBody: "Review", RFCMessageID: "<quote-93@acme.test>", Status: "prepared"},
+		AccessURL: "https://crm.example.test/quote?token=definite-failure-token",
+	}
+	claimed := intent
+	claimed.Delivery.Status = "sending"
+	failed := moduledeals.QuoteDelivery{ID: 93, Status: "failed", LastError: "The connected mailbox could not deliver this quote. Check the mailbox configuration and recipient address before trying again."}
+	service := &fakeDealsService{
+		prepareQuoteDeliveryResult: intent, claimQuoteDeliveryResult: claimed, claimQuoteDeliverySend: true,
+		failQuoteDeliveryResult: failed,
+	}
+	accounts := &fakeUserEmailService{
+		account: moduleuseremail.Account{FromEmail: "owner@acme.test"},
+		sendErr: errors.New("SMTP rejected the recipient"),
+	}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService:  &fakeAuthService{currentSessionResult: moduleauth.SessionState{User: moduleauth.User{ID: 1}, Organization: moduleauth.Organization{ID: 42}, Membership: moduleauth.Membership{Role: "member"}}},
+		DealsService: service, UserEmailService: accounts,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/deliveries", strings.NewReader(`{"subject":"Quote","messageBody":"Review"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "quote-delivery-definite-failure-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"status":"failed"`) || !strings.Contains(recorder.Body.String(), `"lastError":"The connected mailbox could not deliver this quote.`) || strings.Contains(recorder.Body.String(), "SMTP rejected the recipient") {
+		t.Fatalf("definite quote delivery failure status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !accounts.sendCalled {
+		t.Fatal("definite quote delivery failure did not cross the provider boundary")
+	}
+}
+
+func TestSendDealQuoteReturnsDurableSuppressionFailure(t *testing.T) {
+	intent := moduledeals.QuoteDeliveryIntent{
+		Delivery:  moduledeals.QuoteDelivery{ID: 94, ActorUserID: 1, SenderEmail: "owner@acme.test", RecipientEmail: "buyer@example.test", Subject: "Quote", MessageBody: "Review", RFCMessageID: "<quote-94@acme.test>", Status: "prepared"},
+		AccessURL: "https://crm.example.test/quote?token=suppressed-token",
+	}
+	claimed := intent
+	claimed.Delivery.Status = "sending"
+	failed := moduledeals.QuoteDelivery{ID: 94, Status: "failed", LastError: "This recipient is suppressed from email."}
+	service := &fakeDealsService{
+		prepareQuoteDeliveryResult: intent, claimQuoteDeliveryResult: claimed, claimQuoteDeliverySend: true,
+		failQuoteDeliveryResult: failed,
+	}
+	accounts := &fakeUserEmailService{account: moduleuseremail.Account{FromEmail: "owner@acme.test"}}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService:              &fakeAuthService{currentSessionResult: moduleauth.SessionState{User: moduleauth.User{ID: 1}, Organization: moduleauth.Organization{ID: 42}, Membership: moduleauth.Membership{Role: "member"}}},
+		DealsService:             service,
+		UserEmailService:         accounts,
+		EmailSuppressionsService: &fakeEmailSuppressionsService{suppressed: true},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/deliveries", strings.NewReader(`{"subject":"Quote","messageBody":"Review"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "quote-delivery-suppressed-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"status":"failed"`) || !strings.Contains(recorder.Body.String(), `"lastError":"This recipient is suppressed from email."`) {
+		t.Fatalf("suppressed quote delivery status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if accounts.sendCalled {
+		t.Fatal("suppressed quote delivery crossed the provider boundary")
+	}
+}
+
+func TestPublicDealQuotePreviewDownloadAndReceiptAreUnauthenticatedAndPrivate(t *testing.T) {
+	quote := moduledeals.PublicQuote{OrganizationName: "Acme", QuoteNumber: "Q-12-V2", DealName: "Launch", RecipientName: "Avery", Currency: "USD", Total: "308.00", ValidUntil: "2026-08-20", Terms: "Net 30", PDFFilename: "quote.pdf", PDFSHA256: strings.Repeat("a", 64), SentAt: "2026-07-21T12:00:00Z"}
+	service := &fakeDealsService{publicQuoteResult: quote, publicQuotePDFResult: moduledeals.QuotePDFFile{Filename: "quote.pdf", Content: []byte("%PDF-1.4 public"), ContentSHA256: quote.PDFSHA256}}
+	server := NewServer(config.Env{}, Dependencies{DealsService: service})
+
+	preview := httptest.NewRecorder()
+	server.ServeHTTP(preview, httptest.NewRequest(http.MethodGet, "/api/public/quotes/secure-token", nil))
+	if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), quote.QuoteNumber) || preview.Header().Get("Cache-Control") != "private, no-store" || preview.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("public quote preview status=%d headers=%v body=%s", preview.Code, preview.Header(), preview.Body.String())
+	}
+
+	download := httptest.NewRecorder()
+	server.ServeHTTP(download, httptest.NewRequest(http.MethodGet, "/api/public/quotes/secure-token/pdf", nil))
+	if download.Code != http.StatusOK || download.Header().Get("X-Open-CRM-Content-SHA256") != quote.PDFSHA256 || !bytes.Equal(download.Body.Bytes(), service.publicQuotePDFResult.Content) {
+		t.Fatalf("public quote download status=%d headers=%v body=%q", download.Code, download.Header(), download.Body.Bytes())
+	}
+
+	receipt := httptest.NewRecorder()
+	server.ServeHTTP(receipt, httptest.NewRequest(http.MethodPost, "/api/public/quotes/secure-token/receipt", nil))
+	if receipt.Code != http.StatusOK || !strings.Contains(receipt.Body.String(), quote.QuoteNumber) {
+		t.Fatalf("public quote receipt status=%d body=%s", receipt.Code, receipt.Body.String())
 	}
 }
 

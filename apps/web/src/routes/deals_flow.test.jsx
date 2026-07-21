@@ -598,6 +598,29 @@ describe('deals flow', () => {
         return jsonResponse({ data: { quote: quotes[0] } }, { status: 201 })
       }
 
+      if (requestURL.pathname.endsWith('/api/deals/12/quotes/71/deliveries') && method === 'POST') {
+        const input = JSON.parse(options.body)
+        const delivery = {
+          id: 81,
+          dealId: 12,
+          quoteId: 71,
+          actorUserId: 1,
+          senderEmail: 'owner@acme.test',
+          recipientEmail: 'ava@bluebird.example',
+          subject: input.subject,
+          messageBody: input.messageBody,
+          status: 'sent',
+          accessExpiresAt: '2026-09-20T23:59:59Z',
+          sentAt: '2026-07-21T03:05:00Z',
+          accessCount: 0,
+          downloadCount: 0,
+          createdAt: '2026-07-21T03:05:00Z',
+          updatedAt: '2026-07-21T03:05:00Z'
+        }
+        quotes = [{ ...quotes[0], deliveries: [delivery] }]
+        return jsonResponse({ data: { delivery } })
+      }
+
       if (requestURL.pathname.endsWith('/api/deals/12/signature-requests/41') && method === 'PATCH') {
         signatureRequests = signatureRequests.map((request) => ({ ...request, status: 'signed', signedAt: '2026-06-20T21:30:00Z', updatedAt: '2026-06-20T21:30:00Z' }))
         return jsonResponse({
@@ -879,6 +902,22 @@ describe('deals flow', () => {
         method: 'POST',
         body: expect.stringContaining('"terms":"Net 30. Scope changes require approval."'),
         headers: expect.objectContaining({ 'Idempotency-Key': expect.stringMatching(/^quote-/) })
+      }))
+    })
+
+    fireEvent.click(screen.getByText(/deliver this version by email/i))
+    fireEvent.change(screen.getByLabelText(/delivery message for q-12-v1/i), { target: { value: 'Hi Ava, please review this finalized quote.' } })
+    fireEvent.click(screen.getByRole('button', { name: /deliver finalized quote/i }))
+
+    expect(await screen.findByText(/^sent$/i)).toBeInTheDocument()
+    expect(screen.getByText(/link accesses: 0/i)).toBeInTheDocument()
+    expect(screen.getByText(/receipt not confirmed/i)).toBeInTheDocument()
+    expect(screen.getByText(/not a signature or acceptance/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/quotes\/71\/deliveries$/), expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('Hi Ava, please review this finalized quote.'),
+        headers: expect.objectContaining({ 'Idempotency-Key': expect.stringMatching(/^quote-delivery-/) })
       }))
     })
 

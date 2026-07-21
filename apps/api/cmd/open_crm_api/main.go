@@ -173,7 +173,7 @@ func main() {
 			usersService = moduleusers.NewServiceWithCapacity(pool, billingService)
 			contactsService = modulecontacts.NewServiceWithCapacity(pool, billingService)
 			companiesService = modulecompanies.NewService(pool)
-			dealsService = moduledeals.NewServiceWithCapacity(pool, billingService)
+			dealsService = moduledeals.NewServiceWithCapacityAndQuoteDelivery(pool, billingService, env.CredentialEncryptionKey, env.WebBaseURL)
 			tasksService = moduletasks.NewService(pool)
 			taskRemindersService = moduletaskreminders.NewService(pool)
 			exportsService = moduleexports.NewService(pool)
@@ -321,6 +321,9 @@ func main() {
 		go emailMessagesService.RunTrackingRetentionScheduler(ctx, logger, 0, metrics)
 		go emailMessagesService.RunReplyRecoveryScheduler(ctx, logger, 0, metrics)
 	}
+	if dealsService != nil {
+		go dealsService.RunQuoteDeliveryRecoveryScheduler(ctx, logger, 0, metrics)
+	}
 
 	checkReadiness := func(ctx context.Context) error {
 		if dbConfigErr != nil {
@@ -398,6 +401,16 @@ func main() {
 			snapshot.EmailRepliesSending = stats.Sending
 			snapshot.EmailRepliesStaleSending = stats.StaleSending
 			snapshot.EmailRepliesUncertain = stats.Uncertain
+		}
+		if dealsService == nil {
+			snapshot.CollectionSuccess = false
+		} else if stats, err := dealsService.QuoteDeliveryOperationalStats(ctx); err != nil {
+			snapshot.CollectionSuccess = false
+		} else {
+			snapshot.QuoteDeliveriesAvailable = true
+			snapshot.QuoteDeliveriesSending = stats.Sending
+			snapshot.QuoteDeliveriesStaleSending = stats.StaleSending
+			snapshot.QuoteDeliveriesUncertain = stats.Uncertain
 		}
 		snapshot.Backup = platformtelemetry.ReadBackupStatus(env.BackupStatusPath)
 		return snapshot

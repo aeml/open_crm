@@ -237,6 +237,24 @@ type dealQuoteResponse struct {
 	} `json:"meta"`
 }
 
+type dealQuoteDeliveryResponse struct {
+	Data struct {
+		Delivery moduledeals.QuoteDelivery `json:"delivery"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type publicDealQuoteResponse struct {
+	Data struct {
+		Quote moduledeals.PublicQuote `json:"quote"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
 type noteRequest struct {
 	EntityType string `json:"entityType"`
 	EntityID   int64  `json:"entityId"`

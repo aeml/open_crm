@@ -23,6 +23,7 @@ const TeamInboxRoute = lazyRoute(() => import('../routes/team_inbox'), 'TeamInbo
 const LoginRoute = lazyRoute(() => import('../routes/login'), 'LoginRoute')
 const PublicLandingPageRoute = lazyRoute(() => import('../routes/public_landing_page'), 'PublicLandingPageRoute')
 const PublicLeadWidgetRoute = lazyRoute(() => import('../routes/public_lead_widget'), 'PublicLeadWidgetRoute')
+const PublicQuoteRoute = lazyRoute(() => import('../routes/public_quote'), 'PublicQuoteRoute')
 const BootstrapRoute = lazyRoute(() => import('../routes/bootstrap'), 'BootstrapRoute')
 const VerifyEmailRoute = lazyRoute(() => import('../routes/verify_email'), 'VerifyEmailRoute')
 const SetupPasswordRoute = lazyRoute(() => import('../routes/setup_password'), 'SetupPasswordRoute')
@@ -68,6 +69,7 @@ export function AppRouter() {
             <Route path="/login" element={<LoginRoute />} />
             <Route path="/lp/:slug" element={<PublicLandingPageRoute />} />
             <Route path="/widget/:publicId" element={<PublicLeadWidgetRoute />} />
+            <Route path="/quote" element={<PublicQuoteRoute />} />
             <Route path="/bootstrap" element={<BootstrapRoute />} />
             <Route path="/verify-email" element={<VerifyEmailRoute />} />
             <Route path="/setup-password" element={<SetupPasswordRoute />} />

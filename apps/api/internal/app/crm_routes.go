@@ -3,6 +3,24 @@ package app
 import "net/http"
 
 func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimiter rateLimitService) {
+	mux.HandleFunc("GET /api/public/quotes/{token}", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.quote", publicReadRateLimit, publicRateWindow, "Too many quote requests", w, r) {
+			return
+		}
+		handleGetPublicDealQuote(dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("GET /api/public/quotes/{token}/pdf", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.quote-pdf", publicReadRateLimit, publicRateWindow, "Too many quote download requests", w, r) {
+			return
+		}
+		handleDownloadPublicDealQuote(dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("POST /api/public/quotes/{token}/receipt", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.quote-receipt", publicWriteRateLimit, publicRateWindow, "Too many quote receipt requests", w, r) {
+			return
+		}
+		handleConfirmPublicDealQuoteReceipt(dependencies.DealsService, w, r)
+	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
@@ -137,6 +155,12 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 	})
 	mux.HandleFunc("GET /api/deals/{dealID}/quotes/{quoteID}/pdf", func(w http.ResponseWriter, r *http.Request) {
 		handleDownloadFinalizedDealQuotePDF(dependencies.AuthService, dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("POST /api/deals/{dealID}/quotes/{quoteID}/deliveries", func(w http.ResponseWriter, r *http.Request) {
+		handleSendDealQuote(dependencies.AuthService, dependencies.DealsService, dependencies.UserEmailService, dependencies.EmailSuppressionsService, w, r)
+	})
+	mux.HandleFunc("POST /api/deal-quote-deliveries/{deliveryID}/resolve", func(w http.ResponseWriter, r *http.Request) {
+		handleResolveDealQuoteDelivery(dependencies.AuthService, dependencies.DealsService, dependencies.UserEmailService, dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("POST /api/deals", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateDeal(dependencies.AuthService, dependencies.DealsService, dependencies.BillingService, w, r)

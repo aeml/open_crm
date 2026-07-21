@@ -5,6 +5,8 @@ const apiURL = process.env.OPEN_CRM_E2E_API_URL || 'http://127.0.0.1:8081'
 const databaseURL = process.env.OPEN_CRM_E2E_DATABASE_URL
 const reuseExistingServer = process.env.OPEN_CRM_E2E_REUSE_SERVER === 'true'
 const outputDir = process.env.OPEN_CRM_E2E_OUTPUT_DIR || 'test-results'
+const smtpCaptureURL = process.env.OPEN_CRM_E2E_SMTP_CAPTURE_URL || 'http://127.0.0.1:2526'
+const testCredentialKey = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY='
 
 if (!databaseURL) {
   throw new Error('OPEN_CRM_E2E_DATABASE_URL must point to a disposable PostgreSQL database')
@@ -53,7 +55,8 @@ export default defineConfig({
         BILLING_PROVIDER: 'fake',
         EMAIL_PROVIDER: 'fake',
         TELEPHONY_PROVIDER: 'fake',
-        CALENDAR_PROVIDER: 'fake'
+        CALENDAR_PROVIDER: 'fake',
+        CREDENTIAL_ENCRYPTION_KEY: process.env.CREDENTIAL_ENCRYPTION_KEY || testCredentialKey
       }
     },
     {
@@ -65,6 +68,18 @@ export default defineConfig({
       env: {
         ...process.env,
         VITE_API_BASE_URL: apiURL
+      }
+    },
+    {
+      name: 'Open CRM SMTP provider sandbox',
+      command: 'node e2e/support/smtp_capture.mjs',
+      url: `${smtpCaptureURL}/health`,
+      timeout: 30_000,
+      reuseExistingServer,
+      env: {
+        ...process.env,
+        OPEN_CRM_E2E_SMTP_PORT: process.env.OPEN_CRM_E2E_SMTP_PORT || '2525',
+        OPEN_CRM_E2E_SMTP_HTTP_PORT: new URL(smtpCaptureURL).port
       }
     }
   ]

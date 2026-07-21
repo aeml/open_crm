@@ -524,6 +524,52 @@
   background: rgba(192, 57, 43, 0.06);
 }
 
+.quote-version-row {
+  display: grid;
+  align-items: stretch;
+}
+
+.quote-version-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.quote-version-summary > div:last-child {
+  text-align: right;
+}
+
+.quote-delivery-list,
+.quote-delivery-composer {
+  display: grid;
+  gap: var(--space-2);
+  text-align: left;
+}
+
+.quote-delivery-composer summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-weight: 800;
+}
+
+.quote-delivery-composer .auth-form {
+  margin-top: var(--space-3);
+}
+
+.quote-delivery-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+}
+
+.quote-delivery-alert {
+  border-color: #c0392b;
+  background: rgba(192, 57, 43, 0.06);
+}
+
 .chip {
   display: inline-block;
   padding: 0.35rem 0.65rem;

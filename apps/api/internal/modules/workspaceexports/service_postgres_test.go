@@ -100,6 +100,25 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	`, organizationID, quoteID); err != nil {
 		t.Fatalf("seed portable finalized quote line: %v", err)
 	}
+	var quoteDealID int64
+	if err := pool.QueryRow(ctx, `SELECT deal_id FROM deal_quotes WHERE organization_id=$1 AND id=$2`, organizationID, quoteID).Scan(&quoteDealID); err != nil {
+		t.Fatalf("load portable quote deal: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO deal_quote_deliveries (
+			organization_id,deal_id,quote_id,actor_user_id,sender_email,recipient_email,subject,message_body,
+			rfc_message_id,access_token_digest,access_expires_at,idempotency_key_hash,request_sha256,status,
+			claimed_at,finalized_at,sent_at,first_accessed_at,last_accessed_at,access_count,
+			first_downloaded_at,last_downloaded_at,download_count,receipt_confirmed_at
+		) VALUES (
+			$1,$2,$3,$4,'owner@portable.test','morgan@portable.test','Portable finalized quote','Please review the portable quote.',
+			'<portable-quote@crm.example.test>',repeat('d',64),NOW()+INTERVAL '30 days',repeat('e',64),repeat('f',64),'sent',
+			NOW()-INTERVAL '1 hour',NOW()-INTERVAL '1 hour',NOW()-INTERVAL '1 hour',NOW()-INTERVAL '30 minutes',NOW()-INTERVAL '10 minutes',2,
+			NOW()-INTERVAL '5 minutes',NOW()-INTERVAL '5 minutes',1,NOW()
+		)
+	`, organizationID, quoteDealID, quoteID, ownerID); err != nil {
+		t.Fatalf("seed portable quote delivery evidence: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO email_messages (organization_id,to_email,subject,body,status,visibility,rfc_message_id,in_reply_to,reference_message_ids) VALUES
 			($1,'shared@portable.test','Shared customer thread','Shared body','sent','shared','<shared@crm.example.test>','<prior@buyer.test>',ARRAY['<older@buyer.test>']),
@@ -172,7 +191,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("generate workspace export: summary=%#v err=%v", summary, err)
 	}
 	history, err := service.List(ctx, organizationID)
-	if err != nil || len(history) != 4 || history[0].ID != requested.ID || history[0].Status != "ready" || history[0].ContentSHA256 == "" || history[0].ByteSize <= 0 || history[0].DatasetCounts["contacts"] != 1 || history[0].DatasetCounts["deal_quotes"] != 1 || history[0].DatasetCounts["deal_quote_line_items"] != 1 || history[0].DatasetCounts["email_messages_shared"] != 1 {
+	if err != nil || len(history) != 4 || history[0].ID != requested.ID || history[0].Status != "ready" || history[0].ContentSHA256 == "" || history[0].ByteSize <= 0 || history[0].DatasetCounts["contacts"] != 1 || history[0].DatasetCounts["deal_quotes"] != 1 || history[0].DatasetCounts["deal_quote_line_items"] != 1 || history[0].DatasetCounts["deal_quote_deliveries"] != 1 || history[0].DatasetCounts["email_messages_shared"] != 1 {
 		t.Fatalf("unexpected workspace export history: history=%#v err=%v", history, err)
 	}
 	var retainedReady, cappedExpired int
@@ -200,6 +219,15 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	if !strings.Contains(string(files["data/deal_quote_line_items.ndjson"]), "Portable service") {
 		t.Fatalf("portable finalized quote line missing: %s", files["data/deal_quote_line_items.ndjson"])
 	}
+	portableDeliveries := string(files["data/deal_quote_deliveries.ndjson"])
+	if !strings.Contains(portableDeliveries, "Portable finalized quote") || !strings.Contains(portableDeliveries, `"status": "sent"`) || !strings.Contains(portableDeliveries, `"access_count": 2`) || !strings.Contains(portableDeliveries, `"download_count": 1`) || !strings.Contains(portableDeliveries, "receipt_confirmed_at") {
+		t.Fatalf("portable quote delivery evidence missing: %s", portableDeliveries)
+	}
+	for _, secret := range []string{"access_token_digest", "idempotency_key_hash", "request_sha256", "rfc_message_id", "provider_message_id", "provider_thread_id", strings.Repeat("d", 64), strings.Repeat("e", 64), strings.Repeat("f", 64), "portable-quote@crm.example.test"} {
+		if strings.Contains(portableDeliveries, secret) {
+			t.Fatalf("workspace export leaked quote delivery correlation %q: %s", secret, portableDeliveries)
+		}
+	}
 	sharedMessages := string(files["data/email_messages_shared.ndjson"])
 	if !strings.Contains(sharedMessages, "Shared customer thread") || strings.Contains(sharedMessages, "Private mailbox thread") || strings.Contains(sharedMessages, "tracking_token") || strings.Contains(sharedMessages, "rfc_message_id") || strings.Contains(sharedMessages, "in_reply_to") || strings.Contains(sharedMessages, "reference_message_ids") || strings.Contains(sharedMessages, "delivery_feedback_email_message_id") {
 		t.Fatalf("workspace email privacy boundary failed: %s", sharedMessages)
@@ -218,7 +246,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		}
 	}
 	var manifestValue manifest
-	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 {
+	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 1 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 {
 		t.Fatalf("unexpected workspace export manifest: manifest=%#v err=%v", manifestValue, err)
 	}
 	var downloadAudits int

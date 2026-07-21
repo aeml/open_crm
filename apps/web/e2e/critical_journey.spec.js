@@ -1,6 +1,10 @@
+import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
 const apiURL = process.env.OPEN_CRM_E2E_API_URL || 'http://127.0.0.1:8081'
+const smtpCaptureURL = process.env.OPEN_CRM_E2E_SMTP_CAPTURE_URL || 'http://127.0.0.1:2526'
+const smtpHost = process.env.OPEN_CRM_E2E_SMTP_HOST || 'localhost'
+const smtpPort = process.env.OPEN_CRM_E2E_SMTP_PORT || '2525'
 
 // This journey plus the accessibility scan intentionally consume the exact
 // three-request public signup budget. Retrying would exceed that production
@@ -42,9 +46,23 @@ async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
 
 test('pilot lead-to-client journey persists data and isolates tenants', async ({ browser, page }) => {
   const runID = uniqueRunID()
+  const resetSMTP = await page.request.delete(`${smtpCaptureURL}/messages`)
+  expect(resetSMTP.status()).toBe(200)
   const owner = await bootstrapWorkspace(page, runID)
   const invitedEmail = `jamie-${runID}@example.test`
   const invitedPassword = 'Jamie-Pilot-Secure-29!'
+
+  await page.getByRole('link', { name: 'My Email', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'My email connection' })).toBeVisible()
+  await page.getByLabel('From email').fill(owner.email)
+  await page.getByLabel('From name').fill('Pilot Owner')
+  await page.getByLabel('SMTP host').fill(smtpHost)
+  await page.getByLabel('SMTP port').fill(smtpPort)
+  await page.getByLabel('SMTP username').fill(owner.email)
+  await page.getByLabel('SMTP password').fill(`smtp-sandbox-${runID}`)
+  await page.getByRole('checkbox', { name: 'Use TLS / STARTTLS' }).uncheck()
+  await page.getByRole('button', { name: 'Save connection' }).click()
+  await expect(page.getByText('Email account saved. Emails you send to contacts will come from your address.')).toBeVisible()
 
   await page.getByRole('link', { name: 'My Profile', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Preferences' })).toBeVisible()
@@ -314,6 +332,56 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   expect(finalizedQuoteResponse.headers()['content-type']).toContain('application/pdf')
   expect(finalizedQuoteResponse.headers()['x-open-crm-content-sha256']).toMatch(/^[a-f0-9]{64}$/)
   expect((await finalizedQuoteResponse.body()).toString()).toContain('Immutable finalized quote.')
+  const finalizedQuoteRow = page.getByRole('list', { name: 'Finalized deal quotes' }).getByRole('listitem').filter({ hasText: `Q-${configuredDealID}-V1` })
+  await finalizedQuoteRow.getByText('Deliver this version by email', { exact: true }).click()
+  await finalizedQuoteRow.getByRole('button', { name: 'Deliver finalized quote' }).click()
+  await expect(finalizedQuoteRow.getByText('Sent', { exact: true })).toBeVisible()
+  await expect(finalizedQuoteRow.getByText('Link accesses: 0', { exact: true })).toBeVisible()
+  await expect(finalizedQuoteRow.getByText('PDF downloads: 0', { exact: true })).toBeVisible()
+  await expect.poll(async () => {
+    const response = await page.request.get(`${smtpCaptureURL}/messages`)
+    const payload = await response.json()
+    return payload.messages.filter((message) => message.data.includes(`Subject: Finalized quote Q-${configuredDealID}-V1`)).length
+  }).toBe(1)
+  const smtpMessagesResponse = await page.request.get(`${smtpCaptureURL}/messages`)
+  const smtpMessages = (await smtpMessagesResponse.json()).messages
+  const quoteMessage = smtpMessages.find((message) => message.data.includes(`Subject: Finalized quote Q-${configuredDealID}-V1`))
+  expect(quoteMessage.envelopeTo).toContain(`avery-${runID}@example.test`)
+  expect(quoteMessage.data).toContain('Confirming receipt only acknowledges delivery. It is not a signature or acceptance of the quote.')
+  expect(quoteMessage.data).toMatch(/Message-ID: <[^>]+>/)
+  const publicQuoteURL = quoteMessage.data.match(/https?:\/\/[^\s]+\/quote\?token=[A-Za-z0-9_-]+/)?.[0]
+  expect(publicQuoteURL).toBeTruthy()
+  const publicQuoteToken = new URL(publicQuoteURL).searchParams.get('token')
+
+  const customerContext = await browser.newContext()
+  const customerPage = await customerContext.newPage()
+  await customerPage.goto(publicQuoteURL)
+  await expect(customerPage.getByRole('heading', { name: `Q-${configuredDealID}-V1` })).toBeVisible()
+  await expect(customerPage.getByText('Receipt is not acceptance.', { exact: false })).toBeVisible()
+  const publicQuoteAccessibility = await new AxeBuilder({ page: customerPage })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-public-finalized-quote', {
+    body: JSON.stringify({ url: customerPage.url(), violations: publicQuoteAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(publicQuoteAccessibility.violations, 'public finalized quote must have no automated WCAG A/AA violations').toEqual([])
+  const publicQuotePDF = await customerContext.request.get(`${apiURL}/api/public/quotes/${encodeURIComponent(publicQuoteToken)}/pdf`)
+  expect(publicQuotePDF.status()).toBe(200)
+  expect(publicQuotePDF.headers()['content-type']).toContain('application/pdf')
+  expect(publicQuotePDF.headers()['x-open-crm-content-sha256']).toBe(finalizedQuoteResponse.headers()['x-open-crm-content-sha256'])
+  await customerPage.getByRole('button', { name: 'Confirm receipt' }).click()
+  await expect(customerPage.getByText('Receipt confirmed', { exact: false })).toBeVisible()
+  await customerContext.close()
+
+  const invalidPublicQuote = await page.request.get(`${apiURL}/api/public/quotes/not-a-valid-token`)
+  expect(invalidPublicQuote.status()).toBe(404)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: `Website renewal ${runID}` })).toBeVisible()
+  const deliveredQuoteRow = page.getByRole('list', { name: 'Finalized deal quotes' }).getByRole('listitem').filter({ hasText: `Q-${configuredDealID}-V1` })
+  await expect(deliveredQuoteRow.getByText(/Link accesses: [1-9]\d*/)).toBeVisible()
+  await expect(deliveredQuoteRow.getByText('PDF downloads: 1', { exact: true })).toBeVisible()
+  await expect(deliveredQuoteRow.getByText(/^Receipt confirmed \d/)).toBeVisible()
   await page.getByLabel('Recipient name', { exact: true }).fill('Avery Buyer')
   await page.getByLabel('Recipient email', { exact: true }).fill(`avery-${runID}@example.test`)
   await page.getByRole('button', { name: 'Create proposal tracking' }).click()

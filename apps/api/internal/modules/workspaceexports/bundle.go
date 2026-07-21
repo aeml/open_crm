@@ -117,6 +117,7 @@ func (s *Service) buildBundle(ctx context.Context, organizationID int64) (bundle
 			"background-job locks, idempotency payloads, workspace bootstrap receipts, and prior export artifacts",
 			"email messages marked private and their entity/link metadata",
 			"connected-mailbox delivery-feedback correlation ledgers",
+			"quote access tokens, idempotency hashes, and mailbox-provider correlation identifiers",
 		},
 		ExternalFiles: "Open CRM currently stores recording and invoice references, not uploaded attachment bodies. Referenced external files are not embedded in this bundle.",
 	}
@@ -374,6 +375,18 @@ func buildPortableDatasets() []dataset {
 		{name: "deal_quotes", query: `
 			SELECT to_jsonb(q) - ARRAY['idempotency_key_hash','request_sha256']::text[]
 			FROM deal_quotes q WHERE organization_id=$1 ORDER BY id`},
+		{name: "deal_quote_deliveries", query: `
+			SELECT jsonb_build_object(
+				'id',id,'organization_id',organization_id,'deal_id',deal_id,'quote_id',quote_id,
+				'actor_user_id',actor_user_id,'sender_email',sender_email,'recipient_email',recipient_email,
+				'subject',subject,'message_body',message_body,'status',status,
+				'outbound_email_message_id',outbound_email_message_id,'last_error',last_error,
+				'access_expires_at',access_expires_at,'claimed_at',claimed_at,'finalized_at',finalized_at,'sent_at',sent_at,
+				'first_accessed_at',first_accessed_at,'last_accessed_at',last_accessed_at,'access_count',access_count,
+				'first_downloaded_at',first_downloaded_at,'last_downloaded_at',last_downloaded_at,'download_count',download_count,
+				'receipt_confirmed_at',receipt_confirmed_at,'created_at',created_at,'updated_at',updated_at
+			)
+			FROM deal_quote_deliveries WHERE organization_id=$1 ORDER BY id`},
 		{name: "email_messages_shared", query: `
 			SELECT to_jsonb(m) - ARRAY['tracking_token','provider_message_id','provider_thread_id','rfc_message_id','in_reply_to','reference_message_ids','delivery_feedback_email_message_id']::text[]
 			FROM email_messages m WHERE organization_id=$1 AND visibility='shared' ORDER BY id`},
@@ -440,6 +453,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"organization_memberships",
 		"billing_invoices",
 		"deal_quotes",
+		"deal_quote_deliveries",
 		"email_messages",
 		"email_message_entity_links",
 		"email_reply_requests",

@@ -24,6 +24,13 @@ var (
 	ErrInvalidLineItems         = errors.New("invalid deal line items")
 	ErrInvalidQuote             = errors.New("invalid deal quote")
 	ErrQuoteIdempotencyConflict = errors.New("deal quote idempotency key was used for another request")
+	ErrQuoteDeliveryInvalid     = errors.New("invalid deal quote delivery")
+	ErrQuoteDeliveryConflict    = errors.New("deal quote delivery idempotency key was used for another request")
+	ErrQuoteDeliveryState       = errors.New("deal quote delivery is not in the required state")
+	ErrQuoteDeliveryForbidden   = errors.New("deal quote delivery forbidden")
+	ErrQuoteDeliveryUnavailable = errors.New("deal quote delivery is not configured")
+	ErrQuoteAccessInvalid       = errors.New("invalid deal quote access token")
+	ErrQuoteAccessExpired       = errors.New("deal quote access token expired")
 	ErrInvalidSignatureRequest  = errors.New("invalid deal signature request")
 	ErrInvalidDealFilter        = errors.New("invalid deal filter")
 	ErrInvalidCloseReview       = errors.New("invalid deal close review")
@@ -232,16 +239,31 @@ type UpdateStageInput struct {
 }
 
 type Service struct {
-	pool     *pgxpool.Pool
-	capacity modulebilling.CapacityManager
+	pool                  *pgxpool.Pool
+	capacity              modulebilling.CapacityManager
+	quoteDeliveryTokenKey []byte
+	quoteWebBaseURL       string
+	now                   func() time.Time
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+	return &Service{pool: pool, now: time.Now}
 }
 
 func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityManager) *Service {
-	return &Service{pool: pool, capacity: capacity}
+	return &Service{pool: pool, capacity: capacity, now: time.Now}
+}
+
+func NewServiceWithCapacityAndQuoteDelivery(pool *pgxpool.Pool, capacity modulebilling.CapacityManager, tokenSecret, webBaseURL string) *Service {
+	service := NewServiceWithCapacity(pool, capacity)
+	service.configureQuoteDelivery(tokenSecret, webBaseURL)
+	return service
+}
+
+func NewServiceWithQuoteDelivery(pool *pgxpool.Pool, tokenSecret, webBaseURL string) *Service {
+	service := NewService(pool)
+	service.configureQuoteDelivery(tokenSecret, webBaseURL)
+	return service
 }
 
 func (s *Service) ListPipelinesByOrganization(ctx context.Context, organizationID int64) ([]Pipeline, error) {

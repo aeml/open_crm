@@ -39,6 +39,7 @@ export function DealWorkspace({
         <DealLineItemsCard
           canWrite={canWrite}
           deal={deal}
+		  deliveringQuoteId={commercial.deliveringQuoteId}
           form={commercial.lineItemForm}
           isSaving={commercial.isSnapshotPending}
           items={commercial.lineItems}
@@ -59,9 +60,12 @@ export function DealWorkspace({
           isFinalizing={commercial.isFinalizingQuote}
           isSnapshotPending={commercial.isSnapshotPending}
           lineItems={commercial.lineItems}
+		  onDeliver={commercial.handleDeliverQuote}
           onFinalize={commercial.handleFinalizeQuote}
           onSetForm={commercial.setQuoteForm}
+		  onResolveDelivery={commercial.handleResolveQuoteDelivery}
           quotes={commercial.quotes}
+		  resolvingDeliveryId={commercial.resolvingDeliveryId}
         />
         <DealSignatureCard
           canWrite={canWrite}

@@ -20,25 +20,26 @@ const (
 )
 
 type QuoteVersion struct {
-	ID                int64  `json:"id"`
-	Version           int    `json:"version"`
-	QuoteNumber       string `json:"quoteNumber"`
-	Status            string `json:"status"`
-	RecipientName     string `json:"recipientName"`
-	RecipientEmail    string `json:"recipientEmail"`
-	Currency          string `json:"currency"`
-	Subtotal          string `json:"subtotal"`
-	DiscountTotal     string `json:"discountTotal"`
-	TaxTotal          string `json:"taxTotal"`
-	Total             string `json:"total"`
-	ValidUntil        string `json:"validUntil"`
-	Terms             string `json:"terms"`
-	PDFFilename       string `json:"pdfFilename"`
-	PDFSHA256         string `json:"pdfSha256"`
-	PDFByteSize       int64  `json:"pdfByteSize"`
-	CreatedByUserID   int64  `json:"createdByUserId"`
-	CreatedByUserName string `json:"createdByUserName"`
-	CreatedAt         string `json:"createdAt"`
+	ID                int64           `json:"id"`
+	Version           int             `json:"version"`
+	QuoteNumber       string          `json:"quoteNumber"`
+	Status            string          `json:"status"`
+	RecipientName     string          `json:"recipientName"`
+	RecipientEmail    string          `json:"recipientEmail"`
+	Currency          string          `json:"currency"`
+	Subtotal          string          `json:"subtotal"`
+	DiscountTotal     string          `json:"discountTotal"`
+	TaxTotal          string          `json:"taxTotal"`
+	Total             string          `json:"total"`
+	ValidUntil        string          `json:"validUntil"`
+	Terms             string          `json:"terms"`
+	PDFFilename       string          `json:"pdfFilename"`
+	PDFSHA256         string          `json:"pdfSha256"`
+	PDFByteSize       int64           `json:"pdfByteSize"`
+	CreatedByUserID   int64           `json:"createdByUserId"`
+	CreatedByUserName string          `json:"createdByUserName"`
+	CreatedAt         string          `json:"createdAt"`
+	Deliveries        []QuoteDelivery `json:"deliveries"`
 }
 
 type FinalizeQuoteInput struct {
@@ -211,6 +212,20 @@ func (s *Service) listQuoteVersions(ctx context.Context, organizationID, dealID 
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate finalized deal quotes: %w", err)
+	}
+	deliveries, err := s.listQuoteDeliveries(ctx, organizationID, dealID)
+	if err != nil {
+		return nil, err
+	}
+	byQuote := make(map[int64][]QuoteDelivery, len(quotes))
+	for _, delivery := range deliveries {
+		byQuote[delivery.QuoteID] = append(byQuote[delivery.QuoteID], delivery)
+	}
+	for index := range quotes {
+		quotes[index].Deliveries = byQuote[quotes[index].ID]
+		if quotes[index].Deliveries == nil {
+			quotes[index].Deliveries = []QuoteDelivery{}
+		}
 	}
 	return quotes, nil
 }

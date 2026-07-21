@@ -196,6 +196,56 @@
   box-shadow: var(--shadow);
 }
 
+.public-quote-panel {
+  width: min(100%, 56rem);
+}
+
+.public-quote-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.public-quote-header h1 {
+  margin: 0;
+}
+
+.public-quote-total {
+  color: var(--accent-strong);
+  font-size: clamp(1.5rem, 5vw, 2.4rem);
+}
+
+.public-quote-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.public-quote-facts div {
+  min-width: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.public-quote-facts dt {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.public-quote-facts dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.public-quote-terms {
+  white-space: pre-wrap;
+}
+
 .chat-widget-page {
   min-height: 100vh;
   display: grid;
@@ -316,7 +366,8 @@
 
   .dashboard-grid,
   .hero-grid,
-  .landing-page-grid {
+  .landing-page-grid,
+  .public-quote-facts {
     grid-template-columns: 1fr;
   }
 

@@ -49,6 +49,30 @@ func TestMigrationFilesIncludeVersionedDealQuotes(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeDealQuoteDeliveries(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "094_deal_quote_deliveries.sql") {
+		t.Fatal("expected deal quote deliveries migration to be registered")
+	}
+	sql := MigrationSQL("094_deal_quote_deliveries.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"deal_quote_deliveries",
+		"deal_quote_deliveries_email_fk",
+		"access_token_digest",
+		"receipt_confirmed_at",
+		"deal_quote_deliveries_send_state_check",
+		"idx_deal_quote_deliveries_stale_sending",
+		"idx_deal_quote_deliveries_one_unresolved_quote",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("deal quote deliveries migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("094_deal_quote_deliveries.sql"); class != "expand" {
+		t.Fatalf("deal quote deliveries deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeBackgroundJobs(t *testing.T) {
 	sql := MigrationSQL("056_background_jobs.sql")
 	if sql == "" {

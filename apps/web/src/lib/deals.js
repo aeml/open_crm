@@ -92,6 +92,36 @@ export async function finalizeDealQuote(dealID, input, idempotencyKey, { signal 
   return payload?.data?.quote
 }
 
+export async function deliverDealQuote(dealID, quoteID, input, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest(`/api/deals/${dealID}/quotes/${quoteID}/deliveries`, {
+    method: 'POST',
+    body: input,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    fallbackMessage: 'Unable to deliver quote.',
+    signal
+  })
+  return payload?.data?.delivery
+}
+
+export async function resolveDealQuoteDelivery(deliveryID, resolution, { signal } = {}) {
+  const payload = await apiRequest(`/api/deal-quote-deliveries/${deliveryID}/resolve`, {
+    method: 'POST', body: { resolution }, fallbackMessage: 'Unable to resolve quote delivery.', signal
+  })
+  return payload?.data?.delivery
+}
+
+export async function getPublicDealQuote(token, { signal } = {}) {
+  const payload = await apiRequest(`/api/public/quotes/${encodeURIComponent(token)}`, { fallbackMessage: 'Unable to load quote.', signal })
+  return payload?.data?.quote
+}
+
+export async function confirmPublicDealQuoteReceipt(token, { signal } = {}) {
+  const payload = await apiRequest(`/api/public/quotes/${encodeURIComponent(token)}/receipt`, {
+    method: 'POST', fallbackMessage: 'Unable to confirm quote receipt.', signal
+  })
+  return payload?.data?.quote
+}
+
 export async function createDealSignatureRequest(dealID, input, { signal } = {}) {
   const payload = await apiRequest(`/api/deals/${dealID}/signature-requests`, { method: 'POST', body: input, fallbackMessage: 'Unable to create proposal tracking.', signal })
 
@@ -140,4 +170,8 @@ export function quotePDFURL(dealID) {
 
 export function quoteVersionPDFURL(dealID, quoteID) {
   return apiURL(`/api/deals/${dealID}/quotes/${quoteID}/pdf`)
+}
+
+export function publicQuotePDFURL(token) {
+  return apiURL(`/api/public/quotes/${encodeURIComponent(token)}/pdf`)
 }

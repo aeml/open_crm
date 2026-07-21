@@ -406,6 +406,19 @@ func stopDisabledUserEffects(ctx context.Context, tx pgx.Tx, organizationID, use
 		return fmt.Errorf("disable user mailbox sync: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
+		UPDATE deal_quote_deliveries
+		SET status = CASE status WHEN 'sending' THEN 'uncertain' ELSE 'failed' END,
+		    last_error = CASE status
+		      WHEN 'sending' THEN 'The sender was disabled while the mailbox provider outcome may be unknown.'
+		      ELSE 'The sender was disabled before quote delivery.'
+		    END,
+		    finalized_at = NOW(), updated_at = NOW()
+		WHERE organization_id = $1 AND actor_user_id = $2
+		  AND status IN ('prepared', 'sending')
+	`, organizationID, userID); err != nil {
+		return fmt.Errorf("quiesce disabled user quote deliveries: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE background_jobs
 		SET status = 'succeeded', result_json = '{"status":"skipped","reason":"member_disabled"}'::jsonb,
 		    completed_at = NOW(), updated_at = NOW(), last_error = ''

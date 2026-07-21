@@ -54,26 +54,30 @@ type rateLimitKey struct {
 // Collector stores process-local counters. Durable queue gauges and backup
 // timestamps are supplied at scrape time through RuntimeSnapshot.
 type Collector struct {
-	mu                           sync.RWMutex
-	startedAt                    time.Time
-	requests                     map[requestKey]uint64
-	durations                    map[durationKey]*durationSeries
-	providerCalls                map[providerKey]uint64
-	providerSeconds              map[providerKey]float64
-	jobOutcomes                  map[jobKey]uint64
-	rateLimits                   map[rateLimitKey]uint64
-	retentionRuns                map[string]uint64
-	retentionRows                map[string]uint64
-	retentionLastAt              time.Time
-	retentionLastOK              bool
-	emailTrackingRetentionRuns   map[string]uint64
-	emailTrackingRetentionPurged uint64
-	emailTrackingRetentionLastAt time.Time
-	emailTrackingRetentionLastOK bool
-	emailReplyRecoveryRuns       map[string]uint64
-	emailReplyRecoveryRecovered  uint64
-	emailReplyRecoveryLastAt     time.Time
-	emailReplyRecoveryLastOK     bool
+	mu                             sync.RWMutex
+	startedAt                      time.Time
+	requests                       map[requestKey]uint64
+	durations                      map[durationKey]*durationSeries
+	providerCalls                  map[providerKey]uint64
+	providerSeconds                map[providerKey]float64
+	jobOutcomes                    map[jobKey]uint64
+	rateLimits                     map[rateLimitKey]uint64
+	retentionRuns                  map[string]uint64
+	retentionRows                  map[string]uint64
+	retentionLastAt                time.Time
+	retentionLastOK                bool
+	emailTrackingRetentionRuns     map[string]uint64
+	emailTrackingRetentionPurged   uint64
+	emailTrackingRetentionLastAt   time.Time
+	emailTrackingRetentionLastOK   bool
+	emailReplyRecoveryRuns         map[string]uint64
+	emailReplyRecoveryRecovered    uint64
+	emailReplyRecoveryLastAt       time.Time
+	emailReplyRecoveryLastOK       bool
+	quoteDeliveryRecoveryRuns      map[string]uint64
+	quoteDeliveryRecoveryRecovered uint64
+	quoteDeliveryRecoveryLastAt    time.Time
+	quoteDeliveryRecoveryLastOK    bool
 }
 
 func NewCollector() *Collector {
@@ -89,6 +93,7 @@ func NewCollector() *Collector {
 		retentionRows:              make(map[string]uint64),
 		emailTrackingRetentionRuns: make(map[string]uint64),
 		emailReplyRecoveryRuns:     make(map[string]uint64),
+		quoteDeliveryRecoveryRuns:  make(map[string]uint64),
 	}
 }
 
@@ -198,6 +203,10 @@ type RuntimeSnapshot struct {
 	EmailRepliesSending            int64
 	EmailRepliesStaleSending       int64
 	EmailRepliesUncertain          int64
+	QuoteDeliveriesAvailable       bool
+	QuoteDeliveriesSending         int64
+	QuoteDeliveriesStaleSending    int64
+	QuoteDeliveriesUncertain       int64
 	Backup                         BackupStatus
 }
 
@@ -256,6 +265,10 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	emailReplyRecoveryRecovered := c.emailReplyRecoveryRecovered
 	emailReplyRecoveryLastAt := c.emailReplyRecoveryLastAt
 	emailReplyRecoveryLastOK := c.emailReplyRecoveryLastOK
+	quoteDeliveryRecoveryRuns := copyMap(c.quoteDeliveryRecoveryRuns)
+	quoteDeliveryRecoveryRecovered := c.quoteDeliveryRecoveryRecovered
+	quoteDeliveryRecoveryLastAt := c.quoteDeliveryRecoveryLastAt
+	quoteDeliveryRecoveryLastOK := c.quoteDeliveryRecoveryLastOK
 	startedAt := c.startedAt
 	c.mu.RUnlock()
 
@@ -335,6 +348,10 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	writeEmailReplyMetrics(&output, snapshot, emailReplyRecoverySnapshot{
 		Runs: emailReplyRecoveryRuns, Recovered: emailReplyRecoveryRecovered,
 		LastRunAt: emailReplyRecoveryLastAt, LastRunOK: emailReplyRecoveryLastOK,
+	})
+	writeQuoteDeliveryMetrics(&output, snapshot, quoteDeliveryRecoverySnapshot{
+		Runs: quoteDeliveryRecoveryRuns, Recovered: quoteDeliveryRecoveryRecovered,
+		LastRunAt: quoteDeliveryRecoveryLastAt, LastRunOK: quoteDeliveryRecoveryLastOK,
 	})
 	writeHelpType(&output, "open_crm_password_resets_available", "Whether aggregate password-reset health was collected successfully.", "gauge")
 	writeBool(&output, "open_crm_password_resets_available", snapshot.PasswordResetsAvailable)

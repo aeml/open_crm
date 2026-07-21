@@ -2,6 +2,7 @@ package users_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -168,6 +169,45 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	`, organizationID, activeContactID, memberID); err != nil {
 		t.Fatalf("create lifecycle follower subscription: %v", err)
 	}
+	quoteService := moduledeals.NewServiceWithQuoteDelivery(
+		pool,
+		base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")),
+		"https://crm.example.test",
+	)
+	if _, err := quoteService.ReplaceLineItems(ctx, organizationID, ownedDealID, memberID, moduledeals.LineItemsInput{Items: []moduledeals.LineItemInput{{
+		Name: "Lifecycle service", ItemType: "service", Quantity: "1", UnitName: "project", UnitPrice: "100", Currency: "USD", Position: 1,
+	}}}); err != nil {
+		t.Fatalf("create lifecycle quote line item: %v", err)
+	}
+	quoteOne, err := quoteService.FinalizeQuote(ctx, organizationID, ownedDealID, memberID, moduledeals.FinalizeQuoteInput{
+		RecipientName: "Lifecycle Buyer", RecipientEmail: "buyer@example.test", ValidUntil: time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.DateOnly),
+		Terms: "Net 30", IdempotencyKey: "lifecycle-quote-finalize-0001",
+	})
+	if err != nil {
+		t.Fatalf("finalize first lifecycle quote: %v", err)
+	}
+	quoteTwo, err := quoteService.FinalizeQuote(ctx, organizationID, ownedDealID, memberID, moduledeals.FinalizeQuoteInput{
+		RecipientName: "Lifecycle Buyer", RecipientEmail: "buyer@example.test", ValidUntil: time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.DateOnly),
+		Terms: "Net 30", IdempotencyKey: "lifecycle-quote-finalize-0002",
+	})
+	if err != nil {
+		t.Fatalf("finalize second lifecycle quote: %v", err)
+	}
+	preparedQuoteDelivery, err := quoteService.PrepareQuoteDelivery(ctx, organizationID, ownedDealID, quoteOne.ID, memberID, moduledeals.QuoteDeliveryInput{
+		SenderEmail: "member@example.test", Subject: "Prepared lifecycle quote", MessageBody: "Please review the quote.", IdempotencyKey: "lifecycle-quote-delivery-0001",
+	})
+	if err != nil {
+		t.Fatalf("prepare lifecycle quote delivery: %v", err)
+	}
+	sendingQuoteDelivery, err := quoteService.PrepareQuoteDelivery(ctx, organizationID, ownedDealID, quoteTwo.ID, memberID, moduledeals.QuoteDeliveryInput{
+		SenderEmail: "member@example.test", Subject: "Sending lifecycle quote", MessageBody: "Please review the quote.", IdempotencyKey: "lifecycle-quote-delivery-0002",
+	})
+	if err != nil {
+		t.Fatalf("prepare in-flight lifecycle quote delivery: %v", err)
+	}
+	if _, shouldSend, err := quoteService.ClaimQuoteDelivery(ctx, organizationID, sendingQuoteDelivery.Delivery.ID, memberID); err != nil || !shouldSend {
+		t.Fatalf("claim in-flight lifecycle quote delivery: send=%t err=%v", shouldSend, err)
+	}
 
 	service := moduleusers.NewService(pool)
 	if _, err := service.SetStatus(ctx, organizationID, memberID, memberID, moduleusers.SetStatusInput{Status: "disabled"}); !errors.Is(err, moduleusers.ErrCannotChangeOwnStatus) {
@@ -294,6 +334,16 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	}
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id = $1 AND entity_id = $2 AND event_type = 'user.disabled'`, organizationID, memberID).Scan(&disabledAuditEvents); err != nil || disabledAuditEvents != 1 {
 		t.Fatalf("expected transactional disable audit, count=%d err=%v", disabledAuditEvents, err)
+	}
+	var preparedStatus, preparedError, sendingStatus, sendingError string
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM deal_quote_deliveries WHERE organization_id=$1 AND id=$2`, organizationID, preparedQuoteDelivery.Delivery.ID).Scan(&preparedStatus, &preparedError); err != nil || preparedStatus != "failed" || preparedError != "The sender was disabled before quote delivery." {
+		t.Fatalf("expected prepared quote delivery quiesced, status=%q error=%q err=%v", preparedStatus, preparedError, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM deal_quote_deliveries WHERE organization_id=$1 AND id=$2`, organizationID, sendingQuoteDelivery.Delivery.ID).Scan(&sendingStatus, &sendingError); err != nil || sendingStatus != "uncertain" || sendingError != "The sender was disabled while the mailbox provider outcome may be unknown." {
+		t.Fatalf("expected in-flight quote delivery quarantined, status=%q error=%q err=%v", sendingStatus, sendingError, err)
+	}
+	if _, shouldSend, err := quoteService.ClaimQuoteDelivery(ctx, organizationID, preparedQuoteDelivery.Delivery.ID, memberID); !errors.Is(err, moduledeals.ErrQuoteDeliveryForbidden) || shouldSend {
+		t.Fatalf("disabled member reclaimed quote delivery: send=%t err=%v", shouldSend, err)
 	}
 	authService := moduleauth.NewService(pool)
 	if _, err := authService.CurrentSession(ctx, memberSessionToken); !errors.Is(err, moduleauth.ErrUnauthorized) {

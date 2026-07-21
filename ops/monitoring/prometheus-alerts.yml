@@ -281,6 +281,42 @@ groups:
           summary: Connected-mailbox replies require explicit operator resolution
           runbook: docs/operations-runbook.md#connected-mailbox-reply-recovery
 
+      - alert: OpenCRMQuoteDeliveryMetricsUnavailable
+        expr: open_crm_quote_deliveries_available != 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM cannot read durable finalized-quote delivery health
+          runbook: docs/operations-runbook.md#finalized-quote-delivery-and-receipt-recovery
+
+      - alert: OpenCRMQuoteDeliveryRecoveryErrors
+        expr: open_crm_quote_delivery_recovery_last_run_timestamp_seconds > 0 and open_crm_quote_delivery_recovery_last_run_success == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM interrupted quote-delivery recovery is failing
+          runbook: docs/operations-runbook.md#finalized-quote-delivery-and-receipt-recovery
+
+      - alert: OpenCRMQuoteDeliveryRecoveryStale
+        expr: open_crm_database_up == 1 and (open_crm_quote_delivery_recovery_last_run_timestamp_seconds == 0 or time() - open_crm_quote_delivery_recovery_last_run_timestamp_seconds > 300)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM quote-delivery recovery has not completed for five minutes
+          runbook: docs/operations-runbook.md#finalized-quote-delivery-and-receipt-recovery
+
+      - alert: OpenCRMQuoteDeliveriesNeedResolution
+        expr: open_crm_quote_delivery_uncertain > 0 or open_crm_quote_delivery_stale_sending > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Finalized-quote deliveries require explicit operator resolution
+          runbook: docs/operations-runbook.md#finalized-quote-delivery-and-receipt-recovery
+
       - alert: OpenCRMBackupStatusUnavailable
         expr: open_crm_backup_status_available == 0
         for: 30m

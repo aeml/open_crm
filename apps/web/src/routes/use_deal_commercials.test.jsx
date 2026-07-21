@@ -1,13 +1,15 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createDealSignatureRequest, finalizeDealQuote, replaceDealLineItems } from '../lib/deals'
+import { createDealSignatureRequest, deliverDealQuote, finalizeDealQuote, replaceDealLineItems, resolveDealQuoteDelivery } from '../lib/deals'
 import { useDealCommercials } from './use_deal_commercials'
 import { useDealSelection } from './use_deal_selection'
 
 vi.mock('../lib/deals', () => ({
   createDealSignatureRequest: vi.fn(),
+	deliverDealQuote: vi.fn(),
   finalizeDealQuote: vi.fn(),
   replaceDealLineItems: vi.fn(),
+	resolveDealQuoteDelivery: vi.fn(),
   updateDealSignatureRequestStatus: vi.fn()
 }))
 
@@ -88,4 +90,38 @@ describe('useDealCommercials', () => {
     expect(onError).toHaveBeenCalledWith('Unable to create proposal tracking.')
     await waitFor(() => expect(result.current.commercials.isCreatingSignatureRequest).toBe(false))
   })
+
+	it('reuses uncertain delivery keys and rotates them after terminal resolution', async () => {
+		const quote = { id: 71, quoteNumber: 'Q-11-V1', deliveries: [] }
+		const uncertain = { id: 81, quoteId: 71, status: 'uncertain', accessCount: 0, downloadCount: 0, lastError: 'Check Sent' }
+		const failed = { ...uncertain, status: 'failed', lastError: 'Confirmed not sent' }
+		const sent = { id: 82, quoteId: 71, status: 'sent', accessCount: 0, downloadCount: 0 }
+		deliverDealQuote.mockRejectedValueOnce(new Error('Network failed')).mockResolvedValueOnce(uncertain).mockResolvedValueOnce(sent)
+		resolveDealQuoteDelivery.mockResolvedValue(failed)
+		const onError = vi.fn()
+		const { result } = renderHook(() => {
+			const selection = useDealSelection(11)
+			return useDealCommercials({ selectedDealId: 11, selection, onDealUpdated: vi.fn(), onError })
+		})
+
+		act(() => result.current.load({ deal: { id: 11 }, quotes: [quote] }))
+		const input = { subject: 'Finalized quote', messageBody: 'Please review.' }
+		await act(async () => result.current.handleDeliverQuote(quote, input))
+		await act(async () => result.current.handleDeliverQuote(quote, input))
+
+		expect(deliverDealQuote).toHaveBeenCalledTimes(2)
+		expect(deliverDealQuote.mock.calls[0][3]).toBe(deliverDealQuote.mock.calls[1][3])
+		const uncertainKey = deliverDealQuote.mock.calls[1][3]
+		expect(result.current.quotes[0].deliveries).toEqual([uncertain])
+
+		await act(async () => result.current.handleResolveQuoteDelivery(71, 81, 'not_sent'))
+		expect(resolveDealQuoteDelivery).toHaveBeenCalledWith(81, 'not_sent')
+		expect(result.current.quotes[0].deliveries[0]).toEqual(failed)
+
+		await act(async () => result.current.handleDeliverQuote(quote, input))
+		expect(deliverDealQuote).toHaveBeenCalledTimes(3)
+		expect(deliverDealQuote.mock.calls[2][3]).not.toBe(uncertainKey)
+		expect(result.current.quotes[0].deliveries).toEqual([sent, failed])
+		expect(onError).toHaveBeenLastCalledWith('')
+	})
 })
