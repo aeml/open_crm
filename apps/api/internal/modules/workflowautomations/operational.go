@@ -24,7 +24,8 @@ func (s *Service) OperationalStats(ctx context.Context) (OperationalStats, error
 		SELECT
 			COUNT(*) FILTER (WHERE status='queued'),
 			COUNT(*) FILTER (WHERE status='running'),
-			COALESCE(EXTRACT(EPOCH FROM NOW()-MIN(created_at))::bigint,0)
+			COALESCE(EXTRACT(EPOCH FROM NOW()-MIN(COALESCE(scheduled_at,created_at))
+				FILTER (WHERE COALESCE(scheduled_at,created_at) <= NOW()))::bigint,0)
 		FROM workflow_automation_runs
 		WHERE status IN ('queued','running')
 	`).Scan(&stats.Queued, &stats.Running, &stats.OldestActiveAge); err != nil {

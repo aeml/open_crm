@@ -1745,3 +1745,32 @@ func TestMigrationFilesIncludeNotificationRetentionMigration(t *testing.T) {
 		t.Fatalf("notification retention migration class=%q", class)
 	}
 }
+
+func TestMigrationFilesIncludeWorkflowRunOperationsMigrations(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		fragments []string
+	}{
+		{
+			name:      "101_workflow_run_operations.sql",
+			fragments: []string{"-- open-crm-deploy: expand", "idx_workflow_automation_runs_active_created", "idx_workflow_automation_runs_terminal_recent", "lock_timeout", "statement_timeout"},
+		},
+		{
+			name:      "102_workflow_run_scheduling.sql",
+			fragments: []string{"-- open-crm-deploy: expand", "scheduled_at", "workflow_automation_runs_scheduled_at_present", "idx_workflow_automation_runs_active_scheduled", "lock_timeout", "statement_timeout"},
+		},
+	} {
+		if !slices.Contains(MigrationFiles(), testCase.name) {
+			t.Fatalf("workflow run migration %s is missing", testCase.name)
+		}
+		sql := MigrationSQL(testCase.name)
+		for _, fragment := range testCase.fragments {
+			if !strings.Contains(sql, fragment) {
+				t.Fatalf("workflow run migration %s missing %q", testCase.name, fragment)
+			}
+		}
+		if class := MigrationDeploymentClass(testCase.name); class != "expand" {
+			t.Fatalf("workflow run migration %s class=%q", testCase.name, class)
+		}
+	}
+}

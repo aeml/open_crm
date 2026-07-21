@@ -177,14 +177,17 @@ func CaptureLeadFormSubmitted(ctx context.Context, tx pgx.Tx, event LeadFormSubm
 		}
 
 		var runID int64
+		var scheduledAt time.Time
+		executionDelayMinutes := leadFollowUpExecutionMinutes(snapshot.Action)
 		err = tx.QueryRow(ctx, `
 			INSERT INTO workflow_automation_runs (
 				organization_id,automation_id,automation_name,trigger_type,target_entity_type,
-				target_entity_id,trigger_event_key,status,trigger_payload_json,actions_total
-			) VALUES ($1,$2,$3,'form_submitted','lead_form',$4,$5,'queued',$6::jsonb,1)
+				target_entity_id,trigger_event_key,status,trigger_payload_json,actions_total,scheduled_at
+			) VALUES ($1,$2,$3,'form_submitted','lead_form',$4,$5,'queued',$6::jsonb,1,
+			          NOW()+($7 * INTERVAL '1 minute'))
 			ON CONFLICT (organization_id,automation_id,trigger_event_key) DO NOTHING
-			RETURNING id
-		`, event.OrganizationID, definition.id, definition.name, event.FormID, leadFollowUpEventKey(event.SubmissionID), string(payloadJSON)).Scan(&runID)
+			RETURNING id,scheduled_at
+		`, event.OrganizationID, definition.id, definition.name, event.FormID, leadFollowUpEventKey(event.SubmissionID), string(payloadJSON), executionDelayMinutes).Scan(&runID, &scheduledAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
@@ -193,9 +196,9 @@ func CaptureLeadFormSubmitted(ctx context.Context, tx pgx.Tx, event LeadFormSubm
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO background_jobs (organization_id,job_type,idempotency_key,payload_json,max_attempts,run_at)
-			VALUES ($1,$2,$3,jsonb_build_object('runId',($4::bigint)::text),$5,NOW())
+			VALUES ($1,$2,$3,jsonb_build_object('runId',($4::bigint)::text),$5,$6)
 			ON CONFLICT (organization_id,job_type,idempotency_key) DO NOTHING
-		`, event.OrganizationID, LeadFollowUpJobType, leadFollowUpJobKey(runID), runID, leadFollowUpMaxAttempts); err != nil {
+		`, event.OrganizationID, LeadFollowUpJobType, leadFollowUpJobKey(runID), runID, leadFollowUpMaxAttempts, scheduledAt); err != nil {
 			return fmt.Errorf("enqueue lead follow-up workflow: %w", err)
 		}
 	}
@@ -298,7 +301,8 @@ func (s *Service) HandleLeadFollowUpJob(ctx context.Context, job modulejobs.Job)
 
 	title, _ := stringConfig(payload.Definition.Action.Config, "title")
 	description, _ := stringConfig(payload.Definition.Action.Config, "description")
-	dueAt := time.Now().UTC().Add(time.Duration(payload.Definition.Action.DelayMinutes) * time.Minute)
+	dueMinutes, _ := leadFollowUpDueMinutes(payload.Definition.Action)
+	dueAt := time.Now().UTC().Add(time.Duration(dueMinutes) * time.Minute)
 	var taskID int64
 	var reminderVersion int
 	if err := tx.QueryRow(ctx, `

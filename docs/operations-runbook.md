@@ -932,13 +932,17 @@ bytes, tokens, or counters with ad hoc SQL.
    Automations**. A rule chooses one exact active lead form (or every active
    form), zero or one attribution condition (`leadSource`, `utmSource`,
    `utmMedium`, `utmCampaign`, or `sourceUrl`), one exact active teammate, a
-   literal task title/description, and a 0–365 whole-day due offset. Other
+   literal task title/description, a 0–365 whole-day creation delay, and a
+   separate 0–365-day due offset measured from task creation. Other
    target/action/timing/approval shapes remain hidden and do not execute.
 2. An accepted public submission snapshots the exact authorized definition and
    enqueues one `workflow.lead_follow_up` job in the same transaction as its
    contact, activity, submission, consent evidence, and challenge consumption.
-   Editing the rule afterward cannot change queued work. Deactivating it stops
-   queued work deliberately; it does not remove tasks already committed.
+   The run's immutable `scheduled_at` and job `run_at` are identical. Editing
+   the rule afterward cannot change queued work. Deactivating it stops queued
+   work deliberately; it does not remove tasks already committed. Rules created
+   before scheduling support remain immediate and retain their original due
+   offset until an admin edits them.
 3. The worker rehydrates the retained submission, form, and contact; rechecks
    tenant ownership, rule activation, the optional condition, and active
    assignee membership; and commits the task, due/overdue reminder state,
@@ -947,7 +951,9 @@ bytes, tokens, or counters with ad hoc SQL.
    Managed hosted suspension uses the ordinary durable billing deferral and
    preserves attempts; self-hosted workspaces are never subject to that policy.
 4. Inspect **Recent task automation runs** and **Settings > Operations** before
-   escalating. `queued` or `running` should be transient. `succeeded` names the
+   escalating. A future `queued` run is healthy until its displayed schedule;
+   the browser waits until that boundary instead of polling every second.
+   Once due, `queued` or `running` should be transient. `succeeded` names the
    created task. `skipped` means the captured condition did not match or the
    retained contact/source was no longer eligible. `cancelled` means
    an operator deactivated the rule before execution. `failed` is terminal and
@@ -957,7 +963,8 @@ bytes, tokens, or counters with ad hoc SQL.
 5. Queue claims and task creation are replay-safe. If a worker loses its
    acknowledgement after commit, the repeated job returns the same task from
    the terminal run instead of creating another. Use the normal dead-letter
-   replay control only after fixing a transient dependency. Do not rewrite
+   replay control only after fixing a transient dependency, and never replay a
+   healthy job before its planned time. Do not rewrite
    `background_jobs`, `workflow_automation_runs`, tasks, activities, or audit
    rows with manual SQL.
 6. Monitor `open_crm_workflow_runs{status="queued"}`,
@@ -965,8 +972,9 @@ bytes, tokens, or counters with ad hoc SQL.
    `open_crm_workflow_runs_failed_24h`,
    `open_crm_workflow_runs_skipped_24h`, and
    `open_crm_workflow_oldest_active_age_seconds`. The
-   `OpenCRMWorkflowRunStalled` alert indicates an active run older than the
-   normal recovery window; correlate its run and durable job before replay.
+   metric excludes future schedules. `OpenCRMWorkflowRunStalled` indicates a
+   due active run older than the normal recovery window; correlate its retained
+   schedule and durable job before replay.
    `OpenCRMWorkflowRunFailed` indicates terminal failures that require an
    operator review even when the queue itself is healthy.
 

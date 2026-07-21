@@ -193,6 +193,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByLabel('Assign task to').selectOption({ label: 'Pilot Owner' })
   await page.getByLabel('Task title').fill(leadFollowUpTaskTitle)
   await page.getByLabel('Task description').fill('Review the retained public request and make first contact.')
+  await page.getByLabel('Create task after days').fill('0')
   await page.getByLabel('Due in days', { exact: false }).fill('1')
   await page.getByRole('button', { name: 'Create task rule' }).click()
   await expect(page.getByRole('heading', { name: leadFollowUpRuleName })).toBeVisible()

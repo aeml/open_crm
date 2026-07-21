@@ -313,7 +313,93 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM tasks WHERE organization_id=$1 AND entity_type='contact' AND entity_id=$2`, organizationID, inactiveAssigneeContactID).Scan(&inactiveAssigneeTasks); err != nil || inactiveAssigneeTasks != 0 {
 		t.Fatalf("inactive-assignee workflow created a task: count=%d err=%v", inactiveAssigneeTasks, err)
 	}
+
+	// New-format rules separate the durable execution delay from the task due
+	// offset. Future work is not claimable and does not look stalled before its
+	// immutable schedule; forcing the clock boundary then creates a task whose due
+	// time is measured from actual execution.
+	if _, err := pool.Exec(ctx, `UPDATE organization_memberships SET membership_status='active' WHERE organization_id=$1 AND user_id=$2`, organizationID, assigneeUserID); err != nil {
+		t.Fatalf("reactivate lead workflow assignee for scheduling: %v", err)
+	}
+	ruleInput.IsActive = &inactive
+	if _, err := automations.Update(ctx, organizationID, rule.ID, adminUserID, ruleInput); err != nil {
+		t.Fatalf("deactivate immediate lead rule before scheduling test: %v", err)
+	}
+	scheduledInput := moduleworkflowautomations.Input{
+		Name:             "Scheduled partner lead follow-up",
+		Description:      "Wait one day, then create a task due two days later.",
+		TriggerType:      "form_submitted",
+		TargetEntityType: "lead_form",
+		TriggerConfig:    map[string]any{"formId": formID},
+		ConditionLogic:   "all",
+		Conditions:       []moduleworkflowautomations.Condition{{Field: "utmSource", Operator: "equals", Value: "partner"}},
+		Actions: []moduleworkflowautomations.Action{{
+			Type: "create_task",
+			Config: map[string]any{
+				"title":            "Review scheduled partner lead",
+				"assignedToUserId": assigneeUserID,
+				"dueDays":          2,
+			},
+			DelayMinutes: 1440,
+		}},
+		IsActive: &active,
+	}
+	scheduledRule, err := automations.Create(ctx, organizationID, adminUserID, scheduledInput)
+	if err != nil {
+		t.Fatalf("create scheduled lead follow-up rule: %v", err)
+	}
+	_, scheduledContactID := captureLeadWorkflowSubmission(t, ctx, pool, organizationID, formID, formPublicID, adminUserID, "partner")
+	var scheduledRunID int64
+	var scheduledAt, jobRunAt time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT run.id,run.scheduled_at,job.run_at
+		FROM workflow_automation_runs run
+		JOIN background_jobs job
+		  ON job.organization_id=run.organization_id
+		 AND job.job_type=$3
+		 AND job.idempotency_key='workflow-run:'||run.id::text
+		WHERE run.organization_id=$1 AND run.automation_id=$2
+		ORDER BY run.id DESC LIMIT 1
+	`, organizationID, scheduledRule.ID, moduleworkflowautomations.LeadFollowUpJobType).Scan(&scheduledRunID, &scheduledAt, &jobRunAt); err != nil {
+		t.Fatalf("load scheduled lead workflow evidence: %v", err)
+	}
+	if scheduledAt.Before(time.Now().UTC().Add(23*time.Hour)) || scheduledAt.After(time.Now().UTC().Add(25*time.Hour)) || !scheduledAt.Equal(jobRunAt) {
+		t.Fatalf("unexpected retained lead workflow schedule: run=%s job=%s", scheduledAt, jobRunAt)
+	}
+	claimed, err = queue.Claim(ctx, "lead-workflow-worker", []string{moduleworkflowautomations.LeadFollowUpJobType}, 1, time.Minute)
+	if err != nil || len(claimed) != 0 {
+		t.Fatalf("future lead workflow was claimable: jobs=%#v err=%v", claimed, err)
+	}
 	stats, err := automations.OperationalStats(ctx)
+	if err != nil || stats.Queued != 1 || stats.Running != 0 || stats.OldestActiveAge != 0 {
+		t.Fatalf("future lead workflow looked stalled: stats=%#v err=%v", stats, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE workflow_automation_runs SET scheduled_at=NOW() WHERE organization_id=$1 AND id=$2`, organizationID, scheduledRunID); err != nil {
+		t.Fatalf("advance scheduled lead workflow run clock: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE background_jobs SET run_at=NOW() WHERE organization_id=$1 AND job_type=$2 AND idempotency_key=$3`, organizationID, moduleworkflowautomations.LeadFollowUpJobType, "workflow-run:"+strconv.FormatInt(scheduledRunID, 10)); err != nil {
+		t.Fatalf("advance scheduled lead workflow job clock: %v", err)
+	}
+	claimed, err = queue.Claim(ctx, "lead-workflow-worker", []string{moduleworkflowautomations.LeadFollowUpJobType}, 1, time.Minute)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim due scheduled lead workflow job: jobs=%#v err=%v", claimed, err)
+	}
+	result, err = automations.HandleLeadFollowUpJob(ctx, claimed[0])
+	if err != nil || result["status"] != "succeeded" {
+		t.Fatalf("execute scheduled lead workflow: result=%#v err=%v", result, err)
+	}
+	if _, err := queue.Complete(ctx, claimed[0], result); err != nil {
+		t.Fatalf("complete scheduled lead workflow job: %v", err)
+	}
+	var scheduledTaskDueAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT due_at FROM tasks WHERE organization_id=$1 AND entity_type='contact' AND entity_id=$2 AND title='Review scheduled partner lead'`, organizationID, scheduledContactID).Scan(&scheduledTaskDueAt); err != nil {
+		t.Fatalf("load scheduled lead task: %v", err)
+	}
+	if scheduledTaskDueAt.Before(time.Now().UTC().Add(47 * time.Hour)) {
+		t.Fatalf("scheduled lead task due offset was not measured from execution: due=%s", scheduledTaskDueAt)
+	}
+
+	stats, err = automations.OperationalStats(ctx)
 	if err != nil || stats.Queued != 0 || stats.Running != 0 || stats.FailedLast24h != 1 || stats.SkippedLast24h != 1 || stats.OldestActiveAge != 0 {
 		t.Fatalf("unexpected workflow operational stats: stats=%#v err=%v", stats, err)
 	}

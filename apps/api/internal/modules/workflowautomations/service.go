@@ -67,6 +67,7 @@ type Run struct {
 	ActionsCompleted int            `json:"actionsCompleted"`
 	RetryCount       int            `json:"retryCount"`
 	LastError        string         `json:"lastError"`
+	ScheduledAt      string         `json:"scheduledAt"`
 	StartedAt        string         `json:"startedAt"`
 	CompletedAt      string         `json:"completedAt"`
 	CreatedAt        string         `json:"createdAt"`
@@ -393,7 +394,7 @@ const automationSelect = `
 	FROM workflow_automations
 `
 
-const runReturningColumns = `id, automation_id, automation_name, trigger_type, target_entity_type, COALESCE(target_entity_id, 0), trigger_event_key, status, trigger_payload_json, condition_result, actions_total, actions_completed, retry_count, last_error, COALESCE(TO_CHAR(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), COALESCE(TO_CHAR(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
+const runReturningColumns = `id, automation_id, automation_name, trigger_type, target_entity_type, COALESCE(target_entity_id, 0), trigger_event_key, status, trigger_payload_json, condition_result, actions_total, actions_completed, retry_count, last_error, TO_CHAR(COALESCE(scheduled_at,created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), COALESCE(TO_CHAR(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), COALESCE(TO_CHAR(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
 
 const runSelect = `
 	SELECT ` + runReturningColumns + `
@@ -475,6 +476,7 @@ func scanRun(scanner automationScanner) (Run, error) {
 		&run.ActionsCompleted,
 		&run.RetryCount,
 		&run.LastError,
+		&run.ScheduledAt,
 		&run.StartedAt,
 		&run.CompletedAt,
 		&run.CreatedAt,

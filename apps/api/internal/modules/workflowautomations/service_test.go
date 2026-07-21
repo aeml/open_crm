@@ -146,6 +146,30 @@ func TestPlannedActionTimeAppliesDelayAndSchedule(t *testing.T) {
 	}
 }
 
+func TestLeadFollowUpTimingSeparatesNewSchedulesFromLegacyDueOffsets(t *testing.T) {
+	legacy := Action{Type: "create_task", Config: map[string]any{"title": "Call lead", "assignedToUserId": 7}, DelayMinutes: 1440}
+	if execution := leadFollowUpExecutionMinutes(legacy); execution != 0 {
+		t.Fatalf("expected legacy rule to remain immediate, got %d minutes", execution)
+	}
+	if due, valid := leadFollowUpDueMinutes(legacy); !valid || due != 1440 {
+		t.Fatalf("expected legacy delay to remain the due offset, got due=%d valid=%t", due, valid)
+	}
+
+	scheduled := Action{Type: "create_task", Config: map[string]any{"title": "Call lead", "assignedToUserId": 7, "dueDays": 2}, DelayMinutes: 1440}
+	if execution := leadFollowUpExecutionMinutes(scheduled); execution != 1440 {
+		t.Fatalf("expected new rule execution delay, got %d minutes", execution)
+	}
+	if due, valid := leadFollowUpDueMinutes(scheduled); !valid || due != 2880 {
+		t.Fatalf("expected new rule due offset from creation, got due=%d valid=%t", due, valid)
+	}
+	for _, invalid := range []any{-1, 366, 1.5, "not-a-day"} {
+		scheduled.Config["dueDays"] = invalid
+		if _, valid := leadFollowUpDueMinutes(scheduled); valid {
+			t.Fatalf("expected invalid dueDays %#v to fail closed", invalid)
+		}
+	}
+}
+
 func TestNormalizeRunInputDefaultsStatusAndPayload(t *testing.T) {
 	matched := true
 	input := normalizeRunInput(RunInput{

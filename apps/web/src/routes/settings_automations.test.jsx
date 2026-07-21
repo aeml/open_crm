@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AppRouter } from '../app/router'
+import { activeRunRefreshDelay } from '../lib/workflow_automation_polling'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -13,6 +14,15 @@ function sessionResponse() {
 }
 
 describe('settings task automations route', () => {
+  it('polls due work promptly without hot-polling future scheduled runs', () => {
+    const now = Date.parse('2026-07-21T12:00:00Z')
+    expect(activeRunRefreshDelay([{ status: 'succeeded' }], now)).toBeNull()
+    expect(activeRunRefreshDelay([{ status: 'running' }], now)).toBe(1000)
+    expect(activeRunRefreshDelay([{ status: 'queued' }], now)).toBe(1000)
+    expect(activeRunRefreshDelay([{ status: 'queued', scheduledAt: '2026-07-21T12:00:02.500Z' }], now)).toBe(2500)
+    expect(activeRunRefreshDelay([{ status: 'queued', scheduledAt: '2026-07-22T12:00:00Z' }], now)).toBe(60000)
+  })
+
   it('hides non-executable foundations and creates a bounded stage task rule', async () => {
     const createdRule = {
       id: 8,
@@ -55,7 +65,7 @@ describe('settings task automations route', () => {
     expect(await screen.findByRole('heading', { name: 'Qualify new deals' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Legacy email action' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Unsupported multi-condition lead rule' })).not.toBeInTheDocument()
-    expect(screen.getByText(/2 stored legacy workflow definitions are hidden/i)).toBeInTheDocument()
+    expect(screen.getByText(/2 unsupported stored definitions hidden/i)).toBeInTheDocument()
     expect(screen.getByRole('list', { name: 'Task automation runs' })).toHaveTextContent('1/1 tasks created')
 
     fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Proposal follow-up' } })
@@ -94,7 +104,7 @@ describe('settings task automations route', () => {
       triggerConfig: { formId: 31 },
       conditionLogic: 'all',
       conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }],
-      actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7 }, delayMinutes: 1440 }],
+      actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7, dueDays: 1 }, delayMinutes: 2880 }],
       isActive: true,
       position: 0
     }
@@ -118,8 +128,10 @@ describe('settings task automations route', () => {
     render(<AppRouter />)
 
     await screen.findByRole('heading', { name: /task automation rules/i })
+    await screen.findByText('No executable task rules yet.')
     fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Partner lead follow-up' } })
     fireEvent.change(screen.getByLabelText('When'), { target: { value: 'lead_form_submitted' } })
+    fireEvent.change(await screen.findByLabelText('Create task after days', { exact: false }), { target: { value: '2' } })
     fireEvent.change(screen.getByRole('combobox', { name: /^Lead form/ }), { target: { value: '31' } })
     fireEvent.change(screen.getByLabelText('Optional attribution condition'), { target: { value: 'utmSource' } })
     fireEvent.change(screen.getByLabelText('Condition value'), { target: { value: 'partner' } })
@@ -138,13 +150,14 @@ describe('settings task automations route', () => {
         triggerConfig: { formId: 31 },
         conditionLogic: 'all',
         conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }],
-        actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7 }, delayMinutes: 1440 }],
+        actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7, dueDays: 1 }, delayMinutes: 2880 }],
         isActive: true,
         position: 0
       })
     })
     expect(await screen.findByRole('heading', { name: 'Partner lead follow-up' })).toBeInTheDocument()
     expect(screen.getByText('When Partner inquiry is submitted')).toBeInTheDocument()
+    expect(screen.getByText(/create after 2 days · due 1 day later/i)).toBeInTheDocument()
     expect(screen.getByText(/assign to Riley Chen/i)).toBeInTheDocument()
   })
 
@@ -157,7 +170,7 @@ describe('settings task automations route', () => {
       triggerConfig: { formId: 31 },
       conditionLogic: 'all',
       conditions: [],
-      actions: [{ type: 'create_task', config: { title: 'Call inbound lead', assignedToUserId: 7 }, delayMinutes: 0 }],
+      actions: [{ type: 'create_task', config: { title: 'Call inbound lead', assignedToUserId: 7, dueDays: 0 }, delayMinutes: 0 }],
       isActive: true
     }
     let runReads = 0
@@ -171,7 +184,7 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/workflow-automations')) return jsonResponse({ data: { automations: [rule] } })
       if (path.endsWith('/api/workflow-automation-runs')) {
         runReads += 1
-        return jsonResponse({ data: { runs: [{ id: 44, automationId: 9, automationName: rule.name, status: runReads === 1 ? 'queued' : 'succeeded', actionsTotal: 1, actionsCompleted: runReads === 1 ? 0 : 1, createdAt: '2026-07-21T12:00:00Z' }] } })
+        return jsonResponse({ data: { runs: [{ id: 44, automationId: 9, automationName: rule.name, status: runReads === 1 ? 'queued' : 'succeeded', actionsTotal: 1, actionsCompleted: runReads === 1 ? 0 : 1, scheduledAt: '2026-07-21T12:00:00Z', createdAt: '2026-07-21T12:00:00Z' }] } })
       }
       throw new Error(`Unexpected fetch: ${path}`)
     }))

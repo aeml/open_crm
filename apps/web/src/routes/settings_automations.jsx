@@ -9,6 +9,7 @@ import { listDealPipelines } from '../lib/deals'
 import { listLeadCaptureForms } from '../lib/lead_forms'
 import { listOrganizationUsers } from '../lib/users'
 import { createWorkflowAutomation, listWorkflowAutomationRuns, listWorkflowAutomations, updateWorkflowAutomation } from '../lib/workflow_automations'
+import { activeRunRefreshDelay } from '../lib/workflow_automation_polling'
 import { usePageTitle } from '../lib/use_page_title'
 
 const triggerOptions = [
@@ -19,7 +20,15 @@ const triggerOptions = [
 ]
 
 function emptyForm() {
-  return { name: '', event: 'created', stageId: '', formId: '', conditionField: '', conditionOperator: 'equals', conditionValue: '', assignedToUserId: '', title: '', description: '', dueDays: '1', isActive: true }
+  return { name: '', event: 'created', stageId: '', formId: '', conditionField: '', conditionOperator: 'equals', conditionValue: '', assignedToUserId: '', title: '', description: '', waitDays: '0', dueDays: '1', isActive: true }
+}
+
+function validWholeDays(value) {
+  return Number.isInteger(value) && value >= 0 && value <= 365
+}
+
+function dayCount(value) {
+  return `${value} day${value === 1 ? '' : 's'}`
 }
 
 function eventFromAutomation(automation) {
@@ -32,9 +41,10 @@ function eventFromAutomation(automation) {
 
 function isExecutableTaskRule(automation) {
   const action = automation.actions?.[0]
+  const config = action?.config || {}
   const event = eventFromAutomation(automation)
-  const title = String(action?.config?.title || '')
-  const description = String(action?.config?.description || '')
+  const title = String(config.title || '')
+  const description = String(config.description || '')
   const delayMinutes = Number(action?.delayMinutes || 0)
   const stageID = Number(automation.triggerConfig?.stageId || 0)
   const sharedShape = automation.actions?.length === 1 &&
@@ -46,18 +56,24 @@ function isExecutableTaskRule(automation) {
       (event !== 'stage_changed' || !automation.triggerConfig?.stageId || (Number.isInteger(stageID) && stageID > 0))
   }
   const formID = Number(automation.triggerConfig?.formId || 0)
-  const assigneeID = Number(action?.config?.assignedToUserId || 0)
+  const assigneeID = Number(config.assignedToUserId || 0)
+  const hasDueDays = Object.hasOwn(config, 'dueDays')
+  const dueDays = Number(config.dueDays)
   const allowedFields = new Set(['sourceUrl', 'leadSource', 'utmSource', 'utmMedium', 'utmCampaign'])
   const allowedOperators = new Set(['equals', 'notEquals', 'contains', 'exists'])
   const conditions = automation.conditions || []
   return event === 'lead_form_submitted' && conditions.length <= 1 &&
     (!automation.triggerConfig?.formId || (Number.isInteger(formID) && formID > 0)) &&
     Number.isInteger(assigneeID) && assigneeID > 0 &&
+    Object.keys(config).every((key) => ['title', 'description', 'assignedToUserId', 'dueDays'].includes(key)) &&
+    (!hasDueDays || validWholeDays(dueDays)) &&
     conditions.every((condition) => allowedFields.has(condition.field) && allowedOperators.has(condition.operator) && (condition.operator === 'exists' || Boolean(String(condition.value || '').trim())))
 }
 
 function formFromAutomation(automation) {
   const action = automation.actions[0]
+  const leadFollowUp = eventFromAutomation(automation) === 'lead_form_submitted'
+  const hasDueDays = leadFollowUp && Object.hasOwn(action.config || {}, 'dueDays')
   return {
     name: automation.name || '',
     event: eventFromAutomation(automation),
@@ -69,17 +85,22 @@ function formFromAutomation(automation) {
     assignedToUserId: action.config?.assignedToUserId ? String(action.config.assignedToUserId) : '',
     title: action.config?.title || '',
     description: action.config?.description || '',
-    dueDays: String((action.delayMinutes || 0) / 1440),
+    waitDays: String(hasDueDays ? (action.delayMinutes || 0) / 1440 : 0),
+    dueDays: String(hasDueDays ? action.config.dueDays : (action.delayMinutes || 0) / 1440),
     isActive: automation.isActive === true
   }
 }
 
 function payloadFromForm(form) {
   const dueDays = Number(form.dueDays)
-  if (!Number.isInteger(dueDays) || dueDays < 0 || dueDays > 365) {
+  if (!validWholeDays(dueDays)) {
     throw new Error('Due days must be a whole number from 0 to 365.')
   }
   const leadFollowUp = form.event === 'lead_form_submitted'
+  const waitDays = leadFollowUp ? Number(form.waitDays) : 0
+  if (!validWholeDays(waitDays)) {
+    throw new Error('Create-after days must be a whole number from 0 to 365.')
+  }
   const triggerType = form.event === 'created' ? 'record_created' : form.event === 'stage_changed' ? 'stage_changed' : leadFollowUp ? 'form_submitted' : 'record_updated'
   const triggerConfig = form.event === 'archived'
     ? { event: 'archived' }
@@ -94,6 +115,7 @@ function payloadFromForm(form) {
     const assignedToUserId = Number(form.assignedToUserId)
     if (!Number.isInteger(assignedToUserId) || assignedToUserId <= 0) throw new Error('Choose an active teammate for lead follow-up tasks.')
     config.assignedToUserId = assignedToUserId
+    config.dueDays = dueDays
   }
   const conditions = []
   if (leadFollowUp && form.conditionField) {
@@ -108,7 +130,7 @@ function payloadFromForm(form) {
     triggerConfig,
     conditionLogic: 'all',
     conditions,
-    actions: [{ type: 'create_task', config, delayMinutes: dueDays * 1440 }],
+    actions: [{ type: 'create_task', config, delayMinutes: (leadFollowUp ? waitDays : dueDays) * 1440 }],
     isActive: form.isActive,
     position: 0
   }
@@ -127,12 +149,19 @@ function triggerSummary(automation, stagesById, formsById) {
   return event === 'archived' ? 'When a deal is archived' : 'When a deal is created'
 }
 
-function dueSummary(action) {
+function taskTimingSummary(action, leadFollowUp) {
   const delay = Number(action?.delayMinutes || 0)
+  if (leadFollowUp && Object.hasOwn(action?.config || {}, 'dueDays')) {
+    const waitDays = delay / 1440
+    const dueDays = Number(action.config.dueDays)
+    const createText = waitDays === 0 ? 'create immediately' : `create after ${dayCount(waitDays)}`
+    const dueText = dueDays === 0 ? 'due on creation' : `due ${dayCount(dueDays)} later`
+    return `${createText} · ${dueText}`
+  }
   if (delay === 0) return 'due immediately'
   if (delay % 1440 === 0) {
     const days = delay / 1440
-    return `due in ${days} ${days === 1 ? 'day' : 'days'}`
+    return `due in ${dayCount(days)}`
   }
   return `due in ${delay} minutes`
 }
@@ -187,22 +216,18 @@ export function SettingsAutomationsRoute() {
   }, [])
 
   useEffect(() => {
-    if (!runs.some((run) => run.status === 'queued' || run.status === 'running')) return undefined
+    const refreshDelay = activeRunRefreshDelay(runs)
+    if (refreshDelay === null) return undefined
     const controller = new AbortController()
-    let inFlight = false
-    const timer = window.setInterval(async () => {
-      if (inFlight) return
-      inFlight = true
+    const timer = window.setTimeout(async () => {
       try {
         setRuns(await listWorkflowAutomationRuns({ limit: 25, signal: controller.signal }))
       } catch (pollError) {
         if (!isAbortError(pollError)) setError(pollError.message || 'Unable to refresh task automation runs.')
-      } finally {
-        inFlight = false
       }
-    }, 1000)
+    }, refreshDelay)
     return () => {
-      window.clearInterval(timer)
+      window.clearTimeout(timer)
       controller.abort()
     }
   }, [runs])
@@ -265,15 +290,15 @@ export function SettingsAutomationsRoute() {
           <div>
             <p className="eyebrow">Follow-up operations</p>
             <h2>Task automation rules</h2>
-            <p>Create one predictable task after a deal event or an accepted public lead form. Deal tasks commit with the deal change. Lead tasks use the durable worker, retained submission evidence, and an exact rule snapshot.</p>
+            <p>Create replay-safe tasks after deal events or lead forms; lead work runs durably from retained evidence.</p>
           </div>
           {isLoading ? <p className="field-hint">Loading task automation rules...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadAutomations()} retryLabel="Retry task automations" /> : null}
-          {hiddenDefinitions > 0 ? <p className="field-hint">{hiddenDefinitions} stored legacy workflow {hiddenDefinitions === 1 ? 'definition is' : 'definitions are'} hidden because this pilot surface only exposes executable task rules.</p> : null}
+          {hiddenDefinitions > 0 ? <p className="field-hint">{hiddenDefinitions} unsupported stored {hiddenDefinitions === 1 ? 'definition' : 'definitions'} hidden.</p> : null}
           <div className="record-list" role="list" aria-label="Task automation rules">
             {!isLoading && executableRules.length === 0 ? (
-              <article className="record-row" role="listitem"><div><p>No executable task rules yet.</p><p className="field-hint">Add one bounded follow-up rule to remove a repeated manual step.</p></div></article>
+              <article className="record-row" role="listitem"><p>No executable task rules yet.</p></article>
             ) : executableRules.map((automation) => {
               const action = automation.actions[0]
               return (
@@ -281,7 +306,7 @@ export function SettingsAutomationsRoute() {
                   <div>
                     <h3>{automation.name}</h3>
                     <p>{triggerSummary(automation, stagesById, formsById)}</p>
-                    <p className="field-hint">Create “{action.config.title}” · {dueSummary(action)}{eventFromAutomation(automation) === 'lead_form_submitted' ? ` · assign to ${usersById.get(Number(action.config.assignedToUserId)) || 'unavailable teammate'}` : ''}</p>
+                    <p className="field-hint">Create “{action.config.title}” · {taskTimingSummary(action, eventFromAutomation(automation) === 'lead_form_submitted')}{eventFromAutomation(automation) === 'lead_form_submitted' ? ` · assign to ${usersById.get(Number(action.config.assignedToUserId)) || 'unavailable teammate'}` : ''}</p>
                   </div>
                   <div><span className="chip">{automation.isActive ? 'Active' : 'Inactive'}</span>{canManage ? <Button className="button-secondary" type="button" onClick={() => startEdit(automation)}>Edit</Button> : null}</div>
                 </article>
@@ -290,14 +315,14 @@ export function SettingsAutomationsRoute() {
           </div>
           <div>
             <h3>Recent task automation runs</h3>
-            <p className="field-hint">Committed runs are idempotent and show exactly how many tasks were created. Lead runs can also be queued, cancelled, skipped when conditions no longer match, or fail safely when their assignee is unavailable.</p>
+            <p className="field-hint">Scheduled and terminal lead runs retain replay-safe status and task counts.</p>
           </div>
           <div className="record-list" role="list" aria-label="Task automation runs">
             {!isLoading && visibleRuns.length === 0 ? (
-              <article className="record-row" role="listitem"><div><p>No task automation runs yet.</p><p className="field-hint">Runs appear after an active rule receives a matching deal event or accepted lead submission.</p></div></article>
+              <article className="record-row" role="listitem"><p>No task automation runs yet.</p></article>
             ) : visibleRuns.map((run) => (
               <article className={run.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} key={run.id} role="listitem">
-                <div><p>{run.automationName}</p><p className="field-hint">{formatRunTime(run.createdAt)} · {run.actionsCompleted ?? 0}/{run.actionsTotal ?? 0} tasks created</p><p>{run.lastError || run.triggerEventKey}</p></div>
+                <div><p>{run.automationName}</p><p className="field-hint">{formatRunTime(run.createdAt)} · {run.actionsCompleted ?? 0}/{run.actionsTotal ?? 0} tasks created</p>{run.status === 'queued' && run.scheduledAt ? <p className="field-hint">Scheduled for {formatRunTime(run.scheduledAt)}</p> : null}<p>{run.lastError || run.triggerEventKey}</p></div>
                 <span className="chip">{run.status}</span>
               </article>
             ))}
@@ -308,23 +333,27 @@ export function SettingsAutomationsRoute() {
       {canManage ? (
         <Card>
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
-            <div><h2>{editingId ? 'Edit task rule' : 'New task rule'}</h2><p className="field-hint">Each matching event creates at most one task. Replays cannot create a duplicate.</p></div>
+            <div><h2>{editingId ? 'Edit task rule' : 'New task rule'}</h2><p className="field-hint">Each event creates at most one replay-safe task.</p></div>
             <Field label="Rule name"><input className="text-input" maxLength="120" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Proposal follow-up" /></Field>
-            <Field label="When"><select className="text-input" value={form.event} onChange={(event) => setForm({ ...form, event: event.target.value, stageId: '' })}>{triggerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+            <Field label="When"><select className="text-input" value={form.event} onChange={(event) => {
+              const nextEvent = event.target.value
+              setForm((current) => ({ ...current, event: nextEvent, stageId: '' }))
+            }}>{triggerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
             {form.event === 'stage_changed' ? (
               <Field label="Destination stage" hint="Choose any stage to run after every real stage change."><select className="text-input" value={form.stageId} onChange={(event) => setForm({ ...form, stageId: event.target.value })}><option value="">Any stage</option>{stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.pipelineName} · {stage.name}</option>)}</select></Field>
             ) : null}
             {form.event === 'lead_form_submitted' ? (
               <>
-                <Field label="Lead form" hint="Choose any active form or one exact form."><select className="text-input" value={form.formId} onChange={(event) => setForm({ ...form, formId: event.target.value })}><option value="">Any active lead form</option>{leadForms.filter((leadForm) => leadForm.isActive).map((leadForm) => <option key={leadForm.id} value={leadForm.id}>{leadForm.name}</option>)}</select></Field>
+                <Field label="Lead form" hint="Choose one active form or all forms."><select className="text-input" value={form.formId} onChange={(event) => setForm({ ...form, formId: event.target.value })}><option value="">Any active lead form</option>{leadForms.filter((leadForm) => leadForm.isActive).map((leadForm) => <option key={leadForm.id} value={leadForm.id}>{leadForm.name}</option>)}</select></Field>
                 <Field label="Optional attribution condition"><select className="text-input" value={form.conditionField} onChange={(event) => setForm({ ...form, conditionField: event.target.value, conditionValue: '' })}><option value="">No condition</option><option value="leadSource">Lead source</option><option value="utmSource">UTM source</option><option value="utmMedium">UTM medium</option><option value="utmCampaign">UTM campaign</option><option value="sourceUrl">Source URL</option></select></Field>
                 {form.conditionField ? <Field label="Condition"><div className="filter-row"><select className="text-input" aria-label="Condition operator" value={form.conditionOperator} onChange={(event) => setForm({ ...form, conditionOperator: event.target.value })}><option value="equals">Equals</option><option value="notEquals">Does not equal</option><option value="contains">Contains</option><option value="exists">Exists</option></select>{form.conditionOperator !== 'exists' ? <input className="text-input" aria-label="Condition value" maxLength="500" required value={form.conditionValue} onChange={(event) => setForm({ ...form, conditionValue: event.target.value })} /> : null}</div></Field> : null}
                 <Field label="Assign task to"><select className="text-input" required value={form.assignedToUserId} onChange={(event) => setForm({ ...form, assignedToUserId: event.target.value })}><option value="">Choose a teammate</option>{users.map((user) => <option key={user.id} value={user.id}>{usersById.get(user.id)}</option>)}</select></Field>
+                <Field label="Create task after days" hint="0 runs immediately; maximum 365."><input className="text-input" type="number" min="0" max="365" step="1" required value={form.waitDays} onChange={(event) => setForm({ ...form, waitDays: event.target.value })} /></Field>
               </>
             ) : null}
             <Field label="Task title"><input className="text-input" maxLength="200" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Prepare proposal" /></Field>
             <Field label="Task description"><textarea className="text-input" rows={3} maxLength="2000" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
-            <Field label="Due in days" hint="0 means immediately; maximum 365."><input className="text-input" type="number" min="0" max="365" step="1" required value={form.dueDays} onChange={(event) => setForm({ ...form, dueDays: event.target.value })} /></Field>
+            <Field label="Due in days" hint={form.event === 'lead_form_submitted' ? 'From task creation; 0 is immediate; maximum 365.' : '0 is immediate; maximum 365.'}><input className="text-input" type="number" min="0" max="365" step="1" required value={form.dueDays} onChange={(event) => setForm({ ...form, dueDays: event.target.value })} /></Field>
             <label className="field-hint"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active rule</label>
             <div className="button-row"><Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save task rule' : 'Create task rule'}</Button>{editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}</div>
           </form>
