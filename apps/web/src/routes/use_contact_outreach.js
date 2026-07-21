@@ -10,7 +10,7 @@ import {
 import { listEmailSequences } from '../lib/email_sequences'
 import { listEmailTemplates } from '../lib/email_templates'
 
-const emptyEmailForm = { subject: '', body: '' }
+const emptyEmailForm = { subject: '', body: '', trackEngagement: false }
 const emptySequenceForm = { sequenceId: '' }
 
 // Contact outreach is record-scoped. Keep workspace-wide template/sequence
@@ -163,7 +163,7 @@ export function useContactOutreach({ selectedContactId, onError }) {
   function applyEmailTemplate(templateId) {
     const template = emailTemplates.find((item) => String(item.id) === String(templateId))
     if (template) {
-      setEmailForm({ subject: template.subject, body: template.body })
+      setEmailForm((current) => ({ ...current, subject: template.subject, body: template.body }))
     }
   }
 

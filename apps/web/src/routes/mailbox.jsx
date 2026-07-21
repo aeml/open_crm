@@ -5,13 +5,8 @@ import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { emailMessageTimestamp, emailRecordLabel, emailRecordPath, formatEmailTimestamp, getEmailMessage, listMyEmailMessages, updateSharedInboxEmailMessage } from '../lib/email_messages'
+import { emailEngagementSummary, emailMessageTimestamp, emailRecordLabel, emailRecordPath, formatEmailTimestamp, getEmailMessage, listMyEmailMessages, updateSharedInboxEmailMessage } from '../lib/email_messages'
 import { usePageTitle } from '../lib/use_page_title'
-
-function engagementStatus(message, field, verb, empty) {
-  const count = +message?.[field] || 0
-  return count ? `${verb} ${count} ${count === 1 ? 'time' : 'times'}` : empty
-}
 
 function isInbound(message) {
   return message?.direction === 'inbound'
@@ -135,8 +130,7 @@ export function MailboxRoute() {
                   <div>
                     <h3>{message.subject}</h3>
                     <p className="field-hint">{participantLabel(message)}{message.status === 'failed' ? ' · Failed' : ''}{isInbound(message) ? ' · Received' : ''}</p>
-                    {!isInbound(message) ? <p className="field-hint">{engagementStatus(message, 'openCount', 'Opened', 'Not opened yet')}</p> : null}
-                    {!isInbound(message) ? <p className="field-hint">{engagementStatus(message, 'clickCount', 'Clicked', 'No clicks yet')}</p> : null}
+                    {!isInbound(message) ? <p className="field-hint">{emailEngagementSummary(message)}</p> : null}
                   </div>
                   <div>
                     <p>{formatEmailTimestamp(emailMessageTimestamp(message))}</p>
@@ -160,8 +154,7 @@ export function MailboxRoute() {
                 <div>
                   <h3>{selectedMessage.subject}</h3>
                   <p className="field-hint">{participantLabel(selectedMessage)} · {formatEmailTimestamp(emailMessageTimestamp(selectedMessage))}</p>
-                  {!isInbound(selectedMessage) ? <p className="field-hint">{engagementStatus(selectedMessage, 'openCount', 'Opened', 'Not opened yet')}</p> : null}
-                  {!isInbound(selectedMessage) ? <p className="field-hint">{engagementStatus(selectedMessage, 'clickCount', 'Clicked', 'No clicks yet')}</p> : null}
+                  {!isInbound(selectedMessage) ? <p className="field-hint">{emailEngagementSummary(selectedMessage)}</p> : null}
                 </div>
                 {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}
                 <pre className="field-hint message-body">{selectedMessage.body}</pre>

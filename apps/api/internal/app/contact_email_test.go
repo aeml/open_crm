@@ -356,7 +356,7 @@ func TestSendContactEmailRecordsToLog(t *testing.T) {
 		EmailMessagesService: messages,
 	})
 
-	body := bytes.NewBufferString(`{"subject":"Hi {{first_name}}","body":"Hello https://example.test/demo."}`)
+	body := bytes.NewBufferString(`{"subject":"Hi {{first_name}}","body":"Hello https://example.test/demo.","trackEngagement":true}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/contacts/8/email", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -372,7 +372,7 @@ func TestSendContactEmailRecordsToLog(t *testing.T) {
 	if messages.lastRecord.Subject != "Hi Ada" {
 		t.Fatalf("recorded subject should be rendered: %q", messages.lastRecord.Subject)
 	}
-	if messages.lastRecord.TrackingToken == "" {
+	if !messages.lastRecord.TrackEngagement || messages.lastRecord.TrackingToken == "" {
 		t.Fatalf("expected sent email to include a tracking token")
 	}
 	if messages.lastRecord.RFCMessageID != "<direct-1@crm.example.test>" || messages.lastRecord.ProviderMessageID != "gmail-direct-1" || messages.lastRecord.ProviderThreadID != "gmail-thread-1" {

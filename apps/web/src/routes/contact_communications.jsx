@@ -221,6 +221,9 @@ export function ContactEmailCard({ canWrite, form, history, isSending, onApplyTe
               <textarea className="text-input" rows={6} value={form.body} onChange={(event) => onSetForm({ ...form, body: event.target.value })} required />
             </Field>
             <p className="field-hint">Merge fields like {'{{first_name}}'} are filled in when the email is sent.</p>
+            <label className="field-hint">
+              <input type="checkbox" checked={form.trackEngagement} onChange={(event) => onSetForm({ ...form, trackEngagement: event.target.checked })} /> Track opens/links (90 days, approximate). I confirm authorization.
+            </label>
             <Button type="submit" disabled={isSending}>{isSending ? 'Sending...' : 'Send email'}</Button>
           </form>
         ) : null}

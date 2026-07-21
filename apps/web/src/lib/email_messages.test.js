@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emailMessageTimestamp, emailRecordLabel, emailRecordPath, formatEmailTimestamp } from './email_messages'
+import { emailEngagementSummary, emailMessageTimestamp, emailRecordLabel, emailRecordPath, formatEmailTimestamp } from './email_messages'
 
 describe('email message presentation helpers', () => {
   it('maps supported records and prefers received time', () => {
@@ -15,5 +15,11 @@ describe('email message presentation helpers', () => {
     expect(formatEmailTimestamp('')).toBe('')
     expect(formatEmailTimestamp('not-a-date')).toBe('')
     expect(formatEmailTimestamp('2026-05-01T12:00:00Z')).not.toBe('')
+  })
+
+  it('explains active, disabled, and expired engagement evidence', () => {
+    expect(emailEngagementSummary({ engagementTrackingState: 'not_enabled', openCount: 9 })).toBe('Tracking off')
+    expect(emailEngagementSummary({ engagementTrackingState: 'expired', clickCount: 4 })).toMatch(/data removed/i)
+    expect(emailEngagementSummary({ engagementTrackingState: 'active', openCount: 2, clickCount: 1 })).toBe('Opens 2 · clicks 1 · Active')
   })
 })

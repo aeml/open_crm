@@ -314,6 +314,9 @@ func main() {
 	if emailFeedbackService != nil {
 		go emailFeedbackService.RunRetentionScheduler(ctx, logger, 0)
 	}
+	if emailMessagesService != nil {
+		go emailMessagesService.RunTrackingRetentionScheduler(ctx, logger, 0, metrics)
+	}
 
 	checkReadiness := func(ctx context.Context) error {
 		if dbConfigErr != nil {

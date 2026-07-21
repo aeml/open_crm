@@ -205,6 +205,30 @@ func TestMigrationFilesIncludeCustomerEmailFeedback(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeEmailEngagementTrackingPrivacy(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "091_email_engagement_tracking_privacy.sql") {
+		t.Fatal("expected email engagement tracking privacy migration to be registered")
+	}
+	sql := MigrationSQL("091_email_engagement_tracking_privacy.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"engagement_tracking_enabled",
+		"engagement_tracking_authorized_by_user_id",
+		"engagement_tracking_expires_at",
+		"engagement_tracking_purged_at",
+		"engagement_tracking_expires_at = NOW()",
+		"NOT VALID",
+		"idx_email_messages_engagement_tracking_retention",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("email engagement tracking privacy migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("091_email_engagement_tracking_privacy.sql"); class != "expand" {
+		t.Fatalf("email engagement tracking privacy deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeCollaboration(t *testing.T) {
 	sql := MigrationSQL("060_collaboration.sql")
 	if sql == "" {

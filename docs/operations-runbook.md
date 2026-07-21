@@ -20,8 +20,9 @@ route/status/latency, PostgreSQL readiness, aggregate (not tenant-labeled)
 durable queue state/lag, worker outcomes, Postmark/SMTP/Gmail/Microsoft send and
 OAuth-refresh outcomes, and verified
 backup/restore evidence. It also reports aggregate notification backlog, age,
-reviewed event mix, per-recipient concentration, and retention outcomes without
-tenant, recipient, or record labels. Password-recovery gauges report current
+reviewed event mix, per-recipient concentration, notification retention, and
+email-engagement cleanup outcomes without tenant, recipient, message, or record
+labels. Password-recovery gauges report current
 non-expired links plus stale-pending and latest-failed delivery counts without
 user, address, or tenant labels. System-email feedback gauges report aggregate
 Postmark bounces, complaints, and authenticated-but-unapplied events in the
@@ -65,7 +66,9 @@ promtool check config /etc/prometheus/prometheus.yml
 
 The reference rules alert on metrics collection or database failure, sustained
 5xx ratio/p95 latency, queue collection/lag/dead letters/worker errors,
-provider failures, password-recovery and system-email feedback health, notification collection/retention/elevated recipient volume,
+provider failures, password-recovery and system-email feedback health,
+notification collection/retention/elevated recipient volume, email-engagement
+retention,
 backup evidence/failure/freshness, and restore-drill failure/freshness. They do
 not choose an Alertmanager destination. Before a
 pilot, the operator must route critical and warning alerts to an approved
@@ -1115,6 +1118,63 @@ new `other` event before changing thresholds. Record actual pilot volumes and
 recipient feedback; revise the threshold only with that evidence. If a legal or
 contractual retention requirement differs, change the policy and acceptance
 tests deliberately before pilot use rather than relying on manual cleanup.
+
+### Email engagement tracking privacy and retention
+
+One-to-one email engagement tracking is off for every new composer and send by
+default. A sender must select the 90-day option and confirm that the workspace
+is authorized to collect the signals. Open CRM does not decide whether that
+confirmation satisfies a particular recipient, contract, or jurisdiction; the
+workspace operator owns that determination. Migration 91 immediately expires
+legacy tracked messages because they have no explicit acknowledgement in the
+database. See [email-engagement-tracking.md](email-engagement-tracking.md) for
+the product and data contract.
+
+During an active window, the public pixel and redirect record approximate
+aggregate open/click counts and first/last timestamps. They do not store a
+client address, user agent, or referrer. Mail scanners, privacy proxies, and
+forwarding make these signals non-authoritative. At expiry, the API immediately
+hides prior observations, open pixels become no-ops, and click links still
+redirect without increasing a counter.
+
+The API runs a pass immediately at startup and hourly thereafter. Each pass
+locks at most 500 expired messages with `FOR UPDATE SKIP LOCKED`, clears the
+message open token, all aggregate counts/timestamps, and per-link observation
+counts/timestamps, then records a purge timestamp. Validated click tokens and
+destinations remain so links in already-delivered email continue to work. A
+failed pass is safe to retry, multiple API instances can clean concurrently,
+and replay is idempotent. Do not edit tracking rows or tokens manually.
+
+The protected metrics endpoint exposes run counters by `success`/`error`, the
+cumulative purged-message count, and last-run timestamp/success. Process
+counters reset on restart. `OpenCRMEmailTrackingRetentionErrors` means the most
+recent pass failed; find `email tracking retention failed` in structured API
+logs, repair the PostgreSQL or migration problem, and let the next hourly pass
+retry. `OpenCRMEmailTrackingRetentionStale` means no pass completed within two
+hours while PostgreSQL reports ready. Confirm the success gauge returns to `1`,
+the timestamp advances, and the error counter stops increasing.
+
+An authorized database operator can inspect aggregate lifecycle state without
+selecting recipients, content, tokens, or target URLs:
+
+```sql
+SELECT CASE
+         WHEN engagement_tracking_enabled = FALSE THEN 'not_enabled'
+         WHEN engagement_tracking_purged_at IS NOT NULL THEN 'purged'
+         WHEN engagement_tracking_expires_at <= NOW() THEN 'expired_pending_purge'
+         ELSE 'active'
+       END AS tracking_state,
+       COUNT(*) AS messages
+FROM email_messages
+GROUP BY tracking_state
+ORDER BY tracking_state;
+```
+
+If `expired_pending_purge` grows across two successful hourly passes, confirm
+the retention index exists and inspect lock contention before changing the
+bounded batch. A different retention period is a product/privacy policy change:
+review it, update UI copy, tests, this runbook, and the focused policy document
+together rather than changing timestamps in place.
 
 ### Customer email delivery feedback
 

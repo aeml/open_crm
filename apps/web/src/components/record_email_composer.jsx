@@ -8,7 +8,7 @@ import { isAbortError } from '../lib/api'
 import { listEmailMessages } from '../lib/email_messages'
 import { listEmailTemplates, listEmailTemplateMergeFields, listEmailSnippets } from '../lib/email_templates'
 
-const emptyForm = { subject: '', body: '' }
+const emptyForm = { subject: '', body: '', trackEngagement: false }
 
 export function RecordEmailComposer({ entityType, entityId, canWrite, recipientOptions = [], sendEmail, emptyMessage, mergeFieldHint }) {
   const [open, setOpen] = useState(false)
@@ -72,7 +72,7 @@ export function RecordEmailComposer({ entityType, entityId, canWrite, recipientO
   function applyTemplate(templateId) {
     const template = templates.find((item) => String(item.id) === String(templateId))
     if (template) {
-      setForm({ subject: template.subject, body: template.body })
+      setForm((current) => ({ ...current, subject: template.subject, body: template.body }))
     }
   }
 
@@ -173,6 +173,9 @@ export function RecordEmailComposer({ entityType, entityId, canWrite, recipientO
             </Field>
             <p className="field-hint">{mergeFieldHint || `Merge fields like {{first_name}} are filled in when the email is sent.`}</p>
             <MergeFieldCatalog groups={mergeFieldGroups} compact />
+            <label className="field-hint">
+              <input type="checkbox" checked={form.trackEngagement} onChange={(event) => setForm({ ...form, trackEngagement: event.target.checked })} /> Track opens/links (90 days, approximate). I confirm authorization.
+            </label>
             <Button type="submit" disabled={isSending}>{isSending ? 'Sending...' : 'Send email'}</Button>
           </form>
         ) : null}

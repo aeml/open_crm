@@ -54,31 +54,36 @@ type rateLimitKey struct {
 // Collector stores process-local counters. Durable queue gauges and backup
 // timestamps are supplied at scrape time through RuntimeSnapshot.
 type Collector struct {
-	mu              sync.RWMutex
-	startedAt       time.Time
-	requests        map[requestKey]uint64
-	durations       map[durationKey]*durationSeries
-	providerCalls   map[providerKey]uint64
-	providerSeconds map[providerKey]float64
-	jobOutcomes     map[jobKey]uint64
-	rateLimits      map[rateLimitKey]uint64
-	retentionRuns   map[string]uint64
-	retentionRows   map[string]uint64
-	retentionLastAt time.Time
-	retentionLastOK bool
+	mu                           sync.RWMutex
+	startedAt                    time.Time
+	requests                     map[requestKey]uint64
+	durations                    map[durationKey]*durationSeries
+	providerCalls                map[providerKey]uint64
+	providerSeconds              map[providerKey]float64
+	jobOutcomes                  map[jobKey]uint64
+	rateLimits                   map[rateLimitKey]uint64
+	retentionRuns                map[string]uint64
+	retentionRows                map[string]uint64
+	retentionLastAt              time.Time
+	retentionLastOK              bool
+	emailTrackingRetentionRuns   map[string]uint64
+	emailTrackingRetentionPurged uint64
+	emailTrackingRetentionLastAt time.Time
+	emailTrackingRetentionLastOK bool
 }
 
 func NewCollector() *Collector {
 	return &Collector{
-		startedAt:       time.Now(),
-		requests:        make(map[requestKey]uint64),
-		durations:       make(map[durationKey]*durationSeries),
-		providerCalls:   make(map[providerKey]uint64),
-		providerSeconds: make(map[providerKey]float64),
-		jobOutcomes:     make(map[jobKey]uint64),
-		rateLimits:      make(map[rateLimitKey]uint64),
-		retentionRuns:   make(map[string]uint64),
-		retentionRows:   make(map[string]uint64),
+		startedAt:                  time.Now(),
+		requests:                   make(map[requestKey]uint64),
+		durations:                  make(map[durationKey]*durationSeries),
+		providerCalls:              make(map[providerKey]uint64),
+		providerSeconds:            make(map[providerKey]float64),
+		jobOutcomes:                make(map[jobKey]uint64),
+		rateLimits:                 make(map[rateLimitKey]uint64),
+		retentionRuns:              make(map[string]uint64),
+		retentionRows:              make(map[string]uint64),
+		emailTrackingRetentionRuns: make(map[string]uint64),
 	}
 }
 
@@ -234,6 +239,10 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	retentionRows := copyMap(c.retentionRows)
 	retentionLastAt := c.retentionLastAt
 	retentionLastOK := c.retentionLastOK
+	emailTrackingRetentionRuns := copyMap(c.emailTrackingRetentionRuns)
+	emailTrackingRetentionPurged := c.emailTrackingRetentionPurged
+	emailTrackingRetentionLastAt := c.emailTrackingRetentionLastAt
+	emailTrackingRetentionLastOK := c.emailTrackingRetentionLastOK
 	startedAt := c.startedAt
 	c.mu.RUnlock()
 
@@ -303,6 +312,12 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 		Rows:      retentionRows,
 		LastRunAt: retentionLastAt,
 		LastRunOK: retentionLastOK,
+	})
+	writeEmailTrackingRetentionMetrics(&output, emailTrackingRetentionSnapshot{
+		Runs:      emailTrackingRetentionRuns,
+		Purged:    emailTrackingRetentionPurged,
+		LastRunAt: emailTrackingRetentionLastAt,
+		LastRunOK: emailTrackingRetentionLastOK,
 	})
 	writeHelpType(&output, "open_crm_password_resets_available", "Whether aggregate password-reset health was collected successfully.", "gauge")
 	writeBool(&output, "open_crm_password_resets_available", snapshot.PasswordResetsAvailable)

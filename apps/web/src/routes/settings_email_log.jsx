@@ -4,12 +4,8 @@ import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { formatEmailTimestamp, getEmailMessage, listEmailMessages } from '../lib/email_messages'
+import { emailEngagementSummary, formatEmailTimestamp, getEmailMessage, listEmailMessages } from '../lib/email_messages'
 import { usePageTitle } from '../lib/use_page_title'
-
-function engagementStatus(message) {
-  return `Opens ${+message?.openCount || 0} · clicks ${+message?.clickCount || 0}`
-}
 
 export function SettingsEmailLogRoute() {
   const { session } = useAuth()
@@ -93,7 +89,7 @@ export function SettingsEmailLogRoute() {
                 <div>
                   <h3>{message.subject}</h3>
                   <p className="field-hint">To {message.toEmail} · {message.sentByName || 'Unknown sender'}{message.status === 'failed' ? ' · Failed' : message.deliveryOutcome ? ` · ${message.deliveryOutcome}` : ''}</p>
-                  <p className="field-hint">{engagementStatus(message)}</p>
+                  <p className="field-hint">{emailEngagementSummary(message)}</p>
                 </div>
                 <div>
                   <p>{formatEmailTimestamp(message.createdAt)}</p>
@@ -110,7 +106,7 @@ export function SettingsEmailLogRoute() {
                 <div>
                   <h3>{selectedMessage.subject}</h3>
                   <p className="field-hint">To {selectedMessage.toEmail} · {selectedMessage.sentByName || 'Unknown sender'} · {formatEmailTimestamp(selectedMessage.createdAt)}{selectedMessage.deliveryOutcome ? ` · ${selectedMessage.deliveryOutcome}` : ''}</p>
-                  <p className="field-hint">{engagementStatus(selectedMessage)}</p>
+                  <p className="field-hint">{emailEngagementSummary(selectedMessage)}</p>
                 </div>
                 {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}
                 <pre className="field-hint message-body">{selectedMessage.body}</pre>

@@ -17,9 +17,10 @@ import (
 )
 
 type sendRecordEmailRequest struct {
-	ContactID int64  `json:"contactId"`
-	Subject   string `json:"subject"`
-	Body      string `json:"body"`
+	ContactID       int64  `json:"contactId"`
+	Subject         string `json:"subject"`
+	Body            string `json:"body"`
+	TrackEngagement bool   `json:"trackEngagement"`
 }
 
 type sendEmailResponse struct {
@@ -77,7 +78,7 @@ func handleSendContactEmail(auth authService, contacts contactsService, accounts
 	}
 
 	fields := contactMergeFields(detail)
-	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "contact", contactID, to, request.Subject, request.Body, fields, "Connect your email account in Settings before sending email to contacts")
+	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "contact", contactID, to, request.Subject, request.Body, request.TrackEngagement, fields, "Connect your email account in Settings before sending email to contacts")
 }
 
 func handleSendCompanyEmail(auth authService, companies companiesService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
@@ -119,7 +120,7 @@ func handleSendCompanyEmail(auth authService, companies companiesService, accoun
 	}
 
 	fields := companyMergeFields(detail, recipient)
-	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "company", companyID, recipient.Email, request.Subject, request.Body, fields, "Connect your email account in Settings before sending email")
+	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "company", companyID, recipient.Email, request.Subject, request.Body, request.TrackEngagement, fields, "Connect your email account in Settings before sending email")
 }
 
 func handleSendDealEmail(auth authService, deals dealsService, contacts contactsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
@@ -182,7 +183,7 @@ func handleSendDealEmail(auth authService, deals dealsService, contacts contacts
 	}
 
 	fields := dealMergeFields(detail, contact)
-	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "deal", dealID, to, request.Subject, request.Body, fields, "Connect your email account in Settings before sending email")
+	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "deal", dealID, to, request.Subject, request.Body, request.TrackEngagement, fields, "Connect your email account in Settings before sending email")
 }
 
 func contactMergeFields(detail modulecontacts.Detail) map[string]string {
@@ -268,7 +269,7 @@ func dealMergeFields(detail moduledeals.Detail, contact modulecontacts.Detail) m
 	return fields
 }
 
-func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID string, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, organizationID, userID int64, entityType string, entityID int64, to, subjectTemplate, bodyTemplate string, fields map[string]string, accountRequiredMessage string) {
+func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID string, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, organizationID, userID int64, entityType string, entityID int64, to, subjectTemplate, bodyTemplate string, trackEngagement bool, fields map[string]string, accountRequiredMessage string) {
 	subject := strings.TrimSpace(moduleemailtemplates.Render(subjectTemplate, fields))
 	body := strings.TrimSpace(moduleemailtemplates.Render(bodyTemplate, fields))
 	if subject == "" || body == "" {
@@ -291,10 +292,18 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 	trackingToken := ""
 	trackingURL := ""
 	trackingBaseURL := ""
-	if messages != nil {
+	if trackEngagement {
+		if messages == nil {
+			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Engagement tracking is unavailable")
+			return
+		}
 		trackingToken = newEmailTrackingToken()
 		trackingBaseURL = emailTrackingBaseURL(r)
 		trackingURL = emailTrackingURL(trackingBaseURL, trackingToken)
+		if trackingURL == "" {
+			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Engagement tracking requires a valid public email URL")
+			return
+		}
 	}
 	htmlBody := ""
 	var trackedLinks []moduleemailmessages.TrackedLinkInput
@@ -323,16 +332,16 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 			return
 		}
 		if errors.Is(err, moduleuseremail.ErrOAuthDeliveryUncertain) {
-			recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackingToken, trackedLinks, moduleuseremail.SendReceipt{})
+			recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackEngagement, trackingToken, trackedLinks, moduleuseremail.SendReceipt{})
 			platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_DELIVERY_UNCERTAIN", "The provider outcome is uncertain. Check your Sent folder before retrying")
 			return
 		}
-		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackingToken, trackedLinks, moduleuseremail.SendReceipt{})
+		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackEngagement, trackingToken, trackedLinks, moduleuseremail.SendReceipt{})
 		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email through your connected mailbox")
 		return
 	}
 
-	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "sent", "", trackingToken, trackedLinks, receipt)
+	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "sent", "", trackEngagement, trackingToken, trackedLinks, receipt)
 	logEntityEmailNote(r, notes, organizationID, userID, entityType, entityID, subject)
 
 	response := sendEmailResponse{}
@@ -353,7 +362,7 @@ func logEntityEmailNote(r *http.Request, notes notesService, organizationID, use
 	})
 }
 
-func recordEntityEmail(r *http.Request, messages emailMessagesService, organizationID, userID int64, entityType string, entityID int64, to, subject, body, status, errMsg, trackingToken string, trackedLinks []moduleemailmessages.TrackedLinkInput, receipt moduleuseremail.SendReceipt) {
+func recordEntityEmail(r *http.Request, messages emailMessagesService, organizationID, userID int64, entityType string, entityID int64, to, subject, body, status, errMsg string, trackEngagement bool, trackingToken string, trackedLinks []moduleemailmessages.TrackedLinkInput, receipt moduleuseremail.SendReceipt) {
 	if messages == nil {
 		return
 	}
@@ -366,6 +375,7 @@ func recordEntityEmail(r *http.Request, messages emailMessagesService, organizat
 		EntityType:        entityType,
 		EntityID:          entityID,
 		SentByUserID:      userID,
+		TrackEngagement:   trackEngagement,
 		TrackingToken:     trackingToken,
 		TrackedLinks:      trackedLinks,
 		RFCMessageID:      receipt.RFCMessageID,

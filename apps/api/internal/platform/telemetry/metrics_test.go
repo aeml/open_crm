@@ -39,6 +39,8 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 	collector.ObserveRateLimit("public.lead-submission", "rejected")
 	collector.ObserveNotificationRetention("success", 4, 2)
 	collector.ObserveNotificationRetention("unexpected-outcome", -1, 3)
+	collector.ObserveEmailTrackingRetention("success", 5)
+	collector.ObserveEmailTrackingRetention("unexpected-outcome", -1)
 
 	handler := collector.Handler("monitoring-token-that-is-at-least-32", func(context.Context) RuntimeSnapshot {
 		return RuntimeSnapshot{
@@ -114,6 +116,10 @@ func TestMetricsHandlerRendersBoundedRuntimeAndProcessMetrics(t *testing.T) {
 		`open_crm_notification_retention_deleted_total{state="read"} 4`,
 		`open_crm_notification_retention_deleted_total{state="unread"} 5`,
 		`open_crm_notification_retention_last_run_success 0`,
+		`open_crm_email_tracking_retention_runs_total{outcome="success"} 1`,
+		`open_crm_email_tracking_retention_runs_total{outcome="error"} 1`,
+		`open_crm_email_tracking_retention_purged_total 5`,
+		`open_crm_email_tracking_retention_last_run_success 0`,
 		`open_crm_password_resets_available 1`,
 		`open_crm_password_reset_outstanding 3`,
 		`open_crm_password_reset_delivery_stale_pending 1`,

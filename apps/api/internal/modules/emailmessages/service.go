@@ -25,6 +25,8 @@ var (
 	ErrConflict     = errors.New("shared inbox message changed")
 )
 
+const EngagementTrackingWindow = 90 * 24 * time.Hour
+
 type Message struct {
 	ID                          int64      `json:"id"`
 	Direction                   string     `json:"direction"`
@@ -52,6 +54,11 @@ type Message struct {
 	DeliveryOutcome             string     `json:"deliveryOutcome,omitempty"`
 	DeliveryOutcomeAt           *time.Time `json:"deliveryOutcomeAt,omitempty"`
 	TrackingToken               string     `json:"-"`
+	EngagementTrackingEnabled   bool       `json:"engagementTrackingEnabled"`
+	TrackingAuthorizedByUserID  int64      `json:"-"`
+	TrackingAuthorizedAt        *time.Time `json:"-"`
+	EngagementTrackingExpiresAt *time.Time `json:"engagementTrackingExpiresAt,omitempty"`
+	EngagementTrackingPurgedAt  *time.Time `json:"-"`
 	OpenCount                   int        `json:"openCount"`
 	FirstOpenedAt               *time.Time `json:"firstOpenedAt,omitempty"`
 	LastOpenedAt                *time.Time `json:"lastOpenedAt,omitempty"`
@@ -83,6 +90,7 @@ type RecordInput struct {
 	EntityType        string
 	EntityID          int64
 	SentByUserID      int64
+	TrackEngagement   bool
 	TrackingToken     string
 	TrackedLinks      []TrackedLinkInput
 	RFCMessageID      string
@@ -128,10 +136,11 @@ type SharedInboxUpdateInput struct {
 
 type Service struct {
 	pool *pgxpool.Pool
+	now  func() time.Time
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+	return &Service{pool: pool, now: time.Now}
 }
 
 // Record persists a single send result. Recording failures must never break
@@ -158,14 +167,27 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 	}
 	trackingToken := strings.TrimSpace(input.TrackingToken)
 	var token *string
-	if trackingToken != "" {
+	links := sanitizedTrackedLinks(input.TrackedLinks)
+	var trackingAuthorizedBy *int64
+	var trackingAuthorizedAt *time.Time
+	var trackingExpiresAt *time.Time
+	if input.TrackEngagement {
+		if input.SentByUserID <= 0 || !validEmailTrackingToken(trackingToken) {
+			return ErrInvalidInput
+		}
 		token = &trackingToken
+		authorizedAt := s.now().UTC()
+		expiresAt := authorizedAt.Add(EngagementTrackingWindow)
+		trackingAuthorizedBy = sentBy
+		trackingAuthorizedAt = &authorizedAt
+		trackingExpiresAt = &expiresAt
+	} else {
+		links = nil
 	}
 	visibility := normalizedVisibility(input.Visibility, "shared")
 	rfcMessageID := moduleemail.NormalizeMessageID(input.RFCMessageID)
 	providerMessageID := boundedCorrelationID(input.ProviderMessageID)
 	providerThreadID := boundedCorrelationID(input.ProviderThreadID)
-	links := sanitizedTrackedLinks(input.TrackedLinks)
 	entityLinks := sanitizedEntityLinks([]EntityLinkInput{{EntityType: input.EntityType, EntityID: input.EntityID}})
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -175,10 +197,10 @@ func (s *Service) Record(ctx context.Context, organizationID int64, input Record
 
 	var messageID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO email_messages (organization_id, direction, from_email, to_email, subject, body, status, visibility, error, entity_type, entity_id, sent_by_user_id, mailbox_user_id, tracking_token, rfc_message_id, provider_message_id, provider_thread_id)
-		VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		INSERT INTO email_messages (organization_id, direction, from_email, to_email, subject, body, status, visibility, error, entity_type, entity_id, sent_by_user_id, mailbox_user_id, tracking_token, rfc_message_id, provider_message_id, provider_thread_id, engagement_tracking_enabled, engagement_tracking_authorized_by_user_id, engagement_tracking_authorized_at, engagement_tracking_expires_at)
+		VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		RETURNING id
-	`, organizationID, strings.TrimSpace(input.FromEmail), input.ToEmail, input.Subject, input.Body, status, visibility, input.Error, strings.TrimSpace(input.EntityType), entityID, sentBy, mailboxUserID, token, rfcMessageID, providerMessageID, providerThreadID).Scan(&messageID); err != nil {
+	`, organizationID, strings.TrimSpace(input.FromEmail), input.ToEmail, input.Subject, input.Body, status, visibility, input.Error, strings.TrimSpace(input.EntityType), entityID, sentBy, mailboxUserID, token, rfcMessageID, providerMessageID, providerThreadID, input.TrackEngagement, trackingAuthorizedBy, trackingAuthorizedAt, trackingExpiresAt).Scan(&messageID); err != nil {
 		return fmt.Errorf("record email message: %w", err)
 	}
 	for _, link := range links {
@@ -564,6 +586,8 @@ const baseSelect = `
 	       COALESCE(m.shared_inbox_updated_at, m.created_at),
 	       COALESCE(m.provider_message_id, ''), COALESCE(m.provider_thread_id, ''), COALESCE(m.rfc_message_id, ''), COALESCE(m.in_reply_to, ''), COALESCE(m.reference_message_ids, '{}'::TEXT[]),
 	       COALESCE(m.delivery_outcome, ''), m.delivery_outcome_at, COALESCE(m.tracking_token, ''),
+	       COALESCE(m.engagement_tracking_enabled, FALSE), COALESCE(m.engagement_tracking_authorized_by_user_id, 0),
+	       m.engagement_tracking_authorized_at, m.engagement_tracking_expires_at, m.engagement_tracking_purged_at,
 	       COALESCE(m.open_count, 0), m.first_opened_at, m.last_opened_at,
 	       COALESCE(m.click_count, 0), m.first_clicked_at, m.last_clicked_at, m.received_at, m.created_at
 	FROM email_messages m
@@ -707,67 +731,6 @@ func (s *Service) ListSharedInbox(ctx context.Context, organizationID int64, lim
 	return scanMessages(rows)
 }
 
-// MarkOpenedByToken records an open event for the tracking token. Unknown tokens
-// are ignored so the tracking pixel endpoint never leaks whether a token exists.
-func (s *Service) MarkOpenedByToken(ctx context.Context, token string) error {
-	if s == nil || s.pool == nil {
-		return fmt.Errorf("email messages service not configured")
-	}
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return nil
-	}
-	_, err := s.pool.Exec(ctx, `
-		UPDATE email_messages
-		SET open_count = open_count + 1,
-		    first_opened_at = COALESCE(first_opened_at, NOW()),
-		    last_opened_at = NOW()
-		WHERE tracking_token = $1
-	`, token)
-	if err != nil {
-		return fmt.Errorf("mark email opened: %w", err)
-	}
-	return nil
-}
-
-// MarkClickedByToken records a click event for a tracked link token and returns
-// its stored destination URL. Unknown tokens are not redirected by callers, which
-// keeps the public endpoint from becoming an arbitrary open redirect.
-func (s *Service) MarkClickedByToken(ctx context.Context, token string) (string, error) {
-	if s == nil || s.pool == nil {
-		return "", fmt.Errorf("email messages service not configured")
-	}
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return "", ErrNotFound
-	}
-	var targetURL string
-	err := s.pool.QueryRow(ctx, `
-		WITH clicked AS (
-			UPDATE email_message_links
-			SET click_count = click_count + 1,
-			    first_clicked_at = COALESCE(first_clicked_at, NOW()),
-			    last_clicked_at = NOW()
-			WHERE click_token = $1
-			RETURNING email_message_id, target_url
-		)
-		UPDATE email_messages m
-		SET click_count = click_count + 1,
-		    first_clicked_at = COALESCE(first_clicked_at, NOW()),
-		    last_clicked_at = NOW()
-		FROM clicked
-		WHERE m.id = clicked.email_message_id
-		RETURNING clicked.target_url
-	`, token).Scan(&targetURL)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", ErrNotFound
-		}
-		return "", fmt.Errorf("mark email clicked: %w", err)
-	}
-	return targetURL, nil
-}
-
 type rows interface {
 	Next() bool
 	Scan(dest ...any) error
@@ -795,18 +758,22 @@ type scanner interface {
 
 func scanMessage(s scanner) (Message, error) {
 	var (
-		m            Message
-		firstOpened  pgtype.Timestamptz
-		lastOpened   pgtype.Timestamptz
-		firstClicked pgtype.Timestamptz
-		lastClicked  pgtype.Timestamptz
-		receivedAt   pgtype.Timestamptz
-		outcomeAt    pgtype.Timestamptz
+		m                    Message
+		firstOpened          pgtype.Timestamptz
+		lastOpened           pgtype.Timestamptz
+		firstClicked         pgtype.Timestamptz
+		lastClicked          pgtype.Timestamptz
+		trackingAuthorizedAt pgtype.Timestamptz
+		trackingExpiresAt    pgtype.Timestamptz
+		trackingPurgedAt     pgtype.Timestamptz
+		receivedAt           pgtype.Timestamptz
+		outcomeAt            pgtype.Timestamptz
 	)
 	if err := s.Scan(&m.ID, &m.Direction, &m.FromEmail, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error,
 		&m.Visibility, &m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.MailboxUserID,
 		&m.SharedInboxStatus, &m.SharedInboxAssignedToUserID, &m.SharedInboxAssignedToName, &m.SharedInboxUpdatedAt,
 		&m.ProviderID, &m.ProviderThread, &m.RFCMessageID, &m.InReplyTo, &m.ReferenceMessageIDs, &m.DeliveryOutcome, &outcomeAt, &m.TrackingToken,
+		&m.EngagementTrackingEnabled, &m.TrackingAuthorizedByUserID, &trackingAuthorizedAt, &trackingExpiresAt, &trackingPurgedAt,
 		&m.OpenCount, &firstOpened, &lastOpened, &m.ClickCount, &firstClicked, &lastClicked, &receivedAt, &m.CreatedAt); err != nil {
 		return Message{}, err
 	}
@@ -840,6 +807,18 @@ func scanMessage(s scanner) (Message, error) {
 	if outcomeAt.Valid {
 		outcome := outcomeAt.Time
 		m.DeliveryOutcomeAt = &outcome
+	}
+	if trackingAuthorizedAt.Valid {
+		value := trackingAuthorizedAt.Time
+		m.TrackingAuthorizedAt = &value
+	}
+	if trackingExpiresAt.Valid {
+		value := trackingExpiresAt.Time
+		m.EngagementTrackingExpiresAt = &value
+	}
+	if trackingPurgedAt.Valid {
+		value := trackingPurgedAt.Time
+		m.EngagementTrackingPurgedAt = &value
 	}
 	return m, nil
 }

@@ -62,6 +62,7 @@ describe('contact email flow', () => {
     fireEvent.change(templateSelect, { target: { value: '2' } })
 
     expect(screen.getByLabelText(/subject/i)).toHaveValue('Hello {{first_name}}')
+    expect(screen.getByRole('checkbox', { name: /track opens\/links/i })).not.toBeChecked()
 
     const submit = screen.getByRole('button', { name: /^send email$/i })
     fireEvent.click(submit)
@@ -71,7 +72,7 @@ describe('contact email flow', () => {
         (call) => String(call[0]).endsWith('/api/contacts/7/email') && (call[1]?.method === 'POST')
       )
       expect(sendCall).toBeTruthy()
-      expect(JSON.parse(sendCall[1].body)).toEqual({ subject: 'Hello {{first_name}}', body: 'Hi {{first_name}}!' })
+      expect(JSON.parse(sendCall[1].body)).toEqual({ subject: 'Hello {{first_name}}', body: 'Hi {{first_name}}!', trackEngagement: false })
     })
     expect(await screen.findByText(/email sent to morgan@acme.test/i)).toBeInTheDocument()
   })

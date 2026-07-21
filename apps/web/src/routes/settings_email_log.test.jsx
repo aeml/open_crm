@@ -28,7 +28,7 @@ describe('settings email log route', () => {
           json: async () => ({
             data: {
               messages: [
-                { id: 1, toEmail: 'lead@acme.test', subject: 'Following up', status: 'sent', deliveryOutcome: 'bounced', deliveryOutcomeAt: '2026-05-02T12:00:00Z', sentByName: 'Demo Owner', openCount: 1, clickCount: 3, createdAt: '2026-05-01T12:00:00Z' }
+                { id: 1, toEmail: 'lead@acme.test', subject: 'Following up', status: 'sent', deliveryOutcome: 'bounced', deliveryOutcomeAt: '2026-05-02T12:00:00Z', sentByName: 'Demo Owner', engagementTrackingState: 'active', engagementTrackingExpiresAt: '2026-08-01T12:00:00Z', openCount: 1, clickCount: 3, createdAt: '2026-05-01T12:00:00Z' }
               ]
             }
           })
@@ -39,7 +39,7 @@ describe('settings email log route', () => {
           ok: true,
           json: async () => ({
             data: {
-              message: { id: 1, toEmail: 'lead@acme.test', subject: 'Following up', body: 'Admin-visible full body.', status: 'sent', deliveryOutcome: 'bounced', deliveryOutcomeAt: '2026-05-02T12:00:00Z', sentByName: 'Demo Owner', openCount: 1, clickCount: 3, createdAt: '2026-05-01T12:00:00Z' }
+              message: { id: 1, toEmail: 'lead@acme.test', subject: 'Following up', body: 'Admin-visible full body.', status: 'sent', deliveryOutcome: 'bounced', deliveryOutcomeAt: '2026-05-02T12:00:00Z', sentByName: 'Demo Owner', engagementTrackingState: 'active', engagementTrackingExpiresAt: '2026-08-01T12:00:00Z', openCount: 1, clickCount: 3, createdAt: '2026-05-01T12:00:00Z' }
             }
           })
         }

@@ -89,6 +89,9 @@ describe('record email composer flow', () => {
     const snippetSelect = await screen.findByLabelText(/snippet/i)
     fireEvent.change(snippetSelect, { target: { value: '3' } })
     expect(screen.getByLabelText(/body/i)).toHaveValue('Hi {{first_name}} from {{company_name}}.\n\nWould next week work?')
+    const trackingConsent = screen.getByRole('checkbox', { name: /track opens\/links/i })
+    expect(trackingConsent).not.toBeChecked()
+    fireEvent.click(trackingConsent)
 
     fireEvent.click(screen.getByRole('button', { name: /^send email$/i }))
 
@@ -97,7 +100,7 @@ describe('record email composer flow', () => {
         (call) => String(call[0]).endsWith('/api/companies/5/email') && call[1]?.method === 'POST'
       )
       expect(sendCall).toBeTruthy()
-      expect(JSON.parse(sendCall[1].body)).toEqual({ subject: 'Hello {{first_name}}', body: 'Hi {{first_name}} from {{company_name}}.\n\nWould next week work?', contactId: 7 })
+      expect(JSON.parse(sendCall[1].body)).toEqual({ subject: 'Hello {{first_name}}', body: 'Hi {{first_name}} from {{company_name}}.\n\nWould next week work?', contactId: 7, trackEngagement: true })
     })
     expect(await screen.findByText(/email sent to morgan@northstar.test/i)).toBeInTheDocument()
   })

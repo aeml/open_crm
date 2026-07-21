@@ -461,6 +461,9 @@ func TestTrackEmailOpenMarksTokenAndReturnsPixel(t *testing.T) {
 	if recorder.Header().Get("Content-Type") != "image/gif" || recorder.Body.Len() == 0 {
 		t.Fatalf("expected gif pixel response, headers=%v len=%d", recorder.Header(), recorder.Body.Len())
 	}
+	if recorder.Header().Get("Referrer-Policy") != "no-referrer" || recorder.Header().Get("X-Robots-Tag") != "noindex, nofollow" {
+		t.Fatalf("tracking response is missing privacy headers: %v", recorder.Header())
+	}
 }
 
 func TestTrackEmailClickMarksTokenAndRedirects(t *testing.T) {
@@ -479,5 +482,8 @@ func TestTrackEmailClickMarksTokenAndRedirects(t *testing.T) {
 	}
 	if location := recorder.Header().Get("Location"); location != "https://example.test/offer" {
 		t.Fatalf("unexpected redirect location: %q", location)
+	}
+	if recorder.Header().Get("Referrer-Policy") != "no-referrer" || recorder.Header().Get("X-Robots-Tag") != "noindex, nofollow" {
+		t.Fatalf("click redirect is missing privacy headers: %v", recorder.Header())
 	}
 }

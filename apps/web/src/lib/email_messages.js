@@ -20,6 +20,11 @@ export function emailRecordLabel(message) {
   return message?.entityType && message?.entityId ? `${message.entityType} #${message.entityId}` : ''
 }
 
+export function emailEngagementSummary(message) {
+  if (message?.engagementTrackingState === 'active') return `Opens ${+message.openCount || 0} · clicks ${+message.clickCount || 0} · Active`
+  return message?.engagementTrackingState === 'expired' ? 'Tracking expired; data removed' : 'Tracking off'
+}
+
 export async function listEmailMessages({ entityType, entityId, limit, signal } = {}) {
   const params = new URLSearchParams()
   if (entityType) params.set('entityType', entityType)

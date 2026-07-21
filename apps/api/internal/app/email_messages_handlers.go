@@ -40,6 +40,8 @@ type emailMessageView struct {
 	SharedInboxAssignedToUserID   int64  `json:"sharedInboxAssignedToUserId,omitempty"`
 	SharedInboxAssignedToUserName string `json:"sharedInboxAssignedToUserName,omitempty"`
 	SharedInboxUpdatedAt          string `json:"sharedInboxUpdatedAt"`
+	EngagementTrackingState       string `json:"engagementTrackingState"`
+	EngagementTrackingExpiresAt   string `json:"engagementTrackingExpiresAt,omitempty"`
 	OpenCount                     int    `json:"openCount"`
 	FirstOpenedAt                 string `json:"firstOpenedAt,omitempty"`
 	LastOpenedAt                  string `json:"lastOpenedAt,omitempty"`
@@ -79,6 +81,8 @@ type emailMessageDetailView struct {
 	SharedInboxAssignedToUserID   int64  `json:"sharedInboxAssignedToUserId,omitempty"`
 	SharedInboxAssignedToUserName string `json:"sharedInboxAssignedToUserName,omitempty"`
 	SharedInboxUpdatedAt          string `json:"sharedInboxUpdatedAt"`
+	EngagementTrackingState       string `json:"engagementTrackingState"`
+	EngagementTrackingExpiresAt   string `json:"engagementTrackingExpiresAt,omitempty"`
 	OpenCount                     int    `json:"openCount"`
 	FirstOpenedAt                 string `json:"firstOpenedAt,omitempty"`
 	LastOpenedAt                  string `json:"lastOpenedAt,omitempty"`
@@ -306,6 +310,8 @@ func handleTrackEmailOpen(messages emailMessagesService, w http.ResponseWriter, 
 	w.Header().Set("Content-Type", "image/gif")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(transparentTrackingPixel)
 }
@@ -325,6 +331,8 @@ func handleTrackEmailClick(messages emailMessagesService, w http.ResponseWriter,
 	}
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	// #nosec G710 -- click tracking intentionally redirects to the stored recipient URL after an explicit absolute HTTP(S)-only check.
 	http.Redirect(w, r, targetURL, http.StatusFound)
 }
@@ -339,7 +347,9 @@ func isSafeEmailClickURL(value string) bool {
 
 func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageView {
 	views := make([]emailMessageView, 0, len(records))
+	now := time.Now().UTC()
 	for _, m := range records {
+		engagement := emailEngagementViewFor(m, now)
 		views = append(views, emailMessageView{
 			ID:                            m.ID,
 			Direction:                     emailMessageDirection(m),
@@ -359,12 +369,14 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 			SharedInboxAssignedToUserID:   m.SharedInboxAssignedToUserID,
 			SharedInboxAssignedToUserName: m.SharedInboxAssignedToName,
 			SharedInboxUpdatedAt:          sharedInboxVersion(m),
-			OpenCount:                     m.OpenCount,
-			FirstOpenedAt:                 formatOptionalTime(m.FirstOpenedAt),
-			LastOpenedAt:                  formatOptionalTime(m.LastOpenedAt),
-			ClickCount:                    m.ClickCount,
-			FirstClickedAt:                formatOptionalTime(m.FirstClickedAt),
-			LastClickedAt:                 formatOptionalTime(m.LastClickedAt),
+			EngagementTrackingState:       engagement.state,
+			EngagementTrackingExpiresAt:   engagement.expiresAt,
+			OpenCount:                     engagement.openCount,
+			FirstOpenedAt:                 engagement.firstOpenedAt,
+			LastOpenedAt:                  engagement.lastOpenedAt,
+			ClickCount:                    engagement.clickCount,
+			FirstClickedAt:                engagement.firstClickedAt,
+			LastClickedAt:                 engagement.lastClickedAt,
 			ReceivedAt:                    formatOptionalTime(m.ReceivedAt),
 			CreatedAt:                     m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		})
@@ -373,6 +385,7 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 }
 
 func toEmailMessageDetailView(m moduleemailmessages.Message) emailMessageDetailView {
+	engagement := emailEngagementViewFor(m, time.Now().UTC())
 	return emailMessageDetailView{
 		ID:                            m.ID,
 		Direction:                     emailMessageDirection(m),
@@ -393,12 +406,14 @@ func toEmailMessageDetailView(m moduleemailmessages.Message) emailMessageDetailV
 		SharedInboxAssignedToUserID:   m.SharedInboxAssignedToUserID,
 		SharedInboxAssignedToUserName: m.SharedInboxAssignedToName,
 		SharedInboxUpdatedAt:          sharedInboxVersion(m),
-		OpenCount:                     m.OpenCount,
-		FirstOpenedAt:                 formatOptionalTime(m.FirstOpenedAt),
-		LastOpenedAt:                  formatOptionalTime(m.LastOpenedAt),
-		ClickCount:                    m.ClickCount,
-		FirstClickedAt:                formatOptionalTime(m.FirstClickedAt),
-		LastClickedAt:                 formatOptionalTime(m.LastClickedAt),
+		EngagementTrackingState:       engagement.state,
+		EngagementTrackingExpiresAt:   engagement.expiresAt,
+		OpenCount:                     engagement.openCount,
+		FirstOpenedAt:                 engagement.firstOpenedAt,
+		LastOpenedAt:                  engagement.lastOpenedAt,
+		ClickCount:                    engagement.clickCount,
+		FirstClickedAt:                engagement.firstClickedAt,
+		LastClickedAt:                 engagement.lastClickedAt,
 		ReceivedAt:                    formatOptionalTime(m.ReceivedAt),
 		CreatedAt:                     m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
@@ -431,4 +446,33 @@ func sharedInboxVersion(message moduleemailmessages.Message) string {
 		updatedAt = message.CreatedAt
 	}
 	return updatedAt.UTC().Format(time.RFC3339Nano)
+}
+
+type emailEngagementView struct {
+	state          string
+	expiresAt      string
+	openCount      int
+	firstOpenedAt  string
+	lastOpenedAt   string
+	clickCount     int
+	firstClickedAt string
+	lastClickedAt  string
+}
+
+func emailEngagementViewFor(message moduleemailmessages.Message, now time.Time) emailEngagementView {
+	if !message.EngagementTrackingEnabled {
+		return emailEngagementView{state: "not_enabled"}
+	}
+	view := emailEngagementView{state: "expired", expiresAt: formatOptionalTime(message.EngagementTrackingExpiresAt)}
+	if message.EngagementTrackingExpiresAt == nil || message.EngagementTrackingPurgedAt != nil || !message.EngagementTrackingExpiresAt.After(now) {
+		return view
+	}
+	view.state = "active"
+	view.openCount = message.OpenCount
+	view.firstOpenedAt = formatOptionalTime(message.FirstOpenedAt)
+	view.lastOpenedAt = formatOptionalTime(message.LastOpenedAt)
+	view.clickCount = message.ClickCount
+	view.firstClickedAt = formatOptionalTime(message.FirstClickedAt)
+	view.lastClickedAt = formatOptionalTime(message.LastClickedAt)
+	return view
 }
