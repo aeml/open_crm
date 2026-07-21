@@ -1,4 +1,4 @@
-import { apiRequest } from './api'
+import { apiRequest, apiURL } from './api'
 
 export async function listAuditEvents({ eventType = '', limit = 50, signal } = {}) {
   const params = new URLSearchParams()
@@ -13,4 +13,8 @@ export async function listAuditEvents({ eventType = '', limit = 50, signal } = {
   const payload = await apiRequest(`/api/audit-events${query ? `?${query}` : ''}`, { fallbackMessage: 'Unable to load audit events.', signal })
 
   return payload?.data?.events || []
+}
+
+export function auditExportURL(eventType = '') {
+  return apiURL(`/api/audit-events/export.csv${eventType ? `?eventType=${encodeURIComponent(eventType)}` : ''}`)
 }

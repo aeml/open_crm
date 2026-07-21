@@ -343,32 +343,6 @@ func handleGetOrganizationProfile(auth authService, profiles orgProfileService, 
 	respondOrganizationProfile(w, r, http.StatusOK, result)
 }
 
-func handleListAuditEvents(auth authService, audit auditService, w http.ResponseWriter, r *http.Request) {
-	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgAdmin(auth, w, r)
-	if !ok {
-		return
-	}
-	if audit == nil {
-		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Audit service unavailable")
-		return
-	}
-
-	events, err := audit.ListByOrganization(r.Context(), state.Organization.ID, moduleaudit.ListQuery{
-		EventType: strings.TrimSpace(r.URL.Query().Get("eventType")),
-		Limit:     parsePositiveInt(r.URL.Query().Get("limit"), 50),
-	})
-	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load audit events")
-		return
-	}
-
-	response := auditEventsResponse{}
-	response.Data.Events = events
-	response.Meta.RequestID = requestID
-	platformweb.WriteJSON(w, http.StatusOK, response)
-}
-
 func handleUpdateOrganizationProfile(auth authService, profiles orgProfileService, audit auditService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgAdmin(auth, w, r)

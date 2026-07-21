@@ -774,6 +774,22 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     for (const excludedValue of exportExpectation.excludes) expect(csv).not.toContain(excludedValue)
   }
 
+  await page.goto('/settings/audit')
+  await expect(page.getByRole('heading', { name: 'Admin audit trail' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Retention and export' })).toBeVisible()
+  await expect(page.getByText('Audit events are immutable and retained for the workspace lifetime.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Append-only history is in the workspace export', { exact: false })).toBeVisible()
+  const auditExport = await page.context().request.get(`${apiURL}/api/audit-events/export.csv?eventType=user.invited`)
+  expect(auditExport.status()).toBe(200)
+  expect(auditExport.headers()['content-type']).toContain('text/csv')
+  expect(auditExport.headers()['content-disposition']).toMatch(/^attachment; filename="audit-events-\d{8}\.csv"$/)
+  expect(auditExport.headers()['cache-control']).toContain('no-store')
+  const auditCSV = await auditExport.text()
+  expect(auditCSV).toContain('event_type')
+  expect(auditCSV).toContain('user.invited')
+  await page.getByRole('button', { name: 'Refresh audit' }).click()
+  await expect(page.getByRole('list', { name: 'Admin audit events' }).getByText('Downloaded audit event CSV', { exact: true })).toBeVisible()
+
   await page.goto('/settings/billing')
   await expect(page.getByRole('heading', { name: 'Portable workspace export' })).toBeVisible()
   await page.getByRole('button', { name: 'Create workspace export' }).click()

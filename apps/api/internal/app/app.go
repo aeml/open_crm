@@ -118,7 +118,8 @@ type userPreferencesResponse struct {
 
 type auditEventsResponse struct {
 	Data struct {
-		Events []moduleaudit.Event `json:"events"`
+		Events []moduleaudit.Event         `json:"events"`
+		Policy moduleaudit.RetentionPolicy `json:"policy"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`

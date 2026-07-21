@@ -370,6 +370,10 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	if !bytes.Contains(files["data/contacts.ndjson"], []byte(`"morgan@portable.test"`)) {
 		t.Fatalf("portable contact missing: %s", files["data/contacts.ndjson"])
 	}
+	portableAuditEvents := string(files["data/audit_events.ndjson"])
+	if !strings.Contains(portableAuditEvents, `"event_type": "workspace.export_requested"`) || strings.Contains(portableAuditEvents, "idempotency_key") {
+		t.Fatalf("portable append-only audit history missing or leaked request correlation: %s", portableAuditEvents)
+	}
 	portableLeadForms := string(files["data/lead_capture_forms.ndjson"])
 	portableLeadSubmissions := string(files["data/lead_capture_submissions.ndjson"])
 	if !strings.Contains(portableLeadForms, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "consented_at") || !strings.Contains(portableLeadSubmissions, "Portable inquiry") || !strings.Contains(portableLeadSubmissions, "Verified pilot inquiry.") || !strings.Contains(portableLeadSubmissions, `"review_status": "legitimate"`) {
@@ -442,6 +446,9 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	var manifestValue manifest
 	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 2 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["deal_quote_approvals"] != 1 || manifestValue.DatasetCounts["quote_templates"] != 1 || manifestValue.DatasetCounts["organization_quote_policies"] != 1 || manifestValue.DatasetCounts["deal_signature_requests"] != 1 || manifestValue.DatasetCounts["lead_capture_forms"] != 1 || manifestValue.DatasetCounts["lead_capture_submissions"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 {
 		t.Fatalf("unexpected workspace export manifest: manifest=%#v err=%v", manifestValue, err)
+	}
+	if manifestValue.DatasetCounts["audit_events"] < 1 {
+		t.Fatalf("workspace export manifest omitted append-only audit history: %#v", manifestValue.DatasetCounts)
 	}
 	var downloadAudits int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='workspace.export_downloaded'`, organizationID).Scan(&downloadAudits); err != nil || downloadAudits != 1 {

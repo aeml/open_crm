@@ -127,6 +127,9 @@ func registerPlatformRoutes(mux *http.ServeMux, env config.Env, dependencies Dep
 	mux.HandleFunc("GET /api/audit-events", func(w http.ResponseWriter, r *http.Request) {
 		handleListAuditEvents(dependencies.AuthService, dependencies.AuditService, w, r)
 	})
+	mux.HandleFunc("GET /api/audit-events/export.csv", func(w http.ResponseWriter, r *http.Request) {
+		handleExportAuditEvents(dependencies.AuthService, dependencies.AuditService, w, r)
+	})
 	mux.HandleFunc("GET /api/workspace-exports", func(w http.ResponseWriter, r *http.Request) {
 		handleListWorkspaceExports(dependencies.AuthService, dependencies.WorkspaceExportsService, w, r)
 	})

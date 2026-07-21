@@ -640,6 +640,7 @@ Completion notes:
 - Invitation resend and revocation record secret-free lifecycle audit events; repeated revocation is idempotent and does not duplicate evidence.
 - Added an admin-only audit API and Settings audit view with event filtering and retention guidance.
 - Covered audit event access, metadata sanitization, role updates, and audit UI behavior with tests.
+- Convergence hardening now makes audit rows append-only in PostgreSQL for the workspace lifetime, permits removal only through the parent-workspace cascade, rejects top-level secret-like metadata keys at both the service and database boundaries, and decodes boolean, numeric, and nested JSON metadata safely. Owners/admins can download a formula-neutralized exact-filter CSV up to 10,000 rows with explicit overflow refusal and an audit event for the download; the complete workspace package retains `audit_events.ndjson`. A digest-gated 41-file producer inventory, handler/UI tests, disposable-PostgreSQL immutability/tenant/secret/overflow acceptance, portable-export assertions, WCAG scan, and the clean browser journey keep the policy executable.
 
 ## Version 0.3.7 - Data Export
 
@@ -2318,7 +2319,7 @@ later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
 CSS. Current production-URL evidence is 178.93 KiB/58.03 KiB for the entry, 54.78 KiB/15.63 KiB
-for the largest lazy chunk, and 669.85 KiB/213.04 KiB total assets. The isolated
+for the largest lazy chunk, and 669.62 KiB/212.99 KiB total assets. The isolated
 public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
 retry-safe signature ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB

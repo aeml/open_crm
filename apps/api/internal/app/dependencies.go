@@ -78,6 +78,7 @@ type usersService interface {
 
 type auditService interface {
 	ListByOrganization(context.Context, int64, moduleaudit.ListQuery) ([]moduleaudit.Event, error)
+	ExportCSV(context.Context, int64, moduleaudit.ListQuery) (moduleaudit.File, error)
 	Record(context.Context, int64, moduleaudit.RecordInput) error
 }
 

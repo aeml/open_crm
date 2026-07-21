@@ -5,16 +5,8 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { listAuditEvents } from '../lib/audit'
+import { auditExportURL, listAuditEvents } from '../lib/audit'
 import { usePageTitle } from '../lib/use_page_title'
-
-const eventTypeOptions = [
-  { value: '', label: 'All administrative events' },
-  { value: 'user.invited', label: 'User invites' },
-  { value: 'user.role_changed', label: 'Role changes' },
-  { value: 'user.password_setup_completed', label: 'Password setup events' },
-  { value: 'organization.profile_updated', label: 'Profile changes' }
-]
 
 function formatAuditTimestamp(value) {
   if (!value) {
@@ -78,14 +70,11 @@ export function SettingsAuditRoute() {
             </div>
             <div>
               <Button className="button-secondary" type="button" onClick={() => loadEvents()} disabled={!canReviewAudit || isLoading}>Refresh audit</Button>
+              {canReviewAudit ? <a className="button button-secondary" href={auditExportURL(eventType)}>Export filtered CSV</a> : null}
             </div>
           </div>
           <Field label="Audit event filter">
-            <select className="text-input" value={eventType} onChange={(event) => setEventType(event.target.value)} disabled={!canReviewAudit}>
-              {eventTypeOptions.map((option) => (
-                <option key={option.value || 'all'} value={option.value}>{option.label}</option>
-              ))}
-            </select>
+            <input className="text-input" type="search" value={eventType} onChange={(event) => setEventType(event.target.value)} placeholder="Exact event type; blank shows all" disabled={!canReviewAudit} />
           </Field>
           {isLoading ? <p className="field-hint">Loading audit events...</p> : null}
           {error ? <InlineError message={error} /> : null}
@@ -115,12 +104,10 @@ export function SettingsAuditRoute() {
       <Card>
         <div className="card-stack">
           <div>
-            <h2>Retention guidance</h2>
-            <p>Keep audit events long enough to investigate administrative changes, then archive or purge them according to your operating policy.</p>
+            <h2>Retention and export</h2>
+            <p>Audit events are immutable and retained for the workspace lifetime.</p>
           </div>
-          <div className="inline-note">
-            <strong>Recommended baseline:</strong> retain admin audit events for at least 12 months and avoid storing password material, setup tokens, or other secrets in audit metadata.
-          </div>
+          <p className="inline-note">Append-only history is in the workspace export. CSVs over 10,000 rows are refused; secret-like keys are rejected.</p>
         </div>
       </Card>
     </section>

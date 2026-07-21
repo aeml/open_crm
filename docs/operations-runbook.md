@@ -532,6 +532,39 @@ references.
    ceiling, design and test a separately authorized operator-streamed export;
    never increase memory ceilings or use an unreviewed production SQL dump.
 
+### Audit retention, review, and export
+
+1. Owners and admins review **Settings > Audit Trail**. The list and CSV use the
+   organization from the server-side session and an exact optional event-type
+   filter; there is no caller-selectable tenant. A successful CSV download
+   writes `audit.export_downloaded` before the file is returned.
+2. Audit rows are append-only and retained for the workspace lifetime. Database
+   updates, direct deletes, and table truncation fail intentionally. Do not rewrite or purge
+   individual audit rows to correct wording, reduce storage, or conceal an
+   incident; add a new corrective business event where the product supports it
+   and preserve the original evidence. Audit rows may disappear only as part of
+   deleting the parent workspace under the separately approved tenant-deletion
+   policy.
+3. The filtered CSV is an operator convenience, ordered oldest first and
+   neutralized against spreadsheet formulas. It reads at most 10,001 candidates
+   and returns `422 EXPORT_TOO_LARGE` rather than a partial file above 10,000
+   matches. Narrow the exact event-type filter or use the complete portable
+   workspace ZIP, whose `data/audit_events.ndjson` and manifest count are the
+   authoritative full-workspace package.
+4. PostgreSQL rejects a metadata value that is not an object or whose top-level
+   keys resemble passwords, tokens, secrets, credentials, authorization, or
+   cookies. If a producer begins failing at
+   `audit_events_metadata_keys_safe`, fix the producer to store non-secret
+   business evidence and rotate any credential that may have reached logs or an
+   earlier system. Never weaken the constraint or put secrets under a renamed
+   key. Nested values remain allowed for typed provider evidence, but producers
+   should keep metadata bounded and purpose-specific.
+5. The executable producer inventory in `internal/app/audit_inventory_test.go`
+   fails when audit-writing source files are added, removed, or moved. Review the
+   mutation class, tenant boundary, metadata, retention, and export effect before
+   updating its count/digest and `docs/audit-event-policy.md`; a mechanical
+   digest update is not a policy review.
+
 ### Pipeline configuration and recovery
 
 1. Only owners and admins can change pipeline configuration under **Settings >

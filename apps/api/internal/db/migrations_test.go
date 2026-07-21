@@ -529,6 +529,14 @@ func TestAutomaticMigrationCompatibilityPolicy(t *testing.T) {
 	if err := validateAutomaticMigration("999_unsafe_constraint.sql", unsafeConstraint, false); err == nil || !strings.Contains(err.Error(), "unsafe new constraint") {
 		t.Fatalf("blocking expand constraint was not rejected: %v", err)
 	}
+	unsafeTruncate := "-- open-crm-deploy: expand\nTRUNCATE TABLE audit_events;"
+	if err := validateAutomaticMigration("999_unsafe_truncate.sql", unsafeTruncate, false); err == nil || !strings.Contains(err.Error(), "unsafe truncate") {
+		t.Fatalf("destructive truncate expand migration was not rejected: %v", err)
+	}
+	safeTruncateGuard := "-- open-crm-deploy: expand\nCREATE TRIGGER preserve_history BEFORE TRUNCATE ON audit_events FOR EACH STATEMENT EXECUTE FUNCTION reject_truncate();"
+	if err := validateAutomaticMigration("999_safe_truncate_guard.sql", safeTruncateGuard, false); err != nil {
+		t.Fatalf("truncate-protection trigger was rejected as destructive: %v", err)
+	}
 	contract := "-- open-crm-deploy: contract\nALTER TABLE contacts DROP COLUMN email;"
 	if err := validateAutomaticMigration("999_contract.sql", contract, false); err == nil || !strings.Contains(err.Error(), "maintenance window") {
 		t.Fatalf("unapproved contract migration was not rejected: %v", err)
@@ -1799,5 +1807,33 @@ func TestMigrationFilesIncludeLeadSubmissionReview(t *testing.T) {
 	}
 	if class := MigrationDeploymentClass(name); class != "expand" {
 		t.Fatalf("lead submission review migration class=%q", class)
+	}
+}
+
+func TestMigrationFilesIncludeAuditRetentionExport(t *testing.T) {
+	const name = "104_audit_retention_export.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	sql := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"open_crm_audit_metadata_keys_are_safe",
+		"audit_events_metadata_keys_safe",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT audit_events_metadata_keys_safe",
+		"open_crm_protect_audit_event_history",
+		"audit_events_protect_history",
+		"audit_events_protect_truncate",
+		"BEFORE TRUNCATE",
+		"audit events are append-only",
+		"audit events are retained for the workspace lifetime",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("audit retention/export migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("audit retention/export deployment class = %q", class)
 	}
 }
