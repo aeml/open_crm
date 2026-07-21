@@ -5,64 +5,16 @@ import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { getEmailMessage, listMyEmailMessages, updateSharedInboxEmailMessage } from '../lib/email_messages'
+import { emailMessageTimestamp, emailRecordLabel, emailRecordPath, formatEmailTimestamp, getEmailMessage, listMyEmailMessages, updateSharedInboxEmailMessage } from '../lib/email_messages'
 import { usePageTitle } from '../lib/use_page_title'
 
-function formatTimestamp(value) {
-  if (!value) {
-    return ''
-  }
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
-}
-
-function recordPath(message) {
-  if (!message?.entityType || !message?.entityId) {
-    return ''
-  }
-  if (message.entityType === 'contact') {
-    return `/contacts/${message.entityId}`
-  }
-  if (message.entityType === 'company') {
-    return `/companies/${message.entityId}`
-  }
-  if (message.entityType === 'deal') {
-    return `/deals/${message.entityId}`
-  }
-  return ''
-}
-
-function recordLabel(message) {
-  if (!message?.entityType || !message?.entityId) {
-    return ''
-  }
-  return `${message.entityType} #${message.entityId}`
-}
-
-function openStatus(message) {
-  const count = Number.parseInt(String(message?.openCount || 0), 10) || 0
-  if (count <= 0) {
-    return 'Not opened yet'
-  }
-  const suffix = count === 1 ? 'time' : 'times'
-  return `Opened ${count} ${suffix}`
-}
-
-function clickStatus(message) {
-  const count = Number.parseInt(String(message?.clickCount || 0), 10) || 0
-  if (count <= 0) {
-    return 'No clicks yet'
-  }
-  const suffix = count === 1 ? 'time' : 'times'
-  return `Clicked ${count} ${suffix}`
+function engagementStatus(message, field, verb, empty) {
+  const count = +message?.[field] || 0
+  return count ? `${verb} ${count} ${count === 1 ? 'time' : 'times'}` : empty
 }
 
 function isInbound(message) {
   return message?.direction === 'inbound'
-}
-
-function messageTimestamp(message) {
-  return message?.receivedAt || message?.createdAt
 }
 
 function participantLabel(message) {
@@ -73,7 +25,7 @@ function participantLabel(message) {
 }
 
 export function MailboxRoute() {
-  const { session, workspaceWritable } = useAuth()
+  const { session, canWrite } = useAuth()
   usePageTitle('Mailbox')
   const [messages, setMessages] = useState([])
   const [selectedMessage, setSelectedMessage] = useState(null)
@@ -121,17 +73,30 @@ export function MailboxRoute() {
     }
   }
 
-  async function handleShareMessage(messageId) {
+  async function handlePrivacyChange(message, visibility) {
+    const sharing = visibility === 'shared'
+    const confirmed = window.confirm(sharing
+      ? 'Share this complete message with everyone in this workspace?'
+      : 'Make private? Team access ends now; audit history remains.')
+    if (!confirmed) return
     setIsSharing(true)
     setError('')
     try {
       const userId = session?.user?.id || 0
-      const updated = await updateSharedInboxEmailMessage(messageId, { visibility: 'shared', status: 'open', assignedToUserId: userId || undefined })
+      const input = {
+        visibility,
+        expectedUpdatedAt: message.sharedInboxUpdatedAt
+      }
+      if (sharing) {
+        input.status = 'open'
+        input.assignedToUserId = userId || undefined
+      }
+      const updated = await updateSharedInboxEmailMessage(message.id, input)
       setMessages((current) => current.map((message) => (message.id === updated.id ? { ...message, ...updated } : message)))
       setSelectedMessage((current) => (current?.id === updated.id ? { ...current, ...updated } : current))
     } catch (shareError) {
       if (!isAbortError(shareError)) {
-        setError(shareError.message || 'Unable to share this message with the team.')
+        setError(shareError.message || 'Unable to change message privacy.')
       }
     } finally {
       setIsSharing(false)
@@ -163,20 +128,24 @@ export function MailboxRoute() {
                 </div>
               </article>
             ) : messages.map((message) => {
-              const path = recordPath(message)
-              const label = recordLabel(message)
+              const path = emailRecordPath(message)
+              const label = emailRecordLabel(message)
               return (
                 <article className={message.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} key={message.id} role="listitem">
                   <div>
                     <h3>{message.subject}</h3>
                     <p className="field-hint">{participantLabel(message)}{message.status === 'failed' ? ' · Failed' : ''}{isInbound(message) ? ' · Received' : ''}</p>
-                    {!isInbound(message) ? <p className="field-hint">{openStatus(message)}</p> : null}
-                    {!isInbound(message) ? <p className="field-hint">{clickStatus(message)}</p> : null}
+                    {!isInbound(message) ? <p className="field-hint">{engagementStatus(message, 'openCount', 'Opened', 'Not opened yet')}</p> : null}
+                    {!isInbound(message) ? <p className="field-hint">{engagementStatus(message, 'clickCount', 'Clicked', 'No clicks yet')}</p> : null}
                   </div>
                   <div>
-                    <p>{formatTimestamp(messageTimestamp(message))}</p>
+                    <p>{formatEmailTimestamp(emailMessageTimestamp(message))}</p>
                     <Button className="button-secondary" type="button" onClick={() => handleSelectMessage(message.id)}>View details</Button>
-                    {isInbound(message) && message.visibility !== 'shared' && workspaceWritable ? <Button className="button-secondary" type="button" onClick={() => handleShareMessage(message.id)} disabled={isSharing}>Share with team</Button> : null}
+                    {isInbound(message) && canWrite ? (
+                      message.visibility === 'shared'
+                        ? <Button className="button-secondary" type="button" onClick={() => handlePrivacyChange(message, 'private')} disabled={isSharing}>Make private</Button>
+                        : <Button className="button-secondary" type="button" onClick={() => handlePrivacyChange(message, 'shared')} disabled={isSharing}>Share with team</Button>
+                    ) : null}
                     {path ? <Link className="button button-ghost" to={path}>Open {label}</Link> : null}
                   </div>
                 </article>
@@ -190,9 +159,9 @@ export function MailboxRoute() {
               <div className="card-stack">
                 <div>
                   <h3>{selectedMessage.subject}</h3>
-                  <p className="field-hint">{participantLabel(selectedMessage)} · {formatTimestamp(messageTimestamp(selectedMessage))}</p>
-                  {!isInbound(selectedMessage) ? <p className="field-hint">{openStatus(selectedMessage)}</p> : null}
-                  {!isInbound(selectedMessage) ? <p className="field-hint">{clickStatus(selectedMessage)}</p> : null}
+                  <p className="field-hint">{participantLabel(selectedMessage)} · {formatEmailTimestamp(emailMessageTimestamp(selectedMessage))}</p>
+                  {!isInbound(selectedMessage) ? <p className="field-hint">{engagementStatus(selectedMessage, 'openCount', 'Opened', 'Not opened yet')}</p> : null}
+                  {!isInbound(selectedMessage) ? <p className="field-hint">{engagementStatus(selectedMessage, 'clickCount', 'Clicked', 'No clicks yet')}</p> : null}
                 </div>
                 {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}
                 <pre className="field-hint message-body">{selectedMessage.body}</pre>

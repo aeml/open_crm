@@ -4,16 +4,8 @@ import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { getEmailMessage, listEmailMessages } from '../lib/email_messages'
+import { formatEmailTimestamp, getEmailMessage, listEmailMessages } from '../lib/email_messages'
 import { usePageTitle } from '../lib/use_page_title'
-
-function formatTimestamp(value) {
-  if (!value) {
-    return ''
-  }
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString()
-}
 
 function engagementStatus(message) {
   return `Opens ${+message?.openCount || 0} · clicks ${+message?.clickCount || 0}`
@@ -104,7 +96,7 @@ export function SettingsEmailLogRoute() {
                   <p className="field-hint">{engagementStatus(message)}</p>
                 </div>
                 <div>
-                  <p>{formatTimestamp(message.createdAt)}</p>
+                  <p>{formatEmailTimestamp(message.createdAt)}</p>
                   <Button className="button-secondary" type="button" onClick={() => handleSelectMessage(message.id)}>View details</Button>
                 </div>
               </article>
@@ -117,7 +109,7 @@ export function SettingsEmailLogRoute() {
               <div className="card-stack">
                 <div>
                   <h3>{selectedMessage.subject}</h3>
-                  <p className="field-hint">To {selectedMessage.toEmail} · {selectedMessage.sentByName || 'Unknown sender'} · {formatTimestamp(selectedMessage.createdAt)}{selectedMessage.deliveryOutcome ? ` · ${selectedMessage.deliveryOutcome}` : ''}</p>
+                  <p className="field-hint">To {selectedMessage.toEmail} · {selectedMessage.sentByName || 'Unknown sender'} · {formatEmailTimestamp(selectedMessage.createdAt)}{selectedMessage.deliveryOutcome ? ` · ${selectedMessage.deliveryOutcome}` : ''}</p>
                   <p className="field-hint">{engagementStatus(selectedMessage)}</p>
                 </div>
                 {selectedMessage.error ? <InlineError message={selectedMessage.error} /> : null}

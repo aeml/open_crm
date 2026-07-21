@@ -262,13 +262,13 @@ func TestSharedInboxAllowsMemberAndListsSharedInbound(t *testing.T) {
 
 func TestUpdateSharedInboxAllowsMailboxOwnerToShare(t *testing.T) {
 	assignedTo := int64(1)
+	expectedUpdatedAt := time.Date(2026, 7, 20, 12, 0, 0, 123456000, time.UTC)
 	service := &fakeEmailMessagesService{
-		getResult:    moduleemailmessages.Message{ID: 8, Direction: "inbound", Visibility: "private", MailboxUserID: 1, CreatedAt: time.Now()},
-		updateResult: moduleemailmessages.Message{ID: 8, Direction: "inbound", Visibility: "shared", MailboxUserID: 1, SharedInboxStatus: "open", SharedInboxAssignedToUserID: 1, CreatedAt: time.Now()},
+		updateResult: moduleemailmessages.Message{ID: 8, Direction: "inbound", Visibility: "shared", MailboxUserID: 1, SharedInboxStatus: "open", SharedInboxAssignedToUserID: 1, SharedInboxUpdatedAt: expectedUpdatedAt.Add(time.Second), CreatedAt: time.Now()},
 	}
 	server := emailMessagesServer(service, "member")
 
-	body := strings.NewReader(`{"visibility":"shared","status":"open","assignedToUserId":1}`)
+	body := strings.NewReader(`{"visibility":"shared","status":"open","assignedToUserId":1,"expectedUpdatedAt":"2026-07-20T12:00:00.123456Z"}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/email-messages/8/shared-inbox", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -278,18 +278,18 @@ func TestUpdateSharedInboxAllowsMailboxOwnerToShare(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200 for mailbox owner sharing message, got %d", recorder.Code)
 	}
-	if service.lastUpdateID != 8 || service.lastUpdateInput.Visibility != "shared" || service.lastUpdateInput.Status != "open" || service.lastUpdateInput.AssignedToUserID == nil || *service.lastUpdateInput.AssignedToUserID != assignedTo {
+	if service.lastUpdateID != 8 || service.lastUpdateInput.ActorUserID != 1 || service.lastUpdateInput.Visibility != "shared" || service.lastUpdateInput.Status != "open" || service.lastUpdateInput.AssignedToUserID == nil || *service.lastUpdateInput.AssignedToUserID != assignedTo || !service.lastUpdateInput.ExpectedUpdatedAt.Equal(expectedUpdatedAt) {
 		t.Fatalf("unexpected shared inbox update: id=%d input=%#v", service.lastUpdateID, service.lastUpdateInput)
 	}
 }
 
 func TestUpdateSharedInboxRejectsPrivateOtherMailboxMember(t *testing.T) {
 	service := &fakeEmailMessagesService{
-		getResult: moduleemailmessages.Message{ID: 9, Direction: "inbound", Visibility: "private", MailboxUserID: 2, CreatedAt: time.Now()},
+		updateErr: moduleemailmessages.ErrForbidden,
 	}
 	server := emailMessagesServer(service, "member")
 
-	body := strings.NewReader(`{"visibility":"shared","status":"open"}`)
+	body := strings.NewReader(`{"visibility":"shared","status":"open","expectedUpdatedAt":"2026-07-20T12:00:00Z"}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/email-messages/9/shared-inbox", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -299,8 +299,44 @@ func TestUpdateSharedInboxRejectsPrivateOtherMailboxMember(t *testing.T) {
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for another user's private inbound message, got %d", recorder.Code)
 	}
-	if service.lastUpdateID != 0 {
-		t.Fatalf("forbidden shared inbox update should not reach service")
+	if service.lastUpdateID != 9 || service.lastUpdateInput.ActorUserID != 1 {
+		t.Fatalf("privacy decision must reach the transactional service boundary, id=%d input=%#v", service.lastUpdateID, service.lastUpdateInput)
+	}
+}
+
+func TestUpdateSharedInboxRequiresVersionAndMapsConflict(t *testing.T) {
+	server := emailMessagesServer(&fakeEmailMessagesService{}, "member")
+	request := httptest.NewRequest(http.MethodPatch, "/api/email-messages/10/shared-inbox", strings.NewReader(`{"status":"closed"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 without an optimistic version, got %d", recorder.Code)
+	}
+
+	service := &fakeEmailMessagesService{updateErr: moduleemailmessages.ErrConflict}
+	server = emailMessagesServer(service, "member")
+	request = httptest.NewRequest(http.MethodPatch, "/api/email-messages/10/shared-inbox", strings.NewReader(`{"status":"closed","expectedUpdatedAt":"2026-07-20T12:00:00.123456Z"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder = httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "reload") {
+		t.Fatalf("expected reloadable 409 for stale shared inbox state, code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestUpdateSharedInboxRejectsViewerBeforeMutation(t *testing.T) {
+	service := &fakeEmailMessagesService{}
+	server := emailMessagesServer(service, "viewer")
+	request := httptest.NewRequest(http.MethodPatch, "/api/email-messages/10/shared-inbox", strings.NewReader(`{"status":"closed","expectedUpdatedAt":"2026-07-20T12:00:00Z"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || service.lastUpdateID != 0 {
+		t.Fatalf("expected viewer denial before mutation, code=%d updateID=%d", recorder.Code, service.lastUpdateID)
 	}
 }
 

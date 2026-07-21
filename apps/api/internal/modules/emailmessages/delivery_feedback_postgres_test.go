@@ -31,7 +31,7 @@ func TestCustomerEmailFeedbackCorrelationAgainstPostgres(t *testing.T) {
 	}
 	defer func() { _, _ = adminPool.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+schema+` CASCADE`) }()
 
-	schemaURL := databaseURLWithCustomerFeedbackSearchPath(t, databaseURL, schema)
+	schemaURL := databaseURLWithSchemaSearchPath(t, databaseURL, schema)
 	if _, err := moduledb.RunMigrations(ctx, moduledb.Config{DatabaseURL: schemaURL}); err != nil {
 		t.Fatalf("migrate customer feedback schema: %v", err)
 	}
@@ -240,7 +240,7 @@ func assertCustomerFeedbackState(t *testing.T, ctx context.Context, pool *module
 	}
 }
 
-func databaseURLWithCustomerFeedbackSearchPath(t *testing.T, rawURL, schema string) string {
+func databaseURLWithSchemaSearchPath(t *testing.T, rawURL, schema string) string {
 	t.Helper()
 	parsed, err := url.Parse(rawURL)
 	if err != nil {

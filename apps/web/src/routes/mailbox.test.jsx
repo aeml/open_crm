@@ -47,6 +47,8 @@ describe('mailbox route', () => {
   })
 
   it('shows synced inbound mailbox messages and shares them with the team', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true)
+    let currentMessage = { id: 11, direction: 'inbound', visibility: 'private', fromEmail: 'customer@acme.test', toEmail: 'rep@acme.test', subject: 'Re: Estimate', status: 'received', sharedInboxStatus: 'open', sharedInboxUpdatedAt: '2026-05-02T14:31:00.123456Z', receivedAt: '2026-05-02T14:30:00Z', createdAt: '2026-05-02T14:31:00Z' }
     const fetchMock = vi.fn(async (url, options = {}) => {
       const path = new URL(String(url), 'http://localhost').pathname
       const method = options.method || 'GET'
@@ -58,15 +60,22 @@ describe('mailbox route', () => {
         } }) }
       }
       if (path.endsWith('/api/me/email-messages')) {
-        return { ok: true, json: async () => ({ data: { messages: [
-          { id: 11, direction: 'inbound', fromEmail: 'customer@acme.test', toEmail: 'rep@acme.test', subject: 'Re: Estimate', status: 'received', receivedAt: '2026-05-02T14:30:00Z', createdAt: '2026-05-02T14:31:00Z' }
-        ] } }) }
+        return { ok: true, json: async () => ({ data: { messages: [currentMessage] } }) }
       }
       if (path.endsWith('/api/email-messages/11')) {
-        return { ok: true, json: async () => ({ data: { message: { id: 11, direction: 'inbound', fromEmail: 'customer@acme.test', toEmail: 'rep@acme.test', subject: 'Re: Estimate', body: 'Can we schedule Tuesday?', status: 'received', receivedAt: '2026-05-02T14:30:00Z', createdAt: '2026-05-02T14:31:00Z' } } }) }
+        return { ok: true, json: async () => ({ data: { message: { ...currentMessage, body: 'Can we schedule Tuesday?' } } }) }
       }
       if (path.endsWith('/api/email-messages/11/shared-inbox') && method === 'PATCH') {
-        return { ok: true, json: async () => ({ data: { message: { id: 11, direction: 'inbound', visibility: 'shared', fromEmail: 'customer@acme.test', toEmail: 'rep@acme.test', subject: 'Re: Estimate', body: 'Can we schedule Tuesday?', status: 'received', sharedInboxStatus: 'open', sharedInboxAssignedToUserId: 1, receivedAt: '2026-05-02T14:30:00Z', createdAt: '2026-05-02T14:31:00Z' } } }) }
+        const input = JSON.parse(options.body)
+        expect(input.expectedUpdatedAt).toBe(currentMessage.sharedInboxUpdatedAt)
+        currentMessage = {
+          ...currentMessage,
+          visibility: input.visibility,
+          sharedInboxStatus: 'open',
+          sharedInboxAssignedToUserId: input.visibility === 'shared' ? 1 : 0,
+          sharedInboxUpdatedAt: input.visibility === 'shared' ? '2026-05-02T14:31:01.123456Z' : '2026-05-02T14:31:02.123456Z'
+        }
+        return { ok: true, json: async () => ({ data: { message: { ...currentMessage, body: 'Can we schedule Tuesday?' } } }) }
       }
       return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
     })
@@ -83,10 +92,21 @@ describe('mailbox route', () => {
     expect(await screen.findByText(/can we schedule tuesday/i)).toBeInTheDocument()
     expect(screen.getAllByText(/from customer@acme.test/i).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: /share with team/i }))
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/complete message with everyone in this workspace/i))
+    expect(fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/api/email-messages/11/shared-inbox'))).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: /share with team/i }))
     await waitFor(() => {
       const shareCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/email-messages/11/shared-inbox'))
       expect(shareCall).toBeTruthy()
-      expect(JSON.parse(shareCall[1].body)).toEqual({ visibility: 'shared', status: 'open', assignedToUserId: 1 })
+      expect(JSON.parse(shareCall[1].body)).toEqual({ visibility: 'shared', expectedUpdatedAt: '2026-05-02T14:31:00.123456Z', status: 'open', assignedToUserId: 1 })
     })
+    fireEvent.click(await screen.findByRole('button', { name: /make private/i }))
+    expect(confirmSpy).toHaveBeenLastCalledWith(expect.stringMatching(/access ends now/i))
+    await waitFor(() => {
+      const privacyCalls = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/api/email-messages/11/shared-inbox'))
+      expect(privacyCalls).toHaveLength(2)
+      expect(JSON.parse(privacyCalls[1][1].body)).toEqual({ visibility: 'private', expectedUpdatedAt: '2026-05-02T14:31:01.123456Z' })
+    })
+    expect(await screen.findByRole('button', { name: /share with team/i })).toBeInTheDocument()
   })
 })

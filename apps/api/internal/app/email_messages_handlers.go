@@ -39,6 +39,7 @@ type emailMessageView struct {
 	SharedInboxStatus             string `json:"sharedInboxStatus,omitempty"`
 	SharedInboxAssignedToUserID   int64  `json:"sharedInboxAssignedToUserId,omitempty"`
 	SharedInboxAssignedToUserName string `json:"sharedInboxAssignedToUserName,omitempty"`
+	SharedInboxUpdatedAt          string `json:"sharedInboxUpdatedAt"`
 	OpenCount                     int    `json:"openCount"`
 	FirstOpenedAt                 string `json:"firstOpenedAt,omitempty"`
 	LastOpenedAt                  string `json:"lastOpenedAt,omitempty"`
@@ -77,6 +78,7 @@ type emailMessageDetailView struct {
 	SharedInboxStatus             string `json:"sharedInboxStatus,omitempty"`
 	SharedInboxAssignedToUserID   int64  `json:"sharedInboxAssignedToUserId,omitempty"`
 	SharedInboxAssignedToUserName string `json:"sharedInboxAssignedToUserName,omitempty"`
+	SharedInboxUpdatedAt          string `json:"sharedInboxUpdatedAt"`
 	OpenCount                     int    `json:"openCount"`
 	FirstOpenedAt                 string `json:"firstOpenedAt,omitempty"`
 	LastOpenedAt                  string `json:"lastOpenedAt,omitempty"`
@@ -88,9 +90,10 @@ type emailMessageDetailView struct {
 }
 
 type sharedInboxUpdateRequest struct {
-	Visibility       string `json:"visibility"`
-	Status           string `json:"status"`
-	AssignedToUserID *int64 `json:"assignedToUserId"`
+	Visibility        string `json:"visibility"`
+	Status            string `json:"status"`
+	AssignedToUserID  *int64 `json:"assignedToUserId"`
+	ExpectedUpdatedAt string `json:"expectedUpdatedAt"`
 }
 
 var transparentTrackingPixel = []byte{
@@ -238,7 +241,7 @@ func handleGetEmailMessage(auth authService, messages emailMessagesService, w ht
 
 func handleUpdateSharedInboxMessage(auth authService, messages emailMessagesService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgMember(auth, w, r)
+	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
 		return
 	}
@@ -251,40 +254,22 @@ func handleUpdateSharedInboxMessage(auth authService, messages emailMessagesServ
 		return
 	}
 
-	message, err := messages.GetByID(r.Context(), state.Organization.ID, messageID)
-	if err != nil {
-		if errors.Is(err, moduleemailmessages.ErrNotFound) {
-			platformweb.WriteNotFound(w, requestID)
-			return
-		}
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load email message")
-		return
-	}
-	if message.Direction != "inbound" {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Only inbound messages can use the shared inbox")
-		return
-	}
-
 	var request sharedInboxUpdateRequest
 	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
-	admin := isOrgAdminRole(state.Membership.Role)
-	owner := message.MailboxUserID == state.User.ID
-	wantsPrivate := strings.EqualFold(strings.TrimSpace(request.Visibility), "private")
-	if message.Visibility != "shared" && !admin && !owner {
-		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Only the mailbox owner can share this message")
-		return
-	}
-	if wantsPrivate && !admin && !owner {
-		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Only the mailbox owner can remove this message from the shared inbox")
+	expectedUpdatedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(request.ExpectedUpdatedAt))
+	if err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "A valid shared inbox version is required")
 		return
 	}
 
 	updated, err := messages.UpdateSharedInbox(r.Context(), state.Organization.ID, messageID, moduleemailmessages.SharedInboxUpdateInput{
-		Visibility:       request.Visibility,
-		Status:           request.Status,
-		AssignedToUserID: request.AssignedToUserID,
+		ActorUserID:       state.User.ID,
+		Visibility:        request.Visibility,
+		Status:            request.Status,
+		AssignedToUserID:  request.AssignedToUserID,
+		ExpectedUpdatedAt: expectedUpdatedAt,
 	})
 	if err != nil {
 		if errors.Is(err, moduleemailmessages.ErrNotFound) {
@@ -293,6 +278,14 @@ func handleUpdateSharedInboxMessage(auth authService, messages emailMessagesServ
 		}
 		if errors.Is(err, moduleemailmessages.ErrInvalidInput) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid shared inbox update")
+			return
+		}
+		if errors.Is(err, moduleemailmessages.ErrForbidden) {
+			platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Only the mailbox owner or an administrator can change message privacy")
+			return
+		}
+		if errors.Is(err, moduleemailmessages.ErrConflict) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "This message changed; reload it before updating")
 			return
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update shared inbox message")
@@ -365,6 +358,7 @@ func toEmailMessageViews(records []moduleemailmessages.Message) []emailMessageVi
 			SharedInboxStatus:             m.SharedInboxStatus,
 			SharedInboxAssignedToUserID:   m.SharedInboxAssignedToUserID,
 			SharedInboxAssignedToUserName: m.SharedInboxAssignedToName,
+			SharedInboxUpdatedAt:          sharedInboxVersion(m),
 			OpenCount:                     m.OpenCount,
 			FirstOpenedAt:                 formatOptionalTime(m.FirstOpenedAt),
 			LastOpenedAt:                  formatOptionalTime(m.LastOpenedAt),
@@ -398,6 +392,7 @@ func toEmailMessageDetailView(m moduleemailmessages.Message) emailMessageDetailV
 		SharedInboxStatus:             m.SharedInboxStatus,
 		SharedInboxAssignedToUserID:   m.SharedInboxAssignedToUserID,
 		SharedInboxAssignedToUserName: m.SharedInboxAssignedToName,
+		SharedInboxUpdatedAt:          sharedInboxVersion(m),
 		OpenCount:                     m.OpenCount,
 		FirstOpenedAt:                 formatOptionalTime(m.FirstOpenedAt),
 		LastOpenedAt:                  formatOptionalTime(m.LastOpenedAt),
@@ -428,4 +423,12 @@ func formatOptionalTime(value *time.Time) string {
 		return ""
 	}
 	return value.UTC().Format("2006-01-02T15:04:05Z")
+}
+
+func sharedInboxVersion(message moduleemailmessages.Message) string {
+	updatedAt := message.SharedInboxUpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = message.CreatedAt
+	}
+	return updatedAt.UTC().Format(time.RFC3339Nano)
 }

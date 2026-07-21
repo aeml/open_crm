@@ -315,8 +315,13 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	if err := pool.QueryRow(ctx, `SELECT id FROM email_messages WHERE organization_id = $1 AND subject = 'Open inbound'`, organizationID).Scan(&openMessageID); err != nil {
 		t.Fatalf("load shared inbox fixture: %v", err)
 	}
+	emailMessagesService := moduleemailmessages.NewService(pool)
+	openMessage, err := emailMessagesService.GetByID(ctx, organizationID, openMessageID)
+	if err != nil {
+		t.Fatalf("load shared inbox version: %v", err)
+	}
 	disabledAssigneeID := memberID
-	if _, err := moduleemailmessages.NewService(pool).UpdateSharedInbox(ctx, organizationID, openMessageID, moduleemailmessages.SharedInboxUpdateInput{AssignedToUserID: &disabledAssigneeID}); !errors.Is(err, moduleemailmessages.ErrInvalidInput) {
+	if _, err := emailMessagesService.UpdateSharedInbox(ctx, organizationID, openMessageID, moduleemailmessages.SharedInboxUpdateInput{ActorUserID: ownerID, AssignedToUserID: &disabledAssigneeID, ExpectedUpdatedAt: openMessage.SharedInboxUpdatedAt}); !errors.Is(err, moduleemailmessages.ErrInvalidInput) {
 		t.Fatalf("expected disabled shared-inbox assignee denial, got %v", err)
 	}
 	if _, err := modulecalendar.NewService(pool, nil).CreateBookingLink(ctx, organizationID, ownerID, modulecalendar.BookingLinkInput{Name: "Invalid disabled calendar member", DurationMinutes: 30, Timezone: "UTC", AssignmentMode: "round_robin", IsActive: true, MemberUserIDs: []int64{memberID}}); !errors.Is(err, modulecalendar.ErrInvalidInput) {

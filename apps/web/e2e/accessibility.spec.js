@@ -93,6 +93,8 @@ test('critical public and authenticated surfaces meet automated WCAG A/AA rules'
     ['/deals', 'Deals', 'deals'],
     ['/tasks', 'Tasks', 'tasks'],
     ['/reports', 'Reports', 'reports'],
+    ['/mailbox', 'Mailbox', 'mailbox-privacy'],
+    ['/team-inbox', 'Team Inbox', 'shared-inbox-coordination'],
     ['/settings/profile', 'My Profile', 'profile-and-session-security'],
     ['/settings/users', 'Users', 'team-access'],
     ['/settings/imports', 'Data imports', 'data-imports'],

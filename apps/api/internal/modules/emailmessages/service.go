@@ -21,6 +21,8 @@ import (
 var (
 	ErrNotFound     = errors.New("email message not found")
 	ErrInvalidInput = errors.New("invalid email message")
+	ErrForbidden    = errors.New("shared inbox update forbidden")
+	ErrConflict     = errors.New("shared inbox message changed")
 )
 
 type Message struct {
@@ -41,6 +43,7 @@ type Message struct {
 	SharedInboxStatus           string     `json:"sharedInboxStatus,omitempty"`
 	SharedInboxAssignedToUserID int64      `json:"sharedInboxAssignedToUserId,omitempty"`
 	SharedInboxAssignedToName   string     `json:"sharedInboxAssignedToName,omitempty"`
+	SharedInboxUpdatedAt        time.Time  `json:"sharedInboxUpdatedAt"`
 	ProviderID                  string     `json:"-"`
 	ProviderThread              string     `json:"-"`
 	RFCMessageID                string     `json:"-"`
@@ -116,9 +119,11 @@ type InboundInput struct {
 }
 
 type SharedInboxUpdateInput struct {
-	Visibility       string
-	Status           string
-	AssignedToUserID *int64
+	ActorUserID       int64
+	Visibility        string
+	Status            string
+	AssignedToUserID  *int64
+	ExpectedUpdatedAt time.Time
 }
 
 type Service struct {
@@ -450,22 +455,6 @@ func normalizeOptionalSharedInboxStatus(value string) (string, error) {
 	}
 }
 
-func (s *Service) userBelongsToOrganization(ctx context.Context, organizationID, userID int64) (bool, error) {
-	var exists bool
-	err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS(
-		  SELECT 1
-		  FROM organization_memberships
-		  WHERE organization_id = $1 AND user_id = $2
-		    AND COALESCE(membership_status, 'active') = 'active'
-		)
-	`, organizationID, userID).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("check shared inbox assignee membership: %w", err)
-	}
-	return exists, nil
-}
-
 func sanitizedEntityLinks(input []EntityLinkInput) []EntityLinkInput {
 	links := make([]EntityLinkInput, 0, len(input))
 	for _, link := range input {
@@ -572,6 +561,7 @@ const baseSelect = `
 	       COALESCE(m.visibility, 'shared'), m.entity_type, COALESCE(m.entity_id, 0), COALESCE(m.sent_by_user_id, 0),
 	       COALESCE(u.first_name || ' ' || u.last_name, ''), COALESCE(m.mailbox_user_id, 0),
 	       COALESCE(m.shared_inbox_status, 'open'), COALESCE(m.shared_inbox_assigned_to_user_id, 0), COALESCE(au.first_name || ' ' || au.last_name, ''),
+	       COALESCE(m.shared_inbox_updated_at, m.created_at),
 	       COALESCE(m.provider_message_id, ''), COALESCE(m.provider_thread_id, ''), COALESCE(m.rfc_message_id, ''), COALESCE(m.in_reply_to, ''), COALESCE(m.reference_message_ids, '{}'::TEXT[]),
 	       COALESCE(m.delivery_outcome, ''), m.delivery_outcome_at, COALESCE(m.tracking_token, ''),
 	       COALESCE(m.open_count, 0), m.first_opened_at, m.last_opened_at,
@@ -717,51 +707,6 @@ func (s *Service) ListSharedInbox(ctx context.Context, organizationID int64, lim
 	return scanMessages(rows)
 }
 
-// UpdateSharedInbox updates shared team inbox metadata for one inbound message.
-func (s *Service) UpdateSharedInbox(ctx context.Context, organizationID, messageID int64, input SharedInboxUpdateInput) (Message, error) {
-	if s == nil || s.pool == nil {
-		return Message{}, fmt.Errorf("email messages service not configured")
-	}
-	visibility, err := normalizeOptionalVisibility(input.Visibility)
-	if err != nil {
-		return Message{}, err
-	}
-	status, err := normalizeOptionalSharedInboxStatus(input.Status)
-	if err != nil {
-		return Message{}, err
-	}
-	assignmentSet := input.AssignedToUserID != nil
-	var assignedTo *int64
-	if assignmentSet && *input.AssignedToUserID > 0 {
-		ok, err := s.userBelongsToOrganization(ctx, organizationID, *input.AssignedToUserID)
-		if err != nil {
-			return Message{}, err
-		}
-		if !ok {
-			return Message{}, ErrInvalidInput
-		}
-		assignedTo = input.AssignedToUserID
-	}
-
-	var updatedID int64
-	err = s.pool.QueryRow(ctx, `
-		UPDATE email_messages
-		SET visibility = CASE WHEN $3 <> '' THEN $3 ELSE visibility END,
-		    shared_inbox_status = CASE WHEN $4 <> '' THEN $4 ELSE shared_inbox_status END,
-		    shared_inbox_assigned_to_user_id = CASE WHEN $5 THEN $6::bigint ELSE shared_inbox_assigned_to_user_id END,
-		    shared_inbox_updated_at = NOW()
-		WHERE organization_id = $1 AND id = $2 AND direction = 'inbound'
-		RETURNING id
-	`, organizationID, messageID, visibility, status, assignmentSet, assignedTo).Scan(&updatedID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Message{}, ErrNotFound
-		}
-		return Message{}, fmt.Errorf("update shared inbox email message: %w", err)
-	}
-	return s.GetByID(ctx, organizationID, updatedID)
-}
-
 // MarkOpenedByToken records an open event for the tracking token. Unknown tokens
 // are ignored so the tracking pixel endpoint never leaks whether a token exists.
 func (s *Service) MarkOpenedByToken(ctx context.Context, token string) error {
@@ -860,7 +805,7 @@ func scanMessage(s scanner) (Message, error) {
 	)
 	if err := s.Scan(&m.ID, &m.Direction, &m.FromEmail, &m.ToEmail, &m.Subject, &m.Body, &m.Status, &m.Error,
 		&m.Visibility, &m.EntityType, &m.EntityID, &m.SentByUserID, &m.SentByName, &m.MailboxUserID,
-		&m.SharedInboxStatus, &m.SharedInboxAssignedToUserID, &m.SharedInboxAssignedToName,
+		&m.SharedInboxStatus, &m.SharedInboxAssignedToUserID, &m.SharedInboxAssignedToName, &m.SharedInboxUpdatedAt,
 		&m.ProviderID, &m.ProviderThread, &m.RFCMessageID, &m.InReplyTo, &m.ReferenceMessageIDs, &m.DeliveryOutcome, &outcomeAt, &m.TrackingToken,
 		&m.OpenCount, &firstOpened, &lastOpened, &m.ClickCount, &firstClicked, &lastClicked, &receivedAt, &m.CreatedAt); err != nil {
 		return Message{}, err

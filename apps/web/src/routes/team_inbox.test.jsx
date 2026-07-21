@@ -9,6 +9,8 @@ afterEach(() => {
 describe('team inbox route', () => {
   it('lists shared inbound messages and updates assignment/status', async () => {
     const jsonResponse = (payload) => ({ ok: true, json: async () => payload })
+    let currentMessage = { id: 12, direction: 'inbound', visibility: 'shared', fromEmail: 'lead@example.test', toEmail: 'team@acme.test', subject: 'Pricing question', status: 'received', sharedInboxStatus: 'open', sharedInboxUpdatedAt: '2026-05-03T12:01:00.123456Z', receivedAt: '2026-05-03T12:00:00Z', createdAt: '2026-05-03T12:01:00Z' }
+    let updateCount = 0
     const fetchMock = vi.fn(async (url, options = {}) => {
       const path = new URL(String(url), 'http://localhost').pathname
       const method = options.method || 'GET'
@@ -21,14 +23,17 @@ describe('team inbox route', () => {
         } })
       }
       if (path.endsWith('/api/shared-inbox/email-messages')) {
-        return jsonResponse({ data: { messages: [{ id: 12, direction: 'inbound', visibility: 'shared', fromEmail: 'lead@example.test', toEmail: 'team@acme.test', subject: 'Pricing question', status: 'received', sharedInboxStatus: 'open', receivedAt: '2026-05-03T12:00:00Z', createdAt: '2026-05-03T12:01:00Z' }] } })
+        return jsonResponse({ data: { messages: [currentMessage] } })
       }
       if (path.endsWith('/api/email-messages/12/shared-inbox') && method === 'PATCH') {
         const input = JSON.parse(options.body)
-        return jsonResponse({ data: { message: { id: 12, direction: 'inbound', visibility: 'shared', fromEmail: 'lead@example.test', toEmail: 'team@acme.test', subject: 'Pricing question', body: 'Can you send pricing?', status: 'received', sharedInboxStatus: input.status || 'open', sharedInboxAssignedToUserId: input.assignedToUserId || 0, sharedInboxAssignedToUserName: input.assignedToUserId ? 'Demo Owner' : '', receivedAt: '2026-05-03T12:00:00Z', createdAt: '2026-05-03T12:01:00Z' } } })
+        expect(input.expectedUpdatedAt).toBe(currentMessage.sharedInboxUpdatedAt)
+        updateCount += 1
+        currentMessage = { ...currentMessage, sharedInboxStatus: input.status || currentMessage.sharedInboxStatus, sharedInboxAssignedToUserId: input.assignedToUserId || currentMessage.sharedInboxAssignedToUserId || 0, sharedInboxAssignedToUserName: input.assignedToUserId ? 'Demo Owner' : currentMessage.sharedInboxAssignedToUserName || '', sharedInboxUpdatedAt: `2026-05-03T12:01:0${updateCount}.123456Z` }
+        return jsonResponse({ data: { message: { ...currentMessage, body: 'Can you send pricing?' } } })
       }
       if (path.endsWith('/api/email-messages/12')) {
-        return jsonResponse({ data: { message: { id: 12, direction: 'inbound', visibility: 'shared', fromEmail: 'lead@example.test', toEmail: 'team@acme.test', subject: 'Pricing question', body: 'Can you send pricing?', status: 'received', sharedInboxStatus: 'open', receivedAt: '2026-05-03T12:00:00Z', createdAt: '2026-05-03T12:01:00Z' } } })
+        return jsonResponse({ data: { message: { ...currentMessage, body: 'Can you send pricing?' } } })
       }
       return jsonResponse({ data: { unreadCount: 0 } })
     })
@@ -46,6 +51,7 @@ describe('team inbox route', () => {
     await waitFor(() => {
       const assignCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/email-messages/12/shared-inbox') && JSON.parse(call[1].body).assignedToUserId === 1)
       expect(assignCall).toBeTruthy()
+      expect(JSON.parse(assignCall[1].body).expectedUpdatedAt).toBe('2026-05-03T12:01:00.123456Z')
     })
     expect(await screen.findByText(/demo owner/i)).toBeInTheDocument()
 
@@ -53,9 +59,35 @@ describe('team inbox route', () => {
     await waitFor(() => {
       const closeCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/email-messages/12/shared-inbox') && JSON.parse(call[1].body).status === 'closed')
       expect(closeCall).toBeTruthy()
+      expect(JSON.parse(closeCall[1].body).expectedUpdatedAt).toBe('2026-05-03T12:01:01.123456Z')
     })
 
     fireEvent.click(screen.getByRole('button', { name: /view details/i }))
     expect(await screen.findByText(/can you send pricing/i)).toBeInTheDocument()
+  })
+
+  it('keeps coordination controls read-only for viewers', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      if (path.endsWith('/auth/me')) {
+        return { ok: true, json: async () => ({ data: {
+          user: { id: 2, email: 'viewer@acme.test', firstName: 'Read', lastName: 'Only' },
+          organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' },
+          membership: { role: 'viewer' }
+        } }) }
+      }
+      if (path.endsWith('/api/shared-inbox/email-messages')) {
+        return { ok: true, json: async () => ({ data: { messages: [{ id: 13, direction: 'inbound', visibility: 'shared', fromEmail: 'lead@example.test', subject: 'Read-only question', sharedInboxStatus: 'open', sharedInboxUpdatedAt: '2026-05-03T12:01:00Z', createdAt: '2026-05-03T12:01:00Z' }] } }) }
+      }
+      return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/team-inbox')
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: /read-only question/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /assign to me/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^close$/i })).not.toBeInTheDocument()
   })
 })
