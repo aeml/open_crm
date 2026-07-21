@@ -1,4 +1,4 @@
-import { apiRequest } from './api'
+import { apiRequest, apiURL } from './api'
 
 export async function listReportDefinitions({ signal } = {}) {
   const payload = await apiRequest('/api/report-definitions', { fallbackMessage: 'Unable to load report definitions.', signal })
@@ -30,6 +30,10 @@ export async function getReportResults(definitionId, { page = 1, pageSize = 50, 
     pageSize: data.pageSize || pageSize,
     hasMore: data.hasMore === true
   }
+}
+
+export function reportExportURL(definitionId) {
+  return apiURL(`/api/report-definitions/${definitionId}/export.csv`)
 }
 
 export async function getDataQualitySummary({ staleDays = 30, signal } = {}) {

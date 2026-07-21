@@ -1,7 +1,9 @@
 package customreports_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"net/url"
@@ -93,6 +95,7 @@ func TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres(t *testin
 		INSERT INTO companies (organization_id,name,client_type,industry,status,city,country,owner_user_id,updated_at)
 		VALUES ($1,'Acme Services','organization','Consulting','customer','Austin','US',$2,'2026-01-02T10:00:00Z'),
 		       ($1,'Beta Studio','organization','Design','prospect','Boston','US',$2,'2026-01-01T10:00:00Z'),
+		       ($1,'=FORMULA()','organization','Formula','prospect','Seattle','US',$2,'2026-01-03T10:00:00Z'),
 		       ($1,'Archived Company','organization','Hidden','customer','Denver','US',$2,NOW()),
 		       ($3,'Foreign Company','organization','Hidden','customer','Paris','FR',$4,NOW())
 	`, organizationID, ownerID, foreignOrganizationID, foreignOwnerID); err != nil {
@@ -186,6 +189,92 @@ func TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres(t *testin
 	}
 	if _, err := service.Execute(ctx, organizationID, foreignReport.ID, modulecustomreports.ExecuteQuery{}); !errors.Is(err, modulecustomreports.ErrNotFound) {
 		t.Fatalf("local tenant executed foreign report: %v", err)
+	}
+
+	exportReport := createCustomReport(t, ctx, service, organizationID, ownerID, modulecustomreports.Input{
+		Name: "Formula-safe export", SourceType: "companies", VisualizationType: "table", Columns: []string{"name", "status"},
+		Filters: []modulecustomreports.Filter{{Field: "industry", Operator: "equals", Value: "Formula"}}, Aggregation: modulecustomreports.Aggregation{Function: "none"},
+	})
+	exportFile, err := service.ExportCSV(ctx, organizationID, ownerID, exportReport.ID)
+	if err != nil {
+		t.Fatalf("export saved report: %v", err)
+	}
+	records, err := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(exportFile.Content, []byte("\ufeff")))).ReadAll()
+	if err != nil {
+		t.Fatalf("parse saved report CSV: %v", err)
+	}
+	if exportFile.RowCount != 1 || len(records) != 2 || len(records[0]) != 2 || records[0][0] != "Name" || records[0][1] != "Status" || records[1][0] != "'=FORMULA()" || records[1][1] != "prospect" {
+		t.Fatalf("unexpected saved report CSV: file=%#v records=%#v", exportFile, records)
+	}
+	var exportAuditOrganizationID, exportAuditActorID, exportAuditEntityID, exportAuditRows int64
+	if err := pool.QueryRow(ctx, `
+		SELECT organization_id, actor_user_id, entity_id, (metadata_json->>'rowCount')::bigint
+		FROM audit_events
+		WHERE event_type='report.export_downloaded' AND entity_type='report_definition' AND entity_id=$1
+	`, exportReport.ID).Scan(&exportAuditOrganizationID, &exportAuditActorID, &exportAuditEntityID, &exportAuditRows); err != nil {
+		t.Fatalf("load saved report export audit: %v", err)
+	}
+	if exportAuditOrganizationID != organizationID || exportAuditActorID != ownerID || exportAuditEntityID != exportReport.ID || exportAuditRows != 1 {
+		t.Fatalf("unexpected saved report export audit: org=%d actor=%d entity=%d rows=%d", exportAuditOrganizationID, exportAuditActorID, exportAuditEntityID, exportAuditRows)
+	}
+	if _, err := service.Update(ctx, organizationID, exportReport.ID, ownerID, modulecustomreports.Input{
+		Name: exportReport.Name, Description: "Reviewed export", SourceType: "companies", VisualizationType: "table", Columns: []string{"name", "status"},
+		Filters: []modulecustomreports.Filter{{Field: "industry", Operator: "equals", Value: "Formula"}}, Aggregation: modulecustomreports.Aggregation{Function: "none"},
+	}); err != nil {
+		t.Fatalf("update saved report definition: %v", err)
+	}
+	for _, eventType := range []string{"report_definition.created", "report_definition.updated"} {
+		var eventCount int
+		if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND actor_user_id=$2 AND event_type=$3 AND entity_id=$4`, organizationID, ownerID, eventType, exportReport.ID).Scan(&eventCount); err != nil || eventCount != 1 {
+			t.Fatalf("saved report %s audit mismatch: count=%d err=%v", eventType, eventCount, err)
+		}
+	}
+	if _, err := service.ExportCSV(ctx, organizationID, ownerID, foreignReport.ID); !errors.Is(err, modulecustomreports.ErrNotFound) {
+		t.Fatalf("local tenant exported foreign report: %v", err)
+	}
+	if _, err := service.ExportCSV(ctx, foreignOrganizationID, foreignOwnerID, contactReport.ID); !errors.Is(err, modulecustomreports.ErrNotFound) {
+		t.Fatalf("foreign tenant exported local report: %v", err)
+	}
+	if _, err := service.ExportCSV(ctx, organizationID, foreignOwnerID, exportReport.ID); !errors.Is(err, modulecustomreports.ErrForbidden) {
+		t.Fatalf("foreign actor exported local report: %v", err)
+	}
+
+	if _, err := service.Create(ctx, organizationID, foreignOwnerID, modulecustomreports.Input{
+		Name: "Foreign actor mutation", SourceType: "contacts", VisualizationType: "table", Columns: []string{"email"}, Aggregation: modulecustomreports.Aggregation{Function: "none"},
+	}); !errors.Is(err, modulecustomreports.ErrForbidden) {
+		t.Fatalf("foreign actor created local report: %v", err)
+	}
+	var forbiddenCreateCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM custom_report_definitions WHERE organization_id=$1 AND name='Foreign actor mutation'`, organizationID).Scan(&forbiddenCreateCount); err != nil || forbiddenCreateCount != 0 {
+		t.Fatalf("forbidden create left partial definition: count=%d err=%v", forbiddenCreateCount, err)
+	}
+	if _, err := service.Update(ctx, organizationID, contactReport.ID, foreignOwnerID, modulecustomreports.Input{
+		Name: "Foreign actor update", SourceType: "contacts", VisualizationType: "table", Columns: []string{"email"}, Aggregation: modulecustomreports.Aggregation{Function: "none"},
+	}); !errors.Is(err, modulecustomreports.ErrForbidden) {
+		t.Fatalf("foreign actor updated local report: %v", err)
+	}
+	var unchangedName string
+	if err := pool.QueryRow(ctx, `SELECT name FROM custom_report_definitions WHERE organization_id=$1 AND id=$2`, organizationID, contactReport.ID).Scan(&unchangedName); err != nil || unchangedName != contactReport.Name {
+		t.Fatalf("forbidden update changed definition: name=%q err=%v", unchangedName, err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO companies (organization_id,name,client_type,industry,status,owner_user_id)
+		SELECT $1, 'Overflow ' || value::text, 'organization', 'Overflow', 'prospect', $2
+		FROM generate_series(1, 10001) AS value
+	`, organizationID, ownerID); err != nil {
+		t.Fatalf("seed saved report overflow: %v", err)
+	}
+	overflowReport := createCustomReport(t, ctx, service, organizationID, ownerID, modulecustomreports.Input{
+		Name: "Overflow export", SourceType: "companies", VisualizationType: "table", Columns: []string{"name"},
+		Filters: []modulecustomreports.Filter{{Field: "industry", Operator: "equals", Value: "Overflow"}}, Aggregation: modulecustomreports.Aggregation{Function: "none"},
+	})
+	if _, err := service.ExportCSV(ctx, organizationID, ownerID, overflowReport.ID); !errors.Is(err, modulecustomreports.ErrTooManyRows) {
+		t.Fatalf("oversized saved report export returned %v", err)
+	}
+	var overflowAuditCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE event_type='report.export_downloaded' AND entity_id=$1`, overflowReport.ID).Scan(&overflowAuditCount); err != nil || overflowAuditCount != 0 {
+		t.Fatalf("oversized export recorded a completed audit: count=%d err=%v", overflowAuditCount, err)
 	}
 
 	inactive := false

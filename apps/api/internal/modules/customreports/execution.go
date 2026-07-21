@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -71,33 +72,9 @@ func (s *Service) Execute(ctx context.Context, organizationID, definitionID int6
 	if err != nil {
 		return Execution{}, err
 	}
-	definition, err := scanDefinition(s.pool.QueryRow(ctx, definitionSelect+`
-		WHERE organization_id = $1 AND id = $2
-	`, organizationID, definitionID))
+	definition, definitionInput, err := s.loadExecutableDefinition(ctx, organizationID, definitionID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Execution{}, ErrNotFound
-		}
-		return Execution{}, fmt.Errorf("load custom report definition: %w", err)
-	}
-	if !definition.IsActive {
-		return Execution{}, ErrInactive
-	}
-	if definition.VisualizationType != "table" {
-		return Execution{}, ErrUnsupportedVisualization
-	}
-	definitionInput := normalizeInput(Input{
-		Name:              definition.Name,
-		Description:       definition.Description,
-		SourceType:        definition.SourceType,
-		VisualizationType: definition.VisualizationType,
-		Columns:           definition.Columns,
-		Filters:           definition.Filters,
-		GroupBy:           definition.GroupBy,
-		Aggregation:       definition.Aggregation,
-	})
-	if err := validateInput(definitionInput); err != nil {
-		return Execution{}, ErrInvalidInput
+		return Execution{}, err
 	}
 
 	statement, args, columns, err := buildExecutionStatement(organizationID, definitionInput, query)
@@ -106,41 +83,12 @@ func (s *Service) Execute(ctx context.Context, organizationID, definitionID int6
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, executionTimeout)
 	defer cancel()
-	rows, err := s.pool.Query(queryCtx, statement, args...)
+	resultRows, err := s.queryExecutionRows(queryCtx, statement, args, columns)
 	if err != nil {
 		if errors.Is(queryCtx.Err(), context.DeadlineExceeded) {
 			return Execution{}, ErrQueryTimeout
 		}
-		return Execution{}, fmt.Errorf("execute custom report: %w", err)
-	}
-	defer rows.Close()
-
-	resultRows := make([]ResultRow, 0, query.PageSize+1)
-	for rows.Next() {
-		cells := make([]pgtype.Text, len(columns))
-		destinations := make([]any, len(columns))
-		for index := range cells {
-			destinations[index] = &cells[index]
-		}
-		if err := rows.Scan(destinations...); err != nil {
-			return Execution{}, fmt.Errorf("scan custom report result: %w", err)
-		}
-		values := make(map[string]*string, len(columns))
-		for index, column := range columns {
-			if !cells[index].Valid {
-				values[column.Key] = nil
-				continue
-			}
-			value := cells[index].String
-			values[column.Key] = &value
-		}
-		resultRows = append(resultRows, ResultRow{Values: values})
-	}
-	if err := rows.Err(); err != nil {
-		if errors.Is(queryCtx.Err(), context.DeadlineExceeded) {
-			return Execution{}, ErrQueryTimeout
-		}
-		return Execution{}, fmt.Errorf("iterate custom report results: %w", err)
+		return Execution{}, err
 	}
 	hasMore := len(resultRows) > query.PageSize
 	if hasMore {
@@ -159,6 +107,86 @@ func (s *Service) Execute(ctx context.Context, organizationID, definitionID int6
 	}, nil
 }
 
+func (s *Service) loadExecutableDefinition(ctx context.Context, organizationID, definitionID int64) (Definition, Input, error) {
+	return loadExecutableDefinition(ctx, s.pool, organizationID, definitionID)
+}
+
+type executionQuerier interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func loadExecutableDefinition(ctx context.Context, querier executionQuerier, organizationID, definitionID int64) (Definition, Input, error) {
+	definition, err := scanDefinition(querier.QueryRow(ctx, definitionSelect+`
+		WHERE organization_id = $1 AND id = $2
+	`, organizationID, definitionID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Definition{}, Input{}, ErrNotFound
+		}
+		return Definition{}, Input{}, fmt.Errorf("load custom report definition: %w", err)
+	}
+	if !definition.IsActive {
+		return Definition{}, Input{}, ErrInactive
+	}
+	if definition.VisualizationType != "table" {
+		return Definition{}, Input{}, ErrUnsupportedVisualization
+	}
+	input := normalizeInput(Input{
+		Name:              definition.Name,
+		Description:       definition.Description,
+		SourceType:        definition.SourceType,
+		VisualizationType: definition.VisualizationType,
+		Columns:           definition.Columns,
+		Filters:           definition.Filters,
+		GroupBy:           definition.GroupBy,
+		Aggregation:       definition.Aggregation,
+	})
+	if err := validateInput(input); err != nil {
+		return Definition{}, Input{}, ErrInvalidInput
+	}
+	return definition, input, nil
+}
+
+func (s *Service) queryExecutionRows(ctx context.Context, statement string, args []any, columns []ResultColumn) ([]ResultRow, error) {
+	return queryExecutionRows(ctx, s.pool, statement, args, columns)
+}
+
+func queryExecutionRows(ctx context.Context, querier executionQuerier, statement string, args []any, columns []ResultColumn) ([]ResultRow, error) {
+	rows, err := querier.Query(ctx, statement, args...)
+	if err != nil {
+		return nil, fmt.Errorf("execute custom report: %w", err)
+	}
+	defer rows.Close()
+
+	resultRows := make([]ResultRow, 0)
+	for rows.Next() {
+		cells := make([]pgtype.Text, len(columns))
+		destinations := make([]any, len(columns))
+		for index := range cells {
+			destinations[index] = &cells[index]
+		}
+		if err := rows.Scan(destinations...); err != nil {
+			return nil, fmt.Errorf("scan custom report result: %w", err)
+		}
+		values := make(map[string]*string, len(columns))
+		for index, column := range columns {
+			if !cells[index].Valid {
+				values[column.Key] = nil
+				continue
+			}
+			value := cells[index].String
+			values[column.Key] = &value
+		}
+		resultRows = append(resultRows, ResultRow{Values: values})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate custom report results: %w", err)
+	}
+	return resultRows, nil
+}
+
 func normalizeExecuteQuery(query ExecuteQuery) (ExecuteQuery, error) {
 	if query.Page == 0 {
 		query.Page = 1
@@ -173,6 +201,10 @@ func normalizeExecuteQuery(query ExecuteQuery) (ExecuteQuery, error) {
 }
 
 func buildExecutionStatement(organizationID int64, input Input, query ExecuteQuery) (string, []any, []ResultColumn, error) {
+	return buildExecutionStatementWindow(organizationID, input, query.PageSize+1, (query.Page-1)*query.PageSize)
+}
+
+func buildExecutionStatementWindow(organizationID int64, input Input, limit, offset int) (string, []any, []ResultColumn, error) {
 	source, ok := reportExecutionSources[input.SourceType]
 	if !ok {
 		return "", nil, nil, ErrInvalidInput
@@ -196,7 +228,7 @@ func buildExecutionStatement(organizationID int64, input Input, query ExecuteQue
 	}
 	limitPosition := len(args) + 1
 	offsetPosition := len(args) + 2
-	args = append(args, query.PageSize+1, (query.Page-1)*query.PageSize)
+	args = append(args, limit, offset)
 	statement := `SELECT ` + strings.Join(selects, ", ") + `
 		FROM ` + source.From + `
 		WHERE ` + strings.Join(where, " AND ")

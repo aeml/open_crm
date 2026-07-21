@@ -69,6 +69,8 @@ advancement, and cross-tenant denial.
   separate from saved table reports. Saved contact, company, deal, and task
   reports use typed filters, optional grouping/aggregation, a five-second query
   deadline, and pagination capped at 100 rows across at most 100 pages.
+  Owners/admins can download the same query as a formula-safe audited CSV; the
+  server refuses row 10,001 instead of returning a partial file.
 - PostgreSQL regression tests seed and analyze mixed multi-tenant event and
   audit history, then require tenant/date and owner/date report paths to use
   their reviewed organization-scoped indexes under normal planning. Activity

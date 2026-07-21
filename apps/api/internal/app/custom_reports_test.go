@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
@@ -22,6 +23,8 @@ type fakeCustomReportsService struct {
 	updateErr       error
 	executeResult   modulecustomreports.Execution
 	executeErr      error
+	exportResult    modulecustomreports.CSVFile
+	exportErr       error
 	lastListOrgID   int64
 	lastCreateOrgID int64
 	lastCreateUser  int64
@@ -33,6 +36,9 @@ type fakeCustomReportsService struct {
 	lastExecuteOrg  int64
 	lastExecuteID   int64
 	lastExecute     modulecustomreports.ExecuteQuery
+	lastExportOrg   int64
+	lastExportUser  int64
+	lastExportID    int64
 }
 
 func (f *fakeCustomReportsService) ListByOrganization(_ context.Context, organizationID int64) ([]modulecustomreports.Definition, error) {
@@ -60,6 +66,13 @@ func (f *fakeCustomReportsService) Execute(_ context.Context, organizationID, de
 	f.lastExecuteID = definitionID
 	f.lastExecute = query
 	return f.executeResult, f.executeErr
+}
+
+func (f *fakeCustomReportsService) ExportCSV(_ context.Context, organizationID, actorUserID, definitionID int64) (modulecustomreports.CSVFile, error) {
+	f.lastExportOrg = organizationID
+	f.lastExportUser = actorUserID
+	f.lastExportID = definitionID
+	return f.exportResult, f.exportErr
 }
 
 func authenticatedCustomReportsServer(service *fakeCustomReportsService, role string) http.Handler {
@@ -237,5 +250,94 @@ func TestExecuteCustomReportReturnsStableStateErrors(t *testing.T) {
 				t.Fatalf("expected %d/%s, got %d body=%s", test.statusCode, test.code, recorder.Code, recorder.Body.String())
 			}
 		})
+	}
+}
+
+func TestExportCustomReportRequiresAdminAndReturnsProtectedAttachment(t *testing.T) {
+	service := &fakeCustomReportsService{exportResult: modulecustomreports.CSVFile{
+		Filename: "saved-report-12-20260721.csv",
+		Content:  []byte("\ufeffFirst name\r\nAva\r\n"),
+		RowCount: 1,
+	}}
+	server := authenticatedCustomReportsServer(service, "admin")
+	request := httptest.NewRequest(http.MethodGet, "/api/report-definitions/12/export.csv", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if service.lastExportOrg != 42 || service.lastExportUser != 1 || service.lastExportID != 12 {
+		t.Fatalf("unexpected export scope: org=%d user=%d definition=%d", service.lastExportOrg, service.lastExportUser, service.lastExportID)
+	}
+	if recorder.Header().Get("Content-Type") != "text/csv; charset=utf-8" || !strings.Contains(recorder.Header().Get("Content-Disposition"), service.exportResult.Filename) {
+		t.Fatalf("unexpected export content headers: %#v", recorder.Header())
+	}
+	if recorder.Header().Get("Cache-Control") != "private, no-store" || recorder.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("missing export protection headers: %#v", recorder.Header())
+	}
+	if !bytes.Equal(recorder.Body.Bytes(), service.exportResult.Content) {
+		t.Fatalf("unexpected export body: %q", recorder.Body.String())
+	}
+}
+
+func TestExportCustomReportRejectsNonAdminBeforeService(t *testing.T) {
+	for _, role := range []string{"member", "viewer"} {
+		t.Run(role, func(t *testing.T) {
+			service := &fakeCustomReportsService{}
+			server := authenticatedCustomReportsServer(service, role)
+			request := httptest.NewRequest(http.MethodGet, "/api/report-definitions/12/export.csv", nil)
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusForbidden {
+				t.Fatalf("expected status %d, got %d body=%s", http.StatusForbidden, recorder.Code, recorder.Body.String())
+			}
+			if service.lastExportID != 0 {
+				t.Fatal("non-admin reached the custom report export service")
+			}
+		})
+	}
+}
+
+func TestExportCustomReportReturnsStableErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "deactivated actor", err: modulecustomreports.ErrForbidden, statusCode: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "too many rows", err: modulecustomreports.ErrTooManyRows, statusCode: http.StatusUnprocessableEntity, code: "EXPORT_TOO_LARGE"},
+		{name: "inactive", err: modulecustomreports.ErrInactive, statusCode: http.StatusConflict, code: "REPORT_INACTIVE"},
+		{name: "visualization", err: modulecustomreports.ErrUnsupportedVisualization, statusCode: http.StatusConflict, code: "REPORT_NOT_EXECUTABLE"},
+		{name: "timeout", err: modulecustomreports.ErrQueryTimeout, statusCode: http.StatusGatewayTimeout, code: "REPORT_TIMEOUT"},
+		{name: "foreign", err: modulecustomreports.ErrNotFound, statusCode: http.StatusNotFound, code: "NOT_FOUND"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := authenticatedCustomReportsServer(&fakeCustomReportsService{exportErr: test.err}, "owner")
+			request := httptest.NewRequest(http.MethodGet, "/api/report-definitions/12/export.csv", nil)
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != test.statusCode || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"`+test.code+`"`)) {
+				t.Fatalf("expected %d/%s, got %d body=%s", test.statusCode, test.code, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestCustomReportDefinitionMapsConcurrentDeactivation(t *testing.T) {
+	server := authenticatedCustomReportsServer(&fakeCustomReportsService{createErr: modulecustomreports.ErrForbidden}, "member")
+	request := httptest.NewRequest(http.MethodPost, "/api/report-definitions", bytes.NewBufferString(`{"name":"Contact report","sourceType":"contacts","columns":["email"]}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"FORBIDDEN"`)) {
+		t.Fatalf("expected stable forbidden response, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

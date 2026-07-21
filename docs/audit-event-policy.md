@@ -21,8 +21,9 @@ The audited mutation classes are:
 - billing subscription/reconciliation outcomes, identity- and customer-email
   feedback, uncertain email/quote resolution, and background-job replay;
 - immutable quote finalization, approval, delivery, receipt, signature,
-  decline, reissue, conversion, and client handoff; and
-- workspace and audit export request/readiness/download evidence.
+  decline, reissue, conversion, and client handoff;
+- workspace and audit export request/readiness/download evidence; and
+- saved-report definition changes and successful saved-report CSV downloads.
 
 Ordinary contact, company, deal, task, note, and preference edits use their
 tenant-scoped activity or domain history unless the operation crosses one of
@@ -32,9 +33,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `41`
+Producer source count: `43`
 
-Producer source digest: `9807c70d6dd891f7b6404798b92b79c08645408545e508b98d7285fda341160c`
+Producer source digest: `4a67bc827c6c212bd1f30c87bbc2962cd61b464966638fbb49d97672cf07189d`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,

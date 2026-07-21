@@ -96,7 +96,7 @@ level-9-gzip bytes using only Node's standard library.
 | All CSS | 20 KiB | 5 KiB |
 
 Current production-URL evidence: 178.92 KiB/58.02 KiB entry, 54.78 KiB/15.63 KiB largest lazy
-chunk, and 686.77 KiB/217.54 KiB total assets. The production contact, company,
+chunk, and 687.01 KiB/217.51 KiB total assets. The production contact, company,
 deal, and task routes are 29.81/9.19, 34.71/10.48, 54.78/15.63, and 24.67/7.31
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -117,7 +117,7 @@ filtering, import/export, and duplicate-review code. Archive recovery adds a
 separate 5.51 KiB/2.20 KiB settings route instead of growing the near-budget
 core record screens. Live data-quality, snapshot-backed sales activity, and
 traceable stale follow-up queues plus the saved-table builder and results leave
-the Reports route at 31.24 KiB/8.03 KiB;
+the Reports route at 31.49 KiB/8.12 KiB;
 reusable activity and touchpoint/account/client-health context remains outside
 the parent record routes in 16.51 KiB/4.95 KiB and 17.52 KiB/4.99 KiB shared
 chunks; the complete Clients route is 31.36 KiB/9.09 KiB. Admin pipeline
@@ -190,9 +190,10 @@ measures 669.62/212.99 KiB while the entry and largest route remain unchanged,
 so only the aggregate ceilings advance to 670/214 KiB.
 Promoting the bounded saved-table report outcome then adds production definition
 management, latest-request cancellation, accessible paged results, and the
-client contract for the tenant-safe backend executor. Its measured 31.24/8.03
-KiB route keeps the entry and largest lazy route under their existing ceilings;
-the complete build measures 686.77/217.54 KiB, so only the reviewed aggregate
+client contract for the tenant-safe backend executor and audited CSV export.
+Its measured 31.49/8.12 KiB route keeps the entry and largest lazy route under
+their existing ceilings;
+the complete build measures 687.01/217.51 KiB, so only the reviewed aggregate
 ceilings advance to 690/220 KiB. The route source remains below the unchanged
 500-line ceiling and must be split before the next reporting slice.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured

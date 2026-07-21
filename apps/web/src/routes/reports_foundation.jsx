@@ -224,6 +224,7 @@ function reportSummary(definition) {
 
 export function ReportsFoundationRoute() {
   const { session, canWrite: canManage } = useAuth()
+  const canExport = ['owner', 'admin'].includes(session?.membership?.role)
   usePageTitle('Reports')
   const [definitions, setDefinitions] = useState([])
   const [form, setForm] = useState(emptyForm)
@@ -354,7 +355,7 @@ export function ReportsFoundationRoute() {
           <div className="section-header">
             <div>
               <h2>Reports</h2>
-              <p>Build and run bounded saved table reports for {session?.organization?.name || 'your team'}. Chart, dashboard, sharing, export, and scheduling foundations remain hidden until their runtime outcomes are complete.</p>
+              <p>Build, run, and export bounded saved table reports for {session?.organization?.name || 'your team'}. Chart, dashboard, sharing, and scheduling foundations remain hidden until their runtime outcomes are complete.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading report definitions...</p> : null}
@@ -381,7 +382,7 @@ export function ReportsFoundationRoute() {
                   <span className="chip">{definition.visualizationType === 'table' ? 'Executable table' : 'Definition only'}</span>
                   {canManage && (import.meta.env.DEV || definition.visualizationType === 'table') ? <Button className="button-secondary" type="button" onClick={() => startEdit(definition)}>Edit</Button> : null}
                 </div>
-                <CustomReportResults definition={definition} />
+                <CustomReportResults definition={definition} canExport={canExport} />
               </article>
             ))}
           </div>

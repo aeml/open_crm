@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '../components/ui/button'
 import { InlineError } from '../components/ui/inline_error'
 import { isAbortError } from '../lib/api'
-import { getReportResults } from '../lib/reports'
+import { getReportResults, reportExportURL } from '../lib/reports'
 
 function displayValue(value) {
   if (value === null || value === undefined || value === '') return '—'
@@ -16,7 +16,7 @@ function generatedLabel(value) {
   return generated.toLocaleString()
 }
 
-export function CustomReportResults({ definition }) {
+export function CustomReportResults({ definition, canExport = false }) {
   const [result, setResult] = useState(null)
   const [page, setPage] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
@@ -67,6 +67,7 @@ export function CustomReportResults({ definition }) {
         <Button className="button-secondary" type="button" disabled={isLoading} onClick={() => runReport(page)}>
           {isLoading ? 'Running…' : result ? 'Refresh results' : 'Run report'}
         </Button>
+        {canExport ? <a className="button button-secondary" href={reportExportURL(definition.id)}>Download CSV</a> : null}
       </div>
       {error ? <InlineError message={error} onRetry={() => runReport(page)} retryLabel="Retry report" /> : null}
       {result ? (

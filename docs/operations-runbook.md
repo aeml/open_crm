@@ -1177,7 +1177,7 @@ bytes, tokens, or counters with ad hoc SQL.
 1. Open **Reports**. Owners, admins, and members can create or edit a saved
    table report; viewers can run existing active reports but cannot change their
    definitions. Production exposes only the executable table type. Chart,
-   dashboard, sharing, export, and scheduled-delivery definitions remain hidden.
+   dashboard, sharing, and scheduled-delivery definitions remain hidden.
 2. Choose contacts, companies, deals, or tasks; select result fields; then add
    only the typed operators offered for each field. A row report uses **No
    aggregation**. To summarize records, select count, sum, average, minimum, or
@@ -1194,6 +1194,15 @@ bytes, tokens, or counters with ad hoc SQL.
    definition. Do not diagnose tenant ownership from that response. Use the
    authenticated request log and the digest-gated PostgreSQL evidence test when
    investigating an isolation concern.
+6. Owners and admins can select **Download CSV**. The attachment runs the same
+   saved tenant-scoped query with a five-second deadline, excludes archived
+   rows, neutralizes formula-like spreadsheet cells, and records
+   `report.export_downloaded`. It contains at most 10,000 data rows.
+   `EXPORT_TOO_LARGE` means the server detected row 10,001 and returned no
+   partial file or completed-download audit; narrow the saved filters before
+   retrying. Members and viewers may run reports but cannot download this admin
+   export. Treat a repeated timeout as a query/performance incident and retain
+   the request ID; do not bypass either ceiling with direct SQL.
 
 ### Custom-field change and recovery
 

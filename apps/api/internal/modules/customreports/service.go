@@ -16,11 +16,13 @@ import (
 
 var (
 	ErrDuplicateName            = errors.New("custom report definition name already exists")
+	ErrForbidden                = errors.New("custom report definition access forbidden")
 	ErrInactive                 = errors.New("custom report definition is inactive")
 	ErrInvalidInput             = errors.New("invalid custom report definition")
 	ErrInvalidQuery             = errors.New("invalid custom report query")
 	ErrNotFound                 = errors.New("custom report definition not found")
 	ErrQueryTimeout             = errors.New("custom report query timed out")
+	ErrTooManyRows              = errors.New("custom report export exceeds the 10,000-row synchronous limit; narrow the saved filters")
 	ErrUnsupportedVisualization = errors.New("custom report visualization is not executable")
 )
 
@@ -96,73 +98,6 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		return nil, fmt.Errorf("iterate custom report definitions: %w", err)
 	}
 	return definitions, nil
-}
-
-func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64, input Input) (Definition, error) {
-	if s == nil || s.pool == nil {
-		return Definition{}, fmt.Errorf("custom reports service not configured")
-	}
-	input = normalizeInput(input)
-	if err := validateInput(input); err != nil {
-		return Definition{}, err
-	}
-	columnsJSON, filtersJSON, aggregationJSON, err := encodeDefinitionJSON(input)
-	if err != nil {
-		return Definition{}, err
-	}
-	isActive := true
-	if input.IsActive != nil {
-		isActive = *input.IsActive
-	}
-
-	definition, err := scanDefinition(s.pool.QueryRow(ctx, `
-		INSERT INTO custom_report_definitions (organization_id, name, description, source_type, visualization_type, columns_json, filters_json, group_by, aggregation_json, is_active, created_by_user_id, updated_by_user_id)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9::jsonb, $10, $11, $11)
-		RETURNING `+definitionReturningColumns+`
-	`, organizationID, input.Name, input.Description, input.SourceType, input.VisualizationType, string(columnsJSON), string(filtersJSON), input.GroupBy, string(aggregationJSON), isActive, actorUserID))
-	if err != nil {
-		return Definition{}, mapSaveError(err)
-	}
-	return definition, nil
-}
-
-func (s *Service) Update(ctx context.Context, organizationID, definitionID, actorUserID int64, input Input) (Definition, error) {
-	if s == nil || s.pool == nil {
-		return Definition{}, fmt.Errorf("custom reports service not configured")
-	}
-	input = normalizeInput(input)
-	if err := validateInput(input); err != nil {
-		return Definition{}, err
-	}
-	columnsJSON, filtersJSON, aggregationJSON, err := encodeDefinitionJSON(input)
-	if err != nil {
-		return Definition{}, err
-	}
-	var isActive any
-	if input.IsActive != nil {
-		isActive = *input.IsActive
-	}
-
-	definition, err := scanDefinition(s.pool.QueryRow(ctx, `
-		UPDATE custom_report_definitions
-		SET name = $3,
-		    description = $4,
-		    source_type = $5,
-		    visualization_type = $6,
-		    columns_json = $7::jsonb,
-		    filters_json = $8::jsonb,
-		    group_by = $9,
-		    aggregation_json = $10::jsonb,
-		    is_active = COALESCE($11::boolean, is_active),
-		    updated_by_user_id = $12,
-		    updated_at = NOW()
-		WHERE organization_id = $1 AND id = $2
-		RETURNING `+definitionReturningColumns+`
-	`, organizationID, definitionID, input.Name, input.Description, input.SourceType, input.VisualizationType, string(columnsJSON), string(filtersJSON), input.GroupBy, string(aggregationJSON), isActive, actorUserID))
-	if err != nil {
-		return Definition{}, mapSaveError(err)
-	}
-	return definition, nil
 }
 
 type rowScanner interface {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	modulecustomreports "github.com/aeml/open_crm/apps/api/internal/modules/customreports"
@@ -148,6 +149,33 @@ func handleExecuteCustomReport(auth authService, reports customReportsService, w
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
+func handleExportCustomReport(auth authService, reports customReportsService, w http.ResponseWriter, r *http.Request) {
+	requestID := platformweb.RequestIDFromContext(r.Context())
+	state, ok := requireOrgAdmin(auth, w, r)
+	if !ok {
+		return
+	}
+	if reports == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Custom reports service unavailable")
+		return
+	}
+	definitionID, ok := parsePathInt64(w, r, "definitionID")
+	if !ok {
+		return
+	}
+	file, err := reports.ExportCSV(r.Context(), state.Organization.ID, state.User.ID, definitionID)
+	if err != nil {
+		writeCustomReportExportError(w, requestID, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", file.Filename))
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(file.Content)
+}
+
 func customReportDefinitionInput(request customReportDefinitionRequest) modulecustomreports.Input {
 	return modulecustomreports.Input{
 		Name:              request.Name,
@@ -171,6 +199,8 @@ func respondCustomReportDefinition(w http.ResponseWriter, requestID string, stat
 
 func writeCustomReportDefinitionError(w http.ResponseWriter, requestID string, err error) {
 	switch {
+	case errors.Is(err, modulecustomreports.ErrForbidden):
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "You no longer have permission to manage saved reports")
 	case errors.Is(err, modulecustomreports.ErrInvalidInput):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid report name, source object, fields, filters, grouping, and aggregation")
 	case errors.Is(err, modulecustomreports.ErrDuplicateName):
@@ -179,6 +209,17 @@ func writeCustomReportDefinitionError(w http.ResponseWriter, requestID string, e
 		platformweb.WriteNotFound(w, requestID)
 	default:
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to save custom report definition")
+	}
+}
+
+func writeCustomReportExportError(w http.ResponseWriter, requestID string, err error) {
+	switch {
+	case errors.Is(err, modulecustomreports.ErrForbidden):
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "You no longer have permission to export saved reports")
+	case errors.Is(err, modulecustomreports.ErrTooManyRows):
+		platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "EXPORT_TOO_LARGE", "Narrow the saved report filters to export 10,000 rows or fewer")
+	default:
+		writeCustomReportExecutionError(w, requestID, err)
 	}
 }
 

@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedAuditProducerFileCount  = 41
-	expectedAuditProducerFileDigest = "9807c70d6dd891f7b6404798b92b79c08645408545e508b98d7285fda341160c"
+	expectedAuditProducerFileCount  = 43
+	expectedAuditProducerFileDigest = "4a67bc827c6c212bd1f30c87bbc2962cd61b464966638fbb49d97672cf07189d"
 )
 
 func TestAuditProducerInventoryRequiresPolicyReview(t *testing.T) {

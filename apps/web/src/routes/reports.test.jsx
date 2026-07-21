@@ -52,6 +52,8 @@ describe('reports route', () => {
     expect(screen.getByText(/contacts by lead source/i)).toBeInTheDocument()
 
     const savedReport = screen.getByRole('heading', { name: /contact source report/i }).closest('article')
+    const exportLink = within(savedReport).getByRole('link', { name: /download csv/i })
+    expect(exportLink).toHaveAttribute('href', expect.stringMatching(/\/api\/report-definitions\/3\/export\.csv$/))
     fireEvent.click(within(savedReport).getByRole('button', { name: /run report/i }))
     const results = await screen.findByRole('region', { name: /contact source report results/i })
     expect(results).toHaveTextContent('Lead source')
