@@ -81,6 +81,10 @@ const (
 
 func main() {
 	env := config.Load()
+	stripeAPIBaseURL, stripeAPIBaseURLErr := env.StripeAPIBaseURL()
+	if stripeAPIBaseURLErr != nil {
+		log.Fatal(stripeAPIBaseURLErr)
+	}
 	logger := platformlogger.New(env.GOEnv)
 	metrics := platformtelemetry.NewCollector()
 	dbConfig, dbConfigErr := db.LoadConfigFromEnv()
@@ -169,6 +173,7 @@ func main() {
 				PricePro:        env.StripePricePro,
 				PriceEnterprise: env.StripePriceEnterprise,
 				WebBaseURL:      env.WebBaseURL,
+				APIBaseURL:      stripeAPIBaseURL,
 			}), metrics))
 			authService = moduleauth.NewService(pool)
 			auditService = moduleaudit.NewService(pool)

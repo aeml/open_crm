@@ -188,11 +188,27 @@ jobs:
         working-directory: apps/web
         run: npx playwright install --with-deps chromium
 
-      - name: Run real-PostgreSQL browser journey
+      - name: Run self-hosted real-PostgreSQL browser journey
         working-directory: apps/web
         env:
           OPEN_CRM_E2E_DATABASE_URL: postgres://open_crm:open_crm@127.0.0.1:5432/open_crm_e2e?sslmode=disable
         run: npm run test:e2e
+
+      - name: Create isolated hosted-billing browser database
+        run: >-
+          docker run --rm --network host
+          -e PGPASSWORD=open_crm
+          postgres:16.14@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20
+          psql -h 127.0.0.1 -U open_crm -d postgres -v ON_ERROR_STOP=1
+          -c 'CREATE DATABASE open_crm_e2e_hosted'
+
+      - name: Run hosted-billing real-PostgreSQL browser journey
+        working-directory: apps/web
+        env:
+          OPEN_CRM_E2E_DATABASE_URL: postgres://open_crm:open_crm@127.0.0.1:5432/open_crm_e2e_hosted?sslmode=disable
+          OPEN_CRM_E2E_BILLING_PROVIDER: stripe
+          OPEN_CRM_E2E_OUTPUT_DIR: test-results-hosted
+        run: npm run test:e2e:hosted
 
       - name: Upload browser failure evidence
         if: failure()
@@ -202,6 +218,9 @@ jobs:
           path: |
             apps/web/playwright-report/
             apps/web/test-results/
+            apps/web/test-results-report/
+            apps/web/test-results-hosted/
+            apps/web/test-results-hosted-report/
           if-no-files-found: ignore
           retention-days: 14
 

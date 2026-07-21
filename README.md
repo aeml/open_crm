@@ -154,6 +154,15 @@ cd apps/web
 OPEN_CRM_E2E_DATABASE_URL='postgres://open_crm:open_crm@127.0.0.1:5432/open_crm_e2e?sslmode=disable' npm run test:e2e
 ```
 
+The hosted-billing acceptance requires a separate empty database. It starts a
+local Stripe-shaped HTTP sandbox, but drives the production Stripe adapter and
+the real browser/API boundaries; no provider credential or payment is used:
+
+```bash
+OPEN_CRM_E2E_DATABASE_URL='postgres://open_crm:open_crm@127.0.0.1:5432/open_crm_e2e_hosted?sslmode=disable' \
+  OPEN_CRM_E2E_BILLING_PROVIDER=stripe npm run test:e2e:hosted
+```
+
 Manual verification commands used by CI:
 
 ```bash
@@ -209,6 +218,7 @@ Current automated checks in `.github/workflows/ci.yml`:
 - frontend `npm run build:checked` with entry/lazy/total/CSS raw+gzip budgets
 - Chromium axe-core WCAG A/AA scans over critical public and authenticated surfaces, including password recovery, with structured per-surface failure evidence and a keyboard skip-link check
 - Chromium pilot journey against a disposable PostgreSQL database, including idempotent workspace bootstrap, mandatory owner-email verification and trial start, invitation rotation with old-link rejection, explicit revocation, reactivation, final activation, later user deactivation/reactivation and promotion to an independent admin approver, user-controlled active-sign-in revocation, multi-device password recovery/session invalidation, required typed custom-field administration, dynamic mapped import and safe rollback, client/contact creation and reviewed core/custom-field duplicate merge, admin stage/probability configuration with existing-deal continuity and forecast verification, deal/task work, revisioned quote-template configuration, workspace approval policy, blocked pre-approval delivery, independent exact-PDF approval, immutable quote delivery through a real SMTP sandbox, public consent signing, matching certificate evidence, accessible staff-controlled signed-quote conversion, won close review and transactional client handoff/account summary, client-health triage, recurring client review tasks, reversible bulk client changes, teammate mention and followed-digest navigation, session persistence, and cross-tenant denial
+- isolated Stripe-mode Chromium journey against a second disposable PostgreSQL database, covering verified trial start, server-created Checkout and Portal destinations, webhook-only activation, exact duplicate signed events, past-due grace, unpaid suspension and direct-write denial, payment recovery, scheduled/final cancellation, suspension-safe invoice visibility and portable export, plus WCAG scans at trial, suspension, and cancellation
 - encrypted Restic snapshot, retention/integrity check, extraction, isolated PostgreSQL restore, forward migration, and plaintext-leak acceptance
 - immutable release, expand-migration, manual rollback, failed-readiness recovery, and database-unavailable startup recovery acceptance
 - protected bounded-cardinality operational metrics plus promtool-validated request/database/job/provider/public-abuse/backup alert rules

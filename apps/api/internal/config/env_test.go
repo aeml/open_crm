@@ -13,6 +13,8 @@ func TestLoadUsesProductionPortAndAllowedOrigins(t *testing.T) {
 	t.Setenv("STRIPE_SECRET_KEY", "sk_test_config")
 	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_config")
 	t.Setenv("STRIPE_PRICE_PRO", "price_config_pro")
+	t.Setenv("OPEN_CRM_TEST_STRIPE_API_BASE_URL", "http://127.0.0.1:2527/")
+	t.Setenv("GO_ENV", "test")
 	t.Setenv("POSTMARK_WEBHOOK_USERNAME", "postmark-open-crm")
 	t.Setenv("POSTMARK_WEBHOOK_PASSWORD", "postmark-feedback-secret")
 	t.Setenv("SEQUENCE_TENANT_SEND_LIMIT_24H", "2400")
@@ -31,12 +33,48 @@ func TestLoadUsesProductionPortAndAllowedOrigins(t *testing.T) {
 	if env.BillingProvider != "stripe" || env.StripeSecretKey != "sk_test_config" || env.StripeWebhookSecret != "whsec_config" || env.StripePricePro != "price_config_pro" {
 		t.Fatalf("Stripe configuration did not load: %#v", env)
 	}
+	if stripeAPIBaseURL, err := env.StripeAPIBaseURL(); err != nil || stripeAPIBaseURL != "http://127.0.0.1:2527" {
+		t.Fatalf("Stripe test API base did not validate: base=%q err=%v", stripeAPIBaseURL, err)
+	}
 	if env.PostmarkWebhookUsername != "postmark-open-crm" || env.PostmarkWebhookPassword != "postmark-feedback-secret" {
 		t.Fatalf("Postmark webhook configuration did not load: %#v", env)
 	}
 	tenantLimit, senderLimit, err := env.HostedSequenceSendLimits()
 	if err != nil || tenantLimit != 2400 || senderLimit != 120 {
 		t.Fatalf("hosted sequence limits did not load: tenant=%d sender=%d err=%v", tenantLimit, senderLimit, err)
+	}
+}
+
+func TestStripeAPIBaseURLIsTestOnlyAndOriginBounded(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     Env
+		want    string
+		wantErr bool
+	}{
+		{name: "default Stripe endpoint", env: Env{GOEnv: "production"}},
+		{name: "test HTTP origin", env: Env{GOEnv: "test", StripeTestAPIBaseURL: "http://127.0.0.1:2527/"}, want: "http://127.0.0.1:2527"},
+		{name: "production override rejected", env: Env{GOEnv: "production", StripeTestAPIBaseURL: "https://stripe.test"}, wantErr: true},
+		{name: "credentials rejected", env: Env{GOEnv: "test", StripeTestAPIBaseURL: "https://secret@stripe.test"}, wantErr: true},
+		{name: "path rejected", env: Env{GOEnv: "test", StripeTestAPIBaseURL: "https://stripe.test/proxy"}, wantErr: true},
+		{name: "query rejected", env: Env{GOEnv: "test", StripeTestAPIBaseURL: "https://stripe.test?mode=fake"}, wantErr: true},
+		{name: "missing hostname rejected", env: Env{GOEnv: "test", StripeTestAPIBaseURL: "http://:2527"}, wantErr: true},
+		{name: "relative rejected", env: Env{GOEnv: "test", StripeTestAPIBaseURL: "/stripe"}, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := test.env.StripeAPIBaseURL()
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("expected invalid Stripe test endpoint to fail: got=%q", got)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("Stripe API base mismatch: got=%q want=%q err=%v", got, test.want, err)
+			}
+		})
 	}
 }
 

@@ -358,6 +358,24 @@ lead capture, or tenant workers because of stored hosted lifecycle fields.
      -run '^TestHostedBillingSandboxJourneyAgainstPostgres$' -count=1
    ```
 
+   CI then runs a separate Chromium journey against another empty PostgreSQL
+   database. It provisions and verifies the workspace through the UI, reaches
+   the server-created Checkout and Portal destinations, applies signed raw-body
+   events, proves the redirect cannot activate a plan, exercises grace,
+   suspension, recovery, scheduled/final cancellation, verifies direct-write
+   denial, and downloads a suspension-safe export. Reproduce it with:
+
+   ```bash
+   cd apps/web
+   OPEN_CRM_E2E_DATABASE_URL='postgres://.../open_crm_e2e_hosted?sslmode=disable' \
+     OPEN_CRM_E2E_BILLING_PROVIDER=stripe npm run test:e2e:hosted
+   ```
+
+   The harness supplies `OPEN_CRM_TEST_STRIPE_API_BASE_URL` only to its
+   `GO_ENV=test` API process. API startup rejects that override in every other
+   environment so a production Stripe secret cannot be redirected by this
+   test seam.
+
    This contract gate does not authorize provider activation and does not replace
    the approved credentialed Stripe test-mode deployment smoke in this step.
 5. During suspension, verify `/auth/me` reports `workspaceAccess.state` as

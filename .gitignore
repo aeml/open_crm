@@ -4,6 +4,7 @@ apps/web/node_modules/
 apps/web/dist/
 apps/web/playwright-report/
 apps/web/test-results/
+apps/web/test-results-*/
 apps/api/bin/
 .env.production
 *.log

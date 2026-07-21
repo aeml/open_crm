@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ type Env struct {
 	StripePriceStarter         string
 	StripePricePro             string
 	StripePriceEnterprise      string
+	StripeTestAPIBaseURL       string
 	TelephonyProvider          string
 	CalendarProvider           string
 	EmailProvider              string
@@ -100,6 +102,7 @@ func Load() Env {
 		StripePriceStarter:         os.Getenv("STRIPE_PRICE_STARTER"),
 		StripePricePro:             os.Getenv("STRIPE_PRICE_PRO"),
 		StripePriceEnterprise:      os.Getenv("STRIPE_PRICE_ENTERPRISE"),
+		StripeTestAPIBaseURL:       os.Getenv("OPEN_CRM_TEST_STRIPE_API_BASE_URL"),
 		TelephonyProvider:          telephonyProvider,
 		CalendarProvider:           calendarProvider,
 		EmailProvider:              emailProvider,
@@ -123,6 +126,24 @@ func Load() Env {
 		BackupStatusPath:           backupStatusPath,
 		ReleaseID:                  strings.TrimSpace(os.Getenv("OPEN_CRM_RELEASE_ID")),
 	}
+}
+
+// StripeAPIBaseURL returns a non-default Stripe API endpoint only for the
+// deterministic test runtime. Keeping this seam test-only prevents a
+// production typo from sending the Stripe secret to an unreviewed host.
+func (e Env) StripeAPIBaseURL() (string, error) {
+	value := strings.TrimRight(strings.TrimSpace(e.StripeTestAPIBaseURL), "/")
+	if value == "" {
+		return "", nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(e.GOEnv), "test") {
+		return "", fmt.Errorf("OPEN_CRM_TEST_STRIPE_API_BASE_URL is allowed only when GO_ENV=test")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("OPEN_CRM_TEST_STRIPE_API_BASE_URL must be an absolute HTTP(S) origin without credentials, query, or fragment")
+	}
+	return value, nil
 }
 
 // HostedSequenceSendLimits parses the mandatory hosted provider-effect safety

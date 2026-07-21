@@ -17,7 +17,8 @@
     "check:source": "node scripts/check-source-budget.mjs",
     "lint": "eslint src e2e playwright.config.js --ext .js,.jsx",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:hosted": "playwright test e2e/hosted_billing.spec.js"
   },
   "dependencies": {
     "react": "18.3.1",
