@@ -80,6 +80,18 @@ export async function replaceDealLineItems(dealID, input, { signal } = {}) {
   return payload?.data
 }
 
+export async function finalizeDealQuote(dealID, input, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest(`/api/deals/${dealID}/quotes`, {
+    method: 'POST',
+    body: input,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    fallbackMessage: 'Unable to finalize quote.',
+    signal
+  })
+
+  return payload?.data?.quote
+}
+
 export async function createDealSignatureRequest(dealID, input, { signal } = {}) {
   const payload = await apiRequest(`/api/deals/${dealID}/signature-requests`, { method: 'POST', body: input, fallbackMessage: 'Unable to create proposal tracking.', signal })
 
@@ -124,4 +136,8 @@ export function dealsExportURL(query = {}) {
 
 export function quotePDFURL(dealID) {
   return apiURL(`/api/deals/${dealID}/quote.pdf`)
+}
+
+export function quoteVersionPDFURL(dealID, quoteID) {
+  return apiURL(`/api/deals/${dealID}/quotes/${quoteID}/pdf`)
 }

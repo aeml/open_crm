@@ -2529,6 +2529,7 @@ Progress:
 - `1.3.5` (multiple pipelines foundation): complete. Added organization-scoped deal pipelines, backfilled existing stages into a default pipeline, scoped stage uniqueness by pipeline, exposed authenticated APIs for listing/creating pipelines, copied default stage templates into new pipelines, and added pipeline metadata/filtering to deal list/detail/export flows. The later `0.6.1` outcome moved creation into admin settings and completed rename/default plus custom stage classification/reordering; team/business-unit ownership rules and per-pipeline permissions remain future scope only if pilot evidence requires them.
 - `1.3.6` (quotas and forecasting dashboard foundation): complete. Added organization-scoped per-user sales quota records by period, admin quota upsert API, current-quarter forecast calculations using won revenue plus stage-weighted open pipeline, team/member attainment and coverage metrics, and dashboard quota editing/forecast display. Forecast categories, custom stage probabilities, quota history, rollups by team/business unit, and advanced forecast analytics remain future slices.
 - `1.3.7` (multi-currency exchange-rate foundation): complete. Added organization base currency settings, manual organization exchange-rate records, admin API/UI for saving rates, and base-currency conversion for deal-list, dashboard pipeline, quota, and weighted forecast rollups while preserving per-record deal/catalog currencies. Automated FX providers, historical rate selection beyond latest manual rates, quote-level FX disclosures, and realized gain/loss accounting remain future slices.
+- `1.3.8` (immutable quote-version convergence): complete for finalization and retrieval. A writer can finalize saved line items with recipient, validity, and terms; one transaction locks the deal, allocates a version, snapshots all commercial identity/line/total fields, stores the exact PDF bytes and SHA-256, and records activity/audit evidence. Hashed actor-scoped idempotency collapses concurrent retries and rejects changed requests. Members can download only tenant/deal/quote-matching stored PDFs, the UI distinguishes mutable drafts from finalized versions and blocks unsaved-line finalization, and portable workspace export includes document/line snapshots while redacting request/key hashes. Migration, handler, UI, disposable-PostgreSQL concurrency/immutability/export/isolation, and browser acceptance cover this boundary. Customer delivery/receipt, approval, reusable templates, expiration behavior, quote-level FX disclosure, and legal signing remain future slices.
 
 Candidate slices:
 
@@ -2539,6 +2540,7 @@ Candidate slices:
 - `1.3.5` Multiple pipelines per team/business unit (extends `0.6.1`): foundation complete.
 - `1.3.6` Quotas, goals, and team forecasting dashboards (extends `0.6.2`): foundation complete.
 - `1.3.7` Multi-currency support with exchange-rate handling: foundation complete.
+- `1.3.8` Immutable quote finalization and retrieval: complete; delivery/signing remains separate.
 
 Exit criteria:
 

@@ -25,6 +25,30 @@ func TestMigrationFilesIncludeInitialSchema(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeVersionedDealQuotes(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "093_versioned_deal_quotes.sql") {
+		t.Fatal("expected versioned deal quotes migration to be registered")
+	}
+	sql := MigrationSQL("093_versioned_deal_quotes.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"deal_quotes",
+		"deal_quote_line_items",
+		"pdf_content BYTEA",
+		"pdf_sha256 ~ '^[0-9a-f]{64}$'",
+		"idempotency_key_hash",
+		"UNIQUE (organization_id, deal_id, version)",
+		"deal_quote_line_items_quote_fk",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("versioned deal quotes migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass("093_versioned_deal_quotes.sql"); class != "expand" {
+		t.Fatalf("versioned deal quotes deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeBackgroundJobs(t *testing.T) {
 	sql := MigrationSQL("056_background_jobs.sql")
 	if sql == "" {

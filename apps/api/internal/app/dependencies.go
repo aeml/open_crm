@@ -123,6 +123,8 @@ type dealsService interface {
 	Archive(context.Context, int64, int64, int64) error
 	UpdateStage(context.Context, int64, int64, int64, moduledeals.UpdateStageInput) (moduledeals.Detail, error)
 	ReplaceLineItems(context.Context, int64, int64, int64, moduledeals.LineItemsInput) (moduledeals.Detail, error)
+	FinalizeQuote(context.Context, int64, int64, int64, moduledeals.FinalizeQuoteInput) (moduledeals.QuoteVersion, error)
+	GetQuotePDF(context.Context, int64, int64, int64) (moduledeals.QuotePDFFile, error)
 	CreateSignatureRequest(context.Context, int64, int64, int64, moduledeals.SignatureRequestInput) (moduledeals.Detail, error)
 	UpdateSignatureRequestStatus(context.Context, int64, int64, int64, int64, moduledeals.SignatureStatusInput) (moduledeals.Detail, error)
 }

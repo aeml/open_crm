@@ -20,6 +20,17 @@ export const emptySignatureForm = {
   signerEmail: ''
 }
 
+export function emptyQuoteForm(recipientName = '') {
+  const validUntil = new Date()
+  validUntil.setUTCDate(validUntil.getUTCDate() + 30)
+  return {
+    recipientName,
+    recipientEmail: '',
+    validUntil: validUntil.toISOString().slice(0, 10),
+    terms: 'Payment due within 30 days of invoice.'
+  }
+}
+
 export function formatMoney(value, currency = 'USD') {
   const amount = Number.parseFloat(value || '0')
   if (!Number.isFinite(amount)) {

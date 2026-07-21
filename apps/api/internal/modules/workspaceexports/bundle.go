@@ -310,6 +310,7 @@ var ordinaryOrganizationTables = []string{
 	"custom_field_definitions",
 	"custom_report_definitions",
 	"deal_line_items",
+	"deal_quote_line_items",
 	"deal_pipelines",
 	"deal_signature_requests",
 	"deal_stage_events",
@@ -370,6 +371,9 @@ func buildPortableDatasets() []dataset {
 		{name: "billing_invoices", query: `
 			SELECT to_jsonb(i) - ARRAY['hosted_invoice_url','invoice_pdf_url','provider_subscription_id']::text[]
 			FROM billing_invoices i WHERE organization_id=$1 ORDER BY id`},
+		{name: "deal_quotes", query: `
+			SELECT to_jsonb(q) - ARRAY['idempotency_key_hash','request_sha256']::text[]
+			FROM deal_quotes q WHERE organization_id=$1 ORDER BY id`},
 		{name: "email_messages_shared", query: `
 			SELECT to_jsonb(m) - ARRAY['tracking_token','provider_message_id','provider_thread_id','rfc_message_id','in_reply_to','reference_message_ids','delivery_feedback_email_message_id']::text[]
 			FROM email_messages m WHERE organization_id=$1 AND visibility='shared' ORDER BY id`},
@@ -435,6 +439,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 	for _, table := range []string{
 		"organization_memberships",
 		"billing_invoices",
+		"deal_quotes",
 		"email_messages",
 		"email_message_entity_links",
 		"email_reply_requests",

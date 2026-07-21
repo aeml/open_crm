@@ -107,6 +107,19 @@ func TestViewerCannotCreateDeal(t *testing.T) {
 	}
 }
 
+func TestViewerCannotFinalizeDealQuote(t *testing.T) {
+	server := serverWithRole("viewer", Dependencies{DealsService: &fakeDealsService{}})
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes", bytes.NewBufferString(`{"recipientName":"Ava","recipientEmail":"ava@example.test","validUntil":"2026-08-20","terms":"Net 30"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "viewer-quote-key-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer finalizing quote, got %d", recorder.Code)
+	}
+}
+
 func TestViewerCannotCreateTask(t *testing.T) {
 	server := serverWithRole("viewer", Dependencies{
 		TasksService: &fakeTasksService{},

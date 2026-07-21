@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,7 +116,7 @@ func TestProposalTrackingIsCalculatedTraceableAndTenantSafeAgainstPostgres(t *te
 	}
 
 	quote := moduledeals.BuildQuotePDF(detail, moduledeals.QuotePDFInput{OrganizationName: "Proposal team", GeneratedByName: "Priya Seller", GeneratedAt: time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)})
-	for _, expected := range [][]byte{[]byte("%PDF-1.4"), []byte("Website implementation"), []byte("Implementation package"), []byte("Total: USD 259.00"), []byte("Signature workflow, approvals, and terms remain future slices.")} {
+	for _, expected := range [][]byte{[]byte("%PDF-1.4"), []byte("Website implementation"), []byte("Implementation package"), []byte("Total: USD 259.00"), []byte("Draft preview generated from current CRM deal data.")} {
 		if !bytes.Contains(quote.Content, expected) {
 			t.Fatalf("generated current-data quote did not contain %q", expected)
 		}
@@ -144,6 +145,99 @@ func TestProposalTrackingIsCalculatedTraceableAndTenantSafeAgainstPostgres(t *te
 	var activityCount int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE organization_id=$1 AND entity_type='deal' AND entity_id=$2 AND action IN ('deal.line_items_updated','deal.signature_request_created','deal.signature_request_updated')`, organizationID, dealID).Scan(&activityCount); err != nil || activityCount != 4 {
 		t.Fatalf("unexpected proposal activity history: count=%d err=%v", activityCount, err)
+	}
+
+	quoteInput := moduledeals.FinalizeQuoteInput{
+		RecipientName: "  Avery Buyer ", RecipientEmail: "AVERY@EXAMPLE.TEST",
+		ValidUntil:     time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.DateOnly),
+		Terms:          "Payment due within 30 days.\nScope changes require written approval.",
+		IdempotencyKey: "finalized-quote-browser-key-001",
+	}
+	finalized, err := service.FinalizeQuote(ctx, organizationID, dealID, actorUserID, quoteInput)
+	if err != nil {
+		t.Fatalf("finalize immutable quote: %v", err)
+	}
+	if finalized.Version != 1 || finalized.QuoteNumber != fmt.Sprintf("Q-%d-V1", dealID) || finalized.RecipientEmail != "avery@example.test" || finalized.Total != "259.00" || finalized.PDFSHA256 == "" || finalized.PDFByteSize < 100 {
+		t.Fatalf("unexpected finalized quote: %#v", finalized)
+	}
+	finalizedPDF, err := service.GetQuotePDF(ctx, organizationID, dealID, finalized.ID)
+	if err != nil {
+		t.Fatalf("download finalized quote: %v", err)
+	}
+	for _, expected := range [][]byte{[]byte(finalized.QuoteNumber), []byte("Avery Buyer <avery@example.test>"), []byte("Payment due within 30 days."), []byte("Immutable finalized quote.")} {
+		if !bytes.Contains(finalizedPDF.Content, expected) {
+			t.Fatalf("finalized quote PDF missing %q", expected)
+		}
+	}
+	if finalizedPDF.ContentSHA256 != finalized.PDFSHA256 {
+		t.Fatalf("finalized quote digest mismatch: file=%q record=%q", finalizedPDF.ContentSHA256, finalized.PDFSHA256)
+	}
+	replayed, err := service.FinalizeQuote(ctx, organizationID, dealID, actorUserID, quoteInput)
+	if err != nil || replayed.ID != finalized.ID {
+		t.Fatalf("idempotent quote replay changed identity: quote=%#v err=%v", replayed, err)
+	}
+	conflictingInput := quoteInput
+	conflictingInput.Terms = "Different terms"
+	if _, err := service.FinalizeQuote(ctx, organizationID, dealID, actorUserID, conflictingInput); !errors.Is(err, moduledeals.ErrQuoteIdempotencyConflict) {
+		t.Fatalf("changed quote request reused key with %v", err)
+	}
+	concurrentInput := quoteInput
+	concurrentInput.Terms = "Concurrent finalization terms"
+	concurrentInput.IdempotencyKey = "finalized-quote-concurrent-key-002"
+	startConcurrent := make(chan struct{})
+	concurrentResults := make(chan moduledeals.QuoteVersion, 2)
+	concurrentErrors := make(chan error, 2)
+	var concurrentWait sync.WaitGroup
+	for range 2 {
+		concurrentWait.Add(1)
+		go func() {
+			defer concurrentWait.Done()
+			<-startConcurrent
+			quote, err := service.FinalizeQuote(ctx, organizationID, dealID, actorUserID, concurrentInput)
+			concurrentResults <- quote
+			concurrentErrors <- err
+		}()
+	}
+	close(startConcurrent)
+	concurrentWait.Wait()
+	close(concurrentResults)
+	close(concurrentErrors)
+	for concurrentErr := range concurrentErrors {
+		if concurrentErr != nil {
+			t.Fatalf("concurrent quote finalization: %v", concurrentErr)
+		}
+	}
+	var concurrentID int64
+	for concurrentQuote := range concurrentResults {
+		if concurrentQuote.Version != 2 || (concurrentID != 0 && concurrentQuote.ID != concurrentID) {
+			t.Fatalf("concurrent quote replay diverged: first=%d quote=%#v", concurrentID, concurrentQuote)
+		}
+		concurrentID = concurrentQuote.ID
+	}
+	if _, err := service.ReplaceLineItems(ctx, organizationID, dealID, actorUserID, moduledeals.LineItemsInput{Items: []moduledeals.LineItemInput{{Name: "Changed after finalization", ItemType: "service", Quantity: "1", UnitName: "project", UnitPrice: "999", Currency: "USD", Position: 1}}}); err != nil {
+		t.Fatalf("change live deal after finalization: %v", err)
+	}
+	retainedPDF, err := service.GetQuotePDF(ctx, organizationID, dealID, finalized.ID)
+	if err != nil || !bytes.Equal(retainedPDF.Content, finalizedPDF.Content) || bytes.Contains(retainedPDF.Content, []byte("Changed after finalization")) {
+		t.Fatalf("finalized PDF changed with live deal: equal=%t err=%v", bytes.Equal(retainedPDF.Content, finalizedPDF.Content), err)
+	}
+	detail, err = service.GetByID(ctx, organizationID, dealID)
+	if err != nil || len(detail.Quotes) != 2 || detail.Quotes[0].ID != concurrentID || detail.Quotes[1].ID != finalized.ID || detail.LineItems[0].Name != "Changed after finalization" {
+		t.Fatalf("deal did not distinguish live and finalized quote state: detail=%#v err=%v", detail, err)
+	}
+	if _, err := service.GetQuotePDF(ctx, foreignOrganizationID, foreignDealID, finalized.ID); !errors.Is(err, moduledeals.ErrNotFound) {
+		t.Fatalf("foreign tenant downloaded finalized quote with %v", err)
+	}
+	var quoteActivityCount, quoteAuditCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE organization_id=$1 AND entity_type='deal' AND entity_id=$2 AND action='deal.quote_finalized'`, organizationID, dealID).Scan(&quoteActivityCount); err != nil || quoteActivityCount != 2 {
+		t.Fatalf("finalized quote activity count=%d err=%v", quoteActivityCount, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='deal.quote_finalized' AND entity_id=$2`, organizationID, finalized.ID).Scan(&quoteAuditCount); err != nil || quoteAuditCount != 1 {
+		t.Fatalf("finalized quote audit count=%d err=%v", quoteAuditCount, err)
+	}
+	var leakedKey bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM deal_quotes WHERE organization_id=$1 AND idempotency_key_hash=$2)`, organizationID, quoteInput.IdempotencyKey).Scan(&leakedKey); err != nil || leakedKey {
+		t.Fatalf("raw quote idempotency key was retained: leaked=%t err=%v", leakedKey, err)
 	}
 }
 

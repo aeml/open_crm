@@ -3,6 +3,7 @@ import { RecordEmailComposer } from '../components/record_email_composer'
 import { sendDealEmail } from '../lib/deals'
 import { DealDetailsEditor, DealStageMover } from './deal_editor'
 import { DealLineItemsCard, DealSignatureCard } from './deal_quote'
+import { DealQuoteVersionsCard } from './deal_quote_versions'
 import { RecordWorkCards } from './record_work'
 
 export function DealWorkspace({
@@ -49,6 +50,18 @@ export function DealWorkspace({
           onSetForm={commercial.setLineItemForm}
           products={commercial.productCatalogItems}
           totals={commercial.lineTotals}
+        />
+        <DealQuoteVersionsCard
+          areLineItemsDirty={commercial.areLineItemsDirty}
+          canWrite={canWrite}
+          deal={deal}
+          form={commercial.quoteForm}
+          isFinalizing={commercial.isFinalizingQuote}
+          isSnapshotPending={commercial.isSnapshotPending}
+          lineItems={commercial.lineItems}
+          onFinalize={commercial.handleFinalizeQuote}
+          onSetForm={commercial.setQuoteForm}
+          quotes={commercial.quotes}
         />
         <DealSignatureCard
           canWrite={canWrite}

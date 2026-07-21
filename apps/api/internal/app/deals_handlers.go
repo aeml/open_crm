@@ -2,7 +2,6 @@ package app
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -302,14 +301,6 @@ func handleUpdateDeal(auth authService, deals dealsService, w http.ResponseWrite
 	}
 
 	respondDealDetail(w, r, http.StatusOK, result)
-}
-
-func writePDFFile(w http.ResponseWriter, status int, file moduledeals.QuotePDFFile) {
-	w.Header().Set("Content-Type", "application/pdf")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", file.Filename))
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(status)
-	_, _ = w.Write(file.Content)
 }
 
 func handleArchiveDeal(auth authService, deals dealsService, w http.ResponseWriter, r *http.Request) {

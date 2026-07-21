@@ -1,12 +1,15 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   createDealSignatureRequest,
+  finalizeDealQuote,
   replaceDealLineItems,
   updateDealSignatureRequestStatus
 } from '../lib/deals'
+import { createIdempotencyKey } from '../lib/idempotency'
 import {
   emptyLineItemForm,
   emptyLineTotals,
+  emptyQuoteForm,
   emptySignatureForm,
   lineItemFormFromCatalogItem,
   lineItemPayload
@@ -21,16 +24,22 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
   const [lineItems, setLineItems] = useState([])
   const [lineItemForm, setLineItemForm] = useState(emptyLineItemForm)
   const [lineTotals, setLineTotals] = useState(emptyLineTotals)
+  const [quotes, setQuotes] = useState([])
+  const [quoteForm, setQuoteForm] = useState(() => emptyQuoteForm())
   const [signatureRequests, setSignatureRequests] = useState([])
   const [signatureForm, setSignatureForm] = useState(emptySignatureForm)
   const [isSavingLineItems, setIsSavingLineItems] = useState(false)
+  const [isFinalizingQuote, setIsFinalizingQuote] = useState(false)
+  const [areLineItemsDirty, setAreLineItemsDirty] = useState(false)
   const [isCreatingSignatureRequest, setIsCreatingSignatureRequest] = useState(false)
   const [updatingSignatureRequestId, setUpdatingSignatureRequestId] = useState(null)
-  const isSnapshotPending = isSavingLineItems || isCreatingSignatureRequest || updatingSignatureRequestId !== null
+  const quoteAttempt = useRef(null)
+  const isSnapshotPending = isSavingLineItems || isFinalizingQuote || isCreatingSignatureRequest || updatingSignatureRequestId !== null
 
   function refresh(data) {
     setLineItems(data.lineItems || [])
     setLineTotals(data.totals || emptyLineTotals)
+    setQuotes(data.quotes || [])
     setSignatureRequests(data.signatureRequests || [])
   }
 
@@ -40,8 +49,12 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       setProductCatalogItems(catalogItems)
     }
     setLineItemForm(emptyLineItemForm)
+    setQuoteForm(emptyQuoteForm(data.deal?.primaryContactName || ''))
+    setAreLineItemsDirty(false)
+    quoteAttempt.current = null
     setSignatureForm(emptySignatureForm)
     setIsSavingLineItems(false)
+    setIsFinalizingQuote(false)
     setIsCreatingSignatureRequest(false)
     setUpdatingSignatureRequestId(null)
   }
@@ -50,9 +63,14 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setLineItems([])
     setLineTotals(emptyLineTotals)
     setLineItemForm(emptyLineItemForm)
+    setQuotes([])
+    setQuoteForm(emptyQuoteForm())
+    setAreLineItemsDirty(false)
+    quoteAttempt.current = null
     setSignatureRequests([])
     setSignatureForm(emptySignatureForm)
     setIsSavingLineItems(false)
+    setIsFinalizingQuote(false)
     setIsCreatingSignatureRequest(false)
     setUpdatingSignatureRequestId(null)
   }
@@ -70,6 +88,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       return
     }
     setLineItems((current) => [...current, { ...lineItemForm, position: current.length + 1 }])
+    setAreLineItemsDirty(true)
     setLineItemForm(emptyLineItemForm)
     onError('')
   }
@@ -78,6 +97,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setLineItems((current) => current
       .filter((_, entryIndex) => entryIndex !== index)
       .map((item, entryIndex) => ({ ...item, position: entryIndex + 1 })))
+    setAreLineItemsDirty(true)
   }
 
   async function handleSaveLineItems() {
@@ -94,6 +114,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       if (selection.canApply(operation)) onDealUpdated(data, operation.dealId, isCurrent)
       if (isCurrent) {
         refresh(data)
+        setAreLineItemsDirty(false)
         onError('')
       }
     } catch (lineItemError) {
@@ -103,6 +124,38 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     } finally {
       selection.finish(operation)
       if (selection.isCurrent(operation.selection)) setIsSavingLineItems(false)
+    }
+  }
+
+  async function handleFinalizeQuote(event) {
+    event.preventDefault()
+    const operation = selection.start('quote-finalize', selectedDealId, { group: 'deal-snapshot' })
+    if (!operation) return
+    const input = {
+      recipientName: quoteForm.recipientName.trim(),
+      recipientEmail: quoteForm.recipientEmail.trim(),
+      validUntil: quoteForm.validUntil,
+      terms: quoteForm.terms.trim()
+    }
+    const fingerprint = JSON.stringify(input)
+    if (quoteAttempt.current?.fingerprint !== fingerprint) {
+      quoteAttempt.current = { fingerprint, key: createIdempotencyKey('quote') }
+    }
+    setIsFinalizingQuote(true)
+    try {
+      const quote = await finalizeDealQuote(operation.dealId, input, quoteAttempt.current.key)
+      if (!quote?.id) throw new Error('Unable to finalize quote.')
+      if (selection.isCurrent(operation.selection)) {
+        setQuotes((current) => [quote, ...current.filter((entry) => entry.id !== quote.id)])
+        setQuoteForm(emptyQuoteForm(quote.recipientName))
+        quoteAttempt.current = null
+        onError('')
+      }
+    } catch (quoteError) {
+      if (selection.isCurrent(operation.selection)) onError(quoteError.message || 'Unable to finalize quote.')
+    } finally {
+      selection.finish(operation)
+      if (selection.isCurrent(operation.selection)) setIsFinalizingQuote(false)
     }
   }
 
@@ -165,20 +218,26 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     handleAddLineItem,
     handleCatalogLineItemChange,
     handleCreateSignatureRequest,
+    handleFinalizeQuote,
     handleRemoveLineItem,
     handleSaveLineItems,
     handleUpdateSignatureRequestStatus,
     isCreatingSignatureRequest,
+    isFinalizingQuote,
     isSavingLineItems,
     isSnapshotPending,
     lineItemForm,
     lineItems,
     lineTotals,
+    areLineItemsDirty,
     load,
     productCatalogItems,
     refresh,
     reset,
+    quoteForm,
+    quotes,
     setLineItemForm,
+    setQuoteForm,
     setSignatureForm,
     signatureForm,
     signatureRequests,

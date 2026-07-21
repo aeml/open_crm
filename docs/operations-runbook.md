@@ -664,30 +664,37 @@ references.
    checking the assignee remains active. Do not edit `client_review_schedules`,
    tasks, reminders, or jobs directly in production.
 
-### Proposal tracking and current-PDF reconciliation
+### Draft, finalized quote, and proposal-tracking reconciliation
 
 1. The deal's **Line items** are saved CRM data. A catalog selection copies its
    name, SKU, type, unit, price, and currency into the line item, so later
    catalog edits do not rewrite an existing proposal. Saving the complete list
    replaces the prior list, calculates subtotal/discount/tax/total, updates the
    deal value, and adds `deal.line_items_updated` activity in one transaction.
-2. **Download current quote PDF** renders the deal and saved line items at
-   request time. It is not an immutable quote version, attachment, approval, or
-   delivery receipt. Regenerating after a deal, relationship, stage, or line-item
-   edit may produce different content and filename. Save and deliver a reviewed
-   copy outside Open CRM when a fixed customer document is required.
-3. **Proposal tracking** records a recipient, filename reference, and a manual
+2. **Download current-data draft PDF** renders the live deal and saved line
+   items at request time. Regenerating after a deal, relationship, stage, or
+   line-item edit may produce different content and filename. It is not customer
+   evidence.
+3. **Finalize quote version** requires saved line items plus recipient, validity,
+   and terms. One transaction allocates the deal version and preserves the exact
+   identity, line-item, totals, terms, PDF bytes, and SHA-256 snapshot with
+   activity/audit evidence. Unsaved line changes block the UI action. Downloads
+   are tenant/deal/quote scoped and private/no-store. Follow the retry, digest,
+   and correction procedure in `docs/versioned-quotes.md`; never edit a stored
+   version in place.
+4. **Proposal tracking** records a recipient, filename reference, and a manual
    draft/sent/signed/declined/voided status. Creating or updating it does not
    send a message, contact a provider, expose a signer page, or prove a legal
    signature. Operators should change status only after confirming the matching
    external event; `sentAt`, outcome timestamps, and deal activity help
    reconcile who recorded what.
-4. If totals appear wrong, inspect quantity, unit price, discount, tax rate,
+5. If live totals appear wrong, inspect quantity, unit price, discount, tax rate,
    currency, and saved activity before editing. A failed cross-tenant or invalid
    catalog reference changes nothing. Correct through the deal UI and download
-   a new current PDF; do not edit line items, proposal tracking rows, timestamps,
-   or activity with ad hoc SQL. Versioned delivery, approvals, provider
-   webhooks, and an audit certificate remain the Phase 4 quote/signature family.
+   a new draft or finalized version; do not edit line items, quote/proposal rows,
+   stored bytes, timestamps, or activity with ad hoc SQL. Customer delivery and
+   receipt, approvals, expiration behavior, signing/provider webhooks, and an
+   audit certificate remain later Phase 4 quote/signature slices.
 
 ### Deal close review and outcome reconciliation
 

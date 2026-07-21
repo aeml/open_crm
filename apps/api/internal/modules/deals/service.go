@@ -20,14 +20,16 @@ import (
 )
 
 var (
-	ErrInvalidDealPipeline     = errors.New("invalid deal pipeline")
-	ErrInvalidLineItems        = errors.New("invalid deal line items")
-	ErrInvalidSignatureRequest = errors.New("invalid deal signature request")
-	ErrInvalidDealFilter       = errors.New("invalid deal filter")
-	ErrInvalidCloseReview      = errors.New("invalid deal close review")
-	ErrWonDealAccountRequired  = errors.New("won deal account required")
-	ErrInvalidAssignee         = moduleusers.ErrInvalidAssignee
-	ErrNotFound                = errors.New("deal not found")
+	ErrInvalidDealPipeline      = errors.New("invalid deal pipeline")
+	ErrInvalidLineItems         = errors.New("invalid deal line items")
+	ErrInvalidQuote             = errors.New("invalid deal quote")
+	ErrQuoteIdempotencyConflict = errors.New("deal quote idempotency key was used for another request")
+	ErrInvalidSignatureRequest  = errors.New("invalid deal signature request")
+	ErrInvalidDealFilter        = errors.New("invalid deal filter")
+	ErrInvalidCloseReview       = errors.New("invalid deal close review")
+	ErrWonDealAccountRequired   = errors.New("won deal account required")
+	ErrInvalidAssignee          = moduleusers.ErrInvalidAssignee
+	ErrNotFound                 = errors.New("deal not found")
 )
 
 var (
@@ -90,6 +92,7 @@ type Detail struct {
 	Activities        []ActivityEntry
 	LineItems         []LineItem
 	Totals            DealTotals
+	Quotes            []QuoteVersion
 	SignatureRequests []SignatureRequest
 }
 
@@ -1093,7 +1096,7 @@ func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (De
 		return Detail{}, fmt.Errorf("deals service not configured")
 	}
 
-	detail := Detail{Activities: []ActivityEntry{}, LineItems: []LineItem{}, SignatureRequests: []SignatureRequest{}}
+	detail := Detail{Activities: []ActivityEntry{}, LineItems: []LineItem{}, Quotes: []QuoteVersion{}, SignatureRequests: []SignatureRequest{}}
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
 			d.id,
@@ -1184,6 +1187,12 @@ func (s *Service) GetByID(ctx context.Context, organizationID, dealID int64) (De
 	}
 	detail.LineItems = lineItems
 	detail.Totals = totals
+
+	quotes, err := s.listQuoteVersions(ctx, organizationID, dealID)
+	if err != nil {
+		return Detail{}, err
+	}
+	detail.Quotes = quotes
 
 	signatureRequests, err := s.listSignatureRequests(ctx, organizationID, dealID)
 	if err != nil {

@@ -1,11 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createDealSignatureRequest, replaceDealLineItems } from '../lib/deals'
+import { createDealSignatureRequest, finalizeDealQuote, replaceDealLineItems } from '../lib/deals'
 import { useDealCommercials } from './use_deal_commercials'
 import { useDealSelection } from './use_deal_selection'
 
 vi.mock('../lib/deals', () => ({
   createDealSignatureRequest: vi.fn(),
+  finalizeDealQuote: vi.fn(),
   replaceDealLineItems: vi.fn(),
   updateDealSignatureRequestStatus: vi.fn()
 }))
@@ -21,6 +22,29 @@ beforeEach(() => {
 })
 
 describe('useDealCommercials', () => {
+  it('reuses the finalization key for an identical retry and records one returned quote', async () => {
+    const finalized = { id: 71, quoteNumber: 'Q-11-V1', recipientName: 'Ava' }
+    finalizeDealQuote.mockRejectedValueOnce(new Error('Network failed')).mockResolvedValueOnce(finalized)
+    const onError = vi.fn()
+    const { result } = renderHook(() => {
+      const selection = useDealSelection(11)
+      return useDealCommercials({ selectedDealId: 11, selection, onDealUpdated: vi.fn(), onError })
+    })
+
+    act(() => {
+      result.current.load({ deal: { id: 11, primaryContactName: 'Ava' }, lineItems: [{ id: 9 }], quotes: [] })
+      result.current.setQuoteForm({ recipientName: 'Ava', recipientEmail: 'ava@example.test', validUntil: '2026-08-20', terms: 'Net 30' })
+    })
+    await act(async () => result.current.handleFinalizeQuote({ preventDefault: vi.fn() }))
+    await act(async () => result.current.handleFinalizeQuote({ preventDefault: vi.fn() }))
+
+    expect(finalizeDealQuote).toHaveBeenCalledTimes(2)
+    expect(finalizeDealQuote.mock.calls[0][2]).toBe(finalizeDealQuote.mock.calls[1][2])
+    expect(result.current.quotes).toEqual([finalized])
+    expect(onError).toHaveBeenCalledWith('Network failed')
+    expect(onError).toHaveBeenLastCalledWith('')
+  })
+
   it('keeps late quote changes off the active deal and rejects mismatched snapshots', async () => {
     const lineItemSave = deferred()
     replaceDealLineItems.mockReturnValue(lineItemSave.promise)

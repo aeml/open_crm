@@ -37,6 +37,10 @@ type fakeDealsService struct {
 	updateStageErr             error
 	replaceLineItemsResult     moduledeals.Detail
 	replaceLineItemsErr        error
+	finalizeQuoteResult        moduledeals.QuoteVersion
+	finalizeQuoteErr           error
+	quotePDFResult             moduledeals.QuotePDFFile
+	quotePDFErr                error
 	createSignatureResult      moduledeals.Detail
 	createSignatureErr         error
 	updateSignatureResult      moduledeals.Detail
@@ -64,6 +68,13 @@ type fakeDealsService struct {
 	lastLineItemsDealID        int64
 	lastLineItemsActorID       int64
 	lastLineItemsInput         moduledeals.LineItemsInput
+	lastFinalizeQuoteOrgID     int64
+	lastFinalizeQuoteDealID    int64
+	lastFinalizeQuoteActorID   int64
+	lastFinalizeQuoteInput     moduledeals.FinalizeQuoteInput
+	lastQuotePDFOrgID          int64
+	lastQuotePDFDealID         int64
+	lastQuotePDFQuoteID        int64
 	lastCreateSignatureOrgID   int64
 	lastCreateSignatureDealID  int64
 	lastCreateSignatureActorID int64
@@ -172,6 +183,21 @@ func (f *fakeDealsService) ReplaceLineItems(_ context.Context, organizationID, d
 	f.lastLineItemsActorID = actorUserID
 	f.lastLineItemsInput = input
 	return f.replaceLineItemsResult, f.replaceLineItemsErr
+}
+
+func (f *fakeDealsService) FinalizeQuote(_ context.Context, organizationID, dealID, actorUserID int64, input moduledeals.FinalizeQuoteInput) (moduledeals.QuoteVersion, error) {
+	f.lastFinalizeQuoteOrgID = organizationID
+	f.lastFinalizeQuoteDealID = dealID
+	f.lastFinalizeQuoteActorID = actorUserID
+	f.lastFinalizeQuoteInput = input
+	return f.finalizeQuoteResult, f.finalizeQuoteErr
+}
+
+func (f *fakeDealsService) GetQuotePDF(_ context.Context, organizationID, dealID, quoteID int64) (moduledeals.QuotePDFFile, error) {
+	f.lastQuotePDFOrgID = organizationID
+	f.lastQuotePDFDealID = dealID
+	f.lastQuotePDFQuoteID = quoteID
+	return f.quotePDFResult, f.quotePDFErr
 }
 
 func (f *fakeDealsService) CreateSignatureRequest(_ context.Context, organizationID, dealID, actorUserID int64, input moduledeals.SignatureRequestInput) (moduledeals.Detail, error) {
@@ -487,6 +513,97 @@ func TestDownloadDealQuotePDFUsesCurrentOrganization(t *testing.T) {
 	}
 	if !bytes.HasPrefix(recorder.Body.Bytes(), []byte("%PDF-1.4")) || !bytes.Contains(recorder.Body.Bytes(), []byte("Acme, Inc.")) || !bytes.Contains(recorder.Body.Bytes(), []byte("Implementation")) {
 		t.Fatalf("unexpected quote PDF body")
+	}
+	if recorder.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("current-data quote PDF cache policy = %q", recorder.Header().Get("Cache-Control"))
+	}
+}
+
+func TestFinalizeAndDownloadDealQuoteUseCurrentTenant(t *testing.T) {
+	quote := moduledeals.QuoteVersion{
+		ID: 71, Version: 2, QuoteNumber: "Q-12-V2", Status: "finalized",
+		RecipientName: "Ava Stone", RecipientEmail: "ava@bluebird.example", Currency: "USD",
+		Subtotal: "300.00", DiscountTotal: "20.00", TaxTotal: "28.00", Total: "308.00",
+		ValidUntil: "2026-08-20", Terms: "Payment due in 30 days.", PDFFilename: "quote-bluebird-rollout-v2.pdf",
+		PDFSHA256: strings.Repeat("a", 64), PDFByteSize: 512, CreatedByUserID: 1, CreatedByUserName: "Demo Owner", CreatedAt: "2026-07-21T10:00:00Z",
+	}
+	service := &fakeDealsService{
+		finalizeQuoteResult: quote,
+		quotePDFResult: moduledeals.QuotePDFFile{
+			Filename: quote.PDFFilename, Content: []byte("%PDF-1.4 immutable"), ContentSHA256: quote.PDFSHA256,
+		},
+	}
+	server := authenticatedDealsServer(service)
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes", bytes.NewBufferString(`{"recipientName":"Ava Stone","recipientEmail":"ava@bluebird.example","validUntil":"2026-08-20","terms":"Payment due in 30 days."}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "quote-browser-key-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("finalize quote status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.lastFinalizeQuoteOrgID != 42 || service.lastFinalizeQuoteDealID != 12 || service.lastFinalizeQuoteActorID != 1 || service.lastFinalizeQuoteInput.IdempotencyKey != "quote-browser-key-0001" || service.lastFinalizeQuoteInput.Terms != "Payment due in 30 days." {
+		t.Fatalf("unexpected finalize quote routing/input: service=%#v", service)
+	}
+	var response struct {
+		Data struct {
+			Quote moduledeals.QuoteVersion `json:"quote"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.Data.Quote.ID != quote.ID || response.Data.Quote.PDFSHA256 != quote.PDFSHA256 {
+		t.Fatalf("unexpected quote response: %#v err=%v", response, err)
+	}
+
+	downloadRequest := httptest.NewRequest(http.MethodGet, "/api/deals/12/quotes/71/pdf", nil)
+	addSessionCookie(downloadRequest)
+	downloadRecorder := httptest.NewRecorder()
+	server.ServeHTTP(downloadRecorder, downloadRequest)
+	if downloadRecorder.Code != http.StatusOK || service.lastQuotePDFOrgID != 42 || service.lastQuotePDFDealID != 12 || service.lastQuotePDFQuoteID != 71 {
+		t.Fatalf("unexpected quote download: status=%d org=%d deal=%d quote=%d", downloadRecorder.Code, service.lastQuotePDFOrgID, service.lastQuotePDFDealID, service.lastQuotePDFQuoteID)
+	}
+	if downloadRecorder.Header().Get("X-Open-CRM-Content-SHA256") != quote.PDFSHA256 || downloadRecorder.Header().Get("Cache-Control") != "private, no-store" || !bytes.Equal(downloadRecorder.Body.Bytes(), service.quotePDFResult.Content) {
+		t.Fatalf("unexpected quote download headers/body: headers=%v body=%q", downloadRecorder.Header(), downloadRecorder.Body.Bytes())
+	}
+}
+
+func TestFinalizeDealQuoteRejectsMissingKeyAndIdempotencyConflict(t *testing.T) {
+	body := `{"recipientName":"Ava Stone","recipientEmail":"ava@bluebird.example","validUntil":"2026-08-20","terms":"Payment due in 30 days."}`
+	missingKeyRequest := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes", strings.NewReader(body))
+	missingKeyRequest.Header.Set("Content-Type", "application/json")
+	addSessionCookie(missingKeyRequest)
+	missingKeyRecorder := httptest.NewRecorder()
+	authenticatedDealsServer(&fakeDealsService{}).ServeHTTP(missingKeyRecorder, missingKeyRequest)
+	if missingKeyRecorder.Code != http.StatusBadRequest || !strings.Contains(missingKeyRecorder.Body.String(), "Idempotency-Key") {
+		t.Fatalf("missing quote key status=%d body=%s", missingKeyRecorder.Code, missingKeyRecorder.Body.String())
+	}
+
+	conflictRequest := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes", strings.NewReader(body))
+	conflictRequest.Header.Set("Content-Type", "application/json")
+	conflictRequest.Header.Set("Idempotency-Key", "quote-browser-key-conflict")
+	addSessionCookie(conflictRequest)
+	conflictRecorder := httptest.NewRecorder()
+	authenticatedDealsServer(&fakeDealsService{finalizeQuoteErr: moduledeals.ErrQuoteIdempotencyConflict}).ServeHTTP(conflictRecorder, conflictRequest)
+	if conflictRecorder.Code != http.StatusConflict || !strings.Contains(conflictRecorder.Body.String(), "IDEMPOTENCY_CONFLICT") {
+		t.Fatalf("quote conflict status=%d body=%s", conflictRecorder.Code, conflictRecorder.Body.String())
+	}
+
+	invalidRequest := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes", strings.NewReader(body))
+	invalidRequest.Header.Set("Content-Type", "application/json")
+	invalidRequest.Header.Set("Idempotency-Key", "quote-browser-key-invalid")
+	addSessionCookie(invalidRequest)
+	invalidRecorder := httptest.NewRecorder()
+	authenticatedDealsServer(&fakeDealsService{finalizeQuoteErr: moduledeals.ErrInvalidQuote}).ServeHTTP(invalidRecorder, invalidRequest)
+	if invalidRecorder.Code != http.StatusBadRequest || !strings.Contains(invalidRecorder.Body.String(), "validity date") {
+		t.Fatalf("invalid quote status=%d body=%s", invalidRecorder.Code, invalidRecorder.Body.String())
+	}
+
+	notFoundRequest := httptest.NewRequest(http.MethodGet, "/api/deals/12/quotes/71/pdf", nil)
+	addSessionCookie(notFoundRequest)
+	notFoundRecorder := httptest.NewRecorder()
+	authenticatedDealsServer(&fakeDealsService{quotePDFErr: moduledeals.ErrNotFound}).ServeHTTP(notFoundRecorder, notFoundRequest)
+	if notFoundRecorder.Code != http.StatusNotFound {
+		t.Fatalf("missing finalized quote status=%d body=%s", notFoundRecorder.Code, notFoundRecorder.Body.String())
 	}
 }
 

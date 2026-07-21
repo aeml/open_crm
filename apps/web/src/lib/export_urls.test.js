@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { companiesExportURL } from './companies'
 import { contactsExportURL } from './contacts'
-import { dealsExportURL, quotePDFURL } from './deals'
+import { dealsExportURL, quotePDFURL, quoteVersionPDFURL } from './deals'
 import { tasksExportURL } from './tasks'
 
 describe('export URL helpers', () => {
@@ -17,6 +17,7 @@ describe('export URL helpers', () => {
 
   it('builds deal quote PDF URLs', () => {
     expect(quotePDFURL(12)).toBe('https://crmserver.mendola.tech/api/deals/12/quote.pdf')
+    expect(quoteVersionPDFURL(12, 71)).toBe('https://crmserver.mendola.tech/api/deals/12/quotes/71/pdf')
   })
 
   it('builds filtered task export URLs for the visible view', () => {

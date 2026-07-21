@@ -68,9 +68,11 @@ denial.
 
 ## Deliberate boundaries
 
-- Proposal tracking is a manual CRM status and the PDF reflects current deal
-  data. Open CRM does not yet deliver an immutable quote or collect a legal
-  signature.
+- A current-data draft PDF remains mutable, while finalized quote versions
+  preserve the exact recipient, terms, validity, line-item/totals snapshot, PDF
+  bytes, and SHA-256 digest. Open CRM does not yet deliver that quote, host a
+  customer approval/signing ceremony, or collect a legal signature. Proposal
+  tracking remains a separate manual CRM status.
 - Only the exposed deal-task rule subset executes. Stored broad workflow
   definitions, branching, approvals, scheduled actions, and other action types
   remain hidden foundations.

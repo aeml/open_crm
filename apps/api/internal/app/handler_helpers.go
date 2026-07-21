@@ -142,7 +142,15 @@ func respondDealDetail(w http.ResponseWriter, r *http.Request, statusCode int, d
 	response.Data.Activities = detail.Activities
 	response.Data.LineItems = detail.LineItems
 	response.Data.Totals = detail.Totals
+	response.Data.Quotes = detail.Quotes
 	response.Data.SignatureRequests = detail.SignatureRequests
+	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
+	platformweb.WriteJSON(w, statusCode, response)
+}
+
+func respondDealQuote(w http.ResponseWriter, r *http.Request, statusCode int, quote moduledeals.QuoteVersion) {
+	response := dealQuoteResponse{}
+	response.Data.Quote = quote
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)
 }

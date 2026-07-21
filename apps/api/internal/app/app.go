@@ -220,7 +220,17 @@ type dealDetailResponse struct {
 		Activities        []moduledeals.ActivityEntry    `json:"activities"`
 		LineItems         []moduledeals.LineItem         `json:"lineItems"`
 		Totals            moduledeals.DealTotals         `json:"totals"`
+		Quotes            []moduledeals.QuoteVersion     `json:"quotes"`
 		SignatureRequests []moduledeals.SignatureRequest `json:"signatureRequests"`
+	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type dealQuoteResponse struct {
+	Data struct {
+		Quote moduledeals.QuoteVersion `json:"quote"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`

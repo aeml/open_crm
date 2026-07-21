@@ -363,6 +363,7 @@ describe('deals flow', () => {
     let hasCreatedDeal = false
     let currentDeal = { id: 12, name: 'Bluebird Rollout', stageId: 2, stageName: 'Qualified', companyId: 6, companyName: 'Bluebird Health', primaryContactId: 8, primaryContactName: 'Ava Stone', status: 'open', valueAmount: '60000.00', valueCurrency: 'USD', expectedCloseDate: '2026-05-02', ownerUserId: 2 }
     let signatureRequests = []
+    let quotes = []
     let pipelines = defaultPipelines
 
     const jsonResponse = (payload, init = {}) => ({
@@ -548,6 +549,7 @@ describe('deals flow', () => {
             lineItems: [],
             totals: { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: currentDeal.valueCurrency || 'USD' },
             signatureRequests,
+            quotes,
             activities: []
           }
         })
@@ -568,6 +570,32 @@ describe('deals flow', () => {
             ]
           }
         }, { status: 201 })
+      }
+
+      if (requestURL.pathname.endsWith('/api/deals/12/quotes') && method === 'POST') {
+        const input = JSON.parse(options.body)
+        quotes = [{
+          id: 71,
+          version: 1,
+          quoteNumber: 'Q-12-V1',
+          status: 'finalized',
+          recipientName: input.recipientName,
+          recipientEmail: input.recipientEmail,
+          currency: 'USD',
+          subtotal: '300.00',
+          discountTotal: '20.00',
+          taxTotal: '28.00',
+          total: '308.00',
+          validUntil: input.validUntil,
+          terms: input.terms,
+          pdfFilename: 'quote-bluebird-rollout-v1.pdf',
+          pdfSha256: 'a'.repeat(64),
+          pdfByteSize: 1024,
+          createdByUserId: 1,
+          createdByUserName: 'Demo Owner',
+          createdAt: '2026-07-21T03:00:00Z'
+        }]
+        return jsonResponse({ data: { quote: quotes[0] } }, { status: 201 })
       }
 
       if (requestURL.pathname.endsWith('/api/deals/12/signature-requests/41') && method === 'PATCH') {
@@ -795,10 +823,10 @@ describe('deals flow', () => {
     expect(await screen.findByText(/showing 2 of 2 deals/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /bluebird rollout/i }))
     const detailForm = await screen.findByRole('form', { name: /deal details form/i })
-    expect(screen.getByRole('link', { name: /download current quote pdf/i })).toHaveAttribute('href', 'https://crmserver.mendola.tech/api/deals/12/quote.pdf')
+    expect(screen.getByRole('link', { name: /download current-data draft pdf/i })).toHaveAttribute('href', 'https://crmserver.mendola.tech/api/deals/12/quote.pdf')
 
-    fireEvent.change(screen.getByLabelText(/recipient name/i), { target: { value: 'Ava Stone' } })
-    fireEvent.change(screen.getByLabelText(/recipient email/i), { target: { value: 'ava@bluebird.example' } })
+    fireEvent.change(screen.getByLabelText(/^recipient name$/i), { target: { value: 'Ava Stone' } })
+    fireEvent.change(screen.getByLabelText(/^recipient email$/i), { target: { value: 'ava@bluebird.example' } })
     fireEvent.click(screen.getByRole('button', { name: /create proposal tracking/i }))
 
     expect(await screen.findByText(/proposal tracking created for ava stone/i, { selector: '.activity-summary' })).toBeInTheDocument()
@@ -837,6 +865,20 @@ describe('deals flow', () => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/line-items$/), expect.objectContaining({
         method: 'PUT',
         body: expect.stringContaining('"productCatalogItemId":7')
+      }))
+    })
+
+    fireEvent.change(screen.getByLabelText(/quote recipient email/i), { target: { value: 'ava@bluebird.example' } })
+    fireEvent.change(screen.getByLabelText(/quote terms/i), { target: { value: 'Net 30. Scope changes require approval.' } })
+    fireEvent.click(screen.getByRole('button', { name: /finalize quote version/i }))
+
+    expect(await screen.findByRole('link', { name: /download q-12-v1/i })).toHaveAttribute('href', 'https://crmserver.mendola.tech/api/deals/12/quotes/71/pdf')
+    expect(screen.getByText(/sha-256 a{64}/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/quotes$/), expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"terms":"Net 30. Scope changes require approval."'),
+        headers: expect.objectContaining({ 'Idempotency-Key': expect.stringMatching(/^quote-/) })
       }))
     })
 

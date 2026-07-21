@@ -42,7 +42,7 @@ export function DealDetailsEditor({ canWrite, companies, contacts, deal, form, i
           <p>{deal.companyName || labels.companyEmpty}</p>
         </div>
         <div className="button-row">
-          <a className="button button-secondary" href={quotePDFURL(deal.id)}>Download current quote PDF</a>
+          <a className="button button-secondary" href={quotePDFURL(deal.id)}>Download current-data draft PDF</a>
           {canWrite ? <Button className="button-danger" onClick={onArchive}>{labels.archiveAction}</Button> : null}
         </div>
       </div>
