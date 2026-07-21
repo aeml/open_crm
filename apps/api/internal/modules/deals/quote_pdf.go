@@ -266,6 +266,7 @@ func escapePDFText(value string) string {
 
 func quoteWinAnsiByte(r rune) (byte, bool) {
 	if r <= 0x7f || (r >= 0xa0 && r <= 0xff) {
+		// #nosec G115 -- this branch explicitly bounds the rune to the complete one-byte range before conversion.
 		return byte(r), true
 	}
 	encoded, ok := quoteWinAnsi[r]
