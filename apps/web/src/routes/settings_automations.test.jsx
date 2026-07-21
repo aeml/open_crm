@@ -23,16 +23,19 @@ describe('settings task automations route', () => {
     expect(activeRunRefreshDelay([{ status: 'queued', scheduledAt: '2026-07-22T12:00:00Z' }], now)).toBe(60000)
   })
 
-  it('hides non-executable foundations and creates a bounded stage task rule', async () => {
+  it('hides non-executable foundations and creates a bounded stage task playbook', async () => {
     const createdRule = {
       id: 8,
       name: 'Proposal follow-up',
       triggerType: 'stage_changed',
       targetEntityType: 'deal',
-      triggerConfig: { stageId: 12, conditionContract: 'deal_snapshot_v1' },
+      triggerConfig: { stageId: 12, conditionContract: 'deal_snapshot_v1', taskPlanContract: 'deal_task_plan_v1' },
       conditionLogic: 'all',
       conditions: [{ field: 'valueAmount', operator: 'greaterThan', value: '5000' }],
-      actions: [{ type: 'create_task', config: { title: 'Prepare proposal', description: 'Confirm scope.' }, delayMinutes: 2880 }],
+      actions: [
+        { type: 'create_task', config: { title: 'Prepare proposal', description: 'Confirm scope.' }, delayMinutes: 2880 },
+        { type: 'create_task', config: { title: 'Schedule decision review' }, delayMinutes: 7200 }
+      ],
       isActive: true,
       position: 0
     }
@@ -77,19 +80,25 @@ describe('settings task automations route', () => {
     fireEvent.change(screen.getByLabelText('Task title'), { target: { value: 'Prepare proposal' } })
     fireEvent.change(screen.getByLabelText('Task description'), { target: { value: 'Confirm scope.' } })
     fireEvent.change(screen.getByLabelText('Due in days', { exact: false }), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add another task' }))
+    fireEvent.change(screen.getByLabelText('Task 2 title'), { target: { value: 'Schedule decision review' } })
+    fireEvent.change(screen.getByLabelText('Task 2 due in days', { exact: false }), { target: { value: '5' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create task rule' }))
 
     await waitFor(() => {
       const createCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations') && call[1]?.method === 'POST')
       expect(JSON.parse(createCall[1].body)).toEqual({
         name: 'Proposal follow-up',
-        description: 'Creates one assigned follow-up task from a deal event.',
+        description: 'Creates 2 assigned follow-up tasks from a deal event.',
         triggerType: 'stage_changed',
         targetEntityType: 'deal',
-        triggerConfig: { stageId: 12, conditionContract: 'deal_snapshot_v1' },
+        triggerConfig: { stageId: 12, conditionContract: 'deal_snapshot_v1', taskPlanContract: 'deal_task_plan_v1' },
         conditionLogic: 'all',
         conditions: [{ field: 'valueAmount', operator: 'greaterThan', value: '5000' }],
-        actions: [{ type: 'create_task', config: { title: 'Prepare proposal', description: 'Confirm scope.' }, delayMinutes: 2880 }],
+        actions: [
+          { type: 'create_task', config: { title: 'Prepare proposal', description: 'Confirm scope.' }, delayMinutes: 2880 },
+          { type: 'create_task', config: { title: 'Schedule decision review' }, delayMinutes: 7200 }
+        ],
         isActive: true,
         position: 0
       })
@@ -97,6 +106,8 @@ describe('settings task automations route', () => {
     expect(await screen.findByRole('heading', { name: 'Proposal follow-up' })).toBeInTheDocument()
     expect(screen.getByText('When moved to Sales pipeline · Proposal')).toBeInTheDocument()
     expect(screen.getByText(/only if value amount is greater than 5000/i)).toBeInTheDocument()
+    expect(screen.getByText(/2-task playbook/i)).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Proposal follow-up task plan' })).toHaveTextContent('Schedule decision review')
   })
 
   it('creates an executable durable lead follow-up rule with retained attribution conditions', async () => {

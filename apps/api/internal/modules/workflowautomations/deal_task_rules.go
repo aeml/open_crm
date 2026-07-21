@@ -23,10 +23,14 @@ const (
 	// executable event-time deal-condition shape. Legacy stored conditions do
 	// not start executing merely because the runtime gains condition support.
 	DealSnapshotConditionContract = "deal_snapshot_v1"
-	maxExecutableActions          = 1
-	maxExecutableConditions       = 1
-	maxTaskTitleLength            = 200
-	maxTaskDescriptionLen         = 2000
+	// DealTaskPlanContract explicitly opts a definition into the ordered
+	// multi-task shape. Historical definitions with multiple stored actions stay
+	// inert unless an admin reviews and saves them through this contract.
+	DealTaskPlanContract    = "deal_task_plan_v1"
+	maxExecutableActions    = 5
+	maxExecutableConditions = 1
+	maxTaskTitleLength      = 200
+	maxTaskDescriptionLen   = 2000
 )
 
 type DealTaskEvent struct {
@@ -104,7 +108,7 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 			return fmt.Errorf("decode deal task rule actions: %w", err)
 		}
 
-		executableShape := executableTaskActions(actions) && executableDealConditions(config, rule.conditionLogic, conditions)
+		executableShape := executableTaskActions(config, actions) && executableDealConditions(config, rule.conditionLogic, conditions)
 		conditionMatched := true
 		conditionFields := map[string]any{}
 		if executableShape && len(conditions) > 0 {
@@ -154,7 +158,7 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 		}
 
 		taskIDs := make([]int64, 0, len(actions))
-		for _, action := range actions {
+		for actionIndex, action := range actions {
 			title, _ := stringConfig(action.Config, "title")
 			description, _ := stringConfig(action.Config, "description")
 			var taskID int64
@@ -187,8 +191,9 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO activities (organization_id,entity_type,entity_id,actor_user_id,action,summary,metadata_json)
-				VALUES ($1,'task',$2,$3,'task.automated','Task created by deal automation',jsonb_build_object('automationId',$4::bigint,'dealId',$5::bigint))
-			`, event.OrganizationID, taskID, event.ActorUserID, rule.id, event.DealID); err != nil {
+				VALUES ($1,'task',$2,$3,'task.automated','Task created by deal automation',
+				        jsonb_build_object('automationId',$4::bigint,'dealId',$5::bigint,'actionIndex',$6::int,'actionCount',$7::int))
+			`, event.OrganizationID, taskID, event.ActorUserID, rule.id, event.DealID, actionIndex+1, len(actions)); err != nil {
 				return fmt.Errorf("record automated task activity: %w", err)
 			}
 			taskIDs = append(taskIDs, taskID)
@@ -288,14 +293,28 @@ func dealRuleMatchesEvent(config map[string]any, event DealTaskEvent) bool {
 	return integerConfig(value) == event.StageID
 }
 
-func executableTaskActions(actions []Action) bool {
+func executableTaskActions(config map[string]any, actions []Action) bool {
 	if len(actions) == 0 || len(actions) > maxExecutableActions {
+		return false
+	}
+	_, hasContract := config["taskPlanContract"]
+	contract, _ := stringConfig(config, "taskPlanContract")
+	if (len(actions) > 1 && contract != DealTaskPlanContract) || (hasContract && contract != DealTaskPlanContract) {
 		return false
 	}
 	for _, action := range actions {
 		title, ok := stringConfig(action.Config, "title")
 		description, _ := stringConfig(action.Config, "description")
-		if action.Type != "create_task" || !ok || action.ScheduledAt != nil || utf8.RuneCountInString(title) > maxTaskTitleLength || utf8.RuneCountInString(description) > maxTaskDescriptionLen || action.DelayMinutes < 0 || action.DelayMinutes > maxActionDelayMinutes || action.DelayMinutes%1440 != 0 {
+		if action.Type != "create_task" || !ok || (hasContract && !onlyTaskConfigKeys(action.Config)) || action.ScheduledAt != nil || utf8.RuneCountInString(title) > maxTaskTitleLength || utf8.RuneCountInString(description) > maxTaskDescriptionLen || action.DelayMinutes < 0 || action.DelayMinutes > maxActionDelayMinutes || action.DelayMinutes%1440 != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func onlyTaskConfigKeys(config map[string]any) bool {
+	for key := range config {
+		if key != "title" && key != "description" {
 			return false
 		}
 	}

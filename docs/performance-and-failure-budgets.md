@@ -115,11 +115,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 707 KiB | 222 KiB |
+| All JavaScript and CSS | 710 KiB | 223 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.92 KiB/58.02 KiB entry, 54.78 KiB/15.63 KiB largest lazy
-chunk, and 706.51 KiB/221.54 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.92 KiB/58.01 KiB entry, 54.78 KiB/15.63 KiB largest lazy
+chunk, and 709.29 KiB/222.36 KiB total assets. The production contact, company,
 deal, and task routes are 29.81/9.19, 34.71/10.48, 54.78/15.63, and 24.67/7.31
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -252,6 +252,13 @@ reviewed aggregate ceilings advance from 699/220 to 707/222 KiB while entry,
 per-async-chunk, and CSS ceilings remain unchanged. The 2026-07-21 local
 PostgreSQL 16.14 observation completed the 500-deal/two-stage cohort in about
 14.8 ms; the checked two-second ceiling remains authoritative.
+The reviewed deal-playbook outcome then adds accessible authoring for 1–5
+literal tasks, a separately tested executable-contract/form model, and exact
+browser task/export evidence without enlarging the entry or largest route. The
+complete build is 709.29/222.36 KiB, so the reviewed aggregate ceilings advance
+from 707/222 to 710/223 KiB. The task-automation chunk is 20.33/6.28 KiB; its
+283-line route and 230-line pure model remain separately below the source
+ceiling. Entry, per-async-chunk, CSS, and all source ceilings remain unchanged.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 

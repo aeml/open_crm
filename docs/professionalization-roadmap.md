@@ -1436,18 +1436,21 @@ Exit criteria:
 Completion evidence (2026-07-19): Settings > Automations now exposes only the
 production-capable subset of the earlier workflow-definition foundation:
 organization-scoped admin rules for deal creation, a real stage change
-(optionally to one destination stage), or archive, with exactly one literal
-follow-up task due in 0–365 whole days. The task is assigned to the active deal
-owner and falls back to the teammate who caused the event. Deal create, stage
-change, direct archive, and bulk archive execute the rule, task, activity, run
-ledger, and audit event in the same transaction; stable activity or bulk-event
-keys and the existing unique run constraint make retries no-ops. A repeated
+(optionally to one destination stage), or archive, with an explicitly versioned
+playbook of 1–5 literal follow-up tasks independently due in 0–365 whole days.
+Existing one-task rules retain compatibility; unreviewed multi-action shapes
+remain inert. Tasks are assigned to the active deal owner and fall back to the
+teammate who caused the event. Deal create, stage change, direct archive, and
+bulk archive execute the rule, every task/activity, ordered run evidence, and
+audit event in the same transaction; stable activity or bulk-event keys and the
+existing unique run constraint make retries no-ops. A repeated
 same-stage update emits no event or task. Unsupported broad legacy definitions
 are hidden from normal navigation and recorded as safely skipped if their
 trigger matches rather than partially dispatching an action. Definition changes
 are audited, recent runs expose outcomes, and disabling a rule prevents future
 tasks without rewriting already-created work. Handler/UI tests, a
-disposable-PostgreSQL suite covering all triggers, owner fallback, replay,
+disposable-PostgreSQL suite covering all triggers, multi-task atomicity and
+evidence, owner fallback, replay,
 unsupported rules, bulk replay, audit, and cross-tenant isolation, plus the
 clean-65-migration Chromium journey cover the vertical slice.
 
@@ -2337,8 +2340,8 @@ contacts with duplicate checks and progress ledgers under a 10 s budget. Postmar
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 178.92 KiB/58.01 KiB for the entry, 54.78 KiB/15.64 KiB
-for the largest lazy chunk, and 706.51 KiB/221.54 KiB total assets. The isolated
+CSS. Current production-URL evidence is 178.92 KiB/58.01 KiB for the entry, 54.78 KiB/15.63 KiB
+for the largest lazy chunk, and 709.29 KiB/222.36 KiB total assets. The isolated
 public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
 retry-safe signature ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB
@@ -2656,7 +2659,10 @@ event tasks. Version `1.5.8` adds one durable conditional lead-form follow-up
 task outcome, and `1.5.9` gives that exact outcome a durable whole-day creation
 schedule separate from its due offset. Version `1.5.10` adds one explicitly
 versioned, typed event-time deal condition to the existing task outcome without
-activating legacy stored conditions. Other targets/actions, general schedules,
+activating legacy stored conditions. Version `1.5.11` expands that exact deal
+outcome into an explicitly versioned 1–5-task atomic playbook while preserving
+legacy one-task rules and keeping unreviewed multi-action definitions inert.
+Other targets/actions, general schedules,
 nested branches, approval steps, provider dispatch, and general retry
 orchestration still do not execute and must not be inferred complete from the
 historical foundation entries.
@@ -2673,6 +2679,7 @@ Progress:
 - `1.5.8` (durable lead follow-up task automation): complete locally. Owners/admins can bind one exact active lead form or every active form, an optional attribution condition, one active teammate, literal task content, and a 0–365-day due offset. Accepted public submissions snapshot that exact executable definition and enqueue one tenant-scoped `workflow.lead_follow_up` job in the same transaction as the contact/submission. The worker rehydrates retained source records, rechecks rule activation and assignee membership, evaluates the captured condition, and commits the task, reminders, assignment notification, activity, audit, and terminal run evidence atomically. Stable run/job/task identities make capture retries and lost acknowledgements harmless; managed hosted suspension defers through the shared billing guard; deactivation cancels queued effects; mismatches skip safely; inactive assignees fail visibly. Migration `101_workflow_run_operations.sql` bounds aggregate active/recent-terminal health scans without tenant or record labels. Aggregate metrics, validated alerts, admin run inspection with active-run polling, disposable-PostgreSQL replay/tenant/negative-path tests, and the Chromium pilot journey cover the local outcome. Broader targets/actions, nested branching, general scheduling, approvals, and provider effects remain hidden foundations.
 - `1.5.9` (scheduled lead follow-up execution): complete locally. New lead rules separate a 0–365 whole-day creation delay from the 0–365-day task due offset while preserving immediate creation and the original due semantics for every legacy rule until it is edited. An accepted submission transaction retains immutable `scheduled_at` evidence and enqueues the durable job at that exact time; `SKIP LOCKED` claims cannot run it early. Future queued runs are visible without one-second browser polling and are excluded from stalled-age alerts until due. Source activation, assignee, hosted-billing, idempotency, retry, audit, task/reminder, and recovery guards remain unchanged at the delayed boundary. Expand-safe migration `102_workflow_run_scheduling.sql` backfills old schedules, enforces presence for new rows, and adds the bounded active-schedule index; the embedded migration inventory now explicitly registers both workflow operations migrations. Unit/UI and disposable-PostgreSQL tests cover legacy compatibility, validation, schedule equality, early-claim denial, due-only health, forced boundary execution, and due time measured from actual task creation. General action schedules remain hidden.
 - `1.5.10` (event-time deal task condition): complete locally. Existing create, real-stage-change, and archive task rules can now opt into exactly one typed `all` condition over deal value amount, three-letter currency, owner, or derived open/won/lost status. The event transaction reads the tenant-scoped deal and stage snapshot without converting an unassigned owner into a present value, evaluates the rule before any effect, and retains only the referenced field in run evidence; a non-match records an exact terminal skip. The explicit `deal_snapshot_v1` marker keeps every legacy/unreviewed condition inert, while multi-condition, `any`, and unsupported field/operator shapes remain hidden and skipped instead of gaining partial execution. Stable event/run/task identities and the existing transactional task, reminder, activity, and audit boundary are unchanged. Unit/UI validation and disposable-PostgreSQL match/non-match/unassigned/legacy/replay/tenant acceptance plus the value-conditioned Chromium journey cover the local outcome. Broader branching and actions remain hidden; condition language and operating usefulness still require pilot validation.
+- `1.5.11` (atomic deal task playbooks): complete locally. The reviewed deal-event outcome now authors and executes 1–5 literal `create_task` actions with independent 0–365-day due offsets. The exact `deal_task_plan_v1` marker activates multi-task plans; existing one-task definitions remain compatible, while legacy multi-action, unknown-contract, non-task, delayed-action, and more-than-five-task shapes fail closed. Every task, reminder, indexed activity, ordered task-ID run result, and audit record commits inside the originating deal transaction, so a failure leaves no partial playbook and stable event keys make replay harmless. The 283-line route delegates contract parsing, restoration, validation, and payload construction to a separately tested 230-line pure model. Unit/UI and disposable-PostgreSQL execution/replay/tenant/evidence tests plus the two-task Chromium task/export journey and populated-authoring WCAG scan cover the local outcome. Reordering controls, delayed task creation, non-task actions, branching, and pilot validation remain outside this bounded slice.
 
 Candidate slices:
 
@@ -2686,6 +2693,7 @@ Candidate slices:
 - `1.5.8` Lead-form submission to assigned follow-up task: complete locally; pilot validation remains.
 - `1.5.9` Whole-day scheduling for that exact lead-task outcome: complete locally; pilot validation remains.
 - `1.5.10` One optional event-time deal-snapshot condition for the existing task outcome: complete locally; pilot validation remains.
+- `1.5.11` Versioned 1–5-task atomic deal-event playbooks with independent due offsets and ordered evidence: complete locally; pilot validation remains.
 
 Exit criteria:
 

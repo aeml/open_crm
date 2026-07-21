@@ -407,6 +407,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(page.getByRole('button', { name: `Save ${discoveryStage}` })).toBeVisible()
 
   const automatedTaskTitle = `Qualify new deal ${runID}`
+  const automatedDecisionTaskTitle = `Confirm decision date ${runID}`
   await page.getByRole('link', { name: 'Automations', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Task automation rules' })).toBeVisible()
   await page.getByLabel('Rule name').fill(`New deal qualification ${runID}`)
@@ -415,9 +416,22 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByLabel('Task title').fill(automatedTaskTitle)
   await page.getByLabel('Task description').fill('Confirm fit and agree the next step.')
   await page.getByLabel('Due in days', { exact: false }).fill('1')
+  await page.getByRole('button', { name: 'Add another task' }).click()
+  await page.getByLabel('Task 2 title').fill(automatedDecisionTaskTitle)
+  await page.getByLabel('Task 2 description').fill('Set the next commercial decision checkpoint.')
+  await page.getByLabel('Task 2 due in days').fill('3')
+  const dealPlaybookAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-deal-task-playbook', {
+    body: JSON.stringify({ url: page.url(), violations: dealPlaybookAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(dealPlaybookAccessibility.violations, 'deal task playbook authoring must have no automated WCAG A/AA violations').toEqual([])
   await page.getByRole('button', { name: 'Create task rule' }).click()
   await expect(page.getByRole('heading', { name: `New deal qualification ${runID}` })).toBeVisible()
   await expect(page.getByText('Only if value amount is greater than 20000', { exact: true })).toBeVisible()
+  await expect(page.getByText(/2-task playbook/)).toBeVisible()
 
   const quoteTemplateName = `Pilot services terms ${runID}`
   const quoteTemplateTerms = 'Net 30. Scope changes require written approval under the retained pilot services terms.'
@@ -459,6 +473,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   expect(configuredDealID).toBeGreaterThan(0)
   await expect(page.getByRole('heading', { name: `Website renewal ${runID}` })).toBeVisible()
   await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(automatedTaskTitle)).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(automatedDecisionTaskTitle)).toBeVisible()
   await page.getByLabel('Line item name').fill('Discovery and implementation')
   await page.getByLabel('Line item type').selectOption('service')
   await page.getByLabel('Line item unit price').fill('25000')
@@ -621,7 +636,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(salesActivityCard.getByText('Complete event coverage', { exact: false })).toBeVisible()
   const salesTotals = salesActivityCard.getByRole('list', { name: 'Sales activity totals' })
   await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Deals created' })).toContainText('1')
-  await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Tasks created' })).toContainText('4')
+  await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Tasks created' })).toContainText('5')
   await expect(salesActivityCard.getByRole('list', { name: 'Stage movement report' }).getByText(`Sales pipeline / ${discoveryStage}`)).toBeVisible()
   await expect(salesActivityCard.getByRole('list', { name: 'Recent deal events' }).getByText(`Created in Sales pipeline / ${discoveryStage}`)).toBeVisible()
   await expect(salesActivityCard.getByRole('link', { name: `Website renewal ${runID}` })).toBeVisible()
@@ -897,7 +912,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     { path: 'contacts', includes: [`avery-${runID}@example.test`, 'custom:relationship_segment', 'Partner'], excludes: [`avery-duplicate-${runID}@example.test`, `imported-${runID}@example.test`] },
     { path: 'companies', includes: [`Northstar Advisory ${runID}`, 'custom:service_tier', 'Gold'], excludes: [importedClientName] },
     { path: 'deals', includes: [`Website renewal ${runID}`, 'close_reason_label', 'Best solution fit', 'Strong service fit and a clear implementation plan.'], excludes: [] },
-    { path: 'tasks', includes: [`Prepare proposal ${runID}`], excludes: [] }
+    { path: 'tasks', includes: [`Prepare proposal ${runID}`, automatedTaskTitle, automatedDecisionTaskTitle], excludes: [] }
   ]
   for (const exportExpectation of exportExpectations) {
     const exportResponse = await page.context().request.get(`${apiURL}/api/export/${exportExpectation.path}`)

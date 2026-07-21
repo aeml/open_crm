@@ -11,210 +11,26 @@ import { listOrganizationUsers } from '../lib/users'
 import { createWorkflowAutomation, listWorkflowAutomationRuns, listWorkflowAutomations, updateWorkflowAutomation } from '../lib/workflow_automations'
 import { activeRunRefreshDelay } from '../lib/workflow_automation_polling'
 import { usePageTitle } from '../lib/use_page_title'
-
-const leadFormEvent = 'lead_form_submitted'
-const stageChangedEvent = 'stage_changed'
-const triggerOptions = [
-  { value: 'created', label: 'Deal created' },
-  { value: stageChangedEvent, label: 'Deal moved to a stage' },
-  { value: 'archived', label: 'Deal archived' },
-  { value: leadFormEvent, label: 'Lead form submitted' }
-]
-
-const dealConditionContract = 'deal_snapshot_v1'
-const conditionOperatorLabels = { greaterThan: 'is greater than', lessThan: 'is less than', equals: 'equals', notEquals: 'does not equal', exists: 'is set' }
-const equalsOperator = 'equals'
-const existsOperator = 'exists'
-const equalityOperators = [equalsOperator, 'notEquals', existsOperator]
-const dealConditionDefinitions = {
-  valueAmount: ['Value amount', ['greaterThan', 'lessThan', existsOperator], (value) => isFinite(value) && +value >= 0],
-  valueCurrency: ['Currency', equalityOperators, (value) => /^[A-Za-z]{3}$/.test(value)],
-  ownerUserId: ['Owner', equalityOperators, (value) => Number.isInteger(+value) && +value > 0],
-  status: ['Status', [equalsOperator, 'notEquals'], (value) => /^(open|won|lost)$/i.test(value)]
-}
-
-function conditionOperators(field) {
-  return dealConditionDefinitions[field]?.[1] || equalityOperators
-}
-
-function executableDealCondition(condition) {
-  if (!condition || !Object.hasOwn(dealConditionDefinitions, condition.field)) return false
-  const definition = dealConditionDefinitions[condition.field]
-  if (!definition[1].includes(condition.operator)) return false
-  if (condition.operator === existsOperator) return true
-  const value = String(condition.value || '').trim()
-  return Boolean(value) && definition[2](value)
-}
-
-function emptyForm() {
-  return { name: '', event: 'created', stageId: '', formId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '', assignedToUserId: '', title: '', description: '', waitDays: '0', dueDays: '1', isActive: true }
-}
-
-function validWholeDays(value) {
-  return Number.isInteger(value) && value >= 0 && value <= 365
-}
-
-function dayCount(value) {
-  return `${value} day${value === 1 ? '' : 's'}`
-}
-
-function eventFromAutomation(automation) {
-  if (automation.triggerType === 'record_created') return 'created'
-  if (automation.triggerType === stageChangedEvent) return stageChangedEvent
-  if (automation.triggerType === 'record_updated' && automation.triggerConfig?.event === 'archived') return 'archived'
-  if (automation.triggerType === 'form_submitted' && automation.targetEntityType === 'lead_form') return leadFormEvent
-  return ''
-}
-
-function isExecutableTaskRule(automation) {
-  const action = automation.actions?.[0]
-  const config = action?.config || {}
-  const event = eventFromAutomation(automation)
-  const title = String(config.title || '')
-  const description = String(config.description || '')
-  const delayMinutes = Number(action?.delayMinutes || 0)
-  const stageID = Number(automation.triggerConfig?.stageId || 0)
-  const sharedShape = automation.actions?.length === 1 &&
-    action?.type === 'create_task' && !action.scheduledAt && Boolean(title) && title.length <= 200 && description.length <= 2000 &&
-    Number.isInteger(delayMinutes) && delayMinutes >= 0 && delayMinutes <= 525600 && delayMinutes % 1440 === 0
-  if (!sharedShape) return false
-  if (automation.targetEntityType === 'deal') {
-    const conditions = automation.conditions || []
-    const condition = conditions[0]
-    const validCondition = conditions.length === 0 || (conditions.length === 1 && automation.conditionLogic === 'all' && automation.triggerConfig?.conditionContract === dealConditionContract &&
-      executableDealCondition(condition))
-    return Boolean(event) && event !== leadFormEvent && validCondition &&
-      (event !== stageChangedEvent || !automation.triggerConfig?.stageId || (Number.isInteger(stageID) && stageID > 0))
-  }
-  const formID = Number(automation.triggerConfig?.formId || 0)
-  const assigneeID = Number(config.assignedToUserId || 0)
-  const hasDueDays = Object.hasOwn(config, 'dueDays')
-  const dueDays = Number(config.dueDays)
-  const allowedFields = new Set(['sourceUrl', 'leadSource', 'utmSource', 'utmMedium', 'utmCampaign'])
-  const allowedOperators = new Set(['equals', 'notEquals', 'contains', 'exists'])
-  const conditions = automation.conditions || []
-  return event === leadFormEvent && conditions.length <= 1 &&
-    (!automation.triggerConfig?.formId || (Number.isInteger(formID) && formID > 0)) &&
-    Number.isInteger(assigneeID) && assigneeID > 0 &&
-    Object.keys(config).every((key) => ['title', 'description', 'assignedToUserId', 'dueDays'].includes(key)) &&
-    (!hasDueDays || validWholeDays(dueDays)) &&
-    conditions.every((condition) => allowedFields.has(condition.field) && allowedOperators.has(condition.operator) && (condition.operator === 'exists' || Boolean(String(condition.value || '').trim())))
-}
-
-function formFromAutomation(automation) {
-  const action = automation.actions[0]
-  const leadFollowUp = eventFromAutomation(automation) === leadFormEvent
-  const hasDueDays = leadFollowUp && Object.hasOwn(action.config || {}, 'dueDays')
-  return {
-    name: automation.name || '',
-    event: eventFromAutomation(automation),
-    stageId: automation.triggerConfig?.stageId ? String(automation.triggerConfig.stageId) : '',
-    formId: automation.triggerConfig?.formId ? String(automation.triggerConfig.formId) : '',
-    conditionField: automation.conditions?.[0]?.field || '',
-    conditionOperator: automation.conditions?.[0]?.operator || equalsOperator,
-    conditionValue: automation.conditions?.[0]?.value || '',
-    assignedToUserId: action.config?.assignedToUserId ? String(action.config.assignedToUserId) : '',
-    title: action.config?.title || '',
-    description: action.config?.description || '',
-    waitDays: String(hasDueDays ? (action.delayMinutes || 0) / 1440 : 0),
-    dueDays: String(hasDueDays ? action.config.dueDays : (action.delayMinutes || 0) / 1440),
-    isActive: automation.isActive === true
-  }
-}
-
-function payloadFromForm(form) {
-  const dueDays = Number(form.dueDays)
-  if (!validWholeDays(dueDays)) {
-    throw new Error('Due days must be a whole number from 0 to 365.')
-  }
-  const leadFollowUp = form.event === leadFormEvent
-  const waitDays = leadFollowUp ? Number(form.waitDays) : 0
-  if (!validWholeDays(waitDays)) {
-    throw new Error('Create-after days must be a whole number from 0 to 365.')
-  }
-  const triggerType = form.event === 'created' ? 'record_created' : form.event === stageChangedEvent ? stageChangedEvent : leadFollowUp ? 'form_submitted' : 'record_updated'
-  const triggerConfig = form.event === 'archived'
-    ? { event: 'archived' }
-    : form.event === stageChangedEvent && form.stageId
-      ? { stageId: Number(form.stageId) }
-      : leadFollowUp && form.formId
-        ? { formId: Number(form.formId) }
-      : {}
-  const dealCondition = !leadFollowUp && form.conditionField
-  if (dealCondition) triggerConfig.conditionContract = dealConditionContract
-  const config = { title: form.title.trim() }
-  if (form.description.trim()) config.description = form.description.trim()
-  if (leadFollowUp) {
-    const assignedToUserId = Number(form.assignedToUserId)
-    if (!Number.isInteger(assignedToUserId) || assignedToUserId <= 0) throw new Error('Choose an active teammate for lead follow-up tasks.')
-    config.assignedToUserId = assignedToUserId
-    config.dueDays = dueDays
-  }
-  const conditions = []
-  if (form.conditionField) {
-    if (form.conditionOperator !== existsOperator && !form.conditionValue.trim()) throw new Error('Enter a condition value or remove the attribution condition.')
-    const condition = { field: form.conditionField, operator: form.conditionOperator, value: form.conditionOperator === existsOperator ? '' : form.conditionValue.trim() }
-    if (dealCondition && !executableDealCondition(condition)) throw new Error('Invalid deal condition.')
-    if (dealCondition && condition.field === 'valueCurrency') condition.value = condition.value.toUpperCase()
-    conditions.push(condition)
-  }
-  return {
-    name: form.name.trim(),
-    description: leadFollowUp ? 'Creates one durable assigned follow-up task from an accepted lead form submission.' : 'Creates one assigned follow-up task from a deal event.',
-    triggerType,
-    targetEntityType: leadFollowUp ? 'lead_form' : 'deal',
-    triggerConfig,
-    conditionLogic: 'all',
-    conditions,
-    actions: [{ type: 'create_task', config, delayMinutes: (leadFollowUp ? waitDays : dueDays) * 1440 }],
-    isActive: form.isActive,
-    position: 0
-  }
-}
-
-function conditionSummary(automation, usersById) {
-  const condition = automation.conditions?.[0]
-  const field = dealConditionDefinitions[condition.field][0]
-  const operator = conditionOperatorLabels[condition.operator]
-  const value = condition.field === 'ownerUserId' ? usersById.get(Number(condition.value)) || 'unavailable teammate' : condition.value
-  const summary = `Only if ${field.toLowerCase()} ${operator}`
-  return condition.operator === existsOperator ? summary : `${summary} ${value}`
-}
-
-function triggerSummary(automation, stagesById, formsById) {
-  const event = eventFromAutomation(automation)
-  if (event === stageChangedEvent) {
-    const stageID = Number(automation.triggerConfig?.stageId || 0)
-    return stageID ? `When moved to ${stagesById.get(stageID) || `stage #${stageID}`}` : 'After every real stage change'
-  }
-  if (event === leadFormEvent) {
-    const formID = Number(automation.triggerConfig?.formId || 0)
-    return formID ? `When ${formsById.get(formID) || `lead form #${formID}`} is submitted` : 'When any active lead form is submitted'
-  }
-  return event === 'archived' ? 'When a deal is archived' : 'When a deal is created'
-}
-
-function taskTimingSummary(action, leadFollowUp) {
-  const delay = Number(action?.delayMinutes || 0)
-  if (leadFollowUp && Object.hasOwn(action?.config || {}, 'dueDays')) {
-    const waitDays = delay / 1440
-    const dueDays = Number(action.config.dueDays)
-    const createText = waitDays === 0 ? 'create immediately' : `create after ${dayCount(waitDays)}`
-    const dueText = dueDays === 0 ? 'due on creation' : `due ${dayCount(dueDays)} later`
-    return `${createText} · ${dueText}`
-  }
-  if (delay === 0) return 'due immediately'
-  if (delay % 1440 === 0) {
-    const days = delay / 1440
-    return `due in ${dayCount(days)}`
-  }
-  return `due in ${delay} minutes`
-}
-
-function formatRunTime(value) {
-  const date = new Date(value)
-  return value && !Number.isNaN(date.getTime()) ? date.toLocaleString() : 'Not recorded'
-}
+import {
+  conditionOperatorLabels,
+  conditionOperators,
+  conditionSummary,
+  dealConditionDefinitions,
+  emptyForm,
+  equalsOperator,
+  eventFromAutomation,
+  existsOperator,
+  formatRunTime,
+  formFromAutomation,
+  isExecutableTaskRule,
+  leadFormEvent,
+  maxDealPlanTasks,
+  payloadFromForm,
+  stageChangedEvent,
+  taskTimingSummary,
+  triggerOptions,
+  triggerSummary
+} from './settings_automation_task_model'
 
 export function SettingsAutomationsRoute() {
   const { canAdminister: canManage } = useAuth()
@@ -297,6 +113,24 @@ export function SettingsAutomationsRoute() {
     setStatus('')
   }
 
+  function addDealTask() {
+    setForm((current) => ({
+      ...current,
+      additionalTasks: [...current.additionalTasks, { title: '', description: '', dueDays: '1' }]
+    }))
+  }
+
+  function updateDealTask(index, field, value) {
+    setForm((current) => ({
+      ...current,
+      additionalTasks: current.additionalTasks.map((task, taskIndex) => taskIndex === index ? { ...task, [field]: value } : task)
+    }))
+  }
+
+  function removeDealTask(index) {
+    setForm((current) => ({ ...current, additionalTasks: current.additionalTasks.filter((_, taskIndex) => taskIndex !== index) }))
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
     if (!canManage) return
@@ -351,14 +185,17 @@ export function SettingsAutomationsRoute() {
             {!isLoading && executableRules.length === 0 ? (
               <article className="record-row" role="listitem"><p>No executable task rules yet.</p></article>
             ) : executableRules.map((automation) => {
-              const action = automation.actions[0]
+              const leadFollowUp = eventFromAutomation(automation) === leadFormEvent
               return (
                 <article className={automation.isActive ? 'record-row' : 'record-row record-row-alert'} key={automation.id} role="listitem">
                   <div>
                     <h3>{automation.name}</h3>
                     <p>{triggerSummary(automation, stagesById, formsById)}</p>
                     {automation.targetEntityType === 'deal' && automation.conditions?.length ? <p className="field-hint">{conditionSummary(automation, usersById)}</p> : null}
-                    <p className="field-hint">Create “{action.config.title}” · {taskTimingSummary(action, eventFromAutomation(automation) === leadFormEvent)}{eventFromAutomation(automation) === leadFormEvent ? ` · assign to ${usersById.get(Number(action.config.assignedToUserId)) || 'unavailable teammate'}` : ''}</p>
+                    <p className="field-hint">{leadFollowUp ? 'One durable task from retained submission evidence.' : `${automation.actions.length}-task playbook · all tasks commit with the deal event.`}</p>
+                    <ol className="field-hint" aria-label={`${automation.name} task plan`}>
+                      {automation.actions.map((action, index) => <li key={`${index}-${action.config.title}`}>Create “{action.config.title}” · {taskTimingSummary(action, leadFollowUp)}{leadFollowUp ? ` · assign to ${usersById.get(Number(action.config.assignedToUserId)) || 'unavailable teammate'}` : ''}</li>)}
+                    </ol>
                   </div>
                   <div><span className="chip">{automation.isActive ? 'Active' : 'Inactive'}</span>{canManage ? <Button className="button-secondary" type="button" onClick={() => startEdit(automation)}>Edit</Button> : null}</div>
                 </article>
@@ -385,11 +222,11 @@ export function SettingsAutomationsRoute() {
       {canManage ? (
         <Card>
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
-            <div><h2>{editingId ? 'Edit task rule' : 'New task rule'}</h2><p className="field-hint">Each event creates at most one replay-safe task.</p></div>
+            <div><h2>{editingId ? 'Edit task rule' : 'New task rule'}</h2><p className="field-hint">A deal event can create an ordered 1–5 task playbook atomically. Lead forms create one durable task.</p></div>
             <Field label="Rule name"><input className="text-input" maxLength="120" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Proposal follow-up" /></Field>
             <Field label="When"><select className="text-input" value={form.event} onChange={(event) => {
               const nextEvent = event.target.value
-              setForm((current) => ({ ...current, event: nextEvent, stageId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '' }))
+              setForm((current) => ({ ...current, event: nextEvent, stageId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '', additionalTasks: nextEvent === leadFormEvent ? [] : current.additionalTasks }))
             }}>{triggerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
             {form.event === stageChangedEvent ? (
               <Field label="Destination stage" hint="Choose any stage to run after every real stage change."><select className="text-input" value={form.stageId} onChange={(event) => setForm({ ...form, stageId: event.target.value })}><option value="">Any stage</option>{stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.pipelineName} · {stage.name}</option>)}</select></Field>
@@ -426,6 +263,16 @@ export function SettingsAutomationsRoute() {
             <Field label="Task title"><input className="text-input" maxLength="200" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Prepare proposal" /></Field>
             <Field label="Task description"><textarea className="text-input" rows={3} maxLength="2000" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
             <Field label="Due in days" hint={form.event === leadFormEvent ? 'From task creation; 0 is immediate; maximum 365.' : '0 is immediate; maximum 365.'}><input className="text-input" type="number" min="0" max="365" step="1" required value={form.dueDays} onChange={(event) => setForm({ ...form, dueDays: event.target.value })} /></Field>
+            {form.event !== leadFormEvent ? form.additionalTasks.map((task, index) => (
+              <fieldset className="card-stack" key={index}>
+                <legend>Task {index + 2}</legend>
+                <Field label={`Task ${index + 2} title`}><input className="text-input" maxLength="200" required value={task.title} onChange={(event) => updateDealTask(index, 'title', event.target.value)} /></Field>
+                <Field label={`Task ${index + 2} description`}><textarea className="text-input" rows={3} maxLength="2000" value={task.description} onChange={(event) => updateDealTask(index, 'description', event.target.value)} /></Field>
+                <Field label={`Task ${index + 2} due in days`} hint="0 is immediate; maximum 365."><input className="text-input" type="number" min="0" max="365" step="1" required value={task.dueDays} onChange={(event) => updateDealTask(index, 'dueDays', event.target.value)} /></Field>
+                <Button className="button-secondary" type="button" onClick={() => removeDealTask(index)}>Remove task {index + 2}</Button>
+              </fieldset>
+            )) : null}
+            {form.event !== leadFormEvent && form.additionalTasks.length < maxDealPlanTasks - 1 ? <Button className="button-secondary" type="button" onClick={addDealTask}>Add another task</Button> : null}
             <label className="field-hint"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active rule</label>
             <div className="button-row"><Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save task rule' : 'Create task rule'}</Button>{editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}</div>
           </form>

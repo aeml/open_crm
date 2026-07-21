@@ -2,6 +2,35 @@ package workflowautomations
 
 import "testing"
 
+func TestExecutableTaskActionsRequireReviewedContractForMultipleTasks(t *testing.T) {
+	action := Action{Type: "create_task", Config: map[string]any{"title": "Review deal"}, DelayMinutes: 1440}
+	if !executableTaskActions(map[string]any{}, []Action{action}) {
+		t.Fatal("legacy single-task rule should remain executable")
+	}
+	if executableTaskActions(map[string]any{}, []Action{action, action}) {
+		t.Fatal("legacy multi-action definition became executable without review")
+	}
+	config := map[string]any{"taskPlanContract": DealTaskPlanContract}
+	if !executableTaskActions(config, []Action{action, {Type: "create_task", Config: map[string]any{"title": "Confirm next step"}}}) {
+		t.Fatal("reviewed two-task plan should be executable")
+	}
+	if executableTaskActions(map[string]any{"taskPlanContract": "future_contract"}, []Action{action}) {
+		t.Fatal("unknown task-plan contract should fail closed")
+	}
+	if executableTaskActions(map[string]any{"taskPlanContract": true}, []Action{action}) {
+		t.Fatal("malformed task-plan contract should fail closed")
+	}
+	if executableTaskActions(config, []Action{{Type: "create_task", Config: map[string]any{"title": "Review deal", "assignedToUserId": 12}}}) {
+		t.Fatal("reviewed task-plan action with unreviewed config keys should fail closed")
+	}
+	if executableTaskActions(config, []Action{action, action, action, action, action, action}) {
+		t.Fatal("task plan exceeded the five-task boundary")
+	}
+	if executableTaskActions(config, []Action{action, {Type: "send_email", Config: map[string]any{"subject": "No", "body": "No"}}}) {
+		t.Fatal("unreviewed action type entered the task plan")
+	}
+}
+
 func TestExecutableDealConditionsRequireExplicitBoundedContract(t *testing.T) {
 	condition := Condition{Field: "valueAmount", Operator: "greaterThan", Value: "5000"}
 	if executableDealConditions(map[string]any{}, "all", []Condition{condition}) {

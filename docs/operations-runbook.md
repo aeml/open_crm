@@ -1026,29 +1026,37 @@ bytes, tokens, or counters with ad hoc SQL.
 
 1. Owners and admins manage the pilot-safe subset under **Settings >
    Automations**: deal created, a real stage change (optionally to one stage),
-   or deal archived creates exactly one literal follow-up task due in 0–365
-   whole days. A rule can optionally require one event-time deal condition:
+   or deal archived creates an ordered playbook of 1–5 literal follow-up tasks.
+   Every task has an independent 0–365-whole-day due offset measured from the
+   deal event; none is a delayed or background action. A rule can optionally
+   require one event-time deal condition:
    value amount greater/less than or set, currency equal/not-equal/set, owner
    equal/not-equal/set, or status equal/not-equal to open, won, or lost. An
    unassigned deal does not satisfy **owner is set**.
    Other stored workflow definitions are deliberately hidden and do not gain
    partial execution merely because their schema exists.
-2. Deal event, task, activity, run record, and audit event commit together. A
-   timed-out direct request can be retried normally; a repeated same-stage move
-   is a no-op, and stable activity/bulk event keys prevent a completed event
-   from creating the same rule task twice. The same transaction loads the
-   tenant-scoped deal/stage snapshot and evaluates any condition before creating
-   effects. Run evidence retains only the field referenced by that rule.
-3. The task goes to the active deal owner. If that membership is inactive at
-   event time, it goes to the active teammate who caused the event. Inspect
-   **Recent task automation runs**, the task's `task.automated` activity, and
+2. Deal event, every task/activity, one run record, and one audit event commit
+   together. A failure rolls back the entire playbook. A timed-out direct
+   request can be retried normally; a repeated same-stage move is a no-op, and
+   stable activity/bulk event keys prevent a completed event from creating the
+   same playbook twice. Run evidence preserves task IDs in action order and each
+   `task.automated` activity records its one-based action index plus total task
+   count. The same transaction loads the tenant-scoped deal/stage snapshot and
+   evaluates any condition before creating effects. Condition evidence retains
+   only the field referenced by that rule.
+3. Every task goes to the active deal owner. If that membership is inactive at
+   event time, the playbook goes to the active teammate who caused the event.
+   Inspect **Recent task automation runs**, each task's `task.automated` activity, and
    the `workflow_automation.executed` audit event when reconciling an outcome.
    A `skipped` run with **condition did not match** is an expected no-task
    outcome and shows the referenced event-time field. **unsupported rule shape**
    means the rule was not in the reviewed executable contract and made no task.
    In particular, stored conditions without the explicit `deal_snapshot_v1`
-   marker remain inert. Edit or disable an unsupported rule through the normal
-   admin UI or a reviewed API repair rather than assuming it ran. Never add the
+   marker remain inert. Multi-task plans additionally require the exact
+   `deal_task_plan_v1` marker; existing one-task rules remain executable for
+   compatibility, while legacy multi-action and unknown-contract definitions
+   remain inert. Edit or disable an unsupported rule through the normal admin
+   UI or a reviewed API repair rather than assuming it ran. Never add either
    marker directly in SQL to activate a legacy definition.
 4. To stop future work, deactivate the rule. Deactivation does not remove tasks
    already created; edit, complete, archive, or reassign those through normal

@@ -93,11 +93,27 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	if err != nil {
 		t.Fatalf("create owner-conditioned rule: %v", err)
 	}
-	if _, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
-		Name: "Proposal follow-up", TriggerType: "stage_changed", TargetEntityType: "deal", TriggerConfig: map[string]any{"stageId": proposalStageID}, IsActive: &active,
-		Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Prepare proposal"}, DelayMinutes: 2880}},
-	}); err != nil {
+	proposalRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
+		Name: "Proposal playbook", TriggerType: "stage_changed", TargetEntityType: "deal",
+		TriggerConfig: map[string]any{"stageId": proposalStageID, "taskPlanContract": moduleworkflowautomations.DealTaskPlanContract}, IsActive: &active,
+		Actions: []moduleworkflowautomations.Action{
+			{Type: "create_task", Config: map[string]any{"title": "Prepare proposal"}, DelayMinutes: 2880},
+			{Type: "create_task", Config: map[string]any{"title": "Schedule decision review"}, DelayMinutes: 7200},
+		},
+	})
+	if err != nil {
 		t.Fatalf("create stage rule: %v", err)
+	}
+	legacyMultiRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
+		Name: "Unreviewed proposal actions", TriggerType: "stage_changed", TargetEntityType: "deal",
+		TriggerConfig: map[string]any{"stageId": proposalStageID}, IsActive: &active,
+		Actions: []moduleworkflowautomations.Action{
+			{Type: "create_task", Config: map[string]any{"title": "Legacy proposal first"}},
+			{Type: "create_task", Config: map[string]any{"title": "Legacy proposal second"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create legacy multi-action rule: %v", err)
 	}
 	if _, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
 		Name: "Archived deal review", TriggerType: "record_updated", TargetEntityType: "deal", TriggerConfig: map[string]any{"event": "archived"}, IsActive: &active,
@@ -150,16 +166,82 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 		t.Fatalf("move deal to proposal: %v", err)
 	}
 	assertAutomatedTask(t, pool, organizationID, dealID, "Prepare proposal", dealOwnerUserID, 1)
+	assertAutomatedTask(t, pool, organizationID, dealID, "Schedule decision review", dealOwnerUserID, 1)
 	assertAutomatedTask(t, pool, organizationID, dealID, "Review strategic deal", dealOwnerUserID, 1)
 	assertAutomatedTask(t, pool, organizationID, dealID, "Must exceed ten thousand", 0, 0)
 	assertAutomatedTask(t, pool, organizationID, dealID, "Must remain hidden", 0, 0)
+	assertAutomatedTask(t, pool, organizationID, dealID, "Legacy proposal first", 0, 0)
+	assertAutomatedTask(t, pool, organizationID, dealID, "Legacy proposal second", 0, 0)
 	if _, err := deals.UpdateStage(ctx, organizationID, dealID, actorUserID, moduledeals.UpdateStageInput{StageID: proposalStageID}); err != nil {
 		t.Fatalf("repeat unchanged proposal stage: %v", err)
 	}
 	assertAutomatedTask(t, pool, organizationID, dealID, "Prepare proposal", dealOwnerUserID, 1)
+	assertAutomatedTask(t, pool, organizationID, dealID, "Schedule decision review", dealOwnerUserID, 1)
+	var playbookActionsTotal, playbookActionsCompleted, playbookTaskIDs, indexedActivities int
+	if err := pool.QueryRow(ctx, `
+		SELECT actions_total,actions_completed,jsonb_array_length(trigger_payload_json->'taskIds')
+		FROM workflow_automation_runs
+		WHERE organization_id=$1 AND automation_id=$2 AND target_entity_id=$3
+	`, organizationID, proposalRule.ID, dealID).Scan(&playbookActionsTotal, &playbookActionsCompleted, &playbookTaskIDs); err != nil || playbookActionsTotal != 2 || playbookActionsCompleted != 2 || playbookTaskIDs != 2 {
+		t.Fatalf("multi-task run evidence mismatch: total=%d completed=%d task_ids=%d err=%v", playbookActionsTotal, playbookActionsCompleted, playbookTaskIDs, err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM activities
+		WHERE organization_id=$1 AND action='task.automated'
+		  AND (metadata_json->>'automationId')::bigint=$2
+		  AND (metadata_json->>'actionCount')::int=2
+		  AND (metadata_json->>'actionIndex')::int IN (1,2)
+	`, organizationID, proposalRule.ID).Scan(&indexedActivities); err != nil || indexedActivities != 2 {
+		t.Fatalf("multi-task activity evidence mismatch: count=%d err=%v", indexedActivities, err)
+	}
+	var legacySkipReason string
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(trigger_payload_json->>'skipReason','')
+		FROM workflow_automation_runs
+		WHERE organization_id=$1 AND automation_id=$2 AND target_entity_id=$3
+	`, organizationID, legacyMultiRule.ID, dealID).Scan(&legacySkipReason); err != nil || legacySkipReason != "unsupported rule shape" {
+		t.Fatalf("legacy multi-action definition did not fail closed: reason=%q err=%v", legacySkipReason, err)
+	}
+
+	var rollbackDealID, retainedStageID, rollbackTasks, rollbackRuns int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO deals (organization_id,stage_id,name,status,owner_user_id,value_amount,value_currency)
+		VALUES ($1,$2,'Atomic rollback opportunity','open',$3,7500,'USD') RETURNING id
+	`, organizationID, incomingStageID, dealOwnerUserID).Scan(&rollbackDealID); err != nil {
+		t.Fatalf("create atomic rollback deal: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		CREATE FUNCTION reject_second_playbook_task() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN
+			IF NEW.title = 'Schedule decision review' THEN
+				RAISE EXCEPTION 'forced second playbook task failure';
+			END IF;
+			RETURN NEW;
+		END $$;
+		CREATE TRIGGER reject_second_playbook_task
+		BEFORE INSERT ON tasks FOR EACH ROW EXECUTE FUNCTION reject_second_playbook_task()
+	`); err != nil {
+		t.Fatalf("install atomic rollback trigger: %v", err)
+	}
+	if _, err := deals.UpdateStage(ctx, organizationID, rollbackDealID, actorUserID, moduledeals.UpdateStageInput{StageID: proposalStageID}); err == nil {
+		t.Fatal("forced second-task failure unexpectedly committed")
+	}
+	if _, err := pool.Exec(ctx, `DROP TRIGGER reject_second_playbook_task ON tasks; DROP FUNCTION reject_second_playbook_task()`); err != nil {
+		t.Fatalf("remove atomic rollback trigger: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT stage_id FROM deals WHERE organization_id=$1 AND id=$2`, organizationID, rollbackDealID).Scan(&retainedStageID); err != nil || retainedStageID != incomingStageID {
+		t.Fatalf("deal stage survived failed playbook: stage=%d err=%v", retainedStageID, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM tasks WHERE organization_id=$1 AND entity_type='deal' AND entity_id=$2`, organizationID, rollbackDealID).Scan(&rollbackTasks); err != nil || rollbackTasks != 0 {
+		t.Fatalf("partial playbook tasks survived rollback: count=%d err=%v", rollbackTasks, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_automation_runs WHERE organization_id=$1 AND target_entity_id=$2`, organizationID, rollbackDealID).Scan(&rollbackRuns); err != nil || rollbackRuns != 0 {
+		t.Fatalf("partial playbook runs survived rollback: count=%d err=%v", rollbackRuns, err)
+	}
 
 	var skippedRuns int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_automation_runs WHERE organization_id=$1 AND status='skipped'`, organizationID).Scan(&skippedRuns); err != nil || skippedRuns != 2 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_automation_runs WHERE organization_id=$1 AND status='skipped'`, organizationID).Scan(&skippedRuns); err != nil || skippedRuns != 3 {
 		t.Fatalf("unexpected skipped legacy rule runs: count=%d err=%v", skippedRuns, err)
 	}
 	var conditionMatched bool
@@ -259,7 +341,7 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='workflow_automation.executed'`, organizationID).Scan(&executionAudits); err != nil || executionAudits != 9 {
 		t.Fatalf("unexpected automation audit count: count=%d err=%v", executionAudits, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='workflow_automation.created'`, organizationID).Scan(&definitionAudits); err != nil || definitionAudits != 7 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='workflow_automation.created'`, organizationID).Scan(&definitionAudits); err != nil || definitionAudits != 8 {
 		t.Fatalf("unexpected definition audit count: count=%d err=%v", definitionAudits, err)
 	}
 }

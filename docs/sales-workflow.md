@@ -14,9 +14,10 @@ the hidden general workflow builder is not promoted.
    bounded deal-to-task rules under **Pipelines** and **Automations**.
 2. A teammate creates a deal, links its client and primary contact, selects the
    pipeline stage and owner, and supplies value and expected-close context.
-3. A matching rule creates exactly one assigned follow-up task in the same
-   transaction. The task appears on the deal and in the exact overdue,
-   next-24-hours, later, or no-date task bucket. Due-soon and overdue in-app
+3. A matching rule creates an ordered playbook of 1–5 assigned follow-up tasks
+   in the same transaction. Each task has an independent whole-day due offset
+   and appears on the deal and in the exact overdue, next-24-hours, later, or
+   no-date task bucket. Due-soon and overdue in-app
    reminders are durable, preference-aware, idempotent, and replay-safe.
 4. The team records notes, completed tasks, communication touchpoints, line
    items, and stage movement. Forecasts use the configured probability saved on
@@ -55,7 +56,8 @@ the hidden general workflow builder is not promoted.
 
 The clean PostgreSQL-backed Chromium journey performs this sequence as one
 workflow, including a pipeline rename after deal creation, forecast continuity,
-automated-task creation, reminder visibility, real-SMTP delivery, public signing,
+two-task playbook authoring/WCAG/execution/export evidence, reminder visibility,
+real-SMTP delivery, public signing,
 matching customer/staff certificate evidence, deliberate signed-quote conversion,
 report reconciliation, close review, post-sale health triage, recurring renewal
 advancement, exact client-period source/count reconciliation with WCAG, and
