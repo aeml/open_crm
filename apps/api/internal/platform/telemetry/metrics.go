@@ -223,6 +223,11 @@ type RuntimeSnapshot struct {
 	QuoteDeliveriesSending         int64
 	QuoteDeliveriesStaleSending    int64
 	QuoteDeliveriesUncertain       int64
+	QuoteSignaturesAwaiting        int64
+	QuoteSignaturesExpired         int64
+	QuoteSignaturesSigned          int64
+	QuoteSignaturesDeclined        int64
+	QuoteSignaturesVoided          int64
 	Backup                         BackupStatus
 }
 

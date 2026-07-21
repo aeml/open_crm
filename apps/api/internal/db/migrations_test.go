@@ -100,6 +100,32 @@ func TestMigrationFilesIncludePublicLeadConsentChallenges(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeQuoteSignatureCeremony(t *testing.T) {
+	if !slices.Contains(MigrationFiles(), "096_quote_signature_ceremony.sql") {
+		t.Fatal("expected quote signature ceremony migration to be registered")
+	}
+	sql := MigrationSQL("096_quote_signature_ceremony.sql")
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"deal_signature_requests_quote_fk",
+		"deal_signature_requests_native_state_check",
+		"completion_idempotency_key_hash",
+		"certificate_content BYTEA",
+		"idx_deal_signature_requests_one_active_quote",
+		"deal_quote_deliveries_signature_fk",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("quote signature ceremony migration missing %q", expected)
+		}
+	}
+	if strings.Contains(sql, "remote_addr") || strings.Contains(sql, "user_agent") {
+		t.Fatal("quote signature ceremony must not add network or browser identifiers")
+	}
+	if class := MigrationDeploymentClass("096_quote_signature_ceremony.sql"); class != "expand" {
+		t.Fatalf("quote signature ceremony deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeBackgroundJobs(t *testing.T) {
 	sql := MigrationSQL("056_background_jobs.sql")
 	if sql == "" {

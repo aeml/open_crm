@@ -194,7 +194,7 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 		t.Fatalf("finalize second lifecycle quote: %v", err)
 	}
 	preparedQuoteDelivery, err := quoteService.PrepareQuoteDelivery(ctx, organizationID, ownedDealID, quoteOne.ID, memberID, moduledeals.QuoteDeliveryInput{
-		SenderEmail: "member@example.test", Subject: "Prepared lifecycle quote", MessageBody: "Please review the quote.", IdempotencyKey: "lifecycle-quote-delivery-0001",
+		SenderEmail: "member@example.test", Subject: "Prepared lifecycle quote", MessageBody: "Please review the quote.", IdempotencyKey: "lifecycle-quote-delivery-0001", RequestSignature: true,
 	})
 	if err != nil {
 		t.Fatalf("prepare lifecycle quote delivery: %v", err)
@@ -338,6 +338,10 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	var preparedStatus, preparedError, sendingStatus, sendingError string
 	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM deal_quote_deliveries WHERE organization_id=$1 AND id=$2`, organizationID, preparedQuoteDelivery.Delivery.ID).Scan(&preparedStatus, &preparedError); err != nil || preparedStatus != "failed" || preparedError != "The sender was disabled before quote delivery." {
 		t.Fatalf("expected prepared quote delivery quiesced, status=%q error=%q err=%v", preparedStatus, preparedError, err)
+	}
+	var preparedSignatureStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM deal_signature_requests WHERE organization_id=$1 AND id=$2`, organizationID, preparedQuoteDelivery.Delivery.SignatureRequestID).Scan(&preparedSignatureStatus); err != nil || preparedSignatureStatus != "voided" {
+		t.Fatalf("expected prepared signature request voided with delivery, status=%q err=%v", preparedSignatureStatus, err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT status,last_error FROM deal_quote_deliveries WHERE organization_id=$1 AND id=$2`, organizationID, sendingQuoteDelivery.Delivery.ID).Scan(&sendingStatus, &sendingError); err != nil || sendingStatus != "uncertain" || sendingError != "The sender was disabled while the mailbox provider outcome may be unknown." {
 		t.Fatalf("expected in-flight quote delivery quarantined, status=%q error=%q err=%v", sendingStatus, sendingError, err)

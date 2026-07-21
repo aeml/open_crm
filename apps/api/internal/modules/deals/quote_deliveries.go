@@ -32,6 +32,7 @@ type QuoteDelivery struct {
 	OrganizationID         int64  `json:"-"`
 	DealID                 int64  `json:"dealId"`
 	QuoteID                int64  `json:"quoteId"`
+	SignatureRequestID     int64  `json:"signatureRequestId"`
 	ActorUserID            int64  `json:"actorUserId"`
 	SenderEmail            string `json:"senderEmail"`
 	RecipientEmail         string `json:"recipientEmail"`
@@ -58,10 +59,11 @@ type QuoteDelivery struct {
 }
 
 type QuoteDeliveryInput struct {
-	Subject        string `json:"subject"`
-	MessageBody    string `json:"messageBody"`
-	IdempotencyKey string `json:"-"`
-	SenderEmail    string `json:"-"`
+	Subject          string `json:"subject"`
+	MessageBody      string `json:"messageBody"`
+	IdempotencyKey   string `json:"-"`
+	SenderEmail      string `json:"-"`
+	RequestSignature bool   `json:"requestSignature"`
 }
 
 type QuoteDeliveryIntent struct {
@@ -176,13 +178,13 @@ func (s *Service) PrepareQuoteDelivery(ctx context.Context, organizationID, deal
 	if err != nil {
 		return QuoteDeliveryIntent{}, fmt.Errorf("revalidate quote delivery sender: %w", err)
 	}
-	var recipientEmail, validUntil string
+	var recipientName, recipientEmail, validUntil, quoteNumber, quoteFilename, total, currency string
 	err = tx.QueryRow(ctx, `
-		SELECT recipient_email,TO_CHAR(valid_until,'YYYY-MM-DD')
+		SELECT recipient_name,recipient_email,TO_CHAR(valid_until,'YYYY-MM-DD'),quote_number,pdf_filename,total::text,currency
 		FROM deal_quotes
 		WHERE organization_id=$1 AND deal_id=$2 AND id=$3
 		FOR SHARE
-	`, organizationID, dealID, quoteID).Scan(&recipientEmail, &validUntil)
+	`, organizationID, dealID, quoteID).Scan(&recipientName, &recipientEmail, &validUntil, &quoteNumber, &quoteFilename, &total, &currency)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return QuoteDeliveryIntent{}, ErrNotFound
 	}
@@ -193,9 +195,13 @@ func (s *Service) PrepareQuoteDelivery(ctx context.Context, organizationID, deal
 	if err != nil {
 		return QuoteDeliveryIntent{}, fmt.Errorf("parse finalized quote validity: %w", err)
 	}
+	now := s.clock().UTC()
+	if input.RequestSignature && !validThrough.Add(24*time.Hour).After(now) {
+		return QuoteDeliveryIntent{}, ErrSignatureExpired
+	}
 	accessExpiresAt := validThrough.Add(24*time.Hour - time.Second).Add(quoteDeliveryGracePeriod)
-	if accessExpiresAt.Before(s.clock().UTC().Add(24 * time.Hour)) {
-		accessExpiresAt = s.clock().UTC().Add(24 * time.Hour)
+	if accessExpiresAt.Before(now.Add(24 * time.Hour)) {
+		accessExpiresAt = now.Add(24 * time.Hour)
 	}
 	messageID, err := moduleemail.NewMessageID(emailAddressDomain(input.SenderEmail))
 	if err != nil {
@@ -206,15 +212,34 @@ func (s *Service) PrepareQuoteDelivery(ctx context.Context, organizationID, deal
 		return QuoteDeliveryIntent{}, fmt.Errorf("allocate quote delivery id: %w", err)
 	}
 	accessToken := s.quoteAccessToken(deliveryID)
+	var signatureRequestID int64
+	if input.RequestSignature {
+		consentText := signatureConsentText(quoteNumber, total, currency)
+		err = tx.QueryRow(ctx, `
+			INSERT INTO deal_signature_requests (
+			  organization_id,deal_id,quote_id,signer_name,signer_email,status,provider,
+			  quote_file_name,consent_text_snapshot,created_by_user_id,updated_by_user_id
+			)
+			VALUES ($1,$2,$3,$4,$5,'draft','open_crm_native',$6,$7,$8,$8)
+			RETURNING id
+		`, organizationID, dealID, quoteID, recipientName, recipientEmail, quoteFilename, consentText, actorUserID).Scan(&signatureRequestID)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_deal_signature_requests_one_active_quote" {
+				return QuoteDeliveryIntent{}, ErrSignatureState
+			}
+			return QuoteDeliveryIntent{}, mapSignatureRequestSaveError(err)
+		}
+	}
 	delivery, err = scanQuoteDelivery(tx.QueryRow(ctx, `
 		INSERT INTO deal_quote_deliveries (
-		  id,organization_id,deal_id,quote_id,actor_user_id,sender_email,recipient_email,
+		  id,organization_id,deal_id,quote_id,signature_request_id,actor_user_id,sender_email,recipient_email,
 		  subject,message_body,rfc_message_id,access_token_digest,access_expires_at,
 		  idempotency_key_hash,request_sha256
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		VALUES ($1,$2,$3,$4,NULLIF($5,0),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		RETURNING `+quoteDeliveryColumns+`
-	`, deliveryID, organizationID, dealID, quoteID, actorUserID, input.SenderEmail, recipientEmail,
+	`, deliveryID, organizationID, dealID, quoteID, signatureRequestID, actorUserID, input.SenderEmail, recipientEmail,
 		input.Subject, input.MessageBody, messageID, quoteDeliverySHA(accessToken), accessExpiresAt,
 		keyHash, requestHash))
 	if err != nil {
@@ -226,8 +251,8 @@ func (s *Service) PrepareQuoteDelivery(ctx context.Context, organizationID, deal
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
-		VALUES ($1,$2,'deal.quote_delivery_prepared','deal_quote_delivery',$3,'Prepared a durable quote delivery',jsonb_build_object('dealId',$4::bigint,'quoteId',$5::bigint))
-	`, organizationID, actorUserID, delivery.ID, dealID, quoteID); err != nil {
+		VALUES ($1,$2,'deal.quote_delivery_prepared','deal_quote_delivery',$3,'Prepared a durable quote delivery',jsonb_build_object('dealId',$4::bigint,'quoteId',$5::bigint,'signatureRequestId',NULLIF($6::bigint,0)))
+	`, organizationID, actorUserID, delivery.ID, dealID, quoteID, signatureRequestID); err != nil {
 		return QuoteDeliveryIntent{}, fmt.Errorf("audit quote delivery preparation: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -334,7 +359,12 @@ func (s *Service) FailQuoteDelivery(ctx context.Context, organizationID, deliver
 	if len(message) > 1000 {
 		message = message[:1000]
 	}
-	delivery, err := scanQuoteDelivery(s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return QuoteDelivery{}, fmt.Errorf("begin quote delivery failure: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	delivery, err := scanQuoteDelivery(tx.QueryRow(ctx, `
 		UPDATE deal_quote_deliveries
 		SET status=$3,last_error=$4,finalized_at=$5,updated_at=$5
 		WHERE organization_id=$1 AND id=$2 AND status='sending'
@@ -345,6 +375,18 @@ func (s *Service) FailQuoteDelivery(ctx context.Context, organizationID, deliver
 	}
 	if err != nil {
 		return QuoteDelivery{}, fmt.Errorf("record quote delivery failure: %w", err)
+	}
+	if !uncertain && delivery.SignatureRequestID > 0 {
+		if _, err := tx.Exec(ctx, `
+			UPDATE deal_signature_requests
+			SET status='voided',voided_at=$3,updated_at=$3
+			WHERE organization_id=$1 AND id=$2 AND status='draft'
+		`, organizationID, delivery.SignatureRequestID, s.clock().UTC()); err != nil {
+			return QuoteDelivery{}, fmt.Errorf("void undelivered signature request: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return QuoteDelivery{}, fmt.Errorf("commit quote delivery failure: %w", err)
 	}
 	return delivery, nil
 }
@@ -406,6 +448,12 @@ func (s *Service) ResolveQuoteDelivery(ctx context.Context, organizationID, deli
 			WHERE organization_id=$1 AND id=$2 AND status='uncertain'
 			RETURNING `+quoteDeliveryColumns+`
 		`, organizationID, deliveryID, s.clock().UTC()))
+		if err == nil && delivery.SignatureRequestID > 0 {
+			_, err = tx.Exec(ctx, `
+				UPDATE deal_signature_requests SET status='voided',voided_at=$3,updated_at=$3
+				WHERE organization_id=$1 AND id=$2 AND status='draft'
+			`, organizationID, delivery.SignatureRequestID, s.clock().UTC())
+		}
 	}
 	if err != nil {
 		return QuoteDeliveryResolution{}, fmt.Errorf("resolve quote delivery: %w", err)
@@ -462,6 +510,19 @@ func (s *Service) finalizeQuoteDeliveryTx(ctx context.Context, tx pgx.Tx, delive
 	`, organizationIDOr(delivery), delivery.ID, receipt.ProviderMessageID, receipt.ProviderThreadID, messageID, finalizedAt))
 	if err != nil {
 		return QuoteDelivery{}, fmt.Errorf("finalize accepted quote delivery: %w", err)
+	}
+	if delivery.SignatureRequestID > 0 {
+		updated, err := tx.Exec(ctx, `
+			UPDATE deal_signature_requests
+			SET status='sent',sent_at=COALESCE(sent_at,$3),updated_at=$3
+			WHERE organization_id=$1 AND id=$2 AND status IN ('draft','sent')
+		`, organizationIDOr(delivery), delivery.SignatureRequestID, finalizedAt)
+		if err != nil {
+			return QuoteDelivery{}, fmt.Errorf("activate signature ceremony: %w", err)
+		}
+		if updated.RowsAffected() == 0 {
+			return QuoteDelivery{}, ErrSignatureState
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activities (organization_id,entity_type,entity_id,actor_user_id,action,summary)
@@ -533,7 +594,7 @@ func markQuoteDeliveryUncertain(ctx context.Context, tx pgx.Tx, deliveryID int64
 }
 
 const quoteDeliveryColumns = `
-	id,organization_id,deal_id,quote_id,COALESCE(actor_user_id,0),sender_email,recipient_email,subject,message_body,
+	id,organization_id,deal_id,quote_id,COALESCE(signature_request_id,0),COALESCE(actor_user_id,0),sender_email,recipient_email,subject,message_body,
 	rfc_message_id,status,provider_message_id,provider_thread_id,COALESCE(outbound_email_message_id,0),last_error,
 	COALESCE(TO_CHAR(claimed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
 	TO_CHAR(access_expires_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
@@ -551,7 +612,7 @@ type quoteDeliveryScanner interface{ Scan(...any) error }
 func scanQuoteDelivery(scanner quoteDeliveryScanner) (QuoteDelivery, error) {
 	var delivery QuoteDelivery
 	err := scanner.Scan(
-		&delivery.ID, &delivery.OrganizationID, &delivery.DealID, &delivery.QuoteID, &delivery.ActorUserID,
+		&delivery.ID, &delivery.OrganizationID, &delivery.DealID, &delivery.QuoteID, &delivery.SignatureRequestID, &delivery.ActorUserID,
 		&delivery.SenderEmail, &delivery.RecipientEmail, &delivery.Subject, &delivery.MessageBody,
 		&delivery.RFCMessageID, &delivery.Status, &delivery.ProviderMessageID, &delivery.ProviderThreadID,
 		&delivery.OutboundEmailMessageID, &delivery.LastError, &delivery.ClaimedAt, &delivery.AccessExpiresAt, &delivery.SentAt,
@@ -565,7 +626,7 @@ func scanQuoteDelivery(scanner quoteDeliveryScanner) (QuoteDelivery, error) {
 func scanQuoteDeliveryWithHash(scanner quoteDeliveryScanner, requestHash *string) (QuoteDelivery, error) {
 	var delivery QuoteDelivery
 	err := scanner.Scan(
-		&delivery.ID, &delivery.OrganizationID, &delivery.DealID, &delivery.QuoteID, &delivery.ActorUserID,
+		&delivery.ID, &delivery.OrganizationID, &delivery.DealID, &delivery.QuoteID, &delivery.SignatureRequestID, &delivery.ActorUserID,
 		&delivery.SenderEmail, &delivery.RecipientEmail, &delivery.Subject, &delivery.MessageBody,
 		&delivery.RFCMessageID, &delivery.Status, &delivery.ProviderMessageID, &delivery.ProviderThreadID,
 		&delivery.OutboundEmailMessageID, &delivery.LastError, &delivery.ClaimedAt, &delivery.AccessExpiresAt, &delivery.SentAt,
@@ -596,11 +657,12 @@ func validQuoteDeliveryInput(organizationID, dealID, quoteID, actorUserID int64,
 
 func quoteDeliveryRequestHash(dealID, quoteID int64, input QuoteDeliveryInput) string {
 	payload, _ := json.Marshal(struct {
-		DealID      int64  `json:"dealId"`
-		QuoteID     int64  `json:"quoteId"`
-		Subject     string `json:"subject"`
-		MessageBody string `json:"messageBody"`
-	}{dealID, quoteID, input.Subject, input.MessageBody})
+		DealID           int64  `json:"dealId"`
+		QuoteID          int64  `json:"quoteId"`
+		Subject          string `json:"subject"`
+		MessageBody      string `json:"messageBody"`
+		RequestSignature bool   `json:"requestSignature"`
+	}{dealID, quoteID, input.Subject, input.MessageBody, input.RequestSignature})
 	return quoteDeliverySHA(string(payload))
 }
 
@@ -631,6 +693,10 @@ func (s *Service) clock() time.Time {
 }
 
 func (intent QuoteDeliveryIntent) EmailBody() string {
+	if intent.Delivery.SignatureRequestID > 0 {
+		return intent.Delivery.MessageBody + "\n\nReview and electronically sign the finalized quote:\n" + intent.AccessURL +
+			"\n\nThis recipient-specific link records the typed recipient name, explicit consent, quote PDF digest, and signing time in an audit certificate."
+	}
 	return intent.Delivery.MessageBody + "\n\nView and download the finalized quote:\n" + intent.AccessURL +
 		"\n\nConfirming receipt only acknowledges delivery. It is not a signature or acceptance of the quote."
 }

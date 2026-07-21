@@ -98,23 +98,6 @@ func TestProposalTrackingIsCalculatedTraceableAndTenantSafeAgainstPostgres(t *te
 		t.Fatalf("saved proposal did not retain its catalog snapshot: detail=%#v err=%v", detail.LineItems, err)
 	}
 
-	detail, err = service.CreateSignatureRequest(ctx, organizationID, dealID, actorUserID, moduledeals.SignatureRequestInput{SignerName: "  Avery Buyer  ", SignerEmail: "AVERY@EXAMPLE.TEST"})
-	if err != nil {
-		t.Fatalf("create proposal tracking: %v", err)
-	}
-	if len(detail.SignatureRequests) != 1 || detail.SignatureRequests[0].Status != "draft" || detail.SignatureRequests[0].Provider != "native_tracking" || detail.SignatureRequests[0].SignerEmail != "avery@example.test" || detail.SignatureRequests[0].QuoteFileName != "quote-website-implementation.pdf" {
-		t.Fatalf("unexpected proposal tracking record: %#v", detail.SignatureRequests)
-	}
-	requestID := detail.SignatureRequests[0].ID
-	detail, err = service.UpdateSignatureRequestStatus(ctx, organizationID, dealID, requestID, actorUserID, moduledeals.SignatureStatusInput{Status: "sent"})
-	if err != nil || detail.SignatureRequests[0].SentAt == "" {
-		t.Fatalf("mark proposal sent: record=%#v err=%v", detail.SignatureRequests, err)
-	}
-	detail, err = service.UpdateSignatureRequestStatus(ctx, organizationID, dealID, requestID, actorUserID, moduledeals.SignatureStatusInput{Status: "signed"})
-	if err != nil || detail.SignatureRequests[0].SignedAt == "" || detail.SignatureRequests[0].Status != "signed" {
-		t.Fatalf("mark proposal signed: record=%#v err=%v", detail.SignatureRequests, err)
-	}
-
 	quote := moduledeals.BuildQuotePDF(detail, moduledeals.QuotePDFInput{OrganizationName: "Proposal team", GeneratedByName: "Priya Seller", GeneratedAt: time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)})
 	for _, expected := range [][]byte{[]byte("%PDF-1.4"), []byte("Website implementation"), []byte("Implementation package"), []byte("Total: USD 259.00"), []byte("Draft preview generated from current CRM deal data.")} {
 		if !bytes.Contains(quote.Content, expected) {
@@ -128,22 +111,12 @@ func TestProposalTrackingIsCalculatedTraceableAndTenantSafeAgainstPostgres(t *te
 	if _, err := service.ReplaceLineItems(ctx, organizationID, dealID, actorUserID, moduledeals.LineItemsInput{Items: []moduledeals.LineItemInput{{ProductCatalogItemID: foreignCatalogItemID}}}); !errors.Is(err, moduledeals.ErrInvalidLineItems) {
 		t.Fatalf("foreign catalog item returned %v", err)
 	}
-	if _, err := service.CreateSignatureRequest(ctx, organizationID, foreignDealID, actorUserID, moduledeals.SignatureRequestInput{SignerName: "Hidden", SignerEmail: "hidden@example.test"}); !errors.Is(err, moduledeals.ErrNotFound) {
-		t.Fatalf("foreign proposal create returned %v", err)
-	}
-	if _, err := service.UpdateSignatureRequestStatus(ctx, foreignOrganizationID, foreignDealID, requestID, foreignUserID, moduledeals.SignatureStatusInput{Status: "signed"}); !errors.Is(err, moduledeals.ErrNotFound) {
-		t.Fatalf("cross-tenant proposal status returned %v", err)
-	}
-	if _, err := service.CreateSignatureRequest(ctx, organizationID, dealID, actorUserID, moduledeals.SignatureRequestInput{SignerName: "Invalid", SignerEmail: "invalid"}); !errors.Is(err, moduledeals.ErrInvalidSignatureRequest) {
-		t.Fatalf("invalid proposal recipient returned %v", err)
-	}
-
 	detail, err = service.GetByID(ctx, organizationID, dealID)
-	if err != nil || len(detail.LineItems) != 2 || len(detail.SignatureRequests) != 1 {
+	if err != nil || len(detail.LineItems) != 2 || len(detail.SignatureRequests) != 0 {
 		t.Fatalf("failed cross-tenant writes changed the proposal: detail=%#v err=%v", detail, err)
 	}
 	var activityCount int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE organization_id=$1 AND entity_type='deal' AND entity_id=$2 AND action IN ('deal.line_items_updated','deal.signature_request_created','deal.signature_request_updated')`, organizationID, dealID).Scan(&activityCount); err != nil || activityCount != 4 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE organization_id=$1 AND entity_type='deal' AND entity_id=$2 AND action='deal.line_items_updated'`, organizationID, dealID).Scan(&activityCount); err != nil || activityCount != 1 {
 		t.Fatalf("unexpected proposal activity history: count=%d err=%v", activityCount, err)
 	}
 

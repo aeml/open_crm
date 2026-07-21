@@ -1,6 +1,7 @@
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
+import { signatureCertificateURL } from '../lib/deals'
 import { formatMoney, formatSignatureTime, signatureStatusLabel } from './deal_view'
 
 export function DealLineItemsCard({
@@ -100,57 +101,47 @@ export function DealLineItemsCard({
   )
 }
 
-export function DealSignatureCard({ canWrite, form, isCreating, isSnapshotPending, onCreate, onSetForm, onUpdate, requests, updatingID }) {
+export function DealSignatureCard({ canWrite, dealID, isSnapshotPending, onVoid, requests, voidingID }) {
   return (
     <Card>
       <div className="card-stack">
         <div className="section-header">
           <div>
-            <h3>Proposal tracking</h3>
-            <p className="field-hint">Manual CRM tracking only. Open CRM does not send this proposal or collect a legal e-signature yet.</p>
+            <h3>Quote signatures</h3>
+            <p className="field-hint">Signature requests are bound to immutable quote bytes and a recipient-specific email link. Staff can void an unsigned request but cannot mark it signed.</p>
           </div>
         </div>
-        <div className="record-list" role="list" aria-label="Deal proposal tracking records">
+        <div className="record-list" role="list" aria-label="Deal quote signature requests">
           {requests.length === 0 ? (
             <article className="record-row" role="listitem">
               <div>
-                <p>No tracked proposals yet.</p>
-                <p className="field-hint">Create a tracking record after you deliver a proposal outside Open CRM.</p>
+                <p>No quote signature requests yet.</p>
+                <p className="field-hint">Finalize a quote, then choose “Request electronic signature” when delivering that version.</p>
               </div>
             </article>
           ) : requests.map((request) => (
             <article className="record-row" key={request.id} role="listitem">
               <div>
-                <h4>{request.signerName}</h4>
-                <p className="field-hint">{request.signerEmail} · {signatureStatusLabel(request.status)} · {request.provider || 'native_tracking'}</p>
-                <p className="field-hint">Filename reference: {request.quoteFileName || 'Current quote PDF'} · PDF content remains live</p>
+                <h4>{request.quoteNumber || 'Historical proposal record'} · {request.signerName}</h4>
+                <p className="field-hint">{request.signerEmail} · {signatureStatusLabel(request.status)}{request.signingExpired && request.status === 'sent' ? ' · Signing deadline passed' : ''}</p>
+                {request.provider === 'open_crm_native' ? (
+                  <p className="field-hint">Immutable file: {request.quoteFileName} · Authentication: recipient-specific email link</p>
+                ) : (
+                  <p className="field-hint">Historical manual tracking only. This record is not evidence of a signature collected by Open CRM.</p>
+                )}
+                {request.status === 'signed' ? <p className="field-hint">Typed signature: {request.signedName} · consent recorded {formatSignatureTime(request.consentedAt)}</p> : null}
+                {request.status === 'declined' && request.declinedReason ? <p className="field-hint">Recipient reason: {request.declinedReason}</p> : null}
               </div>
               <div>
                 <p>{request.status === 'signed' ? `Signed ${formatSignatureTime(request.signedAt)}` : `Updated ${formatSignatureTime(request.updatedAt)}`}</p>
-                {canWrite ? (
-                  <select className="text-input" aria-label={`Proposal status for ${request.signerName}`} value={request.status} disabled={isSnapshotPending || updatingID === request.id} onChange={(event) => onUpdate(request.id, event.target.value)}>
-                    <option value="draft">Draft</option>
-                    <option value="sent">Sent</option>
-                    <option value="signed">Signed</option>
-                    <option value="declined">Declined</option>
-                    <option value="voided">Voided</option>
-                  </select>
+                {request.status === 'signed' ? <a className="button button-secondary" href={signatureCertificateURL(dealID, request.id)}>Download certificate</a> : null}
+                {canWrite && request.provider === 'open_crm_native' && request.status === 'sent' ? (
+                  <Button className="button-danger" type="button" disabled={isSnapshotPending || voidingID === request.id} onClick={() => onVoid(request.id)}>{voidingID === request.id ? 'Voiding…' : 'Void unsigned request'}</Button>
                 ) : null}
               </div>
             </article>
           ))}
         </div>
-        {canWrite ? (
-          <form className="auth-form" onSubmit={onCreate}>
-            <Field label="Recipient name">
-              <input className="text-input" value={form.signerName} onChange={(event) => onSetForm((current) => ({ ...current, signerName: event.target.value }))} required />
-            </Field>
-            <Field label="Recipient email">
-              <input className="text-input" type="email" value={form.signerEmail} onChange={(event) => onSetForm((current) => ({ ...current, signerEmail: event.target.value }))} required />
-            </Field>
-            <Button type="submit" disabled={isSnapshotPending}>{isCreating ? 'Creating...' : 'Create proposal tracking'}</Button>
-          </form>
-        ) : null}
       </div>
     </Card>
   )

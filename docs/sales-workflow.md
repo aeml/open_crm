@@ -1,11 +1,12 @@
 # Sales Workflow
 
-Last reviewed: 2026-07-19
+Last reviewed: 2026-07-21
 
 This is the supported pilot sales path. It joins the production-capable pieces
-that are otherwise described individually in the capability matrix; it does not
-promote the hidden general workflow builder or manual proposal tracking into a
-delivery or e-signature claim.
+that are otherwise described individually in the capability matrix. The native
+quote-signing path is executable production-equivalent behavior but remains a
+foundation until signed-close conversion, policy review, provider evidence, and
+pilot validation pass; the hidden general workflow builder is not promoted.
 
 ## Pilot path
 
@@ -70,9 +71,11 @@ denial.
 
 - A current-data draft PDF remains mutable, while finalized quote versions
   preserve the exact recipient, terms, validity, line-item/totals snapshot, PDF
-  bytes, and SHA-256 digest. Open CRM does not yet deliver that quote, host a
-  customer approval/signing ceremony, or collect a legal signature. Proposal
-  tracking remains a separate manual CRM status.
+  bytes, and SHA-256 digest. Connected-mailbox delivery may request the native
+  recipient-link ceremony, which retains exact-name consent and a certificate;
+  staff cannot forge completion. Approval, automatic signed-close conversion,
+  reusable terms/FX/expiration policy, jurisdiction review, and pilot evidence
+  remain incomplete.
 - Only the exposed deal-task rule subset executes. Stored broad workflow
   definitions, branching, approvals, scheduled actions, and other action types
   remain hidden foundations.
@@ -98,7 +101,7 @@ frequency, and anonymized evidence. Review these questions before changing scope
 | Reminder timing and noise | Dismissed or ignored notifications, late follow-up, and requests for email delivery |
 | Report interpretation | UTC-day confusion, disputed owner/actor attribution, rate questions, and missing drill-down |
 | Close review quality | Repeated use of `other`, unclear fixed reasons, missing context, and reopen/reclose confusion |
-| Proposal-to-handoff gap | Manual status errors, external delivery/signing tools used, and information re-entered after a win |
+| Quote-to-handoff gap | Signature completion failures, external signing tools still used, policy/identity gaps, and information re-entered before close or after a win |
 | Client review cadence | Missed reviews, duplicate task expectations, ownership changes, dashboard horizon, and demand for calendar linkage |
 
 Prioritize a change only from repeated evidence or one severe workflow failure;

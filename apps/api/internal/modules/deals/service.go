@@ -32,6 +32,9 @@ var (
 	ErrQuoteAccessInvalid       = errors.New("invalid deal quote access token")
 	ErrQuoteAccessExpired       = errors.New("deal quote access token expired")
 	ErrInvalidSignatureRequest  = errors.New("invalid deal signature request")
+	ErrSignatureConflict        = errors.New("signature idempotency key was used for another completion")
+	ErrSignatureState           = errors.New("signature request is not in the required state")
+	ErrSignatureExpired         = errors.New("signature request expired")
 	ErrInvalidDealFilter        = errors.New("invalid deal filter")
 	ErrInvalidCloseReview       = errors.New("invalid deal close review")
 	ErrWonDealAccountRequired   = errors.New("won deal account required")
@@ -149,12 +152,23 @@ type LineItemsInput struct {
 
 type SignatureRequest struct {
 	ID              int64  `json:"id"`
+	QuoteID         int64  `json:"quoteId"`
+	DeliveryID      int64  `json:"deliveryId"`
+	QuoteNumber     string `json:"quoteNumber"`
 	SignerName      string `json:"signerName"`
 	SignerEmail     string `json:"signerEmail"`
 	Status          string `json:"status"`
 	Provider        string `json:"provider"`
 	ExternalID      string `json:"externalId"`
 	QuoteFileName   string `json:"quoteFileName"`
+	SignedName      string `json:"signedName"`
+	ConsentText     string `json:"consentText"`
+	ConsentedAt     string `json:"consentedAt"`
+	Authentication  string `json:"authenticationMethod"`
+	DeclinedReason  string `json:"declinedReason"`
+	CertificateName string `json:"certificateFilename"`
+	CertificateSHA  string `json:"certificateSha256"`
+	SigningExpired  bool   `json:"signingExpired"`
 	SentAt          string `json:"sentAt"`
 	SignedAt        string `json:"signedAt"`
 	DeclinedAt      string `json:"declinedAt"`
@@ -163,16 +177,6 @@ type SignatureRequest struct {
 	UpdatedByUserID int64  `json:"updatedByUserId"`
 	CreatedAt       string `json:"createdAt"`
 	UpdatedAt       string `json:"updatedAt"`
-}
-
-type SignatureRequestInput struct {
-	SignerName    string `json:"signerName"`
-	SignerEmail   string `json:"signerEmail"`
-	QuoteFileName string `json:"quoteFileName"`
-}
-
-type SignatureStatusInput struct {
-	Status string `json:"status"`
 }
 
 type PipelineInput struct {
@@ -1005,63 +1009,11 @@ func (s *Service) ReplaceLineItems(ctx context.Context, organizationID, dealID, 
 	return s.GetByID(ctx, organizationID, dealID)
 }
 
-func (s *Service) CreateSignatureRequest(ctx context.Context, organizationID, dealID, actorUserID int64, input SignatureRequestInput) (Detail, error) {
+func (s *Service) VoidSignatureRequest(ctx context.Context, organizationID, dealID, requestID, actorUserID int64) (Detail, error) {
 	if s == nil || s.pool == nil {
 		return Detail{}, fmt.Errorf("deals service not configured")
 	}
-
-	input = normalizeSignatureRequestInput(input)
-	if input.SignerName == "" || !validSignatureEmail(input.SignerEmail) {
-		return Detail{}, ErrInvalidSignatureRequest
-	}
-
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return Detail{}, fmt.Errorf("begin signature request transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	dealName := ""
-	if err := tx.QueryRow(ctx, `
-		SELECT name
-		FROM deals
-		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, dealID).Scan(&dealName); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Detail{}, ErrNotFound
-		}
-		return Detail{}, fmt.Errorf("lookup deal for signature request: %w", err)
-	}
-	if input.QuoteFileName == "" {
-		input.QuoteFileName = fmt.Sprintf("quote-%s.pdf", quoteFilename(dealName))
-	}
-
-	_, err = tx.Exec(ctx, `
-		INSERT INTO deal_signature_requests (organization_id, deal_id, signer_name, signer_email, quote_file_name, created_by_user_id, updated_by_user_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $6)
-	`, organizationID, dealID, input.SignerName, input.SignerEmail, input.QuoteFileName, actorUserID)
-	if err != nil {
-		return Detail{}, mapSignatureRequestSaveError(err)
-	}
-
-	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.signature_request_created", fmt.Sprintf("Proposal tracking created for %s", input.SignerName)); err != nil {
-		return Detail{}, fmt.Errorf("insert signature request activity: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return Detail{}, fmt.Errorf("commit signature request transaction: %w", err)
-	}
-
-	return s.GetByID(ctx, organizationID, dealID)
-}
-
-func (s *Service) UpdateSignatureRequestStatus(ctx context.Context, organizationID, dealID, requestID, actorUserID int64, input SignatureStatusInput) (Detail, error) {
-	if s == nil || s.pool == nil {
-		return Detail{}, fmt.Errorf("deals service not configured")
-	}
-
-	status := normalizeSignatureStatus(input.Status)
-	if status == "" {
+	if organizationID <= 0 || dealID <= 0 || requestID <= 0 || actorUserID <= 0 {
 		return Detail{}, ErrInvalidSignatureRequest
 	}
 
@@ -1071,30 +1023,29 @@ func (s *Service) UpdateSignatureRequestStatus(ctx context.Context, organization
 	}
 	defer tx.Rollback(ctx)
 
-	signerName := ""
+	var signerName, provider, status string
 	if err := tx.QueryRow(ctx, `
-		SELECT dsr.signer_name
+		SELECT dsr.signer_name,dsr.provider,dsr.status
 		FROM deal_signature_requests dsr
 		JOIN deals d ON d.organization_id = dsr.organization_id AND d.id = dsr.deal_id AND d.archived_at IS NULL
 		WHERE dsr.organization_id = $1 AND dsr.deal_id = $2 AND dsr.id = $3
-	`, organizationID, dealID, requestID).Scan(&signerName); err != nil {
+		FOR UPDATE OF dsr
+	`, organizationID, dealID, requestID).Scan(&signerName, &provider, &status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Detail{}, ErrNotFound
 		}
 		return Detail{}, fmt.Errorf("lookup signature request: %w", err)
 	}
+	if provider != "open_crm_native" || status != "sent" {
+		return Detail{}, ErrSignatureState
+	}
 
 	updated, err := tx.Exec(ctx, `
 		UPDATE deal_signature_requests
-		SET status = $4,
-		    sent_at = CASE WHEN $4 IN ('sent', 'signed', 'declined') AND sent_at IS NULL THEN NOW() ELSE sent_at END,
-		    signed_at = CASE WHEN $4 = 'signed' THEN NOW() ELSE signed_at END,
-		    declined_at = CASE WHEN $4 = 'declined' THEN NOW() ELSE declined_at END,
-		    voided_at = CASE WHEN $4 = 'voided' THEN NOW() ELSE voided_at END,
-		    updated_by_user_id = $5,
+		SET status = 'voided',voided_at=NOW(),updated_by_user_id = $4,
 		    updated_at = NOW()
-		WHERE organization_id = $1 AND deal_id = $2 AND id = $3
-	`, organizationID, dealID, requestID, status, actorUserID)
+		WHERE organization_id = $1 AND deal_id = $2 AND id = $3 AND status='sent'
+	`, organizationID, dealID, requestID, actorUserID)
 	if err != nil {
 		return Detail{}, mapSignatureRequestSaveError(err)
 	}
@@ -1102,8 +1053,14 @@ func (s *Service) UpdateSignatureRequestStatus(ctx context.Context, organization
 		return Detail{}, ErrNotFound
 	}
 
-	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.signature_request_updated", fmt.Sprintf("Proposal tracking for %s marked %s", signerName, status)); err != nil {
+	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.signature_request_voided", fmt.Sprintf("Signature request for %s was voided", signerName)); err != nil {
 		return Detail{}, fmt.Errorf("insert signature status activity: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
+		VALUES ($1,$2,'deal.signature_request_voided','deal_signature_request',$3,'Voided a quote signature request',jsonb_build_object('dealId',$4::bigint))
+	`, organizationID, actorUserID, requestID, dealID); err != nil {
+		return Detail{}, fmt.Errorf("audit signature void: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -1304,12 +1261,23 @@ func (s *Service) listSignatureRequests(ctx context.Context, organizationID, dea
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			id,
+			COALESCE(quote_id,0),
+			COALESCE((SELECT delivery.id FROM deal_quote_deliveries delivery WHERE delivery.organization_id=deal_signature_requests.organization_id AND delivery.signature_request_id=deal_signature_requests.id),0),
+			COALESCE((SELECT quote_number FROM deal_quotes quote WHERE quote.organization_id=deal_signature_requests.organization_id AND quote.id=deal_signature_requests.quote_id),''),
 			signer_name,
 			signer_email,
 			status,
 			provider,
 			external_id,
 			quote_file_name,
+			COALESCE(signed_name,''),
+			COALESCE(consent_text_snapshot,''),
+			COALESCE(TO_CHAR(consented_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+			COALESCE(authentication_method,''),
+			COALESCE(declined_reason,''),
+			COALESCE(certificate_filename,''),
+			COALESCE(certificate_sha256,''),
+			COALESCE((SELECT quote.valid_until < (NOW() AT TIME ZONE 'UTC')::date FROM deal_quotes quote WHERE quote.organization_id=deal_signature_requests.organization_id AND quote.id=deal_signature_requests.quote_id),FALSE),
 			COALESCE(TO_CHAR(sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
 			COALESCE(TO_CHAR(signed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
 			COALESCE(TO_CHAR(declined_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
@@ -1332,12 +1300,23 @@ func (s *Service) listSignatureRequests(ctx context.Context, organizationID, dea
 		var request SignatureRequest
 		if err := rows.Scan(
 			&request.ID,
+			&request.QuoteID,
+			&request.DeliveryID,
+			&request.QuoteNumber,
 			&request.SignerName,
 			&request.SignerEmail,
 			&request.Status,
 			&request.Provider,
 			&request.ExternalID,
 			&request.QuoteFileName,
+			&request.SignedName,
+			&request.ConsentText,
+			&request.ConsentedAt,
+			&request.Authentication,
+			&request.DeclinedReason,
+			&request.CertificateName,
+			&request.CertificateSHA,
+			&request.SigningExpired,
 			&request.SentAt,
 			&request.SignedAt,
 			&request.DeclinedAt,
@@ -1590,32 +1569,6 @@ func mapLineItemSaveError(err error) error {
 	return fmt.Errorf("save deal line item: %w", err)
 }
 
-func normalizeSignatureRequestInput(input SignatureRequestInput) SignatureRequestInput {
-	input.SignerName = strings.TrimSpace(input.SignerName)
-	input.SignerEmail = strings.ToLower(strings.TrimSpace(input.SignerEmail))
-	input.QuoteFileName = strings.TrimSpace(input.QuoteFileName)
-	return input
-}
-
-func normalizeSignatureStatus(status string) string {
-	status = strings.ToLower(strings.TrimSpace(status))
-	switch status {
-	case "draft", "sent", "signed", "declined", "voided":
-		return status
-	default:
-		return ""
-	}
-}
-
-func validSignatureEmail(email string) bool {
-	email = strings.TrimSpace(email)
-	if email == "" || strings.ContainsAny(email, " \t\r\n") {
-		return false
-	}
-	at := strings.LastIndex(email, "@")
-	return at > 0 && at < len(email)-1 && strings.Contains(email[at+1:], ".")
-}
-
 func mapSignatureRequestSaveError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -1625,6 +1578,11 @@ func mapSignatureRequestSaveError(err error) error {
 		}
 	}
 	return fmt.Errorf("save deal signature request: %w", err)
+}
+
+func validSignatureEmail(email string) bool {
+	email = strings.TrimSpace(email)
+	return exactQuoteEmail(email) && strings.Contains(email[strings.LastIndexByte(email, '@')+1:], ".")
 }
 
 func mapPipelineSaveError(err error) error {

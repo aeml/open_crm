@@ -39,7 +39,6 @@ export function DealWorkspace({
         <DealLineItemsCard
           canWrite={canWrite}
           deal={deal}
-		  deliveringQuoteId={commercial.deliveringQuoteId}
           form={commercial.lineItemForm}
           isSaving={commercial.isSnapshotPending}
           items={commercial.lineItems}
@@ -56,27 +55,26 @@ export function DealWorkspace({
           areLineItemsDirty={commercial.areLineItemsDirty}
           canWrite={canWrite}
           deal={deal}
+          deliveringQuoteId={commercial.deliveringQuoteId}
           form={commercial.quoteForm}
           isFinalizing={commercial.isFinalizingQuote}
           isSnapshotPending={commercial.isSnapshotPending}
           lineItems={commercial.lineItems}
-		  onDeliver={commercial.handleDeliverQuote}
+          onDeliver={commercial.handleDeliverQuote}
           onFinalize={commercial.handleFinalizeQuote}
           onSetForm={commercial.setQuoteForm}
-		  onResolveDelivery={commercial.handleResolveQuoteDelivery}
+          onResolveDelivery={commercial.handleResolveQuoteDelivery}
           quotes={commercial.quotes}
-		  resolvingDeliveryId={commercial.resolvingDeliveryId}
+          resolvingDeliveryId={commercial.resolvingDeliveryId}
+          signatureRequests={commercial.signatureRequests}
         />
         <DealSignatureCard
           canWrite={canWrite}
-          form={commercial.signatureForm}
-          isCreating={commercial.isCreatingSignatureRequest}
+          dealID={deal.id}
           isSnapshotPending={commercial.isSnapshotPending}
-          onCreate={commercial.handleCreateSignatureRequest}
-          onSetForm={commercial.setSignatureForm}
-          onUpdate={commercial.handleUpdateSignatureRequestStatus}
+          onVoid={commercial.handleVoidSignatureRequest}
           requests={commercial.signatureRequests}
-          updatingID={commercial.updatingSignatureRequestId}
+          voidingID={commercial.voidingSignatureRequestId}
         />
         <DealStageMover
           canWrite={canWrite}

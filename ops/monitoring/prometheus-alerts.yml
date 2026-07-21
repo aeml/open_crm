@@ -335,6 +335,15 @@ groups:
           summary: Finalized-quote deliveries require explicit operator resolution
           runbook: docs/operations-runbook.md#finalized-quote-delivery-and-receipt-recovery
 
+      - alert: OpenCRMQuoteSignaturesExpired
+        expr: open_crm_quote_signature_expired > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Sent quote-signature requests have expired without a recipient decision
+          runbook: docs/operations-runbook.md#finalized-quote-delivery-and-receipt-recovery
+
       - alert: OpenCRMBackupStatusUnavailable
         expr: open_crm_backup_status_available == 0
         for: 30m

@@ -61,10 +61,8 @@ type fakeDealsService struct {
 	publicQuoteErr              error
 	publicQuotePDFResult        moduledeals.QuotePDFFile
 	publicQuotePDFErr           error
-	createSignatureResult       moduledeals.Detail
-	createSignatureErr          error
-	updateSignatureResult       moduledeals.Detail
-	updateSignatureErr          error
+	voidSignatureResult         moduledeals.Detail
+	voidSignatureErr            error
 	lastListStagesOrgID         int64
 	lastListOrgID               int64
 	lastListQuery               moduledeals.ListQuery
@@ -95,15 +93,15 @@ type fakeDealsService struct {
 	lastQuotePDFOrgID           int64
 	lastQuotePDFDealID          int64
 	lastQuotePDFQuoteID         int64
-	lastCreateSignatureOrgID    int64
-	lastCreateSignatureDealID   int64
-	lastCreateSignatureActorID  int64
-	lastCreateSignatureInput    moduledeals.SignatureRequestInput
-	lastUpdateSignatureOrgID    int64
-	lastUpdateSignatureDealID   int64
-	lastUpdateSignatureID       int64
-	lastUpdateSignatureActorID  int64
-	lastUpdateSignatureInput    moduledeals.SignatureStatusInput
+	lastPrepareQuoteInput       moduledeals.QuoteDeliveryInput
+	lastPublicSignatureToken    string
+	lastPublicSignatureInput    moduledeals.SignatureCompletionInput
+	lastPublicDeclineToken      string
+	lastPublicDeclineInput      moduledeals.SignatureDeclineInput
+	lastVoidSignatureOrgID      int64
+	lastVoidSignatureDealID     int64
+	lastVoidSignatureID         int64
+	lastVoidSignatureActorID    int64
 	lastListPipelinesOrgID      int64
 	lastCreatePipelineOrgID     int64
 	lastCreatePipelineActorID   int64
@@ -224,7 +222,8 @@ func (f *fakeDealsService) ReplayQuoteDelivery(_ context.Context, _, _, _, _ int
 	return f.replayQuoteDeliveryResult, f.replayQuoteDeliveryFound, f.replayQuoteDeliveryErr
 }
 
-func (f *fakeDealsService) PrepareQuoteDelivery(_ context.Context, _, _, _, _ int64, _ moduledeals.QuoteDeliveryInput) (moduledeals.QuoteDeliveryIntent, error) {
+func (f *fakeDealsService) PrepareQuoteDelivery(_ context.Context, _, _, _, _ int64, input moduledeals.QuoteDeliveryInput) (moduledeals.QuoteDeliveryIntent, error) {
+	f.lastPrepareQuoteInput = input
 	return f.prepareQuoteDeliveryResult, f.prepareQuoteDeliveryErr
 }
 
@@ -256,21 +255,32 @@ func (f *fakeDealsService) ConfirmPublicQuoteReceipt(_ context.Context, _ string
 	return f.publicQuoteResult, f.publicQuoteErr
 }
 
-func (f *fakeDealsService) CreateSignatureRequest(_ context.Context, organizationID, dealID, actorUserID int64, input moduledeals.SignatureRequestInput) (moduledeals.Detail, error) {
-	f.lastCreateSignatureOrgID = organizationID
-	f.lastCreateSignatureDealID = dealID
-	f.lastCreateSignatureActorID = actorUserID
-	f.lastCreateSignatureInput = input
-	return f.createSignatureResult, f.createSignatureErr
+func (f *fakeDealsService) SignPublicQuote(_ context.Context, token string, input moduledeals.SignatureCompletionInput) (moduledeals.PublicQuote, error) {
+	f.lastPublicSignatureToken = token
+	f.lastPublicSignatureInput = input
+	return f.publicQuoteResult, f.publicQuoteErr
 }
 
-func (f *fakeDealsService) UpdateSignatureRequestStatus(_ context.Context, organizationID, dealID, requestID, actorUserID int64, input moduledeals.SignatureStatusInput) (moduledeals.Detail, error) {
-	f.lastUpdateSignatureOrgID = organizationID
-	f.lastUpdateSignatureDealID = dealID
-	f.lastUpdateSignatureID = requestID
-	f.lastUpdateSignatureActorID = actorUserID
-	f.lastUpdateSignatureInput = input
-	return f.updateSignatureResult, f.updateSignatureErr
+func (f *fakeDealsService) DeclinePublicQuote(_ context.Context, token string, input moduledeals.SignatureDeclineInput) (moduledeals.PublicQuote, error) {
+	f.lastPublicDeclineToken = token
+	f.lastPublicDeclineInput = input
+	return f.publicQuoteResult, f.publicQuoteErr
+}
+
+func (f *fakeDealsService) GetSignatureCertificate(_ context.Context, _, _, _ int64) (moduledeals.QuotePDFFile, error) {
+	return f.publicQuotePDFResult, f.publicQuotePDFErr
+}
+
+func (f *fakeDealsService) GetPublicSignatureCertificate(_ context.Context, _ string) (moduledeals.QuotePDFFile, error) {
+	return f.publicQuotePDFResult, f.publicQuotePDFErr
+}
+
+func (f *fakeDealsService) VoidSignatureRequest(_ context.Context, organizationID, dealID, requestID, actorUserID int64) (moduledeals.Detail, error) {
+	f.lastVoidSignatureOrgID = organizationID
+	f.lastVoidSignatureDealID = dealID
+	f.lastVoidSignatureID = requestID
+	f.lastVoidSignatureActorID = actorUserID
+	return f.voidSignatureResult, f.voidSignatureErr
 }
 
 func authenticatedDealsServer(service *fakeDealsService) http.Handler {
@@ -668,7 +678,7 @@ func TestSendDealQuoteUsesDurableIntentAndConnectedMailbox(t *testing.T) {
 		Delivery: moduledeals.QuoteDelivery{
 			ID: 91, DealID: 12, QuoteID: 71, ActorUserID: 1, SenderEmail: "owner@acme.test",
 			RecipientEmail: "buyer@example.test", Subject: "Quote Q-12-V2", MessageBody: "Please review this quote.",
-			RFCMessageID: "<quote-91@acme.test>", Status: "prepared",
+			RFCMessageID: "<quote-91@acme.test>", SignatureRequestID: 41, Status: "prepared",
 		},
 		AccessURL: "https://crm.example.test/quote?token=secure-quote-token",
 	}
@@ -694,7 +704,7 @@ func TestSendDealQuoteUsesDurableIntentAndConnectedMailbox(t *testing.T) {
 		}},
 		DealsService: service, UserEmailService: accounts, EmailSuppressionsService: suppressions,
 	})
-	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/deliveries", strings.NewReader(`{"subject":"Quote Q-12-V2","messageBody":"Please review this quote."}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/deliveries", strings.NewReader(`{"subject":"Quote Q-12-V2","messageBody":"Please review this quote.","requestSignature":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", "quote-delivery-browser-0001")
 	addSessionCookie(request)
@@ -706,14 +716,40 @@ func TestSendDealQuoteUsesDurableIntentAndConnectedMailbox(t *testing.T) {
 	if !accounts.sendCalled || accounts.sendTo != "buyer@example.test" || accounts.sendSubject != "Quote Q-12-V2" || accounts.sendMessageID != prepared.Delivery.RFCMessageID {
 		t.Fatalf("unexpected quote provider message: accounts=%#v", accounts)
 	}
-	if !strings.Contains(accounts.sendBody, prepared.AccessURL) || !strings.Contains(accounts.sendBody, "not a signature or acceptance") {
-		t.Fatalf("quote email omitted secure link/disclaimer: %q", accounts.sendBody)
+	if !service.lastPrepareQuoteInput.RequestSignature || service.lastPrepareQuoteInput.SenderEmail != "owner@acme.test" {
+		t.Fatalf("quote signature request was not bound at preparation: %#v", service.lastPrepareQuoteInput)
+	}
+	if !strings.Contains(accounts.sendBody, prepared.AccessURL) || !strings.Contains(accounts.sendBody, "electronically sign") || !strings.Contains(accounts.sendBody, "audit certificate") {
+		t.Fatalf("quote signature email omitted ceremony details: %q", accounts.sendBody)
 	}
 	if !suppressions.isCalled || suppressions.lastOrgID != 42 || suppressions.lastEmail != "buyer@example.test" {
 		t.Fatalf("quote delivery suppression check missing: %#v", suppressions)
 	}
 	if strings.Contains(recorder.Body.String(), "secure-quote-token") {
 		t.Fatalf("authenticated quote response leaked bearer URL: %s", recorder.Body.String())
+	}
+}
+
+func TestSendDealQuoteRejectsExpiredSignatureBeforeProviderCall(t *testing.T) {
+	service := &fakeDealsService{prepareQuoteDeliveryErr: moduledeals.ErrSignatureExpired}
+	accounts := &fakeUserEmailService{account: moduleuseremail.Account{FromEmail: "owner@acme.test"}}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User: moduleauth.User{ID: 1, Email: "owner@acme.test"}, Organization: moduleauth.Organization{ID: 42, Name: "Acme"}, Membership: moduleauth.Membership{Role: "owner"},
+		}},
+		DealsService: service, UserEmailService: accounts,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/quotes/71/deliveries", strings.NewReader(`{"subject":"Quote Q-12-V2","messageBody":"Please review this quote.","requestSignature":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "quote-delivery-expired-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"SIGNATURE_EXPIRED"`) {
+		t.Fatalf("expired signature delivery status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if accounts.sendCalled {
+		t.Fatal("expired signature delivery crossed the provider boundary")
 	}
 }
 
@@ -832,6 +868,46 @@ func TestPublicDealQuotePreviewDownloadAndReceiptAreUnauthenticatedAndPrivate(t 
 	server.ServeHTTP(receipt, httptest.NewRequest(http.MethodPost, "/api/public/quotes/secure-token/receipt", nil))
 	if receipt.Code != http.StatusOK || !strings.Contains(receipt.Body.String(), quote.QuoteNumber) {
 		t.Fatalf("public quote receipt status=%d body=%s", receipt.Code, receipt.Body.String())
+	}
+}
+
+func TestPublicDealQuoteSignatureDeclineAndCertificateUseExplicitBoundary(t *testing.T) {
+	quote := moduledeals.PublicQuote{QuoteNumber: "Q-12-V2", Signature: &moduledeals.PublicQuoteSignature{Status: "signed", SignedName: "Avery Buyer", CertificateSHA256: strings.Repeat("b", 64)}}
+	certificate := moduledeals.QuotePDFFile{Filename: "signature-certificate-q-12-v2.pdf", Content: []byte("%PDF-1.4 certificate"), ContentSHA256: quote.Signature.CertificateSHA256}
+	service := &fakeDealsService{publicQuoteResult: quote, publicQuotePDFResult: certificate}
+	server := NewServer(config.Env{}, Dependencies{DealsService: service})
+
+	sign := httptest.NewRequest(http.MethodPost, "/api/public/quotes/secure-token/signature", strings.NewReader(`{"signerName":"Avery Buyer","consent":true}`))
+	sign.Header.Set("Content-Type", "application/json")
+	sign.Header.Set("Idempotency-Key", "public-signature-handler-0001")
+	signRecorder := httptest.NewRecorder()
+	server.ServeHTTP(signRecorder, sign)
+	if signRecorder.Code != http.StatusOK || service.lastPublicSignatureToken != "secure-token" || service.lastPublicSignatureInput.SignerName != "Avery Buyer" || !service.lastPublicSignatureInput.Consent || service.lastPublicSignatureInput.IdempotencyKey != "public-signature-handler-0001" {
+		t.Fatalf("public signature boundary status=%d input=%#v body=%s", signRecorder.Code, service.lastPublicSignatureInput, signRecorder.Body.String())
+	}
+	if signRecorder.Header().Get("Cache-Control") != "private, no-store" || signRecorder.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("public signature response was cacheable: %v", signRecorder.Header())
+	}
+
+	decline := httptest.NewRequest(http.MethodPost, "/api/public/quotes/secure-token/decline", strings.NewReader(`{"reason":"Scope changed"}`))
+	decline.Header.Set("Content-Type", "application/json")
+	decline.Header.Set("Idempotency-Key", "public-decline-handler-0001")
+	declineRecorder := httptest.NewRecorder()
+	server.ServeHTTP(declineRecorder, decline)
+	if declineRecorder.Code != http.StatusOK || service.lastPublicDeclineToken != "secure-token" || service.lastPublicDeclineInput.Reason != "Scope changed" || service.lastPublicDeclineInput.IdempotencyKey != "public-decline-handler-0001" {
+		t.Fatalf("public decline boundary status=%d input=%#v body=%s", declineRecorder.Code, service.lastPublicDeclineInput, declineRecorder.Body.String())
+	}
+
+	download := httptest.NewRecorder()
+	server.ServeHTTP(download, httptest.NewRequest(http.MethodGet, "/api/public/quotes/secure-token/signature-certificate", nil))
+	if download.Code != http.StatusOK || download.Header().Get("X-Open-CRM-Content-SHA256") != certificate.ContentSHA256 || download.Header().Get("Referrer-Policy") != "no-referrer" || !bytes.Equal(download.Body.Bytes(), certificate.Content) {
+		t.Fatalf("public certificate status=%d headers=%v body=%q", download.Code, download.Header(), download.Body.Bytes())
+	}
+
+	missingKey := httptest.NewRecorder()
+	server.ServeHTTP(missingKey, httptest.NewRequest(http.MethodPost, "/api/public/quotes/secure-token/signature", strings.NewReader(`{"signerName":"Avery Buyer","consent":true}`)))
+	if missingKey.Code != http.StatusBadRequest {
+		t.Fatalf("signature without idempotency key status=%d body=%s", missingKey.Code, missingKey.Body.String())
 	}
 }
 
@@ -1010,78 +1086,27 @@ func TestReplaceDealLineItemsUsesCurrentOrganization(t *testing.T) {
 	}
 }
 
-func TestCreateDealSignatureRequestUsesCurrentOrganization(t *testing.T) {
+func TestVoidDealSignatureRequestUsesCurrentOrganization(t *testing.T) {
 	service := &fakeDealsService{
-		createSignatureResult: moduledeals.Detail{
+		voidSignatureResult: moduledeals.Detail{
 			Summary: moduledeals.Summary{ID: 12, Name: "Bluebird Rollout", StageID: 3, StageName: "Proposal", ValueAmount: "308.00", ValueCurrency: "USD", Status: "open", OwnerUserID: 1},
 			SignatureRequests: []moduledeals.SignatureRequest{{
 				ID:            41,
+				QuoteID:       9,
 				SignerName:    "Ava Stone",
 				SignerEmail:   "ava@bluebird.example",
-				Status:        "draft",
-				Provider:      "native_tracking",
-				QuoteFileName: "quote-bluebird-rollout.pdf",
+				Status:        "voided",
+				Provider:      "open_crm_native",
+				QuoteFileName: "quote-bluebird-rollout-v1.pdf",
 				CreatedAt:     "2026-06-20T21:00:00Z",
 				UpdatedAt:     "2026-06-20T21:00:00Z",
 			}},
-			Activities: []moduledeals.ActivityEntry{{ID: 95, Action: "deal.signature_request_created", Summary: "Proposal tracking created for Ava Stone", CreatedAt: time.Date(2026, 6, 20, 21, 0, 0, 0, time.UTC)}},
+			Activities: []moduledeals.ActivityEntry{{ID: 95, Action: "deal.signature_request_voided", Summary: "Signature request for Ava Stone was voided", CreatedAt: time.Date(2026, 6, 20, 21, 0, 0, 0, time.UTC)}},
 		},
 	}
 	server := authenticatedDealsServer(service)
 
-	body := bytes.NewBufferString(`{"signerName":"Ava Stone","signerEmail":"ava@bluebird.example","quoteFileName":"quote-bluebird-rollout.pdf"}`)
-	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/signature-requests", body)
-	request.Header.Set("Content-Type", "application/json")
-	addSessionCookie(request)
-	recorder := httptest.NewRecorder()
-
-	server.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
-	}
-	if service.lastCreateSignatureOrgID != 42 || service.lastCreateSignatureDealID != 12 || service.lastCreateSignatureActorID != 1 {
-		t.Fatalf("unexpected signature create routing: org=%d deal=%d actor=%d", service.lastCreateSignatureOrgID, service.lastCreateSignatureDealID, service.lastCreateSignatureActorID)
-	}
-	if service.lastCreateSignatureInput.SignerName != "Ava Stone" || service.lastCreateSignatureInput.SignerEmail != "ava@bluebird.example" {
-		t.Fatalf("unexpected signature create input: %#v", service.lastCreateSignatureInput)
-	}
-
-	var response struct {
-		Data struct {
-			SignatureRequests []moduledeals.SignatureRequest `json:"signatureRequests"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("expected valid JSON, got error: %v", err)
-	}
-	if len(response.Data.SignatureRequests) != 1 || response.Data.SignatureRequests[0].Status != "draft" {
-		t.Fatalf("unexpected signature response: %#v", response.Data.SignatureRequests)
-	}
-}
-
-func TestUpdateDealSignatureRequestStatusUsesCurrentOrganization(t *testing.T) {
-	service := &fakeDealsService{
-		updateSignatureResult: moduledeals.Detail{
-			Summary: moduledeals.Summary{ID: 12, Name: "Bluebird Rollout", StageID: 3, StageName: "Proposal", ValueAmount: "308.00", ValueCurrency: "USD", Status: "open", OwnerUserID: 1},
-			SignatureRequests: []moduledeals.SignatureRequest{{
-				ID:          41,
-				SignerName:  "Ava Stone",
-				SignerEmail: "ava@bluebird.example",
-				Status:      "signed",
-				Provider:    "native_tracking",
-				SignedAt:    "2026-06-20T21:30:00Z",
-				CreatedAt:   "2026-06-20T21:00:00Z",
-				UpdatedAt:   "2026-06-20T21:30:00Z",
-			}},
-			Activities: []moduledeals.ActivityEntry{{ID: 96, Action: "deal.signature_request_updated", Summary: "Proposal tracking for Ava Stone marked signed", CreatedAt: time.Date(2026, 6, 20, 21, 30, 0, 0, time.UTC)}},
-		},
-	}
-	server := authenticatedDealsServer(service)
-
-	body := bytes.NewBufferString(`{"status":"signed"}`)
-	request := httptest.NewRequest(http.MethodPatch, "/api/deals/12/signature-requests/41", body)
-	request.Header.Set("Content-Type", "application/json")
+	request := httptest.NewRequest(http.MethodPost, "/api/deals/12/signature-requests/41/void", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -1090,11 +1115,8 @@ func TestUpdateDealSignatureRequestStatusUsesCurrentOrganization(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
 	}
-	if service.lastUpdateSignatureOrgID != 42 || service.lastUpdateSignatureDealID != 12 || service.lastUpdateSignatureID != 41 || service.lastUpdateSignatureActorID != 1 {
-		t.Fatalf("unexpected signature update routing: org=%d deal=%d request=%d actor=%d", service.lastUpdateSignatureOrgID, service.lastUpdateSignatureDealID, service.lastUpdateSignatureID, service.lastUpdateSignatureActorID)
-	}
-	if service.lastUpdateSignatureInput.Status != "signed" {
-		t.Fatalf("unexpected signature update input: %#v", service.lastUpdateSignatureInput)
+	if service.lastVoidSignatureOrgID != 42 || service.lastVoidSignatureDealID != 12 || service.lastVoidSignatureID != 41 || service.lastVoidSignatureActorID != 1 {
+		t.Fatalf("unexpected signature void routing: org=%d deal=%d request=%d actor=%d", service.lastVoidSignatureOrgID, service.lastVoidSignatureDealID, service.lastVoidSignatureID, service.lastVoidSignatureActorID)
 	}
 
 	var response struct {
@@ -1105,7 +1127,7 @@ func TestUpdateDealSignatureRequestStatusUsesCurrentOrganization(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("expected valid JSON, got error: %v", err)
 	}
-	if len(response.Data.SignatureRequests) != 1 || response.Data.SignatureRequests[0].Status != "signed" {
+	if len(response.Data.SignatureRequests) != 1 || response.Data.SignatureRequests[0].Status != "voided" {
 		t.Fatalf("unexpected signature response: %#v", response.Data.SignatureRequests)
 	}
 }

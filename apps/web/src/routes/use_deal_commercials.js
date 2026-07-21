@@ -1,24 +1,22 @@
 import { useRef, useState } from 'react'
 import {
-  createDealSignatureRequest,
   deliverDealQuote,
   finalizeDealQuote,
   replaceDealLineItems,
   resolveDealQuoteDelivery,
-  updateDealSignatureRequestStatus
+  voidDealSignatureRequest
 } from '../lib/deals'
 import { createIdempotencyKey } from '../lib/idempotency'
 import {
   emptyLineItemForm,
   emptyLineTotals,
   emptyQuoteForm,
-  emptySignatureForm,
   lineItemFormFromCatalogItem,
   lineItemPayload
 } from './deal_view'
 import { requireDealResponse } from './use_deal_selection'
 
-// useDealCommercials keeps quote-line and manual proposal-tracking state and
+// useDealCommercials keeps quote-line and immutable signature-request state and
 // mutations together. The route remains responsible for selecting a deal and
 // applying the returned deal/activity snapshot to its directory and timeline.
 export function useDealCommercials({ selectedDealId, selection, onDealUpdated, onError }) {
@@ -29,17 +27,15 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
   const [quotes, setQuotes] = useState([])
   const [quoteForm, setQuoteForm] = useState(() => emptyQuoteForm())
   const [signatureRequests, setSignatureRequests] = useState([])
-  const [signatureForm, setSignatureForm] = useState(emptySignatureForm)
   const [isSavingLineItems, setIsSavingLineItems] = useState(false)
   const [isFinalizingQuote, setIsFinalizingQuote] = useState(false)
   const [deliveringQuoteId, setDeliveringQuoteId] = useState(null)
   const [resolvingDeliveryId, setResolvingDeliveryId] = useState(null)
   const [areLineItemsDirty, setAreLineItemsDirty] = useState(false)
-  const [isCreatingSignatureRequest, setIsCreatingSignatureRequest] = useState(false)
-  const [updatingSignatureRequestId, setUpdatingSignatureRequestId] = useState(null)
+  const [voidingSignatureRequestId, setVoidingSignatureRequestId] = useState(null)
   const quoteAttempt = useRef(null)
   const deliveryAttempts = useRef(new Map())
-  const isSnapshotPending = isSavingLineItems || isFinalizingQuote || isCreatingSignatureRequest || updatingSignatureRequestId !== null
+  const isSnapshotPending = isSavingLineItems || isFinalizingQuote || voidingSignatureRequestId !== null
 
   function refresh(data) {
     setLineItems(data.lineItems || [])
@@ -58,13 +54,11 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     setAreLineItemsDirty(false)
     quoteAttempt.current = null
     deliveryAttempts.current.clear()
-    setSignatureForm(emptySignatureForm)
     setIsSavingLineItems(false)
     setIsFinalizingQuote(false)
     setDeliveringQuoteId(null)
     setResolvingDeliveryId(null)
-    setIsCreatingSignatureRequest(false)
-    setUpdatingSignatureRequestId(null)
+    setVoidingSignatureRequestId(null)
   }
 
   function reset() {
@@ -77,13 +71,11 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     quoteAttempt.current = null
     deliveryAttempts.current.clear()
     setSignatureRequests([])
-    setSignatureForm(emptySignatureForm)
     setIsSavingLineItems(false)
     setIsFinalizingQuote(false)
     setDeliveringQuoteId(null)
     setResolvingDeliveryId(null)
-    setIsCreatingSignatureRequest(false)
-    setUpdatingSignatureRequestId(null)
+    setVoidingSignatureRequestId(null)
   }
 
   function handleCatalogLineItemChange(event) {
@@ -178,10 +170,35 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     }))
   }
 
+  function replaceSignatureFromDelivery(quote, delivery) {
+    if (!delivery.signatureRequestId) return
+    const status = delivery.status === 'sent' ? 'sent' : delivery.status === 'failed' ? 'voided' : 'draft'
+    setSignatureRequests((current) => {
+      const existing = current.find((entry) => entry.id === delivery.signatureRequestId)
+      if (existing && ['signed', 'declined', 'voided'].includes(existing.status)) return current
+      const request = {
+        ...(existing || {}),
+        id: delivery.signatureRequestId,
+        quoteId: quote.id,
+        deliveryId: delivery.id,
+        quoteNumber: quote.quoteNumber,
+        signerName: quote.recipientName,
+        signerEmail: quote.recipientEmail,
+        status,
+        provider: 'open_crm_native',
+        quoteFileName: quote.pdfFilename,
+        sentAt: delivery.sentAt || '',
+        createdAt: existing?.createdAt || delivery.createdAt,
+        updatedAt: delivery.updatedAt
+      }
+      return [request, ...current.filter((entry) => entry.id !== request.id)]
+    })
+  }
+
   async function handleDeliverQuote(quote, input) {
     const operation = selection.start(`quote-delivery-${quote.id}`, selectedDealId)
     if (!operation) return
-    const payload = { subject: input.subject.trim(), messageBody: input.messageBody.trim() }
+    const payload = { subject: input.subject.trim(), messageBody: input.messageBody.trim(), requestSignature: Boolean(input.requestSignature) }
     const fingerprint = JSON.stringify(payload)
     const prior = deliveryAttempts.current.get(quote.id)
     if (prior?.fingerprint !== fingerprint) {
@@ -193,6 +210,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       if (!delivery?.id) throw new Error('Unable to deliver quote.')
       if (selection.isCurrent(operation.selection)) {
         replaceQuoteDelivery(quote.id, delivery)
+        replaceSignatureFromDelivery(quote, delivery)
         if (delivery.status === 'sent' || delivery.status === 'failed') deliveryAttempts.current.delete(quote.id)
         onError('')
       }
@@ -213,6 +231,8 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       if (!delivery?.id) throw new Error('Unable to resolve quote delivery.')
       if (selection.isCurrent(operation.selection)) {
         replaceQuoteDelivery(quoteID, delivery)
+        const quote = quotes.find((entry) => entry.id === quoteID)
+        if (quote) replaceSignatureFromDelivery(quote, delivery)
         if (delivery.status === 'sent' || delivery.status === 'failed') deliveryAttempts.current.delete(quoteID)
         onError('')
       }
@@ -224,44 +244,15 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     }
   }
 
-  async function handleCreateSignatureRequest(event) {
-    event.preventDefault()
-    const operation = selection.start('signature-create', selectedDealId, { group: 'deal-snapshot' })
-    if (!operation || !signatureForm.signerName.trim() || !signatureForm.signerEmail.trim()) {
-      selection.finish(operation)
-      return
-    }
-    setIsCreatingSignatureRequest(true)
-    try {
-      const data = requireDealResponse(await createDealSignatureRequest(operation.dealId, {
-        signerName: signatureForm.signerName.trim(), signerEmail: signatureForm.signerEmail.trim()
-      }), operation.dealId, 'Unable to create proposal tracking.')
-      const isCurrent = selection.isCurrent(operation.selection)
-      if (selection.canApply(operation)) onDealUpdated(data, operation.dealId, isCurrent)
-      if (isCurrent) {
-        refresh(data)
-        setSignatureForm(emptySignatureForm)
-        onError('')
-      }
-    } catch (signatureError) {
-      if (selection.isCurrent(operation.selection)) {
-        onError(signatureError.message || 'Unable to create proposal tracking.')
-      }
-    } finally {
-      selection.finish(operation)
-      if (selection.isCurrent(operation.selection)) setIsCreatingSignatureRequest(false)
-    }
-  }
-
-  async function handleUpdateSignatureRequestStatus(requestID, status) {
-    const operation = selection.start(`signature-${requestID}`, selectedDealId, { group: 'deal-snapshot' })
+  async function handleVoidSignatureRequest(requestID) {
+    const operation = selection.start(`signature-void-${requestID}`, selectedDealId, { group: 'deal-snapshot' })
     if (!operation) return
-    setUpdatingSignatureRequestId(requestID)
+    setVoidingSignatureRequestId(requestID)
     try {
       const data = requireDealResponse(
-        await updateDealSignatureRequestStatus(operation.dealId, requestID, status),
+        await voidDealSignatureRequest(operation.dealId, requestID),
         operation.dealId,
-        'Unable to update proposal tracking.'
+        'Unable to void signature request.'
       )
       const isCurrent = selection.isCurrent(operation.selection)
       if (selection.canApply(operation)) onDealUpdated(data, operation.dealId, isCurrent)
@@ -271,25 +262,23 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
       }
     } catch (signatureError) {
       if (selection.isCurrent(operation.selection)) {
-        onError(signatureError.message || 'Unable to update proposal tracking.')
+        onError(signatureError.message || 'Unable to void signature request.')
       }
     } finally {
       selection.finish(operation)
-      if (selection.isCurrent(operation.selection)) setUpdatingSignatureRequestId(null)
+      if (selection.isCurrent(operation.selection)) setVoidingSignatureRequestId(null)
     }
   }
 
   return {
     handleAddLineItem,
     handleCatalogLineItemChange,
-    handleCreateSignatureRequest,
     handleFinalizeQuote,
     handleDeliverQuote,
     handleResolveQuoteDelivery,
     handleRemoveLineItem,
     handleSaveLineItems,
-    handleUpdateSignatureRequestStatus,
-    isCreatingSignatureRequest,
+    handleVoidSignatureRequest,
     isFinalizingQuote,
     deliveringQuoteId,
     resolvingDeliveryId,
@@ -307,9 +296,7 @@ export function useDealCommercials({ selectedDealId, selection, onDealUpdated, o
     quotes,
     setLineItemForm,
     setQuoteForm,
-    setSignatureForm,
-    signatureForm,
     signatureRequests,
-    updatingSignatureRequestId
+    voidingSignatureRequestId
   }
 }

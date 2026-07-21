@@ -13,8 +13,9 @@ import (
 )
 
 type dealQuoteDeliveryRequest struct {
-	Subject     string `json:"subject"`
-	MessageBody string `json:"messageBody"`
+	Subject          string `json:"subject"`
+	MessageBody      string `json:"messageBody"`
+	RequestSignature bool   `json:"requestSignature"`
 }
 
 type dealQuoteDeliveryResolutionRequest struct {
@@ -120,7 +121,7 @@ func handleSendDealQuote(auth authService, deals dealsService, accounts userEmai
 	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
-	input := moduledeals.QuoteDeliveryInput{Subject: request.Subject, MessageBody: request.MessageBody, IdempotencyKey: idempotencyKey}
+	input := moduledeals.QuoteDeliveryInput{Subject: request.Subject, MessageBody: request.MessageBody, RequestSignature: request.RequestSignature, IdempotencyKey: idempotencyKey}
 	replayed, found, err := deals.ReplayQuoteDelivery(r.Context(), state.Organization.ID, dealID, quoteID, state.User.ID, input)
 	if err != nil {
 		writeQuoteDeliveryServiceError(w, requestID, err)
@@ -336,6 +337,10 @@ func writeQuoteDeliveryServiceError(w http.ResponseWriter, requestID string, err
 		platformweb.WriteError(w, http.StatusConflict, requestID, "IDEMPOTENCY_CONFLICT", "That idempotency key was already used for another quote delivery")
 	case errors.Is(err, moduledeals.ErrQuoteDeliveryState):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "QUOTE_DELIVERY_STATE", "Resolve the current quote delivery before trying again")
+	case errors.Is(err, moduledeals.ErrSignatureState):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "SIGNATURE_STATE", "This quote already has an active or completed signature request")
+	case errors.Is(err, moduledeals.ErrSignatureExpired):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "SIGNATURE_EXPIRED", "Finalize a new quote before requesting a signature")
 	case errors.Is(err, moduledeals.ErrQuoteDeliveryUnavailable):
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Quote delivery requires a configured credential key and public web URL")
 	default:

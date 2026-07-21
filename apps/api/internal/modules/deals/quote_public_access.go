@@ -12,18 +12,19 @@ import (
 )
 
 type PublicQuote struct {
-	OrganizationName   string `json:"organizationName"`
-	QuoteNumber        string `json:"quoteNumber"`
-	DealName           string `json:"dealName"`
-	RecipientName      string `json:"recipientName"`
-	Currency           string `json:"currency"`
-	Total              string `json:"total"`
-	ValidUntil         string `json:"validUntil"`
-	Terms              string `json:"terms"`
-	PDFFilename        string `json:"pdfFilename"`
-	PDFSHA256          string `json:"pdfSha256"`
-	SentAt             string `json:"sentAt"`
-	ReceiptConfirmedAt string `json:"receiptConfirmedAt,omitempty"`
+	OrganizationName   string                `json:"organizationName"`
+	QuoteNumber        string                `json:"quoteNumber"`
+	DealName           string                `json:"dealName"`
+	RecipientName      string                `json:"recipientName"`
+	Currency           string                `json:"currency"`
+	Total              string                `json:"total"`
+	ValidUntil         string                `json:"validUntil"`
+	Terms              string                `json:"terms"`
+	PDFFilename        string                `json:"pdfFilename"`
+	PDFSHA256          string                `json:"pdfSha256"`
+	SentAt             string                `json:"sentAt"`
+	ReceiptConfirmedAt string                `json:"receiptConfirmedAt,omitempty"`
+	Signature          *PublicQuoteSignature `json:"signature,omitempty"`
 }
 
 func (s *Service) GetPublicQuote(ctx context.Context, token string) (PublicQuote, error) {
@@ -39,7 +40,7 @@ func (s *Service) GetPublicQuote(ctx context.Context, token string) (PublicQuote
 		return PublicQuote{}, fmt.Errorf("begin public quote access: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	quote, deliveryID, expiresAt, err := loadPublicQuote(ctx, tx, quoteDeliverySHA(token))
+	quote, deliveryID, expiresAt, err := loadPublicQuote(ctx, tx, quoteDeliverySHA(token), s.clock().UTC())
 	if err != nil {
 		return PublicQuote{}, err
 	}
@@ -119,7 +120,7 @@ func (s *Service) ConfirmPublicQuoteReceipt(ctx context.Context, token string) (
 		return PublicQuote{}, fmt.Errorf("begin quote receipt confirmation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	quote, deliveryID, expiresAt, err := loadPublicQuote(ctx, tx, quoteDeliverySHA(token))
+	quote, deliveryID, expiresAt, err := loadPublicQuote(ctx, tx, quoteDeliverySHA(token), s.clock().UTC())
 	if err != nil {
 		return PublicQuote{}, err
 	}
@@ -163,30 +164,51 @@ func (s *Service) ConfirmPublicQuoteReceipt(ctx context.Context, token string) (
 	return quote, nil
 }
 
-func loadPublicQuote(ctx context.Context, tx pgx.Tx, tokenDigest string) (PublicQuote, int64, time.Time, error) {
+func loadPublicQuote(ctx context.Context, tx pgx.Tx, tokenDigest string, now time.Time) (PublicQuote, int64, time.Time, error) {
 	var quote PublicQuote
 	var deliveryID int64
+	var signatureID int64
+	var signature PublicQuoteSignature
 	var expiresAt time.Time
 	err := tx.QueryRow(ctx, `
 		SELECT q.organization_name,q.quote_number,q.deal_name,q.recipient_name,q.currency,q.total::text,
 		       TO_CHAR(q.valid_until,'YYYY-MM-DD'),q.terms,q.pdf_filename,q.pdf_sha256,
 		       TO_CHAR(delivery.sent_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
 		       COALESCE(TO_CHAR(delivery.receipt_confirmed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
-		       delivery.id,delivery.access_expires_at
+		       delivery.id,delivery.access_expires_at,COALESCE(signature.id,0),
+		       COALESCE(signature.status,''),COALESCE(signature.signer_name,''),COALESCE(signature.consent_text_snapshot,''),
+		       COALESCE(signature.signed_name,''),
+		       COALESCE(TO_CHAR(signature.signed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
+		       COALESCE(TO_CHAR(signature.declined_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
+		       COALESCE(TO_CHAR(signature.voided_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
+		       COALESCE(signature.certificate_filename,''),COALESCE(signature.certificate_sha256,'')
 		FROM deal_quote_deliveries delivery
 		JOIN deal_quotes q ON q.organization_id=delivery.organization_id AND q.id=delivery.quote_id
+		LEFT JOIN deal_signature_requests signature
+		  ON signature.organization_id=delivery.organization_id AND signature.id=delivery.signature_request_id
 		WHERE delivery.access_token_digest=$1 AND delivery.status='sent'
 		FOR UPDATE OF delivery FOR SHARE OF q
 	`, tokenDigest).Scan(
 		&quote.OrganizationName, &quote.QuoteNumber, &quote.DealName, &quote.RecipientName, &quote.Currency, &quote.Total,
 		&quote.ValidUntil, &quote.Terms, &quote.PDFFilename, &quote.PDFSHA256, &quote.SentAt, &quote.ReceiptConfirmedAt,
-		&deliveryID, &expiresAt,
+		&deliveryID, &expiresAt, &signatureID, &signature.Status, &signature.SignerName, &signature.ConsentText,
+		&signature.SignedName, &signature.SignedAt, &signature.DeclinedAt, &signature.VoidedAt,
+		&signature.CertificateFilename, &signature.CertificateSHA256,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PublicQuote{}, 0, time.Time{}, ErrQuoteAccessInvalid
 	}
 	if err != nil {
 		return PublicQuote{}, 0, time.Time{}, fmt.Errorf("load public quote: %w", err)
+	}
+	if signatureID > 0 {
+		validUntil, parseErr := time.Parse(time.DateOnly, quote.ValidUntil)
+		if parseErr != nil {
+			return PublicQuote{}, 0, time.Time{}, fmt.Errorf("parse signature expiry: %w", parseErr)
+		}
+		signature.SigningExpiresAt = formatQuoteDeliveryTime(validUntil.Add(24 * time.Hour))
+		signature.CanSign = signature.Status == "sent" && validUntil.Add(24*time.Hour).After(now.UTC())
+		quote.Signature = &signature
 	}
 	return quote, deliveryID, expiresAt, nil
 }

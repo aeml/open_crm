@@ -11,21 +11,22 @@ import (
 // own account, or requeue durable work whose effect is independently guarded
 // by the worker policy.
 var hostedWriteRecoveryRoutes = map[string]struct{}{
-	"PATCH /api/me/profile":                          {},
-	"PATCH /api/me/preferences":                      {},
-	"DELETE /api/me/sessions/{sessionID}":            {},
-	"DELETE /api/me/sessions/others":                 {},
-	"DELETE /api/users/{userID}/invitation":          {},
-	"PATCH /api/notifications/{notificationID}/read": {},
-	"POST /api/notifications/read-all":               {},
-	"POST /api/admin/background-jobs/{jobID}/replay": {},
-	"POST /api/billing/change-plan":                  {},
-	"POST /api/billing/checkout-session":             {},
-	"POST /api/billing/portal-session":               {},
-	"POST /api/billing/webhooks/stripe":              {},
-	"POST /api/email/webhooks/postmark":              {},
-	"POST /api/email-unsubscribe/{token}":            {},
-	"POST /api/workspace-exports":                    {},
+	"PATCH /api/me/profile":                                        {},
+	"PATCH /api/me/preferences":                                    {},
+	"DELETE /api/me/sessions/{sessionID}":                          {},
+	"DELETE /api/me/sessions/others":                               {},
+	"DELETE /api/users/{userID}/invitation":                        {},
+	"POST /api/deals/{dealID}/signature-requests/{requestID}/void": {},
+	"PATCH /api/notifications/{notificationID}/read":               {},
+	"POST /api/notifications/read-all":                             {},
+	"POST /api/admin/background-jobs/{jobID}/replay":               {},
+	"POST /api/billing/change-plan":                                {},
+	"POST /api/billing/checkout-session":                           {},
+	"POST /api/billing/portal-session":                             {},
+	"POST /api/billing/webhooks/stripe":                            {},
+	"POST /api/email/webhooks/postmark":                            {},
+	"POST /api/email-unsubscribe/{token}":                          {},
+	"POST /api/workspace-exports":                                  {},
 }
 
 type hostedWritePolicyContextKey struct{}

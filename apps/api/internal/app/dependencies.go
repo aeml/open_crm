@@ -134,8 +134,11 @@ type dealsService interface {
 	GetPublicQuote(context.Context, string) (moduledeals.PublicQuote, error)
 	GetPublicQuotePDF(context.Context, string) (moduledeals.QuotePDFFile, error)
 	ConfirmPublicQuoteReceipt(context.Context, string) (moduledeals.PublicQuote, error)
-	CreateSignatureRequest(context.Context, int64, int64, int64, moduledeals.SignatureRequestInput) (moduledeals.Detail, error)
-	UpdateSignatureRequestStatus(context.Context, int64, int64, int64, int64, moduledeals.SignatureStatusInput) (moduledeals.Detail, error)
+	SignPublicQuote(context.Context, string, moduledeals.SignatureCompletionInput) (moduledeals.PublicQuote, error)
+	DeclinePublicQuote(context.Context, string, moduledeals.SignatureDeclineInput) (moduledeals.PublicQuote, error)
+	GetSignatureCertificate(context.Context, int64, int64, int64) (moduledeals.QuotePDFFile, error)
+	GetPublicSignatureCertificate(context.Context, string) (moduledeals.QuotePDFFile, error)
+	VoidSignatureRequest(context.Context, int64, int64, int64, int64) (moduledeals.Detail, error)
 }
 
 type tasksService interface {

@@ -122,15 +122,15 @@ export async function confirmPublicDealQuoteReceipt(token, { signal } = {}) {
   return payload?.data?.quote
 }
 
-export async function createDealSignatureRequest(dealID, input, { signal } = {}) {
-  const payload = await apiRequest(`/api/deals/${dealID}/signature-requests`, { method: 'POST', body: input, fallbackMessage: 'Unable to create proposal tracking.', signal })
-
-  return payload?.data
+export async function updatePublicDealQuote(token, action, input, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest(`/api/public/quotes/${encodeURIComponent(token)}/${action}`, {
+    method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: `Unable to ${action === 'signature' ? 'sign' : 'decline'} quote.`, signal
+  })
+  return payload?.data?.quote
 }
 
-export async function updateDealSignatureRequestStatus(dealID, requestID, status, { signal } = {}) {
-  const payload = await apiRequest(`/api/deals/${dealID}/signature-requests/${requestID}`, { method: 'PATCH', body: { status }, fallbackMessage: 'Unable to update proposal tracking.', signal })
-
+export async function voidDealSignatureRequest(dealID, requestID, { signal } = {}) {
+  const payload = await apiRequest(`/api/deals/${dealID}/signature-requests/${requestID}/void`, { method: 'POST', fallbackMessage: 'Unable to void signature request.', signal })
   return payload?.data
 }
 
@@ -174,4 +174,12 @@ export function quoteVersionPDFURL(dealID, quoteID) {
 
 export function publicQuotePDFURL(token) {
   return apiURL(`/api/public/quotes/${encodeURIComponent(token)}/pdf`)
+}
+
+export function publicSignatureCertificateURL(token) {
+  return apiURL(`/api/public/quotes/${encodeURIComponent(token)}/signature-certificate`)
+}
+
+export function signatureCertificateURL(dealID, requestID) {
+  return apiURL(`/api/deals/${dealID}/signature-requests/${requestID}/certificate`)
 }

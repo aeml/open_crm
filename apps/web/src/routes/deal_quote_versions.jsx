@@ -3,7 +3,7 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
 import { quoteVersionPDFURL } from '../lib/deals'
-import { formatMoney, formatSignatureTime } from './deal_view'
+import { formatMoney, formatSignatureTime, signatureStatusLabel } from './deal_view'
 
 function deliveryStatusLabel(status) {
   if (status === 'sent') return 'Sent'
@@ -13,7 +13,7 @@ function deliveryStatusLabel(status) {
   return 'Prepared'
 }
 
-function DeliveryEvidence({ delivery, isResolving, onResolve }) {
+function DeliveryEvidence({ delivery, isResolving, onResolve, signature }) {
   const accessed = delivery.accessCount || 0
   const downloaded = delivery.downloadCount || 0
   return (
@@ -32,6 +32,7 @@ function DeliveryEvidence({ delivery, isResolving, onResolve }) {
           <span>{delivery.receiptConfirmedAt ? `Receipt confirmed ${formatSignatureTime(delivery.receiptConfirmedAt)}` : 'Receipt not confirmed'}</span>
         </div>
       ) : null}
+      {delivery.signatureRequestId ? <p className="field-hint">Electronic signature: {signature ? signatureStatusLabel(signature.status) : 'Requested'} · bound to this immutable quote and recipient link</p> : null}
       {delivery.lastError ? <p className="field-hint">{delivery.lastError}</p> : null}
       {delivery.status === 'uncertain' ? (
         <div className="button-row" aria-label={`Resolve delivery ${delivery.id}`}>
@@ -44,10 +45,11 @@ function DeliveryEvidence({ delivery, isResolving, onResolve }) {
   )
 }
 
-function QuoteVersionRow({ canWrite, dealID, isDelivering, onDeliver, onResolve, quote, resolvingDeliveryId }) {
+function QuoteVersionRow({ canWrite, dealID, isDelivering, onDeliver, onResolve, quote, resolvingDeliveryId, signatureRequests }) {
   const [deliveryForm, setDeliveryForm] = useState(() => ({
     subject: `Finalized quote ${quote.quoteNumber}`,
-    messageBody: `Hi ${quote.recipientName},\n\nPlease review the attached finalized quote for ${quote.total} ${quote.currency}.`
+    messageBody: `Hi ${quote.recipientName},\n\nPlease review the finalized quote for ${quote.total} ${quote.currency}.`,
+    requestSignature: false
   }))
   const deliveries = quote.deliveries || []
   const unresolved = deliveries.some((delivery) => ['prepared', 'sending', 'uncertain'].includes(delivery.status))
@@ -80,6 +82,7 @@ function QuoteVersionRow({ canWrite, dealID, isDelivering, onDeliver, onResolve,
               isResolving={resolvingDeliveryId === delivery.id}
               key={delivery.id}
               onResolve={(deliveryID, resolution) => onResolve(quote.id, deliveryID, resolution)}
+              signature={signatureRequests.find((request) => request.id === delivery.signatureRequestId)}
             />
           ))}
           <p className="field-hint">Link access can include email security scanners. Only “receipt confirmed” is an explicit recipient action, and it is not a signature or acceptance.</p>
@@ -95,9 +98,13 @@ function QuoteVersionRow({ canWrite, dealID, isDelivering, onDeliver, onResolve,
             <Field label={`Delivery message for ${quote.quoteNumber}`}>
               <textarea className="text-input" maxLength={10000} rows="4" value={deliveryForm.messageBody} onChange={setField('messageBody')} required />
             </Field>
-            <p className="field-hint">Sent through your connected mailbox with an expiring customer link. Open CRM stores the intent before contacting the provider and will not automatically repeat an uncertain send.</p>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={deliveryForm.requestSignature} onChange={(event) => setDeliveryForm((current) => ({ ...current, requestSignature: event.target.checked }))} />
+              Request electronic signature from {quote.recipientName}
+            </label>
+            <p className="field-hint">Sent through your connected mailbox with an expiring recipient link. {deliveryForm.requestSignature ? 'Provider acceptance activates a typed-name consent ceremony and audit certificate; staff cannot mark it signed.' : 'This delivery requests review only and does not collect acceptance.'} Open CRM will not automatically repeat an uncertain send.</p>
             {unresolved ? <p className="form-error" role="alert">Resolve the current delivery before creating another send.</p> : null}
-            <Button type="submit" disabled={isDelivering || unresolved}>{isDelivering ? 'Delivering…' : 'Deliver finalized quote'}</Button>
+            <Button type="submit" disabled={isDelivering || unresolved}>{isDelivering ? 'Delivering…' : deliveryForm.requestSignature ? 'Send signature request' : 'Deliver finalized quote'}</Button>
           </form>
         </details>
       ) : null}
@@ -119,7 +126,8 @@ export function DealQuoteVersionsCard({
   onResolveDelivery,
   onSetForm,
   quotes,
-  resolvingDeliveryId
+  resolvingDeliveryId,
+  signatureRequests
 }) {
   const setField = (name) => (event) => onSetForm((current) => ({ ...current, [name]: event.target.value }))
   const canFinalize = lineItems.length > 0 && !areLineItemsDirty
@@ -151,6 +159,7 @@ export function DealQuoteVersionsCard({
               onResolve={onResolveDelivery}
               quote={quote}
               resolvingDeliveryId={resolvingDeliveryId}
+              signatureRequests={signatureRequests}
             />
           ))}
         </div>

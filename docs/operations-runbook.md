@@ -666,7 +666,7 @@ references.
    checking the assignee remains active. Do not edit `client_review_schedules`,
    tasks, reminders, or jobs directly in production.
 
-### Draft, finalized quote, and proposal-tracking reconciliation
+### Draft, finalized quote, and signature reconciliation
 
 1. The deal's **Line items** are saved CRM data. A catalog selection copies its
    name, SKU, type, unit, price, and currency into the line item, so later
@@ -684,20 +684,21 @@ references.
    are tenant/deal/quote scoped and private/no-store. Follow the retry, digest,
    and correction procedure in `docs/versioned-quotes.md`; never edit a stored
    version in place.
-4. **Proposal tracking** records a recipient, filename reference, and a manual
-   draft/sent/signed/declined/voided status. Creating or updating it does not
-   send a message, contact a provider, expose a signer page, or prove a legal
-   signature. Operators should change status only after confirming the matching
-   external event; `sentAt`, outcome timestamps, and deal activity help
-   reconcile who recorded what.
+4. **Request electronic signature** is available only while delivering a
+   finalized, unexpired version. An expired version is rejected before a
+   delivery intent or provider call; finalize a new version rather than sending
+   an unusable link. A valid request creates one native record bound to that quote,
+   recipient, immutable PDF, and delivery. Mailbox-provider acceptance activates
+   the customer ceremony. Staff cannot create detached requests or mark one
+   signed/declined; they may only **Void unsigned request** while it is sent.
+   Historical manual proposal rows remain visible as read-only non-evidence.
 5. If live totals appear wrong, inspect quantity, unit price, discount, tax rate,
    currency, and saved activity before editing. A failed cross-tenant or invalid
    catalog reference changes nothing. Correct through the deal UI and download
    a new draft or finalized version; do not edit line items, quote/proposal rows,
    stored bytes, timestamps, or activity with ad hoc SQL. Reusable templates,
-   approvals, expiration workflow, signing/provider webhooks, closed-deal
-   conversion, and an audit certificate remain later Phase 4 quote/signature
-   slices.
+   approvals, active expiration/reissue workflow, signed-quote close conversion,
+   and jurisdiction-specific policy remain later Phase 4 quote/signature slices.
 
 ### Finalized quote delivery and receipt recovery
 
@@ -709,11 +710,13 @@ the exact mailbox sender, quote recipient, subject, body, stable RFC
 crossing the provider boundary. Never copy the customer token or link into an
 incident ticket or application log.
 
-1. Interpret **Sent** only as provider acceptance plus committed CRM email,
-   activity, and audit evidence. It does not prove inbox placement. Link-access
-   and PDF-download counts can include security scanners and reloads.
-   **Receipt confirmed** is the only explicit recipient action, and it still is
-   not approval, acceptance, consent to contract, or a legal signature.
+1. Interpret delivery **Sent** only as provider acceptance plus committed CRM
+   email, activity, and audit evidence. It does not prove inbox placement.
+   Link-access and PDF-download counts can include security scanners and
+   reloads. **Receipt confirmed** acknowledges delivery only. A separate
+   signature request becomes **Signed** only after the recipient link submits
+   the exact expected name and retained consent statement; that terminal effect
+   retains its own activity, audit, and certificate evidence.
 2. Startup and minutely recovery move a `sending` claim older than five minutes
    to `uncertain` without contacting the provider again. Monitor
    `open_crm_quote_deliveries_available`,
@@ -721,6 +724,11 @@ incident ticket or application log.
    `open_crm_quote_delivery_stale_sending`,
    `open_crm_quote_delivery_uncertain`, and the recovery last-run metrics. They
    contain no workspace, sender, recipient, quote, or token labels.
+   Also monitor `open_crm_quote_signature_awaiting_response`,
+   `open_crm_quote_signature_expired`, `open_crm_quote_signature_signed`,
+   `open_crm_quote_signature_declined`, and
+   `open_crm_quote_signature_voided`. An expired unsigned request alerts after
+   15 minutes so the sender can review and deliberately reissue if appropriate.
 3. For **Needs resolution**, the original sender searches the exact quote
    recipient/subject/time and RFC `Message-ID` in the connected mailbox Sent
    folder. If present, choose **Confirm in Sent folder**. If definitely absent,
@@ -728,32 +736,43 @@ incident ticket or application log.
    provider attempt using the same durable delivery and stable message ID, so
    approve it only after the Sent-folder check. Owners/admins may confirm or
    reject another sender's delivery but cannot retry as that sender.
-4. A definitely failed delivery permits a new delivery intent. Suppression and
+4. A definitely failed signature delivery voids its attached draft request and
+   permits a new delivery/request. Marking an uncertain delivery **not sent**
+   does the same; confirming it sent activates the existing request. Never
+   create or repair a request independently of its delivery. Suppression and
    current sender identity are rechecked at the provider boundary. Do not work
    around a suppression, sender mismatch, unresolved delivery, expired public
-   link, or customer request by editing the database; correct the source state
-   and use the normal UI. The stored explanation is deliberately bounded and
-   safe for teammate display; use the request ID and provider/aggregate
-   telemetry for diagnosis rather than expecting raw infrastructure errors in
-   the quote record.
+   link, or customer decision by editing the database; correct the source state
+   and use the normal UI. Use the request ID and aggregate/provider telemetry
+   rather than expecting raw infrastructure errors in the quote record.
 5. Disabling or revoking the sender atomically fails any `prepared` delivery
-   before a provider call and moves any already claimed `sending` delivery to
-   `uncertain`. A disabled sender cannot claim or retry it. An owner/admin must
-   use the same Sent-folder evidence and resolution procedure above; never
-   reactivate a teammate merely to bypass an unresolved external effect.
-6. Customer preview and PDF routes are private/no-store bearer links with shared
-   PostgreSQL budgets of 120 reads/client/minute; receipt confirmation has 20
-   writes/client/minute. An invalid token is non-disclosing `404`; an expired
-   link is `410`. If a customer needs access after expiry, create a deliberately
-   reviewed new delivery rather than extending stored timestamps.
-7. Resolve alerts only after recovery is succeeding, no stale sends remain, and
-   every uncertain item has explicit operator evidence. Portable workspace
-   export includes business-facing delivery/access/receipt evidence while
-   excluding raw tokens, hashes, and provider/RFC correlation identifiers.
+   before a provider call and voids its draft signature request. It moves an
+   already claimed `sending` delivery to `uncertain` without guessing whether
+   the message arrived. A disabled sender cannot claim or retry it. An
+   owner/admin must use the same Sent-folder evidence and resolution procedure
+   above; never reactivate a teammate merely to bypass an unresolved effect.
+6. Customer preview, PDF, and signed-certificate routes are private/no-store
+   bearer links with shared PostgreSQL budgets of 120 reads/client/minute;
+   receipt, sign, and decline each have 20 writes/client/minute. An invalid token
+   is non-disclosing `404`; an expired link or signing deadline is `410`. If a
+   customer needs access after expiry, review the quote and create a new
+   delivery/request rather than extending stored timestamps.
+7. For a signed request, compare the customer and staff certificate response
+   `X-Open-CRM-Content-SHA256`, then confirm the certificate includes the quote
+   PDF digest, expected/typed names, consent, signing time, and authentication
+   method. Do not regenerate or replace retained certificate bytes. Enforceability
+   is agreement- and jurisdiction-dependent; escalate legal-policy questions
+   instead of editing evidence.
+8. Resolve alerts only after recovery is succeeding, no stale sends remain,
+   every uncertain item has explicit operator evidence, and expired unsigned
+   requests have been reviewed. Portable workspace export includes delivery,
+   receipt, consent, and certificate evidence while excluding bearer tokens,
+   replay hashes, and provider/RFC correlation identifiers.
 
 See `docs/versioned-quotes.md` for the immutable snapshot, idempotency, and
-customer-evidence boundary. Never repair `deal_quote_deliveries`, linked email
-rows, activity, audit, PDF bytes, tokens, or counters with ad hoc SQL.
+customer-evidence boundary. Never repair `deal_quote_deliveries`,
+`deal_signature_requests`, linked email rows, activity, audit, PDF/certificate
+bytes, tokens, or counters with ad hoc SQL.
 
 ### Deal close review and outcome reconciliation
 

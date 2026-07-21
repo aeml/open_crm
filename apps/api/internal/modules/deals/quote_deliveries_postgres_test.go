@@ -1,6 +1,7 @@
 package deals_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -179,6 +180,96 @@ func TestQuoteDeliveryIsDurableTenantSafeAndReceiptedAgainstPostgres(t *testing.
 	if err != nil || len(detail.Quotes) != 1 || len(detail.Quotes[0].Deliveries) != 1 || detail.Quotes[0].Deliveries[0].ReceiptConfirmedAt == "" {
 		t.Fatalf("deal detail omitted quote delivery evidence: detail=%#v err=%v", detail, err)
 	}
+
+	signatureInput := input
+	signatureInput.Subject = "Signature requested for " + quote.QuoteNumber
+	signatureInput.IdempotencyKey = "quote-signature-delivery-0001"
+	signatureInput.RequestSignature = true
+	signatureIntent, err := service.PrepareQuoteDelivery(ctx, organizationID, dealID, quote.ID, actorUserID, signatureInput)
+	if err != nil || signatureIntent.Delivery.SignatureRequestID == 0 || !strings.Contains(signatureIntent.EmailBody(), "electronically sign") {
+		t.Fatalf("prepare quote signature delivery: intent=%#v err=%v", signatureIntent, err)
+	}
+	signatureToken := mustQuoteDeliveryToken(t, signatureIntent.AccessURL)
+	if _, err := service.GetPublicQuote(ctx, signatureToken); !errors.Is(err, moduledeals.ErrQuoteAccessInvalid) {
+		t.Fatalf("prepared signature ceremony was public before provider acceptance: %v", err)
+	}
+	claimedSignature, shouldSend, err := service.ClaimQuoteDelivery(ctx, organizationID, signatureIntent.Delivery.ID, actorUserID)
+	if err != nil || !shouldSend || claimedSignature.Delivery.SignatureRequestID != signatureIntent.Delivery.SignatureRequestID {
+		t.Fatalf("claim signature delivery: send=%t intent=%#v err=%v", shouldSend, claimedSignature, err)
+	}
+	acceptedSignature, err := service.CompleteQuoteDelivery(ctx, organizationID, signatureIntent.Delivery.ID, moduleuseremail.SendReceipt{ProviderMessageID: "signature-provider-message"})
+	if err != nil || acceptedSignature.Status != "sent" {
+		t.Fatalf("complete signature delivery: delivery=%#v err=%v", acceptedSignature, err)
+	}
+	publicSignature, err := service.GetPublicQuote(ctx, signatureToken)
+	if err != nil || publicSignature.Signature == nil || publicSignature.Signature.Status != "sent" || !publicSignature.Signature.CanSign || publicSignature.Signature.SignerName != "Avery Buyer" || !strings.Contains(publicSignature.Signature.ConsentText, quote.QuoteNumber) {
+		t.Fatalf("load active signing ceremony: quote=%#v err=%v", publicSignature, err)
+	}
+	if _, err := service.SignPublicQuote(ctx, signatureToken, moduledeals.SignatureCompletionInput{SignerName: "Someone Else", Consent: true, IdempotencyKey: "quote-signature-complete-0001"}); !errors.Is(err, moduledeals.ErrInvalidSignatureRequest) {
+		t.Fatalf("wrong signer name completed quote with %v", err)
+	}
+	if _, err := service.SignPublicQuote(ctx, signatureToken, moduledeals.SignatureCompletionInput{SignerName: "avery buyer", Consent: true, IdempotencyKey: "quote-signature-complete-0001"}); !errors.Is(err, moduledeals.ErrInvalidSignatureRequest) {
+		t.Fatalf("case-mismatched signer name completed quote with %v", err)
+	}
+	signInput := moduledeals.SignatureCompletionInput{SignerName: "  Avery   Buyer ", Consent: true, IdempotencyKey: "quote-signature-complete-0001"}
+	type signatureResult struct {
+		quote moduledeals.PublicQuote
+		err   error
+	}
+	signResults := make(chan signatureResult, 2)
+	startSign := make(chan struct{})
+	for range 2 {
+		go func() {
+			<-startSign
+			signed, signErr := service.SignPublicQuote(ctx, signatureToken, signInput)
+			signResults <- signatureResult{quote: signed, err: signErr}
+		}()
+	}
+	close(startSign)
+	firstSign, secondSign := <-signResults, <-signResults
+	for _, result := range []signatureResult{firstSign, secondSign} {
+		if result.err != nil || result.quote.Signature == nil || result.quote.Signature.Status != "signed" || result.quote.Signature.SignedName != "Avery Buyer" || result.quote.Signature.CertificateSHA256 == "" {
+			t.Fatalf("concurrent signature replay diverged: result=%#v", result)
+		}
+	}
+	if firstSign.quote.Signature.SignedAt != secondSign.quote.Signature.SignedAt || firstSign.quote.Signature.CertificateSHA256 != secondSign.quote.Signature.CertificateSHA256 {
+		t.Fatalf("signature replay changed retained evidence: first=%#v second=%#v", firstSign.quote.Signature, secondSign.quote.Signature)
+	}
+	changedSign := signInput
+	changedSign.SignerName = "Avery Buyer Jr"
+	if _, err := service.SignPublicQuote(ctx, signatureToken, changedSign); !errors.Is(err, moduledeals.ErrInvalidSignatureRequest) {
+		t.Fatalf("changed signer replay returned %v", err)
+	}
+	newKeySign := signInput
+	newKeySign.IdempotencyKey = "quote-signature-complete-0002"
+	if _, err := service.SignPublicQuote(ctx, signatureToken, newKeySign); !errors.Is(err, moduledeals.ErrSignatureState) {
+		t.Fatalf("completed signature accepted a new completion key: %v", err)
+	}
+	publicCertificate, err := service.GetPublicSignatureCertificate(ctx, signatureToken)
+	if err != nil || publicCertificate.ContentSHA256 != firstSign.quote.Signature.CertificateSHA256 || !bytes.Contains(publicCertificate.Content, []byte(quote.PDFSHA256)) || !bytes.Contains(publicCertificate.Content, []byte("Typed signature: Avery Buyer")) {
+		t.Fatalf("public signature certificate mismatch: file=%#v err=%v", publicCertificate, err)
+	}
+	staffCertificate, err := service.GetSignatureCertificate(ctx, organizationID, dealID, signatureIntent.Delivery.SignatureRequestID)
+	if err != nil || !bytes.Equal(staffCertificate.Content, publicCertificate.Content) {
+		t.Fatalf("staff signature certificate diverged: file=%#v err=%v", staffCertificate, err)
+	}
+	if _, err := service.GetSignatureCertificate(ctx, foreignOrganizationID, foreignDealID, signatureIntent.Delivery.SignatureRequestID); !errors.Is(err, moduledeals.ErrNotFound) {
+		t.Fatalf("foreign tenant downloaded signature certificate with %v", err)
+	}
+	if _, err := service.VoidSignatureRequest(ctx, organizationID, dealID, signatureIntent.Delivery.SignatureRequestID, actorUserID); !errors.Is(err, moduledeals.ErrSignatureState) {
+		t.Fatalf("staff voided a completed signature with %v", err)
+	}
+	if _, err := service.DeclinePublicQuote(ctx, signatureToken, moduledeals.SignatureDeclineInput{Reason: "No", IdempotencyKey: "quote-signature-decline-0001"}); !errors.Is(err, moduledeals.ErrSignatureState) {
+		t.Fatalf("signed quote was later declined with %v", err)
+	}
+	detail, err = service.GetByID(ctx, organizationID, dealID)
+	if err != nil || len(detail.SignatureRequests) != 1 || detail.SignatureRequests[0].Status != "signed" || detail.SignatureRequests[0].QuoteID != quote.ID || detail.SignatureRequests[0].DeliveryID != signatureIntent.Delivery.ID || detail.SignatureRequests[0].CertificateSHA != publicCertificate.ContentSHA256 {
+		t.Fatalf("deal detail omitted signed quote evidence: requests=%#v err=%v", detail.SignatureRequests, err)
+	}
+	var rawSignatureKeyRetained bool
+	if err := pool.QueryRow(ctx, `SELECT POSITION($2 IN row_to_json(signature)::text) > 0 FROM deal_signature_requests signature WHERE id=$1`, signatureIntent.Delivery.SignatureRequestID, signInput.IdempotencyKey).Scan(&rawSignatureKeyRetained); err != nil || rawSignatureKeyRetained {
+		t.Fatalf("raw signature idempotency key retained=%t err=%v", rawSignatureKeyRetained, err)
+	}
 	if _, err := service.PrepareQuoteDelivery(ctx, foreignOrganizationID, foreignDealID, quote.ID, foreignUserID, moduledeals.QuoteDeliveryInput{Subject: "Hidden", MessageBody: "Hidden", IdempotencyKey: "foreign-quote-delivery-0001", SenderEmail: "foreign@example.test"}); !errors.Is(err, moduledeals.ErrNotFound) {
 		t.Fatalf("foreign tenant prepared delivery for hidden quote with %v", err)
 	}
@@ -277,7 +368,7 @@ func TestQuoteDeliveryIsDurableTenantSafeAndReceiptedAgainstPostgres(t *testing.
 		t.Fatalf("recover interrupted quote delivery: summary=%#v err=%v", recovery, err)
 	}
 	stats, err := service.QuoteDeliveryOperationalStats(ctx)
-	if err != nil || stats.Uncertain != 1 || stats.Sending != 0 {
+	if err != nil || stats.Uncertain != 1 || stats.Sending != 0 || stats.SignaturesSigned != 1 {
 		t.Fatalf("quote delivery operational stats: stats=%#v err=%v", stats, err)
 	}
 	blockedInput := input
@@ -298,4 +389,13 @@ func TestQuoteDeliveryIsDurableTenantSafeAndReceiptedAgainstPostgres(t *testing.
 	if _, err := service.GetPublicQuote(ctx, token); !errors.Is(err, moduledeals.ErrQuoteAccessExpired) {
 		t.Fatalf("expired quote link returned %v", err)
 	}
+}
+
+func mustQuoteDeliveryToken(t *testing.T, accessURL string) string {
+	t.Helper()
+	parsed, err := url.Parse(accessURL)
+	if err != nil || parsed.Query().Get("token") == "" {
+		t.Fatalf("parse quote delivery token from %q: %v", accessURL, err)
+	}
+	return parsed.Query().Get("token")
 }

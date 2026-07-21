@@ -37,6 +37,7 @@ func TestHostedWritePolicyClassifiesMutationsAndRecoveryRoutes(t *testing.T) {
 		{name: "single session recovery", method: http.MethodDelete, pattern: "DELETE /api/me/sessions/{sessionID}", want: false},
 		{name: "other sessions recovery", method: http.MethodDelete, pattern: "DELETE /api/me/sessions/others", want: false},
 		{name: "invitation revocation recovery", method: http.MethodDelete, pattern: "DELETE /api/users/{userID}/invitation", want: false},
+		{name: "signature void safety", method: http.MethodPost, pattern: "POST /api/deals/{dealID}/signature-requests/{requestID}/void", want: false},
 		{name: "notification acknowledgement", method: http.MethodPost, pattern: "POST /api/notifications/read-all", want: false},
 		{name: "public submission", method: http.MethodPost, pattern: "POST /api/public/lead-capture-forms/{publicID}/submissions", want: false},
 		{name: "authentication", method: http.MethodPost, pattern: "POST /auth/logout", want: false},

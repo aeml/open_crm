@@ -15,11 +15,6 @@ export const emptyLineTotals = { subtotal: '0', discountTotal: '0', taxTotal: '0
 
 export const emptyDealMeta = { page: 1, pageSize: 20, total: 0, openCount: 0, wonCount: 0, pipelineValue: '0', currency: 'USD', missingRateCurrencies: [] }
 
-export const emptySignatureForm = {
-  signerName: '',
-  signerEmail: ''
-}
-
 export function emptyQuoteForm(recipientName = '') {
   const validUntil = new Date()
   validUntil.setUTCDate(validUntil.getUTCDate() + 30)

@@ -442,7 +442,7 @@ abort obsolete loads, distinguish A-to-B-to-A visits, serialize
 snapshot-changing mutations, expose one pending state so incompatible commercial
 controls wait for durable completion, suppress duplicate work actions, validate
 returned identities, and keep notes, tasks,
-activities, quote lines, and proposal tracking on the active deal; the guarded
+activities, quote lines, and quote-signature evidence on the active deal; the guarded
 187-line commercial hook shares that contract. The generic follower control
 also rejects responses for an earlier record. Task filtering,
 sorting, labels, due-date view logic, a shared 98-line create/update form,
@@ -455,7 +455,7 @@ holding every production route to the default 500-line ceiling with no explicit 
 
 ## Version 0.2.3 - Database Integrity
 
-Status: complete.
+Status: superseded by immutable delivery (`1.3.8`) and native signing (`1.3.9`).
 
 Goal: move important invariants closer to the data.
 
@@ -1558,7 +1558,7 @@ Exit criteria:
 - Sales users can track whether a proposal exists.
 - The feature does not pretend to be a full CPQ system.
 
-Completion evidence (2026-07-19): the existing tenant-scoped catalog/custom
+Historical completion evidence (2026-07-19): the tenant-scoped catalog/custom
 line-item flow snapshots catalog values when saved, calculates subtotal,
 discount, tax, and total, and updates the deal value in the same transaction.
 Authenticated users can download a deliberately current-data PDF; its footer
@@ -1572,7 +1572,8 @@ catalog snapshots, normalization, invalid data, activity history, PDF contents,
 and cross-tenant rejection. The clean-67-migration Chromium pilot journey saves
 a priced proposal, tracks it as sent, downloads the PDF, and proves a second
 tenant receives `404`. This completes the intentionally narrow Phase 2
-placeholder; versioned quote delivery and real signing remain Phase 4.
+placeholder. Its detached create/status mutation surface was removed by
+`1.3.9`; historical rows remain read-only and explicitly non-evidentiary.
 
 ## Version 0.6.8 - Win Loss Review
 
@@ -2313,8 +2314,10 @@ duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, reque
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 179.11 KiB/58.06 KiB for the entry, 44.69 KiB/12.87 KiB
-for the largest lazy chunk, and 647.48 KiB/206.96 KiB total assets. Hosted
+CSS. Current production-URL evidence is 179.11 KiB/58.06 KiB for the entry, 45.22 KiB/13.20 KiB
+for the largest lazy chunk, and 651.83 KiB/208.45 KiB total assets. The isolated
+public quote route is 6.35 KiB/2.28 KiB after adding the retry-safe signature
+ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.24 KiB/4.51 KiB
 route and retry-key creation is a 0.15 KiB shared helper. Production builds omit
 the incomplete booking-link, marketing-email, and nurture-campaign management
@@ -2531,22 +2534,24 @@ Progress:
 - `1.3.1` (product/service catalog foundation): complete. Added organization-scoped catalog items with product/service type, SKU, description, unit price, currency, unit, active/inactive state, authenticated APIs for listing/creating/updating/archiving items, and a Settings > Product Catalog UI. Deal line items, quote totals, discounts, taxes, multi-currency exchange rates, and proposal generation remain future slices.
 - `1.3.2` (deal line items foundation): complete. Added organization-scoped deal line items tied optionally to catalog items, quantity/unit pricing, per-line discounts, tax rates, calculated line totals, deal-level subtotal/discount/tax/total summaries, an authenticated API to replace deal line items, automatic deal value recalculation from saved line items, line-item activity logging, and a deal detail line-item editor. Quote/proposal documents, tax rules, approval workflows, and multi-currency conversion remain future slices.
 - `1.3.3` (quote/proposal PDF foundation): complete. Added a branded quote/proposal PDF download generated from current deal details, saved line items, and calculated totals, plus a deal detail download action. Quote persistence/versioning, approval workflows, customer sending, e-signature, and terms/template management remain future slices.
-- `1.3.4` (e-signature status tracking foundation): complete. Added organization-scoped deal signature requests with signer identity, native tracking provider metadata, quote filename, draft/sent/signed/declined/voided statuses, lifecycle timestamps, authenticated APIs for creating requests and updating status, activity logging, and deal detail signature tracking UI. Actual signing ceremonies, provider webhooks, customer delivery, audit certificates, and reusable terms/templates remain future slices.
+- `1.3.4` (e-signature status tracking foundation): historical foundation, superseded by `1.3.9`. Its detached create and arbitrary status-update APIs/UI have been removed. Existing rows remain visible as read-only manual tracking and are explicitly not signature evidence.
 - `1.3.5` (multiple pipelines foundation): complete. Added organization-scoped deal pipelines, backfilled existing stages into a default pipeline, scoped stage uniqueness by pipeline, exposed authenticated APIs for listing/creating pipelines, copied default stage templates into new pipelines, and added pipeline metadata/filtering to deal list/detail/export flows. The later `0.6.1` outcome moved creation into admin settings and completed rename/default plus custom stage classification/reordering; team/business-unit ownership rules and per-pipeline permissions remain future scope only if pilot evidence requires them.
 - `1.3.6` (quotas and forecasting dashboard foundation): complete. Added organization-scoped per-user sales quota records by period, admin quota upsert API, current-quarter forecast calculations using won revenue plus stage-weighted open pipeline, team/member attainment and coverage metrics, and dashboard quota editing/forecast display. Forecast categories, custom stage probabilities, quota history, rollups by team/business unit, and advanced forecast analytics remain future slices.
 - `1.3.7` (multi-currency exchange-rate foundation): complete. Added organization base currency settings, manual organization exchange-rate records, admin API/UI for saving rates, and base-currency conversion for deal-list, dashboard pipeline, quota, and weighted forecast rollups while preserving per-record deal/catalog currencies. Automated FX providers, historical rate selection beyond latest manual rates, quote-level FX disclosures, and realized gain/loss accounting remain future slices.
-- `1.3.8` (immutable quote-version convergence): complete for finalization, connected-mailbox delivery, customer access, and explicit receipt. A writer can finalize saved line items with recipient, validity, and terms; one transaction locks the deal, allocates a version, snapshots all commercial identity/line/total fields, stores the exact PDF bytes and SHA-256, and records activity/audit evidence. Hashed actor-scoped idempotency collapses concurrent retries and rejects changed requests. Delivery persists an exact sender/recipient/message intent, stable RFC Message-ID, digest-only expiring customer token, and suppression check before the SMTP/Gmail/Microsoft boundary; provider acceptance records the shared outbound email/activity/audit transactionally, while ambiguous effects are quarantined for sender/admin Sent-folder resolution and never automatically retried. Preparation and claims lock and revalidate active sender membership first; user disable/revocation cannot race a late intent, fails prepared intent, and quarantines already claimed sends as uncertain in the same lifecycle transaction. Public preview/PDF access is bounded/no-store, counters are explicitly approximate, and idempotent receipt evidence is explicitly not approval or signature. Startup/minutely recovery, aggregate metrics/alerts, portable business evidence without tokens/correlation hashes, handler/UI/migration/disposable-PostgreSQL recovery/expiry/tenant tests, and the PostgreSQL browser journey through a real SMTP sandbox plus customer WCAG scan cover the boundary. Approval, reusable templates, active expiration workflow, quote-level FX disclosure, approved live-mailbox/pilot evidence, and legal signing remain future slices.
+- `1.3.8` (immutable quote-version convergence): complete for finalization, connected-mailbox delivery, customer access, and explicit receipt. A writer can finalize saved line items with recipient, validity, and terms; one transaction locks the deal, allocates a version, snapshots all commercial identity/line/total fields, stores the exact PDF bytes and SHA-256, and records activity/audit evidence. Hashed actor-scoped idempotency collapses concurrent retries and rejects changed requests. Delivery persists an exact sender/recipient/message intent, stable RFC Message-ID, digest-only expiring customer token, and suppression check before the SMTP/Gmail/Microsoft boundary; provider acceptance records the shared outbound email/activity/audit transactionally, while ambiguous effects are quarantined for sender/admin Sent-folder resolution and never automatically retried. Preparation and claims lock and revalidate active sender membership first; user disable/revocation cannot race a late intent, fails prepared intent, and quarantines already claimed sends as uncertain in the same lifecycle transaction. Public preview/PDF access is bounded/no-store, counters are explicitly approximate, and idempotent receipt evidence is explicitly not approval or signature. Startup/minutely recovery, aggregate metrics/alerts, portable business evidence without tokens/correlation hashes, handler/UI/migration/disposable-PostgreSQL recovery/expiry/tenant tests, and the PostgreSQL browser journey through a real SMTP sandbox plus customer WCAG scan cover the boundary. Native signing continues in `1.3.9`; approval, reusable templates, active expiration workflow, quote-level FX disclosure, and approved live-mailbox/pilot evidence remain future slices.
+- `1.3.9` (immutable native quote-signing ceremony): complete for the first-party production-equivalent path; capability maturity remains foundation pending the rest of the Phase 4 outcome. A signature request is created only as part of delivering one immutable quote and is constrained to its tenant/deal/quote/recipient/delivery. Mailbox-provider acceptance activates the ceremony; definite failure, confirmed-not-sent recovery, or pre-send member deactivation voids it, while ambiguous delivery remains operator-resolvable without duplicate effects. A digest-only bearer link requires exact normalized recipient name, explicit immutable consent, and a digest-only 16–200 character idempotency key. Exact terminal replay returns one effect; changed reuse, new-key terminal mutation, expiry, wrong name, staff-forged completion, and cross-tenant certificate access fail closed. A successful signature atomically retains typed/expected identity, consent/time, recipient-link authentication, quote PDF SHA-256, and exact certificate PDF/SHA; public and staff downloads return identical bytes. Historical manual rows are read-only non-evidence. Shared abuse budgets, aggregate awaiting/expired/terminal gauges and alert, member-lifecycle recovery, portable certificate/consent export without replay hashes, handler/UI/accessibility tests, real-PostgreSQL concurrency/tenant/replay/expiry tests, and the real-SMTP browser sign/certificate journey cover the boundary. Reusable terms/templates, approval, FX/expiration workflow, signed-quote close conversion, jurisdiction review, approved live-mailbox evidence, and pilot acceptance remain.
 
 Candidate slices:
 
 - `1.3.1` Product/service catalog with pricing, SKUs, and currency: foundation complete.
 - `1.3.2` Deal line items, discounts, taxes, and totals: foundation complete.
 - `1.3.3` Quote/proposal generation with branded PDF output: foundation complete.
-- `1.3.4` E-signature flow (native or DocuSign/Dropbox Sign integration) with status tracking: foundation complete.
+- `1.3.4` E-signature status tracking: historical foundation superseded; manual mutation removed and old rows retained read-only.
 - `1.3.5` Multiple pipelines per team/business unit (extends `0.6.1`): foundation complete.
 - `1.3.6` Quotas, goals, and team forecasting dashboards (extends `0.6.2`): foundation complete.
 - `1.3.7` Multi-currency support with exchange-rate handling: foundation complete.
-- `1.3.8` Immutable quote finalization, connected-mailbox delivery, customer access, and explicit non-signature receipt: complete; approval/legal signing remains separate.
+- `1.3.8` Immutable quote finalization, connected-mailbox delivery, customer access, and explicit non-signature receipt: complete; approval and signing are separate contracts.
+- `1.3.9` Immutable native signing ceremony, typed-name consent, recipient decisions, and retained audit certificate: production-equivalent path complete; signed-close conversion, jurisdiction/pilot validation, and the broader quote workflow remain.
 
 Exit criteria:
 

@@ -92,12 +92,12 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 650 KiB | 207 KiB |
+| All JavaScript and CSS | 652 KiB | 209 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 179.11 KiB/58.06 KiB entry, 44.69 KiB/12.87 KiB largest lazy
-chunk, and 647.48 KiB/206.96 KiB total assets. The production contact, company,
-deal, and task routes are 29.64/8.93, 34.66/10.20, 44.69/12.87, and 24.64/7.12
+Current production-URL evidence: 179.11 KiB/58.06 KiB entry, 45.22 KiB/13.20 KiB largest lazy
+chunk, and 651.83 KiB/208.45 KiB total assets. The production contact, company,
+deal, and task routes are 29.64/8.93, 34.66/10.20, 45.22/13.20, and 24.64/7.12
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
@@ -145,7 +145,11 @@ KiB/0.70 KiB verification route, recovery controls in the existing signup and
 login routes, and the shared client calls needed to establish the first owner
 session only after verification. Its measured 647.75/205.16 KiB build raises
 only the aggregate ceilings to 650/207 KiB. Entry, per-route, and CSS limits
-remain unchanged.
+remain unchanged. The immutable quote-signature ceremony then adds customer
+consent/status/certificate UI, staff evidence and recovery controls, and retry-safe
+public mutations. After consolidating those public actions and preserving a
+44-pixel disclosure target, its measured 651.83/208.45 KiB build raises only the aggregate ceilings to 652/209 KiB; the
+6.35/2.28 KiB public quote route, entry, per-route, and CSS limits remain bounded.
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 

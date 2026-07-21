@@ -313,7 +313,6 @@ var ordinaryOrganizationTables = []string{
 	"deal_line_items",
 	"deal_quote_line_items",
 	"deal_pipelines",
-	"deal_signature_requests",
 	"deal_stage_events",
 	"deal_stages",
 	"deals",
@@ -378,6 +377,7 @@ func buildPortableDatasets() []dataset {
 		{name: "deal_quote_deliveries", query: `
 			SELECT jsonb_build_object(
 				'id',id,'organization_id',organization_id,'deal_id',deal_id,'quote_id',quote_id,
+				'signature_request_id',signature_request_id,
 				'actor_user_id',actor_user_id,'sender_email',sender_email,'recipient_email',recipient_email,
 				'subject',subject,'message_body',message_body,'status',status,
 				'outbound_email_message_id',outbound_email_message_id,'last_error',last_error,
@@ -387,6 +387,9 @@ func buildPortableDatasets() []dataset {
 				'receipt_confirmed_at',receipt_confirmed_at,'created_at',created_at,'updated_at',updated_at
 			)
 			FROM deal_quote_deliveries WHERE organization_id=$1 ORDER BY id`},
+		{name: "deal_signature_requests", query: `
+			SELECT to_jsonb(signature) - ARRAY['completion_idempotency_key_hash','completion_request_sha256']::text[]
+			FROM deal_signature_requests signature WHERE organization_id=$1 ORDER BY id`},
 		{name: "email_messages_shared", query: `
 			SELECT to_jsonb(m) - ARRAY['tracking_token','provider_message_id','provider_thread_id','rfc_message_id','in_reply_to','reference_message_ids','delivery_feedback_email_message_id']::text[]
 			FROM email_messages m WHERE organization_id=$1 AND visibility='shared' ORDER BY id`},
@@ -454,6 +457,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"billing_invoices",
 		"deal_quotes",
 		"deal_quote_deliveries",
+		"deal_signature_requests",
 		"email_messages",
 		"email_message_entity_links",
 		"email_reply_requests",

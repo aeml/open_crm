@@ -21,6 +21,24 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 		}
 		handleConfirmPublicDealQuoteReceipt(dependencies.DealsService, w, r)
 	})
+	mux.HandleFunc("POST /api/public/quotes/{token}/signature", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.quote-signature", publicWriteRateLimit, publicRateWindow, "Too many quote signature requests", w, r) {
+			return
+		}
+		handleSignPublicDealQuote(dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("POST /api/public/quotes/{token}/decline", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.quote-decline", publicWriteRateLimit, publicRateWindow, "Too many quote decline requests", w, r) {
+			return
+		}
+		handleDeclinePublicDealQuote(dependencies.DealsService, w, r)
+	})
+	mux.HandleFunc("GET /api/public/quotes/{token}/signature-certificate", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.quote-signature-certificate", publicReadRateLimit, publicRateWindow, "Too many signature certificate requests", w, r) {
+			return
+		}
+		handleDownloadPublicSignatureCertificate(dependencies.DealsService, w, r)
+	})
 	mux.HandleFunc("GET /api/contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleListContacts(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
@@ -180,11 +198,11 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 	mux.HandleFunc("PUT /api/deals/{dealID}/line-items", func(w http.ResponseWriter, r *http.Request) {
 		handleReplaceDealLineItems(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
-	mux.HandleFunc("POST /api/deals/{dealID}/signature-requests", func(w http.ResponseWriter, r *http.Request) {
-		handleCreateDealSignatureRequest(dependencies.AuthService, dependencies.DealsService, w, r)
+	mux.HandleFunc("POST /api/deals/{dealID}/signature-requests/{requestID}/void", func(w http.ResponseWriter, r *http.Request) {
+		handleVoidDealSignatureRequest(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
-	mux.HandleFunc("PATCH /api/deals/{dealID}/signature-requests/{requestID}", func(w http.ResponseWriter, r *http.Request) {
-		handleUpdateDealSignatureRequestStatus(dependencies.AuthService, dependencies.DealsService, w, r)
+	mux.HandleFunc("GET /api/deals/{dealID}/signature-requests/{requestID}/certificate", func(w http.ResponseWriter, r *http.Request) {
+		handleDownloadDealSignatureCertificate(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("GET /api/notes", func(w http.ResponseWriter, r *http.Request) {
 		handleListNotes(dependencies.AuthService, dependencies.NotesService, w, r)

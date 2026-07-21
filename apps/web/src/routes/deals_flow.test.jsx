@@ -555,23 +555,6 @@ describe('deals flow', () => {
         })
       }
 
-      if (requestURL.pathname.endsWith('/api/deals/12/signature-requests') && method === 'POST') {
-        signatureRequests = [
-          { id: 41, signerName: 'Ava Stone', signerEmail: 'ava@bluebird.example', status: 'draft', provider: 'native_tracking', externalId: '', quoteFileName: 'quote-bluebird-rollout.pdf', sentAt: '', signedAt: '', declinedAt: '', voidedAt: '', createdAt: '2026-06-20T21:00:00Z', updatedAt: '2026-06-20T21:00:00Z' }
-        ]
-        return jsonResponse({
-          data: {
-            deal: currentDeal,
-            lineItems: [],
-            totals: { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: currentDeal.valueCurrency || 'USD' },
-            signatureRequests,
-            activities: [
-              { id: 104, action: 'deal.signature_request_created', summary: 'Proposal tracking created for Ava Stone' }
-            ]
-          }
-        }, { status: 201 })
-      }
-
       if (requestURL.pathname.endsWith('/api/deals/12/quotes') && method === 'POST') {
         const input = JSON.parse(options.body)
         quotes = [{
@@ -609,6 +592,7 @@ describe('deals flow', () => {
           recipientEmail: 'ava@bluebird.example',
           subject: input.subject,
           messageBody: input.messageBody,
+          signatureRequestId: input.requestSignature ? 41 : undefined,
           status: 'sent',
           accessExpiresAt: '2026-09-20T23:59:59Z',
           sentAt: '2026-07-21T03:05:00Z',
@@ -617,23 +601,24 @@ describe('deals flow', () => {
           createdAt: '2026-07-21T03:05:00Z',
           updatedAt: '2026-07-21T03:05:00Z'
         }
+        if (input.requestSignature) {
+          signatureRequests = [{
+            id: 41,
+            quoteId: 71,
+            deliveryId: 81,
+            quoteNumber: 'Q-12-V1',
+            signerName: 'Ava Stone',
+            signerEmail: 'ava@bluebird.example',
+            status: 'sent',
+            provider: 'open_crm_native',
+            quoteFileName: 'quote-bluebird-rollout-v1.pdf',
+            sentAt: '2026-07-21T03:05:00Z',
+            createdAt: '2026-07-21T03:05:00Z',
+            updatedAt: '2026-07-21T03:05:00Z'
+          }]
+        }
         quotes = [{ ...quotes[0], deliveries: [delivery] }]
         return jsonResponse({ data: { delivery } })
-      }
-
-      if (requestURL.pathname.endsWith('/api/deals/12/signature-requests/41') && method === 'PATCH') {
-        signatureRequests = signatureRequests.map((request) => ({ ...request, status: 'signed', signedAt: '2026-06-20T21:30:00Z', updatedAt: '2026-06-20T21:30:00Z' }))
-        return jsonResponse({
-          data: {
-            deal: currentDeal,
-            lineItems: [],
-            totals: { subtotal: '0', discountTotal: '0', taxTotal: '0', total: '0', currency: currentDeal.valueCurrency || 'USD' },
-            signatureRequests,
-            activities: [
-              { id: 105, action: 'deal.signature_request_updated', summary: 'Proposal tracking for Ava Stone marked signed' }
-            ]
-          }
-        })
       }
 
       if (requestURL.pathname.endsWith('/api/deals/12/line-items') && method === 'PUT') {
@@ -848,29 +833,6 @@ describe('deals flow', () => {
     const detailForm = await screen.findByRole('form', { name: /deal details form/i })
     expect(screen.getByRole('link', { name: /download current-data draft pdf/i })).toHaveAttribute('href', 'https://crmserver.mendola.tech/api/deals/12/quote.pdf')
 
-    fireEvent.change(screen.getByLabelText(/^recipient name$/i), { target: { value: 'Ava Stone' } })
-    fireEvent.change(screen.getByLabelText(/^recipient email$/i), { target: { value: 'ava@bluebird.example' } })
-    fireEvent.click(screen.getByRole('button', { name: /create proposal tracking/i }))
-
-    expect(await screen.findByText(/proposal tracking created for ava stone/i, { selector: '.activity-summary' })).toBeInTheDocument()
-    expect(screen.getByText(/ava@bluebird.example/i)).toBeInTheDocument()
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/signature-requests$/), expect.objectContaining({
-        method: 'POST',
-        body: expect.stringContaining('"signerEmail":"ava@bluebird.example"')
-      }))
-    })
-
-    fireEvent.change(screen.getByLabelText(/proposal status for ava stone/i), { target: { value: 'signed' } })
-    expect(await screen.findByText(/proposal tracking for ava stone marked signed/i, { selector: '.activity-summary' })).toBeInTheDocument()
-    expect(screen.getByLabelText(/proposal status for ava stone/i)).toHaveValue('signed')
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/signature-requests\/41$/), expect.objectContaining({
-        method: 'PATCH',
-        body: expect.stringContaining('"status":"signed"')
-      }))
-    })
-
     fireEvent.change(screen.getByLabelText(/catalog item/i), { target: { value: '7' } })
     fireEvent.change(screen.getByLabelText(/line item quantity/i), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText(/line item discount/i), { target: { value: '20.00' } })
@@ -907,16 +869,19 @@ describe('deals flow', () => {
 
     fireEvent.click(screen.getByText(/deliver this version by email/i))
     fireEvent.change(screen.getByLabelText(/delivery message for q-12-v1/i), { target: { value: 'Hi Ava, please review this finalized quote.' } })
-    fireEvent.click(screen.getByRole('button', { name: /deliver finalized quote/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /request electronic signature from ava stone/i }))
+    fireEvent.click(screen.getByRole('button', { name: /send signature request/i }))
 
     expect(await screen.findByText(/^sent$/i)).toBeInTheDocument()
     expect(screen.getByText(/link accesses: 0/i)).toBeInTheDocument()
     expect(screen.getByText(/receipt not confirmed/i)).toBeInTheDocument()
-    expect(screen.getByText(/not a signature or acceptance/i)).toBeInTheDocument()
+    expect(screen.getByText(/electronic signature: sent/i)).toBeInTheDocument()
+    expect(screen.getByText(/q-12-v1 · ava stone/i)).toBeInTheDocument()
+    expect(screen.getByText(/immutable file: quote-bluebird-rollout-v1.pdf/i)).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/deals\/12\/quotes\/71\/deliveries$/), expect.objectContaining({
         method: 'POST',
-        body: expect.stringContaining('Hi Ava, please review this finalized quote.'),
+        body: expect.stringContaining('"requestSignature":true'),
         headers: expect.objectContaining({ 'Idempotency-Key': expect.stringMatching(/^quote-delivery-/) })
       }))
     })

@@ -411,6 +411,11 @@ func main() {
 			snapshot.QuoteDeliveriesSending = stats.Sending
 			snapshot.QuoteDeliveriesStaleSending = stats.StaleSending
 			snapshot.QuoteDeliveriesUncertain = stats.Uncertain
+			snapshot.QuoteSignaturesAwaiting = stats.SignaturesAwaitingResponse
+			snapshot.QuoteSignaturesExpired = stats.SignaturesExpired
+			snapshot.QuoteSignaturesSigned = stats.SignaturesSigned
+			snapshot.QuoteSignaturesDeclined = stats.SignaturesDeclined
+			snapshot.QuoteSignaturesVoided = stats.SignaturesVoided
 		}
 		snapshot.Backup = platformtelemetry.ReadBackupStatus(env.BackupStatusPath)
 		return snapshot

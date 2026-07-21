@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { InlineError } from '../components/ui/inline_error'
 import { isAbortError } from '../lib/api'
-import { confirmPublicDealQuoteReceipt, getPublicDealQuote, publicQuotePDFURL } from '../lib/deals'
+import { confirmPublicDealQuoteReceipt, getPublicDealQuote, publicQuotePDFURL, publicSignatureCertificateURL, updatePublicDealQuote } from '../lib/deals'
+import { createIdempotencyKey } from '../lib/idempotency'
 import { usePageTitle } from '../lib/use_page_title'
 import { formatMoney, formatSignatureTime } from './deal_view'
 
@@ -15,6 +16,8 @@ export function PublicQuoteRoute() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isConfirming, setIsConfirming] = useState(false)
+  const [signatureAction, setSignatureAction] = useState('')
+  const signatureAttempts = useRef({})
   usePageTitle(quote?.quoteNumber || 'Finalized Quote')
 
   async function loadQuote({ signal } = {}) {
@@ -52,6 +55,28 @@ export function PublicQuoteRoute() {
     }
   }
 
+  async function updateSignature(event, action) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const input = action === 'signature'
+      ? { signerName: String(form.get('signerName') || '').trim(), consent: form.has('consent') }
+      : { reason: String(form.get('reason') || '').trim() }
+    const fingerprint = JSON.stringify(input)
+    if (signatureAttempts.current[action]?.fingerprint !== fingerprint) {
+      signatureAttempts.current[action] = { fingerprint, key: createIdempotencyKey(`quote-${action}`) }
+    }
+    setSignatureAction(action)
+    try {
+      setQuote(await updatePublicDealQuote(token, action, input, signatureAttempts.current[action].key))
+      setError('')
+      delete signatureAttempts.current[action]
+    } catch (actionError) {
+      setError(actionError.message || `Unable to ${action === 'signature' ? 'sign' : 'decline'} quote.`)
+    } finally {
+      setSignatureAction('')
+    }
+  }
+
   return (
     <main className="landing-page landing-page-light public-quote-page">
       <section className="landing-page-panel public-quote-panel">
@@ -85,6 +110,49 @@ export function PublicQuoteRoute() {
                   <Button disabled={isConfirming} onClick={confirmReceipt}>{isConfirming ? 'Confirming…' : 'Confirm receipt'}</Button>
                 )}
               </div>
+              {quote.signature ? (
+                <section className="public-quote-signature" aria-labelledby="quote-signature-heading">
+                  <h2 id="quote-signature-heading">Electronic signature</h2>
+                  {quote.signature.status === 'signed' ? (
+                    <div className="inline-note" role="status">
+                      <strong>Signed by {quote.signature.signedName}</strong>
+                      <p>Signed {formatSignatureTime(quote.signature.signedAt)} through the recipient-specific email link.</p>
+                      <p>Certificate SHA-256: <code>{quote.signature.certificateSha256}</code></p>
+                      <a className="button button-secondary" href={publicSignatureCertificateURL(token)}>Download signature certificate</a>
+                    </div>
+                  ) : null}
+                  {quote.signature.status === 'declined' ? <p className="inline-note" role="status"><strong>Quote declined.</strong> The response was recorded {formatSignatureTime(quote.signature.declinedAt)}.</p> : null}
+                  {quote.signature.status === 'voided' ? <p className="inline-note" role="status"><strong>Signature request voided.</strong> Contact the sender if you still want to proceed.</p> : null}
+                  {quote.signature.status === 'sent' && !quote.signature.canSign ? <p className="inline-note" role="status"><strong>Signing deadline passed.</strong> Contact the sender for a new finalized quote.</p> : null}
+                  {quote.signature.status === 'sent' && quote.signature.canSign ? (
+                    <>
+                      <p className="field-hint">Signing is available through {formatSignatureTime(quote.signature.signingExpiresAt)}. The certificate binds your typed name and consent to the PDF digest shown above.</p>
+                      <form className="auth-form" aria-label="Sign finalized quote" onSubmit={(event) => updateSignature(event, 'signature')}>
+                        <label className="field">
+                          <span className="field-label">Type the recipient name exactly: {quote.signature.signerName}</span>
+                          <input className="text-input" autoComplete="name" maxLength={200} name="signerName" required />
+                        </label>
+                        <label className="checkbox-row">
+                          <input type="checkbox" name="consent" required />
+                          <span>{quote.signature.consentText}</span>
+                        </label>
+                        <Button type="submit" disabled={signatureAction === 'signature'}>{signatureAction === 'signature' ? 'Signing…' : 'Sign quote'}</Button>
+                      </form>
+                      <details>
+                        <summary>Decline this quote</summary>
+                        <form className="auth-form" aria-label="Decline finalized quote" onSubmit={(event) => updateSignature(event, 'decline')}>
+                          <label className="field">
+                            <span className="field-label">Reason for sender (optional)</span>
+                            <textarea className="text-input" maxLength={1000} name="reason" rows="3" />
+                          </label>
+                          <Button className="button-danger" type="submit" disabled={signatureAction === 'decline'}>{signatureAction === 'decline' ? 'Declining…' : 'Decline quote'}</Button>
+                        </form>
+                      </details>
+                    </>
+                  ) : null}
+                  <p className="field-hint">Open CRM records email-link possession, typed name, explicit consent, time, and immutable document digests. It does not collect your IP address or browser fingerprint. Enforceability depends on the agreement and applicable law.</p>
+                </section>
+              ) : null}
               {error ? <p className="form-error" role="alert">{error}</p> : null}
               <p className="inline-note"><strong>Receipt is not acceptance.</strong> Confirming receipt only tells the sender that you received this quote. It does not sign, approve, or accept its terms.</p>
             </div>
