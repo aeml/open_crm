@@ -10,6 +10,7 @@ import (
 
 	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -159,13 +160,11 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 
 	query.Search = strings.TrimSpace(query.Search)
 	phoneSearch := normalizePhoneDigits(query.Search)
-	if query.Page <= 0 {
-		query.Page = 1
+	page, err := platformpagination.Normalize(query.Page, query.PageSize, 20)
+	if err != nil {
+		return ListResult{}, err
 	}
-	if query.PageSize <= 0 {
-		query.PageSize = 20
-	}
-	offset := (query.Page - 1) * query.PageSize
+	query.Page, query.PageSize = page.Number, page.Size
 
 	filter := ""
 	args := []any{organizationID}
@@ -225,7 +224,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 		return ListResult{}, fmt.Errorf("count companies: %w", err)
 	}
 
-	args = append(args, query.PageSize, offset)
+	args = append(args, query.PageSize, page.Offset)
 	limitArg := len(args) - 1
 	offsetArg := len(args)
 	rows, err := s.pool.Query(ctx, `

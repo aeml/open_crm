@@ -136,7 +136,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.9` Integration Release Review: planned.
 - `0.9.0` Scale And Reliability: in progress.
 - `0.9.1` Query Performance Review: in progress (core tenant query plans and representative budgets are CI-gated; dashboard/report/import/provider review remains).
-- `0.9.2` Pagination And Large Dataset Hardening: in progress (core paginated reads and the bounded 10,000-row export plus explicit overflow refusal are tested; full endpoint/pagination-boundary review remains).
+- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, overflow-safe service enforcement, stable adjacent-page PostgreSQL evidence, and explicit 10,000-row export refusal are tested and documented; bounded continuation for notes/nested record activity and explicit catalog ceilings remain).
 - `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: planned.
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
@@ -165,7 +165,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 
 ## Version 0.1.1 - Migration Safety
 
-Status: complete.
+Status: in progress.
 
 Goal: make database deploys safer and repeatable.
 
@@ -2165,12 +2165,15 @@ Current convergence evidence: the real-PostgreSQL pilot gate asserts reviewed
 organization-scoped index plans and exact totals for contacts, companies, deals,
 and tasks, then budgets concurrent reads and writes through their real services.
 Mapped import write and duplicate checks now have tenant-normalized indexes and
-a 1,000-row regression budget. Dashboard, runtime report, and provider-specific
-queries still need review as those end-to-end workflows converge.
+a 1,000-row regression budget. The same fixture now checks maximum-size adjacent
+core pages for exact totals, stable ordering, no overlap, tenant separation, and
+safe rejection beyond the documented page boundary. Dashboard, later runtime
+report shapes, and provider-specific queries still need review as those
+end-to-end workflows converge.
 
 ## Version 0.9.2 - Pagination And Large Dataset Hardening
 
-Status: in progress.
+Status: complete.
 
 Goal: keep list and report pages usable as records grow.
 
@@ -2184,12 +2187,26 @@ Exit criteria:
 - Large datasets do not break core list workflows.
 - Pagination behavior is consistent and documented.
 
-Current convergence evidence: representative core lists are exercised at pilot
-volumes, enforce bounded page sizes, and verify exact totals. The synchronous CSV
-path is tenant-isolated and regression-tested at its explicit 10,000-row ceiling;
-row 10,001 returns a clear error instead of silently truncating the dataset.
-A full list-endpoint pagination boundary inventory and any evidence-driven keyset
-conversion remain.
+Current convergence evidence: all 101 registered GET routes are digest-gated to
+`docs/list-endpoint-inventory.md`, which records collection cardinality, stable
+ordering, totals, caller/service limits, overflow behavior, and the trigger for
+keyset conversion. Contacts, companies, deals, and tasks share an overflow-safe
+contract: page size is at most 100 and offset at most 50,000, matching the
+largest advertised hosted record ceiling. Malformed and out-of-range HTTP
+requests fail before their service; direct callers repeat the same bounds. The
+real-PostgreSQL pilot gate checks adjacent 100-row pages, exact totals, repeated
+page stability, no overlap, tenant separation, and maximum-plus-one rejection.
+The synchronous CSV path is tenant-isolated and regression-tested at its explicit
+10,000-row ceiling; row 10,001 returns a clear error instead of silently
+truncating the dataset. Measured pilot behavior does not justify a breaking
+keyset conversion yet; an approved larger workload or plan-budget regression is
+the documented trigger. The inventory also makes the remaining gap explicit:
+standalone notes and nested contact/company/deal/task activity arrays are still
+complete unpaged reads, while several low-volume definition catalogs rely on
+pilot-scale usage rather than an enforced total ceiling. Add bounded cursor
+continuation plus visible older-history access for the record-local histories,
+then close or paginate mutable catalog cardinality as production-like evidence
+requires before this roadmap item is complete.
 
 ## Version 0.9.3 - Background Job Runner
 
@@ -2335,7 +2352,9 @@ row contact export under a 5 s budget, runs a tenant-isolated 500-deal pipeline
 cohort/velocity calculation, a 500-client period rollup, and
 100-row page, a saved-table 100-row page, and a complete grouped-bar aggregation
 under 2 s, exports both saved types under 5 s with cross-tenant and audit
-checks, rejects row 10,001 without partial evidence, and maps/writes 1,000
+checks, rejects row 10,001 without partial evidence, checks stable non-overlapping
+adjacent maximum-size pages plus tenant separation and direct-service bounds for
+all four core lists, and maps/writes 1,000
 contacts with duplicate checks and progress ledgers under a 10 s budget. Postmark `503`, request deadline, and
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	modulesalesreports "github.com/aeml/open_crm/apps/api/internal/modules/salesreports"
 	"github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduletouchpoints "github.com/aeml/open_crm/apps/api/internal/modules/touchpoints"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 )
 
 const (
@@ -102,6 +104,7 @@ func TestPilotReadLoadAndFailureBudgetsAgainstPostgres(t *testing.T) {
 	if err != nil || taskResult.Meta.Total != pilotContactsPerTenant || len(taskResult.Tasks) != 50 {
 		t.Fatalf("unexpected tenant-scoped task warmup: total=%d rows=%d err=%v", taskResult.Meta.Total, len(taskResult.Tasks), err)
 	}
+	assertCoreListPaginationBoundaries(t, ctx, organizationID, secondOrganizationID, contactService, companyService, dealService, taskService)
 
 	latencies := runConcurrentPilotReads(t, ctx, organizationID, contactService, companyService, dealService, taskService)
 	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
@@ -177,6 +180,178 @@ func TestPilotReadLoadAndFailureBudgetsAgainstPostgres(t *testing.T) {
 	if elapsed := time.Since(failureStarted); elapsed > time.Second {
 		t.Fatalf("database failure took %s to surface; expected a bounded failure", elapsed)
 	}
+}
+
+func assertCoreListPaginationBoundaries(
+	t *testing.T,
+	ctx context.Context,
+	organizationID, otherOrganizationID int64,
+	contactService *contacts.Service,
+	companyService *companies.Service,
+	dealService *deals.Service,
+	taskService *tasks.Service,
+) {
+	t.Helper()
+
+	type snapshot struct {
+		name   string
+		first  []int64
+		second []int64
+		repeat []int64
+		total  int
+	}
+
+	contactFirst, err := contactService.ListByOrganization(ctx, organizationID, contacts.ListQuery{Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("list first contact boundary page: %v", err)
+	}
+	contactSecond, err := contactService.ListByOrganization(ctx, organizationID, contacts.ListQuery{Page: 2, PageSize: 100})
+	if err != nil {
+		t.Fatalf("list second contact boundary page: %v", err)
+	}
+	contactRepeat, err := contactService.ListByOrganization(ctx, organizationID, contacts.ListQuery{Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("repeat first contact boundary page: %v", err)
+	}
+	contactEmpty, err := contactService.ListByOrganization(ctx, organizationID, contacts.ListQuery{Page: 11, PageSize: 100})
+	if err != nil || len(contactEmpty.Contacts) != 0 || contactEmpty.Meta.Total != pilotContactsPerTenant {
+		t.Fatalf("unexpected empty contact page: rows=%d total=%d err=%v", len(contactEmpty.Contacts), contactEmpty.Meta.Total, err)
+	}
+	foreignContacts, err := contactService.ListByOrganization(ctx, otherOrganizationID, contacts.ListQuery{Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("list foreign tenant contact boundary page: %v", err)
+	}
+
+	companyFirst, err := companyService.ListByOrganization(ctx, organizationID, companies.ListQuery{Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("list first company boundary page: %v", err)
+	}
+	companySecond, err := companyService.ListByOrganization(ctx, organizationID, companies.ListQuery{Page: 2, PageSize: 100})
+	if err != nil {
+		t.Fatalf("list second company boundary page: %v", err)
+	}
+	companyRepeat, err := companyService.ListByOrganization(ctx, organizationID, companies.ListQuery{Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("repeat first company boundary page: %v", err)
+	}
+
+	dealFirst, err := dealService.ListByOrganization(ctx, organizationID, deals.ListQuery{Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("list first deal boundary page: %v", err)
+	}
+	dealSecond, err := dealService.ListByOrganization(ctx, organizationID, deals.ListQuery{Page: 2, PageSize: 100})
+	if err != nil {
+		t.Fatalf("list second deal boundary page: %v", err)
+	}
+	dealRepeat, err := dealService.ListByOrganization(ctx, organizationID, deals.ListQuery{Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("repeat first deal boundary page: %v", err)
+	}
+
+	taskFirst, err := taskService.ListByOrganization(ctx, organizationID, tasks.ListQuery{Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("list first task boundary page: %v", err)
+	}
+	taskSecond, err := taskService.ListByOrganization(ctx, organizationID, tasks.ListQuery{Page: 2, PageSize: 100})
+	if err != nil {
+		t.Fatalf("list second task boundary page: %v", err)
+	}
+	taskRepeat, err := taskService.ListByOrganization(ctx, organizationID, tasks.ListQuery{Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("repeat first task boundary page: %v", err)
+	}
+
+	snapshots := []snapshot{
+		{name: "contacts", first: contactIDs(contactFirst.Contacts), second: contactIDs(contactSecond.Contacts), repeat: contactIDs(contactRepeat.Contacts), total: contactFirst.Meta.Total},
+		{name: "companies", first: companyIDs(companyFirst.Companies), second: companyIDs(companySecond.Companies), repeat: companyIDs(companyRepeat.Companies), total: companyFirst.Meta.Total},
+		{name: "deals", first: dealIDs(dealFirst.Deals), second: dealIDs(dealSecond.Deals), repeat: dealIDs(dealRepeat.Deals), total: dealFirst.Meta.Total},
+		{name: "tasks", first: taskIDs(taskFirst.Tasks), second: taskIDs(taskSecond.Tasks), repeat: taskIDs(taskRepeat.Tasks), total: taskFirst.Meta.Total},
+	}
+	for _, current := range snapshots {
+		if len(current.first) != 100 || len(current.second) != 100 || current.total < 200 {
+			t.Fatalf("%s pagination boundary returned first=%d second=%d total=%d", current.name, len(current.first), len(current.second), current.total)
+		}
+		if !slices.Equal(current.first, current.repeat) {
+			t.Fatalf("%s first page changed across an unchanged dataset", current.name)
+		}
+		seen := make(map[int64]struct{}, len(current.first))
+		for _, id := range current.first {
+			seen[id] = struct{}{}
+		}
+		for _, id := range current.second {
+			if _, duplicate := seen[id]; duplicate {
+				t.Fatalf("%s record %d appeared on adjacent pages", current.name, id)
+			}
+		}
+	}
+	foreignIDs := make(map[int64]struct{}, len(foreignContacts.Contacts))
+	for _, id := range contactIDs(foreignContacts.Contacts) {
+		foreignIDs[id] = struct{}{}
+	}
+	for _, id := range contactIDs(contactFirst.Contacts) {
+		if _, crossed := foreignIDs[id]; crossed {
+			t.Fatalf("contact %d appeared in both tenant page results", id)
+		}
+	}
+
+	for _, invalid := range []struct {
+		name string
+		err  error
+	}{
+		{name: "contacts deep offset", err: func() error {
+			_, err := contactService.ListByOrganization(ctx, organizationID, contacts.ListQuery{Page: 502, PageSize: 100})
+			return err
+		}()},
+		{name: "companies oversized page", err: func() error {
+			_, err := companyService.ListByOrganization(ctx, organizationID, companies.ListQuery{Page: 1, PageSize: 101})
+			return err
+		}()},
+		{name: "deals deep offset", err: func() error {
+			_, err := dealService.ListByOrganization(ctx, organizationID, deals.ListQuery{Page: 502, PageSize: 100})
+			return err
+		}()},
+		{name: "tasks oversized page", err: func() error {
+			_, err := taskService.ListByOrganization(ctx, organizationID, tasks.ListQuery{Page: 1, PageSize: 101})
+			return err
+		}()},
+	} {
+		if !errors.Is(invalid.err, platformpagination.ErrInvalid) {
+			t.Fatalf("%s error=%v; expected pagination rejection", invalid.name, invalid.err)
+		}
+	}
+	t.Logf("pilot_core_pagination_boundaries page_size=100 max_offset=%d tenant_rows=%d", platformpagination.MaxPageOffset, contactFirst.Meta.Total)
+}
+
+func contactIDs(records []contacts.Summary) []int64 {
+	ids := make([]int64, len(records))
+	for index := range records {
+		ids[index] = records[index].ID
+	}
+	return ids
+}
+
+func companyIDs(records []companies.Summary) []int64 {
+	ids := make([]int64, len(records))
+	for index := range records {
+		ids[index] = records[index].ID
+	}
+	return ids
+}
+
+func dealIDs(records []deals.Summary) []int64 {
+	ids := make([]int64, len(records))
+	for index := range records {
+		ids[index] = records[index].ID
+	}
+	return ids
+}
+
+func taskIDs(records []tasks.Summary) []int64 {
+	ids := make([]int64, len(records))
+	for index := range records {
+		ids[index] = records[index].ID
+	}
+	return ids
 }
 
 func assertPipelineFunnelBudget(t *testing.T, ctx context.Context, pool *moduledb.Pool, organizationID, otherOrganizationID, entryStageID int64) {

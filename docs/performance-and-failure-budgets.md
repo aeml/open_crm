@@ -1,6 +1,6 @@
 # Performance And Failure Budgets
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-07-22
 
 These budgets are regression gates for the 5–50-person pilot profile. They are
 not a capacity guarantee for an arbitrary host, a substitute for production
@@ -28,6 +28,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | --- | ---: |
 | Mixed service-read p95 | 500 ms |
 | Any mixed service read | 2 s |
+| Core list page size / maximum offset | 100 rows / 50,000 rows |
 | Transactional contact-create p95 | 1 s |
 | Any transactional contact create | 3 s |
 | Client-period activity page (500 clients, 100 returned) | 2 s |
@@ -37,11 +38,24 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Exhausted one-connection pool deadline | 200 ms |
 | Closed database-pool failure | 1 s |
 
-Current local Go 1.26/PostgreSQL 16.14 evidence was approximately 18.1 ms read
-p95/21.1 ms maximum and 4.8 ms write p95/maximum. Those measurements are
+Current local Go 1.26/PostgreSQL 16.14 evidence was approximately 20.3 ms read
+p95/23.4 ms maximum and 9.6 ms write p95/maximum. Those measurements are
 diagnostic only; the checked budgets are intentionally wider to tolerate shared
 CI hosts while still catching query-plan, transaction, or N+1 regressions. The
-failure path also holds the only connection in a one-connection pool, proves a
+same fixture now reads adjacent maximum-size pages for contacts, companies,
+deals, and tasks, repeats the first page against an unchanged dataset, and
+requires exact totals, stable ordering, no adjacent-page overlap, and separate
+tenant results. Direct service calls must reject page sizes above 100 and
+offsets above 50,000 before querying PostgreSQL; handler tests independently
+require malformed, non-positive, oversized, and excessive requests to return
+`400` before calling a service. The shared calculation checks bounds before
+multiplication, so an extreme page number cannot overflow into a small offset.
+The 50,000 ceiling matches the largest advertised hosted contact/deal capacity;
+[`list-endpoint-inventory.md`](list-endpoint-inventory.md) records why offset
+pagination remains the compatible measured choice and the exact trigger for a
+future keyset contract.
+
+The failure path also holds the only connection in a one-connection pool, proves a
 waiting request observes its 200 ms deadline, releases capacity, and proves the
 pool serves requests again. It separately holds an access-exclusive table lock,
 proves a real service read honors the same 200 ms deadline, releases the lock,
@@ -70,10 +84,11 @@ evidence.
 It also maps and writes the complete 1,000-row synchronous import ceiling,
 including duplicate checks, activity/outcome ledgers, durable progress
 checkpoints, exact tenant totals, and foreign-tenant absence, within 10 seconds.
-Current local evidence was approximately 15 ms for the 500-deal cohort report,
-20 ms for the 500-client activity page, 33 ms for the 806,196-byte core export,
-8 ms for the 100-row saved-report page, 20 ms for the 453,869-byte saved-report
-export, and 1.06 s for the 52,937-byte/1,000-row import. Test
+Current local evidence was approximately 8.6 ms for the 500-deal cohort report,
+9.9 ms for the 500-client activity page, 32.9 ms for the 806,196-byte core export,
+7.5 ms for the 100-row saved-report page, 20.2 ms for the 453,869-byte saved-report
+export, 2.6/4.4 ms for the 10,000-row grouped-bar page/export, and 533 ms for the
+52,937-byte/1,000-row import. Test
 failure output includes observed latency or the query plan/budget that regressed.
 
 `apps/api/internal/modules/salesreports/query_plans_postgres_test.go` adds the

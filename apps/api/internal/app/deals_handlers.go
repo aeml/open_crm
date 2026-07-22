@@ -97,6 +97,10 @@ func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
 		return
 	}
+	page, validPage := parseCoreListPagination(w, r)
+	if !validPage {
+		return
+	}
 
 	unassignedDeals := r.URL.Query().Get("unassigned") == "true"
 	dealOwnerUserID := int64(0)
@@ -113,8 +117,8 @@ func handleListDeals(auth authService, deals dealsService, w http.ResponseWriter
 		PrimaryContactID: moduledeals.ParseInt64(r.URL.Query().Get("primaryContactId")),
 		CloseDateFrom:    strings.TrimSpace(r.URL.Query().Get("closeFrom")),
 		CloseDateTo:      strings.TrimSpace(r.URL.Query().Get("closeTo")),
-		Page:             parsePositiveInt(r.URL.Query().Get("page"), 1),
-		PageSize:         parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+		Page:             page.Number,
+		PageSize:         page.Size,
 	})
 	if err != nil {
 		if errors.Is(err, moduledeals.ErrInvalidDealFilter) {

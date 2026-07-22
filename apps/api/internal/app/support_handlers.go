@@ -93,6 +93,10 @@ func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Tasks service unavailable")
 		return
 	}
+	page, validPage := parseCoreListPagination(w, r)
+	if !validPage {
+		return
+	}
 
 	unassignedTasks := r.URL.Query().Get("unassigned") == "true"
 	assignedToUserID := int64(0)
@@ -107,8 +111,8 @@ func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter
 		AssignedToUserID: assignedToUserID,
 		UnassignedOnly:   unassignedTasks,
 		DueView:          strings.TrimSpace(r.URL.Query().Get("due")),
-		Page:             parsePositiveInt(r.URL.Query().Get("page"), 1),
-		PageSize:         parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+		Page:             page.Number,
+		PageSize:         page.Size,
 	})
 	if err != nil {
 		if errors.Is(err, moduletasks.ErrInvalidFilter) {

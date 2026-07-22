@@ -17,6 +17,7 @@ import (
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 )
 
 var (
@@ -1596,12 +1597,11 @@ func normalizeListQuery(query ListQuery) (ListQuery, error) {
 			return ListQuery{}, ErrInvalidDealFilter
 		}
 	}
-	if query.Page <= 0 {
-		query.Page = 1
+	page, err := platformpagination.Normalize(query.Page, query.PageSize, 20)
+	if err != nil {
+		return ListQuery{}, err
 	}
-	if query.PageSize <= 0 {
-		query.PageSize = 20
-	}
+	query.Page, query.PageSize = page.Number, page.Size
 	return query, nil
 }
 

@@ -17,6 +17,7 @@ import (
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
@@ -202,6 +203,21 @@ func parsePositiveInt(value string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func parseCoreListPagination(w http.ResponseWriter, r *http.Request) (platformpagination.Page, bool) {
+	page, err := platformpagination.Parse(r.URL.Query().Get("page"), r.URL.Query().Get("pageSize"), 20)
+	if err != nil {
+		platformweb.WriteError(
+			w,
+			http.StatusBadRequest,
+			platformweb.RequestIDFromContext(r.Context()),
+			"BAD_REQUEST",
+			"Page size must be between 1 and 100, and page offset must be at most 50,000 records",
+		)
+		return platformpagination.Page{}, false
+	}
+	return page, true
 }
 
 func parseQueryInt64(value string) int64 {

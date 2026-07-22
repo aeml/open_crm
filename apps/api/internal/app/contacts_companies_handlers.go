@@ -98,6 +98,10 @@ func handleListContacts(auth authService, contacts contactsService, w http.Respo
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
 		return
 	}
+	page, validPage := parseCoreListPagination(w, r)
+	if !validPage {
+		return
+	}
 
 	unassignedContacts := r.URL.Query().Get("unassigned") == "true"
 	contactOwnerUserID := int64(0)
@@ -106,8 +110,8 @@ func handleListContacts(auth authService, contacts contactsService, w http.Respo
 	}
 	query := modulecontacts.ListQuery{
 		Search:         strings.TrimSpace(r.URL.Query().Get("q")),
-		Page:           parsePositiveInt(r.URL.Query().Get("page"), 1),
-		PageSize:       parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+		Page:           page.Number,
+		PageSize:       page.Size,
 		OwnerUserID:    contactOwnerUserID,
 		UnassignedOnly: unassignedContacts,
 		CustomField: modulecustomfields.Filter{
@@ -290,6 +294,10 @@ func handleListCompanies(auth authService, companies companiesService, w http.Re
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Companies service unavailable")
 		return
 	}
+	page, validPage := parseCoreListPagination(w, r)
+	if !validPage {
+		return
+	}
 
 	unassignedCompanies := r.URL.Query().Get("unassigned") == "true"
 	companyOwnerUserID := int64(0)
@@ -298,8 +306,8 @@ func handleListCompanies(auth authService, companies companiesService, w http.Re
 	}
 	query := modulecompanies.ListQuery{
 		Search:         strings.TrimSpace(r.URL.Query().Get("q")),
-		Page:           parsePositiveInt(r.URL.Query().Get("page"), 1),
-		PageSize:       parsePositiveInt(r.URL.Query().Get("pageSize"), 20),
+		Page:           page.Number,
+		PageSize:       page.Size,
 		OwnerUserID:    companyOwnerUserID,
 		UnassignedOnly: unassignedCompanies,
 		CustomField: modulecustomfields.Filter{

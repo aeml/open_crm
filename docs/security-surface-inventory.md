@@ -12,6 +12,9 @@ This is the Phase 0 map for every HTTP route and continuously running background
 digest-gated set of 26 real-PostgreSQL negative-path tests for every promoted
 Phase 2 service family. Route registration proves that a boundary was reviewed;
 the matrix identifies the database acceptance that proves the service behavior.
+`list-endpoint-inventory.md` separately digest-gates all 101 GET selectors and
+records collection cardinality, total order, caller/service bounds, overflow,
+and the evidence-based offset/keyset decision.
 
 ## Policy vocabulary
 

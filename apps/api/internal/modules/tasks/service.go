@@ -16,6 +16,7 @@ import (
 	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 )
 
 var (
@@ -114,7 +115,10 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 		return ListResult{}, fmt.Errorf("tasks service not configured")
 	}
 
-	query = normalizeListQuery(query)
+	query, err := normalizeListQuery(query)
+	if err != nil {
+		return ListResult{}, err
+	}
 	if !validDueView(query.DueView) {
 		return ListResult{}, ErrInvalidFilter
 	}
@@ -600,7 +604,7 @@ func ensureEntityExists(ctx context.Context, executor activityExecutor, organiza
 	return nil
 }
 
-func normalizeListQuery(query ListQuery) ListQuery {
+func normalizeListQuery(query ListQuery) (ListQuery, error) {
 	query.Search = strings.TrimSpace(strings.ToLower(query.Search))
 	query.Status = normalizeStatus(query.Status)
 	query.EntityType = normalizeEntityType(query.EntityType)
@@ -608,13 +612,12 @@ func normalizeListQuery(query ListQuery) ListQuery {
 	if query.EntityID < 0 {
 		query.EntityID = 0
 	}
-	if query.Page <= 0 {
-		query.Page = 1
+	page, err := platformpagination.Normalize(query.Page, query.PageSize, 20)
+	if err != nil {
+		return ListQuery{}, err
 	}
-	if query.PageSize <= 0 {
-		query.PageSize = 20
-	}
-	return query
+	query.Page, query.PageSize = page.Number, page.Size
+	return query, nil
 }
 
 func normalizeCreateInput(input CreateInput) CreateInput {
