@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -66,40 +67,71 @@ type Input struct {
 	IsActive              *bool       `json:"isActive"`
 }
 
+type ListQuery struct {
+	Page     int
+	PageSize int
+}
+
+type ListPage struct {
+	Definitions []Definition `json:"definitions"`
+	Page        int          `json:"page"`
+	PageSize    int          `json:"pageSize"`
+	Total       int          `json:"total"`
+}
+
 type Service struct {
 	pool *pgxpool.Pool
 }
+
+const DefaultDefinitionListPageSize = 50
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
 }
 
-func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]Definition, error) {
-	if s == nil || s.pool == nil {
-		return nil, fmt.Errorf("custom reports service not configured")
+func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, query ListQuery) (ListPage, error) {
+	if s == nil || s.pool == nil || organizationID <= 0 {
+		return ListPage{}, fmt.Errorf("custom reports service not configured")
+	}
+	page, err := platformpagination.Normalize(query.Page, query.PageSize, DefaultDefinitionListPageSize)
+	if err != nil {
+		return ListPage{}, ErrInvalidInput
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return ListPage{}, fmt.Errorf("begin custom report definition list: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	result := ListPage{Definitions: []Definition{}, Page: page.Number, PageSize: page.Size}
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*)::int FROM custom_report_definitions WHERE organization_id=$1`, organizationID).Scan(&result.Total); err != nil {
+		return ListPage{}, fmt.Errorf("count custom report definitions: %w", err)
 	}
 
-	rows, err := s.pool.Query(ctx, definitionSelect+`
+	rows, err := tx.Query(ctx, definitionSelect+`
 		WHERE organization_id = $1
 		ORDER BY is_active DESC, updated_at DESC, id DESC
-	`, organizationID)
+		LIMIT $2 OFFSET $3
+	`, organizationID, page.Size, page.Offset)
 	if err != nil {
-		return nil, fmt.Errorf("list custom report definitions: %w", err)
+		return ListPage{}, fmt.Errorf("list custom report definitions: %w", err)
 	}
 	defer rows.Close()
 
-	definitions := make([]Definition, 0)
 	for rows.Next() {
 		definition, err := scanDefinition(rows)
 		if err != nil {
-			return nil, err
+			return ListPage{}, err
 		}
-		definitions = append(definitions, definition)
+		result.Definitions = append(result.Definitions, definition)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate custom report definitions: %w", err)
+		return ListPage{}, fmt.Errorf("iterate custom report definitions: %w", err)
 	}
-	return definitions, nil
+	if err := tx.Commit(ctx); err != nil {
+		return ListPage{}, fmt.Errorf("commit custom report definition list: %w", err)
+	}
+	return result, nil
 }
 
 type rowScanner interface {

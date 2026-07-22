@@ -76,6 +76,18 @@ function seedWorkflowDefinitionContinuation(ownerEmail, runID) {
   })
 }
 
+function seedReportDefinitionContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_report_definitions', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -906,7 +918,15 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   expect(createdDealTaskResponse.status()).toBe(201)
   await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(`Prepare proposal ${runID}`)).toBeVisible()
 
+  seedReportDefinitionContinuation(owner.email, runID)
   await page.getByRole('link', { name: 'Reports', exact: true }).click()
+  const oldestSeededReport = `Browser report ${runID} #001`
+  await expect(page.getByText('Showing 50 of 51 stored definitions.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: oldestSeededReport })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Load more stored report definitions' }).click()
+  await expect(page.getByRole('heading', { name: oldestSeededReport })).toBeVisible()
+  await expect(page.getByText('Showing 51 of 51 stored definitions.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Load more stored report definitions' })).toHaveCount(0)
   const salesActivityCard = page.locator('.sales-activity-card')
   await expect(salesActivityCard.getByRole('heading', { name: 'Sales activity' })).toBeVisible()
   await expect(salesActivityCard.getByText('Complete event coverage', { exact: false })).toBeVisible()

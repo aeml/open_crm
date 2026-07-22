@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -38,25 +38,34 @@ export function ReportsFoundationRoute() {
   const canExport = ['owner', 'admin'].includes(session?.membership?.role)
   usePageTitle('Reports')
   const [definitions, setDefinitions] = useState([])
+  const [definitionMeta, setDefinitionMeta] = useState({ page: 1, pageSize: 50, total: 0 })
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const definitionLoadVersion = useRef(0)
+  const mutationPending = useRef(false)
 
   async function loadDefinitions({ signal } = {}) {
+    const version = definitionLoadVersion.current + 1
+    definitionLoadVersion.current = version
+    setIsLoadingMore(false)
     setIsLoading(true)
     try {
-      const nextDefinitions = await listReportDefinitions({ signal })
-      setDefinitions(nextDefinitions)
+      const nextPage = await listReportDefinitions({ signal })
+      if (signal?.aborted || definitionLoadVersion.current !== version) return
+      setDefinitions(nextPage.definitions)
+      setDefinitionMeta(nextPage.meta)
       setError('')
     } catch (loadError) {
-      if (!isAbortError(loadError)) {
+      if (!isAbortError(loadError) && definitionLoadVersion.current === version) {
         setError(loadError.message || 'Unable to load report definitions.')
       }
     } finally {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && definitionLoadVersion.current === version) {
         setIsLoading(false)
       }
     }
@@ -69,6 +78,45 @@ export function ReportsFoundationRoute() {
       controller.abort()
     }
   }, [])
+
+  async function loadMoreDefinitions() {
+    if (isLoadingMore || definitions.length >= definitionMeta.total) return
+    const version = definitionLoadVersion.current + 1
+    definitionLoadVersion.current = version
+    setIsLoadingMore(true)
+    try {
+      const nextPage = await listReportDefinitions({ page: definitionMeta.page + 1, pageSize: definitionMeta.pageSize })
+      if (definitionLoadVersion.current !== version) return
+      setDefinitions((current) => {
+        const seen = new Set(current.map((definition) => definition.id))
+        return [...current, ...nextPage.definitions.filter((definition) => !seen.has(definition.id))]
+      })
+      setDefinitionMeta(nextPage.meta)
+      setError('')
+    } catch (loadError) {
+      if (definitionLoadVersion.current === version) setError(loadError.message || 'Unable to load more stored report definitions.')
+    } finally {
+      if (definitionLoadVersion.current === version) setIsLoadingMore(false)
+    }
+  }
+
+  async function refreshDefinitionsAfterMutation(successMessage) {
+    const version = definitionLoadVersion.current + 1
+    definitionLoadVersion.current = version
+    setIsLoadingMore(false)
+    try {
+      const firstPage = await listReportDefinitions()
+      if (definitionLoadVersion.current !== version) return
+      setDefinitions(firstPage.definitions)
+      setDefinitionMeta(firstPage.meta)
+      setError('')
+      setStatus(successMessage)
+    } catch (loadError) {
+      if (definitionLoadVersion.current !== version) return
+      setStatus(`${successMessage} Reload the stored-definition list before another change.`)
+      setError(loadError.message || 'Unable to refresh stored report definitions.')
+    }
+  }
 
   function resetForm() {
     setEditingId(null)
@@ -122,24 +170,29 @@ export function ReportsFoundationRoute() {
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (!canManage || mutationPending.current) return
+    mutationPending.current = true
     setIsSaving(true)
     setStatus('')
     try {
       const payload = payloadFromForm(form)
       if (editingId) {
         const updated = await updateReportDefinition(editingId, payload)
+        if (!updated || updated.id !== editingId) throw new Error('The updated report response was invalid. Refresh before retrying.')
         setDefinitions((current) => current.map((definition) => (definition.id === editingId ? updated : definition)))
-        setStatus('Report definition updated.')
+        await refreshDefinitionsAfterMutation('Report definition updated.')
       } else {
         const created = await createReportDefinition(payload)
+        if (!created || !Number.isInteger(created.id) || created.id <= 0) throw new Error('The created report response was invalid. Refresh before retrying.')
         setDefinitions((current) => [created, ...current])
-        setStatus('Report definition created.')
+        setDefinitionMeta((current) => ({ ...current, total: current.total + 1 }))
+        await refreshDefinitionsAfterMutation('Report definition created.')
       }
       resetForm()
-      setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to save report definition.')
     } finally {
+      mutationPending.current = false
       setIsSaving(false)
     }
   }
@@ -167,6 +220,7 @@ export function ReportsFoundationRoute() {
           {isLoading ? <p className="field-hint">Loading report definitions...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadDefinitions()} retryLabel="Retry reports" /> : null}
+          <p className="field-hint">Showing {definitions.length} of {definitionMeta.total} stored definitions.</p>
           <div className="record-list" role="list" aria-label="Report definitions">
             {!isLoading && visibleDefinitions.length === 0 ? (
               <article className="record-row" role="listitem">
@@ -192,6 +246,7 @@ export function ReportsFoundationRoute() {
               </article>
             ))}
           </div>
+          {definitions.length < definitionMeta.total ? <Button className="button-secondary" type="button" disabled={isLoadingMore || isSaving} onClick={loadMoreDefinitions}>{isLoadingMore ? 'Loading stored report definitions...' : 'Load more stored report definitions'}</Button> : null}
         </div>
       </Card>
 

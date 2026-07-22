@@ -1,9 +1,17 @@
 import { apiRequest, apiURL } from './api'
 
-export async function listReportDefinitions({ signal } = {}) {
-  const payload = await apiRequest('/api/report-definitions', { fallbackMessage: 'Unable to load report definitions.', signal })
+export async function listReportDefinitions({ page = 1, pageSize = 50, signal } = {}) {
+  const payload = await apiRequest(`/api/report-definitions?page=${page}&pageSize=${pageSize}`, { fallbackMessage: 'Unable to load report definitions.', signal })
+  const definitions = Array.isArray(payload?.data?.definitions) ? payload.data.definitions : []
+  const responseMeta = payload?.data?.meta
+  if (responseMeta && (!Number.isInteger(responseMeta.page) || responseMeta.page !== page || !Number.isInteger(responseMeta.pageSize) || responseMeta.pageSize !== pageSize || definitions.length > responseMeta.pageSize || !Number.isInteger(responseMeta.total) || responseMeta.total < definitions.length)) {
+    throw new Error('The server returned an invalid report definition page. Refresh before retrying.')
+  }
 
-  return payload?.data?.definitions || []
+  return {
+    definitions,
+    meta: responseMeta || { page, pageSize, total: definitions.length }
+  }
 }
 
 export async function createReportDefinition(input, { signal } = {}) {

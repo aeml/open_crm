@@ -363,7 +363,7 @@ type workflowAutomationsService interface {
 }
 
 type customReportsService interface {
-	ListByOrganization(context.Context, int64) ([]modulecustomreports.Definition, error)
+	ListByOrganization(context.Context, int64, modulecustomreports.ListQuery) (modulecustomreports.ListPage, error)
 	Create(context.Context, int64, int64, modulecustomreports.Input) (modulecustomreports.Definition, error)
 	Update(context.Context, int64, int64, int64, modulecustomreports.Input) (modulecustomreports.Definition, error)
 	Execute(context.Context, int64, int64, modulecustomreports.ExecuteQuery) (modulecustomreports.Execution, error)

@@ -6,12 +6,18 @@ import (
 	"net/http"
 
 	modulecustomreports "github.com/aeml/open_crm/apps/api/internal/modules/customreports"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
 type customReportDefinitionsListResponse struct {
 	Data struct {
 		Definitions []modulecustomreports.Definition `json:"definitions"`
+		Meta        struct {
+			Page     int `json:"page"`
+			PageSize int `json:"pageSize"`
+			Total    int `json:"total"`
+		} `json:"meta"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -58,14 +64,26 @@ func handleListCustomReportDefinitions(auth authService, reports customReportsSe
 		return
 	}
 
-	definitions, err := reports.ListByOrganization(r.Context(), state.Organization.ID)
+	page, err := platformpagination.Parse(r.URL.Query().Get("page"), r.URL.Query().Get("pageSize"), modulecustomreports.DefaultDefinitionListPageSize)
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load custom report definitions")
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Report definition page values must be positive, page size must not exceed 100, and offset must not exceed 50,000 records")
+		return
+	}
+	result, err := reports.ListByOrganization(r.Context(), state.Organization.ID, modulecustomreports.ListQuery{Page: page.Number, PageSize: page.Size})
+	if err != nil {
+		if errors.Is(err, modulecustomreports.ErrInvalidInput) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid report definition page")
+		} else {
+			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load custom report definitions")
+		}
 		return
 	}
 
 	response := customReportDefinitionsListResponse{}
-	response.Data.Definitions = definitions
+	response.Data.Definitions = result.Definitions
+	response.Data.Meta.Page = result.Page
+	response.Data.Meta.PageSize = result.PageSize
+	response.Data.Meta.Total = result.Total
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }

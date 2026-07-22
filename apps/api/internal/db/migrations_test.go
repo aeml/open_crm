@@ -2029,3 +2029,27 @@ func TestMigrationFilesIncludeWorkflowDefinitionPaging(t *testing.T) {
 		t.Fatalf("workflow definition paging deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeCustomReportDefinitionPaging(t *testing.T) {
+	const name = "113_custom_report_definition_paging.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"idx_custom_report_definitions_org_management_page",
+		"is_active DESC",
+		"updated_at DESC",
+		"id DESC",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("custom report definition paging migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("custom report definition paging deployment class = %q", class)
+	}
+}

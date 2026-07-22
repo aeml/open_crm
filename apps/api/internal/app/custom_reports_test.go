@@ -15,7 +15,7 @@ import (
 )
 
 type fakeCustomReportsService struct {
-	listResult      []modulecustomreports.Definition
+	listResult      modulecustomreports.ListPage
 	listErr         error
 	createResult    modulecustomreports.Definition
 	createErr       error
@@ -26,6 +26,7 @@ type fakeCustomReportsService struct {
 	exportResult    modulecustomreports.CSVFile
 	exportErr       error
 	lastListOrgID   int64
+	lastListQuery   modulecustomreports.ListQuery
 	lastCreateOrgID int64
 	lastCreateUser  int64
 	lastCreateInput modulecustomreports.Input
@@ -41,8 +42,9 @@ type fakeCustomReportsService struct {
 	lastExportID    int64
 }
 
-func (f *fakeCustomReportsService) ListByOrganization(_ context.Context, organizationID int64) ([]modulecustomreports.Definition, error) {
+func (f *fakeCustomReportsService) ListByOrganization(_ context.Context, organizationID int64, query modulecustomreports.ListQuery) (modulecustomreports.ListPage, error) {
 	f.lastListOrgID = organizationID
+	f.lastListQuery = query
 	return f.listResult, f.listErr
 }
 
@@ -89,10 +91,13 @@ func authenticatedCustomReportsServer(service *fakeCustomReportsService, role st
 }
 
 func TestListCustomReportDefinitionsScopesToOrganization(t *testing.T) {
-	service := &fakeCustomReportsService{listResult: []modulecustomreports.Definition{{ID: 5, Name: "Pipeline revenue", SourceType: "deals", VisualizationType: "bar", VisualizationContract: "grouped_bar_v1", Columns: []string{}, Filters: []modulecustomreports.Filter{{Field: "status", Operator: "equals", Value: "open"}}, GroupBy: "stageName", Aggregation: modulecustomreports.Aggregation{Function: "sum", Field: "valueAmount"}, IsActive: true}}}
+	service := &fakeCustomReportsService{listResult: modulecustomreports.ListPage{
+		Definitions: []modulecustomreports.Definition{{ID: 5, Name: "Pipeline revenue", SourceType: "deals", VisualizationType: "bar", VisualizationContract: "grouped_bar_v1", Columns: []string{}, Filters: []modulecustomreports.Filter{{Field: "status", Operator: "equals", Value: "open"}}, GroupBy: "stageName", Aggregation: modulecustomreports.Aggregation{Function: "sum", Field: "valueAmount"}, IsActive: true}},
+		Page:        2, PageSize: 25, Total: 31,
+	}}
 	server := authenticatedCustomReportsServer(service, "member")
 
-	request := httptest.NewRequest(http.MethodGet, "/api/report-definitions", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/report-definitions?page=2&pageSize=25", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -101,12 +106,17 @@ func TestListCustomReportDefinitionsScopesToOrganization(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
 	}
-	if service.lastListOrgID != 42 {
-		t.Fatalf("expected list scoped to org 42, got %d", service.lastListOrgID)
+	if service.lastListOrgID != 42 || service.lastListQuery.Page != 2 || service.lastListQuery.PageSize != 25 {
+		t.Fatalf("unexpected report definition list scope: org=%d query=%#v", service.lastListOrgID, service.lastListQuery)
 	}
 	var response struct {
 		Data struct {
 			Definitions []modulecustomreports.Definition `json:"definitions"`
+			Meta        struct {
+				Page     int `json:"page"`
+				PageSize int `json:"pageSize"`
+				Total    int `json:"total"`
+			} `json:"meta"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -114,6 +124,34 @@ func TestListCustomReportDefinitionsScopesToOrganization(t *testing.T) {
 	}
 	if len(response.Data.Definitions) != 1 || response.Data.Definitions[0].SourceType != "deals" || response.Data.Definitions[0].VisualizationType != "bar" || response.Data.Definitions[0].Aggregation.Function != "sum" {
 		t.Fatalf("unexpected custom report definitions payload: %#v", response.Data.Definitions)
+	}
+	if response.Data.Meta.Page != 2 || response.Data.Meta.PageSize != 25 || response.Data.Meta.Total != 31 {
+		t.Fatalf("unexpected custom report definition metadata: %#v", response.Data.Meta)
+	}
+}
+
+func TestListCustomReportDefinitionsRejectsUnsafePaginationBeforeService(t *testing.T) {
+	for _, target := range []string{
+		"/api/report-definitions?page=0",
+		"/api/report-definitions?page=bad",
+		"/api/report-definitions?pageSize=101",
+		"/api/report-definitions?page=502&pageSize=100",
+	} {
+		t.Run(target, func(t *testing.T) {
+			service := &fakeCustomReportsService{}
+			request := httptest.NewRequest(http.MethodGet, target, nil)
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+
+			authenticatedCustomReportsServer(service, "member").ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "50,000") {
+				t.Fatalf("expected bounded pagination error, got %d: %s", recorder.Code, recorder.Body.String())
+			}
+			if service.lastListOrgID != 0 {
+				t.Fatalf("unsafe pagination reached custom reports service for org %d", service.lastListOrgID)
+			}
+		})
 	}
 }
 

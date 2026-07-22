@@ -187,11 +187,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 735 KiB | 230 KiB |
+| All JavaScript and CSS | 737 KiB | 231 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
 Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.65 KiB largest lazy
-chunk, and 735.00 KiB/229.57 KiB total assets. The production contact, company,
+chunk, and 736.93 KiB/229.89 KiB total assets. The production contact, company,
 deal, and task routes are 27.72/8.57, 44.95/12.98, 54.93/15.64, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -427,6 +427,21 @@ task-automation chunk, and 735.00/229.57 KiB aggregate raw/gzip. The route is
 377 lines and retains the separately tested 239-line contract/form model. Only
 the reviewed aggregate ceilings advance from 734/229 to 735/230 KiB; entry,
 per-route, CSS, and source ceilings remain unchanged.
+
+Bounded saved-report-definition management applies the same 50/default,
+100/maximum, and 50,000-offset contract to the production Reports catalog, with
+an exact tenant total from the same repeatable-read snapshot as the stable
+active/update/ID page. Migration 113 supplies the matching management index.
+Fresh PostgreSQL 16.14 acceptance seeds 1,001 local definitions plus a foreign
+row, asserts that index, budgets adjacent 100-row pages below two seconds, and
+proves repeat stability, exact totals, direct-service bounds, and tenant
+exclusion. Chromium proves the first-50/row-51 continuation before creating,
+running, and exporting both promoted report shapes. The measured production
+build is 178.82/57.97 KiB entry, 54.93/15.65 KiB largest lazy chunk,
+49.33/11.72 KiB Reports chunk, and 736.93/229.89 KiB aggregate raw/gzip. The
+Reports orchestration is 352 lines and retains its separate 245-line tested
+catalog/form model. Only the reviewed aggregate ceilings advance from 735/230
+to 737/231 KiB; entry, per-route, CSS, and source ceilings remain unchanged.
 
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
