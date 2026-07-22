@@ -39,15 +39,19 @@ func (s *Service) processRows(ctx context.Context, connection *pgxpool.Conn, org
 			errorCount++
 		}
 	}
-	if _, err := tx.Exec(ctx, `
+	command, err := tx.Exec(ctx, `
 		UPDATE import_batches
 		SET processed_rows = processed_rows + $3,
 		    success_rows = success_rows + $4,
 		    error_rows = error_rows + $5,
 		    updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2 AND status = 'processing'
-	`, organizationID, batchID, len(rows), successCount, errorCount); err != nil {
+	`, organizationID, batchID, len(rows), successCount, errorCount)
+	if err != nil {
 		return fmt.Errorf("advance import batch progress: %w", err)
+	}
+	if command.RowsAffected() != 1 {
+		return ErrConflict
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit import checkpoint: %w", err)

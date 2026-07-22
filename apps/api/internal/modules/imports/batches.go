@@ -11,13 +11,12 @@ import (
 	"io"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 )
 
 var (
@@ -26,6 +25,13 @@ var (
 	ErrConflict            = errors.New("import batch state conflict")
 	ErrIdempotencyConflict = errors.New("idempotency key was already used for different import data")
 	ErrInactiveActor       = errors.New("import actor is not an active organization member")
+	ErrInvalidJob          = errors.New("invalid import job")
+	ErrSourceUnavailable   = errors.New("retained import source is unavailable")
+)
+
+const (
+	JobType         = "import.execute"
+	SourceRetention = 7 * 24 * time.Hour
 )
 
 type ExecuteInput struct {
@@ -58,6 +64,10 @@ type Batch struct {
 	UpdatedAt           time.Time         `json:"updatedAt"`
 	CompletedAt         *time.Time        `json:"completedAt,omitempty"`
 	RolledBackAt        *time.Time        `json:"rolledBackAt,omitempty"`
+	SourceExpiresAt     *time.Time        `json:"sourceExpiresAt,omitempty"`
+	JobStatus           string            `json:"jobStatus,omitempty"`
+	JobAttempts         int               `json:"jobAttempts,omitempty"`
+	JobMaxAttempts      int               `json:"jobMaxAttempts,omitempty"`
 	Replayed            bool              `json:"replayed,omitempty"`
 	sourceSHA256        string
 }
@@ -97,7 +107,7 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (Batch, error
 
 	digest := sha256.Sum256(contents)
 	sourceSHA := hex.EncodeToString(digest[:])
-	batch, created, err := s.createOrFindBatch(ctx, input, preview, sourceSHA)
+	batch, created, err := s.createOrFindBatch(ctx, input, preview, sourceSHA, contents)
 	if err != nil {
 		return Batch{}, err
 	}
@@ -105,68 +115,11 @@ func (s *Service) Execute(ctx context.Context, input ExecuteInput) (Batch, error
 		return Batch{}, ErrIdempotencyConflict
 	}
 
-	connection, err := s.pool.Acquire(ctx)
-	if err != nil {
-		return Batch{}, fmt.Errorf("acquire import connection: %w", err)
-	}
-	defer connection.Release()
-	if err := lockOrganizationImports(ctx, connection, input.OrganizationID); err != nil {
-		return Batch{}, err
-	}
-	defer unlockOrganizationImports(connection, input.OrganizationID)
-
-	batch, err = getBatch(ctx, connection, input.OrganizationID, batch.ID)
-	if err != nil {
-		return Batch{}, err
-	}
-	if isTerminalBatchStatus(batch.Status) {
-		batch.Replayed = !created
-		return batch, nil
-	}
-	if batch.Status == "failed" {
-		if _, err := connection.Exec(ctx, `UPDATE import_batches SET status = 'processing', failure_message = NULL, updated_at = NOW() WHERE organization_id = $1 AND id = $2`, input.OrganizationID, batch.ID); err != nil {
-			return Batch{}, fmt.Errorf("resume import batch: %w", err)
-		}
-	}
-
-	processed, err := existingBatchRows(ctx, connection, input.OrganizationID, batch.ID)
-	if err != nil {
-		return Batch{}, err
-	}
-	pendingRows := make([]PreviewRow, 0, len(preview.Rows))
-	capacityRows := 0
-	for _, row := range preview.Rows {
-		if _, exists := processed[row.RowNumber]; exists {
-			continue
-		}
-		pendingRows = append(pendingRows, row)
-		if preview.EntityType == "contacts" && len(row.Errors) == 0 {
-			capacityRows++
-		}
-	}
-	var reservation modulebilling.CapacityReservation
-	if capacityRows > 0 {
-		reservation, err = modulebilling.ReserveCapacity(ctx, s.capacity, input.OrganizationID, modulebilling.ResourceContacts, capacityRows)
-		if err != nil {
-			return Batch{}, err
-		}
-		defer modulebilling.CancelReservation(s.capacity, reservation)
-	}
-	const checkpointRows = 50
-	for start := 0; start < len(pendingRows); start += checkpointRows {
-		end := min(start+checkpointRows, len(pendingRows))
-		if err := s.processRows(ctx, connection, input.OrganizationID, input.ActorUserID, batch.ID, preview.EntityType, pendingRows[start:end]); err != nil {
-			return Batch{}, err
-		}
-	}
-
-	if err := completeBatch(ctx, connection, input.OrganizationID, input.ActorUserID, batch.ID, s.capacity, reservation); err != nil {
-		return Batch{}, err
-	}
-	return getBatch(ctx, connection, input.OrganizationID, batch.ID)
+	batch.Replayed = !created
+	return batch, nil
 }
 
-func (s *Service) createOrFindBatch(ctx context.Context, input ExecuteInput, preview PreviewResult, sourceSHA string) (Batch, bool, error) {
+func (s *Service) createOrFindBatch(ctx context.Context, input ExecuteInput, preview PreviewResult, sourceSHA string, contents []byte) (Batch, bool, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return Batch{}, false, fmt.Errorf("begin import batch: %w", err)
@@ -183,11 +136,12 @@ func (s *Service) createOrFindBatch(ctx context.Context, input ExecuteInput, pre
 	err = tx.QueryRow(ctx, `
 		INSERT INTO import_batches (
 			organization_id, created_by_user_id, entity_type, original_filename,
-			idempotency_key, source_sha256, mapping_json, total_rows
-		) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+			idempotency_key, source_sha256, mapping_json, status, total_rows,
+			source_csv, source_expires_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'processing', $8, $9, NOW() + ($10::bigint * INTERVAL '1 microsecond'))
 		ON CONFLICT (organization_id, idempotency_key) DO NOTHING
 		RETURNING id
-	`, input.OrganizationID, input.ActorUserID, preview.EntityType, input.OriginalName, input.IdempotencyKey, sourceSHA, string(mappingJSON), preview.Summary.TotalRows).Scan(&batchID)
+	`, input.OrganizationID, input.ActorUserID, preview.EntityType, input.OriginalName, input.IdempotencyKey, sourceSHA, string(mappingJSON), preview.Summary.TotalRows, contents, SourceRetention.Microseconds()).Scan(&batchID)
 	created := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return Batch{}, false, fmt.Errorf("create import batch: %w", err)
@@ -195,6 +149,20 @@ func (s *Service) createOrFindBatch(ctx context.Context, input ExecuteInput, pre
 	if !created {
 		if err := tx.QueryRow(ctx, `SELECT id FROM import_batches WHERE organization_id = $1 AND idempotency_key = $2`, input.OrganizationID, input.IdempotencyKey).Scan(&batchID); err != nil {
 			return Batch{}, false, fmt.Errorf("find idempotent import batch: %w", err)
+		}
+	}
+	if created {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO background_jobs (organization_id,job_type,idempotency_key,payload_json,max_attempts,run_at)
+			VALUES ($1,$2,$3,jsonb_build_object('batchId',$4::text),3,NOW())
+		`, input.OrganizationID, JobType, "import:"+strconv.FormatInt(batchID, 10), strconv.FormatInt(batchID, 10)); err != nil {
+			return Batch{}, false, fmt.Errorf("enqueue import batch: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
+			VALUES ($1,$2,'import.queued','import_batch',$3,'Queued ' || $4::text || ' import',jsonb_build_object('totalRows',$5::int,'sourceRetentionHours',$6::int))
+		`, input.OrganizationID, input.ActorUserID, batchID, preview.EntityType, preview.Summary.TotalRows, int(SourceRetention/time.Hour)); err != nil {
+			return Batch{}, false, fmt.Errorf("audit queued import batch: %w", err)
 		}
 	}
 	batch, err := getBatch(ctx, tx, input.OrganizationID, batchID)
@@ -245,9 +213,15 @@ const batchSelect = `
 	       b.error_rows, b.rolled_back_rows, b.rollback_skipped_rows,
 	       COALESCE(b.failure_message, ''), b.created_by_user_id,
 	       TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')),
-	       b.created_at, b.updated_at, b.completed_at, b.rolled_back_at
+	       b.created_at, b.updated_at, b.completed_at, b.rolled_back_at,
+	       b.source_expires_at, COALESCE(j.status, ''), COALESCE(j.attempts, 0),
+	       COALESCE(j.max_attempts, 0)
 	FROM import_batches b
-	LEFT JOIN users u ON u.id = b.created_by_user_id`
+	LEFT JOIN users u ON u.id = b.created_by_user_id
+	LEFT JOIN background_jobs j
+	  ON j.organization_id = b.organization_id
+	 AND j.job_type = '` + JobType + `'
+	 AND j.idempotency_key = 'import:' || b.id::text`
 
 type batchQuerier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
@@ -274,6 +248,7 @@ func scanBatch(row rowScanner) (Batch, error) {
 		&batch.ErrorRows, &batch.RolledBackRows, &batch.RollbackSkippedRows,
 		&batch.FailureMessage, &batch.CreatedByUserID, &batch.CreatedByName,
 		&batch.CreatedAt, &batch.UpdatedAt, &batch.CompletedAt, &batch.RolledBackAt,
+		&batch.SourceExpiresAt, &batch.JobStatus, &batch.JobAttempts, &batch.JobMaxAttempts,
 	); err != nil {
 		return Batch{}, err
 	}

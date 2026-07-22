@@ -20,8 +20,12 @@ describe('settings imports route', () => {
       rolledBackRows: 0,
       rollbackSkippedRows: 0,
       createdByName: 'Demo Owner',
-      createdAt: '2026-07-19T12:00:00Z'
+      createdAt: '2026-07-19T12:00:00Z',
+      jobStatus: 'succeeded',
+      jobAttempts: 1,
+      jobMaxAttempts: 3
     }
+    const queuedBatch = { ...completedBatch, status: 'processing', processedRows: 0, successRows: 0, errorRows: 0, jobStatus: 'pending', jobAttempts: 0 }
     const rolledBackBatch = { ...completedBatch, status: 'rolled_back', rolledBackRows: 1 }
     const fetchMock = vi
       .fn()
@@ -49,7 +53,7 @@ describe('settings imports route', () => {
           }
         })
       })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { batch: completedBatch } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { batch: queuedBatch } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { batches: [completedBatch] } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { batch: rolledBackBatch } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { batches: [rolledBackBatch] } }) })
@@ -71,7 +75,7 @@ describe('settings imports route', () => {
     expect(previewCall[1].body.get('file').name).toBe('clients.csv')
 
     fireEvent.click(screen.getByRole('button', { name: /import valid rows/i }))
-    expect(await screen.findByText(/import finished: 1 imported, 1 skipped/i)).toBeInTheDocument()
+    expect(await screen.findByText(/import queued: 0 \/ 2 processed/i)).toBeInTheDocument()
     expect(await screen.findByText(/clients.csv · completed with errors/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /download errors/i })).toHaveAttribute('href', expect.stringMatching(/\/api\/imports\/12\/errors\.csv$/))
     const importCall = fetchMock.mock.calls.find(([target]) => String(target).endsWith('/api/imports'))
@@ -84,6 +88,42 @@ describe('settings imports route', () => {
     })
     expect(await screen.findByText(/rollback finished: 1 archived, 0 changed records left active/i)).toBeInTheDocument()
     expect(await screen.findByText(/clients.csv · rolled back/i)).toBeInTheDocument()
+  })
+
+  it('exposes dead durable work and safe partial rollback recovery', async () => {
+    const failedBatch = {
+      id: 27,
+      entityType: 'contacts',
+      originalFilename: 'interrupted.csv',
+      status: 'failed',
+      totalRows: 100,
+      processedRows: 50,
+      successRows: 49,
+      errorRows: 1,
+      rolledBackRows: 0,
+      rollbackSkippedRows: 0,
+      createdByName: 'Demo Owner',
+      createdAt: '2026-07-19T12:00:00Z',
+      failureMessage: 'The retained import source is unavailable; upload a new import or roll back partial results.',
+      jobStatus: 'dead',
+      jobAttempts: 3,
+      jobMaxAttempts: 3
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { user: { id: 1 }, organization: { id: 42, name: 'Acme' }, membership: { role: 'owner' } } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { batches: [failedBatch] } }) })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/imports')
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/interrupted.csv · failed/i)).toBeInTheDocument()
+    expect(screen.getByText(/worker: dead · attempt 3\/3/i)).toBeInTheDocument()
+    expect(screen.getByText(/retained import source is unavailable/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /review in operations/i })).toHaveAttribute('href', '/settings/operations')
+    expect(screen.getByRole('button', { name: /roll back import/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /resume with selected file/i })).not.toBeInTheDocument()
   })
 
   it('does not expose import controls to a viewer', async () => {

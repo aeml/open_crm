@@ -551,7 +551,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(page.getByLabel('First name column')).toHaveValue('First Name')
   await expect(page.getByLabel('Relationship segment (custom) column')).toHaveValue('Relationship Segment')
   await page.getByRole('button', { name: 'Import valid rows' }).click()
-  await expect(page.getByText('Import finished: 1 imported, 0 skipped.')).toBeVisible()
+  await expect(page.getByText(/Import queued: 0 \/ 1 processed/)).toBeVisible()
   const importRow = page.getByRole('listitem').filter({ hasText: 'pilot-contacts.csv · completed' })
   await expect(importRow).toBeVisible()
   page.once('dialog', (dialog) => dialog.accept())

@@ -456,19 +456,34 @@ references.
 
 ### Import interruption or recovery
 
-1. Open **Settings > Data Imports** and inspect the batch counts. Completed
-   batches need no replay; an idempotent repeat returns the existing result.
-2. If a batch remains `processing` after the request ended, select the exact
-   original CSV and use **Resume with selected file**. The stored source digest,
-   mapping, and idempotency key reject a different file and continue after the
-   last committed 50-row checkpoint.
-3. Download the error CSV for skipped rows. It contains row numbers and issues,
-   not retained source values; use the operator's original file to correct and
-   submit those rows as a new batch.
-4. To reverse a bad batch, use **Roll back import**. Rollback archives only
+1. Open **Settings > Data Imports** and inspect both batch and worker status.
+   Submission returns after the validated batch, short-lived source,
+   `import.queued` audit event, and `import.execute` job commit atomically. A
+   `pending`, `running`, or `retryable` worker is still active; the screen polls
+   until the batch reaches a terminal outcome.
+2. A worker retry resumes after the last committed 50-row checkpoint without
+   another upload. If the job becomes `dead`, open **Settings > Operations**,
+   filter to **CRM imports**, inspect the bounded error, correct capacity,
+   membership, or database health, then replay the same job only while the
+   source-retention deadline remains. Do not submit the same file with a new key
+   merely to bypass an uncertain job.
+3. The initiating admin must remain active. Deactivation cancels a pending job
+   transactionally and marks the batch failed; submit a new reviewed request
+   under an active admin, or roll back any already committed rows. A running
+   checkpoint revalidates membership before each transaction and fails closed.
+4. The live PostgreSQL row gives source bytes a seven-day recovery deadline.
+   The worker refuses expired bytes, completion clears them immediately, and
+   startup/hourly cleanup clears expired rows. Raw source is excluded from logs,
+   audit metadata, error CSV, and portable workspace exports; encrypted database
+   copies follow the separately approved backup-retention policy. Once expired,
+   submit the original file with a new key after reviewing the mapping again.
+5. Download the error CSV for skipped rows. It contains row numbers and issues,
+   not source values; use the operator's original file to correct and submit
+   those rows as a new batch.
+6. To reverse a bad or partially failed batch, use **Roll back import**. Rollback archives only
    records unchanged since import. Changed/already archived records are reported
    as skipped and must be reviewed rather than overwritten.
-5. Correlate completion/rollback audit events and request IDs if counts disagree.
+7. Correlate queue/completion/rollback audit events and request IDs if counts disagree.
    Do not delete batch rows or CRM records with manual SQL during normal recovery.
 
 ### Core CSV export ceiling
@@ -1652,9 +1667,9 @@ idempotency key remain for 400 days before deletion. All current producers also
 recheck durable source state (for example reminder, delivery, enrollment,
 subscription, usage-snapshot, or export state), so work older than the queue's
 400-day replay window cannot rely on the queue row as its only duplicate guard.
-Retention is allowlisted to the eight currently reviewed production job types:
+Retention is allowlisted to the nine currently reviewed production job types:
 `billing.reconcile`, `billing.usage.snapshot`, `calendar.reminder`,
-`email_sequence.send`, `mailbox.sync`, `task.reminder`,
+`email_sequence.send`, `import.execute`, `mailbox.sync`, `task.reminder`,
 `workflow.lead_follow_up`, and `workspace.export.generate`. A new worker type retains full history until its
 source-state guard is reviewed.
 Pending, running, retryable, and dead jobs are never selected. Dead work stays

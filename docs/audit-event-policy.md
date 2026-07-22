@@ -35,9 +35,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `45`
+Producer source count: `46`
 
-Producer source digest: `b100b9333ed81c5824f2235e030d79b0fd0d117cd4fe945de8237113bd1e5087`
+Producer source digest: `6e81489d70bf4c7919e88738f29ad39be323b5817fdd58073387118eb99e6ef5`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -55,6 +55,12 @@ delete events likewise commit with the tenant definition. Their audit metadata
 contains only the resulting revision; summaries may name the definition but
 never retain its subject, body, merge-field content, recipient material, or
 provider data.
+
+Import submission records `import.queued` in the same transaction as the
+tenant-scoped batch, retained source, and `import.execute` job. Its metadata is
+limited to the reviewed row count and source-retention hours; the filename,
+mapping, source digest, CSV bytes, row values, idempotency key, and job payload
+remain in their bounded operational ledgers rather than the audit row.
 
 ## Data and secret boundary
 

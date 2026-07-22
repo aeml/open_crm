@@ -21,6 +21,7 @@ var retentionEligibleJobTypes = []string{
 	"billing.usage.snapshot",
 	"calendar.reminder",
 	"email_sequence.send",
+	"import.execute",
 	"mailbox.sync",
 	"task.reminder",
 	"workflow.lead_follow_up",

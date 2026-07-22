@@ -2,6 +2,7 @@ package workspaceexports
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -55,4 +56,17 @@ func TestLeadReviewRequestLedgerIsClassifiedButNotPortable(t *testing.T) {
 			t.Fatal("lead review request security ledger must not be portable")
 		}
 	}
+}
+
+func TestPortableImportLedgerExcludesRetainedSource(t *testing.T) {
+	for _, current := range portableDatasets {
+		if current.name != "import_batches" {
+			continue
+		}
+		if !strings.Contains(current.query, "'source_csv'") || !strings.Contains(current.query, "'source_expires_at'") {
+			t.Fatalf("portable import ledger must explicitly exclude retained upload fields: %s", current.query)
+		}
+		return
+	}
+	t.Fatal("portable import ledger dataset is missing")
 }

@@ -55,7 +55,7 @@ func TestNormalizeRetentionPolicyDefaultsAndRejectsUnboundedBatches(t *testing.T
 }
 
 func TestRetentionJobTypesRequireExplicitReview(t *testing.T) {
-	want := "billing.reconcile,billing.usage.snapshot,calendar.reminder,email_sequence.send,mailbox.sync,task.reminder,workflow.lead_follow_up,workspace.export.generate"
+	want := "billing.reconcile,billing.usage.snapshot,calendar.reminder,email_sequence.send,import.execute,mailbox.sync,task.reminder,workflow.lead_follow_up,workspace.export.generate"
 	if got := strings.Join(retentionEligibleJobTypes, ","); got != want {
 		t.Fatalf("retention allowlist changed without updating its review contract: got %q want %q", got, want)
 	}

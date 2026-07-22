@@ -18,6 +18,7 @@ import (
 	moduleduplicates "github.com/aeml/open_crm/apps/api/internal/modules/duplicateoperations"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
+	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
 )
 
 func TestCustomFieldsEndToEndAgainstPostgres(t *testing.T) {
@@ -169,8 +170,13 @@ func TestCustomFieldsEndToEndAgainstPostgres(t *testing.T) {
 	batch, err := importsService.Execute(ctx, moduleimports.ExecuteInput{
 		OrganizationID: organizationID, ActorUserID: ownerID, EntityType: "contacts", OriginalName: "custom-fields.csv", IdempotencyKey: "custom-fields-import-001", Reader: strings.NewReader(csvData), Mapping: mapping,
 	})
-	if err != nil || batch.SuccessRows != 1 || batch.ErrorRows != 0 {
-		t.Fatalf("execute custom field import: batch=%#v err=%v", batch, err)
+	if err != nil || batch.Status != "processing" {
+		t.Fatalf("queue custom field import: batch=%#v err=%v", batch, err)
+	}
+	importQueue := modulejobs.NewService(pool)
+	importWorker := modulejobs.NewWorker(importQueue, map[string]modulejobs.Handler{moduleimports.JobType: importsService.HandleJob}, "custom-fields-import-test", nil)
+	if summary, runErr := importWorker.RunOnce(ctx); runErr != nil || summary.Succeeded != 1 {
+		t.Fatalf("execute custom field import worker: summary=%#v err=%v", summary, runErr)
 	}
 	var importedRegion, importedAnnual string
 	if err := pool.QueryRow(ctx, `SELECT custom_fields->>'region',custom_fields->>'annual_value' FROM contacts WHERE organization_id=$1 AND first_name='Ivy' AND last_name='Import'`, organizationID).Scan(&importedRegion, &importedAnnual); err != nil || importedRegion != "West" || importedAnnual != "7000.25" {
@@ -185,8 +191,11 @@ func TestCustomFieldsEndToEndAgainstPostgres(t *testing.T) {
 	companyBatch, err := importsService.Execute(ctx, moduleimports.ExecuteInput{
 		OrganizationID: organizationID, ActorUserID: ownerID, EntityType: "companies", OriginalName: "company-custom-fields.csv", IdempotencyKey: "company-custom-fields-import-001", Reader: strings.NewReader(companyCSV), Mapping: companyMapping,
 	})
-	if err != nil || companyBatch.SuccessRows != 1 || companyBatch.ErrorRows != 0 {
-		t.Fatalf("execute company custom field import: batch=%#v err=%v", companyBatch, err)
+	if err != nil || companyBatch.Status != "processing" {
+		t.Fatalf("queue company custom field import: batch=%#v err=%v", companyBatch, err)
+	}
+	if summary, runErr := importWorker.RunOnce(ctx); runErr != nil || summary.Succeeded != 1 {
+		t.Fatalf("execute company custom field import worker: summary=%#v err=%v", summary, runErr)
 	}
 	var importedServiceTier string
 	if err := pool.QueryRow(ctx, `SELECT custom_fields->>'service_tier' FROM companies WHERE organization_id=$1 AND name='Imported Company'`, organizationID).Scan(&importedServiceTier); err != nil || importedServiceTier != "Silver" {

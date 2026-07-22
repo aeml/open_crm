@@ -1,6 +1,8 @@
 -- open-crm-deploy: expand
--- Import batches retain operational metadata and row outcomes, but never retain
--- uploaded CSV contents. Imported entity ids make safe, audited rollback possible.
+-- This base import-batch schema retains operational metadata and row outcomes,
+-- but no uploaded CSV contents. Migration 119 later adds a bounded, short-lived
+-- recovery source for durable worker execution. Imported entity ids make safe,
+-- audited rollback possible.
 
 CREATE TABLE import_batches (
   id BIGSERIAL PRIMARY KEY,

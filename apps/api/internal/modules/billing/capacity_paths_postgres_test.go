@@ -18,6 +18,7 @@ import (
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
+	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 )
@@ -210,11 +211,15 @@ func TestEveryCapacityIncreasingPathUsesHostedReservationsAgainstPostgres(t *tes
 		t.Fatalf("exact public lead replay failed at full capacity: accepted=%+v replay=%+v err=%v", acceptedLead, replayedLead, err)
 	}
 	assertLimitReached(t, "contact import", func() error {
-		_, err := imports.Execute(ctx, moduleimports.ExecuteInput{
+		batch, err := imports.Execute(ctx, moduleimports.ExecuteInput{
 			OrganizationID: organizationID, ActorUserID: ownerID, EntityType: "contacts",
 			OriginalName: "capacity.csv", IdempotencyKey: "capacity-import-001",
 			Reader: bytes.NewBufferString("first_name,last_name\nImported,Contact\n"),
 		})
+		if err != nil {
+			return err
+		}
+		_, err = imports.HandleJob(ctx, modulejobs.Job{OrganizationID: organizationID, Payload: map[string]any{"batchId": fmt.Sprint(batch.ID)}})
 		return err
 	})
 

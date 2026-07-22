@@ -22,7 +22,8 @@ func completeBatch(ctx context.Context, connection *pgxpool.Conn, organizationID
 	command, err := tx.Exec(ctx, `
 		UPDATE import_batches
 		SET status = CASE WHEN error_rows > 0 THEN 'completed_with_errors' ELSE 'completed' END,
-		    completed_at = NOW(), updated_at = NOW()
+		    completed_at = NOW(), source_csv = NULL, source_expires_at = NULL,
+		    failure_message = NULL, updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2 AND status = 'processing'
 		  AND processed_rows = total_rows
 	`, organizationID, batchID)

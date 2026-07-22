@@ -42,7 +42,7 @@ func (s *Service) Rollback(ctx context.Context, organizationID, actorUserID, bat
 		batch.Replayed = true
 		return batch, nil
 	}
-	if batch.Status != "completed" && batch.Status != "completed_with_errors" {
+	if batch.Status != "completed" && batch.Status != "completed_with_errors" && batch.Status != "failed" {
 		return Batch{}, ErrConflict
 	}
 	rows, err := connection.Query(ctx, `
@@ -175,9 +175,10 @@ func completeRollback(ctx context.Context, connection interface {
 	command, err := tx.Exec(ctx, `
 		UPDATE import_batches
 		SET status = CASE WHEN rollback_skipped_rows > 0 THEN 'partially_rolled_back' ELSE 'rolled_back' END,
-		    rolled_back_at = NOW(), updated_at = NOW()
+		    rolled_back_at = NOW(), source_csv = NULL, source_expires_at = NULL,
+		    failure_message = NULL, updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2
-		  AND status IN ('completed', 'completed_with_errors')
+		  AND status IN ('completed', 'completed_with_errors', 'failed')
 		  AND rolled_back_rows + rollback_skipped_rows = success_rows
 	`, organizationID, batchID)
 	if err != nil {

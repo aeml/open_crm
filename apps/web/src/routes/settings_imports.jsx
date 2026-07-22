@@ -64,7 +64,8 @@ export function SettingsImportsRoute() {
   }, [canManage])
 
   useEffect(() => {
-    if (!batches.some((batch) => batch.status === 'processing')) return undefined
+    const active = batches.some((batch) => batch.status === 'processing' || ['pending', 'running', 'retryable'].includes(batch.jobStatus))
+    if (!active) return undefined
     const timer = window.setTimeout(() => loadHistory(), 3000)
     return () => window.clearTimeout(timer)
   }, [batches])
@@ -120,7 +121,7 @@ export function SettingsImportsRoute() {
     setNotice('')
     try {
       const batch = await executeImport(file, entityType, mapping, idempotencyKey)
-      setNotice(`Import finished: ${batch.successRows} imported, ${batch.errorRows} skipped.`)
+      setNotice(batch.replayed ? `Import ${batch.id} already exists; follow its result below.` : `Import queued: 0 / ${batch.totalRows} processed. You can leave this page.`)
       setFile(null)
       setPreview(null)
       setMapping({})
@@ -162,7 +163,7 @@ export function SettingsImportsRoute() {
     setNotice('')
     try {
       const result = await executeImport(file, batch.entityType, batch.mapping, batch.idempotencyKey)
-      setNotice(`Import resumed: ${result.successRows} imported, ${result.errorRows} skipped.`)
+      setNotice(`Import ${result.id} already exists; follow its result below.`)
       await loadHistory()
     } catch (resumeError) {
       setError(resumeError.message || 'Unable to resume import. Confirm this is the exact original file.')
@@ -181,7 +182,7 @@ export function SettingsImportsRoute() {
         <div className="card-stack">
           <div>
             <h2>Import CRM data</h2>
-            <p>Map a real-world CSV, review a dry run, then import up to 1,000 rows. Uploaded files are processed in memory and are not retained.</p>
+            <p>Map and preview a CSV, then queue up to 1,000 rows. PostgreSQL schedules the upload for removal after seven days and excludes it from portable exports.</p>
           </div>
           <div className="form-grid form-grid-two">
             <Field label="Record type">
@@ -263,16 +264,19 @@ export function SettingsImportsRoute() {
                   <h3>{batch.originalFilename} · {statusLabel(batch.status)}</h3>
                   <p>{batch.processedRows} / {batch.totalRows} processed · {batch.successRows} imported · {batch.errorRows} errors</p>
                   <p className="field-hint">Started by {batch.createdByName || 'an admin'} {formatTimestamp(batch.createdAt)}</p>
+                  {batch.jobStatus ? <p className="field-hint">Worker: {statusLabel(batch.jobStatus)} · attempt {batch.jobAttempts}/{batch.jobMaxAttempts}</p> : null}
+                  {batch.failureMessage ? <p className="field-hint">{batch.failureMessage}</p> : null}
                   {batch.rollbackSkippedRows > 0 ? <p>{batch.rollbackSkippedRows} changed records were left active during rollback.</p> : null}
                 </div>
                 <div className="button-row">
                   {batch.errorRows > 0 || batch.rollbackSkippedRows > 0 ? <a className="button button-secondary" href={importErrorsURL(batch.id)}>Download errors</a> : null}
-                  {['processing', 'failed'].includes(batch.status) ? (
+                  {batch.jobStatus === 'dead' ? <a className="button button-secondary" href="/settings/operations">Review in Operations</a> : null}
+                  {['processing', 'failed'].includes(batch.status) && !batch.jobStatus ? (
                     <Button className="button-secondary" type="button" onClick={() => handleResume(batch)} disabled={isImporting}>
                       Resume with selected file
                     </Button>
                   ) : null}
-                  {['completed', 'completed_with_errors'].includes(batch.status) && batch.successRows > 0 ? (
+                  {['completed', 'completed_with_errors', 'failed'].includes(batch.status) && batch.successRows > 0 ? (
                     <Button className="button-secondary" type="button" onClick={() => handleRollback(batch)} disabled={rollingBackId === batch.id}>
                       {rollingBackId === batch.id ? 'Rolling back…' : 'Roll back import'}
                     </Button>

@@ -152,15 +152,17 @@ entry-stage visit under two seconds, then requires the same pipeline and stage
 IDs to fail closed for another workspace. This exercises the complete windowed
 cohort and velocity query rather than treating a small unit fixture as scale
 evidence.
-It also maps and writes the complete 1,000-row synchronous import ceiling,
-including duplicate checks, activity/outcome ledgers, durable progress
-checkpoints, exact tenant totals, and foreign-tenant absence, within 10 seconds.
+It also validates, durably queues, and executes the complete 1,000-row import
+ceiling through the production `import.execute` worker, including source/batch/job
+atomicity, duplicate checks, activity/outcome ledgers, 50-row resume checkpoints,
+exact tenant totals, foreign-tenant absence, and immediate successful-source
+cleanup, within 10 seconds.
 Current local evidence was approximately 17.4 ms for the 500-deal cohort report,
 10.4 ms for the 500-client activity page, 1.1 ms for two 100-row pages from the
 1,001-row record timeline, 35.3 ms for the 806,196-byte core export, 7.6 ms for
 the 100-row saved-report page, 23.9 ms for the 453,869-byte saved-report export,
 3.9/6.6 ms for the 10,000-row grouped-bar page/export, and 810 ms for the
-52,937-byte/1,000-row import. Test
+52,937-byte/1,000-row import (545 ms on the 2026-07-22 local rerun). Test
 failure output includes observed latency or the query plan/budget that regressed.
 
 `apps/api/internal/modules/dashboard/forecast_postgres_test.go` separately gates

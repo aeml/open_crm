@@ -98,6 +98,30 @@ func TestMigrationFilesIncludeDashboardQueryIndexes(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeAsyncImportJobs(t *testing.T) {
+	const name = "119_async_import_jobs.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	sql := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"lock_timeout",
+		"statement_timeout",
+		"source_csv BYTEA",
+		"source_expires_at",
+		"import_batches_source_expiry_check",
+		"idx_import_batches_source_expiry",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("async-import migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("async-import deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeVersionedDealQuotes(t *testing.T) {
 	if !slices.Contains(MigrationFiles(), "093_versioned_deal_quotes.sql") {
 		t.Fatal("expected versioned deal quotes migration to be registered")

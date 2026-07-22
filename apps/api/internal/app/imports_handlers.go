@@ -101,7 +101,7 @@ func handleExecuteImport(auth authService, imports importsService, w http.Respon
 	response := importBatchResponse{}
 	response.Data.Batch = batch
 	response.Meta.RequestID = requestID
-	status := http.StatusCreated
+	status := http.StatusAccepted
 	if batch.Replayed {
 		status = http.StatusOK
 	}

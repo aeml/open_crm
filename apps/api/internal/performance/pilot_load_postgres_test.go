@@ -24,6 +24,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleexports "github.com/aeml/open_crm/apps/api/internal/modules/exports"
 	moduleimports "github.com/aeml/open_crm/apps/api/internal/modules/imports"
+	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
 	modulesalesreports "github.com/aeml/open_crm/apps/api/internal/modules/salesreports"
 	"github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduletouchpoints "github.com/aeml/open_crm/apps/api/internal/modules/touchpoints"
@@ -511,14 +512,24 @@ func assertTenantImportWriteBudget(t *testing.T, ctx context.Context, pool *modu
 		Reader:         bytes.NewReader(contents.Bytes()),
 		Mapping:        preview.Mapping,
 	})
-	elapsed := time.Since(started)
 	if err != nil {
-		t.Fatalf("write maximum-size import: %v", err)
+		t.Fatalf("queue maximum-size import: %v", err)
 	}
+	queue := modulejobs.NewService(pool)
+	worker := modulejobs.NewWorker(queue, map[string]modulejobs.Handler{moduleimports.JobType: service.HandleJob}, "pilot-import-budget", nil)
+	if summary, runErr := worker.RunOnce(ctx); runErr != nil || summary.Succeeded != 1 {
+		t.Fatalf("write maximum-size import: summary=%#v err=%v", summary, runErr)
+	}
+	elapsed := time.Since(started)
 	if elapsed > pilotImportMaximum {
 		t.Fatalf("maximum-size contact import took %s; budget is %s", elapsed, pilotImportMaximum)
 	}
-	if batch.Status != "completed" || batch.SuccessRows != pilotImportRows || batch.ErrorRows != 0 {
+	batches, err := service.List(ctx, organizationID, 50)
+	if err != nil || len(batches) != 1 {
+		t.Fatalf("load maximum-size import outcome: batches=%#v err=%v", batches, err)
+	}
+	batch = batches[0]
+	if batch.Status != "completed" || batch.SuccessRows != pilotImportRows || batch.ErrorRows != 0 || batch.JobStatus != "succeeded" {
 		t.Fatalf("unexpected maximum-size import outcome: %#v", batch)
 	}
 	for _, check := range []struct {

@@ -163,6 +163,23 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	`, organizationID, memberID, reminderID); err != nil {
 		t.Fatalf("create pending lifecycle jobs: %v", err)
 	}
+	var importBatchID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO import_batches (
+		  organization_id,created_by_user_id,entity_type,original_filename,idempotency_key,
+		  source_sha256,mapping_json,total_rows,source_csv,source_expires_at
+		) VALUES ($1,$2,'contacts','member-import.csv','member-import-request',
+		  $3,'{}'::jsonb,1,$4,NOW()+INTERVAL '7 days')
+		RETURNING id
+	`, organizationID, memberID, strings.Repeat("a", 64), []byte("first_name,last_name\nMember,Import\n")).Scan(&importBatchID); err != nil {
+		t.Fatalf("create pending lifecycle import: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO background_jobs (organization_id,job_type,idempotency_key,payload_json)
+		VALUES ($1,'import.execute','import:'||($2::bigint)::text,jsonb_build_object('batchId',($2::bigint)::text))
+	`, organizationID, importBatchID); err != nil {
+		t.Fatalf("create pending lifecycle import job: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO record_followers (organization_id, entity_type, entity_id, user_id, created_by_user_id)
 		VALUES ($1, 'contact', $2, $3, $3)
@@ -368,8 +385,13 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 		t.Fatalf("expected mailbox sync disabled, enabled=%t status=%q err=%v", enabled, syncStatus, err)
 	}
 	var succeededJobs, disabledAuditEvents int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM background_jobs WHERE organization_id = $1 AND status = 'succeeded' AND result_json->>'reason' = 'member_disabled'`, organizationID).Scan(&succeededJobs); err != nil || succeededJobs != 2 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM background_jobs WHERE organization_id = $1 AND status = 'succeeded' AND result_json->>'reason' = 'member_disabled'`, organizationID).Scan(&succeededJobs); err != nil || succeededJobs != 3 {
 		t.Fatalf("expected disabled-user jobs quiesced, count=%d err=%v", succeededJobs, err)
+	}
+	var importStatus, importFailure string
+	var retainedImportSource int
+	if err := pool.QueryRow(ctx, `SELECT status,failure_message,COALESCE(octet_length(source_csv),0) FROM import_batches WHERE organization_id=$1 AND id=$2`, organizationID, importBatchID).Scan(&importStatus, &importFailure, &retainedImportSource); err != nil || importStatus != "failed" || !strings.Contains(importFailure, "disabled") || retainedImportSource == 0 {
+		t.Fatalf("expected disabled member import quiesced with recoverable source, status=%q failure=%q source=%d err=%v", importStatus, importFailure, retainedImportSource, err)
 	}
 	var remainingSubscriptions int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM record_followers WHERE organization_id = $1 AND user_id = $2`, organizationID, memberID).Scan(&remainingSubscriptions); err != nil || remainingSubscriptions != 0 {

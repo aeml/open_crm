@@ -259,6 +259,16 @@ func main() {
 			}
 			go workspaceExportsService.RunCleanupScheduler(ctx, logger, 0)
 		}
+		if importsService != nil {
+			jobHandlers[moduleimports.JobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
+				result, err := importsService.HandleJob(ctx, job)
+				if moduleimports.IsPermanentFailure(err) {
+					return nil, modulejobs.Permanent(err)
+				}
+				return result, err
+			}
+			go importsService.RunSourceCleanupScheduler(ctx, logger, 0)
+		}
 		if calendarService != nil && calendarService.Configured() {
 			jobHandlers[modulecalendar.ReminderJobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
 				result, err := calendarService.DeliverReminderJob(ctx, job.OrganizationID, job.Payload)

@@ -324,6 +324,16 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	`, organizationID, ownerID); err != nil {
 		t.Fatalf("seed portable workspace data: %v", err)
 	}
+	const retainedImportSecret = "retained-import-source-must-not-be-portable"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO import_batches (
+		  organization_id,created_by_user_id,entity_type,original_filename,idempotency_key,
+		  source_sha256,mapping_json,status,total_rows,source_csv,source_expires_at
+		) VALUES ($1,$2,'contacts','portable-import.csv','portable-import-request',
+		  $3,'{}'::jsonb,'processing',1,$4,NOW()+INTERVAL '7 days')
+	`, organizationID, ownerID, strings.Repeat("a", 64), []byte(retainedImportSecret)); err != nil {
+		t.Fatalf("seed retained import source: %v", err)
+	}
 
 	service := NewService(pool)
 	requested, err := service.Request(ctx, organizationID, ownerID, "portable-request-1")
@@ -386,6 +396,10 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	files := readWorkspaceExportZip(t, download.Content)
 	if !bytes.Contains(files["data/contacts.ndjson"], []byte(`"morgan@portable.test"`)) {
 		t.Fatalf("portable contact missing: %s", files["data/contacts.ndjson"])
+	}
+	portableImports := string(files["data/import_batches.ndjson"])
+	if !strings.Contains(portableImports, "portable-import.csv") || strings.Contains(portableImports, retainedImportSecret) || strings.Contains(portableImports, "source_csv") || strings.Contains(portableImports, "source_expires_at") {
+		t.Fatalf("portable import ledger omitted history or leaked retained source: %s", portableImports)
 	}
 	portableAuditEvents := string(files["data/audit_events.ndjson"])
 	if !strings.Contains(portableAuditEvents, `"event_type": "workspace.export_requested"`) || strings.Contains(portableAuditEvents, "idempotency_key") {

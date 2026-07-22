@@ -324,7 +324,6 @@ var ordinaryOrganizationTables = []string{
 	"email_suppressions",
 	"email_templates",
 	"import_batch_rows",
-	"import_batches",
 	"lead_audiences",
 	"lead_capture_forms",
 	"lead_capture_submissions",
@@ -364,6 +363,9 @@ func buildPortableDatasets() []dataset {
 		{name: "organization_quote_policies", query: `
 			SELECT to_jsonb(policy)
 			FROM organization_quote_policies policy WHERE organization_id=$1 ORDER BY organization_id`},
+		{name: "import_batches", query: `
+			SELECT to_jsonb(batch) - ARRAY['source_csv','source_expires_at']::text[]
+			FROM import_batches batch WHERE organization_id=$1 ORDER BY id`},
 		{name: "members", query: `
 			SELECT jsonb_build_object(
 				'id',m.id,'user_id',u.id,'email',u.email,'first_name',u.first_name,'last_name',u.last_name,
@@ -492,6 +494,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"email_messages",
 		"email_message_entity_links",
 		"email_reply_requests",
+		"import_batches",
 		"record_email_deliveries",
 		"user_email_accounts",
 		"background_jobs",

@@ -460,6 +460,15 @@ func stopDisabledUserEffects(ctx context.Context, tx pgx.Tx, organizationID, use
 		return fmt.Errorf("quiesce disabled user mailbox replies: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
+		UPDATE import_batches
+		SET status='failed',
+		    failure_message='The initiating administrator was disabled. Submit a new import under an active administrator, or roll back unchanged rows already imported.',
+		    updated_at=NOW()
+		WHERE organization_id=$1 AND created_by_user_id=$2 AND status='processing'
+	`, organizationID, userID); err != nil {
+		return fmt.Errorf("quiesce disabled user imports: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE background_jobs
 		SET status = 'succeeded', result_json = '{"status":"skipped","reason":"member_disabled"}'::jsonb,
 		    completed_at = NOW(), updated_at = NOW(), last_error = ''
@@ -474,6 +483,10 @@ func stopDisabledUserEffects(ctx context.Context, tx pgx.Tx, organizationID, use
 			OR (job_type = 'task.reminder' AND idempotency_key IN (
 				SELECT 'task-reminder:' || id::text FROM task_reminders
 				WHERE organization_id=$1 AND user_id=$2::bigint AND status='skipped'
+			))
+			OR (job_type = 'import.execute' AND idempotency_key IN (
+				SELECT 'import:' || id::text FROM import_batches
+				WHERE organization_id=$1 AND created_by_user_id=$2::bigint AND status='failed'
 			))
 		  )
 	`, organizationID, userID); err != nil {

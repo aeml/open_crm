@@ -158,6 +158,7 @@ export function SettingsOperationsRoute() {
                 <option value="billing.reconcile">Billing reconciliation</option>
                 <option value="billing.usage.snapshot">Billing usage snapshots</option>
                 <option value="workspace.export.generate">Workspace exports</option>
+                <option value="import.execute">CRM imports</option>
                 <option value="email_sequence.send">Email sequence sends</option>
                 <option value="workflow.lead_follow_up">Lead follow-up automations</option>
               </select>

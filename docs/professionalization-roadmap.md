@@ -138,7 +138,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.9.1` Query Performance Review: in progress (core tenant and fixed-dashboard query plans and representative budgets are CI-gated; later report/provider review remains).
 - `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person, product-catalog, quote-template, email-sequence-definition, and personal saved-view management, stable bounded workflow- and saved-report-definition management with exact same-snapshot summaries, PostgreSQL page evidence, serialized stored/active catalog ceilings, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
-- `0.9.4` Async Import And Export Jobs: planned.
+- `0.9.4` Async Import And Export Jobs: in progress (ordinary contact/company imports are durable; bounded core CSV exports remain synchronous).
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
 - `0.9.6` Restore Drill Automation: complete (real off-host validation remains required for pilot evidence).
 - `0.9.7` Monitoring And Alerting Hooks: in progress (implementation complete; production scrape/destination validation pending).
@@ -1148,7 +1148,7 @@ Exit criteria:
 Completion notes:
 
 - Added an admin Data Imports route for contacts and companies with common-header suggestions, explicit editable mappings, and a row-level dry run before writes.
-- CSV files are bounded to 2 MiB/1,000 rows, processed in memory, and never persisted; only the mapping, source digest, counts, record ids, and privacy-safe issues remain.
+- CSV files remain bounded to 2 MiB/1,000 rows. Preview is memory-only; migration 119 later supersedes the original synchronous write path with a tenant-scoped source carrying a seven-day worker-recovery deadline. Completion clears it immediately, startup/hourly cleanup removes expired live rows, portable exports omit it, and encrypted database copies follow the backup-retention policy.
 - Added UI and handler acceptance for multipart mapping and forbidden roles.
 
 ## Version 0.5.4 - Import Validation And Rollback
@@ -1169,10 +1169,10 @@ Exit criteria:
 
 Completion notes:
 
-- Added organization-scoped import batches and row outcomes with source-hash idempotency, serialized tenant execution, 50-row durable checkpoints, retry/resume, duplicate skips, progress/history, and downloadable row-error CSV.
+- Added organization-scoped import batches and row outcomes with source-hash idempotency, serialized tenant execution, 50-row durable checkpoints, duplicate skips, progress/history, and downloadable row-error CSV. Migration 119 now creates the batch, short-lived source, audit event, and leased worker job atomically; retries resume from those same checkpoints without another upload.
 - Imported contacts/companies receive normal owner/activity behavior. Completion and rollback are audited, and cross-tenant/disabled-actor paths are rejected.
 - Rollback archives only records whose `updated_at` still matches the imported version; changed or already archived records remain active and are reported for manual review.
-- Disposable-PostgreSQL acceptance covers idempotent replay, mismatched payload conflicts, errors without retained row values, tenant isolation, changed-record protection, and full rollback. The pilot load gate writes 1,000 mapped rows under 10 seconds, and Chromium covers import plus recovery.
+- Disposable-PostgreSQL acceptance covers job/batch idempotency, mismatched payload conflicts, actor deactivation, source cleanup, errors without retained row values, tenant isolation, changed-record protection, failed-partial and full rollback, and portable-export exclusion. The pilot load gate queues and executes 1,000 mapped rows under 10 seconds, and Chromium waits for durable completion before recovery.
 
 ## Version 0.5.5 - Custom Fields Foundation
 
@@ -1340,11 +1340,11 @@ rather than deletable memberships. No integrity-changing migration was needed.
 The review also caught and fixed a silent export-truncation defect: each export
 now requests row 10,001, rejects overflow with `EXPORT_TOO_LARGE`, and states the
 10,000-row synchronous ceiling beside its UI control. The measured pilot
-boundaries remain 2 MiB/1,000 rows per synchronous import, 100 records per bulk
+boundaries remain 2 MiB/1,000 rows per durable import, 100 records per bulk
 operation, 50 duplicate pairs per review, 25 active custom fields per supported
 record type, 100 archive rows per request, and 25 examples per quality queue.
 These are deliberate request/memory controls, not capacity claims. Larger
-imports/exports require the planned durable job/offboarding package; duplicate
+imports and ordinary CSV exports require the remaining durable artifact package; duplicate
 candidate review and JSONB quality/filter query plans should be remeasured on an
 approved production-like pilot dataset before raising any boundary.
 
@@ -2328,11 +2328,11 @@ Implementation evidence:
 - Added admin-only queue health/filtering, safe replay, audited recovery, and explicit sequence-delivery decisions for ambiguous SMTP outcomes.
 - Moved calendar reminders, automatic mailbox sync, and email sequence sends off their feature-specific execution loops. New reminders and sequence steps enqueue transactionally; mailbox cycles use a stable persisted due time.
 - Added disposable-PostgreSQL acceptance tests for migrations, multi-attempt lifecycle/replay, tenant isolation, reminder idempotency, mailbox provider-message dedupe, sequence advancement, and crash/SMTP uncertainty behavior.
-- Added an hourly, multi-instance-safe retention pass: successful payload/result detail compacts after 30 days and successful idempotency rows expire after 400 days in bounded `SKIP LOCKED` batches. Active and dead jobs are excluded, only eight explicitly reviewed production job types are eligible, current producers retain source-state duplicate guards, and PostgreSQL acceptance covers both cutoffs, unknown-type preservation, tenant-wide operation, idempotence, and batch limits.
+- Added an hourly, multi-instance-safe retention pass: successful payload/result detail compacts after 30 days and successful idempotency rows expire after 400 days in bounded `SKIP LOCKED` batches. Active and dead jobs are excluded, only nine explicitly reviewed production job types are eligible, current producers retain source-state duplicate guards, and PostgreSQL acceptance covers both cutoffs, unknown-type preservation, tenant-wide operation, idempotence, and batch limits.
 
 ## Version 0.9.4 - Async Import And Export Jobs
 
-Status: planned.
+Status: in progress.
 
 Goal: move heavy import/export work onto the background job model.
 
@@ -2345,6 +2345,31 @@ Exit criteria:
 
 - Large data operations do not time out HTTP requests.
 - Users can see progress and results.
+
+Current convergence evidence:
+
+- `POST /api/imports` validates the reviewed mapping and atomically commits a
+  tenant-scoped batch, seven-day retained source, `import.queued` audit event,
+  and one `import.execute` job before returning `202 Accepted`. Reusing the same
+  key and exact source returns the original batch; changed reuse fails closed.
+- The leased worker rechecks tenant, initiating membership, hosted capacity,
+  source digest, mapping, and row count, then resumes from the last committed
+  50-row checkpoint. Batch history exposes queue state and attempts; retryable
+  and dead work uses the shared Operations UI. Success clears source bytes in
+  the completion transaction, while hourly cleanup removes unresolved sources
+  after seven days.
+- User deactivation transactionally quiesces pending imports. A failed batch
+  with committed rows remains rollbackable by an active admin; unchanged rows
+  archive, while modified rows remain visible for review. Raw source bytes are
+  excluded from audit metadata, logs, error CSV, and the portable workspace ZIP.
+- Fresh/rolling migration, handler/UI, worker replay, actor/capacity/lifecycle,
+  source-expiry, cross-tenant, portability, and Chromium acceptance cover the
+  import outcome. The real-PostgreSQL load gate measures submission plus worker
+  completion for the complete 1,000-row boundary under ten seconds.
+
+Ordinary filtered contact/company/deal/task CSV downloads remain synchronous
+with an explicit 10,000-row refusal. Durable downloadable artifacts, progress,
+and cleanup for those exports are the remaining half of this roadmap item.
 
 ## Version 0.9.5 - Backup Automation
 

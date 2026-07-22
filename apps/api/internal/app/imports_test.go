@@ -152,7 +152,7 @@ func TestPreviewImportRequiresFile(t *testing.T) {
 }
 
 func TestExecuteImportPassesTenantActorMappingAndIdempotency(t *testing.T) {
-	service := &fakeImportsService{batch: moduleimports.Batch{ID: 7, EntityType: "contacts", Status: "completed", TotalRows: 1, ProcessedRows: 1, SuccessRows: 1}}
+	service := &fakeImportsService{batch: moduleimports.Batch{ID: 7, EntityType: "contacts", Status: "processing", TotalRows: 1, JobStatus: "pending", JobMaxAttempts: 3}}
 	server := authenticatedImportsServer(service)
 	body, contentType := importOperationBody(t, "contacts", "import-request-001", `{"first_name":"Given Name","last_name":"Family Name"}`, "Given Name,Family Name\nAva,Stone\n")
 	request := httptest.NewRequest(http.MethodPost, "/api/imports", body)
@@ -162,8 +162,8 @@ func TestExecuteImportPassesTenantActorMappingAndIdempotency(t *testing.T) {
 
 	server.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusAccepted, recorder.Code, recorder.Body.String())
 	}
 	if service.lastExecute.OrganizationID != 42 || service.lastExecute.ActorUserID != 1 || service.lastExecute.IdempotencyKey != "import-request-001" {
 		t.Fatalf("unexpected execute scope: %#v", service.lastExecute)
