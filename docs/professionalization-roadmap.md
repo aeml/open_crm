@@ -2515,9 +2515,9 @@ contacts with duplicate checks and progress ledgers under a 10 s budget. Postmar
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 178.82 KiB/57.96 KiB for the entry,
-54.93 KiB/15.65 KiB for the largest lazy chunk, and 760.39 KiB/237.22 KiB total
-assets under the reviewed 761/238 KiB aggregate ceilings. The dashboard hardening
+CSS. Current production-URL evidence is 178.87 KiB/57.99 KiB for the entry,
+55.12 KiB/15.73 KiB for the largest lazy chunk, and 765.77 KiB/239.71 KiB total
+assets under the reviewed 766/240 KiB aggregate ceilings. The dashboard hardening
 slice changes no frontend bytes. The current Reports route is 50.52/12.07 KiB,
 with 193- and 162-line pipeline-cohort/client-period components, 352-line
 saved-report orchestration, a separately tested 245-line catalog/form model,
@@ -2528,9 +2528,14 @@ gate rejects accidental inclusion. The incremental budget history and current
 per-route values remain reconciled in `docs/performance-and-failure-budgets.md`.
 Entry, per-route, CSS, and source limits remain unchanged. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
-and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 449 lines,
-companies at 461, deals at 473, and tasks at 500, down from 2,038, 1,364,
+and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 453 lines,
+companies at 463, deals at 474, and tasks at 298, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
+The workflow module's former 1,352-line mixed service is now a 151-line public
+model/service shell plus 350-line definition persistence, 338-line run
+persistence, 363-line definition-contract validation, and 180-line condition
+evaluation boundaries. A package-local CI test keeps every production workflow
+file below 500 lines without changing any executable action contract.
 Remaining work is production-like host evidence, real pilot traffic, and later
 provider/feature loads.
 
@@ -2870,6 +2875,7 @@ Progress:
 - `1.5.13` (bounded retained-definition management): complete locally. The management API defaults to 50 definitions, caps page size at 100 and offset at 50,000, and returns exact stored-definition plus workspace active-action totals from the same repeatable-read transaction as the page. Active/position/update/ID ordering is total and backed by migration `112_workflow_definition_paging.sql`. Settings exposes accessible continuation, deduplicates IDs, rejects stale responses, serializes writes, and returns to page one after create, update, or safety deactivation while retaining the successful row and an actionable reload error if reconciliation fails. Handler/unit/UI tests, freshly migrated 1,001-row adjacent-page/index/repeat/direct-bound/tenant PostgreSQL acceptance, and Chromium first-50/row-51 continuation before reviewed deal-rule execution cover the outcome. This closes management cardinality without treating stored inactive foundations as executable or deleting legacy history; broader execution and pilot validation remain.
 - `1.5.14` (truthful durable-run recovery): complete locally. Recent workflow runs now reconcile the exact same-tenant `workflow.lead_follow_up` job selected by the retained run idempotency key. Pending/running/retryable/dead state, bounded attempts, schedule, and last error are exposed without returning the queue payload; a dead operation projects as a failed run, supplies an effective completion time, leaves active workflow health, enters recent-failure health, and stops hot polling. Owners/admins are guided from the affected run to the existing tenant/dead-state-gated, audited generic replay in Operations, which now has an explicit lead-follow-up job filter. Business-terminal failures whose queue job succeeded remain terminal and are not presented as dead durable work. Handler serialization and recovery-navigation UI tests, plus freshly migrated PostgreSQL dead/queued/health/replay and same-key foreign-tenant evidence cover the recovery slice. The measured 737.57/230.21 KiB build advances only the aggregate raw ceiling from 737 to 738 KiB; every entry, per-route, aggregate-gzip, CSS, and source ceiling remains unchanged. This improves the supported lead-task outcome; it does not activate general actions, action-level attempts, approvals, or loop orchestration.
 - `1.5.15` (immutable per-action task outcomes): complete locally. Expand-safe migration `115_workflow_action_outcomes.sql` adds one tenant/run/position-bound lifecycle row for each action in the two reviewed task contracts and backfills historical runs without reading mutable current definitions. Deal playbooks atomically retain captured labels, success/task/due evidence for every created task and explicit ordered skip evidence for an executable condition miss; a failed source transaction leaves no run, task, or action row. Lead capture atomically enqueues the run, first action, and durable job; worker claims and terminal completion project attempts, schedule, error, and task output, while spam quarantine cancels queued evidence and exact recovery creates a queued successor lineage. Run listing reads its bounded page and actions from one repeatable-read snapshot, validates task links through the same organization, and projects pending/running/retryable/dead job state without exposing queue payloads. The portable workspace package includes the ledger. Handler/UI tests, a rolling-upgrade migration test, freshly migrated PostgreSQL rollback/cross-tenant/corrupt-reference/replay/spam-recovery acceptance, and the Chromium expanded lead/deal task links plus populated WCAG scan cover the outcome. The measured build is 178.82/57.97 KiB entry, 54.93/15.64 KiB largest lazy chunk, 27.45/8.34 KiB task-automation route, and 744.94/232.35 KiB aggregate raw/gzip; only aggregate ceilings advance from 743/232 to 745/233 KiB. This is truthful evidence for supported task actions, not execution of general action families, arbitrary schedules, approval pauses, or branch orchestration.
+- `1.5.16` (workflow service boundaries): complete locally. The former 1,352-line service mixed public models, definition persistence, run persistence, definition-contract validation, and condition evaluation. Those responsibilities now live in focused 151-, 350-, 338-, 363-, and 180-line files. A package-wide 500-line production-source ratchet covers those files together with activation, reviewed task execution, retained-action evidence, and recovery seams. Existing unit and PostgreSQL contracts remain the behavioral authority; this slice deliberately does not activate a stored general action or change workflow maturity.
 
 Candidate slices:
 
@@ -2888,6 +2894,7 @@ Candidate slices:
 - `1.5.13` Stable bounded retained-definition management with exact stored/action summaries and visible continuation: complete locally; pilot validation remains.
 - `1.5.14` Exact durable lead-run state projection, dead-letter health reconciliation, and audited admin replay: complete locally; pilot validation remains.
 - `1.5.15` Immutable ordered task-action outcomes, same-tenant output links, historical backfill, and recovery lineage: complete locally; pilot validation remains.
+- `1.5.16` Focused definition/run/contract/condition service boundaries under a package-wide source ratchet: complete locally; executable scope unchanged.
 
 Exit criteria:
 

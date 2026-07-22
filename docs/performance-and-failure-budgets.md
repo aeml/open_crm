@@ -676,18 +676,24 @@ can be reviewed without unrelated behavior. Authenticated email-message/inbox
 operations, response projection/access decisions, and public tracking are
 separate 224-, 221-, and 56-line files rather than one 487-line mixed handler;
 the public file applies its privacy headers before every redirect decision.
-Every production file in
-`internal/app` now has headroom
-under the default 500-line ceiling.
+The workflow module's former 1,352-line mixed service is now a 151-line public
+model/service shell plus 350-line definition persistence, 338-line run
+persistence, 363-line definition-contract validation, and 180-line condition
+evaluation boundaries. A package-local ratchet covers every production file in
+that module, including its existing activation, task execution, retained-action,
+and recovery seams. Every production file in `internal/app` and
+`internal/modules/workflowautomations` now has headroom under the default
+500-line ceiling.
 
 ## Source-size no-growth ratchet
 
 Source size is an imperfect complexity measure, so these limits are a temporary
 no-regression ratchet rather than a claim that a file below the limit is well
 designed. CI runs `npm run check:source`; backend tests apply the same rule to
-the application composition package.
+the application composition and workflow automation packages.
 
-Every production route file and every production `internal/app` Go file is
-limited to 500 lines, with no explicit exception. Tests are excluded because large fixture-driven
-flow tests have different review tradeoffs; lint and normal test execution
-continue to gate them.
+Every production route file, every production `internal/app` Go file, and every
+production `internal/modules/workflowautomations` Go file is limited to 500
+lines, with no explicit exception. Tests are excluded because large
+fixture-driven flow tests have different review tradeoffs; lint and normal test
+execution continue to gate them.
