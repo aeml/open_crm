@@ -82,12 +82,14 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 		handleEmailUnsubscribe(dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages/open/{trackingToken}", func(w http.ResponseWriter, r *http.Request) {
+		setEmailTrackingResponseHeaders(w)
 		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.email-open", trackingRateLimit, publicRateWindow, "Too many email tracking requests", w, r) {
 			return
 		}
 		handleTrackEmailOpen(dependencies.EmailMessagesService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-messages/click/{clickToken}", func(w http.ResponseWriter, r *http.Request) {
+		setEmailTrackingResponseHeaders(w)
 		if rejectRateLimited(rateLimiter, dependencies.Metrics, "public.email-click", trackingRateLimit, publicRateWindow, "Too many email tracking requests", w, r) {
 			return
 		}

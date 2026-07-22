@@ -757,3 +757,24 @@ func TestTrackEmailClickMarksTokenAndRedirects(t *testing.T) {
 		t.Fatalf("click redirect is missing privacy headers: %v", recorder.Header())
 	}
 }
+
+func TestTrackEmailClickRejectsUnsafeTargetWithPrivacyHeaders(t *testing.T) {
+	service := &fakeEmailMessagesService{clickTargetURL: "javascript:alert(1)"}
+	request := httptest.NewRequest(http.MethodGet, "/api/email-messages/click/click-unsafe", nil)
+	request.SetPathValue("clickToken", "click-unsafe")
+	recorder := httptest.NewRecorder()
+
+	handleTrackEmailClick(service, recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected unsafe target to return 404, got %d", recorder.Code)
+	}
+	if service.lastClickedToken != "click-unsafe" || recorder.Header().Get("Location") != "" {
+		t.Fatalf("unsafe target escaped redirect boundary: token=%q location=%q", service.lastClickedToken, recorder.Header().Get("Location"))
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store, no-cache, must-revalidate, max-age=0" ||
+		recorder.Header().Get("Referrer-Policy") != "no-referrer" ||
+		recorder.Header().Get("X-Robots-Tag") != "noindex, nofollow" {
+		t.Fatalf("rejected click response is missing privacy headers: %v", recorder.Header())
+	}
+}

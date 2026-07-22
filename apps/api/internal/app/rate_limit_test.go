@@ -106,6 +106,13 @@ func TestEveryPublicMutationAndTokenSurfaceUsesAnExplicitAbuseBudget(t *testing.
 			if limiter.scope != testCase.scope || limiter.limit != testCase.limit || limiter.window != testCase.window {
 				t.Fatalf("unexpected policy scope=%q limit=%d window=%s", limiter.scope, limiter.limit, limiter.window)
 			}
+			if testCase.scope == "public.email-open" || testCase.scope == "public.email-click" {
+				if recorder.Header().Get("Cache-Control") != "no-store, no-cache, must-revalidate, max-age=0" ||
+					recorder.Header().Get("Referrer-Policy") != "no-referrer" ||
+					recorder.Header().Get("X-Robots-Tag") != "noindex, nofollow" {
+					t.Fatalf("email tracking rejection is missing privacy headers: %v", recorder.Header())
+				}
+			}
 		})
 	}
 }

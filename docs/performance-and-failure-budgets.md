@@ -672,7 +672,11 @@ runtime dependency container is isolated at 70 lines, replacing the former
 500-line mixed file. The former 491-line authentication/user handler is split
 into 90-line session-cookie authentication, 125-line public onboarding, and
 296-line tenant user-lifecycle handlers, so these distinct security boundaries
-can be reviewed without unrelated behavior. Every production file in
+can be reviewed without unrelated behavior. Authenticated email-message/inbox
+operations, response projection/access decisions, and public tracking are
+separate 224-, 221-, and 56-line files rather than one 487-line mixed handler;
+the public file applies its privacy headers before every redirect decision.
+Every production file in
 `internal/app` now has headroom
 under the default 500-line ceiling.
 

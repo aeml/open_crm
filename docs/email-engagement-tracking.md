@@ -70,7 +70,8 @@ acknowledgement; the scheduler then scrubs their observations.
 
 Public open and click endpoints also use separate shared PostgreSQL-backed
 per-client limits of 300 requests per minute, fail closed when that shared store
-is unavailable, return no-referrer/no-index responses, and never accept a
+is unavailable, return no-store/no-referrer/no-index responses on successful
+and rejected outcomes alike, and never accept a
 browser-supplied redirect destination. These controls protect application
 capacity but are not a substitute for an approved edge/WAF against volumetric
 traffic.
