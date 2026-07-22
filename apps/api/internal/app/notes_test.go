@@ -12,25 +12,28 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
+	platformtimeline "github.com/aeml/open_crm/apps/api/internal/platform/timelinepagination"
 )
 
 type fakeNotesService struct {
-	listResult         []modulenotes.Entry
+	listResult         modulenotes.Page
 	listErr            error
 	createResult       modulenotes.CreateResult
 	createErr          error
 	lastListOrgID      int64
 	lastListEntityType string
 	lastListEntityID   int64
+	lastListQuery      platformtimeline.Query
 	lastCreateOrgID    int64
 	lastCreateActorID  int64
 	lastCreateInput    modulenotes.CreateInput
 }
 
-func (f *fakeNotesService) ListByEntity(_ context.Context, organizationID int64, entityType string, entityID int64) ([]modulenotes.Entry, error) {
+func (f *fakeNotesService) ListByEntity(_ context.Context, organizationID int64, entityType string, entityID int64, query platformtimeline.Query) (modulenotes.Page, error) {
 	f.lastListOrgID = organizationID
 	f.lastListEntityType = entityType
 	f.lastListEntityID = entityID
+	f.lastListQuery = query
 	return f.listResult, f.listErr
 }
 
@@ -56,7 +59,7 @@ func authenticatedNotesServer(service *fakeNotesService) http.Handler {
 
 func TestListNotesUsesCurrentOrganizationAndEntity(t *testing.T) {
 	service := &fakeNotesService{
-		listResult: []modulenotes.Entry{{
+		listResult: modulenotes.Page{Notes: []modulenotes.Entry{{
 			ID:                17,
 			EntityType:        "contact",
 			EntityID:          7,
@@ -65,11 +68,11 @@ func TestListNotesUsesCurrentOrganizationAndEntity(t *testing.T) {
 			CreatedByUserName: "Demo Owner",
 			CreatedAt:         time.Date(2026, 4, 10, 9, 30, 0, 0, time.UTC),
 			UpdatedAt:         time.Date(2026, 4, 10, 9, 30, 0, 0, time.UTC),
-		}},
+		}}, Meta: platformtimeline.Meta{Limit: 25}},
 	}
 	server := authenticatedNotesServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/notes?entityType=contact&entityId=7", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/notes?entityType=contact&entityId=7&limit=25", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -81,10 +84,14 @@ func TestListNotesUsesCurrentOrganizationAndEntity(t *testing.T) {
 	if service.lastListOrgID != 42 || service.lastListEntityType != "contact" || service.lastListEntityID != 7 {
 		t.Fatalf("unexpected note list routing: org=%d type=%s id=%d", service.lastListOrgID, service.lastListEntityType, service.lastListEntityID)
 	}
+	if service.lastListQuery.Limit != 25 {
+		t.Fatalf("unexpected note list query: %+v", service.lastListQuery)
+	}
 
 	var response struct {
 		Data struct {
-			Notes []modulenotes.Entry `json:"notes"`
+			Notes []modulenotes.Entry   `json:"notes"`
+			Meta  platformtimeline.Meta `json:"meta"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -92,6 +99,40 @@ func TestListNotesUsesCurrentOrganizationAndEntity(t *testing.T) {
 	}
 	if len(response.Data.Notes) != 1 || response.Data.Notes[0].Body != "Initial discovery call logged." {
 		t.Fatalf("unexpected notes payload: %#v", response.Data.Notes)
+	}
+	if response.Data.Meta.Limit != 25 {
+		t.Fatalf("unexpected notes pagination metadata: %+v", response.Data.Meta)
+	}
+}
+
+func TestListNotesRejectsMalformedCursorBeforeService(t *testing.T) {
+	service := &fakeNotesService{}
+	server := authenticatedNotesServer(service)
+	request := httptest.NewRequest(http.MethodGet, "/api/notes?entityType=contact&entityId=7&cursor=bad", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+	if service.lastListOrgID != 0 {
+		t.Fatal("notes service was called for malformed cursor")
+	}
+}
+
+func TestListNotesMapsInvalidEntityToBadRequest(t *testing.T) {
+	service := &fakeNotesService{listErr: modulenotes.ErrInvalidEntity}
+	server := authenticatedNotesServer(service)
+	request := httptest.NewRequest(http.MethodGet, "/api/notes?entityType=invoice&entityId=7", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
 	}
 }
 

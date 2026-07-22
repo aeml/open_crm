@@ -94,11 +94,11 @@ export function useContactDetail({ customDefinitions, customDefinitionsLoaded, n
         ])
         if (!selection.isCurrent(activeSelection)) return
         requireRecordResponse(data, 'contact', routeContactId, 'Unable to load contact.')
-        const loadedWork = requireRecordWork({ notes: data.notes || [], tasks }, 'contact', routeContactId)
+        const loadedWork = { ...requireRecordWork({ notes: data.notes || [], tasks }, 'contact', routeContactId), noteMeta: data.noteMeta }
         const detailData = { ...data, deals: dealData.deals || [] }
         setDetail(detailData)
         fillForm(detailData)
-        work.load({ ...loadedWork, activities: data.activities || [] })
+        work.load({ ...loadedWork, activities: data.activities || [], activityMeta: data.activityMeta })
         setError('')
       } catch (loadError) {
         if (!isAbortError(loadError) && selection.isCurrent(activeSelection)) {

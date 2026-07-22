@@ -7,9 +7,11 @@ import (
 	"strings"
 	"time"
 
+	moduleactivityfeed "github.com/aeml/open_crm/apps/api/internal/modules/activityfeed"
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
+	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -135,22 +137,19 @@ type UpdateInput struct {
 	CustomFields modulecustomfields.Values `json:"customFields"`
 }
 
-type NoteEntry struct{}
+type NoteEntry = modulenotes.Entry
 
 type TaskEntry struct{}
 
-type ActivityEntry struct {
-	ID        int64     `json:"id"`
-	Action    string    `json:"action"`
-	Summary   string    `json:"summary"`
-	CreatedAt time.Time `json:"createdAt"`
-}
+type ActivityEntry = moduleactivityfeed.Entry
 
 type Detail struct {
-	Summary    Summary
-	Notes      []NoteEntry
-	Tasks      []TaskEntry
-	Activities []ActivityEntry
+	Summary      Summary
+	Notes        []NoteEntry
+	Tasks        []TaskEntry
+	Activities   []ActivityEntry
+	ActivityMeta moduleactivityfeed.Meta
+	NoteMeta     moduleactivityfeed.Meta
 }
 
 type Service struct {
@@ -337,27 +336,18 @@ func (s *Service) GetByID(ctx context.Context, organizationID, contactID int64) 
 	}
 	detail.Summary.CustomFields = customFields
 
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, action, summary, created_at
-		FROM activities
-		WHERE organization_id = $1 AND entity_type = 'contact' AND entity_id = $2
-		ORDER BY created_at DESC, id DESC
-	`, organizationID, contactID)
+	activityPage, err := moduleactivityfeed.NewService(s.pool).FirstPage(ctx, organizationID, "contact", contactID)
 	if err != nil {
 		return Detail{}, fmt.Errorf("list contact activities: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var activity ActivityEntry
-		if err := rows.Scan(&activity.ID, &activity.Action, &activity.Summary, &activity.CreatedAt); err != nil {
-			return Detail{}, fmt.Errorf("scan activity: %w", err)
-		}
-		detail.Activities = append(detail.Activities, activity)
+	detail.Activities = activityPage.Activities
+	detail.ActivityMeta = activityPage.Meta
+	notePage, err := modulenotes.NewService(s.pool).FirstPage(ctx, organizationID, "contact", contactID)
+	if err != nil {
+		return Detail{}, fmt.Errorf("list contact notes: %w", err)
 	}
-	if err := rows.Err(); err != nil {
-		return Detail{}, fmt.Errorf("iterate activities: %w", err)
-	}
+	detail.Notes = notePage.Notes
+	detail.NoteMeta = notePage.Meta
 
 	return detail, nil
 }

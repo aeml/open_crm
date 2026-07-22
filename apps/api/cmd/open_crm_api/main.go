@@ -15,6 +15,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/app"
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	"github.com/aeml/open_crm/apps/api/internal/db"
+	moduleactivityfeed "github.com/aeml/open_crm/apps/api/internal/modules/activityfeed"
 	modulearchiveoperations "github.com/aeml/open_crm/apps/api/internal/modules/archiveoperations"
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
@@ -128,6 +129,7 @@ func main() {
 	var savedViewsService *modulesavedviews.Service
 	var onboardingService *moduleonboarding.Service
 	var passwordResetService *modulepasswordreset.Service
+	var activityFeedService *moduleactivityfeed.Service
 	var orgProfileService *moduleorgprofile.Service
 	var billingService *modulebilling.Service
 	var emailTemplatesService *moduleemailtemplates.Service
@@ -193,6 +195,7 @@ func main() {
 			duplicateOperationsService = moduleduplicates.NewService(pool)
 			customFieldsService = modulecustomfields.NewService(pool)
 			notesService = modulenotes.NewService(pool)
+			activityFeedService = moduleactivityfeed.NewService(pool)
 			collaborationService = modulecollaboration.NewService(pool)
 			callLogsService = modulecalllogs.NewService(pool, modulecalllogs.NewProvider(env.TelephonyProvider, logger))
 			smsService = modulesms.NewService(pool, modulesms.NewProvider(env.TelephonyProvider, logger))
@@ -499,6 +502,7 @@ func main() {
 		DashboardService:                dashboardService,
 		ClientReviewsService:            clientReviewsService,
 		NotesService:                    notesService,
+		ActivityFeedService:             activityFeedService,
 		CollaborationService:            collaborationService,
 		CallLogsService:                 callLogsService,
 		SMSService:                      smsService,

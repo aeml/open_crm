@@ -136,7 +136,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.9` Integration Release Review: planned.
 - `0.9.0` Scale And Reliability: in progress.
 - `0.9.1` Query Performance Review: in progress (core tenant query plans and representative budgets are CI-gated; dashboard/report/import/provider review remains).
-- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, overflow-safe service enforcement, stable adjacent-page PostgreSQL evidence, and explicit 10,000-row export refusal are tested and documented; bounded continuation for notes/nested record activity and explicit catalog ceilings remain).
+- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, stable PostgreSQL page evidence, and explicit 10,000-row export refusal are tested and documented; company linked-contact selection, shared-inbox continuation, lead-review depth, and mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: planned.
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
@@ -380,9 +380,9 @@ Exit criteria:
 - Handler files are easier to review in isolation.
 - No behavior changes beyond tested refactors.
 
-Current convergence evidence: `app.go` is now 409 lines and uses the default
-500-line CI ceiling. All 256 explicit registrations live in focused 175-line
-platform, 297-line foundation, and 366-line core-CRM files, called centrally by
+Current convergence evidence: `app.go` is now 420 lines and uses the default
+500-line CI ceiling. All 257 explicit registrations live in focused 175-line
+platform, 297-line foundation, and 369-line core-CRM files, called centrally by
 `NewServer`; package-wide inventory and hosted-write-policy scans preserve the
 complete route set after the split. HTTP rate limiting, proxy-aware client
 identity, CSRF/CORS, and security/release headers live in a focused 285-line
@@ -390,7 +390,8 @@ policy file. Service contracts and dependency composition live in a focused
 460-line file. Shared request decoding, response shaping, audit helpers, and
 session-cookie behavior now live in a 250-line helper file, while invitation
 lifecycle delivery lives in a focused handler, leaving
-`support_handlers.go` at 455 lines. Every production file in `internal/app` is
+record history has a focused 106-line handler and leaves `support_handlers.go`
+at 380 lines. Every production file in `internal/app` is
 therefore under the default 500-line CI ceiling, with existing behavior tests
 preserved.
 
@@ -416,7 +417,7 @@ work, touchpoint, production outreach, lead-score, and 168-line create/detail
 workspace extraction plus bulk/custom-field integration and shared record
 selection/work plus a 134-line contact-detail orchestrator leave `contacts.jsx`
 at 449 lines, down from 2,038 and below the default 500-line ceiling. Tested 68-line selection and
-142-line work hooks abort obsolete loads, distinguish repeated A-to-B-to-A visits,
+207-line work hooks abort obsolete loads, distinguish repeated A-to-B-to-A visits,
 serialize contact mutations, validate returned record/work identities, and keep
 late saves, notes, and tasks off the active contact. The 123-line outreach hook clears record-scoped
 sequence state on contact changes and rejects late responses from prior selection
@@ -450,8 +451,8 @@ remain unavailable until the selected record's authoritative work snapshot has
 loaded, preventing a late snapshot from silently erasing user input. Task filtering,
 sorting, labels, due-date view logic, a shared 98-line create/update form,
 207-line directory, and 64-line create/detail workspace plus tested 88-line
-quick-action and 128-line detail-state hooks leave `tasks.jsx` at 496 lines,
-down from 1,093 and below the default 500-line ceiling. Quick and full-form mutations
+quick-action and 157-line detail-state hooks leave `tasks.jsx` at 500 lines,
+down from 1,093 and at the default 500-line ceiling. Quick and full-form mutations
 validate response identity and cannot replace a newer selection; full-form saves also
 suppress duplicate submission and cannot navigate after route unmount. Tighter source ratchets preserve every reduction while
 holding every production route to the default 500-line ceiling with no explicit exceptions.
@@ -2173,7 +2174,7 @@ end-to-end workflows converge.
 
 ## Version 0.9.2 - Pagination And Large Dataset Hardening
 
-Status: complete.
+Status: in progress.
 
 Goal: keep list and report pages usable as records grow.
 
@@ -2187,7 +2188,7 @@ Exit criteria:
 - Large datasets do not break core list workflows.
 - Pagination behavior is consistent and documented.
 
-Current convergence evidence: all 101 registered GET routes are digest-gated to
+Current convergence evidence: all 102 registered GET routes are digest-gated to
 `docs/list-endpoint-inventory.md`, which records collection cardinality, stable
 ordering, totals, caller/service limits, overflow behavior, and the trigger for
 keyset conversion. Contacts, companies, deals, and tasks share an overflow-safe
@@ -2200,13 +2201,20 @@ The synchronous CSV path is tenant-isolated and regression-tested at its explici
 10,000-row ceiling; row 10,001 returns a clear error instead of silently
 truncating the dataset. Measured pilot behavior does not justify a breaking
 keyset conversion yet; an approved larger workload or plan-budget regression is
-the documented trigger. The inventory also makes the remaining gap explicit:
-standalone notes and nested contact/company/deal/task activity arrays are still
-complete unpaged reads, while several low-volume definition catalogs rely on
-pilot-scale usage rather than an enforced total ceiling. Add bounded cursor
-continuation plus visible older-history access for the record-local histories,
-then close or paginate mutable catalog cardinality as production-like evidence
-requires before this roadmap item is complete.
+the documented trigger. Record-local notes and contact/company/deal/task
+activity now use a separate opaque keyset contract: detail reads embed at most
+50 rows, callers may request at most 100, malformed or unsafe continuation is
+rejected, and normal navigation discloses accessible “Load older” controls.
+Fresh PostgreSQL acceptance proves equal-timestamp ordering, stable continuation
+when a newer row arrives between requests, terminal pages, direct-service bounds,
+and tenant exclusion; the pilot gate reads two adjacent 100-row pages from 1,001
+activities under a two-second budget. Remaining decisions are explicit rather
+than silently truncated: company linked contacts feed recipient and relationship
+editing workflows and need searchable paged selection, shared inbox needs cursor
+continuation before promotion, lead review remains a newest-50 operator queue,
+and several mutable definition catalogs rely on pilot-scale usage rather than an
+enforced stored-row ceiling. Close or paginate those surfaces as production-like
+evidence requires before this roadmap item is complete.
 
 ## Version 0.9.3 - Background Job Runner
 

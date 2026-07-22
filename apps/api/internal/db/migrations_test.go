@@ -1911,3 +1911,26 @@ func TestMigrationFilesIncludeRecordEmailTemplateTests(t *testing.T) {
 		t.Fatalf("record email template test deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeTimelineCursorIndexes(t *testing.T) {
+	const name = "108_timeline_cursor_indexes.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	sql := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"idx_notes_org_entity_created_id",
+		"idx_activities_org_entity_created_id",
+		"created_at DESC, id DESC",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("timeline cursor migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("timeline cursor deployment class = %q", class)
+	}
+}

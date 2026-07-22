@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 
+	moduleactivityfeed "github.com/aeml/open_crm/apps/api/internal/modules/activityfeed"
 	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
@@ -78,12 +78,7 @@ type LinkedContact struct {
 	IsPrimary         bool   `json:"isPrimary"`
 }
 
-type ActivityEntry struct {
-	ID        int64     `json:"id"`
-	Action    string    `json:"action"`
-	Summary   string    `json:"summary"`
-	CreatedAt time.Time `json:"createdAt"`
-}
+type ActivityEntry = moduleactivityfeed.Entry
 
 type ListQuery struct {
 	Search         string
@@ -143,6 +138,7 @@ type Detail struct {
 	Summary        Summary
 	LinkedContacts []LinkedContact
 	Activities     []ActivityEntry
+	ActivityMeta   moduleactivityfeed.Meta
 }
 
 type Service struct {
@@ -329,27 +325,12 @@ func (s *Service) GetByID(ctx context.Context, organizationID, companyID int64) 
 		return Detail{}, fmt.Errorf("iterate linked contacts: %w", err)
 	}
 
-	activityRows, err := s.pool.Query(ctx, `
-		SELECT id, action, summary, created_at
-		FROM activities
-		WHERE organization_id = $1 AND entity_type = 'company' AND entity_id = $2
-		ORDER BY created_at DESC, id DESC
-	`, organizationID, companyID)
+	activityPage, err := moduleactivityfeed.NewService(s.pool).FirstPage(ctx, organizationID, "company", companyID)
 	if err != nil {
 		return Detail{}, fmt.Errorf("list company activities: %w", err)
 	}
-	defer activityRows.Close()
-
-	for activityRows.Next() {
-		var activity ActivityEntry
-		if err := activityRows.Scan(&activity.ID, &activity.Action, &activity.Summary, &activity.CreatedAt); err != nil {
-			return Detail{}, fmt.Errorf("scan activity: %w", err)
-		}
-		detail.Activities = append(detail.Activities, activity)
-	}
-	if err := activityRows.Err(); err != nil {
-		return Detail{}, fmt.Errorf("iterate activities: %w", err)
-	}
+	detail.Activities = activityPage.Activities
+	detail.ActivityMeta = activityPage.Meta
 
 	return detail, nil
 }

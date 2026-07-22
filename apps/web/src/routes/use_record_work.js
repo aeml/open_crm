@@ -1,10 +1,18 @@
 import { useState } from 'react'
 import { isAbortError } from '../lib/api'
+import { listActivities } from '../lib/activities'
 import { createNote, listNotes } from '../lib/notes'
 import { createTask, listTasks } from '../lib/tasks'
 
 function emptyTaskForm(assignedToUserId = '') {
   return { title: '', description: '', dueAt: '', assignedToUserId }
+}
+
+const emptyHistoryMeta = { limit: 50, hasMore: false, nextCursor: '' }
+
+function mergeUniqueById(current, next) {
+  const ids = new Set(current.map((entry) => entry.id))
+  return [...current, ...next.filter((entry) => !ids.has(entry.id))]
 }
 
 export function requireRecordWork({ notes = [], tasks = [] }, entityType, entityId) {
@@ -22,8 +30,12 @@ export function useRecordWork({ defaultAssignedToUserId = '', entityType, select
   const [noteBody, setNoteBody] = useState('')
   const [taskForm, setTaskForm] = useState(emptyTaskForm(defaultAssignedToUserId))
   const [activities, setActivities] = useState([])
+  const [activityMeta, setActivityMeta] = useState(emptyHistoryMeta)
+  const [noteMeta, setNoteMeta] = useState(emptyHistoryMeta)
   const [isCreatingNote, setIsCreatingNote] = useState(false)
   const [isCreatingTask, setIsCreatingTask] = useState(false)
+  const [isLoadingOlderActivities, setIsLoadingOlderActivities] = useState(false)
+  const [isLoadingOlderNotes, setIsLoadingOlderNotes] = useState(false)
 
   async function fetchTasks(entityId, { signal } = {}) {
     const taskData = await listTasks({ status: 'open', entityType, entityId }, { signal })
@@ -32,17 +44,25 @@ export function useRecordWork({ defaultAssignedToUserId = '', entityType, select
 
   async function fetchWork(entityId, { signal } = {}) {
     const [loadedNotes, loadedTasks] = await Promise.all([listNotes(entityType, entityId, { signal }), fetchTasks(entityId, { signal })])
-    return requireRecordWork({ notes: loadedNotes, tasks: loadedTasks }, entityType, entityId)
+    const notePage = Array.isArray(loadedNotes) ? { notes: loadedNotes, meta: emptyHistoryMeta } : loadedNotes
+    return {
+      ...requireRecordWork({ notes: notePage.notes || [], tasks: loadedTasks }, entityType, entityId),
+      noteMeta: notePage.meta || emptyHistoryMeta
+    }
   }
 
-  function load({ activities: nextActivities = [], notes: nextNotes = [], tasks: nextTasks = [] } = {}) {
+  function load({ activities: nextActivities = [], activityMeta: nextActivityMeta = emptyHistoryMeta, notes: nextNotes = [], noteMeta: nextNoteMeta = emptyHistoryMeta, tasks: nextTasks = [] } = {}) {
     setActivities(nextActivities)
+    setActivityMeta(nextActivityMeta)
     setNotes(nextNotes)
+    setNoteMeta(nextNoteMeta)
     setTasks(nextTasks)
     setNoteBody('')
     setTaskForm(emptyTaskForm(defaultAssignedToUserId))
     setIsCreatingNote(false)
     setIsCreatingTask(false)
+    setIsLoadingOlderActivities(false)
+    setIsLoadingOlderNotes(false)
   }
 
   function reset() {
@@ -57,6 +77,45 @@ export function useRecordWork({ defaultAssignedToUserId = '', entityType, select
       if (selection.isCurrent(operation.selection)) setTasks(nextTasks)
     } finally {
       selection.finish(operation)
+    }
+  }
+
+  async function loadOlderNotes() {
+    if (!noteMeta.hasMore || !noteMeta.nextCursor) return
+    const operation = selection.start('notes-older', selectedEntityId)
+    if (!operation) return
+    setIsLoadingOlderNotes(true)
+    try {
+      const page = await listNotes(entityType, operation.entityId, { cursor: noteMeta.nextCursor, limit: noteMeta.limit || 50 })
+      const nextNotes = requireRecordWork({ notes: page.notes || [] }, entityType, operation.entityId).notes
+      if (!selection.isCurrent(operation.selection)) return
+      setNotes((current) => mergeUniqueById(current, nextNotes))
+      setNoteMeta(page.meta || emptyHistoryMeta)
+      onError('')
+    } catch (loadError) {
+      if (!isAbortError(loadError) && selection.isCurrent(operation.selection)) onError(loadError.message || 'Unable to load older notes.')
+    } finally {
+      selection.finish(operation)
+      if (selection.isCurrent(operation.selection)) setIsLoadingOlderNotes(false)
+    }
+  }
+
+  async function loadOlderActivities() {
+    if (!activityMeta.hasMore || !activityMeta.nextCursor) return
+    const operation = selection.start('activities-older', selectedEntityId)
+    if (!operation) return
+    setIsLoadingOlderActivities(true)
+    try {
+      const page = await listActivities(entityType, operation.entityId, { cursor: activityMeta.nextCursor, limit: activityMeta.limit || 50 })
+      if (!selection.isCurrent(operation.selection)) return
+      setActivities((current) => mergeUniqueById(current, page.activities || []))
+      setActivityMeta(page.meta || emptyHistoryMeta)
+      onError('')
+    } catch (loadError) {
+      if (!isAbortError(loadError) && selection.isCurrent(operation.selection)) onError(loadError.message || 'Unable to load older activity.')
+    } finally {
+      selection.finish(operation)
+      if (selection.isCurrent(operation.selection)) setIsLoadingOlderActivities(false)
     }
   }
 
@@ -122,15 +181,21 @@ export function useRecordWork({ defaultAssignedToUserId = '', entityType, select
 
   return {
     activities,
+    activityMeta,
     fetchTasks,
     fetchWork,
     handleCreateNote,
     handleCreateTask,
     isCreatingNote,
     isCreatingTask,
+    isLoadingOlderActivities,
+    isLoadingOlderNotes,
     load,
+    loadOlderActivities,
+    loadOlderNotes,
     noteBody,
     notes,
+    noteMeta,
     refreshTasks,
     reset,
     setActivities,

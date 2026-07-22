@@ -7,6 +7,7 @@ import { getRecordFollowers, setRecordFollowing } from '../lib/collaboration'
 
 export function RecordWorkCards({
   activities,
+  activityMeta = { hasMore: false, nextCursor: '' },
   activityAria = 'Activity list',
   canWrite,
   entityId,
@@ -14,11 +15,16 @@ export function RecordWorkCards({
   isCreatingNote = false,
   isCreatingTask = false,
   isLoading = false,
+  isLoadingOlderActivities = false,
+  isLoadingOlderNotes = false,
   noteBody,
   notes,
+  noteMeta = { hasMore: false, nextCursor: '' },
   notesAria = 'Notes list',
   onCreateNote,
   onCreateTask,
+  onLoadOlderActivities,
+  onLoadOlderNotes,
   onOpenTasks,
   onSetNoteBody,
   onSetTaskForm,
@@ -124,6 +130,11 @@ export function RecordWorkCards({
               </article>
             ))}
           </div>
+          {noteMeta?.hasMore ? (
+            <Button className="button-secondary" type="button" onClick={onLoadOlderNotes} disabled={isLoadingOlderNotes}>
+              {isLoadingOlderNotes ? 'Loading older notes…' : 'Load older notes'}
+            </Button>
+          ) : null}
         </div>
       </Card>
       <Card>
@@ -167,6 +178,11 @@ export function RecordWorkCards({
         <div className="card-stack">
           <h3>Activity</h3>
           <ActivityTimeline activities={activities} ariaLabel={activityAria} />
+          {activityMeta?.hasMore ? (
+            <Button className="button-secondary" type="button" onClick={onLoadOlderActivities} disabled={isLoadingOlderActivities}>
+              {isLoadingOlderActivities ? 'Loading older activity…' : 'Load older activity'}
+            </Button>
+          ) : null}
         </div>
       </Card>
     </>

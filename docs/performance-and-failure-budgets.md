@@ -15,6 +15,7 @@ real-PostgreSQL backend CI job. It creates an isolated migrated schema with:
 - 12 organizations;
 - 1,000 contacts and tasks per organization;
 - 500 companies and deals per organization;
+- 1,001 activities on one representative record for cursor-page evidence;
 - realistic pipelines/stages and tenant ownership relationships.
 
 The gate first proves that representative tenant predicates for contacts,
@@ -29,6 +30,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Mixed service-read p95 | 500 ms |
 | Any mixed service read | 2 s |
 | Core list page size / maximum offset | 100 rows / 50,000 rows |
+| Two adjacent record-history cursor pages (1,001 rows, 100/page) | 2 s |
 | Transactional contact-create p95 | 1 s |
 | Any transactional contact create | 3 s |
 | Client-period activity page (500 clients, 100 returned) | 2 s |
@@ -38,8 +40,8 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Exhausted one-connection pool deadline | 200 ms |
 | Closed database-pool failure | 1 s |
 
-Current local Go 1.26/PostgreSQL 16.14 evidence was approximately 20.3 ms read
-p95/23.4 ms maximum and 9.6 ms write p95/maximum. Those measurements are
+Current local Go 1.26/PostgreSQL 16.14 evidence was approximately 26.2 ms read
+p95/48.5 ms maximum and 11.2 ms write p95/maximum. Those measurements are
 diagnostic only; the checked budgets are intentionally wider to tolerate shared
 CI hosts while still catching query-plan, transaction, or N+1 regressions. The
 same fixture now reads adjacent maximum-size pages for contacts, companies,
@@ -54,6 +56,16 @@ The 50,000 ceiling matches the largest advertised hosted contact/deal capacity;
 [`list-endpoint-inventory.md`](list-endpoint-inventory.md) records why offset
 pagination remains the compatible measured choice and the exact trigger for a
 future keyset contract.
+
+Record-local note and activity history uses a separate keyset shape because new
+events commonly arrive while an operator reads older work. The gate seeds 1,001
+activities for one contact, reads two adjacent 100-row pages using the opaque
+`(created_at,id)` cursor, and requires both requests together to finish within
+two seconds without a repeated boundary row. Dedicated PostgreSQL acceptance
+also fixes equal-timestamp order, inserts a newer row between page requests,
+requires complete terminal-page traversal, and proves a foreign tenant receives
+no rows. Migration 108 supplies matching tenant/entity/time/ID indexes for notes
+and activities with bounded deployment lock and statement timeouts.
 
 The failure path also holds the only connection in a one-connection pool, proves a
 waiting request observes its 200 ms deadline, releases capacity, and proves the
@@ -84,10 +96,11 @@ evidence.
 It also maps and writes the complete 1,000-row synchronous import ceiling,
 including duplicate checks, activity/outcome ledgers, durable progress
 checkpoints, exact tenant totals, and foreign-tenant absence, within 10 seconds.
-Current local evidence was approximately 8.6 ms for the 500-deal cohort report,
-9.9 ms for the 500-client activity page, 32.9 ms for the 806,196-byte core export,
-7.5 ms for the 100-row saved-report page, 20.2 ms for the 453,869-byte saved-report
-export, 2.6/4.4 ms for the 10,000-row grouped-bar page/export, and 533 ms for the
+Current local evidence was approximately 17.4 ms for the 500-deal cohort report,
+10.4 ms for the 500-client activity page, 1.1 ms for two 100-row pages from the
+1,001-row record timeline, 35.3 ms for the 806,196-byte core export, 7.6 ms for
+the 100-row saved-report page, 23.9 ms for the 453,869-byte saved-report export,
+3.9/6.6 ms for the 10,000-row grouped-bar page/export, and 810 ms for the
 52,937-byte/1,000-row import. Test
 failure output includes observed latency or the query plan/budget that regressed.
 
@@ -130,12 +143,12 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 713 KiB | 223 KiB |
+| All JavaScript and CSS | 717 KiB | 225 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.83 KiB/57.97 KiB entry, 54.67 KiB/15.59 KiB largest lazy
-chunk, and 711.94 KiB/222.81 KiB total assets. The production contact, company,
-deal, and task routes are 26.81/8.30, 34.60/10.15, 54.67/15.55, and 24.67/7.13
+Current production-URL evidence: 178.82 KiB/57.96 KiB entry, 54.93 KiB/15.65 KiB largest lazy
+chunk, and 716.13 KiB/223.87 KiB total assets. The production contact, company,
+deal, and task routes are 27.72/8.58, 35.70/10.48, 54.93/15.65, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
@@ -289,6 +302,14 @@ raw/gzip. The measured outcome advances only the aggregate raw ceiling from
 710 to 713 KiB; entry, per-chunk, aggregate gzip, CSS, and source ceilings stay
 unchanged.
 
+Bounded record-history continuation then adds one shared activity-page client,
+visit-safe append/deduplication state for contact/company/deal work, real task
+detail hydration, and accessible older-history controls. The measured build is
+178.82/57.96 KiB entry, 54.93/15.65 KiB largest lazy chunk, and
+716.13/223.87 KiB aggregate raw/gzip. Entry, per-route, and CSS ceilings remain
+unchanged; only the reviewed aggregate ceilings advance from 713/223 to
+717/225 KiB for this complete user-visible outcome.
+
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 
@@ -303,8 +324,8 @@ and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators, a focused contact create/detail workspace and detail orchestrator, plus focused company-directory, linked-
 people, create/detail workspace presentation, directory/detail orchestration, and shared record selection/work leave the parent routes at 449 contact lines,
 458 company lines, 473 deal lines, and
-496 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
-changing their lazy-load boundaries. Tested 68-line selection and 142-line work
+500 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
+changing their lazy-load boundaries. Tested 68-line selection and 207-line work
 hooks now serve contacts, companies, and deals, abort obsolete loads, distinguish repeated
 A-to-B-to-A visits, serialize per-record mutations, validate record/work
 identities, and keep late saves and work off the active contact. The 123-line
@@ -339,23 +360,24 @@ without changing the route boundary.
 The shared record-work follower control also resets on record changes and
 rejects late responses from an earlier contact, client, or deal.
 A tested 88-line task quick-action hook plus 207-line directory, 64-line
-create/detail workspace, and 128-line detail-state modules separate task presentation and orchestration. These guards prevent
+create/detail workspace, and 157-line detail-state modules separate task presentation and orchestration. These guards prevent
 concurrent mutations of the same task, validate response identity, and update the active detail only when
 it still represents that task; delayed completion cannot pull navigation back
 to an earlier record. Full-form task saves now use the same task-visit identity,
-suppress duplicate submission, and cannot navigate after the task route unmounts. The task parent route is now below the default 500-line ceiling.
+suppress duplicate submission, and cannot navigate after the task route unmounts. The task parent route is now at the default 500-line ceiling.
 Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 409 lines, down from 996. Its audited 256-route
+The API composition root is 420 lines, down from 996. Its audited 257-route
 surface is registered through 175-line platform, 297-line foundation, and
-366-line core-CRM files. The security inventory and hosted-write-policy tests
+369-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot
 silently remove a route from either guard. Shared handler helpers are isolated
 in a 250-line file, invitation delivery is isolated in a 123-line handler, and
-`support_handlers.go` is 455 lines, so every production file in `internal/app`
+record history owns a focused 106-line handler, and `support_handlers.go` is 380
+lines, so every production file in `internal/app`
 now uses the default 500-line ceiling.
 
 ## Source-size no-growth ratchet

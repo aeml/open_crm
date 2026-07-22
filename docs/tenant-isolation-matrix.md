@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `26`
+Evidence row count: `28`
 
-Evidence digest: `f8d90e3fd540be57730664de9f58494fd6e8271fef2e443a5434edbb3d3b055e`
+Evidence digest: `78f3753273a157e2326fd157f4340bd653c4fe94648de38c2173240c70f95a95`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -24,6 +24,7 @@ the assertions inside those tests remain the proof of behavior.
 
 | Surface | PostgreSQL source | Exact test | Negative boundary proved |
 | --- | --- | --- | --- |
+| `activity-history` | `apps/api/internal/modules/activityfeed/service_postgres_test.go` | `TestActivityCursorIsStableBoundedAndTenantScopedAgainstPostgres` | Contact, company, deal, and task history pages use the session tenant and exact entity together; foreign history is absent, equal-time rows retain total order, and a newer insert cannot duplicate or skip older cursor results. |
 | `archive-recovery` | `apps/api/internal/modules/archiveoperations/service_postgres_test.go` | `TestArchiveRecoveryIsTenantSafeDependencyAwareAndAuditedAgainstPostgres` | Foreign record and operation IDs remain missing; dependency conflicts and recovery evidence stay in the owning workspace. |
 | `audit-history` | `apps/api/internal/modules/audit/service_postgres_test.go` | `TestAuditRetentionExportAndTenantBoundaryAgainstPostgres` | Foreign events do not enter lists or CSV; rejected mutation and retention paths cannot rewrite another workspace's history. |
 | `bulk-operations` | `apps/api/internal/modules/bulkoperations/service_postgres_test.go` | `TestBulkOperationsAreIdempotentTenantSafeAndChangeAwareAgainstPostgres` | Foreign records, assignees, operation history, and rollback IDs reject atomically. |
@@ -41,6 +42,7 @@ the assertions inside those tests remain the proof of behavior.
 | `forecast` | `apps/api/internal/modules/dashboard/forecast_postgres_test.go` | `TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope` | Forecast totals, stages, owners, quotas, and task buckets exclude a seeded high-value foreign pipeline. |
 | `imports-and-rollback` | `apps/api/internal/modules/imports/service_postgres_test.go` | `TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres` | Imported rows, batch history, idempotency, and rollback are tenant scoped; foreign history and rollback IDs stay missing. |
 | `invitations` | `apps/api/internal/modules/users/invitations_postgres_test.go` | `TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres` | Foreign delivery, resend, and revoke attempts return not found and cannot consume or rotate the owner's token lineage. |
+| `note-history` | `apps/api/internal/modules/notes/list_postgres_test.go` | `TestNoteCursorIsStableBoundedAndTenantScopedAgainstPostgres` | Note history remains bound to the session tenant and exact entity; foreign notes are absent while equal-time and concurrent-newer rows preserve stable cursor continuation. |
 | `pipeline-configuration` | `apps/api/internal/modules/deals/pipeline_configuration_postgres_test.go` | `TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgres` | Foreign pipelines and stages cannot be renamed, reordered, deleted, or assigned to local deals. |
 | `record-email-delivery` | `apps/api/internal/modules/emailmessages/record_deliveries_postgres_test.go` | `TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPostgres` | Foreign records, customer recipients, user recipients, actors, and delivery IDs reject; test-to-self preparation and claim require the exact active actor/address; claims cannot cross twice; completion, failure, recovery, private test evidence, and explicit resolution keep every email/note/activity/audit effect atomic and tenant scoped without adding tests to customer history. |
 | `sales-activity-reporting` | `apps/api/internal/modules/salesreports/service_postgres_test.go` | `TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAgainstPostgres` | Event snapshots, activity rollups, and pipeline cohorts exclude foreign deals; foreign owners and foreign pipeline/stage pairs reject rather than disclose. |
@@ -55,11 +57,11 @@ the assertions inside those tests remain the proof of behavior.
 
 - `apps/api/internal/app/cross_org_test.go` verifies that the core HTTP handlers
   translate service misses to non-disclosing `404` responses.
-- `apps/api/internal/app/security_inventory_test.go` digest-gates all 256
+- `apps/api/internal/app/security_inventory_test.go` digest-gates all 257
   registered routes, so a new selector must receive an explicit session/token
   tenant policy and test reference.
 - `apps/api/internal/app/list_endpoint_inventory_test.go` separately
-  digest-gates all 101 registered GET routes, so a new collection cannot bypass
+  digest-gates all 102 registered GET routes, so a new collection cannot bypass
   a cardinality, ordering, overflow, and pagination review.
 - Role and viewer denial are handler concerns and remain covered by the route
   family permission tests named in `security-surface-inventory.md`; the

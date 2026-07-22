@@ -61,22 +61,23 @@ export function TasksRoute() {
   const [error, setError] = useState('')
   const [isListLoading, setIsListLoading] = useState(true)
   const listControllerRef = useRef(null)
-  const taskDetail = useTaskDetail({ isListLoading, routeTaskId, setError, setTasks, tasks })
   const {
     applyExternalUpdate: applyExternalTaskUpdate,
     clear: clearSelectedTask,
     detail,
     form,
     isDetailLoading,
+    isLoadingOlderActivities,
     isSaving: isSavingTask,
     open: openTaskDetail,
+    loadOlderActivities,
     removeCached: removeCachedTask,
     selectedTaskId,
     setForm,
     setIsSaving: setIsSavingTask,
     sync: syncTaskIntoState,
     visitRef: taskVisitRef
-  } = taskDetail
+  } = useTaskDetail({ isListLoading, routeTaskId, setError, setTasks })
   const { handleQuickAssign, handleQuickComplete, handleQuickReopen, isTaskPending } = useTaskQuickActions({ onUpdated: handleQuickTaskUpdated, onError: setError })
 
   const selectedTask = detail?.task || null
@@ -327,7 +328,7 @@ export function TasksRoute() {
       const nextTasks = [data.task, ...tasks.filter((task) => task.id !== data.task.id)]
       setTasks(nextTasks)
       setMeta((current) => ({ ...current, total: current.total + 1, openCount: current.openCount + (data.task.status === 'completed' ? 0 : 1), completedCount: current.completedCount + (data.task.status === 'completed' ? 1 : 0) }))
-      syncTaskIntoState(data.task, data.activities || [])
+      syncTaskIntoState(data.task, data.activities || [], data.activityMeta)
       navigate(buildTasksPath(data.task.id))
       setError('')
     } catch (saveError) {
@@ -356,7 +357,7 @@ export function TasksRoute() {
       setTasks((current) => current.map((task) => (task.id === selectedTaskId ? data.task : task)))
       if (taskVisitRef.current !== visit) return
       setIsSavingTask(false)
-      syncTaskIntoState(data.task, data.activities || [])
+      syncTaskIntoState(data.task, data.activities || [], data.activityMeta)
       navigate(buildTasksPath(data.task.id))
       setError('')
     } catch (saveError) {
@@ -384,7 +385,7 @@ export function TasksRoute() {
         completedCount: Math.max(0, current.completedCount + (isCompleted ? 1 : 0) - (wasCompleted ? 1 : 0))
       }))
     }
-    applyExternalTaskUpdate(nextTask, data.activities || [])
+    applyExternalTaskUpdate(nextTask, data.activities || [], data.activityMeta)
   }
 
   async function handleArchive() {
@@ -479,12 +480,15 @@ export function TasksRoute() {
       {selectedTask ? (
         <TaskWorkspace
           activities={selectedActivities}
+          activityMeta={detail?.activityMeta}
           canWrite={canWrite}
           form={form}
           isLoading={isDetailLoading}
+          isLoadingOlderActivities={isLoadingOlderActivities}
           isSaving={isSavingTask}
           labels={labels}
           onArchive={handleArchive}
+          onLoadOlderActivities={loadOlderActivities}
           onSetForm={setForm}
           onSubmit={handleUpdate}
           task={selectedTask}

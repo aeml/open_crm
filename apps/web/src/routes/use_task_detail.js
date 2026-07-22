@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { isAbortError } from '../lib/api'
+import { listActivities } from '../lib/activities'
 import { getTask } from '../lib/tasks'
 import { taskFormValues } from './task_view'
 
@@ -14,21 +15,25 @@ const emptyTaskForm = {
   assignedToUserId: ''
 }
 
-export function useTaskDetail({ isListLoading, routeTaskId, setError, setTasks, tasks }) {
+const emptyActivityMeta = { limit: 50, hasMore: false, nextCursor: '' }
+
+export function useTaskDetail({ isListLoading, routeTaskId, setError, setTasks }) {
   const [selectedTaskId, setSelectedTaskId] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailCache, setDetailCache] = useState({})
   const [form, setForm] = useState(emptyTaskForm)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isLoadingOlderActivities, setIsLoadingOlderActivities] = useState(false)
   const visitRef = useRef(null)
 
-  function sync(task, activities) {
+  function sync(task, activities, activityMeta = emptyActivityMeta) {
     visitRef.current = { taskId: task.id, pending: false }
-    setDetailCache((current) => ({ ...current, [task.id]: { task, activities } }))
-    setDetail({ task, activities })
+    setDetailCache((current) => ({ ...current, [task.id]: { task, activities, activityMeta, loaded: true } }))
+    setDetail({ task, activities, activityMeta, loaded: true })
     setSelectedTaskId(task.id)
     setForm(taskFormValues(task))
+    setIsLoadingOlderActivities(false)
   }
 
   function clear() {
@@ -40,11 +45,18 @@ export function useTaskDetail({ isListLoading, routeTaskId, setError, setTasks, 
 
   function open(task) {
     const cached = detailCache[task.id]
-    sync(cached?.task || task, cached?.activities || [])
+    if (cached) {
+      sync(cached.task, cached.activities || [], cached.activityMeta)
+      return
+    }
+    visitRef.current = { taskId: task.id, pending: false }
+    setSelectedTaskId(task.id)
+    setDetail({ task, activities: [], activityMeta: emptyActivityMeta, loaded: false })
+    setForm(taskFormValues(task))
   }
 
-  function applyExternalUpdate(task, activities) {
-    const nextDetail = { task, activities }
+  function applyExternalUpdate(task, activities, activityMeta = emptyActivityMeta) {
+    const nextDetail = { task, activities, activityMeta, loaded: true }
     setDetailCache((current) => ({ ...current, [task.id]: nextDetail }))
     setDetail((current) => {
       if (current?.task?.id !== task.id) return current
@@ -52,6 +64,28 @@ export function useTaskDetail({ isListLoading, routeTaskId, setError, setTasks, 
       return nextDetail
     })
   }
+
+  async function loadOlderActivities() {
+    const current = detail
+    const visit = visitRef.current
+    if (!current?.activityMeta?.hasMore || !current.activityMeta.nextCursor || visit?.taskId !== current.task.id || isLoadingOlderActivities) return
+    setIsLoadingOlderActivities(true)
+    try {
+      const page = await listActivities('task', current.task.id, { cursor: current.activityMeta.nextCursor, limit: current.activityMeta.limit || 50 })
+      if (visitRef.current !== visit) return
+      const ids = new Set(current.activities.map((entry) => entry.id))
+      const activities = [...current.activities, ...(page.activities || []).filter((entry) => !ids.has(entry.id))]
+      const nextDetail = { ...current, activities, activityMeta: page.meta || emptyActivityMeta }
+      setDetail(nextDetail)
+      setDetailCache((cache) => ({ ...cache, [current.task.id]: nextDetail }))
+      setError('')
+    } catch (loadError) {
+      if (visitRef.current === visit && !isAbortError(loadError)) setError(loadError.message || 'Unable to load older task activity.')
+    } finally {
+      if (visitRef.current === visit) setIsLoadingOlderActivities(false)
+    }
+  }
+
   function removeCached(taskId) {
     setDetailCache((current) => {
       const next = { ...current }
@@ -74,18 +108,11 @@ export function useTaskDetail({ isListLoading, routeTaskId, setError, setTasks, 
         return
       }
 
-      if (selectedTaskId === routeTaskId && detail?.task?.id === routeTaskId) return
+      if (selectedTaskId === routeTaskId && detail?.task?.id === routeTaskId && detail.loaded !== false) return
 
       const cached = detailCache[routeTaskId]
       if (cached) {
-        sync(cached.task, cached.activities || [])
-        setError('')
-        return
-      }
-
-      const routeTask = tasks.find((entry) => entry.id === routeTaskId)
-      if (routeTask) {
-        sync(routeTask, [])
+        sync(cached.task, cached.activities || [], cached.activityMeta)
         setError('')
         return
       }
@@ -95,7 +122,7 @@ export function useTaskDetail({ isListLoading, routeTaskId, setError, setTasks, 
         const data = await getTask(routeTaskId, { signal: controller.signal })
         if (controller.signal.aborted) return
         setTasks((current) => [data.task, ...current.filter((entry) => entry.id !== routeTaskId)])
-        sync(data.task, data.activities || [])
+        sync(data.task, data.activities || [], data.activityMeta)
         setError('')
       } catch (loadError) {
         if (!isAbortError(loadError)) setError(loadError.message || 'Unable to load task.')
@@ -108,7 +135,7 @@ export function useTaskDetail({ isListLoading, routeTaskId, setError, setTasks, 
     return () => {
       controller.abort()
     }
-  }, [detail, detailCache, isListLoading, routeTaskId, selectedTaskId, tasks])
+  }, [detail, detailCache, isListLoading, routeTaskId, selectedTaskId])
 
   return {
     applyExternalUpdate,
@@ -116,8 +143,10 @@ export function useTaskDetail({ isListLoading, routeTaskId, setError, setTasks, 
     detail,
     form,
     isDetailLoading,
+    isLoadingOlderActivities,
     isSaving,
     open,
+    loadOlderActivities,
     removeCached,
     selectedTaskId,
     setForm,

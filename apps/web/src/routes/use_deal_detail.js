@@ -77,7 +77,7 @@ export function useDealDetail({ deals, navigateToDeal, pipelineReady, routeDealI
       requireDealResponse(dealData, deal.id, 'Unable to load deal.')
       setDeals((current) => current.map((entry) => (entry.id === deal.id ? dealData.deal : entry)))
       setDetailForm(dealFormValues(dealData.deal))
-      work.load({ ...loadedWork, activities: dealData.activities || [] })
+      work.load({ ...loadedWork, activities: dealData.activities || [], activityMeta: dealData.activityMeta })
       commercial.load(dealData, loadedCatalog, quotePreparation)
       setError('')
     } catch (loadError) {
@@ -132,7 +132,7 @@ export function useDealDetail({ deals, navigateToDeal, pipelineReady, routeDealI
         setSelectedDealId(dealData.deal.id)
         setSelectedStageId(String(dealData.deal.stageId))
         setDetailForm(dealFormValues(dealData.deal))
-        work.load({ ...loadedWork, activities: dealData.activities || [] })
+        work.load({ ...loadedWork, activities: dealData.activities || [], activityMeta: dealData.activityMeta })
         commercial.load(dealData, loadedCatalog, quotePreparation)
         setError('')
       } catch (loadError) {

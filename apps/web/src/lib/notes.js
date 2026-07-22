@@ -1,9 +1,12 @@
 import { apiRequest } from './api'
 
-export async function listNotes(entityType, entityId, { signal } = {}) {
-  const payload = await apiRequest(`/api/notes?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`, { fallbackMessage: 'Unable to load notes.', signal })
+export async function listNotes(entityType, entityId, { cursor = '', limit, signal } = {}) {
+  const params = new URLSearchParams({ entityType, entityId: String(entityId) })
+  if (limit) params.set('limit', String(limit))
+  if (cursor) params.set('cursor', cursor)
+  const payload = await apiRequest(`/api/notes?${params.toString()}`, { fallbackMessage: 'Unable to load notes.', signal })
 
-  return payload?.data?.notes || []
+  return payload?.data || { notes: [], meta: { limit: limit || 50, hasMore: false, nextCursor: '' } }
 }
 
 export async function createNote(input, { signal } = {}) {

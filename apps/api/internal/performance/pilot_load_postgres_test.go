@@ -17,6 +17,7 @@ import (
 	"time"
 
 	moduledb "github.com/aeml/open_crm/apps/api/internal/db"
+	moduleactivityfeed "github.com/aeml/open_crm/apps/api/internal/modules/activityfeed"
 	"github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	"github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	modulecustomreports "github.com/aeml/open_crm/apps/api/internal/modules/customreports"
@@ -27,6 +28,7 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduletouchpoints "github.com/aeml/open_crm/apps/api/internal/modules/touchpoints"
 	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
+	platformtimeline "github.com/aeml/open_crm/apps/api/internal/platform/timelinepagination"
 )
 
 const (
@@ -162,6 +164,7 @@ func TestPilotReadLoadAndFailureBudgetsAgainstPostgres(t *testing.T) {
 	assertSlowDatabaseDeadlineAndRecovery(t, ctx, pool, organizationID, contactService)
 	assertPipelineFunnelBudget(t, ctx, pool, organizationID, secondOrganizationID, stageID)
 	assertClientActivityBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
+	assertRecordTimelineBudget(t, ctx, pool, organizationID, secondOrganizationID)
 	assertLargeTenantExportBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
 	assertTenantImportWriteBudget(t, ctx, pool, organizationID, secondOrganizationID, actorUserID)
 
@@ -442,6 +445,43 @@ func assertClientActivityBudget(t *testing.T, ctx context.Context, pool *moduled
 		t.Fatalf("pilot client activity crossed tenant boundary: report=%#v err=%v", foreign, err)
 	}
 	t.Logf("pilot_client_activity_budget clients=%d touches=%d rows=%d elapsed=%s", report.Totals.TotalClients, report.Totals.QualifyingTouches, len(report.Records), elapsed)
+}
+
+func assertRecordTimelineBudget(t *testing.T, ctx context.Context, pool *moduledb.Pool, organizationID, otherOrganizationID int64) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities(organization_id,entity_type,entity_id,action,summary,created_at)
+		SELECT $1,'task',999,'task.test','Pilot timeline ' || value,NOW()-value*INTERVAL '1 second'
+		FROM generate_series(1,1001) AS value
+	`, organizationID); err != nil {
+		t.Fatalf("seed pilot record timeline: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ANALYZE activities`); err != nil {
+		t.Fatalf("analyze pilot record timeline: %v", err)
+	}
+	service := moduleactivityfeed.NewService(pool)
+	started := time.Now()
+	first, err := service.ListByEntity(ctx, organizationID, "task", 999, platformtimeline.Query{Limit: 100})
+	if err != nil || len(first.Activities) != 100 || !first.Meta.HasMore {
+		t.Fatalf("pilot first timeline page mismatch: page=%#v err=%v", first, err)
+	}
+	cursor, err := platformtimeline.Decode(first.Meta.NextCursor)
+	if err != nil {
+		t.Fatalf("decode pilot timeline cursor: %v", err)
+	}
+	second, err := service.ListByEntity(ctx, organizationID, "task", 999, platformtimeline.Query{Limit: 100, Cursor: &cursor})
+	elapsed := time.Since(started)
+	if err != nil || len(second.Activities) != 100 || !second.Meta.HasMore || second.Activities[0].ID == first.Activities[len(first.Activities)-1].ID {
+		t.Fatalf("pilot second timeline page mismatch: page=%#v err=%v", second, err)
+	}
+	if elapsed > pilotReportPageMaximum {
+		t.Fatalf("two pilot timeline pages took %s; budget is %s", elapsed, pilotReportPageMaximum)
+	}
+	foreign, err := service.ListByEntity(ctx, otherOrganizationID, "task", 999, platformtimeline.Query{Limit: 100})
+	if err != nil || len(foreign.Activities) != 0 {
+		t.Fatalf("pilot timeline crossed tenant boundary: page=%#v err=%v", foreign, err)
+	}
+	t.Logf("pilot_record_timeline_budget history_rows=1001 page_size=100 pages=2 elapsed=%s", elapsed)
 }
 
 func assertTenantImportWriteBudget(t *testing.T, ctx context.Context, pool *moduledb.Pool, organizationID, otherOrganizationID, actorUserID int64) {

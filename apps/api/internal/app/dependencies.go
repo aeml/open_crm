@@ -34,7 +34,6 @@ import (
 	moduleleadscoring "github.com/aeml/open_crm/apps/api/internal/modules/leadscoring"
 	modulemailboxsync "github.com/aeml/open_crm/apps/api/internal/modules/mailboxsync"
 	modulemarketingcampaigns "github.com/aeml/open_crm/apps/api/internal/modules/marketingcampaigns"
-	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	modulenurturecampaigns "github.com/aeml/open_crm/apps/api/internal/modules/nurturecampaigns"
 	moduleonboarding "github.com/aeml/open_crm/apps/api/internal/modules/onboarding"
@@ -182,11 +181,6 @@ type clientReviewsService interface {
 	Get(context.Context, int64, string, int64) (moduleclientreviews.Schedule, error)
 	Upsert(context.Context, int64, int64, string, int64, moduleclientreviews.Input) (moduleclientreviews.Schedule, error)
 	Delete(context.Context, int64, int64, string, int64) error
-}
-
-type notesService interface {
-	ListByEntity(context.Context, int64, string, int64) ([]modulenotes.Entry, error)
-	Create(context.Context, int64, int64, modulenotes.CreateInput) (modulenotes.CreateResult, error)
 }
 
 type collaborationService interface {
@@ -458,6 +452,7 @@ type Dependencies struct {
 	DashboardService                dashboardService
 	ClientReviewsService            clientReviewsService
 	NotesService                    notesService
+	ActivityFeedService             activityFeedService
 	CollaborationService            collaborationService
 	CallLogsService                 callLogsService
 	SMSService                      smsService

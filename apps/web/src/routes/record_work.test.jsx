@@ -10,14 +10,18 @@ function deferred() {
 
 function recordWorkProps(entityId) {
   return {
-    activities: [],
+  activities: [],
+  activityMeta: { hasMore: false, nextCursor: '' },
     canWrite: true,
     entityId,
     entityType: 'deal',
     noteBody: '',
-    notes: [],
+  notes: [],
+  noteMeta: { hasMore: false, nextCursor: '' },
     onCreateNote: vi.fn((event) => event.preventDefault()),
-    onCreateTask: vi.fn((event) => event.preventDefault()),
+  onCreateTask: vi.fn((event) => event.preventDefault()),
+  onLoadOlderActivities: vi.fn(),
+  onLoadOlderNotes: vi.fn(),
     onOpenTasks: vi.fn(),
     onSetNoteBody: vi.fn(),
     onSetTaskForm: vi.fn(),
@@ -32,6 +36,21 @@ afterEach(() => {
 })
 
 describe('record collaboration controls', () => {
+  it('discloses and triggers older note and activity history', () => {
+    const props = {
+      ...recordWorkProps(11),
+      activityMeta: { hasMore: true, nextCursor: 'activity-cursor' },
+      noteMeta: { hasMore: true, nextCursor: 'note-cursor' }
+    }
+    render(<RecordWorkCards {...props} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load older notes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Load older activity' }))
+
+    expect(props.onLoadOlderNotes).toHaveBeenCalledTimes(1)
+    expect(props.onLoadOlderActivities).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps record work mutations unavailable until the active snapshot has loaded', () => {
     const props = recordWorkProps(11)
     const { rerender } = render(<RecordWorkCards {...props} isLoading />)

@@ -128,6 +128,7 @@ export function CompanyWorkspace({
         <TouchpointSummary entityType="company" entityId={company.id} refreshKey={JSON.stringify({ activities: work.activities, notes: work.notes, tasks: work.tasks, linkedContacts })} />
         <RecordWorkCards
           activities={work.activities}
+          activityMeta={work.activityMeta}
           activityAria="Activity list"
           canWrite={canWrite}
           entityId={company.id}
@@ -135,11 +136,16 @@ export function CompanyWorkspace({
           isCreatingNote={work.isCreatingNote}
           isCreatingTask={work.isCreatingTask}
           isLoading={isLoading}
+          isLoadingOlderActivities={work.isLoadingOlderActivities}
+          isLoadingOlderNotes={work.isLoadingOlderNotes}
           noteBody={work.noteBody}
           notes={work.notes}
+          noteMeta={work.noteMeta}
           notesAria="Client notes list"
           onCreateNote={work.handleCreateNote}
           onCreateTask={work.handleCreateTask}
+          onLoadOlderActivities={work.loadOlderActivities}
+          onLoadOlderNotes={work.loadOlderNotes}
           onOpenTasks={onOpenTasks}
           onSetNoteBody={work.setNoteBody}
           onSetTaskForm={work.setTaskForm}

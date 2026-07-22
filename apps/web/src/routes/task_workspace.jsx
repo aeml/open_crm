@@ -1,4 +1,5 @@
 import { ActivityTimeline } from '../components/ui/activity_timeline'
+import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { TaskForm } from './task_form'
 
@@ -28,7 +29,7 @@ export function TaskCreateWorkspace({ companyOptions, contactOptions, dealOption
   )
 }
 
-export function TaskWorkspace({ activities, canWrite, form, isLoading, isSaving, labels, onArchive, onSetForm, onSubmit, task, userOptions }) {
+export function TaskWorkspace({ activities, activityMeta, canWrite, form, isLoading, isLoadingOlderActivities, isSaving, labels, onArchive, onLoadOlderActivities, onSetForm, onSubmit, task, userOptions }) {
   return (
     <Card>
       <div className="card-stack">
@@ -56,6 +57,11 @@ export function TaskWorkspace({ activities, canWrite, form, isLoading, isSaving,
           <div className="card-stack">
             <h3>Activity</h3>
             <ActivityTimeline activities={activities} emptyMessage="No task activity yet." ariaLabel={labels.activityAria} />
+            {activityMeta?.hasMore ? (
+              <Button className="button-secondary" type="button" onClick={onLoadOlderActivities} disabled={isLoadingOlderActivities}>
+                {isLoadingOlderActivities ? 'Loading older activity…' : 'Load older activity'}
+              </Button>
+            ) : null}
           </div>
         </Card>
       </div>

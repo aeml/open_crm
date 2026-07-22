@@ -243,6 +243,9 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 	mux.HandleFunc("GET /api/notes", func(w http.ResponseWriter, r *http.Request) {
 		handleListNotes(dependencies.AuthService, dependencies.NotesService, w, r)
 	})
+	mux.HandleFunc("GET /api/activities", func(w http.ResponseWriter, r *http.Request) {
+		handleListActivities(dependencies.AuthService, dependencies.ActivityFeedService, w, r)
+	})
 	mux.HandleFunc("POST /api/notes", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateNote(dependencies.AuthService, dependencies.NotesService, w, r)
 	})

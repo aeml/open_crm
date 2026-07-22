@@ -38,18 +38,6 @@ type contactsListResponse struct {
 	} `json:"meta"`
 }
 
-type contactDetailResponse struct {
-	Data struct {
-		Contact    modulecontacts.Summary         `json:"contact"`
-		Notes      []modulecontacts.NoteEntry     `json:"notes"`
-		Tasks      []modulecontacts.TaskEntry     `json:"tasks"`
-		Activities []modulecontacts.ActivityEntry `json:"activities"`
-	} `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
-}
-
 type companyRequest struct {
 	Name             string                    `json:"name"`
 	ClientType       string                    `json:"clientType"`
@@ -71,17 +59,6 @@ type companiesListResponse struct {
 	Data struct {
 		Companies []modulecompanies.Summary `json:"companies"`
 		Meta      modulecompanies.ListMeta  `json:"meta"`
-	} `json:"data"`
-	Meta struct {
-		RequestID string `json:"requestId"`
-	} `json:"meta"`
-}
-
-type companyDetailResponse struct {
-	Data struct {
-		Company        modulecompanies.Summary         `json:"company"`
-		LinkedContacts []modulecompanies.LinkedContact `json:"linkedContacts"`
-		Activities     []modulecompanies.ActivityEntry `json:"activities"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`

@@ -109,6 +109,7 @@ export function DealWorkspace({
         />
         <RecordWorkCards
           activities={work.activities}
+          activityMeta={work.activityMeta}
           activityAria={labels.activityAria}
           canWrite={canWrite}
           entityId={deal.id}
@@ -116,11 +117,16 @@ export function DealWorkspace({
           isCreatingNote={work.isCreatingNote}
           isCreatingTask={work.isCreatingTask}
           isLoading={detail.isLoading}
+          isLoadingOlderActivities={work.isLoadingOlderActivities}
+          isLoadingOlderNotes={work.isLoadingOlderNotes}
           noteBody={work.noteBody}
           notes={work.notes}
+          noteMeta={work.noteMeta}
           notesAria={labels.notesAria}
           onCreateNote={work.handleCreateNote}
           onCreateTask={work.handleCreateTask}
+          onLoadOlderActivities={work.loadOlderActivities}
+          onLoadOlderNotes={work.loadOlderNotes}
           onOpenTasks={onOpenTasks}
           onSetNoteBody={work.setNoteBody}
           onSetTaskForm={work.setTaskForm}

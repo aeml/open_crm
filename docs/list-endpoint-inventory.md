@@ -2,9 +2,9 @@
 
 Audit date: 2026-07-22
 
-Registered GET route count: `101`
+Registered GET route count: `102`
 
-Registered GET route digest: `81624712da868e2566e68f6f5b4aea8f94b63cf8c4175f36949d234521bd478c`
+Registered GET route digest: `2c13ce40e4b23aa7a2a467caf5ed4f8e7d4850850fa66d1a87288f95bcdadb84`
 
 This is the Phase 1 inventory for every production GET route that can return a
 collection or a large generated result. The executable guard derives the count
@@ -30,9 +30,10 @@ decision.
 | Entity communications: `GET /api/calendar-events`, `/api/calls`, `/api/sms-messages` | Max 200/default 50 per exact tenant entity | Creation/start time then ID descending | Invalid entity scope is rejected; oversized/malformed limits fall back to the service default | Handler and service/provider tests. These fake-provider foundations remain hidden from production navigation where applicable. |
 | Data-operation histories: `GET /api/imports`, `/api/data-operations/bulk`, `/api/data-operations/archive`, `/api/data-operations/duplicates`, `/api/workspace-exports` | Imports/archive default 50/max 100; bulk default 20/max 100; duplicate review max 50; workspace export history fixed at 20 | Creation/archive time and ID tie-breakers, or deterministic duplicate score/key order | Services cap every caller. Synchronous data/export outcomes have separate explicit 1,000/import, 10,000-row CSV, and 50 MiB ZIP limits | Handler and real-PostgreSQL rollback/merge/archive/export/tenant/performance acceptance. |
 | Definitions and small workspace catalogs: users, pipelines/stages, custom fields, saved views, quote/email templates and snippets, product catalog, lead forms/pages/widgets, audiences/scoring/campaign definitions, workflow definitions, report definitions, sequences/enrollments, booking links, availability | Complete tenant-scoped catalog, currently unpaged | Every query has an explicit semantic order with an ID or unique-position tie-breaker | Active product ceilings or pilot administration patterns keep these small today, but several definition families do not yet enforce a total stored-row ceiling. They must not become event/history stores. Hidden foundation catalogs are not maturity evidence | Handler and tenant tests cover current paths. Add explicit cursor/page contracts or enforced total ceilings before a production-like workload shows material growth, when historical rows become visible, or in the same slice that raises an approved active ceiling. |
-| Users' sessions, notifications, record followers, notes, quote approvals, invoices | Fixed security/work queues include notifications 50, quote approvals 100, and invoices 25. Sessions/followers are naturally team-bounded. The standalone notes list and nested record-detail activity arrays are currently complete and unpaged | Security or event time plus ID, or deterministic member order | The bounded queues serve a focused actionable/current set. Notes and nested activities remain the material unbounded record-local gap found by this inventory; full durable history is portable through workspace export but normal UI reads still need a disclosed continuation contract | Handler, lifecycle, role, tenant, and browser acceptance cover semantics. Add bounded cursor continuation plus UI disclosure for notes and record activities before closing roadmap `0.9.2`. |
+| Users' sessions, notifications, record followers, quote approvals, invoices | Fixed security/work queues include notifications 50, quote approvals 100, and invoices 25. Sessions/followers are naturally team-bounded | Security or event time plus ID, or deterministic member order | The bounded queues serve a focused actionable/current set | Handler, lifecycle, role, tenant, and browser acceptance cover semantics. |
+| Record notes and activity: detail embeds plus `GET /api/notes`, `/api/activities` | First page is 50 rows; explicit limits are capped at 100. Contact detail embeds its note first page, all four core details embed their activity first page, and every normal record workspace receives continuation metadata | Opaque keyset cursor over creation time then immutable ID, both descending. A cursor continues strictly below the last returned tuple, so new writes above it do not duplicate or skip older history | Malformed cursors, malformed/non-positive limits, and limits above 100 return `400` before service work; services repeat the bound. The UI exposes “Load older” only while `hasMore` is true and deduplicates IDs across requests | Handler and frontend tests cover parsing, disclosure, loading, stale-selection, and deduplication. Fresh PostgreSQL tests cover equal timestamps, a concurrent newer insert, multiple/final pages, direct-service overflow, and foreign-tenant exclusion; the pilot gate reads adjacent 100-row pages from 1,001 activities. |
 | Synchronous CSV exports and PDFs/certificates | Core/audit/saved-report CSV refuses row 10,001; binary quote/certificate routes return one bounded immutable artifact | Export registry ordering is stable and formula-safe; artifacts are exact version/request lookups | Overflow is explicit and produces no partial success/audit evidence; database/report deadlines remain bounded | 10,000/10,001 real-PostgreSQL performance and overflow tests, browser download reconciliation, and quote artifact digest/header tests. |
-| Singleton/detail/status/public lookup GET routes | One resource or bounded status document; core detail responses also embed the record-local activity arrays called out above | Exact tenant/token/resource lookup | Missing/foreign resources are non-disclosing; public routes have shared abuse budgets where applicable | Covered by `docs/security-surface-inventory.md` and `docs/tenant-isolation-matrix.md`; included in the GET digest so a route cannot be mistaken for a harmless singleton without review. |
+| Singleton/detail/status/public lookup GET routes | One resource or bounded status document; core detail responses embed the bounded record-local history first pages described above | Exact tenant/token/resource lookup | Missing/foreign resources are non-disclosing; public routes have shared abuse budgets where applicable | Covered by `docs/security-surface-inventory.md` and `docs/tenant-isolation-matrix.md`; included in the GET digest so a route cannot be mistaken for a harmless singleton without review. |
 
 ## Findings and thresholds
 
@@ -45,10 +46,14 @@ decision.
 - Catalogs and focused work queues are not evidence for large-dataset browsing.
   Their complete-list shape is a known pilot-scale constraint, not a promise of
   unlimited scale.
-- Standalone notes and nested contact/company/deal/task activity arrays remain
-  complete unpaged reads. The next pagination slice must add bounded cursor
-  continuation and a visible older-history path without making workspace export
-  the ordinary way to inspect a record.
+- Standalone notes and contact/company/deal/task activity now use one bounded
+  opaque cursor contract with visible older-history access. The remaining
+  reviewed growth decisions are shared-inbox continuation, the fixed newest-50
+  lead-submission review queue, mutable definition catalogs without stored-row
+  ceilings, and company linked contacts. Linked contacts deliberately remain
+  complete because record-email recipient selection and relationship editing
+  consume that set; replacing it requires a searchable paged selection contract,
+  not a silent detail-response cap.
 - New list endpoints must define tenant scope, stable total order with an ID
   tie-breaker, page/limit maximum, malformed-input behavior, overflow behavior,
   timeout, and handler plus PostgreSQL boundary tests before the GET digest is

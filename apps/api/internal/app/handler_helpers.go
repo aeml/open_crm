@@ -18,6 +18,7 @@ import (
 	moduleorgprofile "github.com/aeml/open_crm/apps/api/internal/modules/orgprofile"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
+	platformtimeline "github.com/aeml/open_crm/apps/api/internal/platform/timelinepagination"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
@@ -124,6 +125,8 @@ func respondContactDetail(w http.ResponseWriter, r *http.Request, statusCode int
 	response.Data.Notes = detail.Notes
 	response.Data.Tasks = detail.Tasks
 	response.Data.Activities = detail.Activities
+	response.Data.ActivityMeta = detail.ActivityMeta
+	response.Data.NoteMeta = detail.NoteMeta
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)
 }
@@ -133,6 +136,7 @@ func respondCompanyDetail(w http.ResponseWriter, r *http.Request, statusCode int
 	response.Data.Company = detail.Summary
 	response.Data.LinkedContacts = detail.LinkedContacts
 	response.Data.Activities = detail.Activities
+	response.Data.ActivityMeta = detail.ActivityMeta
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)
 }
@@ -141,6 +145,7 @@ func respondDealDetail(w http.ResponseWriter, r *http.Request, statusCode int, d
 	response := dealDetailResponse{}
 	response.Data.Deal = detail.Summary
 	response.Data.Activities = detail.Activities
+	response.Data.ActivityMeta = detail.ActivityMeta
 	response.Data.LineItems = detail.LineItems
 	response.Data.Totals = detail.Totals
 	response.Data.Quotes = detail.Quotes
@@ -156,9 +161,10 @@ func respondDealQuote(w http.ResponseWriter, r *http.Request, statusCode int, qu
 	platformweb.WriteJSON(w, statusCode, response)
 }
 
-func respondNotesList(w http.ResponseWriter, r *http.Request, statusCode int, notes []modulenotes.Entry) {
+func respondNotesList(w http.ResponseWriter, r *http.Request, statusCode int, page modulenotes.Page) {
 	response := notesListResponse{}
-	response.Data.Notes = notes
+	response.Data.Notes = page.Notes
+	response.Data.Meta = page.Meta
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)
 }
@@ -175,6 +181,7 @@ func respondTaskDetail(w http.ResponseWriter, r *http.Request, statusCode int, d
 	response := taskDetailResponse{}
 	response.Data.Task = detail.Task
 	response.Data.Activities = detail.Activities
+	response.Data.ActivityMeta = detail.ActivityMeta
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())
 	platformweb.WriteJSON(w, statusCode, response)
 }
@@ -218,6 +225,21 @@ func parseCoreListPagination(w http.ResponseWriter, r *http.Request) (platformpa
 		return platformpagination.Page{}, false
 	}
 	return page, true
+}
+
+func parseTimelinePagination(w http.ResponseWriter, r *http.Request) (platformtimeline.Query, bool) {
+	query, err := platformtimeline.Parse(r.URL.Query().Get("cursor"), r.URL.Query().Get("limit"))
+	if err != nil {
+		platformweb.WriteError(
+			w,
+			http.StatusBadRequest,
+			platformweb.RequestIDFromContext(r.Context()),
+			"BAD_REQUEST",
+			"Cursor must be valid and limit must be between 1 and 100",
+		)
+		return platformtimeline.Query{}, false
+	}
+	return query, true
 }
 
 func parseQueryInt64(value string) int64 {

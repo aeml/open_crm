@@ -18,6 +18,7 @@ import (
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
 	moduletasks "github.com/aeml/open_crm/apps/api/internal/modules/tasks"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
+	platformtimeline "github.com/aeml/open_crm/apps/api/internal/platform/timelinepagination"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -83,8 +84,8 @@ func TestCoreRecordTenantBoundariesAgainstPostgres(t *testing.T) {
 	if err != nil || len(viewList) != 1 || viewList[0].ID != beta.savedViewID {
 		t.Fatalf("saved-view list crossed tenant boundary: result=%#v err=%v", viewList, err)
 	}
-	noteList, err := notesService.ListByEntity(ctx, beta.organizationID, "contact", beta.contactID)
-	if err != nil || len(noteList) != 1 || noteList[0].ID != beta.noteID {
+	noteList, err := notesService.ListByEntity(ctx, beta.organizationID, "contact", beta.contactID, platformtimeline.Query{})
+	if err != nil || len(noteList.Notes) != 1 || noteList.Notes[0].ID != beta.noteID {
 		t.Fatalf("note list crossed tenant boundary: result=%#v err=%v", noteList, err)
 	}
 
@@ -148,8 +149,8 @@ func TestCoreRecordTenantBoundariesAgainstPostgres(t *testing.T) {
 		return savedViewsService.Delete(ctx, beta.organizationID, beta.userID, alpha.savedViewID)
 	})
 
-	foreignNotes, err := notesService.ListByEntity(ctx, beta.organizationID, "contact", alpha.contactID)
-	if err != nil || len(foreignNotes) != 0 {
+	foreignNotes, err := notesService.ListByEntity(ctx, beta.organizationID, "contact", alpha.contactID, platformtimeline.Query{})
+	if err != nil || len(foreignNotes.Notes) != 0 {
 		t.Fatalf("foreign contact notes leaked: notes=%#v err=%v", foreignNotes, err)
 	}
 	if _, err := notesService.Create(ctx, beta.organizationID, beta.userID, modulenotes.CreateInput{EntityType: "contact", EntityID: alpha.contactID, Body: "cross-tenant note"}); err == nil {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
+	moduleactivityfeed "github.com/aeml/open_crm/apps/api/internal/modules/activityfeed"
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleleadaudiences "github.com/aeml/open_crm/apps/api/internal/modules/leadaudiences"
@@ -219,6 +220,7 @@ type dealDetailResponse struct {
 	Data struct {
 		Deal              moduledeals.Summary            `json:"deal"`
 		Activities        []moduledeals.ActivityEntry    `json:"activities"`
+		ActivityMeta      moduleactivityfeed.Meta        `json:"activityMeta"`
 		LineItems         []moduledeals.LineItem         `json:"lineItems"`
 		Totals            moduledeals.DealTotals         `json:"totals"`
 		Quotes            []moduledeals.QuoteVersion     `json:"quotes"`
@@ -264,8 +266,16 @@ type noteRequest struct {
 
 type notesListResponse struct {
 	Data struct {
-		Notes []modulenotes.Entry `json:"notes"`
+		Notes []modulenotes.Entry     `json:"notes"`
+		Meta  moduleactivityfeed.Meta `json:"meta"`
 	} `json:"data"`
+	Meta struct {
+		RequestID string `json:"requestId"`
+	} `json:"meta"`
+}
+
+type activitiesListResponse struct {
+	Data moduleactivityfeed.Page `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
 	} `json:"meta"`
@@ -354,8 +364,9 @@ type tasksListResponse struct {
 
 type taskDetailResponse struct {
 	Data struct {
-		Task       moduletasks.Summary         `json:"task"`
-		Activities []moduletasks.ActivityEntry `json:"activities"`
+		Task         moduletasks.Summary         `json:"task"`
+		Activities   []moduletasks.ActivityEntry `json:"activities"`
+		ActivityMeta moduleactivityfeed.Meta     `json:"activityMeta"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`

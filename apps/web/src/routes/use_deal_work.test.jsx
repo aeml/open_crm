@@ -1,11 +1,13 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNote, listNotes } from '../lib/notes'
+import { listActivities } from '../lib/activities'
 import { createTask, listTasks } from '../lib/tasks'
 import { useDealSelection } from './use_deal_selection'
 import { useDealWork } from './use_deal_work'
 
 vi.mock('../lib/notes', () => ({ createNote: vi.fn(), listNotes: vi.fn() }))
+vi.mock('../lib/activities', () => ({ listActivities: vi.fn() }))
 vi.mock('../lib/tasks', () => ({ createTask: vi.fn(), listTasks: vi.fn() }))
 
 function deferred() {
@@ -19,6 +21,38 @@ beforeEach(() => {
 })
 
 describe('useDealWork', () => {
+  it('loads older history without duplicating the cursor boundary', async () => {
+    listNotes.mockResolvedValue({
+      notes: [{ id: 1, entityType: 'deal', entityId: 12, body: 'Older note' }],
+      meta: { limit: 50, hasMore: false, nextCursor: '' }
+    })
+    listActivities.mockResolvedValue({
+      activities: [{ id: 1, action: 'deal.created', summary: 'Older activity' }],
+      meta: { limit: 50, hasMore: false, nextCursor: '' }
+    })
+    const { result } = renderHook(() => {
+      const selection = useDealSelection(12)
+      return useDealWork({ selectedDealId: 12, selection, onError: vi.fn() })
+    })
+    act(() => result.current.load({
+      notes: [{ id: 2, entityType: 'deal', entityId: 12, body: 'Newest note' }],
+      noteMeta: { limit: 50, hasMore: true, nextCursor: 'notes-next' },
+      activities: [{ id: 2, action: 'deal.updated', summary: 'Newest activity' }],
+      activityMeta: { limit: 50, hasMore: true, nextCursor: 'activity-next' }
+    }))
+
+    await act(async () => {
+      await Promise.all([result.current.loadOlderNotes(), result.current.loadOlderActivities()])
+    })
+
+    expect(listNotes).toHaveBeenCalledWith('deal', 12, expect.objectContaining({ cursor: 'notes-next', limit: 50 }))
+    expect(listActivities).toHaveBeenCalledWith('deal', 12, expect.objectContaining({ cursor: 'activity-next', limit: 50 }))
+    expect(result.current.notes.map((note) => note.id)).toEqual([2, 1])
+    expect(result.current.activities.map((activity) => activity.id)).toEqual([2, 1])
+    expect(result.current.noteMeta.hasMore).toBe(false)
+    expect(result.current.activityMeta.hasMore).toBe(false)
+  })
+
   it('rejects work rows returned for another deal', async () => {
     listNotes.mockResolvedValue([{ id: 1, entityType: 'deal', entityId: 11 }])
     listTasks.mockResolvedValue({ tasks: [{ id: 2, entityType: 'deal', entityId: 12 }] })

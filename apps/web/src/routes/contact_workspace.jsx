@@ -144,16 +144,22 @@ export function ContactWorkspace({
         <TouchpointSummary entityType="contact" entityId={contact.id} refreshKey={JSON.stringify({ activities: work.activities, notes: work.notes, tasks: work.tasks, emailDeliveryRevision, foundationCommunicationsSnapshot })} />
         <RecordWorkCards
           activities={work.activities}
+          activityMeta={work.activityMeta}
           canWrite={canWrite}
           entityId={contact.id}
           entityType="contact"
           isCreatingNote={work.isCreatingNote}
           isCreatingTask={work.isCreatingTask}
           isLoading={isLoading}
+          isLoadingOlderActivities={work.isLoadingOlderActivities}
+          isLoadingOlderNotes={work.isLoadingOlderNotes}
           noteBody={work.noteBody}
           notes={work.notes}
+          noteMeta={work.noteMeta}
           onCreateNote={work.handleCreateNote}
           onCreateTask={work.handleCreateTask}
+          onLoadOlderActivities={work.loadOlderActivities}
+          onLoadOlderNotes={work.loadOlderNotes}
           onOpenTasks={onOpenTasks}
           onSetNoteBody={work.setNoteBody}
           onSetTaskForm={work.setTaskForm}

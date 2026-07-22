@@ -91,7 +91,7 @@ export function useCompanyDetail({ companyCustomDefinitions, customDefinitionsLo
     setSelectedCompanyId(companyId)
     setDetail(detailData)
     fillForm(detailData)
-    work.load({ notes: data.notes || [], tasks: data.tasks || [], activities: data.activities || [] })
+    work.load({ notes: data.notes || [], tasks: data.tasks || [], activities: data.activities || [], activityMeta: data.activityMeta })
     setMode('detail')
     setIsDetailLoading(false)
     setIsSaving(false)
@@ -141,7 +141,7 @@ export function useCompanyDetail({ companyCustomDefinitions, customDefinitionsLo
         const detailData = { ...data, deals: dealData.deals || [] }
         setDetail(detailData)
         fillForm(detailData)
-        work.load({ ...loadedWork, activities: data.activities || [] })
+        work.load({ ...loadedWork, activities: data.activities || [], activityMeta: data.activityMeta })
         setError('')
       } catch (loadError) {
         if (!isAbortError(loadError) && selection.isCurrent(activeSelection)) {

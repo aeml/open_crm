@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
@@ -29,58 +28,6 @@ type dashboardSummaryResponse struct {
 	Meta struct {
 		RequestID string `json:"requestId"`
 	} `json:"meta"`
-}
-
-func handleListNotes(auth authService, notes notesService, w http.ResponseWriter, r *http.Request) {
-	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgMember(auth, w, r)
-	if !ok {
-		return
-	}
-	if notes == nil {
-		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Notes service unavailable")
-		return
-	}
-
-	entityType := strings.TrimSpace(r.URL.Query().Get("entityType"))
-	entityID, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("entityId")), 10, 64)
-	if err != nil || entityID <= 0 || entityType == "" {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Entity type and entity id are required")
-		return
-	}
-
-	result, notesErr := notes.ListByEntity(r.Context(), state.Organization.ID, entityType, entityID)
-	if notesErr != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load notes")
-		return
-	}
-
-	respondNotesList(w, r, http.StatusOK, result)
-}
-
-func handleCreateNote(auth authService, notes notesService, w http.ResponseWriter, r *http.Request) {
-	requestID := platformweb.RequestIDFromContext(r.Context())
-	state, ok := requireOrgWriter(auth, w, r)
-	if !ok {
-		return
-	}
-	if notes == nil {
-		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Notes service unavailable")
-		return
-	}
-
-	input, decoded := decodeNoteRequest(w, r)
-	if !decoded {
-		return
-	}
-
-	result, notesErr := notes.Create(r.Context(), state.Organization.ID, state.User.ID, input)
-	if notesErr != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to create note")
-		return
-	}
-
-	respondNoteDetail(w, r, http.StatusCreated, result)
 }
 
 func handleListTasks(auth authService, tasks tasksService, w http.ResponseWriter, r *http.Request) {

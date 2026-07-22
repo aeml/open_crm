@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 26
-	expectedTenantIsolationEvidenceDigest = "f8d90e3fd540be57730664de9f58494fd6e8271fef2e443a5434edbb3d3b055e"
+	expectedTenantIsolationEvidenceCount  = 28
+	expectedTenantIsolationEvidenceDigest = "78f3753273a157e2326fd157f4340bd653c4fe94648de38c2173240c70f95a95"
 )
 
 type tenantIsolationEvidence struct {
@@ -24,6 +24,7 @@ type tenantIsolationEvidence struct {
 }
 
 var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
+	{Surface: "activity-history", Source: "apps/api/internal/modules/activityfeed/service_postgres_test.go", Test: "TestActivityCursorIsStableBoundedAndTenantScopedAgainstPostgres"},
 	{Surface: "archive-recovery", Source: "apps/api/internal/modules/archiveoperations/service_postgres_test.go", Test: "TestArchiveRecoveryIsTenantSafeDependencyAwareAndAuditedAgainstPostgres"},
 	{Surface: "audit-history", Source: "apps/api/internal/modules/audit/service_postgres_test.go", Test: "TestAuditRetentionExportAndTenantBoundaryAgainstPostgres"},
 	{Surface: "bulk-operations", Source: "apps/api/internal/modules/bulkoperations/service_postgres_test.go", Test: "TestBulkOperationsAreIdempotentTenantSafeAndChangeAwareAgainstPostgres"},
@@ -41,6 +42,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "forecast", Source: "apps/api/internal/modules/dashboard/forecast_postgres_test.go", Test: "TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope"},
 	{Surface: "imports-and-rollback", Source: "apps/api/internal/modules/imports/service_postgres_test.go", Test: "TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres"},
 	{Surface: "invitations", Source: "apps/api/internal/modules/users/invitations_postgres_test.go", Test: "TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres"},
+	{Surface: "note-history", Source: "apps/api/internal/modules/notes/list_postgres_test.go", Test: "TestNoteCursorIsStableBoundedAndTenantScopedAgainstPostgres"},
 	{Surface: "pipeline-configuration", Source: "apps/api/internal/modules/deals/pipeline_configuration_postgres_test.go", Test: "TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgres"},
 	{Surface: "record-email-delivery", Source: "apps/api/internal/modules/emailmessages/record_deliveries_postgres_test.go", Test: "TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPostgres"},
 	{Surface: "sales-activity-reporting", Source: "apps/api/internal/modules/salesreports/service_postgres_test.go", Test: "TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAgainstPostgres"},

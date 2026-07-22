@@ -2,6 +2,7 @@ package notes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	platformtimeline "github.com/aeml/open_crm/apps/api/internal/platform/timelinepagination"
 )
 
 type Entry struct {
@@ -40,9 +43,16 @@ type CreateResult struct {
 	Activity ActivityEntry `json:"activity"`
 }
 
+type Page struct {
+	Notes []Entry               `json:"notes"`
+	Meta  platformtimeline.Meta `json:"meta"`
+}
+
 type Service struct {
 	pool *pgxpool.Pool
 }
+
+var ErrInvalidEntity = errors.New("invalid note entity")
 
 var mentionPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9._%+\-])@([a-z0-9._%+\-]+@[a-z0-9.-]+\.[a-z]{2,})`)
 
@@ -50,15 +60,30 @@ func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
 }
 
-func (s *Service) ListByEntity(ctx context.Context, organizationID int64, entityType string, entityID int64) ([]Entry, error) {
+func (s *Service) FirstPage(ctx context.Context, organizationID int64, entityType string, entityID int64) (Page, error) {
+	return s.ListByEntity(ctx, organizationID, entityType, entityID, platformtimeline.Query{})
+}
+
+func (s *Service) ListByEntity(ctx context.Context, organizationID int64, entityType string, entityID int64, query platformtimeline.Query) (Page, error) {
 	if s == nil || s.pool == nil {
-		return nil, fmt.Errorf("notes service not configured")
+		return Page{}, fmt.Errorf("notes service not configured")
 	}
 	entityType = strings.TrimSpace(entityType)
 	if entityID <= 0 || !isSupportedEntityType(entityType) {
-		return nil, fmt.Errorf("entity type and entity id are required")
+		return Page{}, ErrInvalidEntity
+	}
+	query, err := platformtimeline.Normalize(query)
+	if err != nil {
+		return Page{}, err
 	}
 
+	args := []any{organizationID, entityType, entityID}
+	cursorFilter := ""
+	if query.Cursor != nil {
+		args = append(args, query.Cursor.CreatedAt, query.Cursor.ID)
+		cursorFilter = " AND (n.created_at, n.id) < ($4, $5)"
+	}
+	args = append(args, query.Limit+1)
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			n.id,
@@ -71,11 +96,11 @@ func (s *Service) ListByEntity(ctx context.Context, organizationID int64, entity
 			n.updated_at
 		FROM notes n
 		JOIN users u ON u.id = n.created_by_user_id
-		WHERE n.organization_id = $1 AND n.entity_type = $2 AND n.entity_id = $3
+		WHERE n.organization_id = $1 AND n.entity_type = $2 AND n.entity_id = $3`+cursorFilter+`
 		ORDER BY n.created_at DESC, n.id DESC
-	`, organizationID, entityType, entityID)
+		LIMIT $`+fmt.Sprint(len(args)), args...)
 	if err != nil {
-		return nil, fmt.Errorf("list notes: %w", err)
+		return Page{}, fmt.Errorf("list notes: %w", err)
 	}
 	defer rows.Close()
 
@@ -92,15 +117,27 @@ func (s *Service) ListByEntity(ctx context.Context, organizationID int64, entity
 			&note.CreatedAt,
 			&note.UpdatedAt,
 		); err != nil {
-			return nil, fmt.Errorf("scan note: %w", err)
+			return Page{}, fmt.Errorf("scan note: %w", err)
 		}
 		notes = append(notes, note)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate notes: %w", err)
+		return Page{}, fmt.Errorf("iterate notes: %w", err)
 	}
 
-	return notes, nil
+	hasMore := len(notes) > query.Limit
+	if hasMore {
+		notes = notes[:query.Limit]
+	}
+	meta := platformtimeline.Meta{Limit: query.Limit}
+	if len(notes) > 0 {
+		last := notes[len(notes)-1]
+		meta, err = platformtimeline.MetaForPage(query.Limit, hasMore, last.CreatedAt, last.ID)
+		if err != nil {
+			return Page{}, err
+		}
+	}
+	return Page{Notes: notes, Meta: meta}, nil
 }
 
 func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64, input CreateInput) (CreateResult, error) {

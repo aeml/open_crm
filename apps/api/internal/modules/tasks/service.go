@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	moduleactivityfeed "github.com/aeml/open_crm/apps/api/internal/modules/activityfeed"
 	moduleclientreviews "github.com/aeml/open_crm/apps/api/internal/modules/clientreviews"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
@@ -42,16 +43,12 @@ type Summary struct {
 	CreatedByUserName  string `json:"createdByUserName"`
 }
 
-type ActivityEntry struct {
-	ID        int64     `json:"id"`
-	Action    string    `json:"action"`
-	Summary   string    `json:"summary"`
-	CreatedAt time.Time `json:"createdAt"`
-}
+type ActivityEntry = moduleactivityfeed.Entry
 
 type Detail struct {
-	Task       Summary
-	Activities []ActivityEntry
+	Task         Summary
+	Activities   []ActivityEntry
+	ActivityMeta moduleactivityfeed.Meta
 }
 
 type ListQuery struct {
@@ -479,27 +476,12 @@ func (s *Service) GetByID(ctx context.Context, organizationID, taskID int64) (De
 		return Detail{}, fmt.Errorf("get task: %w", err)
 	}
 
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, action, summary, created_at
-		FROM activities
-		WHERE organization_id = $1 AND entity_type = 'task' AND entity_id = $2
-		ORDER BY created_at DESC, id DESC
-	`, organizationID, taskID)
+	activityPage, err := moduleactivityfeed.NewService(s.pool).FirstPage(ctx, organizationID, "task", taskID)
 	if err != nil {
 		return Detail{}, fmt.Errorf("list task activities: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var activity ActivityEntry
-		if err := rows.Scan(&activity.ID, &activity.Action, &activity.Summary, &activity.CreatedAt); err != nil {
-			return Detail{}, fmt.Errorf("scan task activity: %w", err)
-		}
-		detail.Activities = append(detail.Activities, activity)
-	}
-	if err := rows.Err(); err != nil {
-		return Detail{}, fmt.Errorf("iterate task activities: %w", err)
-	}
+	detail.Activities = activityPage.Activities
+	detail.ActivityMeta = activityPage.Meta
 
 	return detail, nil
 }
