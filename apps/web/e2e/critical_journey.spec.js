@@ -52,6 +52,18 @@ function seedLeadReviewContinuation(ownerEmail, runID) {
   })
 }
 
+function seedProductCatalogContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_product_catalog', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -94,6 +106,40 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByRole('checkbox', { name: 'Use TLS / STARTTLS' }).uncheck()
   await page.getByRole('button', { name: 'Save connection' }).click()
   await expect(page.getByText('Email account saved. Emails you send to contacts will come from your address.')).toBeVisible()
+
+  const quoteCatalogName = `Discovery and implementation ${runID}`
+  const quoteCatalogSKU = `PILOT-${runID}`.toUpperCase()
+  seedProductCatalogContinuation(owner.email, runID)
+  await page.getByRole('link', { name: 'Product Catalog', exact: true }).click()
+  await expect(page.getByRole('heading', { name: `Browser catalog ${runID} #001`, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `Browser catalog ${runID} #051`, exact: true })).toHaveCount(0)
+  await expect(page.getByText('Showing 50 of 51 catalog items', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(page.getByRole('heading', { name: `Browser catalog ${runID} #051`, exact: true })).toBeVisible()
+  await page.getByLabel('Search product catalog').fill(`Browser catalog ${runID} #051`)
+  await page.getByRole('button', { name: 'Apply search' }).click()
+  await expect(page.getByText('Showing 1 of 1 catalog items', { exact: false })).toBeVisible()
+  await page.getByLabel('Search product catalog').fill('')
+  await page.getByRole('button', { name: 'Apply search' }).click()
+  const catalogForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Create catalog item' }) })
+  await catalogForm.getByLabel('Name').fill(quoteCatalogName)
+  await catalogForm.getByLabel('SKU').fill(quoteCatalogSKU)
+  await catalogForm.getByLabel('Type').selectOption('service')
+  await catalogForm.getByLabel('Unit price').fill('25000')
+  await catalogForm.getByLabel('Currency').fill('USD')
+  await catalogForm.getByLabel('Unit', { exact: true }).fill('project')
+  await catalogForm.getByLabel('Description').fill('Reusable pilot implementation package')
+  await catalogForm.getByRole('button', { name: 'Create catalog item' }).click()
+  await expect(page.getByText('Catalog item created.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: quoteCatalogName, exact: true })).toBeVisible()
+  const productCatalogAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-product-catalog-continuation', {
+    body: JSON.stringify({ url: page.url(), violations: productCatalogAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(productCatalogAccessibility.violations).toEqual([])
 
   seedSharedInboxContinuation(owner.email, runID)
   await page.getByRole('link', { name: 'Team Inbox', exact: true }).click()
@@ -679,14 +725,15 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(page.getByRole('heading', { name: `Website renewal ${runID}` })).toBeVisible()
   await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(automatedTaskTitle)).toBeVisible()
   await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(automatedDecisionTaskTitle)).toBeVisible()
-  await page.getByLabel('Line item name').fill('Discovery and implementation')
-  await page.getByLabel('Line item type').selectOption('service')
-  await page.getByLabel('Line item unit price').fill('25000')
+  await expect(page.getByLabel('Catalog item').getByRole('option', { name: `Browser catalog ${runID} #001`, exact: false })).toHaveCount(0)
+  await page.getByLabel('Catalog item').selectOption({ label: `${quoteCatalogName} (${quoteCatalogSKU})` })
+  await expect(page.getByLabel('Line item name')).toHaveValue(quoteCatalogName)
+  await expect(page.getByLabel('Line item unit price')).toHaveValue('25000.00')
   await page.getByRole('button', { name: 'Add line item' }).click()
   const saveLineItems = page.getByRole('button', { name: 'Save line items' })
   await saveLineItems.click()
   await expect(saveLineItems).toBeEnabled()
-  await expect(page.getByRole('list', { name: 'Deal line items' }).getByText('Discovery and implementation')).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Deal line items' }).getByText(quoteCatalogName)).toBeVisible()
   await expect(page.getByText('$25,000.00').first()).toBeVisible()
   await page.getByLabel('Quote template').selectOption({ label: `${quoteTemplateName} (revision 1)` })
   await page.getByLabel('Recipient email').fill(`avery-${runID}@example.test`)

@@ -788,6 +788,23 @@ references.
    checking the assignee remains active. Do not edit `client_review_schedules`,
    tasks, reminders, or jobs directly in production.
 
+### Product catalog capacity and recovery
+
+1. **Settings > Product Catalog** shows exact 50-row pages across active and
+   inactive definitions. Search is a literal case-insensitive name/SKU match;
+   `%` and `_` are ordinary characters. Use the status filter to review inactive
+   history instead of assuming the first page is the complete catalog.
+2. At most 100 definitions may be active in one workspace. The API serializes
+   this ceiling across instances and returns `409 CATALOG_ACTIVE_LIMIT` when a
+   create or reactivation would exceed it. Archive an obsolete active definition
+   through the normal UI, then retry. Archiving does not rewrite existing deal
+   lines, finalized PDFs, or certificates; inactive definitions remain visible
+   to management but are not offered for new quote lines.
+3. A writer disabled or downgraded during a mutation receives `403`; a foreign
+   or missing item remains `404`. Duplicate non-empty SKUs return `409`. Confirm
+   current membership, tenant, and the existing SKU before retrying. Do not
+   bypass the active ceiling or change catalog rows with production SQL.
+
 ### Draft, finalized quote, and signature reconciliation
 
 1. The deal's **Line items** are saved CRM data. A catalog selection copies its

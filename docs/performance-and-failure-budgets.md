@@ -187,11 +187,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 729 KiB | 228 KiB |
+| All JavaScript and CSS | 731 KiB | 229 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.82 KiB/57.96 KiB entry, 54.93 KiB/15.65 KiB largest lazy
-chunk, and 728.06 KiB/227.23 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.82 KiB/57.96 KiB entry, 54.93 KiB/15.64 KiB largest lazy
+chunk, and 730.88 KiB/228.33 KiB total assets. The production contact, company,
 deal, and task routes are 27.72/8.57, 44.95/12.98, 54.93/15.64, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -384,6 +384,24 @@ reruns the populated WCAG scan. The measured build is 178.82/57.96 KiB entry,
 728.06/227.23 KiB aggregate raw/gzip. Only the aggregate ceilings advance from
 727/227 to 729/228 KiB for this complete outcome; entry, per-route, CSS, and
 source ceilings remain unchanged.
+
+Bounded product-catalog management then replaces the complete active/inactive
+payload on every settings and deal load with exact searchable/status-filtered
+50/default and 100/maximum management pages plus a separate active-only quote
+request that continues bounded pages only for legacy workspaces already above
+the new ceiling. A namespaced transaction lock makes the 100-active-item ceiling safe
+across API instances and revalidates the writer before every mutation. Fresh
+PostgreSQL 16.14 acceptance seeds 1,001 tenant rows, asserts the existing
+tenant/status/name index, budgets the complete 100-row active set and adjacent
+50-row management page below two seconds, proves literal wildcard search,
+tenant/role denial, a one-success/one-limit activation race, and archive then
+reactivation recovery. Chromium loads and searches row 51, creates an active
+service, excludes inactive history from quote selection, and carries the
+service through finalization with a populated WCAG scan. The measured build is
+178.82/57.96 KiB entry, 54.93/15.64 KiB largest lazy chunk, 7.72/2.55 KiB
+product-catalog route, and 730.88/228.33 KiB aggregate raw/gzip. Preserving
+legacy overflow access advances the reviewed aggregate ceilings from 729/228 to
+731/229 KiB; entry, per-route, CSS, and source ceilings remain unchanged.
 
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.

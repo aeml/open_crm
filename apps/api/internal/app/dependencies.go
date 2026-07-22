@@ -296,10 +296,10 @@ type emailTemplatesService interface {
 }
 
 type productCatalogService interface {
-	ListByOrganization(context.Context, int64) ([]moduleproductcatalog.Item, error)
+	ListByOrganization(context.Context, int64, moduleproductcatalog.ListQuery) (moduleproductcatalog.ListPage, error)
 	Create(context.Context, int64, int64, moduleproductcatalog.Input) (moduleproductcatalog.Item, error)
 	Update(context.Context, int64, int64, int64, moduleproductcatalog.Input) (moduleproductcatalog.Item, error)
-	Archive(context.Context, int64, int64) error
+	Archive(context.Context, int64, int64, int64) error
 }
 
 type leadFormsService interface {

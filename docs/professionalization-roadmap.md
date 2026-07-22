@@ -136,7 +136,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.9` Integration Release Review: planned.
 - `0.9.0` Scale And Reliability: in progress.
 - `0.9.1` Query Performance Review: in progress (core tenant query plans and representative budgets are CI-gated; dashboard/report/import/provider review remains).
-- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person continuation, stable PostgreSQL page evidence, and explicit 10,000-row export refusal are tested and documented; only mutable-catalog ceilings remain explicit decisions).
+- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person and product-catalog management, stable PostgreSQL page evidence, a concurrency-safe 100-active-item quote catalog, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: planned.
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
@@ -2231,10 +2231,21 @@ a mutation. Fresh PostgreSQL acceptance traverses 350 form/status-filtered rows
 inside a 1,001-row equal-time tenant, asserts the combined cursor index, budgets
 the first and adjacent 100-row pages below two seconds, excludes a later arrival
 and foreign tenant, and exposes the arrival on refresh. Chromium loads seeded
-row 51 before quarantine/recovery and repeats the populated WCAG scan. Remaining
-decisions are explicit rather than silently truncated: several mutable
-definition catalogs rely on pilot-scale usage rather than an enforced stored-row
-ceiling. Close or bound those surfaces as production-like evidence requires
+row 51 before quarantine/recovery and repeats the populated WCAG scan. Product
+catalog management now defaults to 50, caps at 100 and offset 50,000,
+supports literal name/SKU search plus active/inactive filters and exact totals,
+and serializes service-level writer revalidation with a 100-active-item ceiling.
+Quote preparation requests only active definitions and normally needs one bounded
+page; it continues bounded pages for a legacy workspace already above the new
+ceiling so the change does not silently hide existing choices. Inactive history stays
+pageable. Fresh 1,001-row PostgreSQL acceptance asserts its tenant/status/name
+index, adjacent two-second pages, tenant/role denials, wildcard escaping, and a
+one-success/one-limit activation race with archive/reactivation recovery.
+Chromium loads/searches row 51, creates an active service, excludes inactive
+history from quote selection, and uses the service through finalization and a
+WCAG scan. Remaining decisions are explicit rather than silently truncated: the
+other mutable definition catalogs rely on pilot-scale usage rather than an
+enforced stored-row ceiling. Close or bound those surfaces as evidence requires
 before this roadmap item is complete.
 
 ## Version 0.9.3 - Background Job Runner
@@ -2627,7 +2638,7 @@ Goal: support full sales execution from quote to close, extending the `0.6.x` sa
 
 Progress:
 
-- `1.3.1` (product/service catalog foundation): complete. Added organization-scoped catalog items with product/service type, SKU, description, unit price, currency, unit, active/inactive state, authenticated APIs for listing/creating/updating/archiving items, and a Settings > Product Catalog UI. Deal line items, quote totals, discounts, taxes, multi-currency exchange rates, and proposal generation remain future slices.
+- `1.3.1` (product/service catalog): production-capable inside the broader quote outcome. Organization-scoped product/service definitions retain bounded name/SKU/description/unit values, numeric(12,2)-safe currency/pricing and pageable active/inactive history. Member reads use exact searchable/status-filtered 50/default and 100/maximum pages; writer mutations revalidate an active owner/admin/member inside the transaction and a namespaced advisory lock serializes the 100-active-item ceiling across instances. New quote lines request only active definitions and snapshot them; the client continues bounded pages for any legacy workspace already above the new ceiling, so convergence does not silently remove an existing choice and archiving never removes historical line/quote evidence. Handler/frontend tests, freshly migrated 1,001-row PostgreSQL pagination/index/literal-search/tenant/role/concurrency/recovery acceptance, and the Chromium row-51/search/create/active-select/finalize/WCAG journey cover the local outcome. Validate the 100-active operating limit and catalog language with a pilot.
 - `1.3.2` (deal line items foundation): complete. Added organization-scoped deal line items tied optionally to catalog items, quantity/unit pricing, per-line discounts, tax rates, calculated line totals, deal-level subtotal/discount/tax/total summaries, an authenticated API to replace deal line items, automatic deal value recalculation from saved line items, line-item activity logging, and a deal detail line-item editor. Quote/proposal documents, tax rules, approval workflows, and multi-currency conversion remain future slices.
 - `1.3.3` (quote/proposal PDF foundation): complete. Added a branded quote/proposal PDF download generated from current deal details, saved line items, and calculated totals, plus a deal detail download action. Quote persistence/versioning, approval workflows, customer sending, e-signature, and terms/template management remain future slices.
 - `1.3.4` (e-signature status tracking foundation): historical foundation, superseded by `1.3.9`. Its detached create and arbitrary status-update APIs/UI have been removed. Existing rows remain visible as read-only manual tracking and are explicitly not signature evidence.
@@ -2643,7 +2654,7 @@ Progress:
 
 Candidate slices:
 
-- `1.3.1` Product/service catalog with pricing, SKUs, and currency: foundation complete.
+- `1.3.1` Product/service catalog with pricing, SKUs, currency, bounded management, and active-only quote selection: production-capable locally; pilot validation remains.
 - `1.3.2` Deal line items, discounts, taxes, and totals: foundation complete.
 - `1.3.3` Quote/proposal generation with branded PDF output: foundation complete.
 - `1.3.4` E-signature status tracking: historical foundation superseded; manual mutation removed and old rows retained read-only.
