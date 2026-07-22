@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 31
-	expectedTenantIsolationEvidenceDigest = "9d16a35a5203f70b28f24d0a4e1c55d2573a3122ed5638ec4250bbf0e6c4a42c"
+	expectedTenantIsolationEvidenceCount  = 32
+	expectedTenantIsolationEvidenceDigest = "fa576aba585fb664e14a0c894f8163762659866327f51acce6648abc436651c5"
 )
 
 type tenantIsolationEvidence struct {
@@ -41,6 +41,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "deal-close-and-handoff", Source: "apps/api/internal/modules/deals/win_loss_postgres_test.go", Test: "TestDealCloseReviewsKeepOutcomeContextCoherentAndTenantScopedAgainstPostgres"},
 	{Surface: "deal-task-automation", Source: "apps/api/internal/modules/workflowautomations/deal_task_rules_postgres_test.go", Test: "TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant"},
 	{Surface: "workflow-definition-management", Source: "apps/api/internal/modules/workflowautomations/definition_pagination_postgres_test.go", Test: "TestWorkflowDefinitionPagesAreBoundedStableAndTenantScoped"},
+	{Surface: "workflow-run-recovery", Source: "apps/api/internal/modules/workflowautomations/lead_follow_up_postgres_test.go", Test: "TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant"},
 	{Surface: "duplicate-management", Source: "apps/api/internal/modules/duplicateoperations/service_postgres_test.go", Test: "TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres"},
 	{Surface: "forecast", Source: "apps/api/internal/modules/dashboard/forecast_postgres_test.go", Test: "TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope"},
 	{Surface: "imports-and-rollback", Source: "apps/api/internal/modules/imports/service_postgres_test.go", Test: "TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres"},

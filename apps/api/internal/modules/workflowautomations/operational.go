@@ -21,23 +21,49 @@ func (s *Service) OperationalStats(ctx context.Context) (OperationalStats, error
 	}
 	var stats OperationalStats
 	if err := s.pool.QueryRow(ctx, `
+		WITH active_runs AS (
+			SELECT
+				CASE
+					WHEN operation.status IN ('pending','retryable') THEN 'queued'
+					WHEN operation.status='running' THEN 'running'
+					ELSE run.status
+				END AS effective_status,
+				COALESCE(run.scheduled_at,run.created_at) AS scheduled_at
+			FROM workflow_automation_runs run
+			LEFT JOIN background_jobs operation
+			  ON operation.organization_id=run.organization_id
+			 AND operation.job_type='workflow.lead_follow_up'
+			 AND operation.idempotency_key='workflow-run:'||run.id::text
+			WHERE run.status IN ('queued','running')
+			  AND COALESCE(operation.status,'') <> 'dead'
+		)
 		SELECT
-			COUNT(*) FILTER (WHERE status='queued'),
-			COUNT(*) FILTER (WHERE status='running'),
-			COALESCE(EXTRACT(EPOCH FROM NOW()-MIN(COALESCE(scheduled_at,created_at))
-				FILTER (WHERE COALESCE(scheduled_at,created_at) <= NOW()))::bigint,0)
-		FROM workflow_automation_runs
-		WHERE status IN ('queued','running')
+			COUNT(*) FILTER (WHERE effective_status='queued'),
+			COUNT(*) FILTER (WHERE effective_status='running'),
+			COALESCE(EXTRACT(EPOCH FROM NOW()-MIN(scheduled_at)
+				FILTER (WHERE scheduled_at <= NOW()))::bigint,0)
+		FROM active_runs
 	`).Scan(&stats.Queued, &stats.Running, &stats.OldestActiveAge); err != nil {
 		return OperationalStats{}, fmt.Errorf("load active workflow automation operational stats: %w", err)
 	}
 	if err := s.pool.QueryRow(ctx, `
 		SELECT
-			COUNT(*) FILTER (WHERE status='failed'),
-			COUNT(*) FILTER (WHERE status='skipped')
-		FROM workflow_automation_runs
-		WHERE status IN ('failed','skipped')
-		  AND completed_at >= NOW()-INTERVAL '24 hours'
+			COUNT(*) FILTER (WHERE
+				run.status='failed'
+				OR (run.status IN ('queued','running') AND operation.status='dead')
+			),
+			COUNT(*) FILTER (WHERE run.status='skipped')
+		FROM workflow_automation_runs run
+		LEFT JOIN background_jobs operation
+		  ON operation.organization_id=run.organization_id
+		 AND operation.job_type='workflow.lead_follow_up'
+		 AND operation.idempotency_key='workflow-run:'||run.id::text
+		WHERE (
+			run.status IN ('failed','skipped') AND run.completed_at >= NOW()-INTERVAL '24 hours'
+		) OR (
+			run.status IN ('queued','running') AND operation.status='dead'
+			AND operation.updated_at >= NOW()-INTERVAL '24 hours'
+		)
 	`).Scan(&stats.FailedLast24h, &stats.SkippedLast24h); err != nil {
 		return OperationalStats{}, fmt.Errorf("load workflow automation operational stats: %w", err)
 	}

@@ -187,17 +187,18 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 737 KiB | 231 KiB |
+| All JavaScript and CSS | 738 KiB | 231 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.65 KiB largest lazy
-chunk, and 736.93 KiB/229.89 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.64 KiB largest lazy
+chunk, and 737.57 KiB/230.21 KiB total assets. The production contact, company,
 deal, and task routes are 27.72/8.57, 44.95/12.98, 54.93/15.64, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
 revision-bound sequence approval and outcome summary remain in a 5.46 KiB/1.87 KiB route. The
-7.37 KiB/2.61 KiB background-operations route includes labeled replay, while a
+7.72 KiB/2.72 KiB background-operations route includes labeled replay and an
+explicit lead-follow-up filter, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
 signup, import, merge, and bulk recovery paths. Production builds now omit the
 incomplete calling, SMS, calendar/booking-link, audience, lead-scoring,
@@ -443,6 +444,15 @@ Reports orchestration is 352 lines and retains its separate 245-line tested
 catalog/form model. Only the reviewed aggregate ceilings advance from 735/230
 to 737/231 KiB; entry, per-route, CSS, and source ceilings remain unchanged.
 
+Truthful durable lead-run recovery joins the user-facing run to its exact queue
+row, displays attempt/dead-letter evidence, reconciles active/failed health, and
+guides admins into the existing audited Operations replay. Its measured build
+is 178.82/57.97 KiB entry, 54.93/15.64 KiB largest lazy chunk,
+25.51/7.75 KiB task-automation chunk, 7.72/2.72 KiB Operations chunk, and
+737.57/230.21 KiB aggregate raw/gzip. Only the aggregate raw ceiling advances
+from 737 to 738 KiB; entry, per-route, aggregate gzip, CSS, and source ceilings
+remain unchanged.
+
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 
@@ -456,7 +466,7 @@ logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health
 and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators, a focused contact create/detail workspace and detail orchestrator, plus focused company-directory, linked-
 people, create/detail workspace presentation, directory/detail orchestration, and shared record selection/work leave the parent routes at 449 contact lines,
-458 company lines, 473 deal lines, and
+461 company lines, 473 deal lines, and
 500 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 207-line work
 hooks now serve contacts, companies, and deals, abort obsolete loads, distinguish repeated

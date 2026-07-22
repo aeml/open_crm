@@ -1120,9 +1120,15 @@ bytes, tokens, or counters with ad hoc SQL.
    follow-up through normal task controls.
 5. Queue claims and task creation are replay-safe. If a worker loses its
    acknowledgement after commit, the repeated job returns the same task from
-   the terminal run instead of creating another. Use the normal dead-letter
-   replay control only after fixing a transient dependency, and never replay a
-   healthy job before its planned time. Do not rewrite
+   the terminal run instead of creating another. The run panel reconciles its
+   exact durable job and shows the operation status, attempt count, and last
+   error. A dead operation is shown as a failed run and stops contributing to
+   active-run health. After fixing a transient dependency, an owner/admin can
+   follow **Review and replay in Operations**, filter to **Lead follow-up
+   automations**, and replay the dead job there. That control invokes the
+   tenant- and dead-state-gated audited queue replay. A business
+   failure whose durable job completed is terminal and intentionally has no
+   replay control. Never replay healthy work before its planned time. Do not rewrite
    `background_jobs`, `workflow_automation_runs`, tasks, activities, or audit
    rows with manual SQL.
 6. Monitor `open_crm_workflow_runs{status="queued"}`,
@@ -1570,8 +1576,9 @@ restore procedure after explicit incident authorization. Never set
 
 ## Background Jobs And Dead-Letter Recovery
 
-Open CRM runs calendar and task reminders, automatic mailbox sync, and sequence sends on
-the tenant-scoped PostgreSQL queue. Claims use expiring leases and
+Open CRM runs calendar and task reminders, automatic mailbox sync, sequence
+sends, billing reconciliation/usage snapshots, workspace exports, and lead
+follow-up automation on the tenant-scoped PostgreSQL queue. Claims use expiring leases and
 `FOR UPDATE SKIP LOCKED`, so multiple API instances can share work. Ordinary
 failures retry with capped exponential backoff; exhausted or permanent failures
 remain `dead` until an administrator reviews them.
@@ -1595,10 +1602,10 @@ idempotency key remain for 400 days before deletion. All current producers also
 recheck durable source state (for example reminder, delivery, enrollment,
 subscription, usage-snapshot, or export state), so work older than the queue's
 400-day replay window cannot rely on the queue row as its only duplicate guard.
-Retention is allowlisted to the seven currently reviewed production job types:
+Retention is allowlisted to the eight currently reviewed production job types:
 `billing.reconcile`, `billing.usage.snapshot`, `calendar.reminder`,
-`email_sequence.send`, `mailbox.sync`, `task.reminder`, and
-`workspace.export.generate`. A new worker type retains full history until its
+`email_sequence.send`, `mailbox.sync`, `task.reminder`,
+`workflow.lead_follow_up`, and `workspace.export.generate`. A new worker type retains full history until its
 source-state guard is reviewed.
 Pending, running, retryable, and dead jobs are never selected. Dead work stays
 visible until an administrator resolves and replays it; an increasing dead count

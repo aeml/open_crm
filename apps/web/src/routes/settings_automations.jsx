@@ -305,8 +305,8 @@ export function SettingsAutomationsRoute() {
               <article className="record-row" role="listitem"><p>No task automation runs yet.</p></article>
             ) : visibleRuns.map((run) => (
               <article className={run.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} key={run.id} role="listitem">
-                <div><p>{run.automationName}</p><p className="field-hint">{formatRunTime(run.createdAt)} · {run.actionsCompleted ?? 0}/{run.actionsTotal ?? 0} tasks created</p>{run.status === 'queued' && run.scheduledAt ? <p className="field-hint">Scheduled for {formatRunTime(run.scheduledAt)}</p> : null}<p>{run.lastError || run.triggerEventKey}</p></div>
-                <span className="chip">{run.status}</span>
+                <div><p>{run.automationName}</p><p className="field-hint">{formatRunTime(run.createdAt)} · {run.actionsCompleted ?? 0}/{run.actionsTotal ?? 0} tasks created</p>{run.status === 'queued' && run.scheduledAt ? <p className="field-hint">Scheduled for {formatRunTime(run.scheduledAt)}</p> : null}{run.operation ? <p className="field-hint">Durable attempt {run.operation.attempts} of {run.operation.maxAttempts} · {run.operation.status}</p> : null}<p>{run.lastError || run.triggerEventKey}</p></div>
+                <div><span className="chip">{run.status}</span>{run.operation?.status === 'dead' && canManage ? <a className="button button-secondary" href="/settings/operations">Review and replay in Operations</a> : run.operation?.status === 'dead' ? <span className="field-hint">Admin replay required</span> : null}</div>
               </article>
             ))}
           </div>

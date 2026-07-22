@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `31`
+Evidence row count: `32`
 
-Evidence digest: `9d16a35a5203f70b28f24d0a4e1c55d2573a3122ed5638ec4250bbf0e6c4a42c`
+Evidence digest: `fa576aba585fb664e14a0c894f8163762659866327f51acce6648abc436651c5`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -42,6 +42,7 @@ the assertions inside those tests remain the proof of behavior.
 | `deal-task-automation` | `apps/api/internal/modules/workflowautomations/deal_task_rules_postgres_test.go` | `TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant` | Foreign definitions do not execute for local deal events; every task in a reviewed multi-task plan plus its ordered activity/run evidence remains source-tenant bound and commits atomically. |
 | `workflow-activation` | `apps/api/internal/modules/workflowautomations/activation_postgres_test.go` | `TestWorkflowActivationAuthorizationCapacityAndRecovery` | The writer revalidates active owner/admin membership inside the locked tenant transaction; member, disabled, and foreign actors leave no definition; unsupported contracts cannot activate; simultaneous final-slot writers produce exactly one tenant-local winner and an exact 50-action total; deactivation restores only that tenant's capacity. |
 | `workflow-definition-management` | `apps/api/internal/modules/workflowautomations/definition_pagination_postgres_test.go` | `TestWorkflowDefinitionPagesAreBoundedStableAndTenantScoped` | Exact stored-definition totals, workspace-wide active-action summaries, stable bounded pages, repeat reads, direct limits, and the management index remain tenant scoped; a foreign definition is absent from every page and summary. |
+| `workflow-run-recovery` | `apps/api/internal/modules/workflowautomations/lead_follow_up_postgres_test.go` | `TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant` | Run inspection joins a durable lead job only by organization, reviewed job type, and exact run-derived idempotency key. A same-key foreign dead job cannot affect local status/error/attempt evidence; local dead work leaves active health, enters failed health, and returns to queued only after tenant-authorized replay. |
 | `duplicate-management` | `apps/api/internal/modules/duplicateoperations/service_postgres_test.go` | `TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres` | Foreign candidates remain invisible and a cross-tenant merge key/record pair rejects without relationship changes. |
 | `forecast` | `apps/api/internal/modules/dashboard/forecast_postgres_test.go` | `TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope` | Forecast totals, stages, owners, quotas, and task buckets exclude a seeded high-value foreign pipeline. |
 | `imports-and-rollback` | `apps/api/internal/modules/imports/service_postgres_test.go` | `TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres` | Imported rows, batch history, idempotency, and rollback are tenant scoped; foreign history and rollback IDs stay missing. |

@@ -26,7 +26,7 @@ export async function listWorkflowAutomationRuns({ automationId, limit = 10, sig
   const query = params.toString()
   const payload = await apiRequest(`/api/workflow-automation-runs${query ? `?${query}` : ''}`, { fallbackMessage: 'Unable to load workflow automation runs.', signal })
 
-  return payload?.data?.runs || []
+  return Array.isArray(payload?.data?.runs) ? payload.data.runs : []
 }
 
 export async function createWorkflowAutomation(input, { signal } = {}) {

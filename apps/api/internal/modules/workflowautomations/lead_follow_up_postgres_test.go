@@ -369,23 +369,60 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 	if scheduledAt.Before(time.Now().UTC().Add(23*time.Hour)) || scheduledAt.After(time.Now().UTC().Add(25*time.Hour)) || !scheduledAt.Equal(jobRunAt) {
 		t.Fatalf("unexpected retained lead workflow schedule: run=%s job=%s", scheduledAt, jobRunAt)
 	}
+	jobKey := "workflow-run:" + strconv.FormatInt(scheduledRunID, 10)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO background_jobs (organization_id,job_type,idempotency_key,status,attempts,max_attempts,last_error)
+		VALUES ($1,$2,$3,'dead',5,5,'foreign failure must not leak')
+	`, foreignOrganizationID, moduleworkflowautomations.LeadFollowUpJobType, jobKey); err != nil {
+		t.Fatalf("seed same-key foreign workflow operation: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE background_jobs
+		SET status='dead',attempts=max_attempts,last_error='database remained unavailable',updated_at=NOW()
+		WHERE organization_id=$1 AND job_type=$2 AND idempotency_key=$3
+	`, organizationID, moduleworkflowautomations.LeadFollowUpJobType, jobKey); err != nil {
+		t.Fatalf("dead-letter scheduled workflow operation: %v", err)
+	}
+	runs, err := automations.ListRuns(ctx, organizationID, moduleworkflowautomations.RunListQuery{AutomationID: scheduledRule.ID, Limit: 10})
+	if err != nil || len(runs) != 1 || runs[0].ID != scheduledRunID || runs[0].Status != "failed" || runs[0].LastError != "database remained unavailable" || runs[0].RetryCount != 4 || runs[0].CompletedAt == "" || runs[0].Operation == nil || runs[0].Operation.Status != "dead" || runs[0].Operation.Attempts != 5 || runs[0].Operation.MaxAttempts != 5 {
+		t.Fatalf("dead workflow operation was not projected into its tenant run: runs=%#v err=%v", runs, err)
+	}
+	stats, err := automations.OperationalStats(ctx)
+	if err != nil || stats.Queued != 0 || stats.Running != 0 || stats.FailedLast24h != 2 || stats.SkippedLast24h != 1 {
+		t.Fatalf("dead workflow operation remained active or invisible to health: stats=%#v err=%v", stats, err)
+	}
+	replayedOperation, err := queue.Replay(ctx, organizationID, runs[0].Operation.ID)
+	if err != nil || replayedOperation.Status != "pending" || replayedOperation.Attempts != 0 {
+		t.Fatalf("replay dead workflow operation: operation=%#v err=%v", replayedOperation, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE background_jobs SET run_at=$4 WHERE organization_id=$1 AND job_type=$2 AND idempotency_key=$3`, organizationID, moduleworkflowautomations.LeadFollowUpJobType, jobKey, scheduledAt); err != nil {
+		t.Fatalf("restore immutable future workflow schedule after replay: %v", err)
+	}
+	runs, err = automations.ListRuns(ctx, organizationID, moduleworkflowautomations.RunListQuery{AutomationID: scheduledRule.ID, Limit: 10})
+	if err != nil || len(runs) != 1 || runs[0].Status != "queued" || runs[0].LastError != "" || runs[0].CompletedAt != "" || runs[0].Operation == nil || runs[0].Operation.Status != "pending" || runs[0].Operation.Attempts != 0 {
+		t.Fatalf("replayed workflow operation did not reconcile to queued: runs=%#v err=%v", runs, err)
+	}
 	claimed, err = queue.Claim(ctx, "lead-workflow-worker", []string{moduleworkflowautomations.LeadFollowUpJobType}, 1, time.Minute)
 	if err != nil || len(claimed) != 0 {
 		t.Fatalf("future lead workflow was claimable: jobs=%#v err=%v", claimed, err)
 	}
-	stats, err := automations.OperationalStats(ctx)
+	stats, err = automations.OperationalStats(ctx)
 	if err != nil || stats.Queued != 1 || stats.Running != 0 || stats.OldestActiveAge != 0 {
 		t.Fatalf("future lead workflow looked stalled: stats=%#v err=%v", stats, err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE workflow_automation_runs SET scheduled_at=NOW() WHERE organization_id=$1 AND id=$2`, organizationID, scheduledRunID); err != nil {
 		t.Fatalf("advance scheduled lead workflow run clock: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE background_jobs SET run_at=NOW() WHERE organization_id=$1 AND job_type=$2 AND idempotency_key=$3`, organizationID, moduleworkflowautomations.LeadFollowUpJobType, "workflow-run:"+strconv.FormatInt(scheduledRunID, 10)); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE background_jobs SET run_at=NOW() WHERE organization_id=$1 AND job_type=$2 AND idempotency_key=$3`, organizationID, moduleworkflowautomations.LeadFollowUpJobType, jobKey); err != nil {
 		t.Fatalf("advance scheduled lead workflow job clock: %v", err)
 	}
 	claimed, err = queue.Claim(ctx, "lead-workflow-worker", []string{moduleworkflowautomations.LeadFollowUpJobType}, 1, time.Minute)
 	if err != nil || len(claimed) != 1 {
 		t.Fatalf("claim due scheduled lead workflow job: jobs=%#v err=%v", claimed, err)
+	}
+	stats, err = automations.OperationalStats(ctx)
+	if err != nil || stats.Queued != 0 || stats.Running != 1 || stats.OldestActiveAge < 0 {
+		t.Fatalf("claimed workflow operation did not reconcile to running health: stats=%#v err=%v", stats, err)
 	}
 	result, err = automations.HandleLeadFollowUpJob(ctx, claimed[0])
 	if err != nil || result["status"] != "succeeded" {

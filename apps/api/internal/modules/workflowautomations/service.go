@@ -78,6 +78,19 @@ type Run struct {
 	CompletedAt      string         `json:"completedAt"`
 	CreatedAt        string         `json:"createdAt"`
 	UpdatedAt        string         `json:"updatedAt"`
+	Operation        *RunOperation  `json:"operation,omitempty"`
+}
+
+// RunOperation is the durable queue state for workflow outcomes that execute
+// asynchronously. Keeping it attached to the run prevents a retryable or dead
+// job from being presented as an indefinitely running automation.
+type RunOperation struct {
+	ID          int64  `json:"id"`
+	Status      string `json:"status"`
+	Attempts    int    `json:"attempts"`
+	MaxAttempts int    `json:"maxAttempts"`
+	LastError   string `json:"lastError"`
+	RunAt       string `json:"runAt"`
 }
 
 type RunListQuery struct {
@@ -206,15 +219,15 @@ func (s *Service) ListRuns(ctx context.Context, organizationID int64, query RunL
 	var rows pgx.Rows
 	var err error
 	if query.AutomationID > 0 {
-		rows, err = s.pool.Query(ctx, runSelect+`
-			WHERE organization_id = $1 AND automation_id = $2
-			ORDER BY created_at DESC, id DESC
+		rows, err = s.pool.Query(ctx, runListSelect+`
+			WHERE run.organization_id = $1 AND run.automation_id = $2
+			ORDER BY run.created_at DESC, run.id DESC
 			LIMIT $3
 		`, organizationID, query.AutomationID, limit)
 	} else {
-		rows, err = s.pool.Query(ctx, runSelect+`
-			WHERE organization_id = $1
-			ORDER BY created_at DESC, id DESC
+		rows, err = s.pool.Query(ctx, runListSelect+`
+			WHERE run.organization_id = $1
+			ORDER BY run.created_at DESC, run.id DESC
 			LIMIT $2
 		`, organizationID, limit)
 	}
@@ -225,7 +238,7 @@ func (s *Service) ListRuns(ctx context.Context, organizationID int64, query RunL
 
 	runs := make([]Run, 0)
 	for rows.Next() {
-		run, err := scanRun(rows)
+		run, err := scanRunWithOperation(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -524,6 +537,40 @@ const runSelect = `
 	FROM workflow_automation_runs
 `
 
+const runListSelect = `
+	SELECT run.id, run.automation_id, run.automation_name, run.trigger_type,
+	       run.target_entity_type, COALESCE(run.target_entity_id, 0),
+	       run.trigger_event_key,
+	       CASE
+	         WHEN operation.status = 'dead' AND run.status IN ('queued','running') THEN 'failed'
+	         WHEN operation.status IN ('pending','retryable') AND run.status IN ('queued','running') THEN 'queued'
+	         WHEN operation.status = 'running' AND run.status IN ('queued','running') THEN 'running'
+	         ELSE run.status
+	       END,
+	       run.trigger_payload_json, run.condition_result, run.actions_total,
+	       run.actions_completed,
+	       CASE WHEN operation.id IS NULL THEN run.retry_count ELSE GREATEST(operation.attempts - 1, 0) END,
+	       CASE WHEN operation.status IN ('retryable','dead') THEN operation.last_error ELSE run.last_error END,
+	       TO_CHAR(COALESCE(run.scheduled_at,run.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+	       COALESCE(TO_CHAR(run.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+	       CASE
+	         WHEN operation.status = 'dead' AND run.status IN ('queued','running')
+	           THEN TO_CHAR(operation.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+	         ELSE COALESCE(TO_CHAR(run.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
+	       END,
+	       TO_CHAR(run.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+	       TO_CHAR(run.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+	       COALESCE(operation.id,0), COALESCE(operation.status,''),
+	       COALESCE(operation.attempts,0), COALESCE(operation.max_attempts,0),
+	       COALESCE(operation.last_error,''),
+	       COALESCE(TO_CHAR(operation.run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
+	FROM workflow_automation_runs run
+	LEFT JOIN background_jobs operation
+	  ON operation.organization_id = run.organization_id
+	 AND operation.job_type = 'workflow.lead_follow_up'
+	 AND operation.idempotency_key = 'workflow-run:' || run.id::text
+`
+
 type automationScanner interface {
 	Scan(dest ...any) error
 }
@@ -581,10 +628,33 @@ func scanAutomation(scanner automationScanner) (Automation, error) {
 }
 
 func scanRun(scanner automationScanner) (Run, error) {
+	return scanRunValues(scanner)
+}
+
+func scanRunWithOperation(scanner automationScanner) (Run, error) {
+	var operation RunOperation
+	run, err := scanRunValues(scanner,
+		&operation.ID,
+		&operation.Status,
+		&operation.Attempts,
+		&operation.MaxAttempts,
+		&operation.LastError,
+		&operation.RunAt,
+	)
+	if err != nil {
+		return Run{}, err
+	}
+	if operation.ID > 0 {
+		run.Operation = &operation
+	}
+	return run, nil
+}
+
+func scanRunValues(scanner automationScanner, extra ...any) (Run, error) {
 	var run Run
 	var payloadJSON []byte
 	var conditionResult sql.NullBool
-	if err := scanner.Scan(
+	destinations := []any{
 		&run.ID,
 		&run.AutomationID,
 		&run.AutomationName,
@@ -604,7 +674,9 @@ func scanRun(scanner automationScanner) (Run, error) {
 		&run.CompletedAt,
 		&run.CreatedAt,
 		&run.UpdatedAt,
-	); err != nil {
+	}
+	destinations = append(destinations, extra...)
+	if err := scanner.Scan(destinations...); err != nil {
 		return Run{}, err
 	}
 	if len(payloadJSON) == 0 {

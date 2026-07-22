@@ -249,6 +249,56 @@ describe('settings task automations route', () => {
     expect(new URL(String(continuationCall[0]), 'http://localhost').searchParams.get('pageSize')).toBe('50')
   })
 
+  it('reconciles a dead durable operation and guides an admin to audited replay', async () => {
+    const rule = {
+      id: 9,
+      name: 'Inbound lead follow-up',
+      triggerType: 'form_submitted',
+      targetEntityType: 'lead_form',
+      triggerConfig: { formId: 31, taskContract: 'lead_follow_up_task_v1' },
+      conditionLogic: 'all',
+      conditions: [],
+      actions: [{ type: 'create_task', config: { title: 'Call inbound lead', assignedToUserId: 7, dueDays: 0 }, delayMinutes: 0 }],
+      isActive: true
+    }
+    const failedRun = {
+      id: 44,
+      automationId: 9,
+      automationName: rule.name,
+      triggerEventKey: 'lead-form-submission:72',
+      status: 'failed',
+      actionsTotal: 1,
+      actionsCompleted: 0,
+      retryCount: 4,
+      lastError: 'database remained unavailable',
+      scheduledAt: '2026-07-21T12:00:00Z',
+      completedAt: '2026-07-21T12:08:00Z',
+      createdAt: '2026-07-21T12:00:00Z',
+      operation: { id: 81, status: 'dead', attempts: 5, maxAttempts: 5, lastError: 'database remained unavailable', runAt: '2026-07-21T12:04:00Z' }
+    }
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const path = requestURL.pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [] } })
+      if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [{ id: 31, name: 'Website', isActive: true }] } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [{ id: 7, firstName: 'Riley', lastName: 'Chen', status: 'active' }] } })
+      if (path.endsWith('/api/workflow-automations')) return workflowPage([rule])
+      if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [failedRun] } })
+      throw new Error(`Unexpected fetch: ${method} ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/automations')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText('database remained unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Durable attempt 5 of 5 · dead')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Review and replay in Operations' })).toHaveAttribute('href', '/settings/operations')
+  })
+
   it('refreshes an active durable run until its terminal task evidence is visible', async () => {
     const rule = {
       id: 9,
