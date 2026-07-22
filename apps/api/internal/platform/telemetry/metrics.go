@@ -250,6 +250,8 @@ type RuntimeSnapshot struct {
 	WorkflowRunsFailed24h             int64
 	WorkflowRunsSkipped24h            int64
 	WorkflowOldestActiveAge           time.Duration
+	WorkflowApprovalsPending          int64
+	WorkflowOldestApprovalAge         time.Duration
 	LeadReviewsAvailable              bool
 	LeadReviewsUnreviewed             int64
 	LeadReviewsLegitimate             int64

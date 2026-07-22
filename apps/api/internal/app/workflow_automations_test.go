@@ -15,25 +15,35 @@ import (
 )
 
 type fakeWorkflowAutomationsService struct {
-	listResult        moduleworkflowautomations.ListPage
-	listErr           error
-	listRunsResult    []moduleworkflowautomations.Run
-	listRunsErr       error
-	createResult      moduleworkflowautomations.Automation
-	createErr         error
-	updateResult      moduleworkflowautomations.Automation
-	updateErr         error
-	lastListOrgID     int64
-	lastListQuery     moduleworkflowautomations.ListQuery
-	lastListRunsOrgID int64
-	lastListRunsQuery moduleworkflowautomations.RunListQuery
-	lastCreateOrgID   int64
-	lastCreateUserID  int64
-	lastCreateInput   moduleworkflowautomations.Input
-	lastUpdateOrgID   int64
-	lastUpdateID      int64
-	lastUpdateUserID  int64
-	lastUpdateInput   moduleworkflowautomations.Input
+	listResult               moduleworkflowautomations.ListPage
+	listErr                  error
+	listRunsResult           []moduleworkflowautomations.Run
+	listRunsErr              error
+	listApprovalsResult      []moduleworkflowautomations.Approval
+	listApprovalsErr         error
+	decideApprovalResult     moduleworkflowautomations.Approval
+	decideApprovalErr        error
+	createResult             moduleworkflowautomations.Automation
+	createErr                error
+	updateResult             moduleworkflowautomations.Automation
+	updateErr                error
+	lastListOrgID            int64
+	lastListQuery            moduleworkflowautomations.ListQuery
+	lastListRunsOrgID        int64
+	lastListRunsQuery        moduleworkflowautomations.RunListQuery
+	lastListApprovalsOrgID   int64
+	lastListApprovalsUserID  int64
+	lastDecideApprovalOrgID  int64
+	lastDecideApprovalID     int64
+	lastDecideApprovalUserID int64
+	lastDecideApprovalInput  moduleworkflowautomations.ApprovalDecisionInput
+	lastCreateOrgID          int64
+	lastCreateUserID         int64
+	lastCreateInput          moduleworkflowautomations.Input
+	lastUpdateOrgID          int64
+	lastUpdateID             int64
+	lastUpdateUserID         int64
+	lastUpdateInput          moduleworkflowautomations.Input
 }
 
 func (f *fakeWorkflowAutomationsService) ListByOrganization(_ context.Context, organizationID int64, query moduleworkflowautomations.ListQuery) (moduleworkflowautomations.ListPage, error) {
@@ -46,6 +56,20 @@ func (f *fakeWorkflowAutomationsService) ListRuns(_ context.Context, organizatio
 	f.lastListRunsOrgID = organizationID
 	f.lastListRunsQuery = query
 	return f.listRunsResult, f.listRunsErr
+}
+
+func (f *fakeWorkflowAutomationsService) ListApprovals(_ context.Context, organizationID, actorUserID int64) ([]moduleworkflowautomations.Approval, error) {
+	f.lastListApprovalsOrgID = organizationID
+	f.lastListApprovalsUserID = actorUserID
+	return f.listApprovalsResult, f.listApprovalsErr
+}
+
+func (f *fakeWorkflowAutomationsService) DecideApproval(_ context.Context, organizationID, approvalID, actorUserID int64, input moduleworkflowautomations.ApprovalDecisionInput) (moduleworkflowautomations.Approval, error) {
+	f.lastDecideApprovalOrgID = organizationID
+	f.lastDecideApprovalID = approvalID
+	f.lastDecideApprovalUserID = actorUserID
+	f.lastDecideApprovalInput = input
+	return f.decideApprovalResult, f.decideApprovalErr
 }
 
 func (f *fakeWorkflowAutomationsService) Create(_ context.Context, organizationID, actorUserID int64, input moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error) {
@@ -276,5 +300,93 @@ func TestDeactivateWorkflowAutomationRoutesExplicitSafetyIntent(t *testing.T) {
 
 	if recorder.Code != http.StatusOK || service.lastUpdateOrgID != 42 || service.lastUpdateID != 9 || service.lastUpdateUserID != 1 || !service.lastUpdateInput.DeactivateOnly {
 		t.Fatalf("unexpected workflow deactivation routing: status=%d org=%d id=%d user=%d input=%#v", recorder.Code, service.lastUpdateOrgID, service.lastUpdateID, service.lastUpdateUserID, service.lastUpdateInput)
+	}
+}
+
+func TestWorkflowApprovalListScopesToCurrentWorkspaceAndActor(t *testing.T) {
+	service := &fakeWorkflowAutomationsService{listApprovalsResult: []moduleworkflowautomations.Approval{{
+		ID: 19, RunID: 11, AutomationID: 5, AutomationName: "Proposal playbook",
+		DealID: 7, DealName: "Renewal", Name: "Proposal readiness", ApproverRole: "owner",
+		Message: "Review retained scope.", Status: "pending", PendingTaskCount: 2,
+		RequestedByUserID: 3, RequestedByUserName: "Ari Requester", RequestedAt: "2026-07-22T20:00:00Z",
+	}}}
+	server := authenticatedWorkflowAutomationsServer(service, "member")
+	request := httptest.NewRequest(http.MethodGet, "/api/workflow-approvals", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || service.lastListApprovalsOrgID != 42 || service.lastListApprovalsUserID != 1 {
+		t.Fatalf("unexpected approval list routing: status=%d org=%d actor=%d body=%s", recorder.Code, service.lastListApprovalsOrgID, service.lastListApprovalsUserID, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"approvalName"`) && !strings.Contains(recorder.Body.String(), `"name":"Proposal readiness"`) {
+		t.Fatalf("approval list omitted retained evidence: %s", recorder.Body.String())
+	}
+}
+
+func TestWorkflowApprovalDecisionRequiresAndRoutesIdempotencyEvidence(t *testing.T) {
+	service := &fakeWorkflowAutomationsService{decideApprovalResult: moduleworkflowautomations.Approval{ID: 19, Status: "rejected", DecisionNote: "Scope incomplete."}}
+	server := authenticatedWorkflowAutomationsServer(service, "member")
+	request := httptest.NewRequest(http.MethodPost, "/api/workflow-approvals/19/decision", strings.NewReader(`{"decision":"rejected","note":"Scope incomplete."}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "workflow-approval-decision-0001")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || service.lastDecideApprovalOrgID != 42 || service.lastDecideApprovalID != 19 || service.lastDecideApprovalUserID != 1 {
+		t.Fatalf("unexpected approval decision routing: status=%d org=%d id=%d actor=%d body=%s", recorder.Code, service.lastDecideApprovalOrgID, service.lastDecideApprovalID, service.lastDecideApprovalUserID, recorder.Body.String())
+	}
+	input := service.lastDecideApprovalInput
+	if input.Decision != "rejected" || input.Note != "Scope incomplete." || input.IdempotencyKey != "workflow-approval-decision-0001" {
+		t.Fatalf("approval decision evidence mismatch: %#v", input)
+	}
+}
+
+func TestWorkflowApprovalDecisionRejectsMissingKeyBeforeService(t *testing.T) {
+	service := &fakeWorkflowAutomationsService{}
+	server := authenticatedWorkflowAutomationsServer(service, "owner")
+	request := httptest.NewRequest(http.MethodPost, "/api/workflow-approvals/19/decision", strings.NewReader(`{"decision":"approved"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest || service.lastDecideApprovalID != 0 || !strings.Contains(recorder.Body.String(), `"code":"BAD_REQUEST"`) {
+		t.Fatalf("missing idempotency key was not rejected safely: status=%d service_id=%d body=%s", recorder.Code, service.lastDecideApprovalID, recorder.Body.String())
+	}
+}
+
+func TestWorkflowApprovalErrorsAreStable(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "invalid decision", err: moduleworkflowautomations.ErrInvalidInput, statusCode: http.StatusBadRequest, code: "BAD_REQUEST"},
+		{name: "role changed", err: moduleworkflowautomations.ErrForbidden, statusCode: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "different replay", err: moduleworkflowautomations.ErrApprovalConflict, statusCode: http.StatusConflict, code: "IDEMPOTENCY_CONFLICT"},
+		{name: "stale retained state", err: moduleworkflowautomations.ErrApprovalState, statusCode: http.StatusConflict, code: "WORKFLOW_APPROVAL_STATE"},
+		{name: "foreign approval", err: moduleworkflowautomations.ErrNotFound, statusCode: http.StatusNotFound, code: "NOT_FOUND"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := &fakeWorkflowAutomationsService{decideApprovalErr: test.err}
+			server := authenticatedWorkflowAutomationsServer(service, "member")
+			request := httptest.NewRequest(http.MethodPost, "/api/workflow-approvals/19/decision", strings.NewReader(`{"decision":"approved"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Idempotency-Key", "workflow-approval-error-0001")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != test.statusCode || !strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
+				t.Fatalf("unexpected approval error: status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }

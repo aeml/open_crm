@@ -200,6 +200,9 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 	if updated.RowsAffected() == 0 {
 		return Automation{}, ErrNotFound
 	}
+	if err := cancelPendingApprovalsForDefinition(ctx, tx, organizationID, automationID, actorUserID, "The workflow definition changed before a decision was made."); err != nil {
+		return Automation{}, err
+	}
 	if err := auditAutomationDefinition(ctx, tx, organizationID, actorUserID, automationID, "workflow_automation.updated", "Workflow automation updated", input, desiredActive); err != nil {
 		return Automation{}, err
 	}
@@ -242,6 +245,9 @@ func (s *Service) deactivate(ctx context.Context, organizationID, automationID, 
 		`, organizationID, automationID, actorUserID); err != nil {
 			return Automation{}, fmt.Errorf("audit workflow automation deactivation: %w", err)
 		}
+	}
+	if err := cancelPendingApprovalsForDefinition(ctx, tx, organizationID, automationID, actorUserID, "The workflow was deactivated before a decision was made."); err != nil {
+		return Automation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Automation{}, fmt.Errorf("commit workflow automation deactivation: %w", err)

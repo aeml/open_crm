@@ -2,6 +2,7 @@ package workflowautomations
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -13,18 +14,31 @@ import (
 // workflow action. Task IDs are returned only when the target still belongs to
 // the same workspace as the run.
 type RunAction struct {
-	ID          int64  `json:"id"`
-	Position    int    `json:"position"`
-	Type        string `json:"type"`
-	Label       string `json:"label"`
-	Status      string `json:"status"`
-	Attempts    int    `json:"attempts"`
-	ScheduledAt string `json:"scheduledAt"`
-	StartedAt   string `json:"startedAt"`
-	CompletedAt string `json:"completedAt"`
-	TaskID      int64  `json:"taskId,omitempty"`
-	TaskDueAt   string `json:"taskDueAt,omitempty"`
-	LastError   string `json:"lastError"`
+	ID          int64              `json:"id"`
+	Position    int                `json:"position"`
+	Type        string             `json:"type"`
+	Label       string             `json:"label"`
+	Status      string             `json:"status"`
+	Attempts    int                `json:"attempts"`
+	ScheduledAt string             `json:"scheduledAt"`
+	StartedAt   string             `json:"startedAt"`
+	CompletedAt string             `json:"completedAt"`
+	TaskID      int64              `json:"taskId,omitempty"`
+	TaskDueAt   string             `json:"taskDueAt,omitempty"`
+	LastError   string             `json:"lastError"`
+	Approval    *RunActionApproval `json:"approval,omitempty"`
+}
+
+type RunActionApproval struct {
+	ID                int64  `json:"id"`
+	Status            string `json:"status"`
+	ApproverRole      string `json:"approverRole"`
+	Message           string `json:"message"`
+	RequestedByUserID int64  `json:"requestedByUserId"`
+	RequestedAt       string `json:"requestedAt"`
+	DecidedByUserID   int64  `json:"decidedByUserId,omitempty"`
+	DecidedAt         string `json:"decidedAt,omitempty"`
+	DecisionNote      string `json:"decisionNote,omitempty"`
 }
 
 func recordTaskActionOutcome(
@@ -40,12 +54,29 @@ func recordTaskActionOutcome(
 	taskDueAt *time.Time,
 	reason string,
 ) error {
+	return recordActionOutcome(ctx, tx, organizationID, runID, position, action, status, attempts, scheduledAt, taskID, taskDueAt, reason)
+}
+
+func recordActionOutcome(
+	ctx context.Context,
+	tx pgx.Tx,
+	organizationID, runID int64,
+	position int,
+	action Action,
+	status string,
+	attempts int,
+	scheduledAt *time.Time,
+	taskID int64,
+	taskDueAt *time.Time,
+	reason string,
+) error {
 	if tx == nil || organizationID <= 0 || runID <= 0 || position <= 0 {
 		return ErrInvalidInput
 	}
-	label := strings.TrimSpace(stringValue(action.Config["title"]))
-	if label == "" {
-		label = "Create task"
+	label := actionOutcomeLabel(action)
+	snapshot, err := json.Marshal(action)
+	if err != nil {
+		return fmt.Errorf("encode workflow action snapshot: %w", err)
 	}
 	var scheduled any
 	if scheduledAt != nil && !scheduledAt.IsZero() {
@@ -62,13 +93,14 @@ func recordTaskActionOutcome(
 	command, err := tx.Exec(ctx, `
 		INSERT INTO workflow_automation_action_outcomes (
 			organization_id,run_id,action_position,action_type,action_label,status,
-			attempt_count,scheduled_at,started_at,completed_at,task_id,task_due_at,last_error
+			attempt_count,scheduled_at,started_at,completed_at,task_id,task_due_at,last_error,
+			action_snapshot_json
 		)
-		SELECT $1,$2,$3,'create_task',$4,$5,$6,
-		       COALESCE($7::timestamptz,run.scheduled_at,run.created_at),
-		       CASE WHEN $5 IN ('running','succeeded','failed') AND $6 > 0 THEN NOW() ELSE NULL END,
-		       CASE WHEN $5 IN ('succeeded','failed','skipped','cancelled') THEN NOW() ELSE NULL END,
-		       $8,$9,LEFT($10,2000)
+		SELECT $1,$2,$3,$4,$5,$6,$7,
+		       COALESCE($8::timestamptz,run.scheduled_at,run.created_at),
+		       CASE WHEN $6 IN ('running','succeeded','failed') AND $7 > 0 THEN NOW() ELSE NULL END,
+		       CASE WHEN $6 IN ('succeeded','failed','skipped','cancelled') THEN NOW() ELSE NULL END,
+		       $9,$10,LEFT($11,2000),$12::jsonb
 		FROM workflow_automation_runs run
 		WHERE run.organization_id=$1 AND run.id=$2
 		ON CONFLICT (organization_id,run_id,action_position) DO UPDATE
@@ -84,15 +116,33 @@ func recordTaskActionOutcome(
 		    task_id=EXCLUDED.task_id,
 		    task_due_at=EXCLUDED.task_due_at,
 		    last_error=EXCLUDED.last_error,
+		    action_snapshot_json=EXCLUDED.action_snapshot_json,
 		    updated_at=NOW()
-	`, organizationID, runID, position, label, status, attempts, scheduled, retainedTaskID, retainedDueAt, reason)
+	`, organizationID, runID, position, action.Type, label, status, attempts, scheduled, retainedTaskID, retainedDueAt, reason, string(snapshot))
 	if err != nil {
-		return fmt.Errorf("record workflow task action outcome: %w", err)
+		return fmt.Errorf("record workflow action outcome: %w", err)
 	}
 	if command.RowsAffected() != 1 {
 		return ErrInvalidInput
 	}
 	return nil
+}
+
+func actionOutcomeLabel(action Action) string {
+	var label string
+	switch action.Type {
+	case "request_approval":
+		label = strings.TrimSpace(stringValue(action.Config["approvalName"]))
+		if label == "" {
+			label = "Request approval"
+		}
+	default:
+		label = strings.TrimSpace(stringValue(action.Config["title"]))
+		if label == "" {
+			label = strings.ReplaceAll(strings.TrimSpace(action.Type), "_", " ")
+		}
+	}
+	return label
 }
 
 func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs []Run) error {
@@ -114,10 +164,19 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 		       COALESCE(TO_CHAR(outcome.completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
 		       COALESCE(task.id,0),
 		       COALESCE(TO_CHAR(task.due_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
-		       outcome.last_error
+		       outcome.last_error,
+		       COALESCE(approval.id,0),COALESCE(approval.status,''),COALESCE(approval.approver_role,''),
+		       COALESCE(approval.message,''),COALESCE(approval.requested_by_user_id,0),
+		       COALESCE(TO_CHAR(approval.requested_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
+		       COALESCE(approval.decided_by_user_id,0),
+		       COALESCE(TO_CHAR(approval.decided_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
+		       COALESCE(approval.decision_note,'')
 		FROM workflow_automation_action_outcomes outcome
 		LEFT JOIN tasks task
 		  ON task.organization_id=outcome.organization_id AND task.id=outcome.task_id
+		LEFT JOIN workflow_automation_approvals approval
+		  ON approval.organization_id=outcome.organization_id AND approval.run_id=outcome.run_id
+		 AND approval.action_position=outcome.action_position
 		WHERE outcome.organization_id=$1 AND outcome.run_id=ANY($2::bigint[])
 		ORDER BY outcome.run_id,outcome.action_position
 	`, organizationID, runIDs)
@@ -128,6 +187,7 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 	for rows.Next() {
 		var runID int64
 		var action RunAction
+		var approval RunActionApproval
 		if err := rows.Scan(
 			&runID,
 			&action.ID,
@@ -142,6 +202,15 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 			&action.TaskID,
 			&action.TaskDueAt,
 			&action.LastError,
+			&approval.ID,
+			&approval.Status,
+			&approval.ApproverRole,
+			&approval.Message,
+			&approval.RequestedByUserID,
+			&approval.RequestedAt,
+			&approval.DecidedByUserID,
+			&approval.DecidedAt,
+			&approval.DecisionNote,
 		); err != nil {
 			return fmt.Errorf("scan workflow action outcome: %w", err)
 		}
@@ -150,6 +219,9 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 			continue
 		}
 		projectRunAction(&action, runs[index])
+		if approval.ID > 0 {
+			action.Approval = &approval
+		}
 		runs[index].Actions = append(runs[index].Actions, action)
 	}
 	if err := rows.Err(); err != nil {

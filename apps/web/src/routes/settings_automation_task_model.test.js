@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deactivationPayload, emptyForm, formFromAutomation, isExecutableTaskRule, payloadFromForm } from './settings_automation_task_model'
+import { deactivationPayload, emptyForm, formFromAutomation, isApprovalTaskRule, isExecutableTaskRule, payloadFromForm, taskActionsForAutomation } from './settings_automation_task_model'
 
 function dealAutomation(actions, triggerConfig = {}) {
   return {
@@ -59,6 +59,41 @@ describe('settings automation task model', () => {
 
     const tooMany = { ...emptyForm(), name: 'Too many', title: 'One', additionalTasks: Array.from({ length: 5 }, (_, index) => ({ title: `Task ${index + 2}`, description: '', dueDays: '1' })) }
     expect(() => payloadFromForm(tooMany)).toThrow('at most 5 tasks')
+  })
+
+  it('builds, exposes, and restores one reviewed approval gate before captured deal tasks', () => {
+    const payload = payloadFromForm({
+      ...emptyForm(),
+      name: 'Approved proposal playbook',
+      requiresApproval: true,
+      approvalName: 'Proposal readiness',
+      approverRole: 'record_owner',
+      approvalMessage: 'Confirm scope before creating tasks.',
+      title: 'Prepare proposal',
+      dueDays: '1',
+      additionalTasks: [{ title: 'Schedule decision review', description: '', dueDays: '3' }]
+    })
+    expect(payload.triggerConfig).toEqual({ taskPlanContract: 'deal_approval_task_plan_v1' })
+    expect(payload.description).toBe('Requests a human decision before creating 2 follow-up tasks from a deal event.')
+    expect(payload.actions).toEqual([
+      { type: 'request_approval', config: { approvalName: 'Proposal readiness', approverRole: 'record_owner', message: 'Confirm scope before creating tasks.' } },
+      firstTask,
+      secondTask
+    ])
+    const automation = { ...dealAutomation(payload.actions, payload.triggerConfig), ...payload }
+    expect(isExecutableTaskRule(automation)).toBe(true)
+    expect(isApprovalTaskRule(automation)).toBe(true)
+    expect(taskActionsForAutomation(automation)).toEqual([firstTask, secondTask])
+    expect(formFromAutomation(automation)).toMatchObject({
+      requiresApproval: true,
+      approvalName: 'Proposal readiness',
+      approverRole: 'record_owner',
+      approvalMessage: 'Confirm scope before creating tasks.',
+      title: 'Prepare proposal',
+      additionalTasks: [{ title: 'Schedule decision review', description: '', dueDays: '3' }]
+    })
+    expect(isExecutableTaskRule({ ...automation, actions: [firstTask, payload.actions[0], secondTask] })).toBe(false)
+    expect(isExecutableTaskRule({ ...automation, actions: [{ ...payload.actions[0], config: { ...payload.actions[0].config, futurePolicy: true } }, firstTask] })).toBe(false)
   })
 
   it('uses a safety-only deactivation intent without resubmitting an unknown definition', () => {

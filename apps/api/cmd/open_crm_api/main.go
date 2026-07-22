@@ -486,6 +486,8 @@ func main() {
 			snapshot.WorkflowRunsFailed24h = stats.FailedLast24h
 			snapshot.WorkflowRunsSkipped24h = stats.SkippedLast24h
 			snapshot.WorkflowOldestActiveAge = time.Duration(stats.OldestActiveAge) * time.Second
+			snapshot.WorkflowApprovalsPending = stats.ApprovalsPending
+			snapshot.WorkflowOldestApprovalAge = time.Duration(stats.OldestApprovalAge) * time.Second
 		}
 		if leadFormsService == nil {
 			snapshot.CollectionSuccess = false

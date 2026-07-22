@@ -218,11 +218,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 766 KiB | 240 KiB |
+| All JavaScript and CSS | 774 KiB | 242 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.87 KiB/57.99 KiB entry, 55.12 KiB/15.73 KiB largest lazy
-chunk, and 765.77 KiB/239.71 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.87 KiB/57.98 KiB entry, 55.12 KiB/15.73 KiB largest lazy
+chunk, and 773.96 KiB/241.47 KiB total assets. The production contact, company,
 deal, and task routes are 27.27/8.55, 45.09/13.08, 55.12/15.73, and 26.09/7.92
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.58 KiB/4.62 KiB settings route. Its
@@ -588,6 +588,14 @@ the route at 26.09/7.92 KiB. The complete build measures 178.87/57.99 KiB entry,
 55.12/15.73 KiB largest lazy chunk, and 765.77/239.71 KiB aggregate raw/gzip,
 without changing any byte or source ceiling.
 
+The approval-gated deal-task slice adds a bounded approver queue, explicit
+decision controls, and retained action evidence to the existing automation
+route. The route remains below the unchanged per-route ceiling at 34.99/10.05
+KiB raw/gzip, and the complete build measures 178.87/57.98 KiB entry,
+55.12/15.73 KiB largest lazy chunk, and 773.96/241.47 KiB aggregate raw/gzip.
+Only the aggregate ceilings advance from 766/240 to 774/242 KiB; entry,
+per-route, CSS, and source ceilings remain unchanged.
+
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and
 then its ordered outcomes with a tenant/run-array query. Reviewed execution
@@ -660,7 +668,7 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 426 lines, down from 996. Its audited 263-route
+The API composition root is 426 lines, down from 996. Its audited 265-route
 surface is registered through 184-line platform, 297-line foundation, and
 378-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot

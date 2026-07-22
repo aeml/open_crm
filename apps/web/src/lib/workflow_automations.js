@@ -36,6 +36,37 @@ export async function listWorkflowAutomationRuns({ automationId, limit = 10, sig
   })
 }
 
+export async function listWorkflowApprovals({ signal } = {}) {
+	const payload = await apiRequest('/api/workflow-approvals', { fallbackMessage: 'Unable to load workflow approvals.', signal })
+	const approvals = Array.isArray(payload?.data?.approvals) ? payload.data.approvals : []
+	if (approvals.some((approval) => !validWorkflowApproval(approval))) {
+		throw new Error('The server returned invalid workflow approval evidence. Refresh before retrying.')
+	}
+	return approvals
+}
+
+function validWorkflowApproval(approval) {
+	return Number.isInteger(approval?.id) && approval.id > 0 &&
+		Number.isInteger(approval.runId) && approval.runId > 0 &&
+		Number.isInteger(approval.automationId) && approval.automationId > 0 &&
+		Number.isInteger(approval.dealId) && approval.dealId > 0 &&
+		typeof approval.name === 'string' && approval.name.length > 0 &&
+		['owner', 'admin', 'record_owner'].includes(approval.approverRole) &&
+		approval.status === 'pending' &&
+		Number.isInteger(approval.pendingTaskCount) && approval.pendingTaskCount >= 1 && approval.pendingTaskCount <= 5
+}
+
+export async function decideWorkflowApproval(approvalId, input, idempotencyKey, { signal } = {}) {
+	const payload = await apiRequest(`/api/workflow-approvals/${approvalId}/decision`, {
+		method: 'POST',
+		body: input,
+		headers: { 'Idempotency-Key': idempotencyKey },
+		fallbackMessage: 'Unable to decide workflow approval.',
+		signal
+	})
+	return payload?.data?.approval
+}
+
 const runActionStatuses = new Set(['queued', 'running', 'succeeded', 'failed', 'skipped', 'cancelled'])
 
 function validRunAction(action) {
@@ -46,7 +77,17 @@ function validRunAction(action) {
     runActionStatuses.has(action.status) &&
     Number.isInteger(action.attempts) && action.attempts >= 0 &&
     typeof action.scheduledAt === 'string' && action.scheduledAt.length > 0 &&
-    (!action.taskId || (Number.isInteger(action.taskId) && action.taskId > 0))
+    (!action.taskId || (Number.isInteger(action.taskId) && action.taskId > 0)) &&
+    (!action.approval || validRunActionApproval(action.approval))
+}
+
+function validRunActionApproval(approval) {
+  return Number.isInteger(approval?.id) && approval.id > 0 &&
+    ['pending', 'approved', 'rejected', 'cancelled'].includes(approval.status) &&
+    ['owner', 'admin', 'record_owner'].includes(approval.approverRole) &&
+    typeof approval.message === 'string' && approval.message.length > 0 &&
+    Number.isInteger(approval.requestedByUserId) && approval.requestedByUserId > 0 &&
+    typeof approval.requestedAt === 'string' && approval.requestedAt.length > 0
 }
 
 export async function createWorkflowAutomation(input, { signal } = {}) {

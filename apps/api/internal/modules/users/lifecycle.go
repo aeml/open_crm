@@ -14,6 +14,7 @@ import (
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	modulenotifications "github.com/aeml/open_crm/apps/api/internal/modules/notifications"
 	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
+	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
 )
 
 const lifecycleAttempts = 4
@@ -139,7 +140,7 @@ func (s *Service) setStatusOnce(ctx context.Context, organizationID, userID, act
 		if err != nil {
 			return LifecycleResult{}, err
 		}
-		if err := stopDisabledUserEffects(ctx, tx, organizationID, userID); err != nil {
+		if err := stopDisabledUserEffects(ctx, tx, organizationID, userID, actorUserID); err != nil {
 			return LifecycleResult{}, err
 		}
 		invalidated, err := tx.Exec(ctx, `DELETE FROM sessions WHERE organization_id = $1 AND user_id = $2`, organizationID, userID)
@@ -377,7 +378,10 @@ func reassignOperationalWork(ctx context.Context, tx pgx.Tx, organizationID, use
 	return counts, nil
 }
 
-func stopDisabledUserEffects(ctx context.Context, tx pgx.Tx, organizationID, userID int64) error {
+func stopDisabledUserEffects(ctx context.Context, tx pgx.Tx, organizationID, userID, actorUserID int64) error {
+	if err := moduleworkflowautomations.CancelPendingApprovalsRequestedByUser(ctx, tx, organizationID, userID, actorUserID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM record_followers
 		WHERE organization_id = $1 AND user_id = $2

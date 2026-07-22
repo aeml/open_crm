@@ -31,6 +31,40 @@ func TestExecutableTaskActionsRequireReviewedContractForMultipleTasks(t *testing
 	}
 }
 
+func TestExecutableApprovalTaskActionsRequireOneBoundedHumanGateFirst(t *testing.T) {
+	approval := Action{Type: "request_approval", Config: map[string]any{
+		"approvalName": "Proposal readiness", "approverRole": "admin", "message": "Review the captured plan.",
+	}}
+	task := Action{Type: "create_task", Config: map[string]any{"title": "Prepare proposal"}, DelayMinutes: 1440}
+	config := map[string]any{"taskPlanContract": DealApprovalTaskPlanContract}
+	if !executableApprovalTaskActions(config, []Action{approval, task}) {
+		t.Fatal("reviewed approval-gated task plan should be executable")
+	}
+	for name, actions := range map[string][]Action{
+		"missing task":              {approval},
+		"approval not first":        {task, approval},
+		"multiple approvals":        {approval, approval, task},
+		"approval delay":            {{Type: approval.Type, Config: approval.Config, DelayMinutes: 1}, task},
+		"unknown approval config":   {{Type: approval.Type, Config: map[string]any{"approvalName": "Review", "approverRole": "owner", "message": "Review.", "separationOfDuties": true}}, task},
+		"unknown role":              {{Type: approval.Type, Config: map[string]any{"approvalName": "Review", "approverRole": "viewer", "message": "Review."}}, task},
+		"unreviewed task config":    {approval, {Type: task.Type, Config: map[string]any{"title": "Prepare", "assignedToUserId": 7}}},
+		"unsupported trailing type": {approval, {Type: "send_email", Config: map[string]any{"subject": "No", "body": "No"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if executableApprovalTaskActions(config, actions) {
+				t.Fatalf("invalid approval task plan became executable: %#v", actions)
+			}
+		})
+	}
+	tooMany := []Action{approval, task, task, task, task, task, task}
+	if executableApprovalTaskActions(config, tooMany) {
+		t.Fatal("approval task plan exceeded one gate plus five tasks")
+	}
+	if executableApprovalTaskActions(map[string]any{"taskPlanContract": "future"}, []Action{approval, task}) {
+		t.Fatal("unknown approval task contract became executable")
+	}
+}
+
 func TestExecutableDealConditionsRequireExplicitBoundedContract(t *testing.T) {
 	condition := Condition{Field: "valueAmount", Operator: "greaterThan", Value: "5000"}
 	if executableDealConditions(map[string]any{}, "all", []Condition{condition}) {

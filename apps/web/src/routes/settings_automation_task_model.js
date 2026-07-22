@@ -9,9 +9,15 @@ export const triggerOptions = [
 
 const dealConditionContract = 'deal_snapshot_v1'
 const dealTaskPlanContract = 'deal_task_plan_v1'
+const dealApprovalTaskPlanContract = 'deal_approval_task_plan_v1'
 const leadFollowUpTaskContract = 'lead_follow_up_task_v1'
 export const maxDealPlanTasks = 5
 export const maxActiveTaskActions = 50
+export const approvalRoleOptions = [
+  { value: 'owner', label: 'Workspace owners' },
+  { value: 'admin', label: 'Workspace owners and admins' },
+  { value: 'record_owner', label: 'Current deal owner' }
+]
 export const conditionOperatorLabels = { greaterThan: 'is greater than', lessThan: 'is less than', equals: 'equals', notEquals: 'does not equal', exists: 'is set' }
 export const equalsOperator = 'equals'
 export const existsOperator = 'exists'
@@ -37,7 +43,12 @@ function executableDealCondition(condition) {
 }
 
 export function emptyForm() {
-  return { name: '', event: 'created', stageId: '', formId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '', assignedToUserId: '', title: '', description: '', waitDays: '0', dueDays: '1', additionalTasks: [], isActive: true }
+  return {
+    name: '', event: 'created', stageId: '', formId: '', conditionField: '', conditionOperator: equalsOperator,
+    conditionValue: '', assignedToUserId: '', title: '', description: '', waitDays: '0', dueDays: '1',
+    additionalTasks: [], requiresApproval: false, approvalName: 'Review task playbook', approverRole: 'admin',
+    approvalMessage: 'Review this deal before creating the follow-up tasks.', isActive: true
+  }
 }
 
 function validWholeDays(value) {
@@ -58,30 +69,26 @@ export function eventFromAutomation(automation) {
 
 export function isExecutableTaskRule(automation) {
   const actions = automation.actions || []
-  const action = actions[0]
-  const config = action?.config || {}
   const event = eventFromAutomation(automation)
   const stageID = Number(automation.triggerConfig?.stageId || 0)
   const taskPlanContract = automation.triggerConfig?.taskPlanContract
-  const sharedShape = actions.length > 0 && actions.length <= maxDealPlanTasks && actions.every((candidate) => {
-    const title = String(candidate?.config?.title || '')
-    const description = String(candidate?.config?.description || '')
-    const delayMinutes = Number(candidate?.delayMinutes || 0)
-    const exactReviewedConfig = !taskPlanContract || Object.keys(candidate?.config || {}).every((key) => ['title', 'description'].includes(key))
-    return candidate?.type === 'create_task' && exactReviewedConfig && !candidate.scheduledAt && Boolean(title) && title.length <= 200 && description.length <= 2000 &&
-      Number.isInteger(delayMinutes) && delayMinutes >= 0 && delayMinutes <= 525600 && delayMinutes % 1440 === 0
-  })
-  if (!sharedShape) return false
   if (automation.targetEntityType === 'deal') {
-    const validTaskPlan = actions.length === 1
-      ? (!taskPlanContract || taskPlanContract === dealTaskPlanContract)
-      : taskPlanContract === dealTaskPlanContract
+    const approvalPlan = taskPlanContract === dealApprovalTaskPlanContract
+    const taskActions = approvalPlan ? actions.slice(1) : actions
+    const validTaskPlan = approvalPlan
+      ? validApprovalAction(actions[0]) && validDealTaskActions(taskActions, true)
+      : validDealTaskActions(taskActions, Boolean(taskPlanContract)) && (taskActions.length === 1
+          ? (!taskPlanContract || taskPlanContract === dealTaskPlanContract)
+          : taskPlanContract === dealTaskPlanContract)
     const conditions = automation.conditions || []
     const condition = conditions[0]
     const validCondition = conditions.length === 0 || (conditions.length === 1 && automation.conditionLogic === 'all' && automation.triggerConfig?.conditionContract === dealConditionContract && executableDealCondition(condition))
     return Boolean(event) && event !== leadFormEvent && validTaskPlan && validCondition &&
       (event !== stageChangedEvent || !automation.triggerConfig?.stageId || (Number.isInteger(stageID) && stageID > 0))
   }
+  const action = actions[0]
+  const config = action?.config || {}
+  if (!validDealTaskActions(actions, false)) return false
   const formID = Number(automation.triggerConfig?.formId || 0)
   const leadContract = automation.triggerConfig?.taskContract
   const assigneeID = Number(config.assignedToUserId || 0)
@@ -99,8 +106,39 @@ export function isExecutableTaskRule(automation) {
     conditions.every((condition) => allowedFields.has(condition.field) && allowedOperators.has(condition.operator) && (condition.operator === 'exists' || Boolean(String(condition.value || '').trim())))
 }
 
+function validDealTaskActions(actions, exactReviewedConfig) {
+  return actions.length > 0 && actions.length <= maxDealPlanTasks && actions.every((candidate) => {
+    const title = String(candidate?.config?.title || '')
+    const description = String(candidate?.config?.description || '')
+    const delayMinutes = Number(candidate?.delayMinutes || 0)
+    const exactConfig = !exactReviewedConfig || Object.keys(candidate?.config || {}).every((key) => ['title', 'description'].includes(key))
+    return candidate?.type === 'create_task' && exactConfig && !candidate.scheduledAt && Boolean(title) && title.length <= 200 && description.length <= 2000 &&
+      Number.isInteger(delayMinutes) && delayMinutes >= 0 && delayMinutes <= 525600 && delayMinutes % 1440 === 0
+  })
+}
+
+function validApprovalAction(action) {
+  const config = action?.config || {}
+  return action?.type === 'request_approval' && !action.scheduledAt && Number(action.delayMinutes || 0) === 0 &&
+    Object.keys(config).every((key) => ['approvalName', 'approverRole', 'message'].includes(key)) &&
+    Boolean(String(config.approvalName || '').trim()) && String(config.approvalName).length <= 200 &&
+    approvalRoleOptions.some((option) => option.value === config.approverRole) &&
+    Boolean(String(config.message || '').trim()) && String(config.message).length <= 2000
+}
+
+export function isApprovalTaskRule(automation) {
+  return automation?.targetEntityType === 'deal' && automation?.triggerConfig?.taskPlanContract === dealApprovalTaskPlanContract && isExecutableTaskRule(automation)
+}
+
+export function taskActionsForAutomation(automation) {
+  return isApprovalTaskRule(automation) ? automation.actions.slice(1) : automation.actions || []
+}
+
 export function formFromAutomation(automation) {
-  const action = automation.actions[0]
+  const approvalPlan = isApprovalTaskRule(automation)
+  const approvalAction = approvalPlan ? automation.actions[0] : null
+  const taskActions = approvalPlan ? automation.actions.slice(1) : automation.actions
+  const action = taskActions[0]
   const leadFollowUp = eventFromAutomation(automation) === leadFormEvent
   const hasDueDays = leadFollowUp && Object.hasOwn(action.config || {}, 'dueDays')
   return {
@@ -116,11 +154,15 @@ export function formFromAutomation(automation) {
     description: action.config?.description || '',
     waitDays: String(hasDueDays ? (action.delayMinutes || 0) / 1440 : 0),
     dueDays: String(hasDueDays ? action.config.dueDays : (action.delayMinutes || 0) / 1440),
-    additionalTasks: leadFollowUp ? [] : automation.actions.slice(1).map((candidate) => ({
+    additionalTasks: leadFollowUp ? [] : taskActions.slice(1).map((candidate) => ({
       title: candidate.config?.title || '',
       description: candidate.config?.description || '',
       dueDays: String((candidate.delayMinutes || 0) / 1440)
     })),
+    requiresApproval: approvalPlan,
+    approvalName: approvalAction?.config?.approvalName || 'Review task playbook',
+    approverRole: approvalAction?.config?.approverRole || 'admin',
+    approvalMessage: approvalAction?.config?.message || 'Review this deal before creating the follow-up tasks.',
     isActive: automation.isActive === true
   }
 }
@@ -155,6 +197,14 @@ export function payloadFromForm(form) {
   const dealCondition = !leadFollowUp && form.conditionField
   if (dealCondition) triggerConfig.conditionContract = dealConditionContract
   if (!leadFollowUp) triggerConfig.taskPlanContract = dealTaskPlanContract
+  if (!leadFollowUp && form.requiresApproval) {
+    if (!String(form.approvalName || '').trim()) throw new Error('Approval needs a name.')
+    if (String(form.approvalName).trim().length > 200) throw new Error('Approval name exceeds 200 characters.')
+    if (!approvalRoleOptions.some((option) => option.value === form.approverRole)) throw new Error('Choose a supported approval role.')
+    if (!String(form.approvalMessage || '').trim()) throw new Error('Approval needs reviewer guidance.')
+    if (String(form.approvalMessage).trim().length > 2000) throw new Error('Approval guidance exceeds 2,000 characters.')
+    triggerConfig.taskPlanContract = dealApprovalTaskPlanContract
+  }
   const config = { title: form.title.trim() }
   if (form.description.trim()) config.description = form.description.trim()
   if (leadFollowUp) {
@@ -171,7 +221,7 @@ export function payloadFromForm(form) {
     if (dealCondition && condition.field === 'valueCurrency') condition.value = condition.value.toUpperCase()
     conditions.push(condition)
   }
-  const actions = leadFollowUp
+  let actions = leadFollowUp
     ? [{ type: 'create_task', config, delayMinutes: waitDays * 1440 }]
     : taskForms.map((task) => {
       const taskConfig = { title: task.title.trim() }
@@ -179,9 +229,23 @@ export function payloadFromForm(form) {
       if (description) taskConfig.description = description
       return { type: 'create_task', config: taskConfig, delayMinutes: Number(task.dueDays) * 1440 }
     })
+  if (!leadFollowUp && form.requiresApproval) {
+    actions = [{
+      type: 'request_approval',
+      config: {
+        approvalName: String(form.approvalName).trim(),
+        approverRole: form.approverRole,
+        message: String(form.approvalMessage).trim()
+      }
+    }, ...actions]
+  }
   return {
     name: form.name.trim(),
-    description: leadFollowUp ? 'Creates one durable assigned follow-up task from an accepted lead form submission.' : `Creates ${actions.length} assigned follow-up ${actions.length === 1 ? 'task' : 'tasks'} from a deal event.`,
+    description: leadFollowUp
+      ? 'Creates one durable assigned follow-up task from an accepted lead form submission.'
+      : form.requiresApproval
+        ? `Requests a human decision before creating ${taskForms.length} follow-up ${taskForms.length === 1 ? 'task' : 'tasks'} from a deal event.`
+        : `Creates ${taskForms.length} assigned follow-up ${taskForms.length === 1 ? 'task' : 'tasks'} from a deal event.`,
     triggerType,
     targetEntityType: leadFollowUp ? 'lead_form' : 'deal',
     triggerConfig,

@@ -16,7 +16,8 @@ The audited mutation classes are:
   lifecycle, password recovery, and active-session revocation;
 - organization profile, pipeline, custom-field, quote-template, email-template,
   email-snippet, and email-sequence definition lifecycle and approval, plus
-  executable automation configuration;
+  executable automation configuration and transactional workflow-approval
+  request, decision, unavailability, and cancellation evidence;
 - archive recovery, imports and rollback, bulk changes and rollback, duplicate
   merge, client review scheduling, and lead-submission quarantine/recovery;
 - billing subscription/reconciliation outcomes, identity- and customer-email
@@ -35,9 +36,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `47`
+Producer source count: `50`
 
-Producer source digest: `21224e9db73c8c422aec081185120674c33cafa8caf0901d2d09c051b1d0e4d7`
+Producer source digest: `25eb889e4de796e4d7517a3a04d8d5847bd4276521af6bc3927eedf5dff23082`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -49,6 +50,14 @@ password-setup producers from the mixed authentication/user handler into the
 focused tenant user-lifecycle handler. The mutation classes, metadata, secret
 boundary, retention, and export behavior are unchanged; only the reviewed
 producer source path changed.
+
+The workflow-approval review adds three focused producers for request or
+unavailable-reviewer capture, terminal decision, and definition/member-driven
+cancellation. Each event commits with its tenant-scoped approval/run/action
+transition. Metadata contains only definition/run/deal/task identifiers,
+finite role/decision state, bounded decision or cancellation notes, and task
+counts/IDs. It excludes the idempotency key and request fingerprints, which
+remain digest-only in the approval ledger and are removed from portable export.
 
 Email-sequence create, update, delete, exact-revision approval, and effective
 pause events commit in the same tenant transaction as the definition change.

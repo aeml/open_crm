@@ -358,6 +358,8 @@ type leadScoringService interface {
 type workflowAutomationsService interface {
 	ListByOrganization(context.Context, int64, moduleworkflowautomations.ListQuery) (moduleworkflowautomations.ListPage, error)
 	ListRuns(context.Context, int64, moduleworkflowautomations.RunListQuery) ([]moduleworkflowautomations.Run, error)
+	ListApprovals(context.Context, int64, int64) ([]moduleworkflowautomations.Approval, error)
+	DecideApproval(context.Context, int64, int64, int64, moduleworkflowautomations.ApprovalDecisionInput) (moduleworkflowautomations.Approval, error)
 	Create(context.Context, int64, int64, moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error)
 	Update(context.Context, int64, int64, int64, moduleworkflowautomations.Input) (moduleworkflowautomations.Automation, error)
 }

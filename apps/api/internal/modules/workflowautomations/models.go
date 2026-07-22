@@ -9,12 +9,14 @@ import (
 )
 
 var (
-	ErrDuplicateName = errors.New("workflow automation name already exists")
-	ErrInvalidInput  = errors.New("invalid workflow automation")
-	ErrNotFound      = errors.New("workflow automation not found")
-	ErrForbidden     = errors.New("workflow automation action forbidden")
-	ErrNotExecutable = errors.New("workflow automation is not an executable task contract")
-	ErrActiveLimit   = errors.New("workflow automation active task-action limit reached")
+	ErrDuplicateName    = errors.New("workflow automation name already exists")
+	ErrInvalidInput     = errors.New("invalid workflow automation")
+	ErrNotFound         = errors.New("workflow automation not found")
+	ErrForbidden        = errors.New("workflow automation action forbidden")
+	ErrNotExecutable    = errors.New("workflow automation is not an executable task contract")
+	ErrActiveLimit      = errors.New("workflow automation active task-action limit reached")
+	ErrApprovalState    = errors.New("workflow approval cannot be decided in its current state")
+	ErrApprovalConflict = errors.New("workflow approval decision conflicts with retained evidence")
 )
 
 type Automation struct {
@@ -68,6 +70,33 @@ type Run struct {
 	UpdatedAt        string         `json:"updatedAt"`
 	Operation        *RunOperation  `json:"operation,omitempty"`
 	Actions          []RunAction    `json:"actions"`
+}
+
+type Approval struct {
+	ID                  int64  `json:"id"`
+	RunID               int64  `json:"runId"`
+	AutomationID        int64  `json:"automationId"`
+	AutomationName      string `json:"automationName"`
+	DealID              int64  `json:"dealId"`
+	DealName            string `json:"dealName"`
+	ActionPosition      int    `json:"actionPosition"`
+	Name                string `json:"name"`
+	ApproverRole        string `json:"approverRole"`
+	Message             string `json:"message"`
+	Status              string `json:"status"`
+	PendingTaskCount    int    `json:"pendingTaskCount"`
+	RequestedByUserID   int64  `json:"requestedByUserId"`
+	RequestedByUserName string `json:"requestedByUserName"`
+	RequestedAt         string `json:"requestedAt"`
+	DecidedByUserID     int64  `json:"decidedByUserId,omitempty"`
+	DecidedAt           string `json:"decidedAt,omitempty"`
+	DecisionNote        string `json:"decisionNote,omitempty"`
+}
+
+type ApprovalDecisionInput struct {
+	Decision       string `json:"decision"`
+	Note           string `json:"note"`
+	IdempotencyKey string `json:"-"`
 }
 
 // RunOperation is the durable queue state for workflow outcomes that execute

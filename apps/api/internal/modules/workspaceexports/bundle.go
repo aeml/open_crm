@@ -118,6 +118,7 @@ func (s *Service) buildBundle(ctx context.Context, organizationID int64) (bundle
 			"email messages marked private and their entity/link metadata",
 			"connected-mailbox delivery-feedback correlation ledgers",
 			"quote access tokens, idempotency hashes, and mailbox-provider correlation identifiers",
+			"workflow-approval idempotency keys and request fingerprints",
 		},
 		ExternalFiles: "Open CRM currently stores recording and invoice references, not uploaded attachment bodies. Referenced external files are not embedded in this bundle.",
 	}
@@ -400,6 +401,9 @@ func buildPortableDatasets() []dataset {
 		{name: "deal_quote_approvals", query: `
 			SELECT to_jsonb(approval) - ARRAY['decision_key_hash','decision_request_sha256']::text[]
 			FROM deal_quote_approvals approval WHERE organization_id=$1 ORDER BY id`},
+		{name: "workflow_automation_approvals", query: `
+			SELECT to_jsonb(approval) - ARRAY['decision_key_hash','decision_request_sha256']::text[]
+			FROM workflow_automation_approvals approval WHERE organization_id=$1 ORDER BY id`},
 		{name: "deal_signature_requests", query: `
 			SELECT to_jsonb(signature) - ARRAY[
 			  'completion_idempotency_key_hash','completion_request_sha256',
@@ -492,6 +496,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"billing_invoices",
 		"deal_quotes",
 		"deal_quote_approvals",
+		"workflow_automation_approvals",
 		"deal_quote_deliveries",
 		"deal_signature_requests",
 		"email_messages",

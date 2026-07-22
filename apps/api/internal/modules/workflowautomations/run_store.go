@@ -113,6 +113,7 @@ func (s *Service) CompleteRun(ctx context.Context, organizationID, runID int64, 
 	run, err := scanRun(s.pool.QueryRow(ctx, `
 		UPDATE workflow_automation_runs
 		SET status = $3,
+		    waiting_for_approval = FALSE,
 		    condition_result = COALESCE($4::boolean, condition_result),
 		    actions_completed = CASE WHEN $3 = 'succeeded' AND $5 = 0 THEN actions_total ELSE $5 END,
 		    retry_count = $6,
@@ -129,7 +130,7 @@ func (s *Service) CompleteRun(ctx context.Context, organizationID, runID int64, 
 	return run, nil
 }
 
-const runReturningColumns = `id, automation_id, automation_name, trigger_type, target_entity_type, COALESCE(target_entity_id, 0), trigger_event_key, status, trigger_payload_json, condition_result, actions_total, actions_completed, retry_count, last_error, TO_CHAR(COALESCE(scheduled_at,created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), COALESCE(TO_CHAR(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), COALESCE(TO_CHAR(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
+const runReturningColumns = `id, automation_id, automation_name, trigger_type, target_entity_type, COALESCE(target_entity_id, 0), trigger_event_key, CASE WHEN COALESCE(waiting_for_approval,FALSE) THEN 'waiting_approval' ELSE status END, trigger_payload_json, condition_result, actions_total, actions_completed, retry_count, last_error, TO_CHAR(COALESCE(scheduled_at,created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), COALESCE(TO_CHAR(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), COALESCE(TO_CHAR(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''), TO_CHAR(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), TO_CHAR(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
 
 const runSelect = `
 	SELECT ` + runReturningColumns + `
@@ -141,6 +142,7 @@ const runListSelect = `
 	       run.target_entity_type, COALESCE(run.target_entity_id, 0),
 	       run.trigger_event_key,
 	       CASE
+	         WHEN COALESCE(run.waiting_for_approval,FALSE) THEN 'waiting_approval'
 	         WHEN operation.status = 'dead' AND run.status IN ('queued','running') THEN 'failed'
 	         WHEN operation.status IN ('pending','retryable') AND run.status IN ('queued','running') THEN 'queued'
 	         WHEN operation.status = 'running' AND run.status IN ('queued','running') THEN 'running'

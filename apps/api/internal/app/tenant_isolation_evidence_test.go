@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 41
-	expectedTenantIsolationEvidenceDigest = "ce9ef9d0f9791f8b17b1c4225d677622c0e2878e94e13571e12724ed365ed6c8"
+	expectedTenantIsolationEvidenceCount  = 42
+	expectedTenantIsolationEvidenceDigest = "c7a3f1e53aa80f097cbfeaad940a019dfc2f66a0414d540722b4dd830c3c6c7b"
 )
 
 type tenantIsolationEvidence struct {
@@ -40,6 +40,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "deal-assignments", Source: "apps/api/internal/modules/deals/assignment_notifications_postgres_test.go", Test: "TestDealAssignmentsAreTransactionalPreferenceAwareAndIdempotentAgainstPostgres"},
 	{Surface: "deal-close-and-handoff", Source: "apps/api/internal/modules/deals/win_loss_postgres_test.go", Test: "TestDealCloseReviewsKeepOutcomeContextCoherentAndTenantScopedAgainstPostgres"},
 	{Surface: "deal-task-automation", Source: "apps/api/internal/modules/workflowautomations/deal_task_rules_postgres_test.go", Test: "TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant"},
+	{Surface: "deal-task-approval", Source: "apps/api/internal/modules/workflowautomations/deal_approval_postgres_test.go", Test: "TestDealApprovalTaskPlanPausesDecidesCancelsAndIsolates"},
 	{Surface: "workflow-definition-management", Source: "apps/api/internal/modules/workflowautomations/definition_pagination_postgres_test.go", Test: "TestWorkflowDefinitionPagesAreBoundedStableAndTenantScoped"},
 	{Surface: "workflow-run-recovery", Source: "apps/api/internal/modules/workflowautomations/lead_follow_up_postgres_test.go", Test: "TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant"},
 	{Surface: "duplicate-management", Source: "apps/api/internal/modules/duplicateoperations/service_postgres_test.go", Test: "TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres"},

@@ -168,6 +168,12 @@ func registerFoundationRoutes(mux *http.ServeMux, dependencies Dependencies, rat
 	mux.HandleFunc("GET /api/workflow-automation-runs", func(w http.ResponseWriter, r *http.Request) {
 		handleListWorkflowAutomationRuns(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)
 	})
+	mux.HandleFunc("GET /api/workflow-approvals", func(w http.ResponseWriter, r *http.Request) {
+		handleListWorkflowApprovals(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)
+	})
+	mux.HandleFunc("POST /api/workflow-approvals/{approvalID}/decision", func(w http.ResponseWriter, r *http.Request) {
+		handleDecideWorkflowApproval(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)
+	})
 	mux.HandleFunc("POST /api/workflow-automations", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateWorkflowAutomation(dependencies.AuthService, dependencies.WorkflowAutomationsService, w, r)
 	})

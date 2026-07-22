@@ -15,6 +15,8 @@ function RunActionOutcome({ action }) {
         <span className="chip">{actionStatusText(action)}</span>
       </div>
       {action.status === 'queued' && action.scheduledAt ? <p className="field-hint">Scheduled for {formatRunTime(action.scheduledAt)}</p> : null}
+      {action.approval ? <p className="field-hint">Approval {action.approval.status} · {action.approval.approverRole.replace('_', ' ')}{action.approval.decidedAt ? ` · decided ${formatRunTime(action.approval.decidedAt)}` : ''}</p> : null}
+      {action.approval?.decisionNote ? <p className="field-hint">Decision note: {action.approval.decisionNote}</p> : null}
       {action.taskDueAt ? <p className="field-hint">Task due {formatRunTime(action.taskDueAt)}</p> : null}
       {action.lastError ? <p>Action issue: {action.lastError}</p> : null}
       {action.taskId ? <Link to={`/tasks/${action.taskId}`}>Open created task</Link> : null}
@@ -36,7 +38,8 @@ export function SettingsAutomationRuns({ canManage, isLoading, runs }) {
           <article className={run.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} key={run.id} role="listitem">
             <div>
               <p>{run.automationName}</p>
-              <p className="field-hint">{formatRunTime(run.createdAt)} · {run.actionsCompleted ?? 0}/{run.actionsTotal ?? 0} tasks created</p>
+              <p className="field-hint">{formatRunTime(run.createdAt)} · {run.actionsCompleted ?? 0}/{run.actionsTotal ?? 0} actions completed</p>
+              {run.status === 'waiting_approval' ? <p className="field-hint">Paused safely until an eligible teammate decides the retained approval.</p> : null}
               {run.status === 'queued' && run.scheduledAt ? <p className="field-hint">Scheduled for {formatRunTime(run.scheduledAt)}</p> : null}
               {run.operation ? <p className="field-hint">Durable attempt {run.operation.attempts} of {run.operation.maxAttempts} · {run.operation.status}</p> : null}
               <p>{run.lastError || run.triggerEventKey}</p>

@@ -83,7 +83,7 @@ func requireActiveTaskActionCapacity(ctx context.Context, tx pgx.Tx, organizatio
 func validateExecutableActivation(input Input) error {
 	switch input.TargetEntityType {
 	case "deal":
-		if contract, _ := stringConfig(input.TriggerConfig, "taskPlanContract"); contract == DealTaskPlanContract {
+		if contract, _ := stringConfig(input.TriggerConfig, "taskPlanContract"); contract == DealTaskPlanContract || contract == DealApprovalTaskPlanContract {
 			if rawStageID, configured := input.TriggerConfig["stageId"]; configured {
 				if _, valid := exactPositiveInteger(rawStageID); !valid {
 					return ErrInvalidInput
@@ -111,11 +111,11 @@ func validateExecutableActivation(input Input) error {
 }
 
 func validExecutableDealActivation(input Input) bool {
-	if input.ConditionLogic != "all" || !executableTaskActions(input.TriggerConfig, input.Actions) || !executableDealConditions(input.TriggerConfig, input.ConditionLogic, input.Conditions) {
+	if input.ConditionLogic != "all" || !executableDealActions(input.TriggerConfig, input.Actions) || !executableDealConditions(input.TriggerConfig, input.ConditionLogic, input.Conditions) {
 		return false
 	}
 	contract, _ := stringConfig(input.TriggerConfig, "taskPlanContract")
-	if contract != DealTaskPlanContract {
+	if contract != DealTaskPlanContract && contract != DealApprovalTaskPlanContract {
 		return false
 	}
 

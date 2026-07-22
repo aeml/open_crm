@@ -6,11 +6,13 @@ import (
 )
 
 type OperationalStats struct {
-	Queued          int64
-	Running         int64
-	FailedLast24h   int64
-	SkippedLast24h  int64
-	OldestActiveAge int64
+	Queued            int64
+	Running           int64
+	FailedLast24h     int64
+	SkippedLast24h    int64
+	OldestActiveAge   int64
+	ApprovalsPending  int64
+	OldestApprovalAge int64
 }
 
 // OperationalStats returns bounded aggregate run health without tenant,
@@ -35,6 +37,7 @@ func (s *Service) OperationalStats(ctx context.Context) (OperationalStats, error
 			 AND operation.job_type='workflow.lead_follow_up'
 			 AND operation.idempotency_key='workflow-run:'||run.id::text
 			WHERE run.status IN ('queued','running')
+			  AND COALESCE(run.waiting_for_approval,FALSE)=FALSE
 			  AND COALESCE(operation.status,'') <> 'dead'
 		)
 		SELECT
@@ -66,6 +69,14 @@ func (s *Service) OperationalStats(ctx context.Context) (OperationalStats, error
 		)
 	`).Scan(&stats.FailedLast24h, &stats.SkippedLast24h); err != nil {
 		return OperationalStats{}, fmt.Errorf("load workflow automation operational stats: %w", err)
+	}
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COALESCE(EXTRACT(EPOCH FROM NOW()-MIN(requested_at))::bigint,0)
+		FROM workflow_automation_approvals
+		WHERE status='pending'
+	`).Scan(&stats.ApprovalsPending, &stats.OldestApprovalAge); err != nil {
+		return OperationalStats{}, fmt.Errorf("load workflow approval operational stats: %w", err)
 	}
 	return stats, nil
 }

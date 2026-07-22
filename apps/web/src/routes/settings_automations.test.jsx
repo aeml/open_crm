@@ -63,6 +63,7 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [{ id: 3, name: 'Sales pipeline', stages: [{ id: 11, name: 'Discovery' }, { id: 12, name: 'Proposal' }] }] } })
       if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
       if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
+      if (path.endsWith('/api/workflow-approvals')) return jsonResponse({ data: { approvals: [] } })
       if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [{ id: 21, automationId: 5, automationName: 'Qualify new deals', triggerEventKey: 'deal:7:activity:90', status: 'succeeded', actionsTotal: 1, actionsCompleted: 1, createdAt: '2026-07-19T12:00:00Z', actions: [{ id: 31, position: 1, type: 'create_task', label: 'Qualify deal', status: 'succeeded', attempts: 1, scheduledAt: '2026-07-19T12:00:00Z', completedAt: '2026-07-19T12:00:01Z', taskId: 88, taskDueAt: '2026-07-20T12:00:00Z', lastError: '' }] }] } })
       if (path.endsWith('/api/workflow-automations') && method === 'POST') {
         storedDefinitions = [createdRule, ...storedDefinitions]
@@ -87,16 +88,16 @@ describe('settings task automations route', () => {
     expect(screen.queryByRole('heading', { name: 'Unsupported multi-condition lead rule' })).not.toBeInTheDocument()
     expect(screen.getByText(/showing 4 of 4 stored definitions/i)).toBeInTheDocument()
     expect(screen.getByText(/3 unsupported loaded definitions hidden/i)).toBeInTheDocument()
-    expect(screen.getByText(/4 of 50 active task actions allocated/i)).toBeInTheDocument()
+    expect(screen.getByText(/4 of 50 active workflow actions allocated/i)).toBeInTheDocument()
     const recoveryList = screen.getByRole('list', { name: 'Active unsupported workflow definitions' })
     const legacyRecovery = within(recoveryList).getByText('Legacy email action').closest('article')
     fireEvent.click(within(legacyRecovery).getByRole('button', { name: 'Deactivate stored definition' }))
     await waitFor(() => expect(screen.getByText(/Legacy email action deactivated/i)).toBeInTheDocument())
     const deactivateCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations/6') && call[1]?.method === 'PATCH')
     expect(JSON.parse(deactivateCall[1].body)).toEqual({ deactivateOnly: true })
-    expect(screen.getByText(/3 of 50 active task actions allocated/i)).toBeInTheDocument()
+    expect(screen.getByText(/3 of 50 active workflow actions allocated/i)).toBeInTheDocument()
     const runList = screen.getByRole('list', { name: 'Task automation runs' })
-    expect(runList).toHaveTextContent('1/1 tasks created')
+    expect(runList).toHaveTextContent('1/1 actions completed')
     fireEvent.click(within(runList).getByText('Inspect 1 action outcome'))
     const actionList = screen.getByRole('list', { name: 'Qualify new deals run actions' })
     expect(actionList).toHaveTextContent('1. Qualify deal')
@@ -164,6 +165,7 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [] } })
       if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [{ id: 31, name: 'Partner inquiry', isActive: true }] } })
       if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [{ id: 7, firstName: 'Riley', lastName: 'Chen', email: 'riley@example.test', status: 'active' }] } })
+      if (path.endsWith('/api/workflow-approvals')) return jsonResponse({ data: { approvals: [] } })
       if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [] } })
       if (path.endsWith('/api/workflow-automations') && method === 'POST') {
         storedDefinitions = [createdRule]
@@ -211,6 +213,114 @@ describe('settings task automations route', () => {
     expect(screen.getByText(/assign to Riley Chen/i)).toBeInTheDocument()
   })
 
+  it('authors and decides a retained approval-gated deal task plan', async () => {
+    let approvals = [{
+      id: 77,
+      runId: 71,
+      automationId: 17,
+      automationName: 'Approved proposal playbook',
+      dealId: 27,
+      dealName: 'Acme renewal',
+      actionPosition: 1,
+      name: 'Proposal readiness',
+      approverRole: 'owner',
+      message: 'Confirm scope before creating tasks.',
+      status: 'pending',
+      pendingTaskCount: 2,
+      requestedByUserId: 9,
+      requestedByUserName: 'Ari Requester',
+      requestedAt: '2026-07-22T20:00:00Z'
+    }]
+    let storedDefinitions = []
+    let runLoads = 0
+    const createdRule = {
+      id: 18,
+      name: 'Approved renewal tasks',
+      triggerType: 'record_created',
+      targetEntityType: 'deal',
+      triggerConfig: { taskPlanContract: 'deal_approval_task_plan_v1' },
+      conditionLogic: 'all',
+      conditions: [],
+      actions: [
+        { type: 'request_approval', config: { approvalName: 'Renewal readiness', approverRole: 'record_owner', message: 'Verify renewal scope.' } },
+        { type: 'create_task', config: { title: 'Prepare renewal' }, delayMinutes: 1440 }
+      ],
+      isActive: true,
+      position: 0
+    }
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const path = requestURL.pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [] } })
+      if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
+      if (path.endsWith('/api/workflow-automation-runs')) {
+        runLoads += 1
+        if (runLoads > 1) throw new Error('Run history unavailable')
+        return jsonResponse({ data: { runs: [] } })
+      }
+      if (path.endsWith('/api/workflow-approvals/77/decision') && method === 'POST') {
+        approvals = []
+        return jsonResponse({ data: { approval: { id: 77, status: 'approved' } } })
+      }
+      if (path.endsWith('/api/workflow-approvals')) return jsonResponse({ data: { approvals } })
+      if (path.endsWith('/api/workflow-automations') && method === 'POST') {
+        storedDefinitions = [createdRule]
+        return jsonResponse({ data: { automation: createdRule } }, 201)
+      }
+      if (path.endsWith('/api/workflow-automations')) return workflowPage(storedDefinitions)
+      throw new Error(`Unexpected fetch: ${method} ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/automations')
+
+    render(<AppRouter />)
+
+    const approvalList = await screen.findByRole('list', { name: 'Pending workflow approvals' })
+    expect(approvalList).toHaveTextContent('Proposal readiness')
+    expect(approvalList).toHaveTextContent('2 tasks are created')
+    fireEvent.click(within(approvalList).getByRole('button', { name: 'Approve and create tasks' }))
+    expect(await screen.findByText('Workflow approved and its captured tasks were created.')).toBeInTheDocument()
+    expect(screen.getByText('Decision saved. Reload to refresh run history.')).toBeInTheDocument()
+    const decisionCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-approvals/77/decision'))
+    expect(decisionCall[1].method).toBe('POST')
+    expect(decisionCall[1].headers['Idempotency-Key']).toMatch(/^workflow-approval-/)
+    expect(JSON.parse(decisionCall[1].body)).toEqual({ decision: 'approved', note: '' })
+    expect(approvalList).toHaveTextContent('No workflow approvals need your decision.')
+
+    fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Approved renewal tasks' } })
+    fireEvent.click(screen.getByLabelText(/require a decision before creating any tasks/i))
+    fireEvent.change(screen.getByLabelText('Approval name'), { target: { value: 'Renewal readiness' } })
+    fireEvent.change(screen.getByLabelText('Who can approve'), { target: { value: 'record_owner' } })
+    fireEvent.change(screen.getByLabelText('Reviewer guidance'), { target: { value: 'Verify renewal scope.' } })
+    fireEvent.change(screen.getByLabelText('Task title'), { target: { value: 'Prepare renewal' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create task rule' }))
+
+    await waitFor(() => {
+      const createCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations') && call[1]?.method === 'POST')
+      expect(JSON.parse(createCall[1].body)).toEqual({
+        name: 'Approved renewal tasks',
+        description: 'Requests a human decision before creating 1 follow-up task from a deal event.',
+        triggerType: 'record_created',
+        targetEntityType: 'deal',
+        triggerConfig: { taskPlanContract: 'deal_approval_task_plan_v1' },
+        conditionLogic: 'all',
+        conditions: [],
+        actions: [
+          { type: 'request_approval', config: { approvalName: 'Renewal readiness', approverRole: 'record_owner', message: 'Verify renewal scope.' } },
+          { type: 'create_task', config: { title: 'Prepare renewal' }, delayMinutes: 1440 }
+        ],
+        isActive: true,
+        position: 0
+      })
+    })
+    expect(await screen.findByRole('heading', { name: 'Approved renewal tasks' })).toBeInTheDocument()
+    expect(screen.getByText(/waits for a retained human decision/i)).toBeInTheDocument()
+  })
+
   it('loads stored definition row 51 with exact continuation metadata', async () => {
     const definition = (id, name) => ({
       id,
@@ -234,6 +344,7 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [] } })
       if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
       if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
+      if (path.endsWith('/api/workflow-approvals')) return jsonResponse({ data: { approvals: [] } })
       if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [] } })
       if (path.endsWith('/api/workflow-automations')) {
         const page = Number(requestURL.searchParams.get('page'))
@@ -293,6 +404,7 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [{ id: 31, name: 'Website', isActive: true }] } })
       if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [{ id: 7, firstName: 'Riley', lastName: 'Chen', status: 'active' }] } })
       if (path.endsWith('/api/workflow-automations')) return workflowPage([rule])
+      if (path.endsWith('/api/workflow-approvals')) return jsonResponse({ data: { approvals: [] } })
       if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [failedRun] } })
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })
@@ -330,6 +442,7 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [{ id: 31, name: 'Website', isActive: true }] } })
       if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [{ id: 7, firstName: 'Riley', lastName: 'Chen', status: 'active' }] } })
       if (path.endsWith('/api/workflow-automations')) return jsonResponse({ data: { automations: [rule] } })
+      if (path.endsWith('/api/workflow-approvals')) return jsonResponse({ data: { approvals: [] } })
       if (path.endsWith('/api/workflow-automation-runs')) {
         runReads += 1
         return jsonResponse({ data: { runs: [{ id: 44, automationId: 9, automationName: rule.name, status: runReads === 1 ? 'queued' : 'succeeded', actionsTotal: 1, actionsCompleted: runReads === 1 ? 0 : 1, scheduledAt: '2026-07-21T12:00:00Z', createdAt: '2026-07-21T12:00:00Z' }] } })
@@ -342,7 +455,7 @@ describe('settings task automations route', () => {
 
     expect(await screen.findByText('queued', { exact: true })).toBeInTheDocument()
     expect(await screen.findByText('succeeded', { exact: true }, { timeout: 3000 })).toBeInTheDocument()
-    expect(screen.getByText(/1\/1 tasks created/)).toBeInTheDocument()
+    expect(screen.getByText(/1\/1 actions completed/)).toBeInTheDocument()
     expect(runReads).toBeGreaterThanOrEqual(2)
   })
 })

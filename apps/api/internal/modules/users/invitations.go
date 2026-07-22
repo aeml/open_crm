@@ -189,7 +189,7 @@ func (s *Service) revokeInvitationOnce(ctx context.Context, organizationID, user
 	if err != nil {
 		return LifecycleResult{}, err
 	}
-	if err := stopDisabledUserEffects(ctx, tx, organizationID, userID); err != nil {
+	if err := stopDisabledUserEffects(ctx, tx, organizationID, userID, actorUserID); err != nil {
 		return LifecycleResult{}, err
 	}
 	invalidated, err := tx.Exec(ctx, `DELETE FROM sessions WHERE organization_id=$1 AND user_id=$2`, organizationID, userID)

@@ -7,12 +7,9 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-
-	moduletaskreminders "github.com/aeml/open_crm/apps/api/internal/modules/taskreminders"
 )
 
 const (
@@ -26,11 +23,16 @@ const (
 	// DealTaskPlanContract explicitly opts a definition into the ordered
 	// multi-task shape. Historical definitions with multiple stored actions stay
 	// inert unless an admin reviews and saves them through this contract.
-	DealTaskPlanContract    = "deal_task_plan_v1"
-	maxExecutableActions    = 5
-	maxExecutableConditions = 1
-	maxTaskTitleLength      = 200
-	maxTaskDescriptionLen   = 2000
+	DealTaskPlanContract = "deal_task_plan_v1"
+	// DealApprovalTaskPlanContract opts into one human decision followed by the
+	// same bounded task playbook. The approval is always first so a retained run
+	// can pause before any task effect.
+	DealApprovalTaskPlanContract = "deal_approval_task_plan_v1"
+	maxExecutableTasks           = 5
+	maxExecutableActions         = maxExecutableTasks + 1
+	maxExecutableConditions      = 1
+	maxTaskTitleLength           = 200
+	maxTaskDescriptionLen        = 2000
 )
 
 type DealTaskEvent struct {
@@ -108,7 +110,7 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 			return fmt.Errorf("decode deal task rule actions: %w", err)
 		}
 
-		executableShape := executableTaskActions(config, actions) && executableDealConditions(config, rule.conditionLogic, conditions)
+		executableShape := executableDealActions(config, actions) && executableDealConditions(config, rule.conditionLogic, conditions)
 		conditionMatched := true
 		conditionFields := map[string]any{}
 		if executableShape && len(conditions) > 0 {
@@ -121,6 +123,7 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 		payloadValue := map[string]any{
 			"dealId": event.DealID, "dealName": event.DealName,
 			"event": event.EventType, "stageId": event.StageID, "stageName": event.StageName,
+			"ownerUserId": event.OwnerUserID,
 		}
 		if len(conditions) > 0 && executableShape {
 			payloadValue["conditionFields"] = dealConditionEvidence(conditions, conditionFields)
@@ -152,7 +155,7 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 		}
 		if !conditionMatched {
 			for actionIndex, action := range actions {
-				if err := recordTaskActionOutcome(ctx, tx, event.OrganizationID, runID, actionIndex+1, action, "skipped", 0, nil, 0, nil, "Condition did not match."); err != nil {
+				if err := recordActionOutcome(ctx, tx, event.OrganizationID, runID, actionIndex+1, action, "skipped", 0, nil, 0, nil, "Condition did not match."); err != nil {
 					return err
 				}
 			}
@@ -161,50 +164,16 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 			}
 			continue
 		}
+		if executableApprovalTaskActions(config, actions) {
+			if err := queueDealApproval(ctx, tx, event, runID, rule.id, rule.name, actions); err != nil {
+				return err
+			}
+			continue
+		}
 
-		taskIDs := make([]int64, 0, len(actions))
-		for actionIndex, action := range actions {
-			title, _ := stringConfig(action.Config, "title")
-			description, _ := stringConfig(action.Config, "description")
-			var taskID int64
-			var assignedToUserID int64
-			var dueAt time.Time
-			var reminderVersion int
-			if err := tx.QueryRow(ctx, `
-				WITH active_assignee AS (
-					SELECT CASE
-						WHEN EXISTS (
-							SELECT 1 FROM organization_memberships
-							WHERE organization_id=$1 AND user_id=$7 AND COALESCE(membership_status,'active')='active'
-						) THEN $7
-						ELSE $2
-					END AS user_id
-				)
-				INSERT INTO tasks (organization_id,entity_type,entity_id,title,description,status,due_at,assigned_to_user_id,created_by_user_id)
-				SELECT $1,'deal',$3,$4,NULLIF($5,''),'open',NOW()+($6 * INTERVAL '1 minute'),user_id,$2
-				FROM active_assignee
-				RETURNING id,assigned_to_user_id,due_at,COALESCE(reminder_version,0)
-			`, event.OrganizationID, event.ActorUserID, event.DealID, title, description, action.DelayMinutes, event.OwnerUserID).Scan(&taskID, &assignedToUserID, &dueAt, &reminderVersion); err != nil {
-				return fmt.Errorf("create automated deal task: %w", err)
-			}
-			reminderState := moduletaskreminders.State{OrganizationID: event.OrganizationID, TaskID: taskID, Title: title, UserID: assignedToUserID, Status: "open", DueAt: dueAt, Version: reminderVersion}
-			if err := moduletaskreminders.Sync(ctx, tx, reminderState); err != nil {
-				return fmt.Errorf("schedule automated deal task reminders: %w", err)
-			}
-			if err := moduletaskreminders.RecordAssignment(ctx, tx, reminderState, event.ActorUserID); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO activities (organization_id,entity_type,entity_id,actor_user_id,action,summary,metadata_json)
-				VALUES ($1,'task',$2,$3,'task.automated','Task created by deal automation',
-				        jsonb_build_object('automationId',$4::bigint,'dealId',$5::bigint,'actionIndex',$6::int,'actionCount',$7::int))
-			`, event.OrganizationID, taskID, event.ActorUserID, rule.id, event.DealID, actionIndex+1, len(actions)); err != nil {
-				return fmt.Errorf("record automated task activity: %w", err)
-			}
-			taskIDs = append(taskIDs, taskID)
-			if err := recordTaskActionOutcome(ctx, tx, event.OrganizationID, runID, actionIndex+1, action, "succeeded", 1, nil, taskID, &dueAt, ""); err != nil {
-				return err
-			}
+		taskIDs, err := createDealAutomationTasks(ctx, tx, event, runID, rule.id, actions, 0, len(actions))
+		if err != nil {
+			return err
 		}
 		taskIDsJSON, err := json.Marshal(taskIDs)
 		if err != nil {
@@ -302,7 +271,7 @@ func dealRuleMatchesEvent(config map[string]any, event DealTaskEvent) bool {
 }
 
 func executableTaskActions(config map[string]any, actions []Action) bool {
-	if len(actions) == 0 || len(actions) > maxExecutableActions {
+	if len(actions) == 0 || len(actions) > maxExecutableTasks {
 		return false
 	}
 	_, hasContract := config["taskPlanContract"]
@@ -314,6 +283,41 @@ func executableTaskActions(config map[string]any, actions []Action) bool {
 		title, ok := stringConfig(action.Config, "title")
 		description, _ := stringConfig(action.Config, "description")
 		if action.Type != "create_task" || !ok || (hasContract && !onlyTaskConfigKeys(action.Config)) || action.ScheduledAt != nil || utf8.RuneCountInString(title) > maxTaskTitleLength || utf8.RuneCountInString(description) > maxTaskDescriptionLen || action.DelayMinutes < 0 || action.DelayMinutes > maxActionDelayMinutes || action.DelayMinutes%1440 != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func executableDealActions(config map[string]any, actions []Action) bool {
+	return executableTaskActions(config, actions) || executableApprovalTaskActions(config, actions)
+}
+
+func executableApprovalTaskActions(config map[string]any, actions []Action) bool {
+	contract, _ := stringConfig(config, "taskPlanContract")
+	if contract != DealApprovalTaskPlanContract || len(actions) < 2 || len(actions) > maxExecutableActions {
+		return false
+	}
+	approval := actions[0]
+	name, hasName := stringConfig(approval.Config, "approvalName")
+	role, hasRole := stringConfig(approval.Config, "approverRole")
+	message, hasMessage := stringConfig(approval.Config, "message")
+	if approval.Type != "request_approval" || !hasName || !hasRole || !hasMessage ||
+		approval.DelayMinutes != 0 || approval.ScheduledAt != nil ||
+		utf8.RuneCountInString(name) > 200 || utf8.RuneCountInString(message) > 2000 ||
+		normalizeApprovalRole(role) != role || !onlyApprovalConfigKeys(approval.Config) {
+		return false
+	}
+	if role != "owner" && role != "admin" && role != "record_owner" {
+		return false
+	}
+	taskConfig := map[string]any{"taskPlanContract": DealTaskPlanContract}
+	return executableTaskActions(taskConfig, actions[1:])
+}
+
+func onlyApprovalConfigKeys(config map[string]any) bool {
+	for key := range config {
+		if key != "approvalName" && key != "approverRole" && key != "message" {
 			return false
 		}
 	}

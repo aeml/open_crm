@@ -8,11 +8,14 @@ import { isAbortError } from '../lib/api'
 import { listDealPipelines } from '../lib/deals'
 import { listLeadCaptureForms } from '../lib/lead_forms'
 import { listOrganizationUsers } from '../lib/users'
-import { createWorkflowAutomation, listWorkflowAutomationRuns, listWorkflowAutomations, updateWorkflowAutomation } from '../lib/workflow_automations'
+import { createIdempotencyKey } from '../lib/idempotency'
+import { createWorkflowAutomation, decideWorkflowApproval, listWorkflowApprovals, listWorkflowAutomationRuns, listWorkflowAutomations, updateWorkflowAutomation } from '../lib/workflow_automations'
 import { activeRunRefreshDelay } from '../lib/workflow_automation_polling'
 import { usePageTitle } from '../lib/use_page_title'
 import { SettingsAutomationRuns } from './settings_automation_runs'
+import { SettingsWorkflowApprovals } from './settings_workflow_approvals'
 import {
+  approvalRoleOptions,
   conditionOperatorLabels,
   conditionOperators,
   conditionSummary,
@@ -23,6 +26,7 @@ import {
   eventFromAutomation,
   existsOperator,
   formFromAutomation,
+  isApprovalTaskRule,
   isExecutableTaskRule,
   leadFormEvent,
   maxActiveTaskActions,
@@ -30,6 +34,7 @@ import {
   payloadFromForm,
   stageChangedEvent,
   taskTimingSummary,
+  taskActionsForAutomation,
   triggerOptions,
   triggerSummary
 } from './settings_automation_task_model'
@@ -42,6 +47,7 @@ export function SettingsAutomationsRoute() {
   const [automations, setAutomations] = useState([])
   const [definitionMeta, setDefinitionMeta] = useState({ page: 1, pageSize: 50, total: 0, activeActionCount: 0 })
   const [runs, setRuns] = useState([])
+  const [approvals, setApprovals] = useState([])
   const [pipelines, setPipelines] = useState([])
   const [leadForms, setLeadForms] = useState([])
   const [users, setUsers] = useState([])
@@ -52,9 +58,11 @@ export function SettingsAutomationsRoute() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [decidingApprovalId, setDecidingApprovalId] = useState(null)
   const loadVersion = useRef(0)
   const definitionLoadVersion = useRef(0)
   const mutationPending = useRef(false)
+  const approvalAttempts = useRef(new Map())
 
   async function loadAutomations({ signal } = {}) {
     const version = loadVersion.current + 1
@@ -63,9 +71,10 @@ export function SettingsAutomationsRoute() {
     definitionLoadVersion.current = definitionVersion
     setIsLoading(true)
     try {
-      const [nextDefinitions, nextRuns, nextPipelines, nextLeadForms, nextUsers] = await Promise.all([
+      const [nextDefinitions, nextRuns, nextApprovals, nextPipelines, nextLeadForms, nextUsers] = await Promise.all([
         listWorkflowAutomations({ signal }),
         listWorkflowAutomationRuns({ limit: 25, signal }),
+        listWorkflowApprovals({ signal }),
         listDealPipelines({ signal }),
         listLeadCaptureForms({ signal }),
         listOrganizationUsers({ signal })
@@ -74,6 +83,7 @@ export function SettingsAutomationsRoute() {
       setAutomations(nextDefinitions.automations)
       setDefinitionMeta(nextDefinitions.meta)
       setRuns(nextRuns)
+      setApprovals(nextApprovals)
       setPipelines(nextPipelines)
       setLeadForms(nextLeadForms)
       setUsers(nextUsers)
@@ -242,6 +252,35 @@ export function SettingsAutomationsRoute() {
     }
   }
 
+  async function decideApproval(approval, decision, note) {
+    if (decidingApprovalId) return
+    const fingerprint = JSON.stringify({ decision, note })
+    const retained = approvalAttempts.current.get(approval.id)
+    const attempt = retained?.fingerprint === fingerprint
+      ? retained
+      : { fingerprint, key: createIdempotencyKey('workflow-approval') }
+    approvalAttempts.current.set(approval.id, attempt)
+    setDecidingApprovalId(approval.id)
+    setStatus('')
+    try {
+      const decided = await decideWorkflowApproval(approval.id, { decision, note }, attempt.key)
+      if (!decided || decided.id !== approval.id || decided.status !== decision) throw new Error('The server returned mismatched workflow approval evidence. Refresh before retrying.')
+      setApprovals((current) => current.filter((candidate) => candidate.id !== approval.id))
+      approvalAttempts.current.delete(approval.id)
+      setError('')
+      setStatus(decision === 'approved' ? 'Workflow approved and its captured tasks were created.' : 'Workflow rejected; no captured tasks were created.')
+      try {
+        setRuns(await listWorkflowAutomationRuns({ limit: 25 }))
+      } catch {
+        setError('Decision saved. Reload to refresh run history.')
+      }
+    } catch (decisionError) {
+      setError(decisionError.message || 'Unable to decide workflow approval.')
+    } finally {
+      setDecidingApprovalId(null)
+    }
+  }
+
   const changeConditionValue = (event) => setForm({ ...form, conditionValue: event.target.value })
   const dealConditionValueProps = { className: 'text-input', 'aria-label': 'Deal condition value', required: true, value: form.conditionValue, onChange: changeConditionValue }
   const dealConditionChoices = form.conditionField === 'ownerUserId'
@@ -260,7 +299,7 @@ export function SettingsAutomationsRoute() {
           {isLoading ? <p className="field-hint">Loading task automation rules...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadAutomations()} retryLabel="Retry task automations" /> : null}
-          <p className="field-hint">{activeActionCount} of {maxActiveTaskActions} active task actions allocated. Each task in a playbook uses one slot.</p>
+          <p className="field-hint">{activeActionCount} of {maxActiveTaskActions} active workflow actions allocated. Each task and approval gate uses one slot.</p>
           <p className="field-hint">Showing {automations.length} of {definitionMeta.total} stored definitions.</p>
           {hiddenDefinitions > 0 ? <p className="field-hint">{hiddenDefinitions} unsupported loaded {hiddenDefinitions === 1 ? 'definition' : 'definitions'} hidden.</p> : null}
           {unsupportedActiveDefinitions.length > 0 ? (
@@ -279,15 +318,19 @@ export function SettingsAutomationsRoute() {
               <article className="record-row" role="listitem"><p>No executable task rules yet.</p></article>
             ) : executableRules.map((automation) => {
               const leadFollowUp = eventFromAutomation(automation) === leadFormEvent
+              const approvalPlan = isApprovalTaskRule(automation)
+              const taskActions = taskActionsForAutomation(automation)
+              const approvalAction = approvalPlan ? automation.actions[0] : null
               return (
                 <article className={automation.isActive ? 'record-row' : 'record-row record-row-alert'} key={automation.id} role="listitem">
                   <div>
                     <h3>{automation.name}</h3>
                     <p>{triggerSummary(automation, stagesById, formsById)}</p>
                     {automation.targetEntityType === 'deal' && automation.conditions?.length ? <p className="field-hint">{conditionSummary(automation, usersById)}</p> : null}
-                    <p className="field-hint">{leadFollowUp ? 'One durable task from retained submission evidence.' : `${automation.actions.length}-task playbook · all tasks commit with the deal event.`}</p>
+                    <p className="field-hint">{leadFollowUp ? 'One durable task from retained submission evidence.' : approvalPlan ? `${taskActions.length}-task playbook · waits for a retained human decision.` : `${taskActions.length}-task playbook · all tasks commit with the deal event.`}</p>
+                    {approvalAction ? <p className="field-hint">Approval: {approvalAction.config.approvalName} · {approvalRoleOptions.find((option) => option.value === approvalAction.config.approverRole)?.label}</p> : null}
                     <ol className="field-hint" aria-label={`${automation.name} task plan`}>
-                      {automation.actions.map((action, index) => <li key={`${index}-${action.config.title}`}>Create “{action.config.title}” · {taskTimingSummary(action, leadFollowUp)}{leadFollowUp ? ` · assign to ${usersById.get(Number(action.config.assignedToUserId)) || 'unavailable teammate'}` : ''}</li>)}
+                      {taskActions.map((action, index) => <li key={`${index}-${action.config.title}`}>Create “{action.config.title}” · {taskTimingSummary(action, leadFollowUp)}{leadFollowUp ? ` · assign to ${usersById.get(Number(action.config.assignedToUserId)) || 'unavailable teammate'}` : ''}</li>)}
                     </ol>
                   </div>
                   <div><span className="chip">{automation.isActive ? 'Active' : 'Inactive'}</span>{canManage ? <Button className="button-secondary" type="button" onClick={() => startEdit(automation)}>Edit</Button> : null}</div>
@@ -296,6 +339,7 @@ export function SettingsAutomationsRoute() {
             })}
           </div>
           {automations.length < definitionMeta.total ? <Button className="button-secondary" type="button" disabled={isLoadingMore || isSaving} onClick={loadMoreDefinitions}>{isLoadingMore ? 'Loading stored definitions...' : 'Load more stored definitions'}</Button> : null}
+          <SettingsWorkflowApprovals approvals={approvals} decidingApprovalId={decidingApprovalId} isLoading={isLoading} onDecide={decideApproval} />
           <SettingsAutomationRuns canManage={canManage} isLoading={isLoading} runs={visibleRuns} />
         </div>
       </Card>
@@ -303,11 +347,11 @@ export function SettingsAutomationsRoute() {
       {canManage ? (
         <Card>
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
-            <div><h2>{editingId ? 'Edit task rule' : 'New task rule'}</h2><p className="field-hint">A deal event can create an ordered 1–5 task playbook atomically. Lead forms create one durable task.</p></div>
+            <div><h2>{editingId ? 'Edit task rule' : 'New task rule'}</h2><p className="field-hint">A deal event can create an ordered 1–5 task playbook immediately or after a human approval. Lead forms create one durable task.</p></div>
             <Field label="Rule name"><input className="text-input" maxLength="120" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Proposal follow-up" /></Field>
             <Field label="When"><select className="text-input" value={form.event} onChange={(event) => {
               const nextEvent = event.target.value
-              setForm((current) => ({ ...current, event: nextEvent, stageId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '', additionalTasks: nextEvent === leadFormEvent ? [] : current.additionalTasks }))
+              setForm((current) => ({ ...current, event: nextEvent, stageId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '', additionalTasks: nextEvent === leadFormEvent ? [] : current.additionalTasks, requiresApproval: nextEvent === leadFormEvent ? false : current.requiresApproval }))
             }}>{triggerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
             {form.event === stageChangedEvent ? (
               <Field label="Destination stage" hint="Choose any stage to run after every real stage change."><select className="text-input" value={form.stageId} onChange={(event) => setForm({ ...form, stageId: event.target.value })}><option value="">Any stage</option>{stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.pipelineName} · {stage.name}</option>)}</select></Field>
@@ -331,6 +375,20 @@ export function SettingsAutomationsRoute() {
                   </Field>
                 ) : null}
               </>
+            ) : null}
+            {form.event !== leadFormEvent ? (
+              <fieldset className="card-stack">
+                <legend>Human approval gate</legend>
+                <label className="field-hint"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked })} /> Require a decision before creating any tasks</label>
+                {form.requiresApproval ? (
+                  <>
+                    <Field label="Approval name"><input className="text-input" maxLength="200" required value={form.approvalName} onChange={(event) => setForm({ ...form, approvalName: event.target.value })} /></Field>
+                    <Field label="Who can approve"><select className="text-input" value={form.approverRole} onChange={(event) => setForm({ ...form, approverRole: event.target.value })}>{approvalRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+                    <Field label="Reviewer guidance"><textarea className="text-input" rows={3} maxLength="2000" required value={form.approvalMessage} onChange={(event) => setForm({ ...form, approvalMessage: event.target.value })} /></Field>
+                    <p className="field-hint">The deal event, decision, and exact task plan remain inspectable. Rejection, definition changes, deactivation, or requester deactivation create no tasks.</p>
+                  </>
+                ) : null}
+              </fieldset>
             ) : null}
             {form.event === leadFormEvent ? (
               <>

@@ -1068,7 +1068,9 @@ bytes, tokens, or counters with ad hoc SQL.
    Automations**: deal created, a real stage change (optionally to one stage),
    or deal archived creates an ordered playbook of 1–5 literal follow-up tasks.
    Every task has an independent 0–365-whole-day due offset measured from the
-   deal event; none is a delayed or background action. A rule can optionally
+   deal event for an immediate playbook. A deal rule can instead require one
+   retained human decision before creating any task; its due offsets begin at
+   the approval decision. None is a delayed or background action. A rule can optionally
    require one event-time deal condition:
    value amount greater/less than or set, currency equal/not-equal/set, owner
    equal/not-equal/set, or status equal/not-equal to open, won, or lost. An
@@ -1104,7 +1106,31 @@ bytes, tokens, or counters with ad hoc SQL.
    remain inert. Edit or disable an unsupported rule through the normal admin
    UI or a reviewed API repair rather than assuming it ran. Never add either
    marker directly in SQL to activate a legacy definition.
-4. To stop future work, deactivate the rule. Deactivation does not remove tasks
+4. An approval-gated rule names exactly one reviewer class: workspace owner,
+   workspace owner/admin, or current deal owner. The triggering transaction
+   captures every action, creates the pending decision and reviewer
+   notifications, and exposes a `waiting_approval` run with zero tasks. Under
+   **Pending workflow approvals**, an eligible teammate can approve or enter a
+   required rejection note. Approval commits every captured task, reminder,
+   assignment notification, action outcome, deal activity, requester
+   notification, and audit event together. Rejection marks the gate decided,
+   cancels the captured task actions, and creates no task. The decision always
+   uses the captured plan, never a later definition body.
+5. A decision rechecks the actor's current role or current deal ownership and
+   both actor/requester active memberships while holding the approval/run/deal
+   locks. A retry with the same 16–200-character idempotency key and exact
+   decision/note returns the original result; changed reuse is a conflict.
+   Editing or deactivating the definition, or disabling its initiating member,
+   cancels pending work and dismisses reviewer notifications. If no active
+   teammate matches the configured reviewer class at event time, the run fails
+   visibly and creates no task. Monitor
+   `open_crm_workflow_runs{status="waiting_approval"}` and
+   `open_crm_workflow_oldest_approval_age_seconds`.
+   `OpenCRMWorkflowApprovalStale` means the oldest pending decision exceeded 24
+   hours; verify current role/ownership and membership before deciding or
+   deliberately cancelling through a definition/member change. Never edit the
+   approval, run, captured action, notification, activity, or audit rows in SQL.
+6. To stop future work, deactivate the rule. Deactivation does not remove tasks
    already created; edit, complete, archive, or reassign those through normal
    task controls so the operational history remains honest. Restoring a directly
    or bulk-archived deal likewise does not delete its archive follow-up task.
@@ -1169,12 +1195,17 @@ bytes, tokens, or counters with ad hoc SQL.
    `open_crm_workflow_runs{status="running"}`,
    `open_crm_workflow_runs_failed_24h`,
    `open_crm_workflow_runs_skipped_24h`, and
-   `open_crm_workflow_oldest_active_age_seconds`. The
+   `open_crm_workflow_oldest_active_age_seconds`,
+   `open_crm_workflow_runs{status="waiting_approval"}`, and
+   `open_crm_workflow_oldest_approval_age_seconds`. The
    metric excludes future schedules. `OpenCRMWorkflowRunStalled` indicates a
    due active run older than the normal recovery window; correlate its retained
    schedule and durable job before replay.
    `OpenCRMWorkflowRunFailed` indicates terminal failures that require an
    operator review even when the queue itself is healthy.
+   `OpenCRMWorkflowApprovalStale` is a human queue, not a worker retry signal;
+   verify eligibility and decide or deliberately cancel it instead of replaying
+   background work.
 
 ### Lead submission spam review and recovery
 

@@ -381,7 +381,7 @@ Exit criteria:
 - No behavior changes beyond tested refactors.
 
 Current convergence evidence: `app.go` is now 426 lines and uses the default
-500-line CI ceiling. All 263 explicit registrations live in focused 184-line
+500-line CI ceiling. All 265 explicit registrations live in focused 184-line
 platform, 297-line foundation, and 378-line core-CRM files, called centrally by
 `NewServer`; package-wide inventory and hosted-write-policy scans preserve the
 complete route set after the split. HTTP rate limiting, proxy-aware client
@@ -2221,7 +2221,7 @@ Exit criteria:
 - Large datasets do not break core list workflows.
 - Pagination behavior is consistent and documented.
 
-Current convergence evidence: all 105 registered GET routes are digest-gated to
+Current convergence evidence: all 106 registered GET routes are digest-gated to
 `docs/list-endpoint-inventory.md`, which records collection cardinality, stable
 ordering, totals, caller/service limits, overflow behavior, and the trigger for
 keyset conversion. Contacts, companies, deals, and tasks share an overflow-safe
@@ -2853,8 +2853,14 @@ immutable ordered outcome. Captured labels, schedules, attempts, terminal
 reasons, and tenant-validated task links remain inspectable and portable even
 after a definition changes; executable condition misses and spam recovery keep
 explicit skip/cancel/successor lineage rather than relying on aggregate counts.
+Version `1.5.17` promotes one exact human gate: a deal event can capture and
+pause a reviewed 1–5-task plan for an owner, admin, or current record-owner
+decision before any task is created. Approve/reject is idempotent and
+transactional, reads immutable captured actions rather than an edited
+definition, revalidates current authority, and retains notifications,
+audit/activity/export evidence, cancellation recovery, metrics, and alerts.
 Other targets/actions, general schedules,
-nested branches, approval steps, provider dispatch, and general retry
+nested branches, broader approval shapes, provider dispatch, and general retry
 orchestration still do not execute and must not be inferred complete from the
 historical foundation entries.
 
@@ -2876,6 +2882,7 @@ Progress:
 - `1.5.14` (truthful durable-run recovery): complete locally. Recent workflow runs now reconcile the exact same-tenant `workflow.lead_follow_up` job selected by the retained run idempotency key. Pending/running/retryable/dead state, bounded attempts, schedule, and last error are exposed without returning the queue payload; a dead operation projects as a failed run, supplies an effective completion time, leaves active workflow health, enters recent-failure health, and stops hot polling. Owners/admins are guided from the affected run to the existing tenant/dead-state-gated, audited generic replay in Operations, which now has an explicit lead-follow-up job filter. Business-terminal failures whose queue job succeeded remain terminal and are not presented as dead durable work. Handler serialization and recovery-navigation UI tests, plus freshly migrated PostgreSQL dead/queued/health/replay and same-key foreign-tenant evidence cover the recovery slice. The measured 737.57/230.21 KiB build advances only the aggregate raw ceiling from 737 to 738 KiB; every entry, per-route, aggregate-gzip, CSS, and source ceiling remains unchanged. This improves the supported lead-task outcome; it does not activate general actions, action-level attempts, approvals, or loop orchestration.
 - `1.5.15` (immutable per-action task outcomes): complete locally. Expand-safe migration `115_workflow_action_outcomes.sql` adds one tenant/run/position-bound lifecycle row for each action in the two reviewed task contracts and backfills historical runs without reading mutable current definitions. Deal playbooks atomically retain captured labels, success/task/due evidence for every created task and explicit ordered skip evidence for an executable condition miss; a failed source transaction leaves no run, task, or action row. Lead capture atomically enqueues the run, first action, and durable job; worker claims and terminal completion project attempts, schedule, error, and task output, while spam quarantine cancels queued evidence and exact recovery creates a queued successor lineage. Run listing reads its bounded page and actions from one repeatable-read snapshot, validates task links through the same organization, and projects pending/running/retryable/dead job state without exposing queue payloads. The portable workspace package includes the ledger. Handler/UI tests, a rolling-upgrade migration test, freshly migrated PostgreSQL rollback/cross-tenant/corrupt-reference/replay/spam-recovery acceptance, and the Chromium expanded lead/deal task links plus populated WCAG scan cover the outcome. The measured build is 178.82/57.97 KiB entry, 54.93/15.64 KiB largest lazy chunk, 27.45/8.34 KiB task-automation route, and 744.94/232.35 KiB aggregate raw/gzip; only aggregate ceilings advance from 743/232 to 745/233 KiB. This is truthful evidence for supported task actions, not execution of general action families, arbitrary schedules, approval pauses, or branch orchestration.
 - `1.5.16` (workflow service boundaries): complete locally. The former 1,352-line service mixed public models, definition persistence, run persistence, definition-contract validation, and condition evaluation. Those responsibilities now live in focused 151-, 350-, 338-, 363-, and 180-line files. A package-wide 500-line production-source ratchet covers those files together with activation, reviewed task execution, retained-action evidence, and recovery seams. Existing unit and PostgreSQL contracts remain the behavioral authority; this slice deliberately does not activate a stored general action or change workflow maturity.
+- `1.5.17` (approval-gated deal task plans): complete locally. Expand-safe migration `121_workflow_approval_gates.sql` adds a rolling-compatible run pause flag, immutable per-action snapshots, and tenant/run/deal/action-bound approval records without changing legacy run statuses or old-writer inserts. The exact `deal_approval_task_plan_v1` contract captures one owner/admin/current-record-owner gate followed by 1–5 literal tasks inside the deal event transaction and creates no task before a decision. A bounded eligible queue, notifications, and action/run inspection expose the wait; approval creates every captured task and its evidence atomically, while rejection creates none. Decision authority revalidates the active actor, requester, definition, current deal owner, and captured plan under locks; exact idempotent replay returns the original result, changed reuse conflicts, unavailable reviewers fail closed, and definition edits/deactivation or requester deactivation cancel the pending gate and dismiss its notification. Activity, audit, portable-export, waiting-count/age metrics, and a 24-hour stale-approval alert provide evidence and recovery. Handler/model/UI tests, a rolling-old-writer migration test, freshly migrated PostgreSQL approval/rejection/replay/edit/deactivation/unavailable-reviewer/tenant/metrics acceptance, and the Chromium author/wait/approve/two-task journey with WCAG coverage verify the outcome. The 422-line route delegates its 303-line pure contract model, 64-line run inspection, and 51-line approval queue; the measured build is 178.87/57.98 KiB entry, 55.12/15.73 KiB largest lazy chunk, 34.99/10.05 KiB task-automation route, and 773.96/241.47 KiB aggregate raw/gzip. Only aggregate ceilings advance from 766/240 to 774/242 KiB. Broader approval shapes, non-task actions, branches, provider effects, and pilot validation remain outside this bounded slice.
 
 Candidate slices:
 
@@ -2895,6 +2902,7 @@ Candidate slices:
 - `1.5.14` Exact durable lead-run state projection, dead-letter health reconciliation, and audited admin replay: complete locally; pilot validation remains.
 - `1.5.15` Immutable ordered task-action outcomes, same-tenant output links, historical backfill, and recovery lineage: complete locally; pilot validation remains.
 - `1.5.16` Focused definition/run/contract/condition service boundaries under a package-wide source ratchet: complete locally; executable scope unchanged.
+- `1.5.17` One captured owner/admin/current-record-owner approval gate before a reviewed 1–5-task deal plan: complete locally; pilot validation remains.
 
 Exit criteria:
 

@@ -70,3 +70,19 @@ func TestPortableImportLedgerExcludesRetainedSource(t *testing.T) {
 	}
 	t.Fatal("portable import ledger dataset is missing")
 }
+
+func TestPortableWorkflowApprovalsRetainDecisionEvidenceWithoutReplayCorrelation(t *testing.T) {
+	if _, ok := classifiedOrganizationTables["workflow_automation_approvals"]; !ok {
+		t.Fatal("workflow approval ledger must remain explicitly classified")
+	}
+	for _, current := range portableDatasets {
+		if current.name != "workflow_automation_approvals" {
+			continue
+		}
+		if !strings.Contains(current.query, "'decision_key_hash'") || !strings.Contains(current.query, "'decision_request_sha256'") {
+			t.Fatalf("portable workflow approval ledger must exclude replay correlation: %s", current.query)
+		}
+		return
+	}
+	t.Fatal("portable workflow approval ledger is missing")
+}
