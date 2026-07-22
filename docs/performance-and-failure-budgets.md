@@ -667,8 +667,10 @@ scan all production files in the package, so splitting registrations cannot
 silently remove a route from either guard. Shared handler helpers are isolated
 in a 297-line file, invitation delivery is isolated in a 123-line handler, and
 record history owns a focused 106-line handler, and `support_handlers.go` is 380
-lines, so every production file in `internal/app`
-now uses the default 500-line ceiling.
+lines. The service-contract catalog is 438 lines and the unchanged explicit
+runtime dependency container is isolated at 70 lines, replacing the former
+500-line mixed file. Every production file in `internal/app` now has headroom
+under the default 500-line ceiling.
 
 ## Source-size no-growth ratchet
 

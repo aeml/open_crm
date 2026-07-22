@@ -461,6 +461,9 @@ and full-form mutations validate response identity and cannot replace a newer
 selection; full-form saves also suppress duplicate submission and cannot navigate
 after route unmount. Tighter source ratchets preserve every reduction while
 holding every production route to the default 500-line ceiling with no explicit exceptions.
+The application dependency boundary now keeps its 438-line service-contract
+catalog separate from the unchanged 70-line explicit runtime container, removing
+the former exact-ceiling hotspot without changing construction or test injection.
 
 ## Version 0.2.3 - Database Integrity
 
