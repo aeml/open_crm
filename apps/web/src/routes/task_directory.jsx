@@ -69,15 +69,15 @@ export function TaskDirectory({
         </div>
         <div className="record-list" role="list" aria-label="Task summary list">
           <article className="record-row" role="listitem">
-            <div><p>{labels.summaryOpen}</p></div>
+            <div><p>Open {labels.plural}</p></div>
             <div><p>{meta.openCount}</p></div>
           </article>
           <article className="record-row" role="listitem">
-            <div><p>{labels.summaryCompleted}</p></div>
+            <div><p>Completed {labels.plural}</p></div>
             <div><p>{meta.completedCount}</p></div>
           </article>
         </div>
-        <Field label={labels.searchLabel}>
+        <Field label={`Search ${labels.plural}`}>
           <input className="text-input" type="search" value={search} onChange={onSearchChange} />
         </Field>
         <SavedViews
@@ -127,7 +127,7 @@ export function TaskDirectory({
           </Field>
         ) : null}
         {statusFilter === 'open' ? (
-          <Field label={labels.viewLabel} hint="Due soon is the next 24 hours.">
+          <Field label={`${labels.titleNoun} view`} hint="Due soon is the next 24 hours.">
             <select className="text-input" value={dueView} onChange={(event) => onDueViewChange(event.target.value)}>
               <option value="all">All open</option>
               <option value="overdue">Overdue</option>
@@ -138,9 +138,9 @@ export function TaskDirectory({
             <p className="field-hint">Overdue {meta.overdueCount || 0} · Due soon {meta.dueSoonCount || 0}</p>
           </Field>
         ) : null}
-        {isListLoading ? <p className="field-hint">Loading {labels.showingSuffix}...</p> : null}
+        {isListLoading ? <p className="field-hint">Loading {labels.plural}...</p> : null}
         {error ? (
-          <InlineError message={error} onRetry={onRetry} retryLabel={`Retry ${labels.showingSuffix}`} />
+          <InlineError message={error} onRetry={onRetry} retryLabel={`Retry ${labels.plural}`} />
         ) : null}
         <h3>{taskListHeading(statusFilter, dueView, labels)}</h3>
         <p className="field-hint">Showing {visibleTasks.length} of {statusTasks.length} {taskCountLabel(statusFilter, dueView, labels)}.</p>

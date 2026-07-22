@@ -40,7 +40,7 @@ export function TaskForm({
         </Field>
       ) : null}
       {showEntityFields && form.entityType === 'deal' ? (
-        <Field label={labels.dealLabel}>
+        <Field label={labels.dealOption}>
           <select className="text-input" value={form.entityId} onChange={(event) => onSetForm((current) => ({ ...current, entityId: event.target.value }))} required>
             {dealOptions.map((deal) => (
               <option key={deal.id} value={deal.id}>{deal.name}</option>

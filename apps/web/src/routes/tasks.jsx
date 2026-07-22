@@ -1,11 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { archiveTask, createTask, listTasks, updateTask } from '../lib/tasks'
-import { listDeals } from '../lib/deals'
-import { listCompanies } from '../lib/companies'
-import { listContacts } from '../lib/contacts'
-import { listOrganizationUsers } from '../lib/users'
-import { isAbortError } from '../lib/api'
+import { archiveTask, createTask, updateTask } from '../lib/tasks'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
 import { TaskDirectory } from './task_directory'
@@ -23,10 +18,10 @@ import {
   normalizeTaskStatusFilter,
   sortCompletedTasks,
   sortOpenTasks,
-  taskLabels,
-  unassignedAssigneeFilter
+  taskLabels
 } from './task_view'
 import { useTaskDetail } from './use_task_detail'
+import { useTaskDirectory } from './use_task_directory'
 import { useTaskQuickActions } from './use_task_quick_actions'
 
 export function TasksRoute() {
@@ -45,22 +40,46 @@ export function TasksRoute() {
   const initialAssigneeFilter = normalizeAssigneeFilter(searchParams.get('assignee'))
   const initialEntityTypeFilter = normalizeEntityTypeFilter(searchParams.get('entityType'))
   const initialEntityIdFilter = initialEntityTypeFilter === 'all' ? '' : normalizeEntityIdFilter(searchParams.get('entityId'))
-  const [tasks, setTasks] = useState([])
-  const [selectedTaskIds, setSelectedTaskIds] = useState([])
-  const [meta, setMeta] = useState({ page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0, overdueCount: 0, dueSoonCount: 0, upcomingCount: 0, noDueDateCount: 0 })
-  const [search, setSearch] = useState(initialSearch)
-  const [statusFilter, setStatusFilter] = useState(initialStatusFilter)
-  const [dueView, setDueView] = useState(initialDueView)
-  const [assigneeFilter, setAssigneeFilter] = useState(initialAssigneeFilter)
-  const [entityTypeFilter, setEntityTypeFilter] = useState(initialEntityTypeFilter)
-  const [entityIdFilter, setEntityIdFilter] = useState(initialEntityIdFilter)
-  const [dealOptions, setDealOptions] = useState([])
-  const [companyOptions, setCompanyOptions] = useState([])
-  const [contactOptions, setContactOptions] = useState([])
-  const [userOptions, setUserOptions] = useState([])
-  const [error, setError] = useState('')
-  const [isListLoading, setIsListLoading] = useState(true)
-  const listControllerRef = useRef(null)
+  const {
+    assigneeFilter,
+    buildTasksPath,
+    companyOptions,
+    contactOptions,
+    dealOptions,
+    dueView,
+    entityIdFilter,
+    entityTypeFilter,
+    error,
+    handleApplySavedView,
+    handleAssigneeFilterChange,
+    handleDueViewChange,
+    handleEntityIdFilterChange,
+    handleEntityTypeFilterChange,
+    handleReset,
+    handleSearchChange,
+    handleToggleStatus,
+    isListLoading,
+    meta,
+    reloadTasks,
+    search,
+    selectedTaskIds,
+    setError,
+    setMeta,
+    setSelectedTaskIds,
+    setTasks,
+    statusFilter,
+    tasks,
+    userOptions
+  } = useTaskDirectory({
+    initialAssigneeFilter,
+    initialDueView,
+    initialEntityIdFilter,
+    initialEntityTypeFilter,
+    initialSearch,
+    initialStatusFilter,
+    navigate,
+    routeTaskId
+  })
   const {
     applyExternalUpdate: applyExternalTaskUpdate,
     clear: clearSelectedTask,
@@ -79,238 +98,30 @@ export function TasksRoute() {
     visitRef: taskVisitRef
   } = useTaskDetail({ isListLoading, routeTaskId, setError, setTasks })
   const { handleQuickAssign, handleQuickComplete, handleQuickReopen, isTaskPending } = useTaskQuickActions({ onUpdated: handleQuickTaskUpdated, onError: setError })
+
+  useEffect(() => {
+    setForm((current) => {
+      let entityId = current.entityId
+      if (!entityId && current.entityType === 'deal' && dealOptions[0]) entityId = String(dealOptions[0].id)
+      if (!entityId && current.entityType === 'company' && companyOptions[0]) entityId = String(companyOptions[0].id)
+      if (!entityId && current.entityType === 'contact' && contactOptions[0]) entityId = String(contactOptions[0].id)
+      const assignedToUserId = current.assignedToUserId || (userOptions[0] ? String(userOptions[0].id) : '')
+      if (entityId === current.entityId && assignedToUserId === current.assignedToUserId) return current
+      return { ...current, entityId, assignedToUserId }
+    })
+  }, [companyOptions, contactOptions, dealOptions, userOptions])
+
   const selectedTask = detail?.task || null
   const selectedActivities = detail?.activities || []
   const statusTasks = useMemo(() => tasks.filter((task) => matchesStatus(task, statusFilter)), [statusFilter, tasks])
   const visibleTasks = useMemo(() => {
-    const filteredTasks = statusTasks.filter((task) => {
-      if (!matchesAssignee(task, assigneeFilter)) {
-        return false
-      }
-
-      if (!matchesEntityType(task, entityTypeFilter)) {
-        return false
-      }
-
-      if (!entityIdFilter) {
-        return true
-      }
-
-      return String(task.entityId || '') === entityIdFilter
-    })
-
-    if (statusFilter !== 'open') {
-      return sortCompletedTasks(filteredTasks)
-    }
-
-    return sortOpenTasks(filteredTasks)
-  }, [assigneeFilter, dueView, entityIdFilter, entityTypeFilter, statusFilter, statusTasks])
+    const filteredTasks = statusTasks.filter((task) => matchesAssignee(task, assigneeFilter) &&
+      matchesEntityType(task, entityTypeFilter) && (!entityIdFilter || String(task.entityId || '') === entityIdFilter))
+    return statusFilter === 'open' ? sortOpenTasks(filteredTasks) : sortCompletedTasks(filteredTasks)
+  }, [assigneeFilter, entityIdFilter, entityTypeFilter, statusFilter, statusTasks])
   const hasFilteredTasks = statusTasks.length > 0 || assigneeFilter !== 'all'
   const emptyMessage = useMemo(() => emptyTaskListMessage(statusFilter, dueView, labels, hasFilteredTasks), [dueView, hasFilteredTasks, labels, statusFilter])
   const emptyDescription = useMemo(() => emptyTaskListDescription(statusFilter, dueView, labels, hasFilteredTasks), [dueView, hasFilteredTasks, labels, statusFilter])
-
-  function buildTasksPath(nextTaskId = routeTaskId, nextSearch = search, nextStatusFilter = statusFilter, nextDueView = dueView, nextAssigneeFilter = assigneeFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter) {
-    const params = new URLSearchParams()
-    if (nextSearch) {
-      params.set('q', nextSearch)
-    }
-    if (nextStatusFilter !== 'open') {
-      params.set('status', nextStatusFilter)
-    }
-    if (nextDueView !== 'all') {
-      params.set('due', nextDueView)
-    }
-    if (nextAssigneeFilter !== 'all') {
-      params.set('assignee', nextAssigneeFilter)
-    }
-    if (nextEntityTypeFilter !== 'all') {
-      params.set('entityType', nextEntityTypeFilter)
-    }
-    if (nextEntityTypeFilter !== 'all' && nextEntityIdFilter) {
-      params.set('entityId', nextEntityIdFilter)
-    }
-
-    const suffix = params.toString() ? `?${params.toString()}` : ''
-    const pathname = nextTaskId ? `/tasks/${nextTaskId}` : '/tasks'
-    return `${pathname}${suffix}`
-  }
-
-  async function loadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, nextAssigneeFilter = assigneeFilter, { signal } = {}, nextDueView = dueView) {
-    const isUnassigned = nextAssigneeFilter === unassignedAssigneeFilter
-    const assignedToUserId = isUnassigned ? 0 : (Number.parseInt(nextAssigneeFilter, 10) || 0)
-    const data = await listTasks({
-      search: nextSearch,
-      status: nextStatus,
-      entityType: nextEntityTypeFilter === 'all' ? '' : nextEntityTypeFilter,
-      entityId: nextEntityTypeFilter === 'all' ? 0 : Number.parseInt(nextEntityIdFilter, 10) || 0,
-      unassigned: isUnassigned,
-      assignedToUserId,
-      due: nextStatus === 'open' ? nextDueView : 'all'
-    }, { signal })
-    setTasks(data.tasks || [])
-    setSelectedTaskIds([])
-    setMeta(data.meta || { page: 1, pageSize: 20, total: 0, openCount: 0, completedCount: 0, overdueCount: 0, dueSoonCount: 0, upcomingCount: 0, noDueDateCount: 0 })
-  }
-
-  async function loadDealOptions({ signal } = {}) {
-    const data = await listDeals({}, { signal })
-    const nextDeals = data.deals || []
-    setDealOptions(nextDeals)
-    setForm((current) => {
-      if (current.entityType !== 'deal' || current.entityId || nextDeals.length === 0) {
-        return current
-      }
-      return { ...current, entityId: String(nextDeals[0].id) }
-    })
-  }
-
-  async function loadCompanyOptions({ signal } = {}) {
-    const data = await listCompanies('', { signal })
-    const nextCompanies = data.companies || []
-    setCompanyOptions(nextCompanies)
-    setForm((current) => {
-      if (current.entityType !== 'company' || current.entityId || nextCompanies.length === 0) {
-        return current
-      }
-      return { ...current, entityId: String(nextCompanies[0].id) }
-    })
-  }
-
-  async function loadContactOptions({ signal } = {}) {
-    const data = await listContacts('', { signal })
-    const nextContacts = data.contacts || []
-    setContactOptions(nextContacts)
-    setForm((current) => {
-      if (current.entityType !== 'contact' || current.entityId || nextContacts.length === 0) {
-        return current
-      }
-      return { ...current, entityId: String(nextContacts[0].id) }
-    })
-  }
-
-  async function loadUserOptions({ signal } = {}) {
-    const nextUsers = await listOrganizationUsers({ signal })
-    setUserOptions(nextUsers)
-    setForm((current) => {
-      if (current.assignedToUserId || nextUsers.length === 0) {
-        return current
-      }
-      return { ...current, assignedToUserId: String(nextUsers[0].id) }
-    })
-  }
-
-  useEffect(() => {
-    const controller = new AbortController()
-
-    async function run() {
-      setIsListLoading(true)
-      try {
-        await Promise.all([
-          loadTasks(initialSearch, initialStatusFilter, initialEntityTypeFilter, initialEntityIdFilter, initialAssigneeFilter, { signal: controller.signal }, initialDueView),
-          loadDealOptions({ signal: controller.signal }),
-          loadCompanyOptions({ signal: controller.signal }),
-          loadContactOptions({ signal: controller.signal }),
-          loadUserOptions({ signal: controller.signal })
-        ])
-        setError('')
-      } catch (loadError) {
-        if (!isAbortError(loadError)) {
-          setError(loadError.message || 'Unable to load tasks.')
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsListLoading(false)
-        }
-      }
-    }
-
-    run()
-    return () => {
-      controller.abort()
-    }
-  }, [])
-
-  async function reloadTasks(nextSearch = search, nextStatus = statusFilter, nextEntityTypeFilter = entityTypeFilter, nextEntityIdFilter = entityIdFilter, nextAssigneeFilter = assigneeFilter, nextDueView = dueView) {
-    listControllerRef.current?.abort()
-    const controller = new AbortController()
-    listControllerRef.current = controller
-    setIsListLoading(true)
-    try {
-      await loadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, nextAssigneeFilter, { signal: controller.signal }, nextDueView)
-      setError('')
-    } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setError(loadError.message || 'Unable to load tasks.')
-      }
-    } finally {
-      if (listControllerRef.current === controller) {
-        listControllerRef.current = null
-      }
-      if (!controller.signal.aborted) {
-        setIsListLoading(false)
-      }
-    }
-  }
-
-  async function handleSearchChange(event) {
-    const value = event.target.value
-    setSearch(value)
-    navigate(buildTasksPath(selectedTaskId, value, statusFilter, dueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
-    await reloadTasks(value, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter)
-  }
-
-  async function handleToggleStatus(nextStatus) {
-    const nextDueView = nextStatus === 'open' ? dueView : 'all'
-    setStatusFilter(nextStatus)
-    setDueView(nextDueView)
-    navigate(buildTasksPath(selectedTaskId, search, nextStatus, nextDueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
-    await reloadTasks(search, nextStatus, entityTypeFilter, entityIdFilter, assigneeFilter, nextDueView)
-  }
-
-  async function handleAssigneeFilterChange(nextAssigneeFilter) {
-    setAssigneeFilter(nextAssigneeFilter)
-    navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, nextAssigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
-    await reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, nextAssigneeFilter)
-  }
-
-  async function handleEntityTypeFilterChange(nextEntityTypeFilter) {
-    const nextEntityIdFilter = nextEntityTypeFilter === entityTypeFilter ? entityIdFilter : ''
-    setEntityTypeFilter(nextEntityTypeFilter)
-    setEntityIdFilter(nextEntityIdFilter)
-    navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, assigneeFilter, nextEntityTypeFilter, nextEntityIdFilter), { replace: true })
-    await reloadTasks(search, statusFilter, nextEntityTypeFilter, nextEntityIdFilter)
-  }
-
-  async function handleDueViewChange(nextDueView) {
-    setDueView(nextDueView)
-    navigate(buildTasksPath(selectedTaskId, search, statusFilter, nextDueView, assigneeFilter, entityTypeFilter, entityIdFilter), { replace: true })
-    await reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter, nextDueView)
-  }
-
-  async function handleEntityIdFilterChange(nextEntityIdFilter) {
-    setEntityIdFilter(nextEntityIdFilter)
-    navigate(buildTasksPath(selectedTaskId, search, statusFilter, dueView, assigneeFilter, entityTypeFilter, nextEntityIdFilter), { replace: true })
-    await reloadTasks(search, statusFilter, entityTypeFilter, nextEntityIdFilter)
-  }
-
-  async function handleApplySavedView(filters) {
-    const nextSearch = filters.q || ''
-    const nextStatus = normalizeTaskStatusFilter(filters.status)
-    const nextDueView = nextStatus === 'open' ? normalizeDueView(filters.due) : 'all'
-    const nextAssigneeFilter = normalizeAssigneeFilter(filters.assignee)
-    const nextEntityTypeFilter = normalizeEntityTypeFilter(filters.entityType)
-    const nextEntityIdFilter = nextEntityTypeFilter === 'all' ? '' : normalizeEntityIdFilter(filters.entityId)
-
-    setSearch(nextSearch)
-    setStatusFilter(nextStatus)
-    setDueView(nextDueView)
-    setAssigneeFilter(nextAssigneeFilter)
-    setEntityTypeFilter(nextEntityTypeFilter)
-    setEntityIdFilter(nextEntityIdFilter)
-    clearSelectedTask()
-    navigate(buildTasksPath(null, nextSearch, nextStatus, nextDueView, nextAssigneeFilter, nextEntityTypeFilter, nextEntityIdFilter), { replace: true })
-    await reloadTasks(nextSearch, nextStatus, nextEntityTypeFilter, nextEntityIdFilter, nextAssigneeFilter, nextDueView)
-  }
 
   async function handleCreate(event) {
     event.preventDefault()
@@ -324,8 +135,7 @@ export function TasksRoute() {
         dueAt: form.dueAt ? `${form.dueAt}:00Z` : '',
         assignedToUserId: Number.parseInt(form.assignedToUserId, 10) || 0
       })
-      const nextTasks = [data.task, ...tasks.filter((task) => task.id !== data.task.id)]
-      setTasks(nextTasks)
+      setTasks((current) => [data.task, ...current.filter((task) => task.id !== data.task.id)])
       setMeta((current) => ({ ...current, total: current.total + 1, openCount: current.openCount + (data.task.status === 'completed' ? 0 : 1), completedCount: current.completedCount + (data.task.status === 'completed' ? 1 : 0) }))
       syncTaskIntoState(data.task, data.activities || [], data.activityMeta)
       navigate(buildTasksPath(data.task.id))
@@ -367,7 +177,7 @@ export function TasksRoute() {
     }
   }
 
-  async function handleOpenTask(task) {
+  function handleOpenTask(task) {
     openTaskDetail(task)
     navigate(buildTasksPath(task.id))
   }
@@ -388,10 +198,7 @@ export function TasksRoute() {
   }
 
   async function handleArchive() {
-    if (!selectedTaskId) {
-      return
-    }
-
+    if (!selectedTaskId) return
     try {
       const archivedTask = detail?.task
       await archiveTask(selectedTaskId)
@@ -431,7 +238,7 @@ export function TasksRoute() {
         isTaskPending={isTaskPending}
         labels={labels}
         meta={meta}
-        onApplySavedView={handleApplySavedView}
+        onApplySavedView={(filters) => handleApplySavedView(filters, clearSelectedTask)}
         onAssigneeFilterChange={handleAssigneeFilterChange}
         onBulkChanged={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter)}
         onDueViewChange={handleDueViewChange}
@@ -441,16 +248,7 @@ export function TasksRoute() {
         onQuickAssign={handleQuickAssign}
         onQuickComplete={handleQuickComplete}
         onQuickReopen={handleQuickReopen}
-        onReset={() => {
-          setSearch('')
-          setStatusFilter('open')
-          setDueView('all')
-          setAssigneeFilter('all')
-          setEntityTypeFilter('all')
-          setEntityIdFilter('')
-          navigate(buildTasksPath(null, '', 'open', 'all', 'all', 'all', ''), { replace: true })
-          reloadTasks('', 'open', 'all', '', 'all', 'all')
-        }}
+        onReset={handleReset}
         onRetry={() => reloadTasks(search, statusFilter, entityTypeFilter, entityIdFilter, assigneeFilter)}
         onSearchChange={handleSearchChange}
         onSelectionChange={setSelectedTaskIds}

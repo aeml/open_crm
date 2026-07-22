@@ -49,147 +49,72 @@ export function formatDueLabel(task) {
 }
 
 export function taskLabels(businessType) {
-  if (businessType === 'services' || businessType === 'construction-services') {
-    return {
-      collection: 'Service Tasks',
-      createHeading: 'New service task',
-      createDescription: 'Assign work against a contact, client, or job.',
-      summaryOpen: 'Open service tasks',
-      summaryCompleted: 'Completed service tasks',
-      searchLabel: 'Search service tasks',
-      openHeading: 'Open service tasks',
-      completedHeading: 'Completed service tasks',
-      showingSuffix: 'service tasks',
-      entityTypeLabel: 'Linked record type',
-      entityTypeFilterLabel: 'Linked record filter',
-      dealOption: 'Job',
-      dealLabel: 'Job',
-      companyLabel: 'Client',
-      viewLabel: 'Service task view',
-      overdueHeading: 'Overdue service tasks',
-      dueSoonHeading: 'Service tasks due within 24 hours',
-      upcomingHeading: 'Upcoming service tasks',
-      noDueDateHeading: 'Service tasks without due dates',
-      activityAria: 'Service task activity list'
-    }
-  }
+  const usesServiceLanguage = businessType === 'services' || businessType === 'construction-services'
+  const noun = usesServiceLanguage ? 'service task' : 'task'
+  const plural = `${noun}s`
+  const titleNoun = usesServiceLanguage ? 'Service task' : 'Task'
+  const titlePlural = usesServiceLanguage ? 'Service tasks' : 'Tasks'
+  const dealLabel = usesServiceLanguage ? 'Job' : 'Deal'
 
   return {
-    collection: 'Tasks',
-    createHeading: 'New task',
-    createDescription: 'Assign work against a contact, company, or deal.',
-    summaryOpen: 'Open tasks',
-    summaryCompleted: 'Completed tasks',
-    searchLabel: 'Search tasks',
-    openHeading: 'Open tasks',
-    completedHeading: 'Completed tasks',
-    showingSuffix: 'tasks',
-    entityTypeLabel: 'Entity type',
-    entityTypeFilterLabel: 'Record type filter',
-    dealOption: 'Deal',
-    dealLabel: 'Deal',
-    companyLabel: 'Company',
-    viewLabel: 'Task view',
-    overdueHeading: 'Overdue tasks',
-    dueSoonHeading: 'Tasks due within 24 hours',
-    upcomingHeading: 'Upcoming tasks',
-    noDueDateHeading: 'Tasks without due dates',
-    activityAria: 'Task activity list'
+    collection: usesServiceLanguage ? 'Service Tasks' : titlePlural,
+    createDescription: usesServiceLanguage ? 'Assign work against a contact, client, or job.' : 'Assign work against a contact, company, or deal.',
+    entityTypeLabel: usesServiceLanguage ? 'Linked record type' : 'Entity type',
+    entityTypeFilterLabel: usesServiceLanguage ? 'Linked record filter' : 'Record type filter',
+    dealOption: dealLabel,
+    companyLabel: usesServiceLanguage ? 'Client' : 'Company',
+    noun,
+    plural,
+    titleNoun,
+    titlePlural
   }
 }
 
 export function taskCountLabel(statusFilter, dueView, labels) {
-  if (statusFilter === 'completed') {
-    return labels.summaryCompleted.toLowerCase()
-  }
-
-  if (dueView === 'overdue') {
-    return labels.overdueHeading.toLowerCase()
-  }
-  if (dueView === 'dueSoon') {
-    return labels.dueSoonHeading.toLowerCase()
-  }
-  if (dueView === 'upcoming') {
-    return labels.upcomingHeading.toLowerCase()
-  }
-  if (dueView === 'noDueDate') {
-    return labels.noDueDateHeading.toLowerCase()
-  }
-
-  return labels.summaryOpen.toLowerCase()
+  return taskListHeading(statusFilter, dueView, labels).toLowerCase()
 }
 
 export function taskListHeading(statusFilter, dueView, labels) {
   if (statusFilter === 'completed') {
-    return labels.completedHeading
+    return `Completed ${labels.plural}`
   }
 
   if (dueView === 'overdue') {
-    return labels.overdueHeading
+    return `Overdue ${labels.plural}`
   }
   if (dueView === 'dueSoon') {
-    return labels.dueSoonHeading
+    return `${labels.titlePlural} due within 24 hours`
   }
   if (dueView === 'upcoming') {
-    return labels.upcomingHeading
+    return `Upcoming ${labels.plural}`
   }
   if (dueView === 'noDueDate') {
-    return labels.noDueDateHeading
+    return `${labels.titlePlural} without due dates`
   }
 
-  return labels.openHeading
+  return `Open ${labels.plural}`
 }
 
-function taskDueSortValue(task) {
-  if (!task.dueAt) {
-    return Number.POSITIVE_INFINITY
-  }
+function sortTasks(tasks, field, missingValue, direction) {
+  return [...tasks].sort((left, right) => {
+    const leftDate = Date.parse(left[field])
+    const rightDate = Date.parse(right[field])
+    const leftValue = Number.isNaN(leftDate) ? missingValue : leftDate
+    const rightValue = Number.isNaN(rightDate) ? missingValue : rightDate
 
-  const dueAt = new Date(task.dueAt)
-  if (Number.isNaN(dueAt.getTime())) {
-    return Number.POSITIVE_INFINITY
-  }
-
-  return dueAt.getTime()
+    if (leftValue === rightValue) {
+      return (left.id || 0) - (right.id || 0)
+    }
+    return direction * (leftValue - rightValue)
+  })
 }
 
 export function sortOpenTasks(tasks) {
-  return [...tasks].sort((left, right) => {
-    const leftDue = taskDueSortValue(left)
-    const rightDue = taskDueSortValue(right)
-
-    if (leftDue === rightDue) {
-      return (left.id || 0) - (right.id || 0)
-    }
-
-    return leftDue - rightDue
-  })
-}
-
-function taskCompletedSortValue(task) {
-  if (!task.completedAt) {
-    return Number.NEGATIVE_INFINITY
-  }
-
-  const completedAt = new Date(task.completedAt)
-  if (Number.isNaN(completedAt.getTime())) {
-    return Number.NEGATIVE_INFINITY
-  }
-
-  return completedAt.getTime()
+  return sortTasks(tasks, 'dueAt', Number.POSITIVE_INFINITY, 1)
 }
 
 export function sortCompletedTasks(tasks) {
-  return [...tasks].sort((left, right) => {
-    const leftCompleted = taskCompletedSortValue(left)
-    const rightCompleted = taskCompletedSortValue(right)
-
-    if (leftCompleted === rightCompleted) {
-      return (left.id || 0) - (right.id || 0)
-    }
-
-    return rightCompleted - leftCompleted
-  })
+  return sortTasks(tasks, 'completedAt', Number.NEGATIVE_INFINITY, -1)
 }
 
 export function matchesAssignee(task, assigneeFilter) {
@@ -221,32 +146,17 @@ export function matchesStatus(task, statusFilter) {
 }
 
 export function emptyTaskListMessage(statusFilter, dueView, labels, hasFilteredTasks = false) {
-  if (statusFilter !== 'open') {
-    return `No ${labels.summaryCompleted.toLowerCase()} match the current filters.`
-  }
-
-  if (dueView === 'overdue') {
-    return `No ${labels.overdueHeading.toLowerCase()} match the current filters.`
-  }
-  if (dueView === 'dueSoon') {
-    return `No ${labels.dueSoonHeading.toLowerCase()} match the current filters.`
-  }
-  if (dueView === 'upcoming') {
-    return `No ${labels.upcomingHeading.toLowerCase()} match the current filters.`
-  }
-  if (dueView === 'noDueDate') {
-    return `No ${labels.noDueDateHeading.toLowerCase()} match the current filters.`
-  }
-
-  return hasFilteredTasks ? `No ${labels.summaryOpen.toLowerCase()} match the current filters.` : `No ${labels.summaryOpen.toLowerCase()} yet.`
+  const heading = taskListHeading(statusFilter, dueView, labels).toLowerCase()
+  const isFiltered = statusFilter !== 'open' || dueView !== 'all' || hasFilteredTasks
+  return `No ${heading}${isFiltered ? ' match the current filters.' : ' yet.'}`
 }
 
 export function emptyTaskListDescription(statusFilter, dueView, labels, hasFilteredTasks = false) {
   if (statusFilter !== 'open') {
-    return `Completed ${labels.showingSuffix} will appear here after work is closed.`
+    return `Completed ${labels.plural} will appear here after work is closed.`
   }
   if (dueView !== 'all' || hasFilteredTasks) {
     return 'Change the task view or clear filters to see more work.'
   }
-  return `Create the first ${labels.showingSuffix.slice(0, -1)} once there is a real follow-up to track.`
+  return `Create the first ${labels.noun} once there is a real follow-up to track.`
 }

@@ -429,7 +429,7 @@ touchpoints/account/health context, company editor/view helpers, and focused
 142-line directory plus 146-line linked-people presentation, a 173-line create/detail
 workspace, shared 27-line explicitly labeled search controls, and tested 149-line
 people, 171-line directory, 113-line linked-list, and 82-line lookup hooks leave `companies.jsx`
-at 461 lines, down from 1,364 and below the default 500-line ceiling. The directory hook owns
+at 463 lines, down from 1,364 and below the default 500-line ceiling. The directory hook owns
 bootstrap data, filters, loading, and request identity so stale bootstrap/search results cannot replace
 the latest list. A 178-line
 company-detail orchestrator owns direct-route, directory-selection, related-deal,
@@ -438,8 +438,8 @@ pending-mutation, work, and response-validation contract as contacts and deals, 
 the focused people hook calls one transactional linked-person endpoint and rejects
 late responses after leave-and-return navigation. Deal view,
 shared work, quote, signature, and bulk-action components leave `deals.jsx` at
-473 lines, down from 1,365 and below the default 500-line ceiling, with directory, shared-form, editor, and detail-workspace
-presentation isolated in 157-, 74-, 87-, and 137-line modules, directory/bootstrap state in a tested 231-line hook, and route/detail loading in a 167-line orchestrator. The directory hook owns filters, URL/history synchronization, loading, options, and request identity without repeating its full bootstrap after each filter change. The shared selection and work hooks
+474 lines, down from 1,365 and below the default 500-line ceiling, with directory, shared-form, editor, and detail-workspace
+presentation isolated in 161-, 74-, 87-, and 141-line modules, directory/bootstrap state in a tested 231-line hook, and route/detail loading in a 167-line orchestrator. The directory hook owns filters, URL/history synchronization, loading, options, and request identity without repeating its full bootstrap after each filter change. The shared selection and work hooks
 abort obsolete loads, distinguish A-to-B-to-A visits, serialize
 snapshot-changing mutations, expose one pending state so incompatible commercial
 controls wait for durable completion, suppress duplicate work actions, validate
@@ -450,12 +450,16 @@ component owns the retained evidence and review controls. The generic follower c
 also rejects responses for an earlier record. Shared record-work mutation forms
 remain unavailable until the selected record's authoritative work snapshot has
 loaded, preventing a late snapshot from silently erasing user input. Task filtering,
-sorting, labels, due-date view logic, a shared 98-line create/update form,
-207-line directory, and 64-line create/detail workspace plus tested 88-line
-quick-action and 157-line detail-state hooks leave `tasks.jsx` at 500 lines,
-down from 1,093 and at the default 500-line ceiling. Quick and full-form mutations
-validate response identity and cannot replace a newer selection; full-form saves also
-suppress duplicate submission and cannot navigate after route unmount. Tighter source ratchets preserve every reduction while
+sorting, labels, due-date view logic, a shared 99-line create/update form,
+209-line directory, 70-line create/detail workspace, tested 88-line quick-action
+and 157-line detail-state hooks, plus a tested 275-line directory-state hook leave
+`tasks.jsx` at 298 lines, down from 1,093. The directory hook owns bootstrap/options,
+filters, loading, URL/history synchronization, and request identity, so late initial
+or superseded results cannot replace the newest list even when abort is ignored;
+successful form options remain available when a peer option request fails. Quick
+and full-form mutations validate response identity and cannot replace a newer
+selection; full-form saves also suppress duplicate submission and cannot navigate
+after route unmount. Tighter source ratchets preserve every reduction while
 holding every production route to the default 500-line ceiling with no explicit exceptions.
 
 ## Version 0.2.3 - Database Integrity

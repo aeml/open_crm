@@ -8,7 +8,7 @@ export function TaskCreateWorkspace({ companyOptions, contactOptions, dealOption
     <Card>
       <div className="card-stack">
         <div>
-          <h2>{labels.createHeading}</h2>
+          <h2>New {labels.noun}</h2>
           <p>{labels.createDescription}</p>
         </div>
         <TaskForm
@@ -56,7 +56,7 @@ export function TaskWorkspace({ activities, activityMeta, canWrite, form, isLoad
         <Card>
           <div className="card-stack">
             <h3>Activity</h3>
-            <ActivityTimeline activities={activities} emptyMessage="No task activity yet." ariaLabel={labels.activityAria} />
+            <ActivityTimeline activities={activities} emptyMessage="No task activity yet." ariaLabel={`${labels.titleNoun} activity list`} />
             {activityMeta?.hasMore ? (
               <Button className="button-secondary" type="button" onClick={onLoadOlderActivities} disabled={isLoadingOlderActivities}>
                 {isLoadingOlderActivities ? 'Loading older activity…' : 'Load older activity'}

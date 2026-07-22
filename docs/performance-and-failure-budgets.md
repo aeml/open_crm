@@ -222,8 +222,8 @@ level-9-gzip bytes using only Node's standard library.
 | All CSS | 20 KiB | 5 KiB |
 
 Current production-URL evidence: 178.87 KiB/57.99 KiB entry, 55.12 KiB/15.73 KiB largest lazy
-chunk, and 765.81 KiB/239.24 KiB total assets. The production contact, company,
-deal, and task routes are 27.27/8.55, 45.09/13.08, 55.12/15.73, and 26.76/7.72
+chunk, and 765.77 KiB/239.71 KiB total assets. The production contact, company,
+deal, and task routes are 27.27/8.55, 45.09/13.08, 55.12/15.73, and 26.09/7.92
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.58 KiB/4.62 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.63 KiB/3.21 KiB;
@@ -577,6 +577,17 @@ editing while preserving the originating list criteria. The measured build is
 KiB aggregate raw/gzip. Only the reviewed aggregate ceilings advance from
 761/238 to 766/240 KiB; entry, per-route, CSS, and source ceilings stay fixed.
 
+Task-directory hardening isolates list/bootstrap/filter orchestration in a tested
+275-line hook and reduces `tasks.jsx` from 500 to 298 lines. Request identity,
+not abort cooperation alone, prevents a late bootstrap or superseded filter from
+replacing the newest list; browser Back/Forward filter changes reload state
+without writing a second history entry. Independent option application retains
+successful deal/company/contact/user choices when a peer request fails. A shared
+task language model and date sorter preserve exact visible behavior while keeping
+the route at 26.09/7.92 KiB. The complete build measures 178.87/57.99 KiB entry,
+55.12/15.73 KiB largest lazy chunk, and 765.77/239.71 KiB aggregate raw/gzip,
+without changing any byte or source ceiling.
+
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and
 then its ordered outcomes with a tenant/run-array query. Reviewed execution
@@ -600,7 +611,7 @@ and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators, a focused contact create/detail workspace and detail orchestrator, plus focused company-directory, linked-
 people, create/detail workspace presentation, directory/detail orchestration, and shared record selection/work leave the parent routes at 453 contact lines,
 463 company lines, 474 deal lines, and
-500 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
+298 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 207-line work
 hooks now serve contacts, companies, and deals, abort obsolete loads, distinguish repeated
 A-to-B-to-A visits, serialize per-record mutations, validate record/work
@@ -635,12 +646,15 @@ linked people, email, account/review context, touchpoints, and shared work cards
 without changing the route boundary.
 The shared record-work follower control also resets on record changes and
 rejects late responses from an earlier contact, client, or deal.
-A tested 88-line task quick-action hook plus 207-line directory, 64-line
-create/detail workspace, and 157-line detail-state modules separate task presentation and orchestration. These guards prevent
+A tested 88-line task quick-action hook plus 275-line directory-state hook,
+209-line directory, 70-line create/detail workspace, 162-line view model, and
+157-line detail-state modules separate task presentation and orchestration. These guards prevent
 concurrent mutations of the same task, validate response identity, and update the active detail only when
 it still represents that task; delayed completion cannot pull navigation back
-to an earlier record. Full-form task saves now use the same task-visit identity,
-suppress duplicate submission, and cannot navigate after the task route unmounts. The task parent route is now at the default 500-line ceiling.
+to an earlier record. List request identity rejects late bootstrap/filter results,
+and browser-history query changes synchronize state without duplicate navigation.
+Full-form task saves use the same task-visit identity, suppress duplicate submission,
+and cannot navigate after the task route unmounts. The task parent route is now 298 lines.
 Narrowing the normal automation UI to its
 executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
