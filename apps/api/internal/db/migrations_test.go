@@ -1887,3 +1887,27 @@ func TestMigrationFilesIncludeRecordEmailDeliveries(t *testing.T) {
 		t.Fatalf("record email delivery deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeRecordEmailTemplateTests(t *testing.T) {
+	const name = "107_record_email_template_tests.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	sql := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"ADD COLUMN purpose",
+		"ADD COLUMN recipient_user_id",
+		"purpose = 'test'",
+		"VALIDATE CONSTRAINT record_email_deliveries_purpose_check",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("record email template test migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("record email template test deployment class = %q", class)
+	}
+}

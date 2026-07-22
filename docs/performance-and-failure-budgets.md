@@ -115,12 +115,12 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 710 KiB | 223 KiB |
+| All JavaScript and CSS | 713 KiB | 223 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.83 KiB/57.98 KiB entry, 54.69 KiB/15.60 KiB largest lazy
-chunk, and 709.60 KiB/222.25 KiB total assets. The production contact, company,
-deal, and task routes are 26.83/8.33, 34.62/10.18, 54.69/15.60, and 24.67/7.13
+Current production-URL evidence: 178.83 KiB/57.97 KiB entry, 54.67 KiB/15.59 KiB largest lazy
+chunk, and 711.94 KiB/222.81 KiB total assets. The production contact, company,
+deal, and task routes are 26.81/8.30, 34.60/10.15, 54.67/15.55, and 24.67/7.13
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
@@ -265,6 +265,14 @@ state. The measured production build is 178.83/57.98 KiB entry,
 54.69/15.60 KiB largest lazy chunk, and 709.60/222.25 KiB aggregate raw/gzip.
 The contact/company/deal route chunks are 26.83/8.33, 34.62/10.18, and
 54.69/15.60 KiB, so all existing byte ceilings remain unchanged.
+The exact template-preview/test-to-self outcome then adds dynamic custom merge
+fields, server rendering, private durable test recovery, and a real-SMTP/WCAG
+browser path. Consolidating contact/company/deal send clients and reusing
+existing presentation styles limits the production build to 178.83/57.97 KiB
+entry, 54.67/15.59 KiB largest lazy chunk, and 711.94/222.81 KiB aggregate
+raw/gzip. The measured outcome advances only the aggregate raw ceiling from
+710 to 713 KiB; entry, per-chunk, aggregate gzip, CSS, and source ceilings stay
+unchanged.
 
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
@@ -326,9 +334,9 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 409 lines, down from 996. Its audited 250-route
-surface is registered through 175-line platform, 294-line foundation, and
-342-line core-CRM files. The security inventory and hosted-write-policy tests
+The API composition root is 409 lines, down from 996. Its audited 256-route
+surface is registered through 175-line platform, 297-line foundation, and
+366-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot
 silently remove a route from either guard. Shared handler helpers are isolated
 in a 250-line file, invitation delivery is isolated in a 123-line handler, and

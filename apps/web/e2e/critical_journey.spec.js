@@ -172,6 +172,19 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await customFieldForm.getByRole('button', { name: 'Create field' }).click()
   await expect(page.getByText('created with stable key custom:service_tier', { exact: false })).toBeVisible()
 
+  const recordEmailTemplateName = `Relationship follow-up ${runID}`
+  const recordEmailTemplateSubject = `Pilot relationship {{first_name}} ${runID}`
+  const recordEmailTemplateBody = 'Hello {{first_name}}, your relationship segment is {{contact.custom.relationship_segment}}.'
+  await page.getByRole('link', { name: 'Email Templates', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Email templates', exact: true })).toBeVisible()
+  await expect(page.getByText('{{contact.custom.relationship_segment}}', { exact: true })).toBeVisible()
+  const emailTemplateForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Create template' }) })
+  await emailTemplateForm.getByLabel('Name').fill(recordEmailTemplateName)
+  await emailTemplateForm.getByLabel('Subject').fill(recordEmailTemplateSubject)
+  await emailTemplateForm.getByLabel('Body').fill(recordEmailTemplateBody)
+  await emailTemplateForm.getByRole('button', { name: 'Create template' }).click()
+  await expect(page.getByRole('list', { name: 'Email templates' }).getByText(recordEmailTemplateName, { exact: true })).toBeVisible()
+
   const publicLeadEmail = `website-lead-${runID}@example.test`
   const publicLeadConsent = `I agree that ${owner.organizationName} may contact me about this request.`
   await page.getByRole('link', { name: 'Lead Forms', exact: true }).click()
@@ -341,6 +354,41 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     directEmailIdempotencyKey = request.headers()['idempotency-key'] || ''
   })
   await page.getByRole('button', { name: 'Send email', exact: true }).click()
+  await page.getByLabel('Subject').fill('Unknown {{not_real}}')
+  await page.getByLabel('Body').fill('This preview must fail visibly.')
+  await page.getByRole('button', { name: 'Preview merged email', exact: true }).click()
+  await expect(page.getByText(/Unknown merge fields: \{\{not_real\}\}/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send test to me', exact: true })).toBeDisabled()
+
+  await page.getByLabel('Template').selectOption({ label: recordEmailTemplateName })
+  await page.getByRole('button', { name: 'Preview merged email', exact: true }).click()
+  const mergedEmailPreview = page.getByRole('region', { name: 'Merged email preview' })
+  await expect(mergedEmailPreview).toContainText(`Customer recipient: avery-${runID}@example.test`)
+  await expect(mergedEmailPreview).toContainText(`Subject: Pilot relationship Avery ${runID}`)
+  await expect(mergedEmailPreview).toContainText('Hello Avery, your relationship segment is Customer.')
+  await expect(mergedEmailPreview).toContainText('All merge fields resolved for this record.')
+  const recordEmailPreviewAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-record-email-template-preview', {
+    body: JSON.stringify({ url: page.url(), violations: recordEmailPreviewAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(recordEmailPreviewAccessibility.violations, 'record email template preview must have no automated WCAG A/AA violations').toEqual([])
+  await page.getByRole('button', { name: 'Send test to me', exact: true }).click()
+  await expect(page.getByText(`Test email sent only to ${owner.email}. The CRM recipient was not emailed.`, { exact: true })).toBeVisible()
+  await expect.poll(async () => {
+    const response = await page.request.get(`${smtpCaptureURL}/messages`)
+    const payload = await response.json()
+    return payload.messages.filter((message) => message.data.includes(`Subject: [TEST] Pilot relationship Avery ${runID}`)).length
+  }).toBe(1)
+  const templateTestMessagesResponse = await page.request.get(`${smtpCaptureURL}/messages`)
+  const templateTestMessage = (await templateTestMessagesResponse.json()).messages.find((message) => message.data.includes(`Subject: [TEST] Pilot relationship Avery ${runID}`))
+  expect(templateTestMessage.envelopeTo).toContain(owner.email)
+  expect(templateTestMessage.envelopeTo).not.toContain(`avery-${runID}@example.test`)
+  expect(templateTestMessage.data).toContain('CRM recipient did not receive it')
+  expect(templateTestMessage.data).toContain('Hello Avery, your relationship segment is Customer.')
+
   const trackingConsent = page.getByRole('checkbox', { name: /track opens\/links/i })
   await expect(trackingConsent).not.toBeChecked()
   await trackingConsent.check()
@@ -350,6 +398,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByRole('button', { name: 'Send email', exact: true }).click()
   await expect(page.getByText(`Email sent to avery-${runID}@example.test.`, { exact: true })).toBeVisible()
   await expect(page.getByRole('list', { name: 'contact email history' }).getByText(directEmailSubject, { exact: true })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'contact email history' }).getByText(`[TEST] Pilot relationship Avery ${runID}`, { exact: true })).toHaveCount(0)
   expect(directEmailRequestCount).toBe(1)
   expect(directEmailIdempotencyKey).toMatch(/^record-email-/)
   await expect.poll(async () => {

@@ -88,14 +88,29 @@ func handleListEmailTemplates(auth authService, templates emailTemplatesService,
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-func handleListEmailTemplateMergeFields(auth authService, w http.ResponseWriter, r *http.Request) {
+func handleListEmailTemplateMergeFields(auth authService, customFields customFieldsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
-	if _, ok := requireOrgMember(auth, w, r); !ok {
+	state, ok := requireOrgMember(auth, w, r)
+	if !ok {
+		return
+	}
+	if customFields == nil {
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Custom fields service unavailable")
+		return
+	}
+	contactDefinitions, err := customFields.List(r.Context(), state.Organization.ID, "contact", false)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load merge fields")
+		return
+	}
+	companyDefinitions, err := customFields.List(r.Context(), state.Organization.ID, "company", false)
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load merge fields")
 		return
 	}
 
 	response := emailTemplateMergeFieldsResponse{}
-	response.Data.Groups = moduleemailtemplates.MergeFieldCatalog()
+	response.Data.Groups = moduleemailtemplates.MergeFieldCatalogWithCustomFields(contactDefinitions, companyDefinitions)
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }

@@ -1745,6 +1745,17 @@ sender identity, and suppression are checked again immediately before the effect
 and no ambiguous provider call is retried
 automatically.
 
+The same ledger carries explicit template tests with `purpose=test`. A preview
+has no durable or provider effect and reports every remaining `{{token}}`; the
+server rejects both customer and test sends while any token remains. A test is
+addressed only to the acting user's current sign-in address, revalidated at
+preparation and claim. It prefixes `[TEST]` plus a safety notice, forces
+engagement tracking off, and does not run customer suppression/unsubscribe or
+HTML rewriting. Its terminal email evidence is private and has no customer
+entity link, note, or activity. Separate template-test audit events retain the
+source record ID used for rendering without presenting the test as customer
+history.
+
 Provider acceptance becomes **Sent** only when the outbound email record,
 record link, note, activity, delivery state, and audit event commit together.
 It does not prove inbox placement. A definite rejection becomes **Failed** with
@@ -1764,16 +1775,18 @@ never calls a provider.
    `record email delivery recovery failed` in structured logs, repair
    PostgreSQL/migration health, and let the
    next one-minute pass retry. Never update the delivery ledger directly.
-3. Open the exact contact/company/deal Email card. For an uncertain item, check
-   the connected mailbox Sent folder using its exact recipient, subject, time,
-   and stable RFC `Message-ID`. Choose **Confirm sent** only when present,
+3. Open the exact contact/company/deal Email card. A template test is labeled
+   separately and its recipient must be the sender's sign-in address. For an
+   uncertain item, check the connected mailbox Sent folder using its exact
+   recipient, subject, time, and stable RFC `Message-ID`. Choose **Confirm sent** only when present,
    **Mark not sent** only when definitely absent, or **Retry explicitly** only
    after accepting that an earlier provider acceptance could make it a
    duplicate. Only the original active sender may retry; owners/admins may
    confirm or reject another sender's item after the same evidence review.
-4. Confirm-sent records the normal sent email/note/activity/audit transaction
+4. Confirm-sent records the normal customer email/note/activity/audit
+   transaction, or the private unlinked template-test email/audit transaction,
    without another provider effect. Mark-not-sent records a failed email and
-   closes the intent. Explicit retry returns the same immutable intent to
+   closes the intent under the same purpose rules. Explicit retry returns the same immutable intent to
    `prepared`, then rechecks active membership, the active record and exact
    contact/address, connected sender identity, suppression, and hosted writability
    before one new provider claim.
@@ -1790,10 +1803,10 @@ never calls a provider.
 An authorized database operator may inspect aggregate state only:
 
 ```sql
-SELECT status, COUNT(*)
+SELECT purpose, status, COUNT(*)
 FROM record_email_deliveries
-GROUP BY status
-ORDER BY status;
+GROUP BY purpose, status
+ORDER BY purpose, status;
 ```
 
 Do not select addresses, content, message IDs, provider IDs, tracking material,

@@ -2,7 +2,6 @@ import { useLayoutEffect, useState } from 'react'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { RecordEmailComposer } from '../components/record_email_composer'
-import { sendContactEmail } from '../lib/contacts'
 import { ClientAccountContext } from './client_account_context'
 import { ClientReviewSchedule } from './client_review_schedule'
 import { ContactSequencesCard } from './contact_communications'
@@ -126,7 +125,6 @@ export function ContactWorkspace({
           entityId={contact.id}
           canWrite={canWrite}
           recipientOptions={contact.email ? [{ id: contact.id, label: `${fullContactName(contact)} <${contact.email}>` }] : []}
-          sendEmail={sendContactEmail}
           emptyMessage="Add an email address to this contact before sending email."
           onDeliveryChanged={() => setEmailDeliveryRevision((current) => current + 1)}
         />

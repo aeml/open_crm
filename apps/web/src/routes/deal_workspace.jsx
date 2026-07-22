@@ -1,6 +1,5 @@
 import { Card } from '../components/ui/card'
 import { RecordEmailComposer } from '../components/record_email_composer'
-import { sendDealEmail } from '../lib/deals'
 import { DealDetailsEditor, DealStageMover } from './deal_editor'
 import { DealLineItemsCard, DealSignatureCard } from './deal_quote'
 import { DealQuoteVersionsCard } from './deal_quote_versions'
@@ -105,7 +104,6 @@ export function DealWorkspace({
           entityId={deal.id}
           canWrite={canWrite}
           recipientOptions={emailRecipients}
-          sendEmail={sendDealEmail}
           emptyMessage="Set a primary contact with an email address before sending email from this deal."
           mergeFieldHint="Merge fields like {{first_name}}, {{deal_name}}, {{deal_stage}}, and {{company_name}} are filled in when the email is sent."
         />

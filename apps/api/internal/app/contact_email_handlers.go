@@ -32,6 +32,7 @@ type sendEmailResponse struct {
 
 type recordEmailDeliveryView struct {
 	ID                 int64  `json:"id"`
+	Purpose            string `json:"purpose"`
 	EntityType         string `json:"entityType"`
 	EntityID           int64  `json:"entityId"`
 	ActorUserID        int64  `json:"actorUserId"`
@@ -50,7 +51,15 @@ type recordEmailDeliveryView struct {
 // comes from the user, not the platform. The subject and body may contain
 // {{merge_field}} placeholders, rendered server-side from contact data. A note
 // is logged on the contact so the send appears in its activity timeline.
-func handleSendContactEmail(auth authService, contacts contactsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
+func handleSendContactEmail(auth authService, contacts contactsService, customFields customFieldsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
+	handleContactEmail(auth, contacts, customFields, accounts, notes, messages, suppressions, "record", w, r)
+}
+
+func handleTestContactEmail(auth authService, contacts contactsService, customFields customFieldsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
+	handleContactEmail(auth, contacts, customFields, accounts, notes, messages, suppressions, "test", w, r)
+}
+
+func handleContactEmail(auth authService, contacts contactsService, customFields customFieldsService, accounts userEmailAccountService, _ notesService, messages emailMessagesService, suppressions emailSuppressionsService, purpose string, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -73,30 +82,27 @@ func handleSendContactEmail(auth authService, contacts contactsService, accounts
 	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
-	key, ok := recordEmailDeliveryKey(w, r, requestID, state.User.ID, "contact", contactID, contactID, request)
+	key, ok := recordEmailDeliveryKey(w, r, requestID, purpose, state.User.ID, "contact", contactID, contactID, request)
 	if !ok || replayRecordEmailDelivery(w, r, requestID, accounts, messages, suppressions, state, key) {
 		return
 	}
-	detail, err := contacts.GetByID(r.Context(), state.Organization.ID, contactID)
+	composition, err := loadContactEmailComposition(r.Context(), state.Organization.ID, contactID, contacts, customFields)
 	if err != nil {
-		if writeResourceNotFound(w, requestID, err) {
-			return
-		}
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load contact")
+		writeRecordEmailCompositionError(w, requestID, err)
 		return
 	}
-
-	to := strings.TrimSpace(detail.Summary.Email)
-	if to == "" {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Contact has no email address")
-		return
-	}
-
-	fields := contactMergeFields(detail)
-	prepareAndSendRecordEmail(w, r, requestID, accounts, messages, suppressions, state, key, contactID, to, request, fields)
+	prepareAndSendRecordEmail(w, r, requestID, accounts, messages, suppressions, state, key, composition.RecipientContactID, composition.RecipientEmail, request, composition.Fields)
 }
 
-func handleSendCompanyEmail(auth authService, companies companiesService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
+func handleSendCompanyEmail(auth authService, companies companiesService, contacts contactsService, customFields customFieldsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
+	handleCompanyEmail(auth, companies, contacts, customFields, accounts, notes, messages, suppressions, "record", w, r)
+}
+
+func handleTestCompanyEmail(auth authService, companies companiesService, contacts contactsService, customFields customFieldsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
+	handleCompanyEmail(auth, companies, contacts, customFields, accounts, notes, messages, suppressions, "test", w, r)
+}
+
+func handleCompanyEmail(auth authService, companies companiesService, contacts contactsService, customFields customFieldsService, accounts userEmailAccountService, _ notesService, messages emailMessagesService, suppressions emailSuppressionsService, purpose string, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -119,30 +125,27 @@ func handleSendCompanyEmail(auth authService, companies companiesService, accoun
 	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
-	key, ok := recordEmailDeliveryKey(w, r, requestID, state.User.ID, "company", companyID, request.ContactID, request)
+	key, ok := recordEmailDeliveryKey(w, r, requestID, purpose, state.User.ID, "company", companyID, request.ContactID, request)
 	if !ok || replayRecordEmailDelivery(w, r, requestID, accounts, messages, suppressions, state, key) {
 		return
 	}
-	detail, err := companies.GetByID(r.Context(), state.Organization.ID, companyID)
+	composition, err := loadCompanyEmailComposition(r.Context(), state.Organization.ID, companyID, request.ContactID, companies, contacts, customFields)
 	if err != nil {
-		if writeResourceNotFound(w, requestID, err) {
-			return
-		}
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load company")
+		writeRecordEmailCompositionError(w, requestID, err)
 		return
 	}
-
-	recipient, ok := companyEmailRecipient(detail, request.ContactID)
-	if !ok {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Company has no linked contact with an email address")
-		return
-	}
-
-	fields := companyMergeFields(detail, recipient)
-	prepareAndSendRecordEmail(w, r, requestID, accounts, messages, suppressions, state, key, recipient.ID, recipient.Email, request, fields)
+	prepareAndSendRecordEmail(w, r, requestID, accounts, messages, suppressions, state, key, composition.RecipientContactID, composition.RecipientEmail, request, composition.Fields)
 }
 
-func handleSendDealEmail(auth authService, deals dealsService, contacts contactsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
+func handleSendDealEmail(auth authService, deals dealsService, contacts contactsService, companies companiesService, customFields customFieldsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
+	handleDealEmail(auth, deals, contacts, companies, customFields, accounts, notes, messages, suppressions, "record", w, r)
+}
+
+func handleTestDealEmail(auth authService, deals dealsService, contacts contactsService, companies companiesService, customFields customFieldsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
+	handleDealEmail(auth, deals, contacts, companies, customFields, accounts, notes, messages, suppressions, "test", w, r)
+}
+
+func handleDealEmail(auth authService, deals dealsService, contacts contactsService, companies companiesService, customFields customFieldsService, accounts userEmailAccountService, _ notesService, messages emailMessagesService, suppressions emailSuppressionsService, purpose string, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -169,44 +172,16 @@ func handleSendDealEmail(auth authService, deals dealsService, contacts contacts
 	if !decodeJSONRequest(w, r, requestID, &request) {
 		return
 	}
-	key, ok := recordEmailDeliveryKey(w, r, requestID, state.User.ID, "deal", dealID, request.ContactID, request)
+	key, ok := recordEmailDeliveryKey(w, r, requestID, purpose, state.User.ID, "deal", dealID, request.ContactID, request)
 	if !ok || replayRecordEmailDelivery(w, r, requestID, accounts, messages, suppressions, state, key) {
 		return
 	}
-	detail, err := deals.GetByID(r.Context(), state.Organization.ID, dealID)
+	composition, err := loadDealEmailComposition(r.Context(), state.Organization.ID, dealID, request.ContactID, deals, contacts, companies, customFields)
 	if err != nil {
-		if writeResourceNotFound(w, requestID, err) {
-			return
-		}
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load deal")
+		writeRecordEmailCompositionError(w, requestID, err)
 		return
 	}
-
-	if detail.Summary.PrimaryContactID <= 0 {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Deal has no primary contact")
-		return
-	}
-	if request.ContactID > 0 && request.ContactID != detail.Summary.PrimaryContactID {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Recipient must be the deal primary contact")
-		return
-	}
-
-	contact, err := contacts.GetByID(r.Context(), state.Organization.ID, detail.Summary.PrimaryContactID)
-	if err != nil {
-		if writeResourceNotFound(w, requestID, err) {
-			return
-		}
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load deal primary contact")
-		return
-	}
-	to := strings.TrimSpace(contact.Summary.Email)
-	if to == "" {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Deal primary contact has no email address")
-		return
-	}
-
-	fields := dealMergeFields(detail, contact)
-	prepareAndSendRecordEmail(w, r, requestID, accounts, messages, suppressions, state, key, detail.Summary.PrimaryContactID, to, request, fields)
+	prepareAndSendRecordEmail(w, r, requestID, accounts, messages, suppressions, state, key, composition.RecipientContactID, composition.RecipientEmail, request, composition.Fields)
 }
 
 func contactMergeFields(detail modulecontacts.Detail) map[string]string {
@@ -292,16 +267,20 @@ func dealMergeFields(detail moduledeals.Detail, contact modulecontacts.Detail) m
 	return fields
 }
 
-func recordEmailDeliveryKey(w http.ResponseWriter, r *http.Request, requestID string, actorUserID int64, entityType string, entityID, requestedContactID int64, request sendRecordEmailRequest) (moduleemailmessages.RecordDeliveryKeyInput, bool) {
+func recordEmailDeliveryKey(w http.ResponseWriter, r *http.Request, requestID, purpose string, actorUserID int64, entityType string, entityID, requestedContactID int64, request sendRecordEmailRequest) (moduleemailmessages.RecordDeliveryKeyInput, bool) {
 	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if len(idempotencyKey) < 16 || len(idempotencyKey) > 200 {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide an Idempotency-Key header of 16-200 characters")
 		return moduleemailmessages.RecordDeliveryKeyInput{}, false
 	}
+	trackEngagement := request.TrackEngagement
+	if purpose == "test" {
+		trackEngagement = false
+	}
 	return moduleemailmessages.RecordDeliveryKeyInput{
-		EntityType: entityType, EntityID: entityID, RecipientContactID: requestedContactID,
+		Purpose: purpose, EntityType: entityType, EntityID: entityID, RecipientContactID: requestedContactID,
 		ActorUserID: actorUserID, SubjectTemplate: request.Subject, BodyTemplate: request.Body,
-		TrackEngagement: request.TrackEngagement, IdempotencyKey: idempotencyKey,
+		TrackEngagement: trackEngagement, IdempotencyKey: idempotencyKey,
 	}, true
 }
 
@@ -330,7 +309,23 @@ func prepareAndSendRecordEmail(w http.ResponseWriter, r *http.Request, requestID
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Subject and body are required")
 		return
 	}
-	if suppressions != nil {
+	if unresolved := moduleemailtemplates.UnresolvedTokens(subject, body); len(unresolved) > 0 {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_MERGE_FIELDS_UNRESOLVED", "Preview and resolve every unknown merge field before sending")
+		return
+	}
+	recipientUserID := int64(0)
+	if key.Purpose == "test" {
+		to = strings.TrimSpace(state.User.Email)
+		recipientUserID = state.User.ID
+		subject = "[TEST] " + subject
+		body = "This is an Open CRM template test sent only to you. The CRM recipient did not receive it.\n\n" + body
+		request.TrackEngagement = false
+		if len(subject) > 998 || len(body) > 110000 {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Test subject or body is too long after adding the test notice")
+			return
+		}
+	}
+	if key.Purpose == "record" && suppressions != nil {
 		suppressed, err := suppressions.IsSuppressed(r.Context(), organizationID, to)
 		if err != nil {
 			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to check email suppression status")
@@ -341,7 +336,10 @@ func prepareAndSendRecordEmail(w http.ResponseWriter, r *http.Request, requestID
 			return
 		}
 	}
-	unsubscribeURL := emailUnsubscribeURL(r, suppressions, organizationID, to)
+	unsubscribeURL := ""
+	if key.Purpose == "record" {
+		unsubscribeURL = emailUnsubscribeURL(r, suppressions, organizationID, to)
+	}
 	bodyToSend := textBodyWithUnsubscribe(body, unsubscribeURL)
 	trackingToken := ""
 	trackingURL := ""
@@ -371,7 +369,7 @@ func prepareAndSendRecordEmail(w http.ResponseWriter, r *http.Request, requestID
 		return
 	}
 	delivery, err := messages.PrepareRecordDelivery(r.Context(), organizationID, moduleemailmessages.PrepareRecordDeliveryInput{
-		Request: key, ResolvedRecipientContactID: resolvedContactID, SenderEmail: account.FromEmail,
+		Request: key, ResolvedRecipientContactID: resolvedContactID, ResolvedRecipientUserID: recipientUserID, SenderEmail: account.FromEmail,
 		RecipientEmail: to, Subject: subject, TextBody: bodyToSend, HTMLBody: htmlBody,
 		ListUnsubscribeURL: moduleemail.OneClickUnsubscribeURL(unsubscribeURL), RFCMessageID: rfcMessageID,
 		TrackingToken: trackingToken, TrackedLinks: trackedLinks,
@@ -409,7 +407,7 @@ func sendRecordEmailDelivery(w http.ResponseWriter, r *http.Request, requestID s
 		platformweb.WriteError(w, http.StatusConflict, requestID, "EMAIL_SENDER_CHANGED", failure.Error())
 		return
 	}
-	if suppressions != nil {
+	if claimed.Purpose == "record" && suppressions != nil {
 		suppressed, suppressionErr := suppressions.IsSuppressed(r.Context(), state.Organization.ID, claimed.RecipientEmail)
 		if suppressionErr != nil {
 			_, _ = messages.FailRecordDelivery(r.Context(), state.Organization.ID, claimed.ID, suppressionErr, false)

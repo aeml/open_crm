@@ -87,6 +87,33 @@ export async function resolveRecordEmailDelivery(deliveryId, resolution, { signa
   return payload?.data
 }
 
+function recordEmailActionPath(entityType, entityId, action) {
+  const route = { contact: 'contacts', company: 'companies', deal: 'deals' }[entityType]
+  if (!route || !entityId) throw new Error('A supported record is required for email composition.')
+  return `/api/${route}/${entityId}/${action}`
+}
+
+export async function previewRecordEmail(entityType, entityId, input, { signal } = {}) {
+  const payload = await apiRequest(recordEmailActionPath(entityType, entityId, 'email-preview'), {
+    method: 'POST', body: input, fallbackMessage: 'Unable to preview the merged email.', signal
+  })
+  return payload?.data
+}
+
+export async function sendRecordEmailTest(entityType, entityId, input, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest(recordEmailActionPath(entityType, entityId, 'email-test'), {
+    method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: 'Unable to send the template test.', signal
+  })
+  return payload?.data
+}
+
+export async function sendRecordEmail(entityType, entityId, input, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest(recordEmailActionPath(entityType, entityId, 'email'), {
+    method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: 'Unable to send email.', signal
+  })
+  return payload?.data
+}
+
 export async function resolveEmailReply(replyId, resolution, { signal } = {}) {
   const payload = await apiRequest(`/api/email-replies/${replyId}/resolve`, {
     method: 'POST', body: { resolution }, fallbackMessage: 'Unable to resolve email reply.', signal

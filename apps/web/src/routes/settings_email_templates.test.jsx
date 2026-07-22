@@ -31,7 +31,10 @@ describe('settings email templates route', () => {
         return sessionResponse()
       }
       if (path.endsWith('/api/email-templates/merge-fields')) {
-        return jsonResponse({ data: { groups: [{ key: 'contact', label: 'Contact fields', fields: [{ token: '{{first_name}}', label: 'First name' }] }] } })
+        return jsonResponse({ data: { groups: [
+          { key: 'contact', label: 'Contact fields', fields: [{ token: '{{first_name}}', label: 'First name' }] },
+          { key: 'contact_custom', label: 'Contact custom fields', fields: [{ token: '{{contact.custom.region}}', label: 'Region' }] }
+        ] } })
       }
       if (path.endsWith('/api/email-snippets') && method === 'POST') {
         return jsonResponse({ data: { snippet: { id: 6, name: 'Scheduling CTA', body: 'Would next week work?' } } })
@@ -57,6 +60,7 @@ describe('settings email templates route', () => {
     expect(await screen.findByRole('heading', { name: /welcome/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /trial cta/i })).toBeInTheDocument()
     expect(await screen.findByText('{{first_name}}')).toBeInTheDocument()
+    expect(await screen.findByText('{{contact.custom.region}}')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Follow up' } })
     fireEvent.change(screen.getByLabelText(/^subject$/i), { target: { value: 'Checking in' } })

@@ -1,7 +1,6 @@
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { RecordEmailComposer } from '../components/record_email_composer'
-import { sendCompanyEmail } from '../lib/companies'
 import { ClientAccountContext } from './client_account_context'
 import { ClientReviewSchedule } from './client_review_schedule'
 import { CompanyForm } from './company_form'
@@ -103,7 +102,6 @@ export function CompanyWorkspace({
           entityId={company.id}
           canWrite={canWrite}
           recipientOptions={emailRecipients}
-          sendEmail={sendCompanyEmail}
           emptyMessage="Add a linked person with an email address before sending email from this client."
           mergeFieldHint="Merge fields like {{first_name}}, {{company_name}}, and {{client_status}} are filled in when the email is sent."
         />

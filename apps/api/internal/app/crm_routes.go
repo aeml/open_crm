@@ -58,7 +58,13 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 		handleArchiveContact(dependencies.AuthService, dependencies.ContactsService, w, r)
 	})
 	mux.HandleFunc("POST /api/contacts/{contactID}/email", func(w http.ResponseWriter, r *http.Request) {
-		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+		handleSendContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.CustomFieldsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+	})
+	mux.HandleFunc("POST /api/contacts/{contactID}/email-preview", func(w http.ResponseWriter, r *http.Request) {
+		handlePreviewRecordEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.CompaniesService, dependencies.DealsService, dependencies.CustomFieldsService, "contact", w, r)
+	})
+	mux.HandleFunc("POST /api/contacts/{contactID}/email-test", func(w http.ResponseWriter, r *http.Request) {
+		handleTestContactEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.CustomFieldsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("POST /api/contacts/{contactID}/sms", func(w http.ResponseWriter, r *http.Request) {
 		handleSendContactSMS(dependencies.AuthService, dependencies.ContactsService, dependencies.SMSService, w, r)
@@ -136,7 +142,13 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 		handleArchiveCompany(dependencies.AuthService, dependencies.CompaniesService, w, r)
 	})
 	mux.HandleFunc("POST /api/companies/{companyID}/email", func(w http.ResponseWriter, r *http.Request) {
-		handleSendCompanyEmail(dependencies.AuthService, dependencies.CompaniesService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+		handleSendCompanyEmail(dependencies.AuthService, dependencies.CompaniesService, dependencies.ContactsService, dependencies.CustomFieldsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+	})
+	mux.HandleFunc("POST /api/companies/{companyID}/email-preview", func(w http.ResponseWriter, r *http.Request) {
+		handlePreviewRecordEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.CompaniesService, dependencies.DealsService, dependencies.CustomFieldsService, "company", w, r)
+	})
+	mux.HandleFunc("POST /api/companies/{companyID}/email-test", func(w http.ResponseWriter, r *http.Request) {
+		handleTestCompanyEmail(dependencies.AuthService, dependencies.CompaniesService, dependencies.ContactsService, dependencies.CustomFieldsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("POST /api/companies/{companyID}/linked-contacts", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateLinkedCompanyPerson(dependencies.AuthService, dependencies.ContactsService, dependencies.BillingService, w, r)
@@ -205,7 +217,13 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 		handleArchiveDeal(dependencies.AuthService, dependencies.DealsService, w, r)
 	})
 	mux.HandleFunc("POST /api/deals/{dealID}/email", func(w http.ResponseWriter, r *http.Request) {
-		handleSendDealEmail(dependencies.AuthService, dependencies.DealsService, dependencies.ContactsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+		handleSendDealEmail(dependencies.AuthService, dependencies.DealsService, dependencies.ContactsService, dependencies.CompaniesService, dependencies.CustomFieldsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+	})
+	mux.HandleFunc("POST /api/deals/{dealID}/email-preview", func(w http.ResponseWriter, r *http.Request) {
+		handlePreviewRecordEmail(dependencies.AuthService, dependencies.ContactsService, dependencies.CompaniesService, dependencies.DealsService, dependencies.CustomFieldsService, "deal", w, r)
+	})
+	mux.HandleFunc("POST /api/deals/{dealID}/email-test", func(w http.ResponseWriter, r *http.Request) {
+		handleTestDealEmail(dependencies.AuthService, dependencies.DealsService, dependencies.ContactsService, dependencies.CompaniesService, dependencies.CustomFieldsService, dependencies.UserEmailService, dependencies.NotesService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/deals/{dealID}/stage", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateDealStage(dependencies.AuthService, dependencies.DealsService, w, r)

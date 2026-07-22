@@ -10,6 +10,7 @@ import (
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
 )
 
@@ -91,6 +92,10 @@ func (f *fakeEmailTemplatesService) DeleteSnippet(_ context.Context, organizatio
 }
 
 func authenticatedEmailTemplatesServer(service *fakeEmailTemplatesService, role string) http.Handler {
+	return authenticatedEmailTemplatesServerWithCustomFields(service, role, &fakeCustomFieldsService{})
+}
+
+func authenticatedEmailTemplatesServerWithCustomFields(service *fakeEmailTemplatesService, role string, customFields customFieldsService) http.Handler {
 	return NewServer(config.Env{}, Dependencies{
 		AuthService: &fakeAuthService{
 			currentSessionResult: moduleauth.SessionState{
@@ -100,6 +105,7 @@ func authenticatedEmailTemplatesServer(service *fakeEmailTemplatesService, role 
 			},
 		},
 		EmailTemplatesService: service,
+		CustomFieldsService:   customFields,
 	})
 }
 
@@ -136,7 +142,9 @@ func TestListEmailTemplatesScopesToOrganization(t *testing.T) {
 }
 
 func TestListEmailTemplateMergeFields(t *testing.T) {
-	server := authenticatedEmailTemplatesServer(nil, "member")
+	server := authenticatedEmailTemplatesServerWithCustomFields(nil, "member", &fakeCustomFieldsService{definitions: []modulecustomfields.Definition{
+		{EntityType: "contact", FieldKey: "region", Label: "Region", DataType: "select"},
+	}})
 
 	request := httptest.NewRequest(http.MethodGet, "/api/email-templates/merge-fields", nil)
 	addSessionCookie(request)
@@ -159,7 +167,7 @@ func TestListEmailTemplateMergeFields(t *testing.T) {
 	if len(response.Data.Groups) < 3 {
 		t.Fatalf("expected contact/company/deal merge field groups, got %#v", response.Data.Groups)
 	}
-	var foundFirstName, foundDealName bool
+	var foundFirstName, foundDealName, foundCustomRegion bool
 	for _, group := range response.Data.Groups {
 		for _, field := range group.Fields {
 			if field.Token == "{{first_name}}" {
@@ -168,9 +176,12 @@ func TestListEmailTemplateMergeFields(t *testing.T) {
 			if field.Token == "{{deal_name}}" {
 				foundDealName = true
 			}
+			if field.Token == "{{contact.custom.region}}" {
+				foundCustomRegion = true
+			}
 		}
 	}
-	if !foundFirstName || !foundDealName {
+	if !foundFirstName || !foundDealName || !foundCustomRegion {
 		t.Fatalf("expected contact and deal merge fields, got %#v", response.Data.Groups)
 	}
 }

@@ -107,7 +107,7 @@ func toRecordEmailDeliveryView(state moduleauth.SessionState, delivery moduleema
 	owned := delivery.ActorUserID == state.User.ID
 	canManage := isOrgAdminRole(state.Membership.Role)
 	return recordEmailDeliveryView{
-		ID: delivery.ID, EntityType: delivery.EntityType, EntityID: delivery.EntityID,
+		ID: delivery.ID, Purpose: delivery.Purpose, EntityType: delivery.EntityType, EntityID: delivery.EntityID,
 		ActorUserID: delivery.ActorUserID, To: delivery.RecipientEmail, Subject: delivery.Subject,
 		Status: delivery.Status, Sent: delivery.Status == "accepted", LastError: delivery.LastError,
 		OwnedByCurrentUser: owned, CanRetry: delivery.Status == "uncertain" && owned,

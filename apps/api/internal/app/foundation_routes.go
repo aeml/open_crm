@@ -28,7 +28,7 @@ func registerFoundationRoutes(mux *http.ServeMux, dependencies Dependencies, rat
 		handleListEmailTemplates(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-templates/merge-fields", func(w http.ResponseWriter, r *http.Request) {
-		handleListEmailTemplateMergeFields(dependencies.AuthService, w, r)
+		handleListEmailTemplateMergeFields(dependencies.AuthService, dependencies.CustomFieldsService, w, r)
 	})
 	mux.HandleFunc("POST /api/email-templates", func(w http.ResponseWriter, r *http.Request) {
 		handleCreateEmailTemplate(dependencies.AuthService, dependencies.EmailTemplatesService, w, r)

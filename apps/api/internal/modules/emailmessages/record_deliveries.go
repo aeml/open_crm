@@ -23,6 +23,7 @@ var (
 const staleRecordDeliveryClaimAfter = 5 * time.Minute
 
 type RecordDeliveryKeyInput struct {
+	Purpose            string
 	EntityType         string
 	EntityID           int64
 	RecipientContactID int64
@@ -36,6 +37,7 @@ type RecordDeliveryKeyInput struct {
 type PrepareRecordDeliveryInput struct {
 	Request                    RecordDeliveryKeyInput
 	ResolvedRecipientContactID int64
+	ResolvedRecipientUserID    int64
 	SenderEmail                string
 	RecipientEmail             string
 	Subject                    string
@@ -50,9 +52,11 @@ type PrepareRecordDeliveryInput struct {
 type RecordDelivery struct {
 	ID                     int64
 	OrganizationID         int64
+	Purpose                string
 	EntityType             string
 	EntityID               int64
 	RecipientContactID     int64
+	RecipientUserID        int64
 	ActorUserID            int64
 	SenderEmail            string
 	RecipientEmail         string
@@ -128,6 +132,12 @@ func (s *Service) PrepareRecordDelivery(ctx context.Context, organizationID int6
 		len(input.ListUnsubscribeURL) > 2000 || input.RFCMessageID == "" {
 		return RecordDelivery{}, ErrInvalidInput
 	}
+	if input.Request.Purpose == "record" && input.ResolvedRecipientUserID != 0 {
+		return RecordDelivery{}, ErrInvalidInput
+	}
+	if input.Request.Purpose == "test" && (input.ResolvedRecipientUserID != input.Request.ActorUserID || input.ResolvedRecipientUserID <= 0 || input.Request.TrackEngagement) {
+		return RecordDelivery{}, ErrInvalidInput
+	}
 	if input.Request.TrackEngagement {
 		if !validEmailTrackingToken(input.TrackingToken) {
 			return RecordDelivery{}, ErrInvalidInput
@@ -185,7 +195,7 @@ func (s *Service) PrepareRecordDelivery(ctx context.Context, organizationID int6
 	if !exists {
 		return RecordDelivery{}, ErrNotFound
 	}
-	recipientExists, err := recordEmailRecipientMatches(ctx, tx, organizationID, input.ResolvedRecipientContactID, input.RecipientEmail)
+	recipientExists, err := recordEmailRecipientMatches(ctx, tx, organizationID, input.Request.Purpose, input.ResolvedRecipientContactID, input.ResolvedRecipientUserID, input.RecipientEmail)
 	if err != nil {
 		return RecordDelivery{}, err
 	}
@@ -194,15 +204,15 @@ func (s *Service) PrepareRecordDelivery(ctx context.Context, organizationID int6
 	}
 	delivery, err = scanRecordDelivery(tx.QueryRow(ctx, `
 		INSERT INTO record_email_deliveries (
-		  organization_id,entity_type,entity_id,recipient_contact_id,actor_user_id,
+		  organization_id,purpose,entity_type,entity_id,recipient_contact_id,recipient_user_id,actor_user_id,
 		  sender_email,recipient_email,subject,text_body,html_body,list_unsubscribe_url,
 		  rfc_message_id,track_engagement,tracking_token,tracked_links_json,
 		  idempotency_key_hash,request_sha256
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+		VALUES ($1,$2,$3,$4,$5,NULLIF($6,0),$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		RETURNING `+recordDeliveryColumns+`
-	`, organizationID, input.Request.EntityType, input.Request.EntityID, input.ResolvedRecipientContactID,
-		input.Request.ActorUserID, input.SenderEmail, input.RecipientEmail, input.Subject, input.TextBody,
+	`, organizationID, input.Request.Purpose, input.Request.EntityType, input.Request.EntityID, input.ResolvedRecipientContactID,
+		input.ResolvedRecipientUserID, input.Request.ActorUserID, input.SenderEmail, input.RecipientEmail, input.Subject, input.TextBody,
 		input.HTMLBody, input.ListUnsubscribeURL, input.RFCMessageID, input.Request.TrackEngagement,
 		input.TrackingToken, linksJSON, keyHash, requestHash))
 	if err != nil {
@@ -257,7 +267,7 @@ func (s *Service) ClaimRecordDelivery(ctx context.Context, organizationID, deliv
 	if err != nil {
 		return RecordDelivery{}, false, err
 	}
-	recipientMatches, err := recordEmailRecipientMatches(ctx, tx, organizationID, delivery.RecipientContactID, delivery.RecipientEmail)
+	recipientMatches, err := recordEmailRecipientMatches(ctx, tx, organizationID, delivery.Purpose, delivery.RecipientContactID, delivery.RecipientUserID, delivery.RecipientEmail)
 	if err != nil {
 		return RecordDelivery{}, false, err
 	}
@@ -413,10 +423,16 @@ func (s *Service) ResolveRecordDelivery(ctx context.Context, organizationID, del
 	if err != nil {
 		return RecordDeliveryResolution{}, fmt.Errorf("resolve record email delivery: %w", err)
 	}
+	eventType := "email.record_delivery_resolved"
+	summary := "Resolved uncertain record email"
+	if delivery.Purpose == "test" {
+		eventType = "email.template_test_resolved"
+		summary = "Resolved uncertain email template test"
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
-		VALUES ($1,$2,'email.record_delivery_resolved',$3,$4,'Resolved uncertain record email',jsonb_build_object('deliveryId',$5::bigint,'resolution',$6::text))
-	`, organizationID, actorUserID, delivery.EntityType, delivery.EntityID, delivery.ID, resolution); err != nil {
+		VALUES ($1,$2,$3,$4,$5,$6,jsonb_build_object('deliveryId',$7::bigint,'resolution',$8::text,'purpose',$9::text))
+	`, organizationID, actorUserID, eventType, delivery.EntityType, delivery.EntityID, summary, delivery.ID, resolution, delivery.Purpose); err != nil {
 		return RecordDeliveryResolution{}, fmt.Errorf("record email resolution audit: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -467,17 +483,19 @@ func finalizeAcceptedRecordDeliveryTx(ctx context.Context, tx pgx.Tx, delivery R
 	if err != nil {
 		return RecordDelivery{}, err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO notes (organization_id,entity_type,entity_id,body,created_by_user_id)
-		VALUES ($1,$2,$3,$4,$5)
-	`, delivery.OrganizationID, delivery.EntityType, delivery.EntityID, "Sent email: "+delivery.Subject, delivery.ActorUserID); err != nil {
-		return RecordDelivery{}, fmt.Errorf("record accepted email note: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO activities (organization_id,entity_type,entity_id,actor_user_id,action,summary,metadata_json)
-		VALUES ($1,$2,$3,$4,'email.sent','Email sent',jsonb_build_object('deliveryId',$5::bigint,'emailMessageId',$6::bigint))
-	`, delivery.OrganizationID, delivery.EntityType, delivery.EntityID, delivery.ActorUserID, delivery.ID, messageID); err != nil {
-		return RecordDelivery{}, fmt.Errorf("record accepted email activity: %w", err)
+	if delivery.Purpose == "record" {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO notes (organization_id,entity_type,entity_id,body,created_by_user_id)
+			VALUES ($1,$2,$3,$4,$5)
+		`, delivery.OrganizationID, delivery.EntityType, delivery.EntityID, "Sent email: "+delivery.Subject, delivery.ActorUserID); err != nil {
+			return RecordDelivery{}, fmt.Errorf("record accepted email note: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO activities (organization_id,entity_type,entity_id,actor_user_id,action,summary,metadata_json)
+			VALUES ($1,$2,$3,$4,'email.sent','Email sent',jsonb_build_object('deliveryId',$5::bigint,'emailMessageId',$6::bigint))
+		`, delivery.OrganizationID, delivery.EntityType, delivery.EntityID, delivery.ActorUserID, delivery.ID, messageID); err != nil {
+			return RecordDelivery{}, fmt.Errorf("record accepted email activity: %w", err)
+		}
 	}
 	receipt.ProviderMessageID = boundedCorrelationID(receipt.ProviderMessageID)
 	receipt.ProviderThreadID = boundedCorrelationID(receipt.ProviderThreadID)
@@ -495,10 +513,16 @@ func finalizeAcceptedRecordDeliveryTx(ctx context.Context, tx pgx.Tx, delivery R
 	if err != nil {
 		return RecordDelivery{}, fmt.Errorf("finalize accepted record email: %w", err)
 	}
+	eventType := "email.record_delivery_accepted"
+	summary := "Recorded accepted record email"
+	if delivery.Purpose == "test" {
+		eventType = "email.template_test_accepted"
+		summary = "Recorded accepted email template test"
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
-		VALUES ($1,$2,'email.record_delivery_accepted',$3,$4,'Recorded accepted record email',jsonb_build_object('deliveryId',$5::bigint,'emailMessageId',$6::bigint))
-	`, delivery.OrganizationID, delivery.ActorUserID, delivery.EntityType, delivery.EntityID, delivery.ID, messageID); err != nil {
+		VALUES ($1,$2,$3,$4,$5,$6,jsonb_build_object('deliveryId',$7::bigint,'emailMessageId',$8::bigint,'purpose',$9::text))
+	`, delivery.OrganizationID, delivery.ActorUserID, eventType, delivery.EntityType, delivery.EntityID, summary, delivery.ID, messageID, delivery.Purpose); err != nil {
 		return RecordDelivery{}, fmt.Errorf("record accepted email audit: %w", err)
 	}
 	return delivery, nil
@@ -553,6 +577,14 @@ func insertRecordDeliveryEmailMessageTx(ctx context.Context, tx pgx.Tx, delivery
 	if delivery.ListUnsubscribeURL != "" {
 		messageBody = strings.TrimSuffix(messageBody, "\n\nUnsubscribe: "+delivery.ListUnsubscribeURL)
 	}
+	messageEntityType := delivery.EntityType
+	var messageEntityID any = delivery.EntityID
+	messageVisibility := "shared"
+	if delivery.Purpose == "test" {
+		messageEntityType = ""
+		messageEntityID = nil
+		messageVisibility = "private"
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO email_messages (
 		  id,organization_id,direction,from_email,to_email,subject,body,status,visibility,error,
@@ -561,15 +593,17 @@ func insertRecordDeliveryEmailMessageTx(ctx context.Context, tx pgx.Tx, delivery
 		  engagement_tracking_authorized_by_user_id,engagement_tracking_authorized_at,
 		  engagement_tracking_expires_at,thread_root_message_id
 		)
-		VALUES ($1,$2,'outbound',$3,$4,$5,$6,$7,'shared',$8,$9,$10,$11,$11,$12,$13,$14,$15,$16,$17,$18,$19,$1)
+		VALUES ($1,$2,'outbound',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17,$18,$19,$20,$1)
 	`, messageID, delivery.OrganizationID, delivery.SenderEmail, delivery.RecipientEmail, delivery.Subject,
-		messageBody, status, errorMessage, delivery.EntityType, delivery.EntityID, delivery.ActorUserID,
+		messageBody, status, messageVisibility, errorMessage, messageEntityType, messageEntityID, delivery.ActorUserID,
 		trackingToken, delivery.RFCMessageID, receipt.ProviderMessageID, receipt.ProviderThreadID,
 		trackEngagement, trackingAuthorizedBy, trackingAuthorizedAt, trackingExpiresAt); err != nil {
 		return 0, fmt.Errorf("record finalized record email message: %w", err)
 	}
-	if err := insertEntityLinks(ctx, tx, delivery.OrganizationID, messageID, []EntityLinkInput{{EntityType: delivery.EntityType, EntityID: delivery.EntityID}}); err != nil {
-		return 0, err
+	if delivery.Purpose == "record" {
+		if err := insertEntityLinks(ctx, tx, delivery.OrganizationID, messageID, []EntityLinkInput{{EntityType: delivery.EntityType, EntityID: delivery.EntityID}}); err != nil {
+			return 0, err
+		}
 	}
 	if trackEngagement {
 		for _, link := range sanitizedTrackedLinks(delivery.TrackedLinks) {
@@ -600,8 +634,26 @@ func recordEmailEntityExists(ctx context.Context, tx pgx.Tx, organizationID int6
 	return exists, nil
 }
 
-func recordEmailRecipientMatches(ctx context.Context, tx pgx.Tx, organizationID, contactID int64, recipientEmail string) (bool, error) {
+func recordEmailRecipientMatches(ctx context.Context, tx pgx.Tx, organizationID int64, purpose string, contactID, recipientUserID int64, recipientEmail string) (bool, error) {
 	var exists bool
+	if purpose == "test" {
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+			  SELECT 1
+			  FROM organization_memberships membership
+			  JOIN users user_account ON user_account.id=membership.user_id
+			  WHERE membership.organization_id=$1 AND membership.user_id=$2
+			    AND COALESCE(membership.membership_status,'active')='active'
+			    AND LOWER(BTRIM(user_account.email))=$3
+			)
+		`, organizationID, recipientUserID, strings.ToLower(strings.TrimSpace(recipientEmail))).Scan(&exists); err != nil {
+			return false, fmt.Errorf("verify record email test recipient: %w", err)
+		}
+		return exists, nil
+	}
+	if purpose != "record" || recipientUserID != 0 {
+		return false, ErrInvalidInput
+	}
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
 		  SELECT 1 FROM contacts
@@ -654,7 +706,7 @@ func markRecordDeliveryUncertainTx(ctx context.Context, tx pgx.Tx, deliveryID in
 	return delivery, nil
 }
 
-const recordDeliveryColumns = `id,organization_id,entity_type,entity_id,recipient_contact_id,actor_user_id,sender_email,recipient_email,subject,text_body,html_body,list_unsubscribe_url,rfc_message_id,track_engagement,tracking_token,tracked_links_json,status,provider_message_id,provider_thread_id,COALESCE(outbound_email_message_id,0),last_error,claimed_at,finalized_at,created_at,updated_at`
+const recordDeliveryColumns = `id,organization_id,purpose,entity_type,entity_id,recipient_contact_id,COALESCE(recipient_user_id,0),actor_user_id,sender_email,recipient_email,subject,text_body,html_body,list_unsubscribe_url,rfc_message_id,track_engagement,tracking_token,tracked_links_json,status,provider_message_id,provider_thread_id,COALESCE(outbound_email_message_id,0),last_error,claimed_at,finalized_at,created_at,updated_at`
 
 type recordDeliveryScanner interface{ Scan(...any) error }
 
@@ -667,7 +719,7 @@ func scanRecordDeliveryWithHash(scanner recordDeliveryScanner, requestHash *stri
 	var trackedLinksJSON []byte
 	var claimedAt, finalizedAt pgtype.Timestamptz
 	destinations := []any{
-		&delivery.ID, &delivery.OrganizationID, &delivery.EntityType, &delivery.EntityID, &delivery.RecipientContactID,
+		&delivery.ID, &delivery.OrganizationID, &delivery.Purpose, &delivery.EntityType, &delivery.EntityID, &delivery.RecipientContactID, &delivery.RecipientUserID,
 		&delivery.ActorUserID, &delivery.SenderEmail, &delivery.RecipientEmail, &delivery.Subject, &delivery.TextBody,
 		&delivery.HTMLBody, &delivery.ListUnsubscribeURL, &delivery.RFCMessageID, &delivery.TrackEngagement,
 		&delivery.TrackingToken, &trackedLinksJSON, &delivery.Status, &delivery.ProviderMessageID, &delivery.ProviderThreadID,
@@ -697,6 +749,10 @@ func scanRecordDeliveryWithHash(scanner recordDeliveryScanner, requestHash *stri
 }
 
 func normalizeRecordDeliveryKeyInput(input RecordDeliveryKeyInput) RecordDeliveryKeyInput {
+	input.Purpose = strings.ToLower(strings.TrimSpace(input.Purpose))
+	if input.Purpose == "" {
+		input.Purpose = "record"
+	}
 	input.EntityType = strings.ToLower(strings.TrimSpace(input.EntityType))
 	input.IdempotencyKey = strings.TrimSpace(input.IdempotencyKey)
 	return input
@@ -704,7 +760,8 @@ func normalizeRecordDeliveryKeyInput(input RecordDeliveryKeyInput) RecordDeliver
 
 func validRecordDeliveryKeyInput(organizationID int64, input RecordDeliveryKeyInput) bool {
 	return organizationID > 0 && input.EntityID > 0 && input.RecipientContactID >= 0 && input.ActorUserID > 0 &&
-		supportedRecordEmailEntityType(input.EntityType) && len(input.SubjectTemplate) <= 100000 && len(input.BodyTemplate) <= 100000 &&
+		(input.Purpose == "record" || input.Purpose == "test") && supportedRecordEmailEntityType(input.EntityType) &&
+		len(input.SubjectTemplate) <= 100000 && len(input.BodyTemplate) <= 100000 &&
 		len(input.IdempotencyKey) >= 16 && len(input.IdempotencyKey) <= 200
 }
 
@@ -714,6 +771,7 @@ func supportedRecordEmailEntityType(entityType string) bool {
 
 func recordDeliveryRequestHash(input RecordDeliveryKeyInput) (string, error) {
 	encoded, err := json.Marshal(struct {
+		Purpose            string `json:"purpose"`
 		EntityType         string `json:"entityType"`
 		EntityID           int64  `json:"entityId"`
 		RecipientContactID int64  `json:"recipientContactId"`
@@ -721,7 +779,7 @@ func recordDeliveryRequestHash(input RecordDeliveryKeyInput) (string, error) {
 		SubjectTemplate    string `json:"subjectTemplate"`
 		BodyTemplate       string `json:"bodyTemplate"`
 		TrackEngagement    bool   `json:"trackEngagement"`
-	}{input.EntityType, input.EntityID, input.RecipientContactID, input.ActorUserID, input.SubjectTemplate, input.BodyTemplate, input.TrackEngagement})
+	}{input.Purpose, input.EntityType, input.EntityID, input.RecipientContactID, input.ActorUserID, input.SubjectTemplate, input.BodyTemplate, input.TrackEngagement})
 	if err != nil {
 		return "", fmt.Errorf("encode record email request: %w", err)
 	}

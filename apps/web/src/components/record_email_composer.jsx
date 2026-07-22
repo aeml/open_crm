@@ -5,7 +5,7 @@ import { Field } from './ui/field'
 import { InlineError } from './ui/inline_error'
 import { MergeFieldCatalog } from './merge_field_catalog'
 import { isAbortError } from '../lib/api'
-import { listEmailMessages, listRecordEmailDeliveries, resolveRecordEmailDelivery } from '../lib/email_messages'
+import { listEmailMessages, listRecordEmailDeliveries, previewRecordEmail, resolveRecordEmailDelivery, sendRecordEmail, sendRecordEmailTest } from '../lib/email_messages'
 import { listEmailTemplates, listEmailTemplateMergeFields, listEmailSnippets } from '../lib/email_templates'
 
 const emptyForm = { subject: '', body: '', trackEngagement: false }
@@ -41,7 +41,10 @@ function RecordEmailComposerState({ entityType, entityId, canWrite, recipientOpt
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [isPreviewing, setIsPreviewing] = useState(false)
+  const [preview, setPreview] = useState(null)
   const deliveryKey = useRef(newRecordEmailKey())
+  const testDeliveryKey = useRef(newRecordEmailKey())
 
   useEffect(() => {
     if (recipientOptions.length === 0) {
@@ -55,6 +58,11 @@ function RecordEmailComposerState({ entityType, entityId, canWrite, recipientOpt
       return String(recipientOptions[0].id)
     })
   }, [recipientOptions])
+
+  useEffect(() => {
+    setPreview(null)
+    testDeliveryKey.current = newRecordEmailKey()
+  }, [form.subject, form.body, selectedRecipientId])
 
   async function loadHistory() {
     if (!entityType || !entityId) {
@@ -120,17 +128,65 @@ function RecordEmailComposerState({ entityType, entityId, canWrite, recipientOpt
     })
   }
 
+  function compositionInput() {
+    const contactId = Number.parseInt(selectedRecipientId, 10) || 0
+    return entityType === 'contact' ? { ...form } : { ...form, contactId }
+  }
+
+  async function handlePreview() {
+    if (!entityId || recipientOptions.length === 0) return
+    setIsPreviewing(true)
+    setStatus('')
+    setError('')
+    try {
+      setPreview(await previewRecordEmail(entityType, entityId, compositionInput()))
+    } catch (previewError) {
+      if (!isAbortError(previewError)) setError(previewError.message || 'Unable to preview the merged email.')
+    } finally {
+      setIsPreviewing(false)
+    }
+  }
+
+  async function refreshHistoryQuietly() {
+    try {
+      await loadHistory()
+    } catch {
+      // The provider outcome remains the actionable result.
+    }
+  }
+
+  async function handleSendTest() {
+    if (!entityId || !preview || preview.unresolvedMergeFields?.length > 0) return
+    setIsSending(true)
+    setStatus('')
+    setError('')
+    try {
+      const result = await sendRecordEmailTest(entityType, entityId, compositionInput(), testDeliveryKey.current)
+      if (result?.status === 'accepted' || result?.sent) {
+        setStatus(`Test email sent only to ${result?.to || 'your sign-in address'}. The CRM recipient was not emailed.`)
+        testDeliveryKey.current = newRecordEmailKey()
+      } else if (result?.status === 'uncertain') {
+        setStatus('Test delivery outcome is uncertain. Check Sent mail before resolving it below.')
+      }
+    } catch (testError) {
+      if (hasDefiniteRecordEmailFailure(testError)) testDeliveryKey.current = newRecordEmailKey()
+      setError(testError.message || 'Unable to send the template test.')
+    } finally {
+      await refreshHistoryQuietly()
+      setIsSending(false)
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
-    if (!entityId || !sendEmail || recipientOptions.length === 0) {
+    if (!entityId || recipientOptions.length === 0) {
       return
     }
     setIsSending(true)
     setStatus('')
     try {
-      const contactId = Number.parseInt(selectedRecipientId, 10) || 0
-      const input = entityType === 'contact' ? { ...form } : { ...form, contactId }
-      const result = await sendEmail(entityId, input, deliveryKey.current)
+      const input = compositionInput()
+      const result = await (sendEmail || sendRecordEmail.bind(null, entityType))(entityId, input, deliveryKey.current)
       if (result?.status === 'accepted' || result?.sent) {
         setStatus(`Email sent to ${result?.to || 'recipient'}.`)
         setForm(emptyForm)
@@ -143,26 +199,13 @@ function RecordEmailComposerState({ entityType, entityId, canWrite, recipientOpt
         deliveryKey.current = newRecordEmailKey()
       }
       setError('')
-      try {
-        await loadHistory()
-      } catch (historyError) {
-        if (!isAbortError(historyError)) {
-          // History refresh is best-effort after a successful send.
-        }
-      }
     } catch (sendError) {
       if (hasDefiniteRecordEmailFailure(sendError)) {
         deliveryKey.current = newRecordEmailKey()
       }
-      try {
-        await loadHistory()
-      } catch (historyError) {
-        if (!isAbortError(historyError)) {
-          // The original delivery error remains the actionable message.
-        }
-      }
       setError(sendError.message || 'Unable to send email.')
     } finally {
+      await refreshHistoryQuietly()
       setIsSending(false)
     }
   }
@@ -178,10 +221,11 @@ function RecordEmailComposerState({ entityType, entityId, canWrite, recipientOpt
     setError('')
     try {
       const result = await resolveRecordEmailDelivery(delivery.id, resolution)
-      if (result?.status === 'accepted') setStatus(`Email to ${result.to || delivery.to} confirmed sent.`)
-      if (result?.status === 'failed') setStatus('Email marked not sent. You can compose another email.')
+      if (result?.status === 'accepted') setStatus(delivery.purpose === 'test' ? `Test email to ${result.to || delivery.to} confirmed sent.` : `Email to ${result.to || delivery.to} confirmed sent.`)
+      if (result?.status === 'failed') setStatus(delivery.purpose === 'test' ? 'Test email marked not sent.' : 'Email marked not sent. You can compose another email.')
       if (result?.status === 'accepted' || result?.status === 'failed') {
-        deliveryKey.current = newRecordEmailKey()
+        if (delivery.purpose === 'test') testDeliveryKey.current = newRecordEmailKey()
+        else deliveryKey.current = newRecordEmailKey()
         onDeliveryChanged?.()
       }
       await loadHistory()
@@ -193,6 +237,7 @@ function RecordEmailComposerState({ entityType, entityId, canWrite, recipientOpt
   }
 
   const currentUserHasUnresolvedDelivery = deliveries.some((delivery) => delivery.ownedByCurrentUser && ['prepared', 'sending', 'uncertain'].includes(delivery.status))
+  const isBusy = isSending || isPreviewing
 
   return (
     <Card>
@@ -220,7 +265,7 @@ function RecordEmailComposerState({ entityType, entityId, canWrite, recipientOpt
                 <article className="record-row record-row-alert" key={`delivery-${delivery.id}`} role="listitem">
                   <div className="card-stack">
                     <div>
-                      <p>{delivery.subject}</p>
+                      <p>{delivery.purpose === 'test' ? `Template test: ${delivery.subject}` : delivery.subject}</p>
                       <p className="field-hint">To {delivery.to} · {deliveryStateLabel(delivery)}</p>
                     </div>
                     {delivery.lastError ? <InlineError message={delivery.lastError} /> : null}
@@ -279,10 +324,24 @@ function RecordEmailComposerState({ entityType, entityId, canWrite, recipientOpt
             </Field>
             <p className="field-hint">{mergeFieldHint || `Merge fields like {{first_name}} are filled in when the email is sent.`}</p>
             <MergeFieldCatalog groups={mergeFieldGroups} compact />
+            <div className="button-row">
+              <Button className="button-secondary" type="button" onClick={handlePreview} disabled={isBusy}>{isPreviewing ? 'Previewing...' : 'Preview merged email'}</Button>
+              <Button className="button-secondary" type="button" onClick={handleSendTest} disabled={!preview || preview.unresolvedMergeFields?.length > 0 || isBusy}>Send test to me</Button>
+            </div>
+            <p className="field-hint">Test sends use your connected mailbox and go only to your Open CRM sign-in address. They are never logged on the customer record.</p>
+            {preview ? (
+              <section className="inline-note card-stack" aria-label="Merged email preview">
+                <h4>Merged email preview</h4>
+                <p><strong>Customer recipient:</strong> {preview.to}</p>
+                <p><strong>Subject:</strong> {preview.subject}</p>
+                <p className="message-body"><strong>Body:</strong>{'\n'}{preview.body}</p>
+                {preview.unresolvedMergeFields?.length > 0 ? <InlineError message={`Unknown merge fields: ${preview.unresolvedMergeFields.join(', ')}. Remove or replace them before sending.`} /> : <p className="field-hint">All merge fields resolved for this record.</p>}
+              </section>
+            ) : null}
             <label className="field-hint">
               <input type="checkbox" checked={form.trackEngagement} onChange={(event) => setForm({ ...form, trackEngagement: event.target.checked })} /> Track opens/links (90 days, approximate). I confirm authorization.
             </label>
-            <Button type="submit" disabled={isSending}>{isSending ? 'Sending...' : 'Send email'}</Button>
+            <Button type="submit" disabled={isBusy}>{isSending ? 'Sending...' : 'Send email'}</Button>
           </form>
         ) : null}
         {open && history.length > 0 ? (

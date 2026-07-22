@@ -108,8 +108,8 @@ func (f *fakeEmailMessagesService) PrepareRecordDelivery(_ context.Context, orga
 		return f.prepareDeliveryResult, f.prepareDeliveryErr
 	}
 	return moduleemailmessages.RecordDelivery{
-		ID: 91, OrganizationID: organizationID, EntityType: input.Request.EntityType, EntityID: input.Request.EntityID,
-		RecipientContactID: input.ResolvedRecipientContactID, ActorUserID: input.Request.ActorUserID,
+		ID: 91, OrganizationID: organizationID, Purpose: input.Request.Purpose, EntityType: input.Request.EntityType, EntityID: input.Request.EntityID,
+		RecipientContactID: input.ResolvedRecipientContactID, RecipientUserID: input.ResolvedRecipientUserID, ActorUserID: input.Request.ActorUserID,
 		SenderEmail: input.SenderEmail, RecipientEmail: input.RecipientEmail, Subject: input.Subject,
 		TextBody: input.TextBody, HTMLBody: input.HTMLBody, ListUnsubscribeURL: input.ListUnsubscribeURL,
 		RFCMessageID: input.RFCMessageID, TrackEngagement: input.Request.TrackEngagement,
@@ -128,9 +128,11 @@ func (f *fakeEmailMessagesService) ClaimRecordDelivery(_ context.Context, organi
 	if delivery.ID == 0 {
 		delivery = moduleemailmessages.RecordDelivery{ID: deliveryID, OrganizationID: organizationID, ActorUserID: actorID, SenderEmail: "owner@acme.test", RecipientEmail: "ada@acme.test", Subject: "Email", TextBody: "Body", RFCMessageID: "<direct@open-crm.invalid>"}
 		if f.lastPrepareDelivery.Request.ActorUserID != 0 {
+			delivery.Purpose = f.lastPrepareDelivery.Request.Purpose
 			delivery.EntityType = f.lastPrepareDelivery.Request.EntityType
 			delivery.EntityID = f.lastPrepareDelivery.Request.EntityID
 			delivery.RecipientContactID = f.lastPrepareDelivery.ResolvedRecipientContactID
+			delivery.RecipientUserID = f.lastPrepareDelivery.ResolvedRecipientUserID
 			delivery.SenderEmail = f.lastPrepareDelivery.SenderEmail
 			delivery.RecipientEmail = f.lastPrepareDelivery.RecipientEmail
 			delivery.Subject = f.lastPrepareDelivery.Subject
@@ -155,7 +157,7 @@ func (f *fakeEmailMessagesService) CompleteRecordDelivery(_ context.Context, org
 	}
 	delivery := f.claimDeliveryResult
 	if delivery.ID == 0 {
-		delivery = moduleemailmessages.RecordDelivery{ID: deliveryID, OrganizationID: organizationID, ActorUserID: f.lastDeliveryActorID, RecipientEmail: f.lastPrepareDelivery.RecipientEmail, Subject: f.lastPrepareDelivery.Subject}
+		delivery = moduleemailmessages.RecordDelivery{ID: deliveryID, OrganizationID: organizationID, Purpose: f.lastPrepareDelivery.Request.Purpose, ActorUserID: f.lastDeliveryActorID, RecipientEmail: f.lastPrepareDelivery.RecipientEmail, Subject: f.lastPrepareDelivery.Subject}
 	}
 	delivery.Status = "accepted"
 	delivery.ProviderMessageID = receipt.ProviderMessageID
@@ -165,10 +167,16 @@ func (f *fakeEmailMessagesService) CompleteRecordDelivery(_ context.Context, org
 	if rfcMessageID == "" {
 		rfcMessageID = f.lastPrepareDelivery.RFCMessageID
 	}
+	entityType := f.lastPrepareDelivery.Request.EntityType
+	entityID := f.lastPrepareDelivery.Request.EntityID
+	if f.lastPrepareDelivery.Request.Purpose == "test" {
+		entityType = ""
+		entityID = 0
+	}
 	f.lastRecord = moduleemailmessages.RecordInput{
 		FromEmail: f.lastPrepareDelivery.SenderEmail, ToEmail: f.lastPrepareDelivery.RecipientEmail,
 		Subject: f.lastPrepareDelivery.Subject, Body: f.lastPrepareDelivery.TextBody, Status: "sent",
-		EntityType: f.lastPrepareDelivery.Request.EntityType, EntityID: f.lastPrepareDelivery.Request.EntityID,
+		EntityType: entityType, EntityID: entityID,
 		SentByUserID: f.lastPrepareDelivery.Request.ActorUserID, TrackEngagement: f.lastPrepareDelivery.Request.TrackEngagement,
 		TrackingToken: f.lastPrepareDelivery.TrackingToken, TrackedLinks: f.lastPrepareDelivery.TrackedLinks,
 		RFCMessageID: rfcMessageID, ProviderMessageID: receipt.ProviderMessageID, ProviderThreadID: receipt.ProviderThreadID,

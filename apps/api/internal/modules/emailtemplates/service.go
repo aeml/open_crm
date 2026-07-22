@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -120,6 +121,31 @@ func MergeFieldCatalog() []MergeFieldGroup {
 			},
 		},
 	}
+}
+
+func MergeFieldCatalogWithCustomFields(contactDefinitions, companyDefinitions []modulecustomfields.Definition) []MergeFieldGroup {
+	groups := MergeFieldCatalog()
+	groups = appendCustomFieldGroup(groups, "contact_custom", "Contact custom fields", "contact", contactDefinitions)
+	groups = appendCustomFieldGroup(groups, "company_custom", "Company custom fields", "company", companyDefinitions)
+	return groups
+}
+
+func appendCustomFieldGroup(groups []MergeFieldGroup, key, label, namespace string, definitions []modulecustomfields.Definition) []MergeFieldGroup {
+	fields := make([]MergeField, 0, len(definitions))
+	for _, definition := range definitions {
+		if definition.ArchivedAt != nil || definition.FieldKey == "" {
+			continue
+		}
+		fields = append(fields, MergeField{
+			Token:       "{{" + namespace + ".custom." + definition.FieldKey + "}}",
+			Label:       definition.Label,
+			Description: "Organization-defined " + namespace + " value from the selected record.",
+		})
+	}
+	if len(fields) == 0 {
+		return groups
+	}
+	return append(groups, MergeFieldGroup{Key: key, Label: label, Fields: fields})
 }
 
 func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]Template, error) {

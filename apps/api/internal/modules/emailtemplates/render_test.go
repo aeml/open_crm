@@ -38,6 +38,13 @@ func TestRenderHandlesUnclosedBrace(t *testing.T) {
 	}
 }
 
+func TestUnresolvedTokensReturnsSortedUniqueFields(t *testing.T) {
+	got := UnresolvedTokens("Hi {{unknown}} {{ missing }}", "{{unknown}} {{}}")
+	if len(got) != 3 || got[0] != "{{ missing }}" || got[1] != "{{unknown}}" || got[2] != "{{}}" {
+		t.Fatalf("unexpected unresolved tokens %#v", got)
+	}
+}
+
 func TestValidateInput(t *testing.T) {
 	if err := validateInput(Input{Name: "Welcome", Subject: "Hi", Body: "Body"}); err != nil {
 		t.Errorf("valid input should pass: %v", err)

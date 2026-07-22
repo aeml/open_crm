@@ -15,6 +15,12 @@ sender confirmation satisfies any particular law, contract, or jurisdiction.
 Operators must establish the appropriate policy for their recipients before
 using the option.
 
+The explicit **Send test to me** path always forces tracking off regardless of
+the draft checkbox. It targets the acting user's sign-in address and omits
+customer suppression, unsubscribe, HTML link rewriting, entity links, notes,
+and activities, so a test cannot create customer engagement observations or be
+mistaken for customer correspondence.
+
 ## Data and meaning
 
 An opted-in send stores a random 256-bit open token, a random 256-bit token and

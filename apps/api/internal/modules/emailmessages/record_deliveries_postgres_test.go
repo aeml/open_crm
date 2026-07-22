@@ -49,7 +49,8 @@ func TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPos
 		t.Fatalf("create foreign record email organization: %v", err)
 	}
 	ownerID := insertReplyUser(t, ctx, pool, "record-owner-"+schema+"@example.test")
-	memberID := insertReplyUser(t, ctx, pool, "record-member-"+schema+"@example.test")
+	memberEmail := "record-member-" + schema + "@example.test"
+	memberID := insertReplyUser(t, ctx, pool, memberEmail)
 	adminID := insertReplyUser(t, ctx, pool, "record-admin-"+schema+"@example.test")
 	viewerID := insertReplyUser(t, ctx, pool, "record-viewer-"+schema+"@example.test")
 	foreignID := insertReplyUser(t, ctx, pool, "record-foreign-"+schema+"@example.test")
@@ -221,6 +222,68 @@ func TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPos
 		t.Fatalf("accepted email audit count=%d err=%v", auditCount, err)
 	}
 
+	testInput := PrepareRecordDeliveryInput{
+		Request: RecordDeliveryKeyInput{
+			Purpose: "test", EntityType: "contact", EntityID: contactID, RecipientContactID: contactID,
+			ActorUserID: memberID, SubjectTemplate: "[TEST] Hello {{first_name}}",
+			BodyTemplate: "Template test", IdempotencyKey: "record-email-template-test-key-1",
+		},
+		ResolvedRecipientContactID: contactID, ResolvedRecipientUserID: memberID,
+		SenderEmail: "member@example.test", RecipientEmail: memberEmail,
+		Subject: "[TEST] Hello Ada", TextBody: "This is a template test.", RFCMessageID: "<record-test@example.test>",
+	}
+	testDelivery, err := service.PrepareRecordDelivery(ctx, organizationID, testInput)
+	if err != nil || testDelivery.Purpose != "test" || testDelivery.RecipientUserID != memberID || testDelivery.RecipientEmail != memberEmail {
+		t.Fatalf("prepare template test delivery: delivery=%#v err=%v", testDelivery, err)
+	}
+	invalidTest := testInput
+	invalidTest.Request.IdempotencyKey = "record-email-template-test-key-2"
+	invalidTest.ResolvedRecipientUserID = adminID
+	if _, err := service.PrepareRecordDelivery(ctx, organizationID, invalidTest); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("template test accepted a recipient other than its actor: %v", err)
+	}
+	testDelivery, shouldSend, err := service.ClaimRecordDelivery(ctx, organizationID, testDelivery.ID, memberID)
+	if err != nil || !shouldSend || testDelivery.Status != "sending" {
+		t.Fatalf("claim template test delivery: delivery=%#v send=%t err=%v", testDelivery, shouldSend, err)
+	}
+	testDelivery, err = service.CompleteRecordDelivery(ctx, organizationID, testDelivery.ID, moduleuseremail.SendReceipt{ProviderMessageID: "provider-test"})
+	if err != nil || testDelivery.Status != "accepted" || testDelivery.OutboundEmailMessageID <= 0 {
+		t.Fatalf("complete template test delivery: delivery=%#v err=%v", testDelivery, err)
+	}
+	var testEntityType string
+	var testEntityID *int64
+	var testVisibility string
+	if err := pool.QueryRow(ctx, `SELECT entity_type,entity_id,visibility FROM email_messages WHERE id=$1`, testDelivery.OutboundEmailMessageID).Scan(&testEntityType, &testEntityID, &testVisibility); err != nil || testEntityType != "" || testEntityID != nil || testVisibility != "private" {
+		t.Fatalf("template test leaked onto a CRM record or shared inbox: entity=%q id=%v visibility=%q err=%v", testEntityType, testEntityID, testVisibility, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM notes WHERE organization_id=$1 AND entity_type='contact' AND entity_id=$2`, organizationID, contactID).Scan(&noteCount); err != nil || noteCount != 1 {
+		t.Fatalf("template test created customer note evidence: count=%d err=%v", noteCount, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE organization_id=$1 AND action='email.sent'`, organizationID).Scan(&activityCount); err != nil || activityCount != 1 {
+		t.Fatalf("template test created customer activity evidence: count=%d err=%v", activityCount, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='email.template_test_accepted'`, organizationID).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("template test audit count=%d err=%v", auditCount, err)
+	}
+	changedTestInput := testInput
+	changedTestInput.Request.IdempotencyKey = "record-email-template-test-key-changed-address"
+	changedTestInput.Subject = "[TEST] Changed user address"
+	changedTestInput.RFCMessageID = "<record-test-changed-address@example.test>"
+	changedTest, err := service.PrepareRecordDelivery(ctx, organizationID, changedTestInput)
+	if err != nil {
+		t.Fatalf("prepare changed-address template test: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE users SET email=$2 WHERE id=$1`, memberID, "changed-"+memberEmail); err != nil {
+		t.Fatalf("change template test user address: %v", err)
+	}
+	changedTest, shouldSend, err = service.ClaimRecordDelivery(ctx, organizationID, changedTest.ID, memberID)
+	if err != nil || shouldSend || changedTest.Status != "failed" {
+		t.Fatalf("changed template-test address crossed provider boundary: delivery=%#v send=%t err=%v", changedTest, shouldSend, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE users SET email=$2 WHERE id=$1`, memberID, memberEmail); err != nil {
+		t.Fatalf("restore template test user address: %v", err)
+	}
+
 	changedRecipientInput := input
 	changedRecipientInput.Request.ActorUserID = adminID
 	changedRecipientInput.Request.IdempotencyKey = "record-email-key-changed-recipient"
@@ -234,7 +297,7 @@ func TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPos
 	if _, err := pool.Exec(ctx, `UPDATE contacts SET email='ada.changed@example.test' WHERE organization_id=$1 AND id=$2`, organizationID, contactID); err != nil {
 		t.Fatalf("change record email recipient: %v", err)
 	}
-	changedRecipient, shouldSend, err := service.ClaimRecordDelivery(ctx, organizationID, changedRecipient.ID, adminID)
+	changedRecipient, shouldSend, err = service.ClaimRecordDelivery(ctx, organizationID, changedRecipient.ID, adminID)
 	if err != nil || shouldSend || changedRecipient.Status != "failed" || changedRecipient.OutboundEmailMessageID <= 0 {
 		t.Fatalf("changed recipient crossed provider boundary: delivery=%#v send=%t err=%v", changedRecipient, shouldSend, err)
 	}
@@ -282,7 +345,7 @@ func TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPos
 	if err := pool.QueryRow(ctx, `SELECT tracking_token,tracked_links_json,text_body,html_body,list_unsubscribe_url FROM record_email_deliveries WHERE id=$1`, stale.ID).Scan(&retainedTrackingToken, &retainedTrackedLinks, &retainedTextBody, &retainedHTMLBody, &retainedUnsubscribeURL); err != nil || retainedTrackingToken != "" || string(retainedTrackedLinks) != "[]" || strings.Contains(retainedTextBody, "Unsubscribe:") || retainedHTMLBody != "" || retainedUnsubscribeURL != "" {
 		t.Fatalf("terminal record email retained tracking material: token=%q links=%s text=%q html=%q unsubscribe=%q err=%v", retainedTrackingToken, retainedTrackedLinks, retainedTextBody, retainedHTMLBody, retainedUnsubscribeURL, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM email_messages WHERE organization_id=$1 AND status='failed'`, organizationID).Scan(&messageCount); err != nil || messageCount != 2 {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM email_messages WHERE organization_id=$1 AND status='failed' AND entity_type='contact'`, organizationID).Scan(&messageCount); err != nil || messageCount != 2 {
 		t.Fatalf("not-sent resolution did not retain failure evidence: count=%d err=%v", messageCount, err)
 	}
 	var failedMessageBody string

@@ -151,7 +151,7 @@ export function SettingsEmailTemplatesRoute() {
           <div className="section-header">
             <div>
               <h2>Email templates</h2>
-              <p>Reusable messages for {session?.organization?.name || 'your team'}. Use merge fields like {'{{first_name}}'} that fill in when you send.</p>
+              <p>Reusable messages for {session?.organization?.name || 'your team'}. Preview current record values and send a private test to yourself from the record composer.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading templates...</p> : null}
@@ -183,7 +183,7 @@ export function SettingsEmailTemplatesRoute() {
             <div className="card-stack">
               <div>
                 <h3>Available merge fields</h3>
-                <p className="field-hint">Use these tokens in template subjects and bodies. Values are filled from the record before sending.</p>
+                <p className="field-hint">Use these tokens in template subjects and bodies. Active contact and company custom fields use a collision-safe custom namespace.</p>
               </div>
               <MergeFieldCatalog groups={mergeFieldGroups} />
             </div>
