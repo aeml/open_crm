@@ -28,11 +28,16 @@ const (
 	// same bounded task playbook. The approval is always first so a retained run
 	// can pause before any task effect.
 	DealApprovalTaskPlanContract = "deal_approval_task_plan_v1"
-	maxExecutableTasks           = 5
-	maxExecutableActions         = maxExecutableTasks + 1
-	maxExecutableConditions      = 1
-	maxTaskTitleLength           = 200
-	maxTaskDescriptionLen        = 2000
+	// DealTaskNotifyPlanContract opts into one reviewed in-app notification
+	// after a bounded task playbook. This action cannot mutate a workflow trigger
+	// and is therefore safe while the causal boundary for future mutations is
+	// retained and enforced separately.
+	DealTaskNotifyPlanContract = "deal_task_notify_plan_v1"
+	maxExecutableTasks         = 5
+	maxExecutableActions       = maxExecutableTasks + 1
+	maxExecutableConditions    = 1
+	maxTaskTitleLength         = 200
+	maxTaskDescriptionLen      = 2000
 )
 
 type DealTaskEvent struct {
@@ -45,6 +50,7 @@ type DealTaskEvent struct {
 	OwnerUserID    int64
 	EventType      string
 	EventKey       string
+	Cause          *WorkflowCausation
 }
 
 // ExecuteDealTaskRules creates follow-up tasks and run history in the caller's
@@ -56,6 +62,10 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 		return fmt.Errorf("invalid deal task automation event")
 	}
 	triggerType, err := dealTriggerType(event.EventType)
+	if err != nil {
+		return err
+	}
+	causation, err := resolveWorkflowCausation(ctx, tx, event.OrganizationID, event.Cause)
 	if err != nil {
 		return err
 	}
@@ -132,19 +142,37 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 		if err != nil {
 			return fmt.Errorf("encode deal task automation payload: %w", err)
 		}
+		loopReason, err := workflowLoopPreventionReason(ctx, tx, event.OrganizationID, rule.id, causation)
+		if err != nil {
+			return err
+		}
 		var runID int64
 		err = tx.QueryRow(ctx, `
 			INSERT INTO workflow_automation_runs
-				(organization_id,automation_id,automation_name,trigger_type,target_entity_type,target_entity_id,trigger_event_key,status,trigger_payload_json,actions_total,started_at)
-			VALUES ($1,$2,$3,$4,'deal',$5,$6,'running',$7::jsonb,$8,NOW())
+				(organization_id,automation_id,automation_name,trigger_type,target_entity_type,target_entity_id,trigger_event_key,status,trigger_payload_json,actions_total,started_at,causation_run_id,causation_action_position,causal_depth)
+			VALUES ($1,$2,$3,$4,'deal',$5,$6,'running',$7::jsonb,$8,NOW(),$9,$10,$11)
 			ON CONFLICT (organization_id,automation_id,trigger_event_key) DO NOTHING
 			RETURNING id
-		`, event.OrganizationID, rule.id, rule.name, triggerType, event.DealID, event.EventKey, string(payload), len(actions)).Scan(&runID)
+		`, event.OrganizationID, rule.id, rule.name, triggerType, event.DealID, event.EventKey, string(payload), len(actions), causation.runIDValue(), causation.actionPositionValue(), causation.depth).Scan(&runID)
 		if err != nil {
 			if err == pgx.ErrNoRows {
 				continue
 			}
 			return fmt.Errorf("reserve deal task automation run: %w", err)
+		}
+		if loopReason != "" {
+			for actionIndex, action := range actions {
+				if err := recordActionOutcome(ctx, tx, event.OrganizationID, runID, actionIndex+1, action, "skipped", 0, nil, 0, nil, loopReason); err != nil {
+					return err
+				}
+			}
+			if err := skipDealTaskRun(ctx, tx, event.OrganizationID, runID, loopReason); err != nil {
+				return err
+			}
+			if err := auditWorkflowLoopPrevention(ctx, tx, event, runID, rule.id, causation, loopReason); err != nil {
+				return err
+			}
+			continue
 		}
 
 		if !executableShape {
@@ -171,9 +199,22 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 			continue
 		}
 
-		taskIDs, err := createDealAutomationTasks(ctx, tx, event, runID, rule.id, actions, 0, len(actions))
+		taskActions := actions
+		var notificationAction *Action
+		if executableNotifyTaskActions(config, actions) {
+			taskActions = actions[:len(actions)-1]
+			notificationAction = &actions[len(actions)-1]
+		}
+		taskIDs, err := createDealAutomationTasks(ctx, tx, event, runID, rule.id, taskActions, 0, len(actions))
 		if err != nil {
 			return err
+		}
+		notificationCount := 0
+		if notificationAction != nil {
+			notificationCount, err = createDealAutomationNotification(ctx, tx, event, runID, rule.id, *notificationAction, len(actions), len(actions))
+			if err != nil {
+				return err
+			}
 		}
 		taskIDsJSON, err := json.Marshal(taskIDs)
 		if err != nil {
@@ -190,9 +231,9 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
-			VALUES ($1,$2,'workflow_automation.executed','workflow_automation',$3,'Deal task automation completed',
-			        jsonb_build_object('dealId',$4::bigint,'event',$5::text,'taskIds',$6::jsonb))
-		`, event.OrganizationID, event.ActorUserID, rule.id, event.DealID, event.EventType, string(taskIDsJSON)); err != nil {
+			VALUES ($1,$2,'workflow_automation.executed','workflow_automation',$3,'Deal automation completed',
+			        jsonb_build_object('dealId',$4::bigint,'event',$5::text,'taskIds',$6::jsonb,'notificationCount',$7::int))
+		`, event.OrganizationID, event.ActorUserID, rule.id, event.DealID, event.EventType, string(taskIDsJSON), notificationCount); err != nil {
 			return fmt.Errorf("audit deal task automation run: %w", err)
 		}
 	}
@@ -290,7 +331,26 @@ func executableTaskActions(config map[string]any, actions []Action) bool {
 }
 
 func executableDealActions(config map[string]any, actions []Action) bool {
-	return executableTaskActions(config, actions) || executableApprovalTaskActions(config, actions)
+	return executableTaskActions(config, actions) || executableApprovalTaskActions(config, actions) || executableNotifyTaskActions(config, actions)
+}
+
+func executableNotifyTaskActions(config map[string]any, actions []Action) bool {
+	contract, _ := stringConfig(config, "taskPlanContract")
+	if contract != DealTaskNotifyPlanContract || len(actions) < 2 || len(actions) > maxExecutableActions {
+		return false
+	}
+	notification := actions[len(actions)-1]
+	role, hasRole := stringConfig(notification.Config, "recipientRole")
+	message, hasMessage := stringConfig(notification.Config, "message")
+	if notification.Type != "notify" || !hasRole || !hasMessage || notification.DelayMinutes != 0 || notification.ScheduledAt != nil ||
+		utf8.RuneCountInString(message) > 500 || normalizeApprovalRole(role) != role || !onlyNotificationConfigKeys(notification.Config) {
+		return false
+	}
+	if role != "owner" && role != "admin" && role != "record_owner" {
+		return false
+	}
+	taskConfig := map[string]any{"taskPlanContract": DealTaskPlanContract}
+	return executableTaskActions(taskConfig, actions[:len(actions)-1])
 }
 
 func executableApprovalTaskActions(config map[string]any, actions []Action) bool {
@@ -318,6 +378,15 @@ func executableApprovalTaskActions(config map[string]any, actions []Action) bool
 func onlyApprovalConfigKeys(config map[string]any) bool {
 	for key := range config {
 		if key != "approvalName" && key != "approverRole" && key != "message" {
+			return false
+		}
+	}
+	return true
+}
+
+func onlyNotificationConfigKeys(config map[string]any) bool {
+	for key := range config {
+		if key != "recipientRole" && key != "message" {
 			return false
 		}
 	}

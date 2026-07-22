@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	// MaxActiveTaskActions bounds the number of task effects that one workspace
-	// can attach to supported deal and lead events. The workspace writer lock
-	// makes the boundary exact under concurrent activation.
-	MaxActiveTaskActions = 50
+	// MaxActiveWorkflowActions bounds the reviewed effects that one workspace can
+	// attach to supported deal and lead events. The workspace writer lock makes
+	// the boundary exact under concurrent activation.
+	MaxActiveWorkflowActions = 50
 	// LeadFollowUpTaskContract opts a reviewed lead rule into the durable task
 	// schedule. Historical definitions stay behaviorally compatible, but cannot
 	// be newly activated until an admin saves this explicit contract.
@@ -64,7 +64,7 @@ func lockWorkflowDefinition(ctx context.Context, tx pgx.Tx, organizationID, auto
 	return active, nil
 }
 
-func requireActiveTaskActionCapacity(ctx context.Context, tx pgx.Tx, organizationID, excludedAutomationID int64, requestedActions int) error {
+func requireActiveActionCapacity(ctx context.Context, tx pgx.Tx, organizationID, excludedAutomationID int64, requestedActions int) error {
 	var activeActions int
 	if err := tx.QueryRow(ctx, `
 		SELECT COALESCE(SUM(jsonb_array_length(actions_json)),0)::int
@@ -72,9 +72,9 @@ func requireActiveTaskActionCapacity(ctx context.Context, tx pgx.Tx, organizatio
 		WHERE organization_id=$1 AND is_active=TRUE
 		  AND ($2::bigint=0 OR id<>$2)
 	`, organizationID, excludedAutomationID).Scan(&activeActions); err != nil {
-		return fmt.Errorf("count active workflow task actions: %w", err)
+		return fmt.Errorf("count active workflow actions: %w", err)
 	}
-	if requestedActions <= 0 || activeActions+requestedActions > MaxActiveTaskActions {
+	if requestedActions <= 0 || activeActions+requestedActions > MaxActiveWorkflowActions {
 		return ErrActiveLimit
 	}
 	return nil
@@ -83,7 +83,7 @@ func requireActiveTaskActionCapacity(ctx context.Context, tx pgx.Tx, organizatio
 func validateExecutableActivation(input Input) error {
 	switch input.TargetEntityType {
 	case "deal":
-		if contract, _ := stringConfig(input.TriggerConfig, "taskPlanContract"); contract == DealTaskPlanContract || contract == DealApprovalTaskPlanContract {
+		if contract, _ := stringConfig(input.TriggerConfig, "taskPlanContract"); contract == DealTaskPlanContract || contract == DealApprovalTaskPlanContract || contract == DealTaskNotifyPlanContract {
 			if rawStageID, configured := input.TriggerConfig["stageId"]; configured {
 				if _, valid := exactPositiveInteger(rawStageID); !valid {
 					return ErrInvalidInput
@@ -115,7 +115,7 @@ func validExecutableDealActivation(input Input) bool {
 		return false
 	}
 	contract, _ := stringConfig(input.TriggerConfig, "taskPlanContract")
-	if contract != DealTaskPlanContract && contract != DealApprovalTaskPlanContract {
+	if contract != DealTaskPlanContract && contract != DealApprovalTaskPlanContract && contract != DealTaskNotifyPlanContract {
 		return false
 	}
 
@@ -194,6 +194,28 @@ func validateExecutableReferences(ctx context.Context, tx pgx.Tx, organizationID
 			return fmt.Errorf("validate workflow automation stage: %w", err)
 		}
 		if !exists {
+			return ErrInvalidInput
+		}
+	}
+	if contract, _ := stringConfig(input.TriggerConfig, "taskPlanContract"); contract == DealTaskNotifyPlanContract {
+		notification := input.Actions[len(input.Actions)-1]
+		role, _ := stringConfig(notification.Config, "recipientRole")
+		var recipientCount int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*)::int
+			FROM organization_memberships
+			WHERE organization_id=$1
+			  AND COALESCE(membership_status,'active')='active'
+			  AND CASE $2::text
+			    WHEN 'owner' THEN role='owner'
+			    WHEN 'admin' THEN role IN ('owner','admin')
+			    WHEN 'record_owner' THEN TRUE
+			    ELSE FALSE
+			  END
+		`, organizationID, role).Scan(&recipientCount); err != nil {
+			return fmt.Errorf("validate workflow notification recipients: %w", err)
+		}
+		if recipientCount <= 0 || (role != "record_owner" && recipientCount > maxWorkflowNotificationRecipients) {
 			return ErrInvalidInput
 		}
 	}

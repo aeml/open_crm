@@ -29,11 +29,21 @@ export async function listWorkflowAutomationRuns({ automationId, limit = 10, sig
   const runs = Array.isArray(payload?.data?.runs) ? payload.data.runs : []
   return runs.map((run) => {
     const actions = Array.isArray(run?.actions) ? run.actions : []
-    if (actions.some((action) => !validRunAction(action))) {
+    if (!validRunCausality(run) || actions.some((action) => !validRunAction(action))) {
       throw new Error('The server returned invalid workflow action evidence. Refresh before retrying.')
     }
-    return { ...run, actions }
+    return { ...run, causalDepth: Number.isInteger(run.causalDepth) ? run.causalDepth : 0, actions }
   })
+}
+
+function validRunCausality(run) {
+  const depth = Number.isInteger(run?.causalDepth) ? run.causalDepth : 0
+  const causeRunID = Number(run?.causationRunId || 0)
+  const causeAction = Number(run?.causationActionPosition || 0)
+  return depth >= 0 && depth <= 9 && (
+    (depth === 0 && causeRunID === 0 && causeAction === 0) ||
+    (depth > 0 && Number.isInteger(causeRunID) && causeRunID > 0 && Number.isInteger(causeAction) && causeAction > 0 && causeAction <= 25)
+  )
 }
 
 export async function listWorkflowApprovals({ signal } = {}) {
@@ -78,6 +88,7 @@ function validRunAction(action) {
     Number.isInteger(action.attempts) && action.attempts >= 0 &&
     typeof action.scheduledAt === 'string' && action.scheduledAt.length > 0 &&
     (!action.taskId || (Number.isInteger(action.taskId) && action.taskId > 0)) &&
+    (!action.notificationCount || (action.type === 'notify' && Number.isInteger(action.notificationCount) && action.notificationCount > 0 && action.notificationCount <= 50)) &&
     (!action.approval || validRunActionApproval(action.approval))
 }
 

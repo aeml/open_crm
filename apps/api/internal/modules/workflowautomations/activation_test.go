@@ -38,6 +38,19 @@ func TestValidateExecutableActivationAcceptsReviewedTaskContracts(t *testing.T) 
 	if err := validateExecutableActivation(approvalDeal); err != nil {
 		t.Fatalf("expected reviewed approval task contract to activate: %v", err)
 	}
+	notificationDeal := deal
+	notificationDeal.Name = "Proposal notification playbook"
+	notificationDeal.TriggerConfig = map[string]any{
+		"stageId":           12,
+		"taskPlanContract":  DealTaskNotifyPlanContract,
+		"conditionContract": DealSnapshotConditionContract,
+	}
+	notificationDeal.Actions = append(append([]Action(nil), deal.Actions...), Action{Type: "notify", Config: map[string]any{
+		"recipientRole": "admin", "message": "Proposal tasks are ready.",
+	}})
+	if err := validateExecutableActivation(notificationDeal); err != nil {
+		t.Fatalf("expected reviewed notification task contract to activate: %v", err)
+	}
 
 	lead := normalizeInput(Input{
 		Name:             "Lead follow-up",

@@ -1070,15 +1070,18 @@ bytes, tokens, or counters with ad hoc SQL.
    Every task has an independent 0–365-whole-day due offset measured from the
    deal event for an immediate playbook. A deal rule can instead require one
    retained human decision before creating any task; its due offsets begin at
-   the approval decision. None is a delayed or background action. A rule can optionally
-   require one event-time deal condition:
+   the approval decision. An immediate plan can instead append one same-
+   transaction in-app notification to workspace owners, owners/admins, or the
+   active current deal owner (with the active event actor as fallback). Approval
+   and notification are mutually exclusive in this bounded contract. None is a
+   delayed or background action. A rule can optionally require one event-time deal condition:
    value amount greater/less than or set, currency equal/not-equal/set, owner
    equal/not-equal/set, or status equal/not-equal to open, won, or lost. An
    unassigned deal does not satisfy **owner is set**.
    Other stored workflow definitions are deliberately hidden and do not gain
    partial execution merely because their schema exists.
-2. Deal event, every task/activity, one run record, one immutable ordered
-   action-outcome row per task, and one audit event commit together. A failure
+2. Deal event, every task/activity/notification, one run record, one immutable
+   ordered action-outcome row per effect, and one audit event commit together. A failure
    rolls back the entire playbook. A timed-out direct
    request can be retried normally; a repeated same-stage move is a no-op, and
    stable activity/bulk event keys prevent a completed event from creating the
@@ -1091,7 +1094,7 @@ bytes, tokens, or counters with ad hoc SQL.
    referenced by that rule.
 3. Every task goes to the active deal owner. If that membership is inactive at
    event time, the playbook goes to the active teammate who caused the event.
-   Inspect **Recent task automation runs**, expand **Inspect action outcomes**,
+   Inspect **Recent automation runs**, expand **Inspect action outcomes**,
    follow each **Open created task** link, and compare the task's
    `task.automated` activity with the `workflow_automation.executed` audit event
    when reconciling an outcome. The stored label is execution-time evidence and
@@ -1130,7 +1133,28 @@ bytes, tokens, or counters with ad hoc SQL.
    hours; verify current role/ownership and membership before deciding or
    deliberately cancelling through a definition/member change. Never edit the
    approval, run, captured action, notification, activity, or audit rows in SQL.
-6. To stop future work, deactivate the rule. Deactivation does not remove tasks
+6. A `deal_task_notify_plan_v1` rule creates all 1–5 captured tasks before its
+   final notification, then commits both effect types or neither. The message is
+   literal and capped at 500 characters. Recipient membership is re-evaluated
+   inside the event transaction and limited to 50 active teammates. Zero
+   eligible recipients or a membership change beyond 50 fails and rolls back
+   the run, tasks, notifications, activities, and audit evidence. The outcome
+   displays its exact delivered-recipient count; notification rows use a stable
+   per-run/action idempotency key, so retry cannot duplicate recipients. Use
+   normal notification/deal navigation to inspect the message and target; do
+   not repair a partial-looking client timeout with direct SQL.
+7. Root events show no causal parent. Any future action that emits another
+   workflow event must identify its exact successful same-tenant run/action.
+   Nested runs retain that parent and causal depth. The same automation cannot
+   appear twice in one ancestor chain, and depth 9 is retained as a skipped run
+   rather than executed. **Automation re-entry prevented.** and **Workflow
+   causal depth limit reached.** are safety outcomes, not retryable failures.
+   Monitor `open_crm_workflow_loops_prevented_24h` and
+   `OpenCRMWorkflowLoopPrevented`; inspect the displayed parent run/action and
+   `workflow_automation.loop_prevented` audit before changing the rule. Never
+   bypass the guard or rewrite causal columns. The current notification action
+   is intentionally non-recursive and does not emit a workflow event.
+8. To stop future work, deactivate the rule. Deactivation does not remove tasks
    already created; edit, complete, archive, or reassign those through normal
    task controls so the operational history remains honest. Restoring a directly
    or bulk-archived deal likewise does not delete its archive follow-up task.
@@ -1163,7 +1187,7 @@ bytes, tokens, or counters with ad hoc SQL.
    terminal run together.
    Managed hosted suspension uses the ordinary durable billing deferral and
    preserves attempts; self-hosted workspaces are never subject to that policy.
-4. Inspect **Recent task automation runs**, expand **Inspect action outcome**,
+4. Inspect **Recent automation runs**, expand **Inspect action outcome**,
    and use **Settings > Operations** before escalating. The action shows the
    captured title, schedule, attempt count, lifecycle state, terminal reason,
    and same-workspace task link when a task exists. A future `queued` run is

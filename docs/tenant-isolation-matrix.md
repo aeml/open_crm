@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `42`
+Evidence row count: `43`
 
-Evidence digest: `c7a3f1e53aa80f097cbfeaad940a019dfc2f66a0414d540722b4dd830c3c6c7b`
+Evidence digest: `5339a5fedd73d2410decc4bbb5a9687118bcfa765f91343ab0ed8e2f0901fdcb`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -41,6 +41,7 @@ the assertions inside those tests remain the proof of behavior.
 | `deal-close-and-handoff` | `apps/api/internal/modules/deals/win_loss_postgres_test.go` | `TestDealCloseReviewsKeepOutcomeContextCoherentAndTenantScopedAgainstPostgres` | Foreign stages/accounts cannot alter close state or handoff evidence; replay and reopening preserve the owning tenant's history. |
 | `deal-task-automation` | `apps/api/internal/modules/workflowautomations/deal_task_rules_postgres_test.go` | `TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant` | Foreign definitions do not execute for local deal events; every task in a reviewed multi-task plan plus its captured ordered action/activity/run evidence remains source-tenant bound and commits atomically. A corrupt foreign task reference is not returned through run inspection, and a failed source transaction leaves no task, run, or action outcome. |
 | `deal-task-approval` | `apps/api/internal/modules/workflowautomations/deal_approval_postgres_test.go` | `TestDealApprovalTaskPlanPausesDecidesCancelsAndIsolates` | Pending plans expose no task; eligible-role and exact organization predicates hide/forbid other actors and tenants. Approval uses immutable captured actions and creates the full plan atomically, rejection creates none, exact replay is harmless, changed reuse conflicts, and definition/member lifecycle changes cancel pending effects. |
+| `deal-workflow-notification-causality` | `apps/api/internal/modules/workflowautomations/deal_notification_causality_postgres_test.go` | `TestDealNotificationActionsAndCausalLoopGuardsAgainstPostgres` | Literal task plans can append one bounded owner/admin/current-owner notification that commits atomically with the tasks and exact action evidence. Replay cannot duplicate either effect; parent action references use a same-tenant composite foreign key; foreign causes fail before a run exists; ancestor re-entry and the ninth causal hop are retained as explicit skipped runs and audits; and more than 50 eligible recipients rolls back the complete event. |
 | `workflow-activation` | `apps/api/internal/modules/workflowautomations/activation_postgres_test.go` | `TestWorkflowActivationAuthorizationCapacityAndRecovery` | The writer revalidates active owner/admin membership inside the locked tenant transaction; member, disabled, and foreign actors leave no definition; unsupported contracts cannot activate; simultaneous final-slot writers produce exactly one tenant-local winner and an exact 50-action total; deactivation restores only that tenant's capacity. |
 | `workflow-definition-management` | `apps/api/internal/modules/workflowautomations/definition_pagination_postgres_test.go` | `TestWorkflowDefinitionPagesAreBoundedStableAndTenantScoped` | Exact stored-definition totals, workspace-wide active-action summaries, stable bounded pages, repeat reads, direct limits, and the management index remain tenant scoped; a foreign definition is absent from every page and summary. |
 | `workflow-run-recovery` | `apps/api/internal/modules/workflowautomations/lead_follow_up_postgres_test.go` | `TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant` | Run inspection joins durable action/job evidence only by organization, reviewed job type, and exact run-derived idempotency key. A same-key foreign dead job cannot affect local run/action status, error, or attempt evidence; local dead work leaves active health, enters failed health, and returns to queued only after tenant-authorized replay. |

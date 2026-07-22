@@ -14,6 +14,7 @@ var notificationEventTypes = [...]string{
 	"task.assigned",
 	"task.due_soon",
 	"task.overdue",
+	"workflow.custom_notification",
 	"other",
 }
 

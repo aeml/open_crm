@@ -28,8 +28,9 @@ import {
   formFromAutomation,
   isApprovalTaskRule,
   isExecutableTaskRule,
+  isNotificationTaskRule,
   leadFormEvent,
-  maxActiveTaskActions,
+  maxActiveWorkflowActions,
   maxDealPlanTasks,
   payloadFromForm,
   stageChangedEvent,
@@ -299,7 +300,7 @@ export function SettingsAutomationsRoute() {
           {isLoading ? <p className="field-hint">Loading task automation rules...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadAutomations()} retryLabel="Retry task automations" /> : null}
-          <p className="field-hint">{activeActionCount} of {maxActiveTaskActions} active workflow actions allocated. Each task and approval gate uses one slot.</p>
+          <p className="field-hint">{activeActionCount} of {maxActiveWorkflowActions} active workflow actions allocated. Each task, approval gate, and teammate notification uses one slot.</p>
           <p className="field-hint">Showing {automations.length} of {definitionMeta.total} stored definitions.</p>
           {hiddenDefinitions > 0 ? <p className="field-hint">{hiddenDefinitions} unsupported loaded {hiddenDefinitions === 1 ? 'definition' : 'definitions'} hidden.</p> : null}
           {unsupportedActiveDefinitions.length > 0 ? (
@@ -319,16 +320,19 @@ export function SettingsAutomationsRoute() {
             ) : executableRules.map((automation) => {
               const leadFollowUp = eventFromAutomation(automation) === leadFormEvent
               const approvalPlan = isApprovalTaskRule(automation)
+              const notificationPlan = isNotificationTaskRule(automation)
               const taskActions = taskActionsForAutomation(automation)
               const approvalAction = approvalPlan ? automation.actions[0] : null
+              const notificationAction = notificationPlan ? automation.actions.at(-1) : null
               return (
                 <article className={automation.isActive ? 'record-row' : 'record-row record-row-alert'} key={automation.id} role="listitem">
                   <div>
                     <h3>{automation.name}</h3>
                     <p>{triggerSummary(automation, stagesById, formsById)}</p>
                     {automation.targetEntityType === 'deal' && automation.conditions?.length ? <p className="field-hint">{conditionSummary(automation, usersById)}</p> : null}
-                    <p className="field-hint">{leadFollowUp ? 'One durable task from retained submission evidence.' : approvalPlan ? `${taskActions.length}-task playbook · waits for a retained human decision.` : `${taskActions.length}-task playbook · all tasks commit with the deal event.`}</p>
+                    <p className="field-hint">{leadFollowUp ? 'One durable task from retained submission evidence.' : approvalPlan ? `${taskActions.length}-task playbook · waits for a retained human decision.` : notificationPlan ? `${taskActions.length}-task playbook · then notifies eligible teammates in the same transaction.` : `${taskActions.length}-task playbook · all tasks commit with the deal event.`}</p>
                     {approvalAction ? <p className="field-hint">Approval: {approvalAction.config.approvalName} · {approvalRoleOptions.find((option) => option.value === approvalAction.config.approverRole)?.label}</p> : null}
+                    {notificationAction ? <p className="field-hint">Notification: {approvalRoleOptions.find((option) => option.value === notificationAction.config.recipientRole)?.label} · “{notificationAction.config.message}”</p> : null}
                     <ol className="field-hint" aria-label={`${automation.name} task plan`}>
                       {taskActions.map((action, index) => <li key={`${index}-${action.config.title}`}>Create “{action.config.title}” · {taskTimingSummary(action, leadFollowUp)}{leadFollowUp ? ` · assign to ${usersById.get(Number(action.config.assignedToUserId)) || 'unavailable teammate'}` : ''}</li>)}
                     </ol>
@@ -347,11 +351,11 @@ export function SettingsAutomationsRoute() {
       {canManage ? (
         <Card>
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
-            <div><h2>{editingId ? 'Edit task rule' : 'New task rule'}</h2><p className="field-hint">A deal event can create an ordered 1–5 task playbook immediately or after a human approval. Lead forms create one durable task.</p></div>
+            <div><h2>{editingId ? 'Edit task rule' : 'New task rule'}</h2><p className="field-hint">A deal event can create an ordered 1–5 task playbook immediately, after a human approval, or with one bounded teammate notification. Lead forms create one durable task.</p></div>
             <Field label="Rule name"><input className="text-input" maxLength="120" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Proposal follow-up" /></Field>
             <Field label="When"><select className="text-input" value={form.event} onChange={(event) => {
               const nextEvent = event.target.value
-              setForm((current) => ({ ...current, event: nextEvent, stageId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '', additionalTasks: nextEvent === leadFormEvent ? [] : current.additionalTasks, requiresApproval: nextEvent === leadFormEvent ? false : current.requiresApproval }))
+              setForm((current) => ({ ...current, event: nextEvent, stageId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '', additionalTasks: nextEvent === leadFormEvent ? [] : current.additionalTasks, requiresApproval: nextEvent === leadFormEvent ? false : current.requiresApproval, notifyAfterTasks: nextEvent === leadFormEvent ? false : current.notifyAfterTasks }))
             }}>{triggerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
             {form.event === stageChangedEvent ? (
               <Field label="Destination stage" hint="Choose any stage to run after every real stage change."><select className="text-input" value={form.stageId} onChange={(event) => setForm({ ...form, stageId: event.target.value })}><option value="">Any stage</option>{stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.pipelineName} · {stage.name}</option>)}</select></Field>
@@ -379,7 +383,7 @@ export function SettingsAutomationsRoute() {
             {form.event !== leadFormEvent ? (
               <fieldset className="card-stack">
                 <legend>Human approval gate</legend>
-                <label className="field-hint"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked })} /> Require a decision before creating any tasks</label>
+                <label className="field-hint"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked, notifyAfterTasks: event.target.checked ? false : form.notifyAfterTasks })} /> Require a decision before creating any tasks</label>
                 {form.requiresApproval ? (
                   <>
                     <Field label="Approval name"><input className="text-input" maxLength="200" required value={form.approvalName} onChange={(event) => setForm({ ...form, approvalName: event.target.value })} /></Field>
@@ -388,6 +392,13 @@ export function SettingsAutomationsRoute() {
                     <p className="field-hint">The deal event, decision, and exact task plan remain inspectable. Rejection, definition changes, deactivation, or requester deactivation create no tasks.</p>
                   </>
                 ) : null}
+              </fieldset>
+            ) : null}
+            {form.event !== leadFormEvent ? (
+              <fieldset className="card-stack">
+                <legend>Teammate notification</legend>
+                <label className="field-hint"><input type="checkbox" checked={form.notifyAfterTasks} onChange={(event) => setForm({ ...form, notifyAfterTasks: event.target.checked, requiresApproval: event.target.checked ? false : form.requiresApproval })} /> Notify eligible teammates after every task commits</label>
+                {form.notifyAfterTasks ? <><Field label="Notify"><select className="text-input" value={form.notificationRecipientRole} onChange={(event) => setForm({ ...form, notificationRecipientRole: event.target.value })}>{approvalRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Notification message"><textarea className="text-input" rows={3} maxLength="500" required value={form.notificationMessage} onChange={(event) => setForm({ ...form, notificationMessage: event.target.value })} /></Field><p className="field-hint">At most 50 active recipients are allowed. If membership changes beyond that boundary, the whole deal event fails without partial tasks or notifications.</p></> : null}
               </fieldset>
             ) : null}
             {form.event === leadFormEvent ? (

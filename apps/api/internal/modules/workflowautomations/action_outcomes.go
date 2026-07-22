@@ -14,19 +14,49 @@ import (
 // workflow action. Task IDs are returned only when the target still belongs to
 // the same workspace as the run.
 type RunAction struct {
-	ID          int64              `json:"id"`
-	Position    int                `json:"position"`
-	Type        string             `json:"type"`
-	Label       string             `json:"label"`
-	Status      string             `json:"status"`
-	Attempts    int                `json:"attempts"`
-	ScheduledAt string             `json:"scheduledAt"`
-	StartedAt   string             `json:"startedAt"`
-	CompletedAt string             `json:"completedAt"`
-	TaskID      int64              `json:"taskId,omitempty"`
-	TaskDueAt   string             `json:"taskDueAt,omitempty"`
-	LastError   string             `json:"lastError"`
-	Approval    *RunActionApproval `json:"approval,omitempty"`
+	ID                int64              `json:"id"`
+	Position          int                `json:"position"`
+	Type              string             `json:"type"`
+	Label             string             `json:"label"`
+	Status            string             `json:"status"`
+	Attempts          int                `json:"attempts"`
+	ScheduledAt       string             `json:"scheduledAt"`
+	StartedAt         string             `json:"startedAt"`
+	CompletedAt       string             `json:"completedAt"`
+	TaskID            int64              `json:"taskId,omitempty"`
+	TaskDueAt         string             `json:"taskDueAt,omitempty"`
+	NotificationCount int                `json:"notificationCount,omitempty"`
+	LastError         string             `json:"lastError"`
+	Approval          *RunActionApproval `json:"approval,omitempty"`
+}
+
+func recordNotificationActionOutcome(
+	ctx context.Context,
+	tx pgx.Tx,
+	organizationID, runID int64,
+	position int,
+	action Action,
+	notificationCount int,
+) error {
+	if notificationCount <= 0 || notificationCount > maxWorkflowNotificationRecipients {
+		return ErrInvalidInput
+	}
+	if err := recordActionOutcome(ctx, tx, organizationID, runID, position, action, "succeeded", 1, nil, 0, nil, ""); err != nil {
+		return err
+	}
+	command, err := tx.Exec(ctx, `
+		UPDATE workflow_automation_action_outcomes
+		SET notification_count=$4, updated_at=NOW()
+		WHERE organization_id=$1 AND run_id=$2 AND action_position=$3
+		  AND action_type='notify' AND status='succeeded'
+	`, organizationID, runID, position, notificationCount)
+	if err != nil {
+		return fmt.Errorf("record workflow notification outcome: %w", err)
+	}
+	if command.RowsAffected() != 1 {
+		return ErrInvalidInput
+	}
+	return nil
 }
 
 type RunActionApproval struct {
@@ -136,6 +166,12 @@ func actionOutcomeLabel(action Action) string {
 		if label == "" {
 			label = "Request approval"
 		}
+	case "notify":
+		role := strings.ReplaceAll(strings.TrimSpace(stringValue(action.Config["recipientRole"])), "_", " ")
+		if role == "" {
+			role = "teammates"
+		}
+		label = "Notify " + role
 	default:
 		label = strings.TrimSpace(stringValue(action.Config["title"]))
 		if label == "" {
@@ -164,7 +200,7 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 		       COALESCE(TO_CHAR(outcome.completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
 		       COALESCE(task.id,0),
 		       COALESCE(TO_CHAR(task.due_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
-		       outcome.last_error,
+		       outcome.notification_count,outcome.last_error,
 		       COALESCE(approval.id,0),COALESCE(approval.status,''),COALESCE(approval.approver_role,''),
 		       COALESCE(approval.message,''),COALESCE(approval.requested_by_user_id,0),
 		       COALESCE(TO_CHAR(approval.requested_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
@@ -201,6 +237,7 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 			&action.CompletedAt,
 			&action.TaskID,
 			&action.TaskDueAt,
+			&action.NotificationCount,
 			&action.LastError,
 			&approval.ID,
 			&approval.Status,

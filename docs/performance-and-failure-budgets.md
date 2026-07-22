@@ -218,11 +218,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 774 KiB | 242 KiB |
+| All JavaScript and CSS | 779 KiB | 243 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.87 KiB/57.98 KiB entry, 55.12 KiB/15.73 KiB largest lazy
-chunk, and 773.96 KiB/241.47 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.87 KiB/57.99 KiB entry, 55.12 KiB/15.73 KiB largest lazy
+chunk, and 778.16 KiB/242.36 KiB total assets. The production contact, company,
 deal, and task routes are 27.27/8.55, 45.09/13.08, 55.12/15.73, and 26.09/7.92
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.58 KiB/4.62 KiB settings route. Its
@@ -595,6 +595,15 @@ KiB raw/gzip, and the complete build measures 178.87/57.98 KiB entry,
 55.12/15.73 KiB largest lazy chunk, and 773.96/241.47 KiB aggregate raw/gzip.
 Only the aggregate ceilings advance from 766/240 to 774/242 KiB; entry,
 per-route, CSS, and source ceilings remain unchanged.
+
+The causal-guard and teammate-notification slice adds one exact authorable
+non-recursive action, finite recipient/cap disclosure, delivery-count evidence,
+and root/nested/loop-guard run inspection. The route remains below the unchanged
+per-route ceiling at 40.13/11.17 KiB and 433 production lines. The complete
+build measures 178.87/57.99 KiB entry, 55.12/15.73 KiB largest lazy chunk, and
+778.16/242.36 KiB aggregate raw/gzip. Only the aggregate ceilings advance from
+774/242 to 779/243 KiB; entry, per-route, CSS, and source ceilings remain
+unchanged.
 
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and

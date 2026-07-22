@@ -16,8 +16,9 @@ The audited mutation classes are:
   lifecycle, password recovery, and active-session revocation;
 - organization profile, pipeline, custom-field, quote-template, email-template,
   email-snippet, and email-sequence definition lifecycle and approval, plus
-  executable automation configuration and transactional workflow-approval
-  request, decision, unavailability, and cancellation evidence;
+  executable automation configuration, transactional workflow-approval
+  request, decision, unavailability, and cancellation evidence, and causal
+  automation-loop prevention;
 - archive recovery, imports and rollback, bulk changes and rollback, duplicate
   merge, client review scheduling, and lead-submission quarantine/recovery;
 - billing subscription/reconciliation outcomes, identity- and customer-email
@@ -36,9 +37,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `50`
+Producer source count: `51`
 
-Producer source digest: `25eb889e4de796e4d7517a3a04d8d5847bd4276521af6bc3927eedf5dff23082`
+Producer source digest: `22a436d6d5508be16a4566160cd49df1ebaf9d01fd0161c56eda5b039a3fddd5`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -58,6 +59,12 @@ transition. Metadata contains only definition/run/deal/task identifiers,
 finite role/decision state, bounded decision or cancellation notes, and task
 counts/IDs. It excludes the idempotency key and request fingerprints, which
 remain digest-only in the approval ledger and are removed from portable export.
+
+The causal-loop review adds one focused producer for a retained run stopped by
+automation re-entry or the maximum causal depth. It commits with the skipped
+same-tenant run and records only automation/run/deal/action identifiers, finite
+depth, and one reviewed reason. It contains no notification body, recipient,
+customer value, trigger payload, or idempotency material.
 
 Email-sequence create, update, delete, exact-revision approval, and effective
 pause events commit in the same tenant transaction as the definition change.

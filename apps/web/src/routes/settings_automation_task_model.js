@@ -10,9 +10,10 @@ export const triggerOptions = [
 const dealConditionContract = 'deal_snapshot_v1'
 const dealTaskPlanContract = 'deal_task_plan_v1'
 const dealApprovalTaskPlanContract = 'deal_approval_task_plan_v1'
+const dealTaskNotifyPlanContract = 'deal_task_notify_plan_v1'
 const leadFollowUpTaskContract = 'lead_follow_up_task_v1'
 export const maxDealPlanTasks = 5
-export const maxActiveTaskActions = 50
+export const maxActiveWorkflowActions = 50
 export const approvalRoleOptions = [
   { value: 'owner', label: 'Workspace owners' },
   { value: 'admin', label: 'Workspace owners and admins' },
@@ -47,7 +48,8 @@ export function emptyForm() {
     name: '', event: 'created', stageId: '', formId: '', conditionField: '', conditionOperator: equalsOperator,
     conditionValue: '', assignedToUserId: '', title: '', description: '', waitDays: '0', dueDays: '1',
     additionalTasks: [], requiresApproval: false, approvalName: 'Review task playbook', approverRole: 'admin',
-    approvalMessage: 'Review this deal before creating the follow-up tasks.', isActive: true
+    approvalMessage: 'Review this deal before creating the follow-up tasks.', notifyAfterTasks: false,
+    notificationRecipientRole: 'record_owner', notificationMessage: 'The deal follow-up task plan is ready.', isActive: true
   }
 }
 
@@ -74,9 +76,12 @@ export function isExecutableTaskRule(automation) {
   const taskPlanContract = automation.triggerConfig?.taskPlanContract
   if (automation.targetEntityType === 'deal') {
     const approvalPlan = taskPlanContract === dealApprovalTaskPlanContract
-    const taskActions = approvalPlan ? actions.slice(1) : actions
+    const notificationPlan = taskPlanContract === dealTaskNotifyPlanContract
+    const taskActions = approvalPlan ? actions.slice(1) : notificationPlan ? actions.slice(0, -1) : actions
     const validTaskPlan = approvalPlan
       ? validApprovalAction(actions[0]) && validDealTaskActions(taskActions, true)
+      : notificationPlan
+        ? validDealTaskActions(taskActions, true) && validNotificationAction(actions.at(-1))
       : validDealTaskActions(taskActions, Boolean(taskPlanContract)) && (taskActions.length === 1
           ? (!taskPlanContract || taskPlanContract === dealTaskPlanContract)
           : taskPlanContract === dealTaskPlanContract)
@@ -126,18 +131,34 @@ function validApprovalAction(action) {
     Boolean(String(config.message || '').trim()) && String(config.message).length <= 2000
 }
 
+function validNotificationAction(action) {
+  const config = action?.config || {}
+  return action?.type === 'notify' && !action.scheduledAt && Number(action.delayMinutes || 0) === 0 &&
+    Object.keys(config).every((key) => ['recipientRole', 'message'].includes(key)) &&
+    approvalRoleOptions.some((option) => option.value === config.recipientRole) &&
+    Boolean(String(config.message || '').trim()) && String(config.message).length <= 500
+}
+
 export function isApprovalTaskRule(automation) {
   return automation?.targetEntityType === 'deal' && automation?.triggerConfig?.taskPlanContract === dealApprovalTaskPlanContract && isExecutableTaskRule(automation)
 }
 
+export function isNotificationTaskRule(automation) {
+  return automation?.targetEntityType === 'deal' && automation?.triggerConfig?.taskPlanContract === dealTaskNotifyPlanContract && isExecutableTaskRule(automation)
+}
+
 export function taskActionsForAutomation(automation) {
-  return isApprovalTaskRule(automation) ? automation.actions.slice(1) : automation.actions || []
+  if (isApprovalTaskRule(automation)) return automation.actions.slice(1)
+  if (isNotificationTaskRule(automation)) return automation.actions.slice(0, -1)
+  return automation.actions || []
 }
 
 export function formFromAutomation(automation) {
   const approvalPlan = isApprovalTaskRule(automation)
+  const notificationPlan = isNotificationTaskRule(automation)
   const approvalAction = approvalPlan ? automation.actions[0] : null
-  const taskActions = approvalPlan ? automation.actions.slice(1) : automation.actions
+  const notificationAction = notificationPlan ? automation.actions.at(-1) : null
+  const taskActions = approvalPlan ? automation.actions.slice(1) : notificationPlan ? automation.actions.slice(0, -1) : automation.actions
   const action = taskActions[0]
   const leadFollowUp = eventFromAutomation(automation) === leadFormEvent
   const hasDueDays = leadFollowUp && Object.hasOwn(action.config || {}, 'dueDays')
@@ -163,6 +184,9 @@ export function formFromAutomation(automation) {
     approvalName: approvalAction?.config?.approvalName || 'Review task playbook',
     approverRole: approvalAction?.config?.approverRole || 'admin',
     approvalMessage: approvalAction?.config?.message || 'Review this deal before creating the follow-up tasks.',
+    notifyAfterTasks: notificationPlan,
+    notificationRecipientRole: notificationAction?.config?.recipientRole || 'record_owner',
+    notificationMessage: notificationAction?.config?.message || 'The deal follow-up task plan is ready.',
     isActive: automation.isActive === true
   }
 }
@@ -205,6 +229,13 @@ export function payloadFromForm(form) {
     if (String(form.approvalMessage).trim().length > 2000) throw new Error('Approval guidance exceeds 2,000 characters.')
     triggerConfig.taskPlanContract = dealApprovalTaskPlanContract
   }
+  if (!leadFollowUp && form.notifyAfterTasks) {
+    if (form.requiresApproval) throw new Error('Choose either a human approval gate or a teammate notification for this bounded plan.')
+    if (!approvalRoleOptions.some((option) => option.value === form.notificationRecipientRole)) throw new Error('Choose a supported notification recipient role.')
+    if (!String(form.notificationMessage || '').trim()) throw new Error('Teammate notification needs a message.')
+    if (String(form.notificationMessage).trim().length > 500) throw new Error('Teammate notification exceeds 500 characters.')
+    triggerConfig.taskPlanContract = dealTaskNotifyPlanContract
+  }
   const config = { title: form.title.trim() }
   if (form.description.trim()) config.description = form.description.trim()
   if (leadFollowUp) {
@@ -239,12 +270,23 @@ export function payloadFromForm(form) {
       }
     }, ...actions]
   }
+  if (!leadFollowUp && form.notifyAfterTasks) {
+    actions = [...actions, {
+      type: 'notify',
+      config: {
+        recipientRole: form.notificationRecipientRole,
+        message: String(form.notificationMessage).trim()
+      }
+    }]
+  }
   return {
     name: form.name.trim(),
     description: leadFollowUp
       ? 'Creates one durable assigned follow-up task from an accepted lead form submission.'
       : form.requiresApproval
         ? `Requests a human decision before creating ${taskForms.length} follow-up ${taskForms.length === 1 ? 'task' : 'tasks'} from a deal event.`
+        : form.notifyAfterTasks
+          ? `Creates ${taskForms.length} follow-up ${taskForms.length === 1 ? 'task' : 'tasks'} and then notifies eligible teammates in the same deal transaction.`
         : `Creates ${taskForms.length} assigned follow-up ${taskForms.length === 1 ? 'task' : 'tasks'} from a deal event.`,
     triggerType,
     targetEntityType: leadFollowUp ? 'lead_form' : 'deal',

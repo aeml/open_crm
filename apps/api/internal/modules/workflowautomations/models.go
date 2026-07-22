@@ -56,6 +56,9 @@ type Run struct {
 	TargetEntityType string         `json:"targetEntityType"`
 	TargetEntityID   int64          `json:"targetEntityId,omitempty"`
 	TriggerEventKey  string         `json:"triggerEventKey"`
+	CausationRunID   int64          `json:"causationRunId,omitempty"`
+	CausationAction  int            `json:"causationActionPosition,omitempty"`
+	CausalDepth      int            `json:"causalDepth"`
 	Status           string         `json:"status"`
 	TriggerPayload   map[string]any `json:"triggerPayload"`
 	ConditionResult  *bool          `json:"conditionResult,omitempty"`

@@ -447,6 +447,16 @@ groups:
           description: Confirm that an eligible active owner, admin, or current deal owner can see the retained approval before deciding or cancelling it.
           runbook: docs/operations-runbook.md#durable-lead-follow-up-automation
 
+      - alert: OpenCRMWorkflowLoopPrevented
+        expr: open_crm_workflow_runs_available == 1 and open_crm_workflow_loops_prevented_24h > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A nested workflow was stopped by the loop guard
+          description: Inspect causal run evidence before changing the rule; do not bypass the re-entry or depth boundary.
+          runbook: docs/operations-runbook.md#deal-task-automation-and-recovery
+
       - alert: OpenCRMBackupStatusUnavailable
         expr: open_crm_backup_status_available == 0
         for: 30m

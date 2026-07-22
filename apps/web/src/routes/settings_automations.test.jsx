@@ -321,6 +321,101 @@ describe('settings task automations route', () => {
     expect(screen.getByText(/waits for a retained human decision/i)).toBeInTheDocument()
   })
 
+  it('authors a bounded teammate notification and inspects delivery plus causal loop evidence', async () => {
+    const createdRule = {
+      id: 28,
+      name: 'Notify proposal team',
+      triggerType: 'record_created',
+      targetEntityType: 'deal',
+      triggerConfig: { taskPlanContract: 'deal_task_notify_plan_v1' },
+      conditionLogic: 'all',
+      conditions: [],
+      actions: [
+        { type: 'create_task', config: { title: 'Prepare proposal' }, delayMinutes: 1440 },
+        { type: 'notify', config: { recipientRole: 'admin', message: 'Proposal preparation has started.' } }
+      ],
+      isActive: true,
+      position: 0
+    }
+    const existingRule = { ...createdRule, id: 27, name: 'Existing notification rule' }
+    let storedDefinitions = [existingRule]
+    const runs = [
+      {
+        id: 81, automationId: 27, automationName: 'Existing notification rule', triggerEventKey: 'deal:4:root',
+        status: 'succeeded', causalDepth: 0, actionsTotal: 2, actionsCompleted: 2,
+        createdAt: '2026-07-22T21:00:00Z', triggerPayload: {}, actions: [
+          { id: 91, position: 1, type: 'create_task', label: 'Prepare proposal', status: 'succeeded', attempts: 1, scheduledAt: '2026-07-22T21:00:00Z', taskId: 101, lastError: '' },
+          { id: 92, position: 2, type: 'notify', label: 'Notify admin', status: 'succeeded', attempts: 1, scheduledAt: '2026-07-22T21:00:00Z', notificationCount: 2, lastError: '' }
+        ]
+      },
+      {
+        id: 82, automationId: 27, automationName: 'Existing notification rule', triggerEventKey: 'deal:4:nested',
+        causationRunId: 81, causationActionPosition: 2, causalDepth: 1, status: 'skipped',
+        actionsTotal: 2, actionsCompleted: 0, createdAt: '2026-07-22T21:01:00Z',
+        triggerPayload: { skipReason: 'Automation re-entry prevented.' }, actions: [
+          { id: 93, position: 1, type: 'create_task', label: 'Prepare proposal', status: 'skipped', attempts: 0, scheduledAt: '2026-07-22T21:01:00Z', lastError: 'Automation re-entry prevented.' },
+          { id: 94, position: 2, type: 'notify', label: 'Notify admin', status: 'skipped', attempts: 0, scheduledAt: '2026-07-22T21:01:00Z', lastError: 'Automation re-entry prevented.' }
+        ]
+      }
+    ]
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const path = requestURL.pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [] } })
+      if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
+      if (path.endsWith('/api/workflow-approvals')) return jsonResponse({ data: { approvals: [] } })
+      if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs } })
+      if (path.endsWith('/api/workflow-automations') && method === 'POST') {
+        storedDefinitions = [createdRule]
+        return jsonResponse({ data: { automation: createdRule } }, 201)
+      }
+      if (path.endsWith('/api/workflow-automations')) return workflowPage(storedDefinitions)
+      throw new Error(`Unexpected fetch: ${method} ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/automations')
+
+    render(<AppRouter />)
+
+    const runList = await screen.findByRole('list', { name: 'Task automation runs' })
+    expect(runList).toHaveTextContent('Nested depth 1 · caused by run #81, action 2.')
+    expect(runList).toHaveTextContent('Loop guard: Automation re-entry prevented.')
+    expect(runList).toHaveTextContent('Delivered to 2 eligible teammates.')
+
+    fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Notify proposal team' } })
+    fireEvent.change(screen.getByLabelText('Task title'), { target: { value: 'Prepare proposal' } })
+    fireEvent.click(screen.getByLabelText(/notify eligible teammates after every task commits/i))
+    fireEvent.change(screen.getByLabelText('Notify'), { target: { value: 'admin' } })
+    fireEvent.change(screen.getByLabelText('Notification message'), { target: { value: 'Proposal preparation has started.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create task rule' }))
+
+    await waitFor(() => {
+      const createCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations') && call[1]?.method === 'POST')
+      expect(JSON.parse(createCall[1].body)).toEqual({
+        name: 'Notify proposal team',
+        description: 'Creates 1 follow-up task and then notifies eligible teammates in the same deal transaction.',
+        triggerType: 'record_created',
+        targetEntityType: 'deal',
+        triggerConfig: { taskPlanContract: 'deal_task_notify_plan_v1' },
+        conditionLogic: 'all',
+        conditions: [],
+        actions: [
+          { type: 'create_task', config: { title: 'Prepare proposal' }, delayMinutes: 1440 },
+          { type: 'notify', config: { recipientRole: 'admin', message: 'Proposal preparation has started.' } }
+        ],
+        isActive: true,
+        position: 0
+      })
+    })
+    expect(await screen.findByRole('heading', { name: 'Notify proposal team' })).toBeInTheDocument()
+    expect(screen.getByText(/then notifies eligible teammates in the same transaction/i)).toBeInTheDocument()
+    expect(screen.getByText(/notification: workspace owners and admins/i)).toBeInTheDocument()
+  })
+
   it('loads stored definition row 51 with exact continuation metadata', async () => {
     const definition = (id, name) => ({
       id,

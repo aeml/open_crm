@@ -63,6 +63,7 @@ func (s *Service) OperationalStats(ctx context.Context) (OperationalStats, error
 			WHEN 'task.assigned' THEN event_type
 			WHEN 'task.due_soon' THEN event_type
 			WHEN 'task.overdue' THEN event_type
+			WHEN 'workflow.custom_notification' THEN event_type
 			ELSE 'other'
 		END AS event_bucket,
 		COUNT(*)::bigint

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deactivationPayload, emptyForm, formFromAutomation, isApprovalTaskRule, isExecutableTaskRule, payloadFromForm, taskActionsForAutomation } from './settings_automation_task_model'
+import { deactivationPayload, emptyForm, formFromAutomation, isApprovalTaskRule, isExecutableTaskRule, isNotificationTaskRule, payloadFromForm, taskActionsForAutomation } from './settings_automation_task_model'
 
 function dealAutomation(actions, triggerConfig = {}) {
   return {
@@ -94,6 +94,39 @@ describe('settings automation task model', () => {
     })
     expect(isExecutableTaskRule({ ...automation, actions: [firstTask, payload.actions[0], secondTask] })).toBe(false)
     expect(isExecutableTaskRule({ ...automation, actions: [{ ...payload.actions[0], config: { ...payload.actions[0].config, futurePolicy: true } }, firstTask] })).toBe(false)
+  })
+
+  it('builds, exposes, and restores one bounded teammate notification after deal tasks', () => {
+    const payload = payloadFromForm({
+      ...emptyForm(),
+      name: 'Notify proposal team',
+      notifyAfterTasks: true,
+      notificationRecipientRole: 'admin',
+      notificationMessage: 'Proposal preparation has started.',
+      title: 'Prepare proposal',
+      dueDays: '1',
+      additionalTasks: [{ title: 'Schedule decision review', description: '', dueDays: '3' }]
+    })
+    expect(payload.triggerConfig).toEqual({ taskPlanContract: 'deal_task_notify_plan_v1' })
+    expect(payload.description).toBe('Creates 2 follow-up tasks and then notifies eligible teammates in the same deal transaction.')
+    expect(payload.actions).toEqual([
+      firstTask,
+      secondTask,
+      { type: 'notify', config: { recipientRole: 'admin', message: 'Proposal preparation has started.' } }
+    ])
+    const automation = { ...dealAutomation(payload.actions, payload.triggerConfig), ...payload }
+    expect(isExecutableTaskRule(automation)).toBe(true)
+    expect(isNotificationTaskRule(automation)).toBe(true)
+    expect(taskActionsForAutomation(automation)).toEqual([firstTask, secondTask])
+    expect(formFromAutomation(automation)).toMatchObject({
+      notifyAfterTasks: true,
+      notificationRecipientRole: 'admin',
+      notificationMessage: 'Proposal preparation has started.',
+      title: 'Prepare proposal',
+      additionalTasks: [{ title: 'Schedule decision review', description: '', dueDays: '3' }]
+    })
+    expect(isExecutableTaskRule({ ...automation, actions: [payload.actions[2], firstTask] })).toBe(false)
+    expect(() => payloadFromForm({ ...emptyForm(), name: 'Ambiguous plan', title: 'Task', requiresApproval: true, notifyAfterTasks: true })).toThrow('either a human approval gate or a teammate notification')
   })
 
   it('uses a safety-only deactivation intent without resubmitting an unknown definition', () => {

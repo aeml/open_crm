@@ -102,7 +102,7 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		if err := validateExecutableReferences(ctx, tx, organizationID, input); err != nil {
 			return Automation{}, err
 		}
-		if err := requireActiveTaskActionCapacity(ctx, tx, organizationID, 0, len(input.Actions)); err != nil {
+		if err := requireActiveActionCapacity(ctx, tx, organizationID, 0, len(input.Actions)); err != nil {
 			return Automation{}, err
 		}
 	}
@@ -174,7 +174,7 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 		if err := validateExecutableReferences(ctx, tx, organizationID, input); err != nil {
 			return Automation{}, err
 		}
-		if err := requireActiveTaskActionCapacity(ctx, tx, organizationID, automationID, len(input.Actions)); err != nil {
+		if err := requireActiveActionCapacity(ctx, tx, organizationID, automationID, len(input.Actions)); err != nil {
 			return Automation{}, err
 		}
 	}

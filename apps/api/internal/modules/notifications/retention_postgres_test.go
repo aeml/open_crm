@@ -70,6 +70,7 @@ func TestRetentionAndOperationalStatsAgainstPostgres(t *testing.T) {
 
 	insertRetentionNotification(t, ctx, pool, organizationID, userID, "deal.assigned", now.Add(-time.Hour), nil)
 	insertRetentionNotification(t, ctx, pool, organizationID, userID, "task.due_soon", now.Add(-2*time.Hour), nil)
+	insertRetentionNotification(t, ctx, pool, organizationID, userID, "workflow.custom_notification", now.Add(-150*time.Minute), nil)
 	insertRetentionNotification(t, ctx, pool, organizationID, userID, "future.customer.event", now.Add(-3*time.Hour), nil)
 	insertRetentionNotification(t, ctx, pool, organizationID, otherUserID, "record.mentioned", now.Add(-4*time.Hour), timePointer(now.Add(-3*time.Hour)))
 	insertRetentionNotification(t, ctx, pool, otherOrganizationID, otherUserID, "task.overdue", now.Add(-5*time.Hour), nil)
@@ -79,15 +80,16 @@ func TestRetentionAndOperationalStatsAgainstPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect notification operational stats: %v", err)
 	}
-	if stats.Unread != 5 || stats.Created24h != 5 || stats.Recipients24h != 3 || stats.MaxPerRecipient24h != 3 || stats.OldestUnreadAge != 364*24*time.Hour {
+	if stats.Unread != 6 || stats.Created24h != 6 || stats.Recipients24h != 3 || stats.MaxPerRecipient24h != 4 || stats.OldestUnreadAge != 364*24*time.Hour {
 		t.Fatalf("unexpected notification operational stats: %#v", stats)
 	}
 	for eventType, expected := range map[string]int64{
-		"deal.assigned":    1,
-		"task.due_soon":    1,
-		"record.mentioned": 1,
-		"task.overdue":     1,
-		"other":            1,
+		"deal.assigned":                1,
+		"task.due_soon":                1,
+		"workflow.custom_notification": 1,
+		"record.mentioned":             1,
+		"task.overdue":                 1,
+		"other":                        1,
 	} {
 		if stats.Events24h[eventType] != expected {
 			t.Fatalf("event %q count=%d, want %d; all=%#v", eventType, stats.Events24h[eventType], expected, stats.Events24h)

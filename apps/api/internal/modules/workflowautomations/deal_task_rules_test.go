@@ -65,6 +65,39 @@ func TestExecutableApprovalTaskActionsRequireOneBoundedHumanGateFirst(t *testing
 	}
 }
 
+func TestExecutableNotificationTaskActionsRequireReviewedBoundedShape(t *testing.T) {
+	task := Action{Type: "create_task", Config: map[string]any{"title": "Prepare proposal"}, DelayMinutes: 1440}
+	notification := Action{Type: "notify", Config: map[string]any{
+		"recipientRole": "admin", "message": "A proposal task plan is ready.",
+	}}
+	config := map[string]any{"taskPlanContract": DealTaskNotifyPlanContract}
+	if !executableNotifyTaskActions(config, []Action{task, notification}) {
+		t.Fatal("reviewed task and teammate-notification plan should be executable")
+	}
+	for name, actions := range map[string][]Action{
+		"missing task":               {notification},
+		"notification first":         {notification, task},
+		"multiple notifications":     {task, notification, notification},
+		"delayed notification":       {task, {Type: "notify", Config: notification.Config, DelayMinutes: 1}},
+		"unknown role":               {task, {Type: "notify", Config: map[string]any{"recipientRole": "member", "message": "No."}}},
+		"unknown config":             {task, {Type: "notify", Config: map[string]any{"recipientRole": "owner", "message": "No.", "channel": "email"}}},
+		"unsupported preceding type": {{Type: "send_email", Config: map[string]any{"subject": "No", "body": "No"}}, notification},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if executableNotifyTaskActions(config, actions) {
+				t.Fatalf("invalid notification plan became executable: %#v", actions)
+			}
+		})
+	}
+	tooLong := []Action{task, {Type: "notify", Config: map[string]any{"recipientRole": "owner", "message": string(make([]byte, 501))}}}
+	if executableNotifyTaskActions(config, tooLong) {
+		t.Fatal("notification message exceeded the reviewed bound")
+	}
+	if executableNotifyTaskActions(map[string]any{"taskPlanContract": "future"}, []Action{task, notification}) {
+		t.Fatal("unknown notification contract became executable")
+	}
+}
+
 func TestExecutableDealConditionsRequireExplicitBoundedContract(t *testing.T) {
 	condition := Condition{Field: "valueAmount", Operator: "greaterThan", Value: "5000"}
 	if executableDealConditions(map[string]any{}, "all", []Condition{condition}) {

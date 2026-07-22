@@ -178,7 +178,7 @@ func TestWorkflowActivationAuthorizationCapacityAndRecovery(t *testing.T) {
 	if successes != 1 || limited != 1 || successful.ID <= 0 {
 		t.Fatalf("expected one exact final-slot winner: successes=%d limited=%d winner=%#v", successes, limited, successful)
 	}
-	assertActiveWorkflowActionCount(t, ctx, pool, organizationID, moduleworkflowautomations.MaxActiveTaskActions)
+	assertActiveWorkflowActionCount(t, ctx, pool, organizationID, moduleworkflowautomations.MaxActiveWorkflowActions)
 
 	ownerRuleInput.IsActive = &inactive
 	if _, err := service.Update(ctx, organizationID, ownerRule.ID, users["owner"], ownerRuleInput); err != nil {
@@ -187,7 +187,7 @@ func TestWorkflowActivationAuthorizationCapacityAndRecovery(t *testing.T) {
 	if _, err := service.Create(ctx, organizationID, users["admin"], reviewedDealRuleInput("Recovered active slot", &active)); err != nil {
 		t.Fatalf("activate after capacity recovery: %v", err)
 	}
-	assertActiveWorkflowActionCount(t, ctx, pool, organizationID, moduleworkflowautomations.MaxActiveTaskActions)
+	assertActiveWorkflowActionCount(t, ctx, pool, organizationID, moduleworkflowautomations.MaxActiveWorkflowActions)
 
 	var forbiddenDefinitions int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_automations WHERE organization_id=$1 AND name LIKE 'Forbidden %'`, organizationID).Scan(&forbiddenDefinitions); err != nil || forbiddenDefinitions != 0 {

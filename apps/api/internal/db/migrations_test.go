@@ -2215,3 +2215,31 @@ func TestMigrationFilesIncludeWorkflowActionOutcomes(t *testing.T) {
 		t.Fatalf("workflow action outcome deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeWorkflowCausalityNotifications(t *testing.T) {
+	const name = "122_workflow_causality_notifications.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"causation_run_id",
+		"causation_action_position",
+		"causal_depth",
+		"workflow_automation_runs_causation_action_fk",
+		"notification_count",
+		"idx_workflow_automation_runs_org_causation",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("workflow causality migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("workflow causality migration deployment class = %q", class)
+	}
+}
