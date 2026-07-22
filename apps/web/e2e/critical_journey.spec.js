@@ -650,18 +650,20 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await clientTaskForm.getByRole('button', { name: 'Save task' }).click()
   await expect(page.getByRole('list', { name: 'Client tasks list' }).getByText(accountHandoffTask)).toBeVisible()
 
+  const duplicateEmail = `avery-duplicate-${runID}@example.test`
   await page.getByRole('button', { name: 'Add person' }).click()
   const duplicatePersonForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save person' }) })
   await duplicatePersonForm.getByLabel('First name').fill('Avery')
   await duplicatePersonForm.getByLabel('Last name').fill('Buyer')
-  await duplicatePersonForm.getByLabel('Email').fill(`avery-duplicate-${runID}@example.test`)
+  await duplicatePersonForm.getByLabel('Email').fill(duplicateEmail)
   await duplicatePersonForm.getByLabel('Job title').fill('Regional Buyer')
   await duplicatePersonForm.getByLabel('Relationship segment (required)', { exact: false }).selectOption('Partner')
   await duplicatePersonForm.getByRole('button', { name: 'Save person' }).click()
+  await expect(page.getByRole('list', { name: 'Linked contacts list' }).getByText(duplicateEmail, { exact: true })).toBeVisible()
 
   await page.getByRole('link', { name: 'Data Quality', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Duplicate review' })).toBeVisible()
-  const duplicatePair = page.getByRole('listitem').filter({ hasText: `avery-duplicate-${runID}@example.test` })
+  const duplicatePair = page.getByRole('listitem').filter({ hasText: duplicateEmail })
   await expect(duplicatePair).toBeAttached()
   await duplicatePair.getByRole('button', { name: `Keep Avery Buyer (avery-${runID}@example.test)` }).click()
   await page.getByLabel('Regional Buyer').check()
