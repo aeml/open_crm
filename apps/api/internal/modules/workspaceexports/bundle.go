@@ -366,6 +366,9 @@ func buildPortableDatasets() []dataset {
 		{name: "import_batches", query: `
 			SELECT to_jsonb(batch) - ARRAY['source_csv','source_expires_at']::text[]
 			FROM import_batches batch WHERE organization_id=$1 ORDER BY id`},
+		{name: "crm_exports", query: `
+			SELECT to_jsonb(crm_export) - ARRAY['idempotency_key_hash','criteria_json','artifact']::text[]
+			FROM crm_exports crm_export WHERE organization_id=$1 ORDER BY id`},
 		{name: "members", query: `
 			SELECT jsonb_build_object(
 				'id',m.id,'user_id',u.id,'email',u.email,'first_name',u.first_name,'last_name',u.last_name,
@@ -507,6 +510,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"sessions",
 		"system_email_feedback_events",
 		"customer_email_feedback_events",
+		"crm_exports",
 		"workspace_bootstrap_requests",
 		"workspace_exports",
 	} {

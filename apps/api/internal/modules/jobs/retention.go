@@ -20,6 +20,7 @@ var retentionEligibleJobTypes = []string{
 	"billing.reconcile",
 	"billing.usage.snapshot",
 	"calendar.reminder",
+	"crm.export.generate",
 	"email_sequence.send",
 	"import.execute",
 	"mailbox.sync",

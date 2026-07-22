@@ -32,6 +32,7 @@ func TestHostedWritePolicyClassifiesMutationsAndRecoveryRoutes(t *testing.T) {
 		{name: "email feedback webhook recovery", method: http.MethodPost, pattern: "POST /api/email/webhooks/postmark", want: false},
 		{name: "public unsubscribe recovery", method: http.MethodPost, pattern: "POST /api/email-unsubscribe/{token}", want: false},
 		{name: "workspace export recovery", method: http.MethodPost, pattern: "POST /api/workspace-exports", want: false},
+		{name: "filtered CRM export is a hosted write", method: http.MethodPost, pattern: "POST /api/crm-exports", want: true},
 		{name: "durable job replay", method: http.MethodPost, pattern: "POST /api/admin/background-jobs/{jobID}/replay", want: false},
 		{name: "mailbox reply recovery", method: http.MethodPost, pattern: "POST /api/email-replies/{replyID}/resolve", want: false},
 		{name: "record email recovery", method: http.MethodPost, pattern: "POST /api/record-email-deliveries/{deliveryID}/resolve", want: false},

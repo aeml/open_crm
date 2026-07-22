@@ -6,11 +6,13 @@ import { SavedViews } from '../components/ui/saved_views'
 import { BulkActions } from '../components/ui/bulk_actions'
 import { CustomFieldFilter } from '../components/ui/custom_field_filter'
 import { CustomFieldValue } from '../components/ui/custom_fields_form'
+import { CRMExportActions } from '../components/ui/crm_export_actions'
 import { attributionSummary, hasAttribution, hasLeadScore, leadScoreLabel } from './contact_insights'
 import { formatContactAddress, fullContactName } from './contact_view'
 
 export function ContactListCard({
   canWrite,
+  canExport,
   bulkActions,
   contacts,
   currentUserId,
@@ -20,6 +22,7 @@ export function ContactListCard({
   duplicateSearch,
   error,
   exportURL,
+  durableExportURL,
   hasFilter,
   isLoading,
   meta,
@@ -48,11 +51,11 @@ export function ContactListCard({
             <p>Keep the right people moving without a bloated CRM mess.</p>
           </div>
           <div className="button-row">
-            <a className="button button-secondary" href={exportURL}>Export CSV</a>
+            <CRMExportActions canExport={canExport} directURL={exportURL} durableURL={durableExportURL} />
             {canWrite ? <Button onClick={onCreate}>Add contact</Button> : null}
           </div>
         </div>
-        <p className="field-hint">CSV exports include up to 10,000 matching contacts. Apply filters first for larger sets.</p>
+        {canExport ? <p className="field-hint">Direct CSV: 10,000 matches. Background CSV: 50,000.</p> : null}
         <Field label="Search contacts">
           <input className="text-input" type="search" value={search} onChange={onSearchChange} />
         </Field>

@@ -23,21 +23,29 @@ var (
 
 type Service struct {
 	pool *pgxpool.Pool
+	now  func() time.Time
 }
 
 type File struct {
 	Filename string
 	Content  []byte
+	RowCount int
 }
 
+type progressFunc func(int)
+
 type ContactsQuery struct {
-	Search      string
-	CustomField modulecustomfields.Filter
+	Search         string
+	OwnerUserID    int64
+	UnassignedOnly bool
+	CustomField    modulecustomfields.Filter
 }
 
 type CompaniesQuery struct {
-	Search      string
-	CustomField modulecustomfields.Filter
+	Search         string
+	OwnerUserID    int64
+	UnassignedOnly bool
+	CustomField    modulecustomfields.Filter
 }
 
 type DealsQuery struct {
@@ -45,6 +53,7 @@ type DealsQuery struct {
 	PipelineID       int64
 	StageID          int64
 	OwnerUserID      int64
+	UnassignedOnly   bool
 	CompanyID        int64
 	PrimaryContactID int64
 	CloseDateFrom    string
@@ -61,16 +70,20 @@ type TasksQuery struct {
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+	return &Service{pool: pool, now: time.Now}
 }
 
 func (s *Service) ContactsCSV(ctx context.Context, organizationID int64, query ContactsQuery) (File, error) {
+	return s.contactsCSV(ctx, organizationID, query, MaxExportRows, 0, nil)
+}
+
+func (s *Service) contactsCSV(ctx context.Context, organizationID int64, query ContactsQuery, maxRows, maxBytes int, progress progressFunc) (File, error) {
 	if s == nil || s.pool == nil {
 		return File{}, fmt.Errorf("export service not configured")
 	}
 
 	query.Search = strings.TrimSpace(query.Search)
-	filterSQL, args := buildContactFilters(organizationID, query.Search)
+	filterSQL, args := buildContactFilters(organizationID, query)
 	customFilter, err := modulecustomfields.ValidateFilter(ctx, s.pool, organizationID, "contact", query.CustomField)
 	if err != nil {
 		return File{}, err
@@ -88,7 +101,7 @@ func (s *Service) ContactsCSV(ctx context.Context, organizationID int64, query C
 		FROM contacts
 		WHERE organization_id = $1 AND archived_at IS NULL`+filterSQL+`
 		ORDER BY last_name ASC, first_name ASC, id ASC
-		LIMIT $`+strconv.Itoa(len(args)+1), append(args, MaxExportRows+1)...)
+		LIMIT $`+strconv.Itoa(len(args)+1), append(args, maxRows+1)...)
 	if err != nil {
 		return File{}, fmt.Errorf("export contacts: %w", err)
 	}
@@ -98,7 +111,10 @@ func (s *Service) ContactsCSV(ctx context.Context, organizationID int64, query C
 	for _, definition := range definitions {
 		header = append(header, "custom:"+definition.FieldKey)
 	}
-	records := [][]string{header}
+	records, encodedBytes, err := beginExportRecords(header, maxBytes)
+	if err != nil {
+		return File{}, err
+	}
 	for rows.Next() {
 		var id int64
 		var firstName, lastName, email, phone, addressLine1, addressLine2, city, state, postalCode, country, jobTitle, status string
@@ -116,12 +132,15 @@ func (s *Service) ContactsCSV(ctx context.Context, organizationID int64, query C
 		for _, definition := range definitions {
 			record = append(record, modulecustomfields.FormatValue(definition, customValues[definition.FieldKey]))
 		}
-		records = append(records, record)
+		if err := appendExportRecord(&records, record, &encodedBytes, maxBytes); err != nil {
+			return File{}, err
+		}
+		reportProgress(progress, len(records)-1)
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate contact export: %w", err)
 	}
-	if len(records)-1 > MaxExportRows {
+	if len(records)-1 > maxRows {
 		return File{}, ErrTooManyRows
 	}
 
@@ -129,12 +148,16 @@ func (s *Service) ContactsCSV(ctx context.Context, organizationID int64, query C
 }
 
 func (s *Service) CompaniesCSV(ctx context.Context, organizationID int64, query CompaniesQuery) (File, error) {
+	return s.companiesCSV(ctx, organizationID, query, MaxExportRows, 0, nil)
+}
+
+func (s *Service) companiesCSV(ctx context.Context, organizationID int64, query CompaniesQuery, maxRows, maxBytes int, progress progressFunc) (File, error) {
 	if s == nil || s.pool == nil {
 		return File{}, fmt.Errorf("export service not configured")
 	}
 
 	query.Search = strings.TrimSpace(query.Search)
-	filterSQL, args := buildCompanyFilters(organizationID, query.Search)
+	filterSQL, args := buildCompanyFilters(organizationID, query)
 	customFilter, err := modulecustomfields.ValidateFilter(ctx, s.pool, organizationID, "company", query.CustomField)
 	if err != nil {
 		return File{}, err
@@ -151,7 +174,7 @@ func (s *Service) CompaniesCSV(ctx context.Context, organizationID int64, query 
 		FROM companies
 		WHERE organization_id = $1 AND archived_at IS NULL`+filterSQL+`
 		ORDER BY name ASC, id ASC
-		LIMIT $`+strconv.Itoa(len(args)+1), append(args, MaxExportRows+1)...)
+		LIMIT $`+strconv.Itoa(len(args)+1), append(args, maxRows+1)...)
 	if err != nil {
 		return File{}, fmt.Errorf("export companies: %w", err)
 	}
@@ -161,7 +184,10 @@ func (s *Service) CompaniesCSV(ctx context.Context, organizationID int64, query 
 	for _, definition := range definitions {
 		header = append(header, "custom:"+definition.FieldKey)
 	}
-	records := [][]string{header}
+	records, encodedBytes, err := beginExportRecords(header, maxBytes)
+	if err != nil {
+		return File{}, err
+	}
 	for rows.Next() {
 		var id int64
 		var name, clientType, addressLine1, addressLine2, city, state, postalCode, country, industry, phone, website, status string
@@ -177,12 +203,15 @@ func (s *Service) CompaniesCSV(ctx context.Context, organizationID int64, query 
 		for _, definition := range definitions {
 			record = append(record, modulecustomfields.FormatValue(definition, customValues[definition.FieldKey]))
 		}
-		records = append(records, record)
+		if err := appendExportRecord(&records, record, &encodedBytes, maxBytes); err != nil {
+			return File{}, err
+		}
+		reportProgress(progress, len(records)-1)
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate company export: %w", err)
 	}
-	if len(records)-1 > MaxExportRows {
+	if len(records)-1 > maxRows {
 		return File{}, ErrTooManyRows
 	}
 
@@ -190,6 +219,10 @@ func (s *Service) CompaniesCSV(ctx context.Context, organizationID int64, query 
 }
 
 func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query DealsQuery) (File, error) {
+	return s.dealsCSV(ctx, organizationID, query, MaxExportRows, 0, nil)
+}
+
+func (s *Service) dealsCSV(ctx context.Context, organizationID int64, query DealsQuery, maxRows, maxBytes int, progress progressFunc) (File, error) {
 	if s == nil || s.pool == nil {
 		return File{}, fmt.Errorf("export service not configured")
 	}
@@ -231,25 +264,33 @@ func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query Deal
 		LEFT JOIN users owner_user ON owner_user.id = d.owner_user_id
 		WHERE d.organization_id = $1 AND d.archived_at IS NULL`+filterSQL+`
 		ORDER BY dp.position ASC, ds.position ASC, d.id DESC
-		LIMIT $`+strconv.Itoa(len(args)+1), append(args, MaxExportRows+1)...)
+		LIMIT $`+strconv.Itoa(len(args)+1), append(args, maxRows+1)...)
 	if err != nil {
 		return File{}, fmt.Errorf("export deals: %w", err)
 	}
 	defer rows.Close()
 
-	records := [][]string{{"id", "name", "pipeline_id", "pipeline_name", "stage_id", "stage_name", "company_id", "company_name", "primary_contact_id", "primary_contact_name", "status", "value_amount", "value_currency", "expected_close_date", "close_reason_code", "close_reason_label", "close_notes", "closed_at", "closed_by_user_name", "owner_user_id", "owner_user_name"}}
+	header := []string{"id", "name", "pipeline_id", "pipeline_name", "stage_id", "stage_name", "company_id", "company_name", "primary_contact_id", "primary_contact_name", "status", "value_amount", "value_currency", "expected_close_date", "close_reason_code", "close_reason_label", "close_notes", "closed_at", "closed_by_user_name", "owner_user_id", "owner_user_name"}
+	records, encodedBytes, err := beginExportRecords(header, maxBytes)
+	if err != nil {
+		return File{}, err
+	}
 	for rows.Next() {
 		var id, pipelineID, stageID, companyID, primaryContactID, ownerUserID int64
 		var name, pipelineName, stageName, companyName, primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, closeReasonCode, closeReasonLabel, closeNotes, closedAt, closedByUserName, ownerUserName string
 		if err := rows.Scan(&id, &name, &pipelineID, &pipelineName, &stageID, &stageName, &companyID, &companyName, &primaryContactID, &primaryContactName, &status, &valueAmount, &valueCurrency, &expectedCloseDate, &closeReasonCode, &closeReasonLabel, &closeNotes, &closedAt, &closedByUserName, &ownerUserID, &ownerUserName); err != nil {
 			return File{}, fmt.Errorf("scan deal export: %w", err)
 		}
-		records = append(records, []string{formatInt(id), name, formatInt(pipelineID), pipelineName, formatInt(stageID), stageName, formatOptionalInt(companyID), companyName, formatOptionalInt(primaryContactID), primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, closeReasonCode, closeReasonLabel, closeNotes, closedAt, closedByUserName, formatOptionalInt(ownerUserID), ownerUserName})
+		record := []string{formatInt(id), name, formatInt(pipelineID), pipelineName, formatInt(stageID), stageName, formatOptionalInt(companyID), companyName, formatOptionalInt(primaryContactID), primaryContactName, status, valueAmount, valueCurrency, expectedCloseDate, closeReasonCode, closeReasonLabel, closeNotes, closedAt, closedByUserName, formatOptionalInt(ownerUserID), ownerUserName}
+		if err := appendExportRecord(&records, record, &encodedBytes, maxBytes); err != nil {
+			return File{}, err
+		}
+		reportProgress(progress, len(records)-1)
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate deal export: %w", err)
 	}
-	if len(records)-1 > MaxExportRows {
+	if len(records)-1 > maxRows {
 		return File{}, ErrTooManyRows
 	}
 
@@ -257,11 +298,18 @@ func (s *Service) DealsCSV(ctx context.Context, organizationID int64, query Deal
 }
 
 func (s *Service) TasksCSV(ctx context.Context, organizationID int64, query TasksQuery) (File, error) {
+	return s.tasksCSV(ctx, organizationID, query, MaxExportRows, 0, nil)
+}
+
+func (s *Service) tasksCSV(ctx context.Context, organizationID int64, query TasksQuery, maxRows, maxBytes int, progress progressFunc) (File, error) {
 	if s == nil || s.pool == nil {
 		return File{}, fmt.Errorf("export service not configured")
 	}
 
-	query = normalizeTasksQuery(query)
+	query, err := normalizeTasksQuery(query)
+	if err != nil {
+		return File{}, err
+	}
 	filterSQL, args := buildTaskFilters(organizationID, query)
 	rows, err := s.pool.Query(ctx, `
 		SELECT
@@ -291,90 +339,112 @@ func (s *Service) TasksCSV(ctx context.Context, organizationID int64, query Task
 		LEFT JOIN deals deal ON t.entity_type = 'deal' AND deal.organization_id = t.organization_id AND deal.id = t.entity_id AND deal.archived_at IS NULL
 		WHERE t.organization_id = $1 AND t.archived_at IS NULL`+filterSQL+`
 		ORDER BY CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END ASC, t.due_at ASC NULLS LAST, t.id DESC
-		LIMIT $`+strconv.Itoa(len(args)+1), append(args, MaxExportRows+1)...)
+		LIMIT $`+strconv.Itoa(len(args)+1), append(args, maxRows+1)...)
 	if err != nil {
 		return File{}, fmt.Errorf("export tasks: %w", err)
 	}
 	defer rows.Close()
 
-	records := [][]string{{"id", "entity_type", "entity_id", "entity_label", "title", "description", "status", "due_at", "completed_at", "assigned_to_user_id", "assigned_to_user_name", "created_by_user_id", "created_by_user_name"}}
+	header := []string{"id", "entity_type", "entity_id", "entity_label", "title", "description", "status", "due_at", "completed_at", "assigned_to_user_id", "assigned_to_user_name", "created_by_user_id", "created_by_user_name"}
+	records, encodedBytes, err := beginExportRecords(header, maxBytes)
+	if err != nil {
+		return File{}, err
+	}
 	for rows.Next() {
 		var id, entityID, assignedToUserID, createdByUserID int64
 		var entityType, entityLabel, title, description, status, dueAt, completedAt, assignedToUserName, createdByUserName string
 		if err := rows.Scan(&id, &entityType, &entityID, &entityLabel, &title, &description, &status, &dueAt, &completedAt, &assignedToUserID, &assignedToUserName, &createdByUserID, &createdByUserName); err != nil {
 			return File{}, fmt.Errorf("scan task export: %w", err)
 		}
-		records = append(records, []string{formatInt(id), entityType, formatInt(entityID), entityLabel, title, description, status, dueAt, completedAt, formatOptionalInt(assignedToUserID), assignedToUserName, formatInt(createdByUserID), createdByUserName})
+		record := []string{formatInt(id), entityType, formatInt(entityID), entityLabel, title, description, status, dueAt, completedAt, formatOptionalInt(assignedToUserID), assignedToUserName, formatInt(createdByUserID), createdByUserName}
+		if err := appendExportRecord(&records, record, &encodedBytes, maxBytes); err != nil {
+			return File{}, err
+		}
+		reportProgress(progress, len(records)-1)
 	}
 	if err := rows.Err(); err != nil {
 		return File{}, fmt.Errorf("iterate task export: %w", err)
 	}
-	if len(records)-1 > MaxExportRows {
+	if len(records)-1 > maxRows {
 		return File{}, ErrTooManyRows
 	}
 
 	return csvFile("tasks", records)
 }
 
-func buildContactFilters(organizationID int64, search string) (string, []any) {
+func buildContactFilters(organizationID int64, query ContactsQuery) (string, []any) {
 	filterSQL := ""
 	args := []any{organizationID}
-	if search == "" {
+	if query.UnassignedOnly {
+		filterSQL += " AND owner_user_id IS NULL"
+	} else if query.OwnerUserID > 0 {
+		filterSQL += fmt.Sprintf(" AND owner_user_id = $%d", len(args)+1)
+		args = append(args, query.OwnerUserID)
+	}
+	if query.Search == "" {
 		return filterSQL, args
 	}
 
-	phoneSearch := normalizePhoneDigits(search)
-	filterSQL = ` AND (
-		first_name ILIKE $2 OR
-		last_name ILIKE $2 OR
-		(first_name || ' ' || last_name) ILIKE $2 OR
-		email ILIKE $2 OR
-		phone ILIKE $2 OR
-		job_title ILIKE $2 OR
-		address_line1 ILIKE $2 OR
-		address_line2 ILIKE $2 OR
-		city ILIKE $2 OR
-		state ILIKE $2 OR
-		postal_code ILIKE $2 OR
-		country ILIKE $2 OR
-		lead_source ILIKE $2 OR
-		utm_source ILIKE $2 OR
-		utm_medium ILIKE $2 OR
-		utm_campaign ILIKE $2`
-	args = append(args, "%"+search+"%")
+	searchPlaceholder := len(args) + 1
+	phoneSearch := normalizePhoneDigits(query.Search)
+	filterSQL += fmt.Sprintf(` AND (
+		first_name ILIKE $%[1]d OR
+		last_name ILIKE $%[1]d OR
+		(first_name || ' ' || last_name) ILIKE $%[1]d OR
+		email ILIKE $%[1]d OR
+		phone ILIKE $%[1]d OR
+		job_title ILIKE $%[1]d OR
+		address_line1 ILIKE $%[1]d OR
+		address_line2 ILIKE $%[1]d OR
+		city ILIKE $%[1]d OR
+		state ILIKE $%[1]d OR
+		postal_code ILIKE $%[1]d OR
+		country ILIKE $%[1]d OR
+		lead_source ILIKE $%[1]d OR
+		utm_source ILIKE $%[1]d OR
+		utm_medium ILIKE $%[1]d OR
+		utm_campaign ILIKE $%[1]d`, searchPlaceholder)
+	args = append(args, "%"+query.Search+"%")
 	if phoneSearch != "" {
-		filterSQL += ` OR regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE $3`
+		filterSQL += fmt.Sprintf(` OR regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE $%d`, len(args)+1)
 		args = append(args, "%"+phoneSearch+"%")
 	}
 	filterSQL += `)`
 	return filterSQL, args
 }
 
-func buildCompanyFilters(organizationID int64, search string) (string, []any) {
+func buildCompanyFilters(organizationID int64, query CompaniesQuery) (string, []any) {
 	filterSQL := ""
 	args := []any{organizationID}
-	if search == "" {
+	if query.UnassignedOnly {
+		filterSQL += " AND owner_user_id IS NULL"
+	} else if query.OwnerUserID > 0 {
+		filterSQL += fmt.Sprintf(" AND owner_user_id = $%d", len(args)+1)
+		args = append(args, query.OwnerUserID)
+	}
+	if query.Search == "" {
 		return filterSQL, args
 	}
 
-	phoneSearch := normalizePhoneDigits(search)
-	filterSQL = ` AND (
-		name ILIKE $2 OR
-		industry ILIKE $2 OR
-		phone ILIKE $2 OR
-		website ILIKE $2 OR
-		address_line1 ILIKE $2 OR
-		address_line2 ILIKE $2 OR
-		city ILIKE $2 OR
-		state ILIKE $2 OR
-		postal_code ILIKE $2 OR
-		country ILIKE $2`
-	args = append(args, "%"+search+"%")
+	searchPlaceholder := len(args) + 1
+	phoneSearch := normalizePhoneDigits(query.Search)
+	filterSQL += fmt.Sprintf(` AND (
+		name ILIKE $%[1]d OR
+		industry ILIKE $%[1]d OR
+		phone ILIKE $%[1]d OR
+		website ILIKE $%[1]d OR
+		address_line1 ILIKE $%[1]d OR
+		address_line2 ILIKE $%[1]d OR
+		city ILIKE $%[1]d OR
+		state ILIKE $%[1]d OR
+		postal_code ILIKE $%[1]d OR
+		country ILIKE $%[1]d`, searchPlaceholder)
+	args = append(args, "%"+query.Search+"%")
 	if phoneSearch != "" {
-		filterSQL += ` OR regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE $3`
+		filterSQL += fmt.Sprintf(` OR regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE $%d`, len(args)+1)
 		args = append(args, "%"+phoneSearch+"%")
 	}
-	filterSQL += ` OR
+	filterSQL += fmt.Sprintf(` OR
 		EXISTS (
 			SELECT 1
 			FROM contact_company_links l
@@ -384,17 +454,20 @@ func buildCompanyFilters(organizationID int64, search string) (string, []any) {
 			  AND ct.organization_id = companies.organization_id
 			  AND ct.archived_at IS NULL
 			  AND (
-				ct.first_name ILIKE $2 OR
-				ct.last_name ILIKE $2 OR
-				(ct.first_name || ' ' || ct.last_name) ILIKE $2
+				ct.first_name ILIKE $%[1]d OR
+				ct.last_name ILIKE $%[1]d OR
+				(ct.first_name || ' ' || ct.last_name) ILIKE $%[1]d
 			  )
 		)
-	)`
+	)`, searchPlaceholder)
 	return filterSQL, args
 }
 
 func normalizeDealsQuery(query DealsQuery) (DealsQuery, error) {
 	query.Search = strings.TrimSpace(strings.ToLower(query.Search))
+	if query.OwnerUserID < 0 || query.UnassignedOnly {
+		query.OwnerUserID = 0
+	}
 	query.CloseDateFrom = strings.TrimSpace(query.CloseDateFrom)
 	query.CloseDateTo = strings.TrimSpace(query.CloseDateTo)
 	var from time.Time
@@ -432,6 +505,8 @@ func buildDealFilters(organizationID int64, query DealsQuery) (string, []any) {
 	if query.OwnerUserID > 0 {
 		parts = append(parts, fmt.Sprintf(" AND d.owner_user_id = $%d", len(args)+1))
 		args = append(args, query.OwnerUserID)
+	} else if query.UnassignedOnly {
+		parts = append(parts, " AND d.owner_user_id IS NULL")
 	}
 	if query.CompanyID > 0 {
 		parts = append(parts, fmt.Sprintf(" AND d.company_id = $%d", len(args)+1))
@@ -452,7 +527,7 @@ func buildDealFilters(organizationID int64, query DealsQuery) (string, []any) {
 	return strings.Join(parts, ""), args
 }
 
-func normalizeTasksQuery(query TasksQuery) TasksQuery {
+func normalizeTasksQuery(query TasksQuery) (TasksQuery, error) {
 	query.Search = strings.TrimSpace(strings.ToLower(query.Search))
 	query.Status = strings.TrimSpace(strings.ToLower(query.Status))
 	query.EntityType = strings.TrimSpace(strings.ToLower(query.EntityType))
@@ -461,7 +536,14 @@ func normalizeTasksQuery(query TasksQuery) TasksQuery {
 	if query.EntityID < 0 {
 		query.EntityID = 0
 	}
-	return query
+	if !validTaskDueView(query.DueView) {
+		return TasksQuery{}, ErrInvalidFilter
+	}
+	return query, nil
+}
+
+func validTaskDueView(value string) bool {
+	return value == "" || value == "all" || value == "overdue" || value == "dueSoon" || value == "dueToday" || value == "upcoming" || value == "noDueDate"
 }
 
 func buildTaskFilters(organizationID int64, query TasksQuery) (string, []any) {
@@ -529,7 +611,46 @@ func csvFile(name string, records [][]string) (File, error) {
 	return File{
 		Filename: fmt.Sprintf("%s-%s.csv", name, time.Now().UTC().Format("20060102")),
 		Content:  buffer.Bytes(),
+		RowCount: len(records) - 1,
 	}, nil
+}
+
+func reportProgress(progress progressFunc, rows int) {
+	if progress != nil && (rows == 1 || rows%500 == 0) {
+		progress(rows)
+	}
+}
+
+func beginExportRecords(header []string, maxBytes int) ([][]string, int, error) {
+	encodedBytes := 3 + csvRecordBytes(header)
+	if maxBytes > 0 && encodedBytes > maxBytes {
+		return nil, 0, ErrAsyncArtifactTooLarge
+	}
+	return [][]string{header}, encodedBytes, nil
+}
+
+func appendExportRecord(records *[][]string, record []string, encodedBytes *int, maxBytes int) error {
+	size := csvRecordBytes(record)
+	if maxBytes > 0 && *encodedBytes+size > maxBytes {
+		return ErrAsyncArtifactTooLarge
+	}
+	*records = append(*records, record)
+	*encodedBytes += size
+	return nil
+}
+
+func csvRecordBytes(record []string) int {
+	size := 1
+	for index, value := range record {
+		if index > 0 {
+			size++
+		}
+		size += len(value)
+		if strings.ContainsAny(value, ",\"\r\n") {
+			size += strings.Count(value, "\"") + 2
+		}
+	}
+	return size
 }
 
 func normalizePhoneDigits(value string) string {

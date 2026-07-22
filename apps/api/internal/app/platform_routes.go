@@ -139,6 +139,15 @@ func registerPlatformRoutes(mux *http.ServeMux, env config.Env, dependencies Dep
 	mux.HandleFunc("GET /api/workspace-exports/{exportID}/download", func(w http.ResponseWriter, r *http.Request) {
 		handleDownloadWorkspaceExport(dependencies.AuthService, dependencies.WorkspaceExportsService, w, r)
 	})
+	mux.HandleFunc("GET /api/crm-exports", func(w http.ResponseWriter, r *http.Request) {
+		handleListCRMExports(dependencies.AuthService, dependencies.ExportsService, w, r)
+	})
+	mux.HandleFunc("POST /api/crm-exports", func(w http.ResponseWriter, r *http.Request) {
+		handleRequestCRMExport(dependencies.AuthService, dependencies.ExportsService, w, r)
+	})
+	mux.HandleFunc("GET /api/crm-exports/{exportID}/download", func(w http.ResponseWriter, r *http.Request) {
+		handleDownloadCRMExport(dependencies.AuthService, dependencies.ExportsService, w, r)
+	})
 	mux.HandleFunc("GET /api/admin/background-jobs", func(w http.ResponseWriter, r *http.Request) {
 		handleListBackgroundJobs(dependencies.AuthService, dependencies.BackgroundJobsService, w, r)
 	})

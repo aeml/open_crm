@@ -53,9 +53,9 @@ type UpdateInput struct {
 }
 
 type Filter struct {
-	FieldKey string
-	Operator string
-	Value    string
+	FieldKey string `json:"fieldKey,omitempty"`
+	Operator string `json:"operator,omitempty"`
+	Value    string `json:"value,omitempty"`
 }
 
 type NormalizedFilter struct {

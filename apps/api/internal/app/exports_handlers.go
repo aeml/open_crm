@@ -23,7 +23,12 @@ func handleExportContacts(auth authService, exports dataExportsService, w http.R
 		return
 	}
 
-	file, err := exports.ContactsCSV(r.Context(), state.Organization.ID, moduleexports.ContactsQuery{Search: strings.TrimSpace(r.URL.Query().Get("q")), CustomField: exportCustomFieldFilter(r)})
+	file, err := exports.ContactsCSV(r.Context(), state.Organization.ID, moduleexports.ContactsQuery{
+		Search:         strings.TrimSpace(r.URL.Query().Get("q")),
+		OwnerUserID:    parseExportInt64(r.URL.Query().Get("ownerUserId")),
+		UnassignedOnly: r.URL.Query().Get("unassigned") == "true",
+		CustomField:    exportCustomFieldFilter(r),
+	})
 	if err != nil {
 		writeExportError(w, requestID, err, "Unable to export contacts")
 		return
@@ -42,7 +47,12 @@ func handleExportCompanies(auth authService, exports dataExportsService, w http.
 		return
 	}
 
-	file, err := exports.CompaniesCSV(r.Context(), state.Organization.ID, moduleexports.CompaniesQuery{Search: strings.TrimSpace(r.URL.Query().Get("q")), CustomField: exportCustomFieldFilter(r)})
+	file, err := exports.CompaniesCSV(r.Context(), state.Organization.ID, moduleexports.CompaniesQuery{
+		Search:         strings.TrimSpace(r.URL.Query().Get("q")),
+		OwnerUserID:    parseExportInt64(r.URL.Query().Get("ownerUserId")),
+		UnassignedOnly: r.URL.Query().Get("unassigned") == "true",
+		CustomField:    exportCustomFieldFilter(r),
+	})
 	if err != nil {
 		writeExportError(w, requestID, err, "Unable to export clients")
 		return
@@ -66,6 +76,7 @@ func handleExportDeals(auth authService, exports dataExportsService, w http.Resp
 		PipelineID:       parseExportInt64(r.URL.Query().Get("pipelineId")),
 		StageID:          parseExportInt64(r.URL.Query().Get("stageId")),
 		OwnerUserID:      parseExportInt64(r.URL.Query().Get("ownerUserId")),
+		UnassignedOnly:   r.URL.Query().Get("unassigned") == "true",
 		CompanyID:        parseExportInt64(r.URL.Query().Get("companyId")),
 		PrimaryContactID: parseExportInt64(r.URL.Query().Get("primaryContactId")),
 		CloseDateFrom:    strings.TrimSpace(r.URL.Query().Get("closeFrom")),

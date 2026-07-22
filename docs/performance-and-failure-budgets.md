@@ -218,19 +218,19 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 761 KiB | 238 KiB |
+| All JavaScript and CSS | 766 KiB | 240 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.82 KiB/57.96 KiB entry, 54.93 KiB/15.65 KiB largest lazy
-chunk, and 760.39 KiB/237.22 KiB total assets. The production contact, company,
-deal, and task routes are 27.08/8.46, 44.95/12.98, 54.93/15.64, and 26.53/7.64
+Current production-URL evidence: 178.87 KiB/57.99 KiB entry, 55.12 KiB/15.73 KiB largest lazy
+chunk, and 765.81 KiB/239.24 KiB total assets. The production contact, company,
+deal, and task routes are 27.27/8.55, 45.09/13.08, 55.12/15.73, and 26.76/7.72
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
-portable workspace export, and measured usage remain isolated in a 14.58 KiB/4.63 KiB settings route. Its
-OAuth-mailbox peer remains separately lazy loaded at 10.63 KiB/3.22 KiB;
+portable workspace export, and measured usage remain isolated in a 14.58 KiB/4.62 KiB settings route. Its
+OAuth-mailbox peer remains separately lazy loaded at 10.63 KiB/3.21 KiB;
 bounded template/snippet management is 11.02 KiB/2.92 KiB; and bounded
 sequence definition/history management remains in a 12.91 KiB/3.98 KiB route. The
-7.72 KiB/2.72 KiB background-operations route includes labeled replay and an
-explicit lead-follow-up filter, while a
+10.44 KiB/3.51 KiB background-operations route includes labeled replay, exact-filter
+durable CRM export request/progress/download recovery, and an explicit lead-follow-up filter, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
 signup, import, merge, and bulk recovery paths. Production builds now omit the
 incomplete calling, SMS, calendar/booking-link, audience, lead-scoring,
@@ -569,6 +569,14 @@ library/component tests without changing the entry, per-route, CSS, or source
 ceilings. The complete build now measures 760.39/237.22 KiB aggregate raw/gzip;
 the aggregate ratchet alone advances from 758/237 to 761/238 KiB.
 
+Durable filtered CRM exports add exact-filter handoff from all four core lists,
+an admin request/progress/failure/download path, and the shared API helper. The
+new UI was reduced after its first measurement by removing redundant filter
+editing while preserving the originating list criteria. The measured build is
+178.87/57.99 KiB entry, 55.12/15.73 KiB largest lazy chunk, and 765.81/239.24
+KiB aggregate raw/gzip. Only the reviewed aggregate ceilings advance from
+761/238 to 766/240 KiB; entry, per-route, CSS, and source ceilings stay fixed.
+
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and
 then its ordered outcomes with a tenant/run-array query. Reviewed execution
@@ -590,8 +598,8 @@ company editor/view helpers, deal quote/signature/view helpers, and task view
 logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health,
 and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators, a focused contact create/detail workspace and detail orchestrator, plus focused company-directory, linked-
-people, create/detail workspace presentation, directory/detail orchestration, and shared record selection/work leave the parent routes at 449 contact lines,
-461 company lines, 473 deal lines, and
+people, create/detail workspace presentation, directory/detail orchestration, and shared record selection/work leave the parent routes at 453 contact lines,
+463 company lines, 474 deal lines, and
 500 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 207-line work
 hooks now serve contacts, companies, and deals, abort obsolete loads, distinguish repeated
@@ -638,8 +646,8 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 420 lines, down from 996. Its audited 260-route
-surface is registered through 175-line platform, 297-line foundation, and
+The API composition root is 420 lines, down from 996. Its audited 263-route
+surface is registered through 184-line platform, 297-line foundation, and
 378-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot
 silently remove a route from either guard. Shared handler helpers are isolated

@@ -1434,6 +1434,26 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     for (const excludedValue of exportExpectation.excludes) expect(csv).not.toContain(excludedValue)
   }
 
+  const durableContactSearch = `avery-${runID}@example.test`
+  await page.goto(`/contacts?q=${encodeURIComponent(durableContactSearch)}`)
+  await expect(page.getByRole('button', { name: 'Avery Buyer', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Queue large CSV' }).click()
+  await expect(page).toHaveURL(/\/settings\/operations\?crmExport=/)
+  await expect(page.getByText(`Search: ${durableContactSearch}.`, { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Queue CSV' }).click()
+  const durableExport = page.getByRole('list', { name: 'Filtered CRM export history' }).getByRole('listitem').first()
+  await expect(durableExport).toContainText('contacts export #')
+  await expect(durableExport).toContainText('· ready', { timeout: 30000 })
+  const durableDownloadURL = await durableExport.getByRole('link', { name: 'Download CSV' }).getAttribute('href')
+  const durableResponse = await page.context().request.get(durableDownloadURL)
+  expect(durableResponse.status()).toBe(200)
+  expect(durableResponse.headers()['content-type']).toContain('text/csv')
+  expect(durableResponse.headers()['cache-control']).toContain('no-store')
+  expect(durableResponse.headers()['x-content-sha256']).toMatch(/^[a-f0-9]{64}$/)
+  expect(await durableResponse.text()).toContain(`avery-${runID}@example.test`)
+  const durableExportAccessibility = await new AxeBuilder({ page }).include('.crm-export-card').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa']).analyze()
+  expect(durableExportAccessibility.violations, 'durable CRM export controls must have no automated WCAG A/AA violations').toEqual([])
+
   await page.goto('/settings/audit')
   await expect(page.getByRole('heading', { name: 'Admin audit trail' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Retention and export' })).toBeVisible()

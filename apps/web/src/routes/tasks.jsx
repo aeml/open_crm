@@ -79,7 +79,6 @@ export function TasksRoute() {
     visitRef: taskVisitRef
   } = useTaskDetail({ isListLoading, routeTaskId, setError, setTasks })
   const { handleQuickAssign, handleQuickComplete, handleQuickReopen, isTaskPending } = useTaskQuickActions({ onUpdated: handleQuickTaskUpdated, onError: setError })
-
   const selectedTask = detail?.task || null
   const selectedActivities = detail?.activities || []
   const statusTasks = useMemo(() => tasks.filter((task) => matchesStatus(task, statusFilter)), [statusFilter, tasks])
@@ -417,6 +416,7 @@ export function TasksRoute() {
       <TaskDirectory
         assigneeFilter={assigneeFilter}
         canWrite={canWrite}
+        canExport={['owner', 'admin'].includes(session?.membership?.role || '')}
         companyOptions={companyOptions}
         contactOptions={contactOptions}
         currentUserId={currentUserId}

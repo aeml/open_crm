@@ -1,16 +1,19 @@
 import { BulkActions, bulkStatusOptions } from '../components/ui/bulk_actions'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { CRMExportActions } from '../components/ui/crm_export_actions'
 import { EmptyState } from '../components/ui/empty_state'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { SavedViews } from '../components/ui/saved_views'
 import { tasksExportURL } from '../lib/tasks'
+import { crmExportSetupURL } from '../lib/crm_exports'
 import { formatDueLabel, taskCountLabel, taskListHeading, unassignedAssigneeFilter } from './task_view'
 
 export function TaskDirectory({
   assigneeFilter,
   canWrite,
+  canExport,
   companyOptions,
   contactOptions,
   currentUserId,
@@ -59,9 +62,7 @@ export function TaskDirectory({
             <p>Keep the next real action visible and close it cleanly.</p>
           </div>
           <div className="button-row">
-            <a className="button button-secondary" href={tasksExportURL({ search, status: statusFilter, due: statusFilter === 'open' ? dueView : '', assignee: assigneeFilter === 'all' ? '' : assigneeFilter, entityType: entityTypeFilter === 'all' ? '' : entityTypeFilter, entityId: entityIdFilter })}>
-              Export CSV
-            </a>
+            <CRMExportActions canExport={canExport} directURL={tasksExportURL({ search, status: statusFilter, due: statusFilter === 'open' ? dueView : '', assignee: assigneeFilter === 'all' ? '' : assigneeFilter, entityType: entityTypeFilter === 'all' ? '' : entityTypeFilter, entityId: entityIdFilter })} durableURL={crmExportSetupURL({ resource: 'tasks', search, status: statusFilter, due: statusFilter === 'open' ? dueView : '', assignee: assigneeFilter === 'all' ? '' : assigneeFilter, entityType: entityTypeFilter === 'all' ? '' : entityTypeFilter, entityId: Number(entityIdFilter) || 0 })} />
             <Button className={statusFilter === 'open' ? '' : 'button-secondary'} onClick={() => onToggleStatus('open')}>Show open</Button>
             <Button className={statusFilter === 'completed' ? '' : 'button-secondary'} onClick={() => onToggleStatus('completed')}>Show completed</Button>
           </div>

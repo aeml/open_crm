@@ -122,6 +122,22 @@ func TestMigrationFilesIncludeAsyncImportJobs(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeDurableCRMExports(t *testing.T) {
+	const name = "120_durable_crm_exports.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	sql := MigrationSQL(name)
+	for _, expected := range []string{"-- open-crm-deploy: expand", "lock_timeout", "statement_timeout", "CREATE TABLE IF NOT EXISTS crm_exports", "crm_exports_membership_fk", "idx_crm_exports_expiry"} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("durable CRM export migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("durable CRM export deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeVersionedDealQuotes(t *testing.T) {
 	if !slices.Contains(MigrationFiles(), "093_versioned_deal_quotes.sql") {
 		t.Fatal("expected versioned deal quotes migration to be registered")

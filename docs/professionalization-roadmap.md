@@ -138,7 +138,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.9.1` Query Performance Review: in progress (core tenant and fixed-dashboard query plans and representative budgets are CI-gated; later report/provider review remains).
 - `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person, product-catalog, quote-template, email-sequence-definition, and personal saved-view management, stable bounded workflow- and saved-report-definition management with exact same-snapshot summaries, PostgreSQL page evidence, serialized stored/active catalog ceilings, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
-- `0.9.4` Async Import And Export Jobs: in progress (ordinary contact/company imports are durable; bounded core CSV exports remain synchronous).
+- `0.9.4` Async Import And Export Jobs: complete locally (imports and exact-filter core CSV artifacts are durable; pilot workload validation remains).
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
 - `0.9.6` Restore Drill Automation: complete (real off-host validation remains required for pilot evidence).
 - `0.9.7` Monitoring And Alerting Hooks: in progress (implementation complete; production scrape/destination validation pending).
@@ -165,7 +165,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 
 ## Version 0.1.1 - Migration Safety
 
-Status: in progress.
+Status: complete.
 
 Goal: make database deploys safer and repeatable.
 
@@ -1344,7 +1344,9 @@ boundaries remain 2 MiB/1,000 rows per durable import, 100 records per bulk
 operation, 50 duplicate pairs per review, 25 active custom fields per supported
 record type, 100 archive rows per request, and 25 examples per quality queue.
 These are deliberate request/memory controls, not capacity claims. Larger
-imports and ordinary CSV exports require the remaining durable artifact package; duplicate
+Migration 119 subsequently moved mapped imports onto resumable durable jobs,
+and migration 120 added a separate 50,000-row/50 MiB durable filtered CSV
+artifact path while retaining the fast synchronous boundary. Duplicate
 candidate review and JSONB quality/filter query plans should be remeasured on an
 approved production-like pilot dataset before raising any boundary.
 
@@ -2328,11 +2330,11 @@ Implementation evidence:
 - Added admin-only queue health/filtering, safe replay, audited recovery, and explicit sequence-delivery decisions for ambiguous SMTP outcomes.
 - Moved calendar reminders, automatic mailbox sync, and email sequence sends off their feature-specific execution loops. New reminders and sequence steps enqueue transactionally; mailbox cycles use a stable persisted due time.
 - Added disposable-PostgreSQL acceptance tests for migrations, multi-attempt lifecycle/replay, tenant isolation, reminder idempotency, mailbox provider-message dedupe, sequence advancement, and crash/SMTP uncertainty behavior.
-- Added an hourly, multi-instance-safe retention pass: successful payload/result detail compacts after 30 days and successful idempotency rows expire after 400 days in bounded `SKIP LOCKED` batches. Active and dead jobs are excluded, only nine explicitly reviewed production job types are eligible, current producers retain source-state duplicate guards, and PostgreSQL acceptance covers both cutoffs, unknown-type preservation, tenant-wide operation, idempotence, and batch limits.
+- Added an hourly, multi-instance-safe retention pass: successful payload/result detail compacts after 30 days and successful idempotency rows expire after 400 days in bounded `SKIP LOCKED` batches. Active and dead jobs are excluded, only ten explicitly reviewed production job types are eligible, current producers retain source-state duplicate guards, and PostgreSQL acceptance covers both cutoffs, unknown-type preservation, tenant-wide operation, idempotence, and batch limits.
 
 ## Version 0.9.4 - Async Import And Export Jobs
 
-Status: in progress.
+Status: complete locally; pilot workload validation remains.
 
 Goal: move heavy import/export work onto the background job model.
 
@@ -2367,9 +2369,24 @@ Current convergence evidence:
   import outcome. The real-PostgreSQL load gate measures submission plus worker
   completion for the complete 1,000-row boundary under ten seconds.
 
-Ordinary filtered contact/company/deal/task CSV downloads remain synchronous
-with an explicit 10,000-row refusal. Durable downloadable artifacts, progress,
-and cleanup for those exports are the remaining half of this roadmap item.
+Migration 120 adds a separate tenant/requester-bound `crm_exports` ledger for
+ordinary contact, company, deal, and task filters. Admin requests normalize and
+retain the exact list criteria, detect changed idempotency-key reuse, commit the
+request/job/audit event atomically, and return `202 Accepted`. The leased
+`crm.export.generate` worker rechecks the initiating active owner/admin role, emits
+500-row progress checkpoints, refuses above 50,000 rows or 50 MiB, records the
+exact row count and SHA-256, and safely no-ops an already-ready replay.
+
+Operations exposes exact-filter handoff from every core list, queue progress,
+failure/replay state, and no-store downloads. Five ready files per workspace
+remain available for seven days; hourly cleanup clears bytes while retaining
+metadata and audit history. Deactivation quiesces pending work, hosted
+read-only policy blocks new requests consistently, and tenant predicates cover
+history, jobs, generation, progress, and download. Handler, UI, migration, and
+fresh-PostgreSQL lifecycle acceptance cover concurrent same-key collapse,
+request conflicts, exact ownership/search/custom-field filtering, replay,
+checksums, audit evidence, expiry, inactive actors, and foreign denial.
+The original 10,000-row synchronous path remains for fast bounded downloads.
 
 ## Version 0.9.5 - Backup Automation
 

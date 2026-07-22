@@ -403,6 +403,7 @@ export function DealsRoute() {
     <section className="dashboard-grid contacts-grid">
       <DealDirectory
         canWrite={canWrite}
+        canExport={canAdminister}
         closeFrom={closeFrom}
         closeTo={closeTo}
         currentUserId={currentUserId}

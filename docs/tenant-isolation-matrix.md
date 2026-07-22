@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `40`
+Evidence row count: `41`
 
-Evidence digest: `fcef7d61e75474800fa4d6abf86ebb3f3e905448badafd3fc93b1f794d711ca7`
+Evidence digest: `ce9ef9d0f9791f8b17b1c4225d677622c0e2878e94e13571e12724ed365ed6c8`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -44,6 +44,7 @@ the assertions inside those tests remain the proof of behavior.
 | `workflow-definition-management` | `apps/api/internal/modules/workflowautomations/definition_pagination_postgres_test.go` | `TestWorkflowDefinitionPagesAreBoundedStableAndTenantScoped` | Exact stored-definition totals, workspace-wide active-action summaries, stable bounded pages, repeat reads, direct limits, and the management index remain tenant scoped; a foreign definition is absent from every page and summary. |
 | `workflow-run-recovery` | `apps/api/internal/modules/workflowautomations/lead_follow_up_postgres_test.go` | `TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant` | Run inspection joins durable action/job evidence only by organization, reviewed job type, and exact run-derived idempotency key. A same-key foreign dead job cannot affect local run/action status, error, or attempt evidence; local dead work leaves active health, enters failed health, and returns to queued only after tenant-authorized replay. |
 | `duplicate-management` | `apps/api/internal/modules/duplicateoperations/service_postgres_test.go` | `TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres` | Foreign candidates remain invisible and a cross-tenant merge key/record pair rejects without relationship changes. |
+| `durable-crm-export` | `apps/api/internal/modules/exports/async_postgres_test.go` | `TestDurableCRMExportLifecycleAgainstPostgres` | Request identity, exact ownership/search/custom-field criteria, history, job payload, generated rows, checksum, audit, expiry, and download remain tenant scoped; simultaneous same-key requests commit one export/job, changed reuse conflicts, a foreign tenant cannot see or fetch the artifact, and a disabled initiating admin cannot execute or request work. |
 | `email-template-management` | `apps/api/internal/modules/emailtemplates/management_postgres_test.go` | `TestEmailDefinitionCatalogsAreBoundedTenantSafeRevisionedAndCapacitySerialized` | Exact filtered totals, literal search, stable adjacent template/snippet pages, exact-revision mutation/delete, transactional active-writer revalidation/audit, and each serialized 100-stored-definition ceiling stay inside the owning workspace; foreign definitions and viewer/disabled/foreign actors remain missing, and concurrent final-slot creates produce one local winner per catalog. |
 | `email-sequence-delivery` | `apps/api/internal/modules/sequencerunner/service_postgres_test.go` | `TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres` | A job carrying another workspace's organization cannot load or send the local enrollment; exact retries do not duplicate provider effects, ambiguous SMTP outcomes remain quarantined, and explicit confirm/retry recovery advances only the owning tenant's enrollment while preserving its prepared message identifier. |
 | `email-sequence-governance` | `apps/api/internal/modules/emailsequences/approvals_postgres_test.go` | `TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres` | Approval, pause, immutable historical content, and enrollment remain bound to the owning organization; enrollment now revalidates the active same-tenant enroller inside its transaction, while missing and foreign actors leave no enrollment or queued work. |
@@ -69,7 +70,7 @@ the assertions inside those tests remain the proof of behavior.
 
 - `apps/api/internal/app/cross_org_test.go` verifies that the core HTTP handlers
   translate service misses to non-disclosing `404` responses.
-- `apps/api/internal/app/security_inventory_test.go` digest-gates all 260
+- `apps/api/internal/app/security_inventory_test.go` digest-gates all 263
   registered routes, so a new selector must receive an explicit session/token
   tenant policy and test reference.
 - `apps/api/internal/app/list_endpoint_inventory_test.go` separately

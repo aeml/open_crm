@@ -1,15 +1,18 @@
 import { BulkActions } from '../components/ui/bulk_actions'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { CRMExportActions } from '../components/ui/crm_export_actions'
 import { EmptyState } from '../components/ui/empty_state'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { SavedViews } from '../components/ui/saved_views'
 import { dealsExportURL } from '../lib/deals'
+import { crmExportOwnership, crmExportSetupURL } from '../lib/crm_exports'
 import { emptyDealsDescription, emptyDealsMessage, formatMoney, stageLabel } from './deal_view'
 
 export function DealDirectory({
   canWrite,
+  canExport,
   closeFrom,
   closeTo,
   currentUserId,
@@ -46,10 +49,11 @@ export function DealDirectory({
     search,
     pipelineId: pipelineFilter === 'all' ? 0 : Number.parseInt(pipelineFilter, 10) || 0,
     stageId: stageFilter === 'all' ? 0 : Number.parseInt(stageFilter, 10) || 0,
-    ownerUserId: ownerFilter === 'all' ? 0 : Number.parseInt(ownerFilter, 10) || 0,
+    ...crmExportOwnership(ownerFilter),
     closeFrom,
     closeTo
   })
+  const durableExportURL = crmExportSetupURL({ resource: 'deals', search, pipelineId: pipelineFilter === 'all' ? 0 : Number(pipelineFilter), stageId: stageFilter === 'all' ? 0 : Number(stageFilter), ...crmExportOwnership(ownerFilter), closeFrom, closeTo })
 
   return (
     <Card>
@@ -59,7 +63,7 @@ export function DealDirectory({
             <h2>{labels.collection}</h2>
             <p>Real pipeline, real stages, no fake dashboard filler.</p>
           </div>
-          <a className="button button-secondary" href={exportURL}>Export CSV</a>
+          <div className="button-row"><CRMExportActions canExport={canExport} directURL={exportURL} durableURL={durableExportURL} /></div>
         </div>
         <div className="record-list" role="list" aria-label="Pipeline summary">
           <article className="record-row" role="listitem">

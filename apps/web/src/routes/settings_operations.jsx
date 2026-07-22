@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../app/providers'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -6,6 +6,8 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { isAbortError } from '../lib/api'
 import { listBackgroundJobs, replayBackgroundJob, resolveSequenceDelivery } from '../lib/background_jobs'
+import { crmExportDownloadURL, initialCRMExportRequest, listCRMExports, requestCRMExport } from '../lib/crm_exports'
+import { createIdempotencyKey } from '../lib/idempotency'
 import { usePageTitle } from '../lib/use_page_title'
 
 const statusOptions = [
@@ -32,6 +34,7 @@ function jobLabel(type) {
   if (type === 'billing.reconcile') return 'Billing reconciliation'
   if (type === 'billing.usage.snapshot') return 'Billing usage snapshot'
   if (type === 'workspace.export.generate') return 'Workspace export'
+  if (type === 'crm.export.generate') return 'Filtered CRM export'
   if (type === 'workflow.lead_follow_up') return 'Lead follow-up automation'
   return type || 'Background job'
 }
@@ -54,6 +57,10 @@ export function SettingsOperationsRoute() {
   const [isLoading, setIsLoading] = useState(true)
   const [replayingId, setReplayingId] = useState(0)
   const [resolvingId, setResolvingId] = useState(0)
+  const [exports, setExports] = useState([])
+  const [exportRequest] = useState(initialCRMExportRequest)
+  const exportRequestKey = useRef(createIdempotencyKey('crm-export'))
+  const [isRequestingExport, setIsRequestingExport] = useState(false)
 
   async function load({ signal } = {}) {
     if (!canOperate) {
@@ -64,15 +71,23 @@ export function SettingsOperationsRoute() {
     }
     setIsLoading(true)
     try {
-      const result = await listBackgroundJobs({ status, type, signal })
-      setJobs(result.jobs)
-      setStats(result.stats)
-      setError('')
-    } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setError(loadError.message || 'Unable to load background jobs.')
+      const [jobsResult, exportsResult] = await Promise.allSettled([listBackgroundJobs({ status, type, signal }), listCRMExports({ signal })])
+      if (signal?.aborted) return
+      const failures = []
+      if (jobsResult.status === 'fulfilled') {
+        setJobs(jobsResult.value.jobs)
+        setStats(jobsResult.value.stats)
+      } else if (!isAbortError(jobsResult.reason)) {
         setJobs([])
+        setStats({})
+        failures.push(jobsResult.reason?.message || 'Unable to load background jobs.')
       }
+      if (exportsResult.status === 'fulfilled') {
+        setExports(exportsResult.value)
+      } else if (!isAbortError(exportsResult.reason)) {
+        failures.push(exportsResult.reason?.message || 'Unable to load CRM exports.')
+      }
+      setError(failures.join(' '))
     } finally {
       if (!signal?.aborted) {
         setIsLoading(false)
@@ -85,6 +100,17 @@ export function SettingsOperationsRoute() {
     load({ signal: controller.signal })
     return () => controller.abort()
   }, [canOperate, status, type])
+
+  const exportGenerating = exports.some((item) => item.status === 'pending' || item.status === 'processing')
+  useEffect(() => {
+    if (!exportGenerating) return undefined
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => load({ signal: controller.signal }), 2000)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [exportGenerating, exports])
 
   async function handleReplay(job) {
     setReplayingId(job.id)
@@ -123,6 +149,22 @@ export function SettingsOperationsRoute() {
     }
   }
 
+  async function handleExportRequest() {
+    setIsRequestingExport(true)
+    setNotice('')
+    setError('')
+    try {
+      await requestCRMExport(exportRequest, exportRequestKey.current)
+      exportRequestKey.current = createIdempotencyKey('crm-export')
+      setNotice('Filtered CRM export queued. Follow it below or recover it in the job ledger.')
+      await load()
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to request the CRM export.')
+    } finally {
+      setIsRequestingExport(false)
+    }
+  }
+
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
@@ -130,7 +172,7 @@ export function SettingsOperationsRoute() {
           <div className="section-header">
             <div>
               <h2>Background operations</h2>
-              <p>Inspect durable reminders, mailbox sync, billing reconciliation and usage snapshots, workspace export, lead follow-up automation, and sequence delivery work for {session?.organization?.name || 'your workspace'}.</p>
+              <p>Inspect durable reminders, mailbox sync, billing, imports, exports, automation, and sequence delivery work for {session?.organization?.name || 'your workspace'}.</p>
             </div>
             <Button className="button-secondary" type="button" onClick={() => load()} disabled={!canOperate || isLoading}>Refresh</Button>
           </div>
@@ -158,6 +200,7 @@ export function SettingsOperationsRoute() {
                 <option value="billing.reconcile">Billing reconciliation</option>
                 <option value="billing.usage.snapshot">Billing usage snapshots</option>
                 <option value="workspace.export.generate">Workspace exports</option>
+                <option value="crm.export.generate">Filtered CRM exports</option>
                 <option value="import.execute">CRM imports</option>
                 <option value="email_sequence.send">Email sequence sends</option>
                 <option value="workflow.lead_follow_up">Lead follow-up automations</option>
@@ -196,6 +239,31 @@ export function SettingsOperationsRoute() {
                 </article>
               )
             })}
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="card-stack crm-export-card">
+          <div className="section-header">
+            <div><h2>Filtered CRM exports</h2><p>Queue {exportRequest.resource} with its current list filters. Up to 50,000 rows; files expire after seven days.</p></div>
+            <Button type="button" onClick={handleExportRequest} disabled={!canOperate || !workspaceWritable || isRequestingExport || exportGenerating}>{isRequestingExport ? 'Queueing…' : exportGenerating ? 'Generating…' : 'Queue CSV'}</Button>
+          </div>
+          {exportRequest.search ? <p className="field-hint">Search: {exportRequest.search}. Other list filters remain attached.</p> : null}
+          {!workspaceWritable ? <p className="field-hint">New exports are unavailable while this hosted workspace is read-only. Existing ready files remain downloadable.</p> : null}
+          {exports.length === 0 && !isLoading ? <p className="field-hint">No filtered CRM exports have been requested.</p> : null}
+          <div className="record-list" role="list" aria-label="Filtered CRM export history">
+            {exports.map((item) => (
+              <article className={item.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} role="listitem" key={item.id}>
+                <div>
+                  <h3>{item.resource} export #{item.id} · {item.status}</h3>
+                  {item.status === 'processing' ? <p className="field-hint" role="status">{Number(item.progressRows).toLocaleString()} rows processed</p> : null}
+                  {item.status === 'ready' ? <p className="field-hint">{Number(item.rowCount).toLocaleString()} rows · expires {formatTimestamp(item.expiresAt)}</p> : null}
+                  {item.lastError ? <p>{item.lastError}</p> : null}
+                </div>
+                {item.status === 'ready' ? <a className="button button-secondary" href={crmExportDownloadURL(item.id)}>Download CSV</a> : null}
+              </article>
+            ))}
           </div>
         </div>
       </Card>

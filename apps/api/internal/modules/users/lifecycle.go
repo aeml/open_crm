@@ -469,6 +469,15 @@ func stopDisabledUserEffects(ctx context.Context, tx pgx.Tx, organizationID, use
 		return fmt.Errorf("quiesce disabled user imports: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
+		UPDATE crm_exports
+		SET status='failed',artifact=NULL,byte_size=0,
+		    last_error='The initiating administrator was disabled. Reactivate that administrator and replay the job, or request a new export.',
+		    updated_at=NOW()
+		WHERE organization_id=$1 AND requested_by_user_id=$2 AND status IN ('pending','processing')
+	`, organizationID, userID); err != nil {
+		return fmt.Errorf("quiesce disabled user CRM exports: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE background_jobs
 		SET status = 'succeeded', result_json = '{"status":"skipped","reason":"member_disabled"}'::jsonb,
 		    completed_at = NOW(), updated_at = NOW(), last_error = ''
@@ -487,6 +496,10 @@ func stopDisabledUserEffects(ctx context.Context, tx pgx.Tx, organizationID, use
 			OR (job_type = 'import.execute' AND idempotency_key IN (
 				SELECT 'import:' || id::text FROM import_batches
 				WHERE organization_id=$1 AND created_by_user_id=$2::bigint AND status='failed'
+			))
+			OR (job_type = 'crm.export.generate' AND idempotency_key IN (
+				SELECT 'crm-export:' || id::text FROM crm_exports
+				WHERE organization_id=$1 AND requested_by_user_id=$2::bigint AND status='failed'
 			))
 		  )
 	`, organizationID, userID); err != nil {

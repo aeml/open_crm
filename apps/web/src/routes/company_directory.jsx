@@ -3,15 +3,18 @@ import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { CustomFieldFilter } from '../components/ui/custom_field_filter'
 import { CustomFieldValue } from '../components/ui/custom_fields_form'
+import { CRMExportActions } from '../components/ui/crm_export_actions'
 import { EmptyState } from '../components/ui/empty_state'
 import { Field } from '../components/ui/field'
 import { SavedViews } from '../components/ui/saved_views'
 import { companiesExportURL } from '../lib/companies'
+import { crmExportOwnership, crmExportSetupURL } from '../lib/crm_exports'
 import { clientTypeLabel, formatAddress } from './company_view'
 
 export function CompanyDirectory({
   bulkEntityType,
   canWrite,
+  canExport,
   companies,
   currentUserId,
   customDefinitions,
@@ -41,6 +44,7 @@ export function CompanyDirectory({
   selectedClientIds,
   userOptions
 }) {
+  const exportQuery = { search, customField: customFilter, ...crmExportOwnership(ownerFilter) }
   return (
     <Card>
       <div className="card-stack">
@@ -50,13 +54,11 @@ export function CompanyDirectory({
             <p>See client ownership, linked people, and live pipeline in one place.</p>
           </div>
           <div className="button-row">
-            <a className="button button-secondary" href={companiesExportURL({ search, customField: customFilter })}>
-              Export CSV
-            </a>
+            <CRMExportActions canExport={canExport} directURL={companiesExportURL(exportQuery)} durableURL={crmExportSetupURL({ resource: 'companies', ...exportQuery })} />
             {canWrite ? <Button onClick={onAddClient}>Add client</Button> : null}
           </div>
         </div>
-        <p className="field-hint">CSV exports include up to 10,000 matching clients. Apply filters first for larger sets.</p>
+        {canExport ? <p className="field-hint">Direct CSV: 10,000 matches. Background CSV: 50,000.</p> : null}
         <Field label="Search clients">
           <input className="text-input" type="search" value={search} onChange={onSearchChange} />
         </Field>

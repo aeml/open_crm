@@ -259,6 +259,16 @@ func main() {
 			}
 			go workspaceExportsService.RunCleanupScheduler(ctx, logger, 0)
 		}
+		if exportsService != nil {
+			jobHandlers[moduleexports.AsyncJobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
+				result, err := exportsService.HandleAsyncJob(ctx, job)
+				if moduleexports.IsAsyncPermanentFailure(err) {
+					return nil, modulejobs.Permanent(err)
+				}
+				return result, err
+			}
+			go exportsService.RunAsyncCleanupScheduler(ctx, logger, 0)
+		}
 		if importsService != nil {
 			jobHandlers[moduleimports.JobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
 				result, err := importsService.HandleJob(ctx, job)

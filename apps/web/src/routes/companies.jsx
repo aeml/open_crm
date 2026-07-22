@@ -32,6 +32,7 @@ export function CompaniesRoute() {
   const routeCompanyId = Number.parseInt(companyId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
+  const canExport = ['owner', 'admin'].includes(session?.membership?.role || '')
   const pipelineLabels = relatedPipelineLabels(businessType)
   usePageTitle('Companies')
   const initialSearch = searchParams.get('q') || ''
@@ -384,6 +385,7 @@ export function CompaniesRoute() {
       <CompanyDirectory
         bulkEntityType={bulkEntityType}
         canWrite={canWrite}
+        canExport={canExport}
         companies={companies}
         currentUserId={currentUserId}
         customDefinitions={companyCustomDefinitions}

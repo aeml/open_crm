@@ -30,6 +30,15 @@ type fakeExportsService struct {
 	lastDealsQuery     moduleexports.DealsQuery
 	lastTasksOrgID     int64
 	lastTasksQuery     moduleexports.TasksQuery
+	asyncRequest       moduleexports.AsyncRequest
+	asyncResult        moduleexports.AsyncExport
+	asyncList          []moduleexports.AsyncExport
+	asyncDownload      moduleexports.AsyncDownload
+	asyncErr           error
+	asyncOrgID         int64
+	asyncActorID       int64
+	asyncID            int64
+	asyncKey           string
 }
 
 func (f *fakeExportsService) ContactsCSV(_ context.Context, organizationID int64, query moduleexports.ContactsQuery) (moduleexports.File, error) {
@@ -56,6 +65,21 @@ func (f *fakeExportsService) TasksCSV(_ context.Context, organizationID int64, q
 	return f.tasksFile, f.tasksErr
 }
 
+func (f *fakeExportsService) RequestAsync(_ context.Context, organizationID, actorID int64, key string, request moduleexports.AsyncRequest) (moduleexports.AsyncExport, error) {
+	f.asyncOrgID, f.asyncActorID, f.asyncKey, f.asyncRequest = organizationID, actorID, key, request
+	return f.asyncResult, f.asyncErr
+}
+
+func (f *fakeExportsService) ListAsync(_ context.Context, organizationID int64) ([]moduleexports.AsyncExport, error) {
+	f.asyncOrgID = organizationID
+	return f.asyncList, f.asyncErr
+}
+
+func (f *fakeExportsService) DownloadAsync(_ context.Context, organizationID, actorID, exportID int64) (moduleexports.AsyncDownload, error) {
+	f.asyncOrgID, f.asyncActorID, f.asyncID = organizationID, actorID, exportID
+	return f.asyncDownload, f.asyncErr
+}
+
 func authenticatedExportsServer(service *fakeExportsService) http.Handler {
 	return NewServer(config.Env{}, Dependencies{
 		AuthService: &fakeAuthService{
@@ -73,7 +97,7 @@ func TestExportContactsReturnsCSVDownload(t *testing.T) {
 	service := &fakeExportsService{contactsFile: moduleexports.File{Filename: "contacts-20260501.csv", Content: []byte("id,first_name\n7,Morgan\n")}}
 	server := authenticatedExportsServer(service)
 
-	request := httptest.NewRequest(http.MethodGet, "/api/export/contacts?q=morgan&customField=region&customOperator=eq&customValue=West", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/export/contacts?q=morgan&ownerUserId=3&customField=region&customOperator=eq&customValue=West", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -82,7 +106,7 @@ func TestExportContactsReturnsCSVDownload(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
 	}
-	if service.lastContactsOrgID != 42 || service.lastContactsQuery.Search != "morgan" {
+	if service.lastContactsOrgID != 42 || service.lastContactsQuery.Search != "morgan" || service.lastContactsQuery.OwnerUserID != 3 {
 		t.Fatalf("unexpected export query: org=%d query=%#v", service.lastContactsOrgID, service.lastContactsQuery)
 	}
 	if service.lastContactsQuery.CustomField.FieldKey != "region" || service.lastContactsQuery.CustomField.Operator != "eq" || service.lastContactsQuery.CustomField.Value != "West" {
@@ -96,6 +120,18 @@ func TestExportContactsReturnsCSVDownload(t *testing.T) {
 	}
 	if got := recorder.Body.String(); got != "id,first_name\n7,Morgan\n" {
 		t.Fatalf("unexpected csv body: %q", got)
+	}
+}
+
+func TestExportClientsPreservesUnassignedOwnershipFilter(t *testing.T) {
+	service := &fakeExportsService{companiesFile: moduleexports.File{Filename: "clients-20260501.csv", Content: []byte("id,name\n")}}
+	server := authenticatedExportsServer(service)
+	request := httptest.NewRequest(http.MethodGet, "/api/export/companies?unassigned=true", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !service.lastCompaniesQuery.UnassignedOnly {
+		t.Fatalf("unassigned client export filter was lost: status=%d query=%#v", recorder.Code, service.lastCompaniesQuery)
 	}
 }
 
@@ -150,6 +186,18 @@ func TestExportDealsSurfacesInvalidFilter(t *testing.T) {
 	server.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "invalid export filter") {
 		t.Fatalf("unexpected invalid export filter response: %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestExportDealsPreservesUnassignedOwnershipFilter(t *testing.T) {
+	service := &fakeExportsService{dealsFile: moduleexports.File{Filename: "deals-20260501.csv", Content: []byte("id,name\n")}}
+	server := authenticatedExportsServer(service)
+	request := httptest.NewRequest(http.MethodGet, "/api/export/deals?unassigned=true", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !service.lastDealsQuery.UnassignedOnly {
+		t.Fatalf("unassigned deal export filter was lost: status=%d query=%#v", recorder.Code, service.lastDealsQuery)
 	}
 }
 

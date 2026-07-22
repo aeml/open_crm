@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 40
-	expectedTenantIsolationEvidenceDigest = "fcef7d61e75474800fa4d6abf86ebb3f3e905448badafd3fc93b1f794d711ca7"
+	expectedTenantIsolationEvidenceCount  = 41
+	expectedTenantIsolationEvidenceDigest = "ce9ef9d0f9791f8b17b1c4225d677622c0e2878e94e13571e12724ed365ed6c8"
 )
 
 type tenantIsolationEvidence struct {
@@ -43,6 +43,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "workflow-definition-management", Source: "apps/api/internal/modules/workflowautomations/definition_pagination_postgres_test.go", Test: "TestWorkflowDefinitionPagesAreBoundedStableAndTenantScoped"},
 	{Surface: "workflow-run-recovery", Source: "apps/api/internal/modules/workflowautomations/lead_follow_up_postgres_test.go", Test: "TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant"},
 	{Surface: "duplicate-management", Source: "apps/api/internal/modules/duplicateoperations/service_postgres_test.go", Test: "TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres"},
+	{Surface: "durable-crm-export", Source: "apps/api/internal/modules/exports/async_postgres_test.go", Test: "TestDurableCRMExportLifecycleAgainstPostgres"},
 	{Surface: "email-template-management", Source: "apps/api/internal/modules/emailtemplates/management_postgres_test.go", Test: "TestEmailDefinitionCatalogsAreBoundedTenantSafeRevisionedAndCapacitySerialized"},
 	{Surface: "email-sequence-delivery", Source: "apps/api/internal/modules/sequencerunner/service_postgres_test.go", Test: "TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres"},
 	{Surface: "email-sequence-governance", Source: "apps/api/internal/modules/emailsequences/approvals_postgres_test.go", Test: "TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres"},

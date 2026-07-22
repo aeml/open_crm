@@ -87,7 +87,11 @@ export async function archiveContact(contactID, { signal } = {}) {
 export function contactsExportURL(query = '') {
   const params = new URLSearchParams()
   const search = typeof query === 'string' ? query : (query.search || '')
+  const ownerUserId = typeof query === 'object' ? (query.ownerUserId || 0) : 0
+  const unassigned = typeof query === 'object' ? !!query.unassigned : false
   if (search) params.set('q', search)
+  if (unassigned) params.set('unassigned', 'true')
+  else if (ownerUserId) params.set('ownerUserId', String(ownerUserId))
   if (typeof query === 'object') appendCustomFieldParams(params, query.customField)
   const suffix = params.toString() ? `?${params.toString()}` : ''
   return apiURL(`/api/export/contacts${suffix}`)

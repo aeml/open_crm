@@ -158,6 +158,7 @@ type tasksService interface {
 }
 
 type dataExportsService interface {
+	asyncDataExportsService
 	ContactsCSV(context.Context, int64, moduleexports.ContactsQuery) (moduleexports.File, error)
 	CompaniesCSV(context.Context, int64, moduleexports.CompaniesQuery) (moduleexports.File, error)
 	DealsCSV(context.Context, int64, moduleexports.DealsQuery) (moduleexports.File, error)

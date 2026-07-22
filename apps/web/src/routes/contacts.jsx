@@ -6,6 +6,7 @@ import { isAbortError } from '../lib/api'
 import { archiveContact, contactsExportURL, createContact, listContacts, updateContact } from '../lib/contacts'
 import { listOrganizationUsers } from '../lib/users'
 import { customFieldFilterFromParams, listCustomFields } from '../lib/custom_fields'
+import { crmExportOwnership, crmExportSetupURL } from '../lib/crm_exports'
 import { usePageTitle } from '../lib/use_page_title'
 import { ContactListCard } from './contact_list'
 import {
@@ -27,6 +28,7 @@ export function ContactsRoute() {
   const routeContactId = Number.parseInt(contactId || '', 10)
   const businessType = businessProfile?.businessType || session?.organization?.businessType || 'general'
   const currentUserId = session?.user?.id ? String(session.user.id) : ''
+  const canExport = ['owner', 'admin'].includes(session?.membership?.role || '')
   const pipelineLabels = relatedPipelineLabels(businessType)
   usePageTitle('Contacts')
   const initialSearch = searchParams.get('q') || ''
@@ -372,6 +374,7 @@ export function ContactsRoute() {
       <ContactListCard
         bulkActions={{ entityType: 'contact', selectedIds: selectedContactIds, visibleIds: contacts.map((contact) => contact.id), onSelectionChange: setSelectedContactIds, onChanged: () => reloadContacts(search, ownerFilter), statuses: bulkStatusOptions.contact, userOptions }}
         canWrite={canWrite}
+        canExport={canExport}
         contacts={contacts}
         currentUserId={currentUserId}
         customDefinitions={customDefinitions}
@@ -379,7 +382,8 @@ export function ContactsRoute() {
         duplicateCandidate={duplicateCandidate}
         duplicateSearch={duplicateSearch}
         error={error}
-        exportURL={contactsExportURL({ search, customField: customFilter })}
+        exportURL={contactsExportURL({ search, customField: customFilter, ...crmExportOwnership(ownerFilter) })}
+        durableExportURL={crmExportSetupURL({ resource: 'contacts', search, customField: customFilter, ...crmExportOwnership(ownerFilter) })}
         hasFilter={hasFilter}
         isLoading={isListLoading}
         meta={meta}

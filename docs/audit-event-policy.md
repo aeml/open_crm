@@ -24,7 +24,7 @@ The audited mutation classes are:
   and background-job replay;
 - immutable quote finalization, approval, delivery, receipt, signature,
   decline, reissue, conversion, and client handoff;
-- workspace and audit export request/readiness/download evidence; and
+- workspace, filtered CRM, and audit export request/readiness/download evidence; and
 - saved-report definition changes and successful saved-report CSV downloads.
 
 Ordinary contact, company, deal, task, note, and preference edits use their
@@ -35,9 +35,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `46`
+Producer source count: `47`
 
-Producer source digest: `6e81489d70bf4c7919e88738f29ad39be323b5817fdd58073387118eb99e6ef5`
+Producer source digest: `4d8f81f207a22f3336d0584c09f8457567caa70a55c7fdc837929e101aea689e`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -61,6 +61,12 @@ tenant-scoped batch, retained source, and `import.execute` job. Its metadata is
 limited to the reviewed row count and source-retention hours; the filename,
 mapping, source digest, CSV bytes, row values, idempotency key, and job payload
 remain in their bounded operational ledgers rather than the audit row.
+
+Durable filtered CRM export submission likewise commits `crm.export_queued`
+with its request row and queue item. Audit metadata records only the resource
+and retention window. Readiness records the resource, row count, immutable
+digest, and expiry; download records only the digest. Filters, idempotency keys,
+artifact bytes, and exported customer values remain outside the audit row.
 
 ## Data and secret boundary
 

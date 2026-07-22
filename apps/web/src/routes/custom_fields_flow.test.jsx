@@ -43,6 +43,8 @@ describe('custom fields record flow', () => {
     expect(screen.getByText('Northstar Gold')).toBeInTheDocument()
     expect(screen.queryByText('Southstar Silver')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Export CSV' })).toHaveAttribute('href', expect.stringMatching(/customField=service_tier&customOperator=eq&customValue=Gold/))
+	const durableRequest = JSON.parse(new URL(screen.getByRole('link', { name: 'Queue large CSV' }).href).searchParams.get('crmExport'))
+	expect(durableRequest).toMatchObject({ resource: 'companies', customField: { fieldKey: 'service_tier', operator: 'eq', value: 'Gold' } })
 
     fireEvent.change(screen.getByLabelText('Save current filters as'), { target: { value: 'Gold accounts' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save view' }))
