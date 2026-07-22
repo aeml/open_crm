@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `35`
+Evidence row count: `36`
 
-Evidence digest: `68f2edbb2ba963e8234878633325b0fb5c96493a53977f5abe15c8b66e644765`
+Evidence digest: `01eb8009b7e79b14b45e2cfd92330687d175ba4eea6c975af6db7fa30ceca5d2`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -52,6 +52,7 @@ the assertions inside those tests remain the proof of behavior.
 | `invitations` | `apps/api/internal/modules/users/invitations_postgres_test.go` | `TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres` | Foreign delivery, resend, and revoke attempts return not found and cannot consume or rotate the owner's token lineage. |
 | `note-history` | `apps/api/internal/modules/notes/list_postgres_test.go` | `TestNoteCursorIsStableBoundedAndTenantScopedAgainstPostgres` | Note history remains bound to the session tenant and exact entity; foreign notes are absent while equal-time and concurrent-newer rows preserve stable cursor continuation. |
 | `pipeline-configuration` | `apps/api/internal/modules/deals/pipeline_configuration_postgres_test.go` | `TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgres` | Foreign pipelines and stages cannot be renamed, reordered, deleted, or assigned to local deals. |
+| `quote-template-management` | `apps/api/internal/modules/quotetemplates/service_postgres_test.go` | `TestQuoteTemplateCatalogIsBoundedTenantSafeAndCapacitySerialized` | Exact filtered totals, literal search, stable adjacent pages, active-only selection, and the serialized 100-active-template ceiling stay inside the owning workspace; foreign definitions and actors remain missing, and only one concurrent final-slot writer succeeds. |
 | `record-email-delivery` | `apps/api/internal/modules/emailmessages/record_deliveries_postgres_test.go` | `TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPostgres` | Foreign records, customer recipients, user recipients, actors, and delivery IDs reject; test-to-self preparation and claim require the exact active actor/address; claims cannot cross twice; completion, failure, recovery, private test evidence, and explicit resolution keep every email/note/activity/audit effect atomic and tenant scoped without adding tests to customer history. |
 | `sales-activity-reporting` | `apps/api/internal/modules/salesreports/service_postgres_test.go` | `TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAgainstPostgres` | Event snapshots, activity rollups, and pipeline cohorts exclude foreign deals; foreign owners and foreign pipeline/stage pairs reject rather than disclose. |
 | `session-management` | `apps/api/internal/modules/auth/sessions_postgres_test.go` | `TestSessionManagementIsPrivateGlobalAndAuditedAgainstPostgres` | A user cannot list or revoke another user's session, including a session in a foreign workspace. |

@@ -7,7 +7,7 @@ import (
 )
 
 type quoteTemplatesService interface {
-	ListByOrganization(context.Context, int64) ([]modulequotetemplates.Template, error)
+	ListByOrganization(context.Context, int64, modulequotetemplates.ListQuery) (modulequotetemplates.ListPage, error)
 	GetPolicy(context.Context, int64) (modulequotetemplates.Policy, error)
 	Create(context.Context, int64, int64, modulequotetemplates.Input) (modulequotetemplates.Template, error)
 	Update(context.Context, int64, int64, int64, modulequotetemplates.Input) (modulequotetemplates.Template, error)

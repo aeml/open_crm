@@ -1,6 +1,10 @@
 package quotetemplates
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
 
 func TestValidateAndRenderQuoteTemplate(t *testing.T) {
 	input := normalizeInput(Input{
@@ -35,5 +39,22 @@ func TestMergeTokensAreStable(t *testing.T) {
 	tokens := MergeTokens()
 	if len(tokens) != 6 || tokens[0] != "{{quote_number}}" || tokens[5] != "{{valid_until}}" {
 		t.Fatalf("unexpected quote merge tokens %#v", tokens)
+	}
+}
+
+func TestNormalizeQuoteTemplateListQuery(t *testing.T) {
+	query, page, err := normalizeListQuery(ListQuery{Search: " Standard ", Status: " ACTIVE ", Page: 2, PageSize: 25})
+	if err != nil || query.Search != "Standard" || query.Status != "active" || page.Number != 2 || page.Size != 25 {
+		t.Fatalf("unexpected normalized quote template query: query=%+v page=%+v err=%v", query, page, err)
+	}
+	for _, query := range []ListQuery{
+		{Status: "unknown"},
+		{Search: strings.Repeat("x", MaxListSearchLength+1)},
+		{PageSize: 101},
+		{Page: 502, PageSize: 100},
+	} {
+		if _, _, err := normalizeListQuery(query); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("invalid quote template query was accepted: %+v err=%v", query, err)
+		}
 	}
 }

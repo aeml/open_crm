@@ -13,7 +13,7 @@ import (
 )
 
 type fakeQuoteTemplatesService struct {
-	listResult      []modulequotetemplates.Template
+	listResult      modulequotetemplates.ListPage
 	listErr         error
 	policyResult    modulequotetemplates.Policy
 	policyErr       error
@@ -26,10 +26,11 @@ type fakeQuoteTemplatesService struct {
 	lastRevision    int
 	lastInput       modulequotetemplates.Input
 	lastPolicyValue bool
+	lastListQuery   modulequotetemplates.ListQuery
 }
 
-func (f *fakeQuoteTemplatesService) ListByOrganization(_ context.Context, organizationID int64) ([]modulequotetemplates.Template, error) {
-	f.lastOperation, f.lastOrgID = "list", organizationID
+func (f *fakeQuoteTemplatesService) ListByOrganization(_ context.Context, organizationID int64, query modulequotetemplates.ListQuery) (modulequotetemplates.ListPage, error) {
+	f.lastOperation, f.lastOrgID, f.lastListQuery = "list", organizationID, query
 	return f.listResult, f.listErr
 }
 
@@ -60,12 +61,12 @@ func (f *fakeQuoteTemplatesService) UpdatePolicy(_ context.Context, organization
 
 func TestQuoteTemplateReadEndpointsUseSessionTenant(t *testing.T) {
 	service := &fakeQuoteTemplatesService{
-		listResult:   []modulequotetemplates.Template{{ID: 9, Name: "Standard", Revision: 2}},
+		listResult:   modulequotetemplates.ListPage{Templates: []modulequotetemplates.Template{{ID: 9, Name: "Standard", Revision: 2}}, Page: 2, PageSize: 25, Total: 27},
 		policyResult: modulequotetemplates.Policy{ApprovalRequired: true, ActiveApprovers: 2},
 	}
 	server := serverWithRole("viewer", Dependencies{QuoteTemplatesService: service})
 
-	for _, path := range []string{"/api/quote-templates", "/api/quote-templates/policy", "/api/quote-templates/merge-tokens"} {
+	for _, path := range []string{"/api/quote-templates?q=standard&status=active&page=2&pageSize=25", "/api/quote-templates/policy", "/api/quote-templates/merge-tokens"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		addSessionCookie(request)
 		recorder := httptest.NewRecorder()
@@ -74,8 +75,30 @@ func TestQuoteTemplateReadEndpointsUseSessionTenant(t *testing.T) {
 			t.Fatalf("expected %s to return 200, got %d: %s", path, recorder.Code, recorder.Body.String())
 		}
 	}
-	if service.lastOrgID != 42 || !strings.Contains(serviceBody(server, "/api/quote-templates"), `"name":"Standard"`) {
+	body := serviceBody(server, "/api/quote-templates?q=standard&status=active&page=2&pageSize=25")
+	if service.lastOrgID != 42 || service.lastListQuery.Search != "standard" || service.lastListQuery.Status != "active" ||
+		service.lastListQuery.Page != 2 || service.lastListQuery.PageSize != 25 || !strings.Contains(body, `"name":"Standard"`) ||
+		!strings.Contains(body, `"meta":{"page":2,"pageSize":25,"total":27}`) {
 		t.Fatalf("quote template read did not retain the session tenant: %#v", service)
+	}
+}
+
+func TestQuoteTemplateListRejectsInvalidBoundsBeforeService(t *testing.T) {
+	for _, path := range []string{
+		"/api/quote-templates?pageSize=101",
+		"/api/quote-templates?page=502&pageSize=100",
+		"/api/quote-templates?status=unknown",
+		"/api/quote-templates?q=" + strings.Repeat("x", modulequotetemplates.MaxListSearchLength+1),
+	} {
+		service := &fakeQuoteTemplatesService{}
+		server := serverWithRole("viewer", Dependencies{QuoteTemplatesService: service})
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		addSessionCookie(request)
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest || service.lastOperation != "" {
+			t.Fatalf("invalid quote template query reached service: path=%s status=%d service=%#v body=%s", path, recorder.Code, service, recorder.Body.String())
+		}
 	}
 }
 
@@ -168,6 +191,7 @@ func TestQuoteTemplateErrorsRemainActionable(t *testing.T) {
 		{modulequotetemplates.ErrInvalidInput, http.StatusBadRequest, `"code":"BAD_REQUEST"`},
 		{modulequotetemplates.ErrDuplicateName, http.StatusConflict, `"code":"QUOTE_TEMPLATE_NAME_CONFLICT"`},
 		{modulequotetemplates.ErrConflict, http.StatusConflict, `"code":"QUOTE_TEMPLATE_CHANGED"`},
+		{modulequotetemplates.ErrActiveLimit, http.StatusUnprocessableEntity, `"code":"QUOTE_TEMPLATE_ACTIVE_LIMIT"`},
 		{modulequotetemplates.ErrNotFound, http.StatusNotFound, `"code":"NOT_FOUND"`},
 		{errors.New("database unavailable"), http.StatusInternalServerError, `"code":"INTERNAL_SERVER_ERROR"`},
 	}

@@ -88,6 +88,18 @@ function seedReportDefinitionContinuation(ownerEmail, runID) {
   })
 }
 
+function seedQuoteTemplateContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_quote_templates', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -792,8 +804,20 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
 
   const quoteTemplateName = `Pilot services terms ${runID}`
   const quoteTemplateTerms = 'Net 30. Scope changes require written approval under the retained pilot services terms.'
+  seedQuoteTemplateContinuation(owner.email, runID)
   await page.getByRole('link', { name: 'Quote Templates', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Quote preparation policy' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `Browser quote terms ${runID} #001`, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `Browser quote terms ${runID} #051`, exact: true })).toHaveCount(0)
+  await expect(page.getByText('Showing 50 of 51 quote templates', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(page.getByRole('heading', { name: `Browser quote terms ${runID} #051`, exact: true })).toBeVisible()
+  await page.getByLabel('Search quote templates').fill(`Browser quote terms ${runID} #051`)
+  await page.getByRole('button', { name: 'Apply search' }).click()
+  await expect(page.getByText('Showing 1 of 1 quote templates', { exact: false })).toBeVisible()
+  await page.getByLabel('Search quote templates').fill('')
+  await page.getByRole('button', { name: 'Apply search' }).click()
+  await expect(page.getByText('Showing 50 of 51 quote templates', { exact: false })).toBeVisible()
   const quoteTemplateForm = page.getByRole('form', { name: 'Create quote template' })
   await quoteTemplateForm.getByLabel('Template name').fill(quoteTemplateName)
   await quoteTemplateForm.getByLabel('Default validity days').fill('45')

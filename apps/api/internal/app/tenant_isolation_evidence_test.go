@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 35
-	expectedTenantIsolationEvidenceDigest = "68f2edbb2ba963e8234878633325b0fb5c96493a53977f5abe15c8b66e644765"
+	expectedTenantIsolationEvidenceCount  = 36
+	expectedTenantIsolationEvidenceDigest = "01eb8009b7e79b14b45e2cfd92330687d175ba4eea6c975af6db7fa30ceca5d2"
 )
 
 type tenantIsolationEvidence struct {
@@ -51,6 +51,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "invitations", Source: "apps/api/internal/modules/users/invitations_postgres_test.go", Test: "TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres"},
 	{Surface: "note-history", Source: "apps/api/internal/modules/notes/list_postgres_test.go", Test: "TestNoteCursorIsStableBoundedAndTenantScopedAgainstPostgres"},
 	{Surface: "pipeline-configuration", Source: "apps/api/internal/modules/deals/pipeline_configuration_postgres_test.go", Test: "TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgres"},
+	{Surface: "quote-template-management", Source: "apps/api/internal/modules/quotetemplates/service_postgres_test.go", Test: "TestQuoteTemplateCatalogIsBoundedTenantSafeAndCapacitySerialized"},
 	{Surface: "record-email-delivery", Source: "apps/api/internal/modules/emailmessages/record_deliveries_postgres_test.go", Test: "TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPostgres"},
 	{Surface: "sales-activity-reporting", Source: "apps/api/internal/modules/salesreports/service_postgres_test.go", Test: "TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAgainstPostgres"},
 	{Surface: "session-management", Source: "apps/api/internal/modules/auth/sessions_postgres_test.go", Test: "TestSessionManagementIsPrivateGlobalAndAuditedAgainstPostgres"},

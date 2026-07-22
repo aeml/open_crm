@@ -99,8 +99,8 @@ func TestQuoteTemplatesAndExactPDFApprovalLifecycleAgainstPostgres(t *testing.T)
 	if _, err := templates.Archive(ctx, foreignOrganizationID, template.ID, foreignAdminID, 1); !errors.Is(err, modulequotetemplates.ErrNotFound) {
 		t.Fatalf("foreign template archive returned %v", err)
 	}
-	foreignTemplates, err := templates.ListByOrganization(ctx, foreignOrganizationID)
-	if err != nil || len(foreignTemplates) != 0 {
+	foreignTemplates, err := templates.ListByOrganization(ctx, foreignOrganizationID, modulequotetemplates.ListQuery{})
+	if err != nil || foreignTemplates.Total != 0 || len(foreignTemplates.Templates) != 0 {
 		t.Fatalf("foreign template list leaked data: list=%#v err=%v", foreignTemplates, err)
 	}
 	reusableInput := baseInput

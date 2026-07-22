@@ -12,18 +12,27 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
+	ErrActiveLimit           = errors.New("active quote template limit reached")
 	ErrConflict              = errors.New("quote template changed")
 	ErrDuplicateName         = errors.New("quote template name already exists")
 	ErrInsufficientApprovers = errors.New("independent quote approver unavailable")
 	ErrInvalidInput          = errors.New("invalid quote template")
 	ErrNotFound              = errors.New("quote template not found")
+)
+
+const (
+	DefaultListPageSize = 50
+	MaxActiveTemplates  = 100
+	MaxListSearchLength = 100
 )
 
 var mergeTokenPattern = regexp.MustCompile(`\{\{[a-z_]+\}\}`)
@@ -66,6 +75,20 @@ type Input struct {
 	ExpectedRevision        int    `json:"expectedRevision"`
 }
 
+type ListQuery struct {
+	Search   string
+	Status   string
+	Page     int
+	PageSize int
+}
+
+type ListPage struct {
+	Templates []Template `json:"templates"`
+	Page      int        `json:"page"`
+	PageSize  int        `json:"pageSize"`
+	Total     int        `json:"total"`
+}
+
 type Policy struct {
 	ApprovalRequired  bool      `json:"approvalRequired"`
 	ActiveApprovers   int       `json:"activeApprovers"`
@@ -102,11 +125,39 @@ func Render(value string, fields MergeValues) string {
 	).Replace(value)
 }
 
-func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]Template, error) {
+func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, query ListQuery) (ListPage, error) {
 	if s == nil || s.pool == nil || organizationID <= 0 {
-		return nil, fmt.Errorf("quote templates service not configured")
+		return ListPage{}, fmt.Errorf("quote templates service not configured")
 	}
-	rows, err := s.pool.Query(ctx, `
+	query, page, err := normalizeListQuery(query)
+	if err != nil {
+		return ListPage{}, err
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return ListPage{}, fmt.Errorf("begin quote template list: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	args := []any{organizationID}
+	filter := ""
+	switch query.Status {
+	case "active":
+		filter += " AND template.is_active=TRUE"
+	case "inactive":
+		filter += " AND template.is_active=FALSE"
+	}
+	if query.Search != "" {
+		args = append(args, "%"+escapeLike(strings.ToLower(query.Search))+"%")
+		filter += fmt.Sprintf(" AND LOWER(template.name) LIKE $%d ESCAPE E'\\\\'", len(args))
+	}
+
+	result := ListPage{Templates: []Template{}, Page: page.Number, PageSize: page.Size}
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*)::int FROM quote_templates template WHERE template.organization_id=$1`+filter, args...).Scan(&result.Total); err != nil {
+		return ListPage{}, fmt.Errorf("count quote templates: %w", err)
+	}
+	args = append(args, page.Size, page.Offset)
+	rows, err := tx.Query(ctx, `
 		SELECT template.id,template.name,template.terms,template.default_validity_days,
 		       template.delivery_subject_template,template.delivery_message_template,
 		       template.request_signature,template.requires_approval,template.is_active,template.revision,
@@ -115,23 +166,25 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		       template.created_at,template.updated_at
 		FROM quote_templates template
 		JOIN users actor ON actor.id=template.updated_by_user_id
-		WHERE template.organization_id=$1
+		WHERE template.organization_id=$1`+filter+`
 		ORDER BY template.is_active DESC,LOWER(template.name),template.id
-	`, organizationID)
+		LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 	if err != nil {
-		return nil, fmt.Errorf("list quote templates: %w", err)
+		return ListPage{}, fmt.Errorf("list quote templates: %w", err)
 	}
 	defer rows.Close()
-	result := make([]Template, 0)
 	for rows.Next() {
 		template, err := scanTemplate(rows)
 		if err != nil {
-			return nil, err
+			return ListPage{}, err
 		}
-		result = append(result, template)
+		result.Templates = append(result.Templates, template)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate quote templates: %w", err)
+		return ListPage{}, fmt.Errorf("iterate quote templates: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ListPage{}, fmt.Errorf("commit quote template list: %w", err)
 	}
 	return result, nil
 }
@@ -172,22 +225,27 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if s == nil || s.pool == nil || organizationID <= 0 || actorUserID <= 0 || validateInput(input) != nil {
 		return Template{}, ErrInvalidInput
 	}
+	isActive := true
+	if input.IsActive != nil {
+		isActive = *input.IsActive
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Template{}, fmt.Errorf("begin quote template create: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := requireAdmin(ctx, tx, organizationID, actorUserID); err != nil {
+	if err := lockTemplateWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Template{}, err
+	}
+	if isActive {
+		if err := requireActiveCapacity(ctx, tx, organizationID); err != nil {
+			return Template{}, err
+		}
 	}
 	if input.RequiresApproval {
 		if err := requireIndependentApprover(ctx, tx, organizationID, actorUserID); err != nil {
 			return Template{}, err
 		}
-	}
-	isActive := true
-	if input.IsActive != nil {
-		isActive = *input.IsActive
 	}
 	template, err := scanTemplate(tx.QueryRow(ctx, `
 		INSERT INTO quote_templates (
@@ -223,8 +281,25 @@ func (s *Service) Update(ctx context.Context, organizationID, templateID, actorU
 		return Template{}, fmt.Errorf("begin quote template update: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := requireAdmin(ctx, tx, organizationID, actorUserID); err != nil {
+	if err := lockTemplateWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Template{}, err
+	}
+	var currentActive bool
+	var currentRevision int
+	err = tx.QueryRow(ctx, `
+		SELECT is_active,revision
+		FROM quote_templates
+		WHERE organization_id=$1 AND id=$2
+		FOR UPDATE
+	`, organizationID, templateID).Scan(&currentActive, &currentRevision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Template{}, ErrNotFound
+	}
+	if err != nil {
+		return Template{}, fmt.Errorf("lock quote template: %w", err)
+	}
+	if currentRevision != input.ExpectedRevision {
+		return Template{}, ErrConflict
 	}
 	if input.RequiresApproval {
 		if err := requireIndependentApprover(ctx, tx, organizationID, actorUserID); err != nil {
@@ -232,8 +307,15 @@ func (s *Service) Update(ctx context.Context, organizationID, templateID, actorU
 		}
 	}
 	var isActive any
+	desiredActive := currentActive
 	if input.IsActive != nil {
 		isActive = *input.IsActive
+		desiredActive = *input.IsActive
+	}
+	if !currentActive && desiredActive {
+		if err := requireActiveCapacity(ctx, tx, organizationID); err != nil {
+			return Template{}, err
+		}
 	}
 	template, err := scanTemplate(tx.QueryRow(ctx, `
 		UPDATE quote_templates
@@ -273,7 +355,7 @@ func (s *Service) Archive(ctx context.Context, organizationID, templateID, actor
 		return Template{}, fmt.Errorf("begin quote template archive: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := requireAdmin(ctx, tx, organizationID, actorUserID); err != nil {
+	if err := lockTemplateWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Template{}, err
 	}
 	template, err := scanTemplate(tx.QueryRow(ctx, `
@@ -308,7 +390,7 @@ func (s *Service) UpdatePolicy(ctx context.Context, organizationID, actorUserID 
 		return Policy{}, fmt.Errorf("begin quote policy update: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := requireAdmin(ctx, tx, organizationID, actorUserID); err != nil {
+	if err := lockTemplateWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Policy{}, err
 	}
 	if approvalRequired {
@@ -359,6 +441,28 @@ func normalizeInput(input Input) Input {
 	return input
 }
 
+func normalizeListQuery(query ListQuery) (ListQuery, platformpagination.Page, error) {
+	query.Search = strings.TrimSpace(query.Search)
+	query.Status = strings.ToLower(strings.TrimSpace(query.Status))
+	if query.Status == "" {
+		query.Status = "all"
+	}
+	if utf8.RuneCountInString(query.Search) > MaxListSearchLength ||
+		(query.Status != "all" && query.Status != "active" && query.Status != "inactive") {
+		return ListQuery{}, platformpagination.Page{}, ErrInvalidInput
+	}
+	page, err := platformpagination.Normalize(query.Page, query.PageSize, DefaultListPageSize)
+	if err != nil {
+		return ListQuery{}, platformpagination.Page{}, ErrInvalidInput
+	}
+	query.Page, query.PageSize = page.Number, page.Size
+	return query, page, nil
+}
+
+func escapeLike(value string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
+}
+
 func validateInput(input Input) error {
 	if len(input.Name) < 1 || len(input.Name) > 120 || len(input.Terms) < 1 || len(input.Terms) > 10000 ||
 		input.DefaultValidityDays < 1 || input.DefaultValidityDays > 366 ||
@@ -380,19 +484,34 @@ func validMergeTemplate(value string) bool {
 	return !strings.Contains(stripped, "{{") && !strings.Contains(stripped, "}}")
 }
 
-func requireAdmin(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64) error {
-	var ok bool
+func lockTemplateWriter(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64) error {
+	var role string
 	err := tx.QueryRow(ctx, `
-		SELECT EXISTS(
-		  SELECT 1 FROM organization_memberships
-		  WHERE organization_id=$1 AND user_id=$2 AND membership_status='active' AND role IN ('owner','admin')
-		)
-	`, organizationID, actorUserID).Scan(&ok)
-	if err != nil {
-		return fmt.Errorf("verify quote template administrator: %w", err)
-	}
-	if !ok {
+		SELECT role
+		FROM organization_memberships
+		WHERE organization_id=$1 AND user_id=$2 AND membership_status='active'
+		FOR UPDATE
+	`, organizationID, actorUserID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && role != "owner" && role != "admin") {
 		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("lock quote template administrator: %w", err)
+	}
+	lockKey := fmt.Sprintf("quote-template-active-capacity:%d", organizationID)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, lockKey); err != nil {
+		return fmt.Errorf("lock quote template capacity: %w", err)
+	}
+	return nil
+}
+
+func requireActiveCapacity(ctx context.Context, tx pgx.Tx, organizationID int64) error {
+	var count int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*)::int FROM quote_templates WHERE organization_id=$1 AND is_active=TRUE`, organizationID).Scan(&count); err != nil {
+		return fmt.Errorf("count active quote templates: %w", err)
+	}
+	if count >= MaxActiveTemplates {
+		return ErrActiveLimit
 	}
 	return nil
 }

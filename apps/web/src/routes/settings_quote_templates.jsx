@@ -13,8 +13,8 @@ import {
   createQuoteTemplate,
   getQuoteTemplatePolicy,
   listPendingQuoteApprovals,
+  listQuoteTemplatePage,
   listQuoteTemplateMergeTokens,
-  listQuoteTemplates,
   updateQuoteTemplate,
   updateQuoteTemplatePolicy
 } from '../lib/quote_templates'
@@ -32,6 +32,8 @@ const emptyForm = {
   isActive: true,
   expectedRevision: 0
 }
+const pageSize = 50
+const emptyMeta = { page: 1, pageSize, total: 0 }
 
 function formFromTemplate(template) {
   return {
@@ -88,36 +90,50 @@ export function SettingsQuoteTemplatesRoute() {
   const currentUserId = session?.user?.id || ''
   usePageTitle('Quote Templates')
   const [templates, setTemplates] = useState([])
+  const [templateMeta, setTemplateMeta] = useState(emptyMeta)
   const [policy, setPolicy] = useState({ approvalRequired: false, activeApprovers: 0 })
   const [mergeTokens, setMergeTokens] = useState([])
   const [pendingApprovals, setPendingApprovals] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
   const [decidingId, setDecidingId] = useState(null)
+  const [pendingArchiveId, setPendingArchiveId] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingPolicy, setIsSavingPolicy] = useState(false)
   const [error, setError] = useState('')
+  const [statusMessage, setStatusMessage] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const [appliedSearch, setAppliedSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [pageNumber, setPageNumber] = useState(1)
   const decisionAttempts = useRef(new Map())
+  const latestLoad = useRef(0)
+  const operationPending = useRef(false)
 
-  async function load({ signal } = {}) {
+  async function load({ signal, requestedPage = pageNumber, search = appliedSearch, templateStatus = statusFilter } = {}) {
+    const loadID = latestLoad.current + 1
+    latestLoad.current = loadID
     setIsLoading(true)
     try {
-      const [nextTemplates, nextPolicy, tokens, approvals] = await Promise.all([
-        listQuoteTemplates({ signal }),
+      const [catalog, nextPolicy, tokens, approvals] = await Promise.all([
+        listQuoteTemplatePage({ search, status: templateStatus, page: requestedPage, pageSize, signal }),
         getQuoteTemplatePolicy({ signal }),
         listQuoteTemplateMergeTokens({ signal }),
         canManage ? listPendingQuoteApprovals({ signal }) : Promise.resolve([])
       ])
-      setTemplates(nextTemplates)
+      if (signal?.aborted || loadID !== latestLoad.current) return null
+      setTemplates(catalog.templates)
+      setTemplateMeta(catalog.meta)
       setPolicy(nextPolicy)
       setMergeTokens(tokens)
       setPendingApprovals(approvals)
       setError('')
+      return catalog
     } catch (loadError) {
-      if (!isAbortError(loadError)) setError(loadError.message || 'Unable to load quote templates.')
+      if (!isAbortError(loadError) && loadID === latestLoad.current) setError(loadError.message || 'Unable to load quote templates.')
     } finally {
-      if (!signal?.aborted) setIsLoading(false)
+      if (!signal?.aborted && loadID === latestLoad.current) setIsLoading(false)
     }
   }
 
@@ -125,7 +141,7 @@ export function SettingsQuoteTemplatesRoute() {
     const controller = new AbortController()
     load({ signal: controller.signal })
     return () => controller.abort()
-  }, [canManage])
+  }, [appliedSearch, canManage, pageNumber, statusFilter])
 
   function resetForm() {
     setForm(emptyForm)
@@ -139,30 +155,55 @@ export function SettingsQuoteTemplatesRoute() {
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (operationPending.current) return
+    operationPending.current = true
     setIsSaving(true)
+    setStatusMessage('')
     try {
-      const saved = editingId
+      const operation = editingId ? 'updated' : 'created'
+      editingId
         ? await updateQuoteTemplate(editingId, templateInput(form))
         : await createQuoteTemplate(templateInput(form))
-      setTemplates((current) => [...current.filter((template) => template.id !== saved.id), saved]
-        .sort((left, right) => Number(right.isActive) - Number(left.isActive) || left.name.localeCompare(right.name)))
       resetForm()
+      setStatusMessage(`Quote template ${operation}.`)
       setError('')
+      if (pageNumber === 1) await load({ requestedPage: 1 })
+      else setPageNumber(1)
     } catch (saveError) {
       setError(saveError.message || 'Unable to save quote template.')
     } finally {
       setIsSaving(false)
+      operationPending.current = false
     }
   }
 
   async function handleArchive(template) {
+    if (operationPending.current) return
+    operationPending.current = true
+    setPendingArchiveId(template.id)
+    setStatusMessage('')
     try {
-      const archived = await archiveQuoteTemplate(template.id, template.revision)
-      setTemplates((current) => current.map((entry) => (entry.id === archived.id ? archived : entry)))
+      await archiveQuoteTemplate(template.id, template.revision)
       if (editingId === template.id) resetForm()
+      setStatusMessage('Quote template archived.')
       setError('')
+      const catalog = await load()
+      if (catalog && catalog.templates.length === 0 && catalog.meta.total > 0 && pageNumber > 1) setPageNumber((current) => current - 1)
     } catch (archiveError) {
       setError(archiveError.message || 'Unable to archive quote template.')
+    } finally {
+      setPendingArchiveId(null)
+      operationPending.current = false
+    }
+  }
+
+  function handleSearch(event) {
+    event.preventDefault()
+    const nextSearch = searchInput.trim()
+    if (nextSearch === appliedSearch && pageNumber === 1) load({ requestedPage: 1, search: nextSearch })
+    else {
+      setPageNumber(1)
+      setAppliedSearch(nextSearch)
     }
   }
 
@@ -230,8 +271,22 @@ export function SettingsQuoteTemplatesRoute() {
       <Card>
         <div className="card-stack">
           <h2>Quote templates</h2>
+          {statusMessage ? <p className="field-hint" role="status">{statusMessage}</p> : null}
+          <form className="filters-grid" onSubmit={handleSearch}>
+            <Field label="Search quote templates">
+              <input className="text-input" maxLength={100} value={searchInput} disabled={isSaving || pendingArchiveId !== null} onChange={(event) => setSearchInput(event.target.value)} placeholder="Template name" />
+            </Field>
+            <Field label="Quote template status">
+              <select className="text-input" value={statusFilter} disabled={isSaving || pendingArchiveId !== null} onChange={(event) => { setPageNumber(1); setStatusFilter(event.target.value) }}>
+                <option value="all">Active and archived</option>
+                <option value="active">Active</option>
+                <option value="inactive">Archived</option>
+              </select>
+            </Field>
+            <Button className="button-secondary" type="submit" disabled={isLoading || isSaving || pendingArchiveId !== null}>Apply search</Button>
+          </form>
           <div className="record-list" role="list" aria-label="Quote templates">
-            {!isLoading && templates.length === 0 ? <article className="record-row" role="listitem"><div><p>No quote templates yet.</p><p className="field-hint">Quotes can still use custom terms.</p></div></article> : null}
+            {!isLoading && templates.length === 0 ? <article className="record-row" role="listitem"><div><p>{appliedSearch || statusFilter !== 'all' ? 'No quote templates match these filters.' : 'No quote templates yet.'}</p><p className="field-hint">{appliedSearch || statusFilter !== 'all' ? 'Change the search or status filter and try again.' : 'Quotes can still use custom terms.'}</p></div></article> : null}
             {templates.map((template) => (
               <article className="record-row" key={template.id} role="listitem">
                 <div>
@@ -239,9 +294,14 @@ export function SettingsQuoteTemplatesRoute() {
                   <p className="field-hint">Revision {template.revision} · {template.defaultValidityDays} days · {template.requestSignature ? 'signature requested by default' : 'review only by default'} · {template.requiresApproval ? 'approval required' : 'approval optional'} · {template.isActive ? 'active' : 'archived'}</p>
                   <p className="field-hint">Updated {formatSignatureTime(template.updatedAt)} by {template.updatedByUserName}</p>
                 </div>
-                {canManage && template.isActive ? <div><Button className="button-secondary" type="button" onClick={() => startEdit(template)}>Edit</Button><Button className="button-danger" type="button" onClick={() => handleArchive(template)}>Archive</Button></div> : null}
+                {canManage && template.isActive ? <div><Button className="button-secondary" type="button" disabled={isSaving || pendingArchiveId !== null} onClick={() => startEdit(template)}>Edit</Button><Button className="button-danger" type="button" disabled={isSaving || pendingArchiveId !== null} onClick={() => handleArchive(template)}>{pendingArchiveId === template.id ? 'Archiving…' : 'Archive'}</Button></div> : null}
               </article>
             ))}
+          </div>
+          <p className="field-hint" role="status">Showing {templates.length} of {templateMeta.total} quote templates{appliedSearch ? ` matching “${appliedSearch}”` : ''}. Up to 100 templates may be active for quote preparation.</p>
+          <div className="button-row">
+            <Button className="button-secondary" type="button" disabled={isLoading || pageNumber <= 1 || isSaving || pendingArchiveId !== null} onClick={() => setPageNumber((current) => current - 1)}>Previous page</Button>
+            <Button className="button-secondary" type="button" disabled={isLoading || pageNumber * templateMeta.pageSize >= templateMeta.total || isSaving || pendingArchiveId !== null} onClick={() => setPageNumber((current) => current + 1)}>Next page</Button>
           </div>
           {mergeTokens.length > 0 ? <p className="field-hint">Available delivery merge fields: {mergeTokens.join(', ')}</p> : null}
         </div>
@@ -258,7 +318,7 @@ export function SettingsQuoteTemplatesRoute() {
             <Field label="Delivery message"><textarea className="text-input" maxLength={10000} rows="5" value={form.deliveryMessageTemplate} onChange={(event) => setForm({ ...form, deliveryMessageTemplate: event.target.value })} required /></Field>
             <label className="checkbox-row"><input type="checkbox" checked={form.requestSignature} onChange={(event) => setForm({ ...form, requestSignature: event.target.checked })} /> Request electronic signature by default</label>
             <label className="checkbox-row"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked })} /> Require independent approval for this template</label>
-            <div className="button-row"><Button type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : editingId ? 'Save new revision' : 'Create template'}</Button>{editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}</div>
+            <div className="button-row"><Button type="submit" disabled={isSaving || pendingArchiveId !== null}>{isSaving ? 'Saving…' : editingId ? 'Save new revision' : 'Create template'}</Button>{editingId ? <Button className="button-secondary" type="button" disabled={isSaving || pendingArchiveId !== null} onClick={resetForm}>Cancel</Button> : null}</div>
           </form>
         </Card>
       ) : null}

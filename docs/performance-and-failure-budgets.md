@@ -403,6 +403,7 @@ service through finalization with a populated WCAG scan. The measured build is
 product-catalog route, and 730.88/228.33 KiB aggregate raw/gzip. Preserving
 legacy overflow access advances the reviewed aggregate ceilings from 729/228 to
 731/229 KiB; entry, per-route, CSS, and source ceilings remain unchanged.
+
 Truthful workflow activation then adds exact active-action allocation disclosure,
 latest-load and serialized-writer guards, plus non-destructive recovery for
 unsupported legacy active definitions. The measured production build remains
@@ -478,6 +479,23 @@ chunk, and 744.94/232.35 KiB aggregate raw/gzip. The run display is isolated
 in a 61-line component. Only the reviewed aggregate ceilings advance from
 743/232 to 745/233 KiB; entry, per-route, CSS, and source ceilings remain
 unchanged.
+
+Bounded quote-template management applies the same reviewed catalog shape to
+retained preparation definitions: exact searchable/status-filtered 50/default
+and 100/maximum management pages, a 50,000 offset ceiling, and a separate
+active-only deal loader that rejects changing totals while retaining legacy
+overflow. A tenant-namespaced transaction lock revalidates the owner/admin and
+serializes the 100-active-template ceiling. Fresh PostgreSQL 16.14 acceptance
+seeds 1,001 local rows plus a foreign sentinel, proves indexed active selection,
+budgets active and adjacent management pages below two seconds, and covers
+literal wildcard search, tenant/role denial, a one-success/one-limit final-slot
+race, and archive/reactivation recovery. Chromium loads/searches row 51,
+creates the active template, and carries it through approval, signature, and a
+populated WCAG scan. The measured build is 178.82/57.96 KiB entry,
+54.93/15.64 KiB largest lazy chunk, 11.73/3.76 KiB quote-template route, and
+747.93/233.39 KiB aggregate raw/gzip. Only the reviewed aggregate ceilings
+advance from 745/233 to 748/234 KiB; entry, per-route, CSS, and source ceilings
+remain unchanged.
 
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and

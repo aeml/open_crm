@@ -4,14 +4,22 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	modulequotetemplates "github.com/aeml/open_crm/apps/api/internal/modules/quotetemplates"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
 type quoteTemplatesResponse struct {
 	Data struct {
 		Templates []modulequotetemplates.Template `json:"templates"`
+		Meta      struct {
+			Page     int `json:"page"`
+			PageSize int `json:"pageSize"`
+			Total    int `json:"total"`
+		} `json:"meta"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -59,15 +67,37 @@ func handleListQuoteTemplates(auth authService, templates quoteTemplatesService,
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Quote templates service unavailable")
 		return
 	}
-	list, err := templates.ListByOrganization(r.Context(), state.Organization.ID)
+	query, ok := parseQuoteTemplateListQuery(w, r, requestID)
+	if !ok {
+		return
+	}
+	page, err := templates.ListByOrganization(r.Context(), state.Organization.ID, query)
 	if err != nil {
 		writeQuoteTemplateError(w, requestID, err)
 		return
 	}
 	response := quoteTemplatesResponse{}
-	response.Data.Templates = list
+	response.Data.Templates = page.Templates
+	response.Data.Meta.Page = page.Page
+	response.Data.Meta.PageSize = page.PageSize
+	response.Data.Meta.Total = page.Total
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func parseQuoteTemplateListQuery(w http.ResponseWriter, r *http.Request, requestID string) (modulequotetemplates.ListQuery, bool) {
+	page, err := platformpagination.Parse(r.URL.Query().Get("page"), r.URL.Query().Get("pageSize"), modulequotetemplates.DefaultListPageSize)
+	search := strings.TrimSpace(r.URL.Query().Get("q"))
+	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
+	if status == "" {
+		status = "all"
+	}
+	if err != nil || utf8.RuneCountInString(search) > modulequotetemplates.MaxListSearchLength ||
+		(status != "all" && status != "active" && status != "inactive") {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid quote template search, status, and page")
+		return modulequotetemplates.ListQuery{}, false
+	}
+	return modulequotetemplates.ListQuery{Search: search, Status: status, Page: page.Number, PageSize: page.Size}, true
 }
 
 func handleGetQuoteTemplatePolicy(auth authService, templates quoteTemplatesService, w http.ResponseWriter, r *http.Request) {
@@ -233,6 +263,8 @@ func writeQuoteTemplateError(w http.ResponseWriter, requestID string, err error)
 		platformweb.WriteError(w, http.StatusConflict, requestID, "QUOTE_TEMPLATE_CHANGED", "This quote template changed; reload it before saving")
 	case errors.Is(err, modulequotetemplates.ErrInsufficientApprovers):
 		platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "QUOTE_APPROVER_REQUIRED", "Add another active owner or admin before requiring independent approval")
+	case errors.Is(err, modulequotetemplates.ErrActiveLimit):
+		platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "QUOTE_TEMPLATE_ACTIVE_LIMIT", "Archive an active quote template before activating another")
 	case errors.Is(err, modulequotetemplates.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	default:

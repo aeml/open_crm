@@ -1,10 +1,34 @@
 import { apiRequest } from './api'
 
-export async function listQuoteTemplates({ signal } = {}) {
-  const payload = await apiRequest('/api/quote-templates', {
+export async function listQuoteTemplatePage({ search = '', status = 'all', page = 1, pageSize = 50, signal } = {}) {
+  const query = new URLSearchParams()
+  if (search) query.set('q', search)
+  if (status && status !== 'all') query.set('status', status)
+  query.set('page', String(page))
+  query.set('pageSize', String(pageSize))
+  const payload = await apiRequest(`/api/quote-templates?${query.toString()}`, {
     fallbackMessage: 'Unable to load quote templates.', signal
   })
-  return payload?.data?.templates || []
+  const data = payload?.data || {}
+  const templates = data.templates || []
+  return { templates, meta: data.meta || { page, pageSize, total: templates.length } }
+}
+
+export async function listQuoteTemplates({ signal } = {}) {
+  const templatesById = new Map()
+  let expectedTotal = null
+  for (let page = 1; page <= 501; page += 1) {
+    const result = await listQuoteTemplatePage({ status: 'active', page, pageSize: 100, signal })
+    const total = Number(result.meta?.total)
+    if (!Number.isSafeInteger(total) || total < 0 || (expectedTotal !== null && total !== expectedTotal)) {
+      throw new Error('The quote template catalog changed while quote options were loading. Try again.')
+    }
+    expectedTotal = total
+    result.templates.forEach((template) => templatesById.set(template.id, template))
+    if (templatesById.size >= expectedTotal) return [...templatesById.values()]
+    if (result.templates.length === 0) break
+  }
+  throw new Error('The complete active quote template catalog could not be loaded. Archive legacy overflow and try again.')
 }
 
 export async function getQuoteTemplatePolicy({ signal } = {}) {
