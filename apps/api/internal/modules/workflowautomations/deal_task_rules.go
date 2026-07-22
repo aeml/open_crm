@@ -16,6 +16,7 @@ const (
 	DealEventCreated      = "created"
 	DealEventStageChanged = "stage_changed"
 	DealEventArchived     = "archived"
+	DealEventOwnerChanged = "owner_changed"
 	// DealSnapshotConditionContract explicitly opts a definition into the
 	// executable event-time deal-condition shape. Legacy stored conditions do
 	// not start executing merely because the runtime gains condition support.
@@ -33,11 +34,15 @@ const (
 	// and is therefore safe while the causal boundary for future mutations is
 	// retained and enforced separately.
 	DealTaskNotifyPlanContract = "deal_task_notify_plan_v1"
-	maxExecutableTasks         = 5
-	maxExecutableActions       = maxExecutableTasks + 1
-	maxExecutableConditions    = 1
-	maxTaskTitleLength         = 200
-	maxTaskDescriptionLen      = 2000
+	// DealAssignOwnerContract opts one active target member into the first
+	// reviewed trigger-capable action. The resulting owner-change event carries
+	// the exact successful action as its cause.
+	DealAssignOwnerContract = "deal_assign_owner_v1"
+	maxExecutableTasks      = 5
+	maxExecutableActions    = maxExecutableTasks + 1
+	maxExecutableConditions = 1
+	maxTaskTitleLength      = 200
+	maxTaskDescriptionLen   = 2000
 )
 
 type DealTaskEvent struct {
@@ -198,6 +203,32 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 			}
 			continue
 		}
+		if executableDealOwnerAssignment(config, actions) {
+			assignedUserID, assignmentChanged, err := assignDealOwnerFromWorkflow(ctx, tx, event, runID, rule.id, actions[0])
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `
+				UPDATE workflow_automation_runs
+				SET status='succeeded', condition_result=TRUE, actions_completed=actions_total,
+				    completed_at=NOW(), updated_at=NOW(),
+				    trigger_payload_json=jsonb_set(
+				      jsonb_set(trigger_payload_json,'{assignedOwnerUserId}',to_jsonb($3::bigint)),
+				      '{assignmentChanged}',to_jsonb($4::boolean)
+				    )
+				WHERE organization_id=$1 AND id=$2
+			`, event.OrganizationID, runID, assignedUserID, assignmentChanged); err != nil {
+				return fmt.Errorf("complete deal owner assignment automation run: %w", err)
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
+				VALUES ($1,$2,'workflow_automation.executed','workflow_automation',$3,'Deal automation completed',
+				        jsonb_build_object('dealId',$4::bigint,'event',$5::text,'assignedOwnerUserId',$6::bigint,'assignmentChanged',$7::boolean))
+			`, event.OrganizationID, event.ActorUserID, rule.id, event.DealID, event.EventType, assignedUserID, assignmentChanged); err != nil {
+				return fmt.Errorf("audit deal owner assignment automation run: %w", err)
+			}
+			continue
+		}
 
 		taskActions := actions
 		var notificationAction *Action
@@ -283,34 +314,6 @@ func skipDealTaskRun(ctx context.Context, tx pgx.Tx, organizationID, runID int64
 	return nil
 }
 
-func dealTriggerType(eventType string) (string, error) {
-	switch eventType {
-	case DealEventCreated:
-		return "record_created", nil
-	case DealEventStageChanged:
-		return "stage_changed", nil
-	case DealEventArchived:
-		return "record_updated", nil
-	default:
-		return "", fmt.Errorf("unsupported deal task automation event %q", eventType)
-	}
-}
-
-func dealRuleMatchesEvent(config map[string]any, event DealTaskEvent) bool {
-	if event.EventType == DealEventArchived {
-		configured, _ := stringConfig(config, "event")
-		return configured == DealEventArchived
-	}
-	if event.EventType != DealEventStageChanged {
-		return true
-	}
-	value, exists := config["stageId"]
-	if !exists {
-		return true
-	}
-	return integerConfig(value) == event.StageID
-}
-
 func executableTaskActions(config map[string]any, actions []Action) bool {
 	if len(actions) == 0 || len(actions) > maxExecutableTasks {
 		return false
@@ -331,7 +334,7 @@ func executableTaskActions(config map[string]any, actions []Action) bool {
 }
 
 func executableDealActions(config map[string]any, actions []Action) bool {
-	return executableTaskActions(config, actions) || executableApprovalTaskActions(config, actions) || executableNotifyTaskActions(config, actions)
+	return executableTaskActions(config, actions) || executableApprovalTaskActions(config, actions) || executableNotifyTaskActions(config, actions) || executableDealOwnerAssignment(config, actions)
 }
 
 func executableNotifyTaskActions(config map[string]any, actions []Action) bool {

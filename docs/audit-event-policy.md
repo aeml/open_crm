@@ -61,7 +61,8 @@ counts/IDs. It excludes the idempotency key and request fingerprints, which
 remain digest-only in the approval ledger and are removed from portable export.
 
 The causal-loop review adds one focused producer for a retained run stopped by
-automation re-entry or the maximum causal depth. It commits with the skipped
+automation re-entry, the maximum causal depth, or the causal-tree fan-out
+ceiling. It commits with the skipped
 same-tenant run and records only automation/run/deal/action identifiers, finite
 depth, and one reviewed reason. It contains no notification body, recipient,
 customer value, trigger payload, or idempotency material.

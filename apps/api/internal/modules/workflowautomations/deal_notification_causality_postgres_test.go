@@ -194,6 +194,46 @@ func TestDealNotificationActionsAndCausalLoopGuardsAgainstPostgres(t *testing.T)
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM audit_events WHERE organization_id=$1 AND event_type='workflow_automation.loop_prevented'`, organizationID).Scan(&loopAudits); err != nil || loopAudits != 5 {
 		t.Fatalf("unexpected loop-prevention audit count: count=%d err=%v", loopAudits, err)
 	}
+	var causalTreeRuns int
+	if err := pool.QueryRow(ctx, `
+		WITH RECURSIVE descendants AS (
+		  SELECT id FROM workflow_automation_runs WHERE organization_id=$1 AND id=$2
+		  UNION
+		  SELECT child.id FROM workflow_automation_runs child
+		  JOIN descendants parent ON child.causation_run_id=parent.id
+		  WHERE child.organization_id=$1
+		)
+		SELECT COUNT(*)::int FROM descendants
+	`, organizationID, rootRun.ID).Scan(&causalTreeRuns); err != nil {
+		t.Fatalf("count causal tree before run-limit acceptance: %v", err)
+	}
+	if causalTreeRuns >= 50 {
+		t.Fatalf("causal tree unexpectedly reached the test boundary early: %d", causalTreeRuns)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO workflow_automation_runs(
+		  organization_id,automation_id,automation_name,trigger_type,target_entity_type,
+		  target_entity_id,trigger_event_key,status,actions_total,actions_completed,
+		  started_at,completed_at,causation_run_id,causation_action_position,causal_depth
+		)
+		SELECT $1,$2,'Tree budget evidence','record_created','deal',$3,
+		       'tree-budget-'||sequence::text,'skipped',0,0,NOW(),NOW(),$4,2,1
+		FROM generate_series(1,$5::int) sequence
+	`, organizationID, taskRule.ID, dealID, rootRun.ID, 50-causalTreeRuns); err != nil {
+		t.Fatalf("seed exact causal-tree run boundary: %v", err)
+	}
+	runLimitEvent := rootEvent
+	runLimitEvent.EventKey = "notify-run-limit"
+	runLimitEvent.Cause = &moduleworkflowautomations.WorkflowCausation{RunID: rootRun.ID, ActionPosition: 2}
+	executeWorkflowDealEvent(t, ctx, pool, runLimitEvent)
+	runLimitedTask := findWorkflowRun(t, ctx, service, organizationID, taskRule.ID, runLimitEvent.EventKey)
+	if runLimitedTask.Status != "skipped" || runLimitedTask.CausalDepth != 1 || runLimitedTask.TriggerPayload["skipReason"] != "Workflow causal run limit reached." || len(runLimitedTask.Actions) != 1 || runLimitedTask.Actions[0].Status != "skipped" {
+		t.Fatalf("causal tree run limit did not retain and block the next executable branch: %#v", runLimitedTask)
+	}
+	stats, err = service.OperationalStats(ctx)
+	if err != nil || stats.LoopsPrevented24h != 7 {
+		t.Fatalf("causal run-limit metrics were not retained: stats=%#v err=%v", stats, err)
+	}
 
 	for index := 0; index < 49; index++ {
 		userID := insertWorkflowNotificationUser(t, ctx, pool, fmt.Sprintf("extra-admin-%02d-%s@example.test", index, schema), "Extra")

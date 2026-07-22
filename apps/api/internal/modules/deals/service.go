@@ -736,13 +736,16 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 	if err := requireDealRelationships(ctx, tx, organizationID, input.CompanyID, input.PrimaryContactID); err != nil {
 		return Detail{}, err
 	}
-	var previousOwnerUserID int64
+	var previousOwnerUserID, currentStageID int64
+	var currentStageName string
 	if err := tx.QueryRow(ctx, `
-		SELECT COALESCE(owner_user_id,0)
-		FROM deals
-		WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL
-		FOR UPDATE
-	`, organizationID, dealID).Scan(&previousOwnerUserID); err != nil {
+		SELECT COALESCE(deal.owner_user_id,0),deal.stage_id,stage.name
+		FROM deals deal
+		JOIN deal_stages stage
+		  ON stage.organization_id=deal.organization_id AND stage.id=deal.stage_id
+		WHERE deal.organization_id=$1 AND deal.id=$2 AND deal.archived_at IS NULL
+		FOR UPDATE OF deal
+	`, organizationID, dealID).Scan(&previousOwnerUserID, &currentStageID, &currentStageName); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Detail{}, ErrNotFound
 		}
@@ -786,7 +789,8 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 		return Detail{}, ErrWonDealAccountRequired
 	}
 
-	if err := insertActivity(ctx, tx, organizationID, dealID, actorUserID, "deal.updated", "Deal updated"); err != nil {
+	activityID, err := insertActivityID(ctx, tx, organizationID, dealID, actorUserID, "deal.updated", "Deal updated")
+	if err != nil {
 		return Detail{}, fmt.Errorf("insert deal update activity: %w", err)
 	}
 	if err := handoffWonDeal(ctx, tx, organizationID, dealID, actorUserID); err != nil {
@@ -801,6 +805,13 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 			Version:        assignmentVersion,
 		}, actorUserID); err != nil {
 			return Detail{}, err
+		}
+		if err := moduleworkflowautomations.ExecuteDealTaskRules(ctx, tx, moduleworkflowautomations.DealTaskEvent{
+			OrganizationID: organizationID, ActorUserID: actorUserID, DealID: dealID, DealName: input.Name,
+			StageID: currentStageID, StageName: currentStageName, OwnerUserID: nextOwnerUserID,
+			EventType: moduleworkflowautomations.DealEventOwnerChanged, EventKey: fmt.Sprintf("deal:%d:activity:%d", dealID, activityID),
+		}); err != nil {
+			return Detail{}, fmt.Errorf("execute deal-owner task rules: %w", err)
 		}
 	}
 

@@ -57,7 +57,7 @@ func (s *Service) OperationalStats(ctx context.Context) (OperationalStats, error
 				OR (run.status IN ('queued','running') AND operation.status='dead')
 			),
 			COUNT(*) FILTER (WHERE run.status='skipped'),
-			COUNT(*) FILTER (WHERE run.status='skipped' AND run.trigger_payload_json->>'skipReason' IN ($1,$2))
+			COUNT(*) FILTER (WHERE run.status='skipped' AND run.trigger_payload_json->>'skipReason' IN ($1,$2,$3))
 		FROM workflow_automation_runs run
 		LEFT JOIN background_jobs operation
 		  ON operation.organization_id=run.organization_id
@@ -69,7 +69,7 @@ func (s *Service) OperationalStats(ctx context.Context) (OperationalStats, error
 			run.status IN ('queued','running') AND operation.status='dead'
 			AND operation.updated_at >= NOW()-INTERVAL '24 hours'
 		)
-	`, workflowReentryPrevented, workflowDepthLimitPrevented).Scan(&stats.FailedLast24h, &stats.SkippedLast24h, &stats.LoopsPrevented24h); err != nil {
+	`, workflowReentryPrevented, workflowDepthLimitPrevented, workflowRunLimitPrevented).Scan(&stats.FailedLast24h, &stats.SkippedLast24h, &stats.LoopsPrevented24h); err != nil {
 		return OperationalStats{}, fmt.Errorf("load workflow automation operational stats: %w", err)
 	}
 	if err := s.pool.QueryRow(ctx, `

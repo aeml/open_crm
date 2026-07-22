@@ -80,6 +80,7 @@ export async function decideWorkflowApproval(approvalId, input, idempotencyKey, 
 const runActionStatuses = new Set(['queued', 'running', 'succeeded', 'failed', 'skipped', 'cancelled'])
 
 function validRunAction(action) {
+	const assignmentSucceeded = action?.type === 'assign_owner' && action?.status === 'succeeded'
   return Number.isInteger(action?.id) && action.id > 0 &&
     Number.isInteger(action.position) && action.position > 0 &&
     typeof action.type === 'string' && action.type.length > 0 &&
@@ -89,6 +90,9 @@ function validRunAction(action) {
     typeof action.scheduledAt === 'string' && action.scheduledAt.length > 0 &&
     (!action.taskId || (Number.isInteger(action.taskId) && action.taskId > 0)) &&
     (!action.notificationCount || (action.type === 'notify' && Number.isInteger(action.notificationCount) && action.notificationCount > 0 && action.notificationCount <= 50)) &&
+		(!action.assignedUserId || (action.type === 'assign_owner' && Number.isInteger(action.assignedUserId) && action.assignedUserId > 0)) &&
+		(!assignmentSucceeded || (Number.isInteger(action.assignedUserId) && action.assignedUserId > 0 && typeof action.assignedUserName === 'string' && action.assignedUserName.length > 0 && typeof action.assignmentChanged === 'boolean')) &&
+		(!action.assignmentChanged || assignmentSucceeded) &&
     (!action.approval || validRunActionApproval(action.approval))
 }
 

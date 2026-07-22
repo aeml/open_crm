@@ -2,6 +2,28 @@ package workflowautomations
 
 import "testing"
 
+func TestExecutableDealOwnerAssignmentRequiresExactReviewedShape(t *testing.T) {
+	config := map[string]any{"actionPlanContract": DealAssignOwnerContract}
+	action := Action{Type: "assign_owner", Config: map[string]any{"userId": 17}}
+	if !executableDealOwnerAssignment(config, []Action{action}) {
+		t.Fatal("exact reviewed owner assignment should execute")
+	}
+	for _, actions := range [][]Action{
+		{{Type: "assign_owner", Config: map[string]any{"userId": 0}}},
+		{{Type: "assign_owner", Config: map[string]any{"userId": 17, "future": true}}},
+		{{Type: "assign_owner", Config: map[string]any{"userId": 17}, DelayMinutes: 1}},
+		{action, action},
+		{{Type: "update_field", Config: map[string]any{"field": "ownerUserId", "value": 17}}},
+	} {
+		if executableDealOwnerAssignment(config, actions) {
+			t.Fatalf("unreviewed owner-assignment shape became executable: %#v", actions)
+		}
+	}
+	if executableDealOwnerAssignment(map[string]any{"actionPlanContract": "future"}, []Action{action}) {
+		t.Fatal("unknown owner-assignment contract became executable")
+	}
+}
+
 func TestExecutableTaskActionsRequireReviewedContractForMultipleTasks(t *testing.T) {
 	action := Action{Type: "create_task", Config: map[string]any{"title": "Review deal"}, DelayMinutes: 1440}
 	if !executableTaskActions(map[string]any{}, []Action{action}) {

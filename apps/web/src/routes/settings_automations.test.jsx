@@ -82,7 +82,7 @@ describe('settings task automations route', () => {
 
     render(<AppRouter />)
 
-    expect(await screen.findByRole('heading', { name: /task automation rules/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /workflow automation rules/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Qualify new deals' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Legacy email action' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Unsupported multi-condition lead rule' })).not.toBeInTheDocument()
@@ -96,7 +96,7 @@ describe('settings task automations route', () => {
     const deactivateCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations/6') && call[1]?.method === 'PATCH')
     expect(JSON.parse(deactivateCall[1].body)).toEqual({ deactivateOnly: true })
     expect(screen.getByText(/3 of 50 active workflow actions allocated/i)).toBeInTheDocument()
-    const runList = screen.getByRole('list', { name: 'Task automation runs' })
+    const runList = screen.getByRole('list', { name: 'Workflow automation runs' })
     expect(runList).toHaveTextContent('1/1 actions completed')
     fireEvent.click(within(runList).getByText('Inspect 1 action outcome'))
     const actionList = screen.getByRole('list', { name: 'Qualify new deals run actions' })
@@ -115,7 +115,7 @@ describe('settings task automations route', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add another task' }))
     fireEvent.change(screen.getByLabelText('Task 2 title'), { target: { value: 'Schedule decision review' } })
     fireEvent.change(screen.getByLabelText('Task 2 due in days', { exact: false }), { target: { value: '5' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create task rule' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create workflow rule' }))
 
     await waitFor(() => {
       const createCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations') && call[1]?.method === 'POST')
@@ -179,8 +179,8 @@ describe('settings task automations route', () => {
 
     render(<AppRouter />)
 
-    await screen.findByRole('heading', { name: /task automation rules/i })
-    await screen.findByText('No executable task rules yet.')
+    await screen.findByRole('heading', { name: /workflow automation rules/i })
+    await screen.findByText('No executable workflow rules yet.')
     fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Partner lead follow-up' } })
     fireEvent.change(screen.getByLabelText('When'), { target: { value: 'lead_form_submitted' } })
     fireEvent.change(await screen.findByLabelText('Create task after days', { exact: false }), { target: { value: '2' } })
@@ -190,7 +190,7 @@ describe('settings task automations route', () => {
     fireEvent.change(screen.getByLabelText('Assign task to'), { target: { value: '7' } })
     fireEvent.change(screen.getByLabelText('Task title'), { target: { value: 'Call partner lead' } })
     fireEvent.change(screen.getByLabelText('Due in days', { exact: false }), { target: { value: '1' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create task rule' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create workflow rule' }))
 
     await waitFor(() => {
       const createCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations') && call[1]?.method === 'POST')
@@ -297,7 +297,7 @@ describe('settings task automations route', () => {
     fireEvent.change(screen.getByLabelText('Who can approve'), { target: { value: 'record_owner' } })
     fireEvent.change(screen.getByLabelText('Reviewer guidance'), { target: { value: 'Verify renewal scope.' } })
     fireEvent.change(screen.getByLabelText('Task title'), { target: { value: 'Prepare renewal' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create task rule' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create workflow rule' }))
 
     await waitFor(() => {
       const createCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations') && call[1]?.method === 'POST')
@@ -381,7 +381,7 @@ describe('settings task automations route', () => {
 
     render(<AppRouter />)
 
-    const runList = await screen.findByRole('list', { name: 'Task automation runs' })
+    const runList = await screen.findByRole('list', { name: 'Workflow automation runs' })
     expect(runList).toHaveTextContent('Nested depth 1 · caused by run #81, action 2.')
     expect(runList).toHaveTextContent('Loop guard: Automation re-entry prevented.')
     expect(runList).toHaveTextContent('Delivered to 2 eligible teammates.')
@@ -391,7 +391,7 @@ describe('settings task automations route', () => {
     fireEvent.click(screen.getByLabelText(/notify eligible teammates after every task commits/i))
     fireEvent.change(screen.getByLabelText('Notify'), { target: { value: 'admin' } })
     fireEvent.change(screen.getByLabelText('Notification message'), { target: { value: 'Proposal preparation has started.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create task rule' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create workflow rule' }))
 
     await waitFor(() => {
       const createCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations') && call[1]?.method === 'POST')
@@ -414,6 +414,119 @@ describe('settings task automations route', () => {
     expect(await screen.findByRole('heading', { name: 'Notify proposal team' })).toBeInTheDocument()
     expect(screen.getByText(/then notifies eligible teammates in the same transaction/i)).toBeInTheDocument()
     expect(screen.getByText(/notification: workspace owners and admins/i)).toBeInTheDocument()
+  })
+
+  it('authors an exact deal-owner assignment and inspects changed, no-op, and causal-limit evidence', async () => {
+    const existingRule = {
+      id: 37,
+      name: 'Route changed deals',
+      triggerType: 'record_updated',
+      targetEntityType: 'deal',
+      triggerConfig: { event: 'owner_changed', actionPlanContract: 'deal_assign_owner_v1' },
+      conditionLogic: 'all',
+      conditions: [],
+      actions: [{ type: 'assign_owner', config: { userId: 8 } }],
+      isActive: true,
+      position: 0
+    }
+    const createdRule = {
+      ...existingRule,
+      id: 38,
+      name: 'Assign created deals',
+      triggerType: 'record_created',
+      conditions: [{ field: 'status', operator: 'equals', value: 'open' }],
+      triggerConfig: { actionPlanContract: 'deal_assign_owner_v1', conditionContract: 'deal_snapshot_v1' }
+    }
+    let storedDefinitions = [existingRule]
+    const runs = [
+      {
+        id: 101, automationId: 37, automationName: existingRule.name, triggerEventKey: 'deal:4:owner-root',
+        status: 'succeeded', causalDepth: 0, actionsTotal: 1, actionsCompleted: 1,
+        createdAt: '2026-07-22T21:00:00Z', triggerPayload: {}, actions: [
+          { id: 111, position: 1, type: 'assign_owner', label: 'Assign deal owner', status: 'succeeded', attempts: 1, scheduledAt: '2026-07-22T21:00:00Z', assignedUserId: 8, assignedUserName: 'Riley Chen', assignmentChanged: true, lastError: '' }
+        ]
+      },
+      {
+        id: 102, automationId: 37, automationName: existingRule.name, triggerEventKey: 'deal:4:owner-noop',
+        status: 'succeeded', causalDepth: 0, actionsTotal: 1, actionsCompleted: 1,
+        createdAt: '2026-07-22T21:01:00Z', triggerPayload: {}, actions: [
+          { id: 112, position: 1, type: 'assign_owner', label: 'Assign deal owner', status: 'succeeded', attempts: 1, scheduledAt: '2026-07-22T21:01:00Z', assignedUserId: 8, assignedUserName: 'Riley Chen', assignmentChanged: false, lastError: '' }
+        ]
+      },
+      {
+        id: 103, automationId: 37, automationName: existingRule.name, triggerEventKey: 'deal:4:owner-limit',
+        causationRunId: 101, causationActionPosition: 1, causalDepth: 1, status: 'skipped',
+        actionsTotal: 1, actionsCompleted: 0, createdAt: '2026-07-22T21:02:00Z',
+        triggerPayload: { skipReason: 'Workflow causal run limit reached.' }, actions: [
+          { id: 113, position: 1, type: 'assign_owner', label: 'Assign deal owner', status: 'skipped', attempts: 0, scheduledAt: '2026-07-22T21:02:00Z', lastError: 'Workflow causal run limit reached.' }
+        ]
+      }
+    ]
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const path = requestURL.pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [] } })
+      if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [
+        { id: 7, firstName: 'Ari', lastName: 'Owner', email: 'ari@example.test', status: 'active' },
+        { id: 8, firstName: 'Riley', lastName: 'Chen', email: 'riley@example.test', status: 'active' }
+      ] } })
+      if (path.endsWith('/api/workflow-approvals')) return jsonResponse({ data: { approvals: [] } })
+      if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs } })
+      if (path.endsWith('/api/workflow-automations') && method === 'POST') {
+        storedDefinitions = [createdRule, ...storedDefinitions]
+        return jsonResponse({ data: { automation: createdRule } }, 201)
+      }
+      if (path.endsWith('/api/workflow-automations')) return workflowPage(storedDefinitions)
+      throw new Error(`Unexpected fetch: ${method} ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/automations')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText('After every direct deal owner change')).toBeInTheDocument()
+    expect(screen.getByText('Assign deal to Riley Chen.')).toBeInTheDocument()
+    const runList = screen.getByRole('list', { name: 'Workflow automation runs' })
+    const changedRun = within(runList).getByText('deal:4:owner-root').closest('article')
+    fireEvent.click(within(changedRun).getByText('Inspect 1 action outcome'))
+    expect(within(changedRun).getByText('Assigned to Riley Chen.')).toBeInTheDocument()
+    const noOpRun = within(runList).getByText('deal:4:owner-noop').closest('article')
+    fireEvent.click(within(noOpRun).getByText('Inspect 1 action outcome'))
+    expect(within(noOpRun).getByText('Already assigned to Riley Chen; no record change was needed.')).toBeInTheDocument()
+    expect(runList).toHaveTextContent('Loop guard: Workflow causal run limit reached.')
+
+    fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Assign created deals' } })
+    fireEvent.change(screen.getByLabelText('Outcome'), { target: { value: 'assign_owner' } })
+		fireEvent.change(screen.getByLabelText('When'), { target: { value: 'owner_changed' } })
+		fireEvent.change(screen.getByLabelText('Outcome'), { target: { value: 'tasks' } })
+		expect(screen.getByLabelText('When')).toHaveValue('created')
+		fireEvent.change(screen.getByLabelText('Outcome'), { target: { value: 'assign_owner' } })
+    fireEvent.change(screen.getByLabelText('Optional deal condition'), { target: { value: 'status' } })
+    fireEvent.change(screen.getByLabelText('Deal condition value'), { target: { value: 'open' } })
+    fireEvent.change(screen.getByLabelText('Assign deal owner to'), { target: { value: '8' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create workflow rule' }))
+
+    await waitFor(() => {
+      const createCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations') && call[1]?.method === 'POST')
+      expect(JSON.parse(createCall[1].body)).toEqual({
+        name: 'Assign created deals',
+        description: 'Assigns the deal to one active teammate and emits one causally bounded owner-change event.',
+        triggerType: 'record_created',
+        targetEntityType: 'deal',
+        triggerConfig: { conditionContract: 'deal_snapshot_v1', actionPlanContract: 'deal_assign_owner_v1' },
+        conditionLogic: 'all',
+        conditions: [{ field: 'status', operator: 'equals', value: 'open' }],
+        actions: [{ type: 'assign_owner', config: { userId: 8 } }],
+        isActive: true,
+        position: 0
+      })
+    })
+    expect(await screen.findByRole('heading', { name: 'Assign created deals' })).toBeInTheDocument()
+    expect(screen.getAllByText('Assign deal to Riley Chen.')).toHaveLength(2)
   })
 
   it('loads stored definition row 51 with exact continuation metadata', async () => {

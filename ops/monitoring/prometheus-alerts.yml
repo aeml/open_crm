@@ -454,7 +454,7 @@ groups:
           severity: warning
         annotations:
           summary: A nested workflow was stopped by the loop guard
-          description: Inspect causal run evidence before changing the rule; do not bypass the re-entry or depth boundary.
+          description: Inspect causal run evidence before changing the rule; do not bypass the re-entry, depth, or causal-tree fan-out boundary.
           runbook: docs/operations-runbook.md#deal-task-automation-and-recovery
 
       - alert: OpenCRMBackupStatusUnavailable

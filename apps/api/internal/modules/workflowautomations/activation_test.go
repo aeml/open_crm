@@ -51,6 +51,22 @@ func TestValidateExecutableActivationAcceptsReviewedTaskContracts(t *testing.T) 
 	if err := validateExecutableActivation(notificationDeal); err != nil {
 		t.Fatalf("expected reviewed notification task contract to activate: %v", err)
 	}
+	assignmentDeal := normalizeInput(Input{
+		Name:             "Route new opportunities",
+		TriggerType:      "record_created",
+		TargetEntityType: "deal",
+		TriggerConfig:    map[string]any{"actionPlanContract": DealAssignOwnerContract},
+		ConditionLogic:   "all",
+		Actions:          []Action{{Type: "assign_owner", Config: map[string]any{"userId": 17}}},
+	})
+	if err := validateExecutableActivation(assignmentDeal); err != nil {
+		t.Fatalf("expected reviewed deal-owner assignment contract to activate: %v", err)
+	}
+	assignmentDeal.TriggerType = "record_updated"
+	assignmentDeal.TriggerConfig["event"] = DealEventOwnerChanged
+	if err := validateExecutableActivation(assignmentDeal); err != nil {
+		t.Fatalf("expected reviewed owner-change assignment contract to activate: %v", err)
+	}
 
 	lead := normalizeInput(Input{
 		Name:             "Lead follow-up",
@@ -104,8 +120,23 @@ func TestValidateExecutableActivationRejectsStoredFoundations(t *testing.T) {
 		Name: "Email", TriggerType: "record_created", TargetEntityType: "contact",
 		Actions: []Action{{Type: "send_email", Config: map[string]any{"subject": "Hello", "body": "World"}}},
 	}
+	assignmentWithTaskContract := normalizeInput(Input{
+		Name: "Mixed assignment", TriggerType: "record_created", TargetEntityType: "deal",
+		TriggerConfig: map[string]any{"actionPlanContract": DealAssignOwnerContract, "taskPlanContract": DealTaskPlanContract},
+		Actions:       []Action{{Type: "assign_owner", Config: map[string]any{"userId": 7}}},
+	})
+	assignmentWithExtraConfig := normalizeInput(Input{
+		Name: "Expanded assignment", TriggerType: "record_created", TargetEntityType: "deal",
+		TriggerConfig: map[string]any{"actionPlanContract": DealAssignOwnerContract},
+		Actions:       []Action{{Type: "assign_owner", Config: map[string]any{"userId": 7, "future": true}}},
+	})
+	assignmentOnGenericUpdate := normalizeInput(Input{
+		Name: "Generic assignment", TriggerType: "record_updated", TargetEntityType: "deal",
+		TriggerConfig: map[string]any{"actionPlanContract": DealAssignOwnerContract, "event": "updated"},
+		Actions:       []Action{{Type: "assign_owner", Config: map[string]any{"userId": 7}}},
+	})
 
-	for _, input := range []Input{withoutDealContract, dealExtraConfig, withoutLeadContract, withoutLeadDueContract, unsupportedAction} {
+	for _, input := range []Input{withoutDealContract, dealExtraConfig, withoutLeadContract, withoutLeadDueContract, unsupportedAction, assignmentWithTaskContract, assignmentWithExtraConfig, assignmentOnGenericUpdate} {
 		input = normalizeInput(input)
 		if err := validateExecutableActivation(input); !errors.Is(err, ErrNotExecutable) {
 			t.Fatalf("expected stored foundation to fail executable activation: input=%#v err=%v", input, err)

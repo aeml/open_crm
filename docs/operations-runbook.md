@@ -1078,9 +1078,12 @@ bytes, tokens, or counters with ad hoc SQL.
    value amount greater/less than or set, currency equal/not-equal/set, owner
    equal/not-equal/set, or status equal/not-equal to open, won, or lost. An
    unassigned deal does not satisfy **owner is set**.
+   A rule can instead assign one exact active teammate after deal creation, a
+   real stage change, or a direct owner edit. Assignment cannot be combined
+   with tasks, approval, notification, or archive triggers.
    Other stored workflow definitions are deliberately hidden and do not gain
    partial execution merely because their schema exists.
-2. Deal event, every task/activity/notification, one run record, one immutable
+2. Deal event, every task/activity/notification/owner change, one run record, one immutable
    ordered action-outcome row per effect, and one audit event commit together. A failure
    rolls back the entire playbook. A timed-out direct
    request can be retried normally; a repeated same-stage move is a no-op, and
@@ -1143,18 +1146,32 @@ bytes, tokens, or counters with ad hoc SQL.
    per-run/action idempotency key, so retry cannot duplicate recipients. Use
    normal notification/deal navigation to inspect the message and target; do
    not repair a partial-looking client timeout with direct SQL.
-7. Root events show no causal parent. Any future action that emits another
+7. A `deal_assign_owner_v1` rule locks the deal and target membership inside
+   the source transaction. A real change increments the ordinary assignment
+   generation, sends the normal preference-aware `deal.assigned` notification,
+   records `workflow.owner_assigned`, and emits one nested `owner_changed`
+   event whose parent is the successful assignment action. Assigning the
+   current owner succeeds as an explicit no-op without a new activity,
+   notification, generation, or nested event. The run outcome displays the
+   exact teammate and whether the record changed. Replay is harmless. An
+   inactive or foreign target, notification failure, or downstream nested
+   failure rolls back the entire source event; repair the definition or
+   membership through normal controls and retry the original user action.
+   Never patch owner/action/causal evidence directly in SQL.
+8. Root events show no causal parent. Any action that emits another
    workflow event must identify its exact successful same-tenant run/action.
    Nested runs retain that parent and causal depth. The same automation cannot
-   appear twice in one ancestor chain, and depth 9 is retained as a skipped run
-   rather than executed. **Automation re-entry prevented.** and **Workflow
-   causal depth limit reached.** are safety outcomes, not retryable failures.
+   appear twice in one ancestor chain, depth 9 is retained as a skipped run,
+   and after 50 existing runs in one causal tree each additional matching
+   branch is retained without execution. **Automation re-entry prevented.**,
+   **Workflow causal depth limit reached.**, and **Workflow causal run limit
+   reached.** are safety outcomes, not retryable failures.
    Monitor `open_crm_workflow_loops_prevented_24h` and
    `OpenCRMWorkflowLoopPrevented`; inspect the displayed parent run/action and
    `workflow_automation.loop_prevented` audit before changing the rule. Never
-   bypass the guard or rewrite causal columns. The current notification action
-   is intentionally non-recursive and does not emit a workflow event.
-8. To stop future work, deactivate the rule. Deactivation does not remove tasks
+   bypass the guard or rewrite causal columns. The notification action remains
+   intentionally non-recursive and does not emit a workflow event.
+9. To stop future work, deactivate the rule. Deactivation does not remove tasks
    already created; edit, complete, archive, or reassign those through normal
    task controls so the operational history remains honest. Restoring a directly
    or bulk-archived deal likewise does not delete its archive follow-up task.

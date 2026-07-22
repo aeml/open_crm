@@ -211,6 +211,8 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"workflow_action_outcomes_last_error_check",
 		"workflow_action_outcomes_terminal_completed_check",
 		"workflow_action_outcomes_notification_count_check",
+		"workflow_action_outcomes_assignment_shape_check",
+		"workflow_action_outcomes_assigned_membership_fk",
 		"custom_report_definitions_name_check",
 		"custom_report_definitions_source_type_check",
 		"custom_report_definitions_columns_json_array_check",

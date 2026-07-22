@@ -9,8 +9,10 @@ import (
 
 const (
 	maxWorkflowCausalDepth      = 8
+	maxWorkflowCausalTreeRuns   = 50
 	workflowReentryPrevented    = "Automation re-entry prevented."
 	workflowDepthLimitPrevented = "Workflow causal depth limit reached."
+	workflowRunLimitPrevented   = "Workflow causal run limit reached."
 )
 
 // WorkflowCausation identifies the exact successful action that emitted a
@@ -96,6 +98,48 @@ func workflowLoopPreventionReason(ctx context.Context, tx pgx.Tx, organizationID
 	}
 	if repeated {
 		return workflowReentryPrevented, nil
+	}
+	var rootRunID int64
+	if err := tx.QueryRow(ctx, `
+		WITH RECURSIVE ancestors AS (
+			SELECT id,causation_run_id
+			FROM workflow_automation_runs
+			WHERE organization_id=$1 AND id=$2
+			UNION
+			SELECT parent.id,parent.causation_run_id
+			FROM workflow_automation_runs parent
+			JOIN ancestors child ON child.causation_run_id=parent.id
+			WHERE parent.organization_id=$1
+		)
+		SELECT id FROM ancestors WHERE causation_run_id IS NULL LIMIT 1
+	`, organizationID, cause.runID).Scan(&rootRunID); err != nil {
+		return "", fmt.Errorf("resolve workflow causal root: %w", err)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT id FROM workflow_automation_runs
+		WHERE organization_id=$1 AND id=$2
+		FOR UPDATE
+	`, organizationID, rootRunID).Scan(&rootRunID); err != nil {
+		return "", fmt.Errorf("lock workflow causal root: %w", err)
+	}
+	var treeRuns int
+	if err := tx.QueryRow(ctx, `
+		WITH RECURSIVE descendants AS (
+			SELECT id
+			FROM workflow_automation_runs
+			WHERE organization_id=$1 AND id=$2
+			UNION
+			SELECT child.id
+			FROM workflow_automation_runs child
+			JOIN descendants parent ON child.causation_run_id=parent.id
+			WHERE child.organization_id=$1
+		)
+		SELECT COUNT(*)::int FROM descendants
+	`, organizationID, rootRunID).Scan(&treeRuns); err != nil {
+		return "", fmt.Errorf("count workflow causal tree: %w", err)
+	}
+	if treeRuns >= maxWorkflowCausalTreeRuns {
+		return workflowRunLimitPrevented, nil
 	}
 	return "", nil
 }

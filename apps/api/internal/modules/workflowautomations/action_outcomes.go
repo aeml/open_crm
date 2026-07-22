@@ -26,8 +26,41 @@ type RunAction struct {
 	TaskID            int64              `json:"taskId,omitempty"`
 	TaskDueAt         string             `json:"taskDueAt,omitempty"`
 	NotificationCount int                `json:"notificationCount,omitempty"`
+	AssignedUserID    int64              `json:"assignedUserId,omitempty"`
+	AssignedUserName  string             `json:"assignedUserName,omitempty"`
+	AssignmentChanged bool               `json:"assignmentChanged"`
 	LastError         string             `json:"lastError"`
 	Approval          *RunActionApproval `json:"approval,omitempty"`
+}
+
+func recordAssignmentActionOutcome(
+	ctx context.Context,
+	tx pgx.Tx,
+	organizationID, runID int64,
+	action Action,
+	assignedUserID int64,
+	changed bool,
+) error {
+	if assignedUserID <= 0 {
+		return ErrInvalidInput
+	}
+	if err := recordActionOutcome(ctx, tx, organizationID, runID, 1, action, "running", 1, nil, 0, nil, ""); err != nil {
+		return err
+	}
+	command, err := tx.Exec(ctx, `
+		UPDATE workflow_automation_action_outcomes
+		SET status='succeeded',assigned_user_id=$4,assignment_changed=$5,
+		    completed_at=NOW(),updated_at=NOW()
+		WHERE organization_id=$1 AND run_id=$2 AND action_position=$3
+		  AND action_type='assign_owner' AND status='running'
+	`, organizationID, runID, 1, assignedUserID, changed)
+	if err != nil {
+		return fmt.Errorf("record workflow owner assignment outcome: %w", err)
+	}
+	if command.RowsAffected() != 1 {
+		return ErrInvalidInput
+	}
+	return nil
 }
 
 func recordNotificationActionOutcome(
@@ -172,6 +205,8 @@ func actionOutcomeLabel(action Action) string {
 			role = "teammates"
 		}
 		label = "Notify " + role
+	case "assign_owner":
+		label = "Assign deal owner"
 	default:
 		label = strings.TrimSpace(stringValue(action.Config["title"]))
 		if label == "" {
@@ -200,7 +235,10 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 		       COALESCE(TO_CHAR(outcome.completed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
 		       COALESCE(task.id,0),
 		       COALESCE(TO_CHAR(task.due_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
-		       outcome.notification_count,outcome.last_error,
+		       outcome.notification_count,COALESCE(outcome.assigned_user_id,0),
+		       CASE WHEN assigned_membership.user_id IS NULL THEN ''
+		            ELSE trim(CONCAT(assigned_user.first_name,' ',assigned_user.last_name)) END,
+		       outcome.assignment_changed,outcome.last_error,
 		       COALESCE(approval.id,0),COALESCE(approval.status,''),COALESCE(approval.approver_role,''),
 		       COALESCE(approval.message,''),COALESCE(approval.requested_by_user_id,0),
 		       COALESCE(TO_CHAR(approval.requested_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
@@ -213,6 +251,10 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 		LEFT JOIN workflow_automation_approvals approval
 		  ON approval.organization_id=outcome.organization_id AND approval.run_id=outcome.run_id
 		 AND approval.action_position=outcome.action_position
+		LEFT JOIN organization_memberships assigned_membership
+		  ON assigned_membership.organization_id=outcome.organization_id
+		 AND assigned_membership.user_id=outcome.assigned_user_id
+		LEFT JOIN users assigned_user ON assigned_user.id=assigned_membership.user_id
 		WHERE outcome.organization_id=$1 AND outcome.run_id=ANY($2::bigint[])
 		ORDER BY outcome.run_id,outcome.action_position
 	`, organizationID, runIDs)
@@ -238,6 +280,9 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 			&action.TaskID,
 			&action.TaskDueAt,
 			&action.NotificationCount,
+			&action.AssignedUserID,
+			&action.AssignedUserName,
+			&action.AssignmentChanged,
 			&action.LastError,
 			&approval.ID,
 			&approval.Status,

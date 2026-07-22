@@ -27,11 +27,13 @@ import {
   existsOperator,
   formFromAutomation,
   isApprovalTaskRule,
+	isDealOwnerAssignmentRule,
   isExecutableTaskRule,
   isNotificationTaskRule,
   leadFormEvent,
   maxActiveWorkflowActions,
   maxDealPlanTasks,
+	ownerChangedEvent,
   payloadFromForm,
   stageChangedEvent,
   taskTimingSummary,
@@ -90,7 +92,7 @@ export function SettingsAutomationsRoute() {
       setUsers(nextUsers)
       setError('')
     } catch (loadError) {
-      if (!isAbortError(loadError) && loadVersion.current === version) setError(loadError.message || 'Unable to load task automation rules.')
+      if (!isAbortError(loadError) && loadVersion.current === version) setError(loadError.message || 'Unable to load workflow automation rules.')
     } finally {
       if (!signal?.aborted && loadVersion.current === version) setIsLoading(false)
     }
@@ -110,7 +112,7 @@ export function SettingsAutomationsRoute() {
       try {
         setRuns(await listWorkflowAutomationRuns({ limit: 25, signal: controller.signal }))
       } catch (pollError) {
-        if (!isAbortError(pollError)) setError(pollError.message || 'Unable to refresh task automation runs.')
+        if (!isAbortError(pollError)) setError(pollError.message || 'Unable to refresh workflow automation runs.')
       }
     }, refreshDelay)
     return () => {
@@ -214,20 +216,20 @@ export function SettingsAutomationsRoute() {
       if (editingId) {
         const previous = automations.find((automation) => automation.id === editingId)
         const updated = await updateWorkflowAutomation(editingId, payload)
-        if (!updated || updated.id !== editingId) throw new Error('The server returned a different task automation rule. Refresh before retrying.')
+        if (!updated || updated.id !== editingId) throw new Error('The server returned a different workflow automation rule. Refresh before retrying.')
         setAutomations((current) => current.map((automation) => (automation.id === editingId ? updated : automation)))
         setDefinitionMeta((current) => ({ ...current, activeActionCount: Math.max(0, current.activeActionCount - activeActionSize(previous) + activeActionSize(updated)) }))
-        await refreshDefinitionsAfterMutation('Task automation rule updated.')
+        await refreshDefinitionsAfterMutation('Workflow automation rule updated.')
       } else {
         const created = await createWorkflowAutomation(payload)
-        if (!created || !Number.isInteger(created.id) || created.id <= 0) throw new Error('The server did not return the created task automation rule. Refresh before retrying.')
+        if (!created || !Number.isInteger(created.id) || created.id <= 0) throw new Error('The server did not return the created workflow automation rule. Refresh before retrying.')
         setAutomations((current) => [created, ...current])
         setDefinitionMeta((current) => ({ ...current, total: current.total + 1, activeActionCount: current.activeActionCount + activeActionSize(created) }))
-        await refreshDefinitionsAfterMutation('Task automation rule created.')
+        await refreshDefinitionsAfterMutation('Workflow automation rule created.')
       }
       resetForm()
     } catch (saveError) {
-      setError(saveError.message || 'Unable to save task automation rule.')
+      setError(saveError.message || 'Unable to save workflow automation rule.')
     } finally {
       mutationPending.current = false
       setIsSaving(false)
@@ -287,6 +289,10 @@ export function SettingsAutomationsRoute() {
   const dealConditionChoices = form.conditionField === 'ownerUserId'
     ? users.filter((user) => user.status === 'active').map((user) => [user.id, usersById.get(user.id)])
     : form.conditionField === 'status' ? [['open', 'Open'], ['won', 'Won'], ['lost', 'Lost']] : null
+	const assignmentOutcome = form.outcome === 'assign_owner'
+	const visibleTriggerOptions = triggerOptions.filter((option) => assignmentOutcome
+		? !['archived', leadFormEvent].includes(option.value)
+		: option.value !== ownerChangedEvent)
 
   return (
     <section className="dashboard-grid settings-grid">
@@ -294,13 +300,13 @@ export function SettingsAutomationsRoute() {
         <div className="card-stack">
           <div>
             <p className="eyebrow">Follow-up operations</p>
-            <h2>Task automation rules</h2>
-            <p>Create replay-safe tasks after deal events or lead forms; lead work runs durably from retained evidence.</p>
+							<h2>Workflow automation rules</h2>
+							<p>Create replay-safe tasks or route deal ownership after reviewed events; lead work runs durably from retained evidence.</p>
           </div>
-          {isLoading ? <p className="field-hint">Loading task automation rules...</p> : null}
+          {isLoading ? <p className="field-hint">Loading workflow automation rules...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
-          {error ? <InlineError message={error} onRetry={() => loadAutomations()} retryLabel="Retry task automations" /> : null}
-          <p className="field-hint">{activeActionCount} of {maxActiveWorkflowActions} active workflow actions allocated. Each task, approval gate, and teammate notification uses one slot.</p>
+          {error ? <InlineError message={error} onRetry={() => loadAutomations()} retryLabel="Retry workflow automations" /> : null}
+					<p className="field-hint">{activeActionCount} of {maxActiveWorkflowActions} active workflow actions allocated. Each task, approval gate, teammate notification, and owner assignment uses one slot.</p>
           <p className="field-hint">Showing {automations.length} of {definitionMeta.total} stored definitions.</p>
           {hiddenDefinitions > 0 ? <p className="field-hint">{hiddenDefinitions} unsupported loaded {hiddenDefinitions === 1 ? 'definition' : 'definitions'} hidden.</p> : null}
           {unsupportedActiveDefinitions.length > 0 ? (
@@ -314,28 +320,31 @@ export function SettingsAutomationsRoute() {
               ))}
             </div>
           ) : null}
-          <div className="record-list" role="list" aria-label="Task automation rules">
+					<div className="record-list" role="list" aria-label="Workflow automation rules">
             {!isLoading && executableRules.length === 0 ? (
-              <article className="record-row" role="listitem"><p>No executable task rules yet.</p></article>
+              <article className="record-row" role="listitem"><p>No executable workflow rules yet.</p></article>
             ) : executableRules.map((automation) => {
               const leadFollowUp = eventFromAutomation(automation) === leadFormEvent
               const approvalPlan = isApprovalTaskRule(automation)
               const notificationPlan = isNotificationTaskRule(automation)
+								const assignmentPlan = isDealOwnerAssignmentRule(automation)
               const taskActions = taskActionsForAutomation(automation)
               const approvalAction = approvalPlan ? automation.actions[0] : null
               const notificationAction = notificationPlan ? automation.actions.at(-1) : null
+								const assignmentAction = assignmentPlan ? automation.actions[0] : null
               return (
                 <article className={automation.isActive ? 'record-row' : 'record-row record-row-alert'} key={automation.id} role="listitem">
                   <div>
                     <h3>{automation.name}</h3>
                     <p>{triggerSummary(automation, stagesById, formsById)}</p>
                     {automation.targetEntityType === 'deal' && automation.conditions?.length ? <p className="field-hint">{conditionSummary(automation, usersById)}</p> : null}
-                    <p className="field-hint">{leadFollowUp ? 'One durable task from retained submission evidence.' : approvalPlan ? `${taskActions.length}-task playbook · waits for a retained human decision.` : notificationPlan ? `${taskActions.length}-task playbook · then notifies eligible teammates in the same transaction.` : `${taskActions.length}-task playbook · all tasks commit with the deal event.`}</p>
+										<p className="field-hint">{leadFollowUp ? 'One durable task from retained submission evidence.' : assignmentPlan ? 'One transactional owner assignment · nested owner-change rules are causally bounded.' : approvalPlan ? `${taskActions.length}-task playbook · waits for a retained human decision.` : notificationPlan ? `${taskActions.length}-task playbook · then notifies eligible teammates in the same transaction.` : `${taskActions.length}-task playbook · all tasks commit with the deal event.`}</p>
                     {approvalAction ? <p className="field-hint">Approval: {approvalAction.config.approvalName} · {approvalRoleOptions.find((option) => option.value === approvalAction.config.approverRole)?.label}</p> : null}
                     {notificationAction ? <p className="field-hint">Notification: {approvalRoleOptions.find((option) => option.value === notificationAction.config.recipientRole)?.label} · “{notificationAction.config.message}”</p> : null}
-                    <ol className="field-hint" aria-label={`${automation.name} task plan`}>
+											{assignmentAction ? <p className="field-hint">Assign deal to {usersById.get(Number(assignmentAction.config.userId)) || 'unavailable teammate'}.</p> : null}
+											{taskActions.length ? <ol className="field-hint" aria-label={`${automation.name} task plan`}>
                       {taskActions.map((action, index) => <li key={`${index}-${action.config.title}`}>Create “{action.config.title}” · {taskTimingSummary(action, leadFollowUp)}{leadFollowUp ? ` · assign to ${usersById.get(Number(action.config.assignedToUserId)) || 'unavailable teammate'}` : ''}</li>)}
-                    </ol>
+											</ol> : null}
                   </div>
                   <div><span className="chip">{automation.isActive ? 'Active' : 'Inactive'}</span>{canManage ? <Button className="button-secondary" type="button" onClick={() => startEdit(automation)}>Edit</Button> : null}</div>
                 </article>
@@ -351,16 +360,26 @@ export function SettingsAutomationsRoute() {
       {canManage ? (
         <Card>
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
-            <div><h2>{editingId ? 'Edit task rule' : 'New task rule'}</h2><p className="field-hint">A deal event can create an ordered 1–5 task playbook immediately, after a human approval, or with one bounded teammate notification. Lead forms create one durable task.</p></div>
+							<div><h2>{editingId ? 'Edit workflow rule' : 'New workflow rule'}</h2><p className="field-hint">A deal event can create an ordered 1–5 task playbook or assign one active owner. Lead forms create one durable task.</p></div>
             <Field label="Rule name"><input className="text-input" maxLength="120" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Proposal follow-up" /></Field>
             <Field label="When"><select className="text-input" value={form.event} onChange={(event) => {
               const nextEvent = event.target.value
-              setForm((current) => ({ ...current, event: nextEvent, stageId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '', additionalTasks: nextEvent === leadFormEvent ? [] : current.additionalTasks, requiresApproval: nextEvent === leadFormEvent ? false : current.requiresApproval, notifyAfterTasks: nextEvent === leadFormEvent ? false : current.notifyAfterTasks }))
-            }}>{triggerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+								setForm((current) => ({ ...current, event: nextEvent, outcome: nextEvent === leadFormEvent ? 'tasks' : current.outcome, stageId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '', additionalTasks: nextEvent === leadFormEvent ? [] : current.additionalTasks, requiresApproval: nextEvent === leadFormEvent ? false : current.requiresApproval, notifyAfterTasks: nextEvent === leadFormEvent ? false : current.notifyAfterTasks }))
+							}}>{visibleTriggerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+							{form.event !== leadFormEvent ? <Field label="Outcome"><select className="text-input" value={form.outcome} onChange={(event) => {
+								const outcome = event.target.value
+								setForm((current) => ({
+									...current,
+									outcome,
+									event: (outcome === 'assign_owner' && current.event === 'archived') || (outcome === 'tasks' && current.event === ownerChangedEvent) ? 'created' : current.event,
+									requiresApproval: outcome === 'assign_owner' ? false : current.requiresApproval,
+									notifyAfterTasks: outcome === 'assign_owner' ? false : current.notifyAfterTasks
+								}))
+							}}><option value="tasks">Create follow-up tasks</option><option value="assign_owner">Assign deal owner</option></select></Field> : null}
             {form.event === stageChangedEvent ? (
               <Field label="Destination stage" hint="Choose any stage to run after every real stage change."><select className="text-input" value={form.stageId} onChange={(event) => setForm({ ...form, stageId: event.target.value })}><option value="">Any stage</option>{stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.pipelineName} · {stage.name}</option>)}</select></Field>
             ) : null}
-            {form.event !== leadFormEvent ? (
+							{form.event !== leadFormEvent ? (
               <>
                 <Field label="Optional deal condition"><select className="text-input" value={form.conditionField} onChange={(event) => {
                   const field = event.target.value
@@ -380,7 +399,7 @@ export function SettingsAutomationsRoute() {
                 ) : null}
               </>
             ) : null}
-            {form.event !== leadFormEvent ? (
+							{form.event !== leadFormEvent && !assignmentOutcome ? (
               <fieldset className="card-stack">
                 <legend>Human approval gate</legend>
                 <label className="field-hint"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked, notifyAfterTasks: event.target.checked ? false : form.notifyAfterTasks })} /> Require a decision before creating any tasks</label>
@@ -394,7 +413,7 @@ export function SettingsAutomationsRoute() {
                 ) : null}
               </fieldset>
             ) : null}
-            {form.event !== leadFormEvent ? (
+							{form.event !== leadFormEvent && !assignmentOutcome ? (
               <fieldset className="card-stack">
                 <legend>Teammate notification</legend>
                 <label className="field-hint"><input type="checkbox" checked={form.notifyAfterTasks} onChange={(event) => setForm({ ...form, notifyAfterTasks: event.target.checked, requiresApproval: event.target.checked ? false : form.requiresApproval })} /> Notify eligible teammates after every task commits</label>
@@ -410,10 +429,11 @@ export function SettingsAutomationsRoute() {
                 <Field label="Create task after days" hint="0 runs immediately; maximum 365."><input className="text-input" type="number" min="0" max="365" step="1" required value={form.waitDays} onChange={(event) => setForm({ ...form, waitDays: event.target.value })} /></Field>
               </>
             ) : null}
-            <Field label="Task title"><input className="text-input" maxLength="200" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Prepare proposal" /></Field>
+							{assignmentOutcome ? <Field label="Assign deal owner to"><select className="text-input" required value={form.dealOwnerUserId} onChange={(event) => setForm({ ...form, dealOwnerUserId: event.target.value })}><option value="">Choose an active teammate</option>{users.filter((user) => user.status === 'active').map((user) => <option key={user.id} value={user.id}>{usersById.get(user.id)}</option>)}</select></Field> : null}
+							{!assignmentOutcome ? <><Field label="Task title"><input className="text-input" maxLength="200" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Prepare proposal" /></Field>
             <Field label="Task description"><textarea className="text-input" rows={3} maxLength="2000" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
-            <Field label="Due in days" hint={form.event === leadFormEvent ? 'From task creation; 0 is immediate; maximum 365.' : '0 is immediate; maximum 365.'}><input className="text-input" type="number" min="0" max="365" step="1" required value={form.dueDays} onChange={(event) => setForm({ ...form, dueDays: event.target.value })} /></Field>
-            {form.event !== leadFormEvent ? form.additionalTasks.map((task, index) => (
+							<Field label="Due in days" hint={form.event === leadFormEvent ? 'From task creation; 0 is immediate; maximum 365.' : '0 is immediate; maximum 365.'}><input className="text-input" type="number" min="0" max="365" step="1" required value={form.dueDays} onChange={(event) => setForm({ ...form, dueDays: event.target.value })} /></Field></> : null}
+							{form.event !== leadFormEvent && !assignmentOutcome ? form.additionalTasks.map((task, index) => (
               <fieldset className="card-stack" key={index}>
                 <legend>Task {index + 2}</legend>
                 <Field label={`Task ${index + 2} title`}><input className="text-input" maxLength="200" required value={task.title} onChange={(event) => updateDealTask(index, 'title', event.target.value)} /></Field>
@@ -422,9 +442,9 @@ export function SettingsAutomationsRoute() {
                 <Button className="button-secondary" type="button" onClick={() => removeDealTask(index)}>Remove task {index + 2}</Button>
               </fieldset>
             )) : null}
-            {form.event !== leadFormEvent && form.additionalTasks.length < maxDealPlanTasks - 1 ? <Button className="button-secondary" type="button" onClick={addDealTask}>Add another task</Button> : null}
+							{form.event !== leadFormEvent && !assignmentOutcome && form.additionalTasks.length < maxDealPlanTasks - 1 ? <Button className="button-secondary" type="button" onClick={addDealTask}>Add another task</Button> : null}
             <label className="field-hint"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active rule</label>
-            <div className="button-row"><Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save task rule' : 'Create task rule'}</Button>{editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}</div>
+							<div className="button-row"><Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save workflow rule' : 'Create workflow rule'}</Button>{editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}</div>
           </form>
         </Card>
       ) : null}

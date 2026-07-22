@@ -2243,3 +2243,29 @@ func TestMigrationFilesIncludeWorkflowCausalityNotifications(t *testing.T) {
 		t.Fatalf("workflow causality migration deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeWorkflowDealOwnerAssignment(t *testing.T) {
+	const name = "123_workflow_deal_owner_assignment.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"assigned_user_id",
+		"assignment_changed",
+		"workflow_action_outcomes_assignment_shape_check",
+		"workflow_action_outcomes_assigned_membership_fk",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("workflow owner-assignment migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("workflow owner-assignment migration deployment class = %q", class)
+	}
+}

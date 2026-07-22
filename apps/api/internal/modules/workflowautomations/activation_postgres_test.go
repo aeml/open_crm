@@ -118,6 +118,26 @@ func TestWorkflowActivationAuthorizationCapacityAndRecovery(t *testing.T) {
 	if _, err := service.Update(ctx, organizationID, storedFoundation.ID, users["owner"], unsupported); !errors.Is(err, moduleworkflowautomations.ErrNotExecutable) {
 		t.Fatalf("expected unsupported foundation activation rejection, got %v", err)
 	}
+	assignmentRuleInput := func(name string, targetUserID int64) moduleworkflowautomations.Input {
+		return moduleworkflowautomations.Input{
+			Name: name, TriggerType: "record_created", TargetEntityType: "deal",
+			TriggerConfig: map[string]any{"actionPlanContract": moduleworkflowautomations.DealAssignOwnerContract},
+			Actions:       []moduleworkflowautomations.Action{{Type: "assign_owner", Config: map[string]any{"userId": targetUserID}}},
+			IsActive:      &active,
+		}
+	}
+	assignmentRule, err := service.Create(ctx, organizationID, users["owner"], assignmentRuleInput("Route to active member", users["member"]))
+	if err != nil {
+		t.Fatalf("create reviewed owner-assignment rule: %v", err)
+	}
+	for target, targetUserID := range map[string]int64{"disabled": users["disabled"], "foreign": users["foreign"]} {
+		if _, err := service.Create(ctx, organizationID, users["owner"], assignmentRuleInput("Route to "+target, targetUserID)); !errors.Is(err, moduleworkflowautomations.ErrInvalidInput) {
+			t.Fatalf("expected %s assignment target rejection, got %v", target, err)
+		}
+	}
+	if _, err := service.Update(ctx, organizationID, assignmentRule.ID, users["owner"], moduleworkflowautomations.Input{DeactivateOnly: true}); err != nil {
+		t.Fatalf("deactivate reviewed owner-assignment rule: %v", err)
+	}
 	var malformedActiveID int64
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO workflow_automations

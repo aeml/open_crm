@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deactivationPayload, emptyForm, formFromAutomation, isApprovalTaskRule, isExecutableTaskRule, isNotificationTaskRule, payloadFromForm, taskActionsForAutomation } from './settings_automation_task_model'
+import { deactivationPayload, emptyForm, formFromAutomation, isApprovalTaskRule, isDealOwnerAssignmentRule, isExecutableTaskRule, isNotificationTaskRule, payloadFromForm, taskActionsForAutomation } from './settings_automation_task_model'
 
 function dealAutomation(actions, triggerConfig = {}) {
   return {
@@ -127,6 +127,45 @@ describe('settings automation task model', () => {
     })
     expect(isExecutableTaskRule({ ...automation, actions: [payload.actions[2], firstTask] })).toBe(false)
     expect(() => payloadFromForm({ ...emptyForm(), name: 'Ambiguous plan', title: 'Task', requiresApproval: true, notifyAfterTasks: true })).toThrow('either a human approval gate or a teammate notification')
+  })
+
+  it('builds, exposes, and restores one exact deal-owner assignment action', () => {
+    const payload = payloadFromForm({
+      ...emptyForm(),
+      name: 'Route changed deals',
+      event: 'owner_changed',
+      outcome: 'assign_owner',
+      dealOwnerUserId: '8',
+      conditionField: 'status',
+      conditionOperator: 'equals',
+      conditionValue: 'open'
+    })
+    expect(payload).toMatchObject({
+      description: 'Assigns the deal to one active teammate and emits one causally bounded owner-change event.',
+      triggerType: 'record_updated',
+      targetEntityType: 'deal',
+      triggerConfig: { event: 'owner_changed', conditionContract: 'deal_snapshot_v1', actionPlanContract: 'deal_assign_owner_v1' },
+      conditionLogic: 'all',
+      conditions: [{ field: 'status', operator: 'equals', value: 'open' }],
+      actions: [{ type: 'assign_owner', config: { userId: 8 } }]
+    })
+    const automation = { ...dealAutomation(payload.actions, payload.triggerConfig), ...payload }
+    expect(isExecutableTaskRule(automation)).toBe(true)
+    expect(isDealOwnerAssignmentRule(automation)).toBe(true)
+    expect(taskActionsForAutomation(automation)).toEqual([])
+    expect(formFromAutomation(automation)).toMatchObject({
+      event: 'owner_changed',
+      outcome: 'assign_owner',
+      dealOwnerUserId: '8',
+      conditionField: 'status',
+      conditionValue: 'open'
+    })
+
+    expect(isExecutableTaskRule({ ...automation, triggerConfig: { ...automation.triggerConfig, futureMode: true } })).toBe(false)
+    expect(isExecutableTaskRule({ ...automation, triggerConfig: { ...automation.triggerConfig, taskPlanContract: 'deal_task_plan_v1' } })).toBe(false)
+    expect(isExecutableTaskRule({ ...automation, actions: [{ ...payload.actions[0], config: { userId: 8, futureMode: true } }] })).toBe(false)
+    expect(() => payloadFromForm({ ...emptyForm(), name: 'Archived assignment', event: 'archived', outcome: 'assign_owner', dealOwnerUserId: '8' })).toThrow('supports creation, stage changes, or direct owner changes')
+    expect(() => payloadFromForm({ ...emptyForm(), name: 'Missing target', outcome: 'assign_owner' })).toThrow('Choose an active teammate')
   })
 
   it('uses a safety-only deactivation intent without resubmitting an unknown definition', () => {

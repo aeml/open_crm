@@ -1,9 +1,11 @@
 export const leadFormEvent = 'lead_form_submitted'
 export const stageChangedEvent = 'stage_changed'
+export const ownerChangedEvent = 'owner_changed'
 export const triggerOptions = [
   { value: 'created', label: 'Deal created' },
   { value: stageChangedEvent, label: 'Deal moved to a stage' },
   { value: 'archived', label: 'Deal archived' },
+  { value: ownerChangedEvent, label: 'Deal owner changed' },
   { value: leadFormEvent, label: 'Lead form submitted' }
 ]
 
@@ -11,6 +13,7 @@ const dealConditionContract = 'deal_snapshot_v1'
 const dealTaskPlanContract = 'deal_task_plan_v1'
 const dealApprovalTaskPlanContract = 'deal_approval_task_plan_v1'
 const dealTaskNotifyPlanContract = 'deal_task_notify_plan_v1'
+const dealAssignOwnerContract = 'deal_assign_owner_v1'
 const leadFollowUpTaskContract = 'lead_follow_up_task_v1'
 export const maxDealPlanTasks = 5
 export const maxActiveWorkflowActions = 50
@@ -49,7 +52,8 @@ export function emptyForm() {
     conditionValue: '', assignedToUserId: '', title: '', description: '', waitDays: '0', dueDays: '1',
     additionalTasks: [], requiresApproval: false, approvalName: 'Review task playbook', approverRole: 'admin',
     approvalMessage: 'Review this deal before creating the follow-up tasks.', notifyAfterTasks: false,
-    notificationRecipientRole: 'record_owner', notificationMessage: 'The deal follow-up task plan is ready.', isActive: true
+    notificationRecipientRole: 'record_owner', notificationMessage: 'The deal follow-up task plan is ready.',
+    outcome: 'tasks', dealOwnerUserId: '', isActive: true
   }
 }
 
@@ -65,6 +69,7 @@ export function eventFromAutomation(automation) {
   if (automation.triggerType === 'record_created') return 'created'
   if (automation.triggerType === stageChangedEvent) return stageChangedEvent
   if (automation.triggerType === 'record_updated' && automation.triggerConfig?.event === 'archived') return 'archived'
+  if (automation.triggerType === 'record_updated' && automation.triggerConfig?.event === ownerChangedEvent) return ownerChangedEvent
   if (automation.triggerType === 'form_submitted' && automation.targetEntityType === 'lead_form') return leadFormEvent
   return ''
 }
@@ -75,6 +80,20 @@ export function isExecutableTaskRule(automation) {
   const stageID = Number(automation.triggerConfig?.stageId || 0)
   const taskPlanContract = automation.triggerConfig?.taskPlanContract
   if (automation.targetEntityType === 'deal') {
+    const assignmentPlan = automation.triggerConfig?.actionPlanContract === dealAssignOwnerContract
+    if (assignmentPlan) {
+      const validAssignment = actions.length === 1 && validOwnerAssignmentAction(actions[0])
+      const conditions = automation.conditions || []
+      const condition = conditions[0]
+      const validCondition = conditions.length === 0 || (conditions.length === 1 && automation.conditionLogic === 'all' && automation.triggerConfig?.conditionContract === dealConditionContract && executableDealCondition(condition))
+      const allowedTriggerFields = new Set(['actionPlanContract'])
+      if (event === stageChangedEvent) allowedTriggerFields.add('stageId')
+      if (event === ownerChangedEvent) allowedTriggerFields.add('event')
+      if (conditions.length === 1) allowedTriggerFields.add('conditionContract')
+      return ['created', stageChangedEvent, ownerChangedEvent].includes(event) && validAssignment && validCondition &&
+        (event !== stageChangedEvent || !automation.triggerConfig?.stageId || (Number.isInteger(stageID) && stageID > 0)) &&
+        Object.keys(automation.triggerConfig || {}).every((key) => allowedTriggerFields.has(key))
+    }
     const approvalPlan = taskPlanContract === dealApprovalTaskPlanContract
     const notificationPlan = taskPlanContract === dealTaskNotifyPlanContract
     const taskActions = approvalPlan ? actions.slice(1) : notificationPlan ? actions.slice(0, -1) : actions
@@ -88,7 +107,7 @@ export function isExecutableTaskRule(automation) {
     const conditions = automation.conditions || []
     const condition = conditions[0]
     const validCondition = conditions.length === 0 || (conditions.length === 1 && automation.conditionLogic === 'all' && automation.triggerConfig?.conditionContract === dealConditionContract && executableDealCondition(condition))
-    return Boolean(event) && event !== leadFormEvent && validTaskPlan && validCondition &&
+    return ['created', stageChangedEvent, 'archived'].includes(event) && validTaskPlan && validCondition &&
       (event !== stageChangedEvent || !automation.triggerConfig?.stageId || (Number.isInteger(stageID) && stageID > 0))
   }
   const action = actions[0]
@@ -109,6 +128,13 @@ export function isExecutableTaskRule(automation) {
     Object.keys(config).every((key) => ['title', 'description', 'assignedToUserId', 'dueDays'].includes(key)) &&
     (!hasDueDays || validWholeDays(dueDays)) &&
     conditions.every((condition) => allowedFields.has(condition.field) && allowedOperators.has(condition.operator) && (condition.operator === 'exists' || Boolean(String(condition.value || '').trim())))
+}
+
+function validOwnerAssignmentAction(action) {
+  const config = action?.config || {}
+  const userID = Number(config.userId || 0)
+  return action?.type === 'assign_owner' && !action.scheduledAt && Number(action.delayMinutes || 0) === 0 &&
+    Object.keys(config).length === 1 && Number.isInteger(userID) && userID > 0
 }
 
 function validDealTaskActions(actions, exactReviewedConfig) {
@@ -147,19 +173,25 @@ export function isNotificationTaskRule(automation) {
   return automation?.targetEntityType === 'deal' && automation?.triggerConfig?.taskPlanContract === dealTaskNotifyPlanContract && isExecutableTaskRule(automation)
 }
 
+export function isDealOwnerAssignmentRule(automation) {
+  return automation?.targetEntityType === 'deal' && automation?.triggerConfig?.actionPlanContract === dealAssignOwnerContract && isExecutableTaskRule(automation)
+}
+
 export function taskActionsForAutomation(automation) {
+  if (isDealOwnerAssignmentRule(automation)) return []
   if (isApprovalTaskRule(automation)) return automation.actions.slice(1)
   if (isNotificationTaskRule(automation)) return automation.actions.slice(0, -1)
   return automation.actions || []
 }
 
 export function formFromAutomation(automation) {
+  const assignmentPlan = isDealOwnerAssignmentRule(automation)
   const approvalPlan = isApprovalTaskRule(automation)
   const notificationPlan = isNotificationTaskRule(automation)
   const approvalAction = approvalPlan ? automation.actions[0] : null
   const notificationAction = notificationPlan ? automation.actions.at(-1) : null
   const taskActions = approvalPlan ? automation.actions.slice(1) : notificationPlan ? automation.actions.slice(0, -1) : automation.actions
-  const action = taskActions[0]
+  const action = taskActions[0] || { config: {} }
   const leadFollowUp = eventFromAutomation(automation) === leadFormEvent
   const hasDueDays = leadFollowUp && Object.hasOwn(action.config || {}, 'dueDays')
   return {
@@ -187,15 +219,18 @@ export function formFromAutomation(automation) {
     notifyAfterTasks: notificationPlan,
     notificationRecipientRole: notificationAction?.config?.recipientRole || 'record_owner',
     notificationMessage: notificationAction?.config?.message || 'The deal follow-up task plan is ready.',
+    outcome: assignmentPlan ? 'assign_owner' : 'tasks',
+    dealOwnerUserId: assignmentPlan ? String(automation.actions[0].config?.userId || '') : '',
     isActive: automation.isActive === true
   }
 }
 
 export function payloadFromForm(form) {
+  const assignmentPlan = form.event !== leadFormEvent && form.outcome === 'assign_owner'
   const dueDays = Number(form.dueDays)
-  if (!validWholeDays(dueDays)) throw new Error('Due days must be a whole number from 0 to 365.')
+  if (!assignmentPlan && !validWholeDays(dueDays)) throw new Error('Due days must be a whole number from 0 to 365.')
   const leadFollowUp = form.event === leadFormEvent
-  const taskForms = leadFollowUp ? [{ title: form.title, description: form.description, dueDays: form.dueDays }] : [
+  const taskForms = assignmentPlan ? [] : leadFollowUp ? [{ title: form.title, description: form.description, dueDays: form.dueDays }] : [
     { title: form.title, description: form.description, dueDays: form.dueDays },
     ...(form.additionalTasks || [])
   ]
@@ -212,6 +247,8 @@ export function payloadFromForm(form) {
   const triggerType = form.event === 'created' ? 'record_created' : form.event === stageChangedEvent ? stageChangedEvent : leadFollowUp ? 'form_submitted' : 'record_updated'
   const triggerConfig = form.event === 'archived'
     ? { event: 'archived' }
+    : form.event === ownerChangedEvent
+      ? { event: ownerChangedEvent }
     : form.event === stageChangedEvent && form.stageId
       ? { stageId: Number(form.stageId) }
       : leadFollowUp && form.formId
@@ -220,8 +257,14 @@ export function payloadFromForm(form) {
   if (leadFollowUp && !form.formId) triggerConfig.taskContract = leadFollowUpTaskContract
   const dealCondition = !leadFollowUp && form.conditionField
   if (dealCondition) triggerConfig.conditionContract = dealConditionContract
-  if (!leadFollowUp) triggerConfig.taskPlanContract = dealTaskPlanContract
-  if (!leadFollowUp && form.requiresApproval) {
+  if (!leadFollowUp && !assignmentPlan) triggerConfig.taskPlanContract = dealTaskPlanContract
+  if (assignmentPlan) {
+    if (!['created', stageChangedEvent, ownerChangedEvent].includes(form.event)) throw new Error('Deal owner assignment supports creation, stage changes, or direct owner changes.')
+    const targetUserID = Number(form.dealOwnerUserId)
+    if (!Number.isInteger(targetUserID) || targetUserID <= 0) throw new Error('Choose an active teammate to receive the deal.')
+    triggerConfig.actionPlanContract = dealAssignOwnerContract
+  }
+  if (!leadFollowUp && !assignmentPlan && form.requiresApproval) {
     if (!String(form.approvalName || '').trim()) throw new Error('Approval needs a name.')
     if (String(form.approvalName).trim().length > 200) throw new Error('Approval name exceeds 200 characters.')
     if (!approvalRoleOptions.some((option) => option.value === form.approverRole)) throw new Error('Choose a supported approval role.')
@@ -229,7 +272,7 @@ export function payloadFromForm(form) {
     if (String(form.approvalMessage).trim().length > 2000) throw new Error('Approval guidance exceeds 2,000 characters.')
     triggerConfig.taskPlanContract = dealApprovalTaskPlanContract
   }
-  if (!leadFollowUp && form.notifyAfterTasks) {
+  if (!leadFollowUp && !assignmentPlan && form.notifyAfterTasks) {
     if (form.requiresApproval) throw new Error('Choose either a human approval gate or a teammate notification for this bounded plan.')
     if (!approvalRoleOptions.some((option) => option.value === form.notificationRecipientRole)) throw new Error('Choose a supported notification recipient role.')
     if (!String(form.notificationMessage || '').trim()) throw new Error('Teammate notification needs a message.')
@@ -252,7 +295,9 @@ export function payloadFromForm(form) {
     if (dealCondition && condition.field === 'valueCurrency') condition.value = condition.value.toUpperCase()
     conditions.push(condition)
   }
-  let actions = leadFollowUp
+  let actions = assignmentPlan
+    ? [{ type: 'assign_owner', config: { userId: Number(form.dealOwnerUserId) } }]
+    : leadFollowUp
     ? [{ type: 'create_task', config, delayMinutes: waitDays * 1440 }]
     : taskForms.map((task) => {
       const taskConfig = { title: task.title.trim() }
@@ -260,7 +305,7 @@ export function payloadFromForm(form) {
       if (description) taskConfig.description = description
       return { type: 'create_task', config: taskConfig, delayMinutes: Number(task.dueDays) * 1440 }
     })
-  if (!leadFollowUp && form.requiresApproval) {
+  if (!leadFollowUp && !assignmentPlan && form.requiresApproval) {
     actions = [{
       type: 'request_approval',
       config: {
@@ -270,7 +315,7 @@ export function payloadFromForm(form) {
       }
     }, ...actions]
   }
-  if (!leadFollowUp && form.notifyAfterTasks) {
+  if (!leadFollowUp && !assignmentPlan && form.notifyAfterTasks) {
     actions = [...actions, {
       type: 'notify',
       config: {
@@ -283,6 +328,8 @@ export function payloadFromForm(form) {
     name: form.name.trim(),
     description: leadFollowUp
       ? 'Creates one durable assigned follow-up task from an accepted lead form submission.'
+      : assignmentPlan
+        ? 'Assigns the deal to one active teammate and emits one causally bounded owner-change event.'
       : form.requiresApproval
         ? `Requests a human decision before creating ${taskForms.length} follow-up ${taskForms.length === 1 ? 'task' : 'tasks'} from a deal event.`
         : form.notifyAfterTasks
@@ -322,6 +369,7 @@ export function triggerSummary(automation, stagesById, formsById) {
     const formID = Number(automation.triggerConfig?.formId || 0)
     return formID ? `When ${formsById.get(formID) || `lead form #${formID}`} is submitted` : 'When any active lead form is submitted'
   }
+  if (event === ownerChangedEvent) return 'After every direct deal owner change'
   return event === 'archived' ? 'When a deal is archived' : 'When a deal is created'
 }
 

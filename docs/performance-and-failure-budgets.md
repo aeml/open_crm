@@ -218,11 +218,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 779 KiB | 243 KiB |
+| All JavaScript and CSS | 782 KiB | 244 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.87 KiB/57.99 KiB entry, 55.12 KiB/15.73 KiB largest lazy
-chunk, and 778.16 KiB/242.36 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.87 KiB/57.99 KiB entry, 55.12 KiB/15.74 KiB largest lazy
+chunk, and 781.77 KiB/243.34 KiB total assets. The production contact, company,
 deal, and task routes are 27.27/8.55, 45.09/13.08, 55.12/15.73, and 26.09/7.92
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.58 KiB/4.62 KiB settings route. Its
@@ -604,6 +604,15 @@ build measures 178.87/57.99 KiB entry, 55.12/15.73 KiB largest lazy chunk, and
 778.16/242.36 KiB aggregate raw/gzip. Only the aggregate ceilings advance from
 774/242 to 779/243 KiB; entry, per-route, CSS, and source ceilings remain
 unchanged.
+
+The deal-owner assignment slice adds one exact trigger-capable action, active-
+teammate authoring, typed changed/no-op result evidence, and nested causal-limit
+inspection. The automation route remains below the unchanged per-route ceiling
+at 42.80/11.65 KiB and 453 production lines; every workflow Go production file
+also remains below 500 lines. The complete build measures 178.87/57.99 KiB
+entry, 55.12/15.74 KiB largest lazy chunk, and 781.77/243.34 KiB aggregate
+raw/gzip. Only aggregate ceilings advance from 779/243 to 782/244 KiB; entry,
+per-route, CSS, and source ceilings remain unchanged.
 
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and

@@ -83,7 +83,9 @@ func requireActiveActionCapacity(ctx context.Context, tx pgx.Tx, organizationID,
 func validateExecutableActivation(input Input) error {
 	switch input.TargetEntityType {
 	case "deal":
-		if contract, _ := stringConfig(input.TriggerConfig, "taskPlanContract"); contract == DealTaskPlanContract || contract == DealApprovalTaskPlanContract || contract == DealTaskNotifyPlanContract {
+		taskContract, _ := stringConfig(input.TriggerConfig, "taskPlanContract")
+		actionContract, _ := stringConfig(input.TriggerConfig, "actionPlanContract")
+		if taskContract == DealTaskPlanContract || taskContract == DealApprovalTaskPlanContract || taskContract == DealTaskNotifyPlanContract || actionContract == DealAssignOwnerContract {
 			if rawStageID, configured := input.TriggerConfig["stageId"]; configured {
 				if _, valid := exactPositiveInteger(rawStageID); !valid {
 					return ErrInvalidInput
@@ -114,12 +116,20 @@ func validExecutableDealActivation(input Input) bool {
 	if input.ConditionLogic != "all" || !executableDealActions(input.TriggerConfig, input.Actions) || !executableDealConditions(input.TriggerConfig, input.ConditionLogic, input.Conditions) {
 		return false
 	}
-	contract, _ := stringConfig(input.TriggerConfig, "taskPlanContract")
-	if contract != DealTaskPlanContract && contract != DealApprovalTaskPlanContract && contract != DealTaskNotifyPlanContract {
+	taskContract, _ := stringConfig(input.TriggerConfig, "taskPlanContract")
+	actionContract, _ := stringConfig(input.TriggerConfig, "actionPlanContract")
+	taskPlan := taskContract == DealTaskPlanContract || taskContract == DealApprovalTaskPlanContract || taskContract == DealTaskNotifyPlanContract
+	assignmentPlan := actionContract == DealAssignOwnerContract && taskContract == ""
+	if !taskPlan && !assignmentPlan {
 		return false
 	}
 
-	allowedKeys := map[string]bool{"taskPlanContract": true}
+	allowedKeys := map[string]bool{}
+	if taskPlan {
+		allowedKeys["taskPlanContract"] = true
+	} else {
+		allowedKeys["actionPlanContract"] = true
+	}
 	if len(input.Conditions) > 0 {
 		allowedKeys["conditionContract"] = true
 	}
@@ -135,7 +145,7 @@ func validExecutableDealActivation(input Input) bool {
 	case "record_updated":
 		allowedKeys["event"] = true
 		event, _ := stringConfig(input.TriggerConfig, "event")
-		if event != DealEventArchived {
+		if (taskPlan && event != DealEventArchived) || (assignmentPlan && event != DealEventOwnerChanged) {
 			return false
 		}
 	default:
@@ -216,6 +226,25 @@ func validateExecutableReferences(ctx context.Context, tx pgx.Tx, organizationID
 			return fmt.Errorf("validate workflow notification recipients: %w", err)
 		}
 		if recipientCount <= 0 || (role != "record_owner" && recipientCount > maxWorkflowNotificationRecipients) {
+			return ErrInvalidInput
+		}
+	}
+	if contract, _ := stringConfig(input.TriggerConfig, "actionPlanContract"); contract == DealAssignOwnerContract {
+		targetUserID, valid := exactPositiveInteger(input.Actions[0].Config["userId"])
+		if !valid {
+			return ErrInvalidInput
+		}
+		var active bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS(
+			  SELECT 1 FROM organization_memberships
+			  WHERE organization_id=$1 AND user_id=$2
+			    AND COALESCE(membership_status,'active')='active'
+			)
+		`, organizationID, targetUserID).Scan(&active); err != nil {
+			return fmt.Errorf("validate workflow owner assignment target: %w", err)
+		}
+		if !active {
 			return ErrInvalidInput
 		}
 	}
