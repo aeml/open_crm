@@ -124,6 +124,18 @@ function seedEmailDefinitionContinuation(ownerEmail, runID) {
   })
 }
 
+function seedSavedViewContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_saved_views', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -489,6 +501,33 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
 	await expect(page.getByText(/Lead restored as legitimate\. 0 follow-ups rescheduled\./)).toBeVisible()
 
   await page.getByRole('link', { name: 'Contacts', exact: true }).click()
+  seedSavedViewContinuation(owner.email, runID)
+  const savedViewsPanel = page.getByRole('region', { name: 'Saved view management' })
+  await savedViewsPanel.getByRole('button', { name: 'Load views', exact: true }).click()
+  const retainedSavedViewName = `Browser saved view ${runID} #051`
+  await expect(savedViewsPanel.getByRole('option', { name: retainedSavedViewName, exact: true })).toBeAttached()
+  await expect(savedViewsPanel.getByText('51 of 100 saved views used for this record type.', { exact: true })).toBeVisible()
+  await savedViewsPanel.getByLabel('Saved views').selectOption({ label: retainedSavedViewName })
+  await savedViewsPanel.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(savedViewsPanel.getByText(`Applied ${retainedSavedViewName}.`, { exact: true })).toBeVisible()
+  const managedSavedViewName = `Pilot contact view ${runID}`
+  await savedViewsPanel.getByLabel('Save current filters as').fill(managedSavedViewName)
+  await savedViewsPanel.getByRole('button', { name: 'Save view', exact: true }).click()
+  await expect(savedViewsPanel.getByText(`Saved ${managedSavedViewName}.`, { exact: true })).toBeVisible()
+  await savedViewsPanel.getByRole('button', { name: 'Make default', exact: true }).click()
+  await expect(savedViewsPanel.getByText(`${managedSavedViewName} is now the default.`, { exact: true })).toBeVisible()
+  await savedViewsPanel.getByRole('button', { name: 'Update', exact: true }).click()
+  await expect(savedViewsPanel.getByText(`Updated ${managedSavedViewName}.`, { exact: true })).toBeVisible()
+  await savedViewsPanel.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(savedViewsPanel.getByText(`Deleted ${managedSavedViewName}.`, { exact: true })).toBeVisible()
+  const savedViewAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-saved-view-continuation', {
+    body: JSON.stringify({ url: page.url(), violations: savedViewAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(savedViewAccessibility.violations).toEqual([])
   await page.getByLabel('Search contacts').fill(publicLeadEmail)
   const capturedLeadRow = page.getByRole('listitem').filter({ hasText: publicLeadEmail })
   await expect(capturedLeadRow).toBeVisible()

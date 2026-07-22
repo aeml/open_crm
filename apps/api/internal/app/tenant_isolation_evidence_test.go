@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 39
-	expectedTenantIsolationEvidenceDigest = "9ca957198ec18098714805826737a24d7bdb93c2bf599b665b6e8dc1e3421ef8"
+	expectedTenantIsolationEvidenceCount  = 40
+	expectedTenantIsolationEvidenceDigest = "fcef7d61e75474800fa4d6abf86ebb3f3e905448badafd3fc93b1f794d711ca7"
 )
 
 type tenantIsolationEvidence struct {
@@ -56,6 +56,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "quote-template-management", Source: "apps/api/internal/modules/quotetemplates/service_postgres_test.go", Test: "TestQuoteTemplateCatalogIsBoundedTenantSafeAndCapacitySerialized"},
 	{Surface: "record-email-delivery", Source: "apps/api/internal/modules/emailmessages/record_deliveries_postgres_test.go", Test: "TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPostgres"},
 	{Surface: "sales-activity-reporting", Source: "apps/api/internal/modules/salesreports/service_postgres_test.go", Test: "TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAgainstPostgres"},
+	{Surface: "saved-view-management", Source: "apps/api/internal/modules/savedviews/service_postgres_test.go", Test: "TestSavedViewManagementIsBoundedTenantSafeRevisionedAndCapacitySerialized"},
 	{Surface: "session-management", Source: "apps/api/internal/modules/auth/sessions_postgres_test.go", Test: "TestSessionManagementIsPrivateGlobalAndAuditedAgainstPostgres"},
 	{Surface: "task-reminders", Source: "apps/api/internal/modules/taskreminders/service_postgres_test.go", Test: "TestTaskRemindersAreDurablePreferenceAwareAndIdempotentAgainstPostgres"},
 	{Surface: "touchpoints", Source: "apps/api/internal/modules/touchpoints/service_postgres_test.go", Test: "TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres"},

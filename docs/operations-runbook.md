@@ -1342,6 +1342,35 @@ bytes, tokens, or counters with ad hoc SQL.
    denial and overflow/audit checks. Repeated production latency near either
    budget is an incident even when the request still succeeds.
 
+### Saved-view limits and stale-change recovery
+
+1. Each teammate owns a separate contact, client, deal/job, and task catalog.
+   Select **Load views** before managing a catalog; the client retrieves every
+   bounded page, and the displayed count covers all view scopes for that record
+   type. The supported creation ceiling is 100 stored views per teammate and
+   entity. A workspace upgraded with more than 100 retains every existing view
+   for apply/update/delete, but cannot create another until below the ceiling.
+2. Names are at most 100 Unicode characters and a definition retains at most 25
+   bounded filter pairs. Do not use saved views as event history or bulk data
+   storage. A `SAVED_VIEW_LIMIT` response means delete an unused view; deletion
+   immediately recovers one slot. Do not remove rows directly in PostgreSQL.
+3. Update, make-default, and delete use the exact revision shown when the view
+   was loaded. Making one view default also increments the displaced default's
+   revision. `SAVED_VIEW_CHANGED` therefore means another tab or operation won:
+   reload the catalog, confirm the current filters/default, and deliberately
+   repeat the action. Never overwrite the revision or default flag with SQL.
+4. The UI serializes loads and mutations, rejects obsolete record-type/scope
+   responses, and validates the returned view identity. If it reports that a
+   save/update/delete succeeded but reload failed, trust the successful write,
+   preserve the request ID, and select **Load views** before another change.
+   Repeating the original mutation without reload can correctly conflict.
+5. Repeated adjacent-page latency near two seconds, inconsistent totals, a
+   missing row within the advertised exact total, or failures to load legacy
+   overflow are performance/data-integrity incidents. Record the teammate,
+   entity type, total, page, exact release, and request ID. Use the freshly
+   migrated saved-view PostgreSQL acceptance and management-index plan as the
+   diagnostic baseline; do not bypass the user/tenant predicate.
+
 ### Custom-field change and recovery
 
 1. Only owners and admins can change definitions in **Settings > Custom

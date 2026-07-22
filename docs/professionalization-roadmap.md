@@ -136,7 +136,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.9` Integration Release Review: planned.
 - `0.9.0` Scale And Reliability: in progress.
 - `0.9.1` Query Performance Review: in progress (core tenant query plans and representative budgets are CI-gated; dashboard/report/import/provider review remains).
-- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person, product-catalog, quote-template, and email-sequence-definition management, stable bounded workflow- and saved-report-definition management with exact same-snapshot summaries, PostgreSQL page evidence, concurrency-safe 100-active product, quote-template, and sequence-selection boundaries, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
+- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person, product-catalog, quote-template, email-sequence-definition, and personal saved-view management, stable bounded workflow- and saved-report-definition management with exact same-snapshot summaries, PostgreSQL page evidence, serialized stored/active catalog ceilings, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: planned.
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
@@ -549,7 +549,8 @@ Completion notes:
 
 - Added organization/user-scoped saved views for contacts, clients, deals/jobs, and tasks.
 - Added save, load, apply, update, default, and delete controls without replacing shareable URL filters.
-- Added backend route tests and frontend coverage for applying a saved pipeline view.
+- Management now defaults to exact 50-row pages, caps at 100 and offset 50,000, and returns an exact same-snapshot personal/entity total in default/name/ID order. A transaction-time active-writer check plus tenant/user advisory lock serializes default transitions and the 100-stored-per-user/entity ceiling. Names and filter pairs/keys/values are bounded; entity identity is immutable; update/delete bind to the reviewed revision, including revisions changed when another view becomes default.
+- The client loads every bounded page with total-drift detection and ID deduplication so legacy overflow stays manageable; it serializes network operations, rejects obsolete loads and mismatched mutation identities, and discloses a successful write even if reconciliation fails. Handler/library/component/migration tests, fresh and rolling 1,001-row PostgreSQL evidence, the executable tenant matrix, and Chromium row-51/create/default/update/delete/WCAG acceptance cover the outcome. Pilot validation of the operating ceiling and useful defaults remains external.
 
 ## Version 0.3.3 - Import Foundation
 
@@ -2265,7 +2266,18 @@ PostgreSQL acceptance proves the indexed pages, two-second budgets, tenant/role
 denial, exact-revision conflicts, idempotent audit, and one-success/one-limit
 final-slot race with pause/reapproval recovery. Chromium loads/searches row 51,
 creates and approves the pilot cadence, excludes seeded drafts from enrollment,
-then completes the real-SMTP delivery and WCAG journey. Workflow-definition
+then completes the real-SMTP delivery and WCAG journey. Personal saved-view
+management now defaults to exact 50-row pages, caps at 100 and offset 50,000,
+and returns an exact repeatable-read total in default/name/ID order. Direct
+callers repeat the bound; one tenant/user transaction lock revalidates the
+active writer, serializes default replacement, and enforces 100 stored views
+per entity. Exact revisions protect updates/deletes, while complete client
+loading deduplicates IDs, detects changing totals, and retains legacy overflow.
+Fresh and rolling PostgreSQL acceptance proves 1,001-row indexed adjacent and
+repeat pages, direct limits, tenant/user/role/entity isolation, default revision
+transitions, and one-success/one-limit final-slot concurrency. Chromium loads
+row 51, creates/defaults/updates/deletes a pilot view, and repeats WCAG scanning.
+Workflow-definition
 management now defaults to 50, caps at 100 and
   offset 50,000, and returns exact stored-definition and workspace active-action
   totals from one repeatable-read snapshot. Stable active/position/update/ID

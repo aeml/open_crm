@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `39`
+Evidence row count: `40`
 
-Evidence digest: `9ca957198ec18098714805826737a24d7bdb93c2bf599b665b6e8dc1e3421ef8`
+Evidence digest: `fcef7d61e75474800fa4d6abf86ebb3f3e905448badafd3fc93b1f794d711ca7`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -57,6 +57,7 @@ the assertions inside those tests remain the proof of behavior.
 | `quote-template-management` | `apps/api/internal/modules/quotetemplates/service_postgres_test.go` | `TestQuoteTemplateCatalogIsBoundedTenantSafeAndCapacitySerialized` | Exact filtered totals, literal search, stable adjacent pages, active-only selection, and the serialized 100-active-template ceiling stay inside the owning workspace; foreign definitions and actors remain missing, and only one concurrent final-slot writer succeeds. |
 | `record-email-delivery` | `apps/api/internal/modules/emailmessages/record_deliveries_postgres_test.go` | `TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPostgres` | Foreign records, customer recipients, user recipients, actors, and delivery IDs reject; test-to-self preparation and claim require the exact active actor/address; claims cannot cross twice; completion, failure, recovery, private test evidence, and explicit resolution keep every email/note/activity/audit effect atomic and tenant scoped without adding tests to customer history. |
 | `sales-activity-reporting` | `apps/api/internal/modules/salesreports/service_postgres_test.go` | `TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAgainstPostgres` | Event snapshots, activity rollups, and pipeline cohorts exclude foreign deals; foreign owners and foreign pipeline/stage pairs reject rather than disclose. |
+| `saved-view-management` | `apps/api/internal/modules/savedviews/service_postgres_test.go` | `TestSavedViewManagementIsBoundedTenantSafeRevisionedAndCapacitySerialized` | Personal core-record view catalogs use exact tenant, user, and entity predicates; stable pages and totals exclude foreign tenant/user rows, active writer membership is revalidated transactionally, entity identity cannot change, exact revisions prevent stale update/delete, default replacement revisions both definitions, and concurrent final-slot creates produce one local winner. |
 | `session-management` | `apps/api/internal/modules/auth/sessions_postgres_test.go` | `TestSessionManagementIsPrivateGlobalAndAuditedAgainstPostgres` | A user cannot list or revoke another user's session, including a session in a foreign workspace. |
 | `task-reminders` | `apps/api/internal/modules/taskreminders/service_postgres_test.go` | `TestTaskRemindersAreDurablePreferenceAwareAndIdempotentAgainstPostgres` | A foreign tenant cannot consume another tenant's reminder job or receive its notification/activity effects. |
 | `touchpoints` | `apps/api/internal/modules/touchpoints/service_postgres_test.go` | `TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres` | Foreign contact/client IDs and activity remain absent from history, follow-up queues, client-period counts, source links, and health summaries; private sources remain viewer-aware. |

@@ -195,7 +195,7 @@ func TestUpdateSavedViewReturnsNotFoundForCrossOrgResource(t *testing.T) {
 	service := &fakeSavedViewsService{updateErr: modulesavedviews.ErrNotFound}
 	server := authenticatedSavedViewsServer(service)
 
-	body := bytes.NewBufferString(`{"entityType":"deals","name":"Ghost View","filters":{},"isDefault":false}`)
+	body := bytes.NewBufferString(`{"entityType":"deals","name":"Ghost View","filters":{},"isDefault":false,"expectedRevision":1}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/saved-views/99", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -212,7 +212,7 @@ func TestDeleteSavedViewReturnsNotFoundForCrossOrgResource(t *testing.T) {
 	service := &fakeSavedViewsService{deleteErr: modulesavedviews.ErrNotFound}
 	server := authenticatedSavedViewsServer(service)
 
-	request := httptest.NewRequest(http.MethodDelete, "/api/saved-views/99", nil)
+	request := httptest.NewRequest(http.MethodDelete, "/api/saved-views/99?revision=1", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 

@@ -34,6 +34,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Each of the first two shared-inbox cursor pages (1,001 rows, 100/page) | 2 s |
 | Each of the first two filtered lead-review cursor pages (1,001 rows, 100/page) | 2 s |
 | Each adjacent email-template and snippet management page (1,001 definitions/catalog, up to 100 returned) | 2 s each |
+| Each adjacent personal saved-view management page (1,001 definitions, up to 100 returned) | 2 s each |
 | Active and adjacent email-sequence definition pages (1,001 definitions, up to 100 returned) | 2 s each |
 | Company linked-person page (1,000 links, 100 returned) | 2 s |
 | Transactional contact-create p95 | 1 s |
@@ -113,6 +114,18 @@ because status filters describe a live work queue. Migration 111 also adds the
 unfiltered tenant/time/ID access path with bounded deployment lock and statement
 timeouts.
 
+Personal saved-view management uses the compatible offset contract: 50 rows by
+default, 100 maximum, a 50,000-row maximum offset, and an exact repeatable-read
+total for one tenant/user/entity. Dedicated freshly migrated PostgreSQL
+acceptance seeds 1,001 views, budgets each adjacent 50-row page below two
+seconds, repeats page two, rejects direct overflow, proves tenant and user
+separation, and asserts the `(organization_id,user_id,entity_type,is_default,
+lower(name),id)` management index. The same suite serializes a 100-stored final
+slot and proves exact-revision/default transitions; a rolling migration test
+proves historical and old-binary inserts receive revision 1. The browser loads
+all 51 seeded definitions, exercises create/default/update/delete, and repeats
+WCAG A/AA scanning.
+
 The failure path also holds the only connection in a one-connection pool, proves a
 waiting request observes its 200 ms deadline, releases capacity, and proves the
 pool serves requests again. It separately holds an access-exclusive table lock,
@@ -189,12 +202,12 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 758 KiB | 237 KiB |
+| All JavaScript and CSS | 761 KiB | 238 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.65 KiB largest lazy
-chunk, and 757.71 KiB/236.28 KiB total assets. The production contact, company,
-deal, and task routes are 27.08/8.46, 44.95/12.98, 54.93/15.65, and 26.53/7.64
+Current production-URL evidence: 178.82 KiB/57.96 KiB entry, 54.93 KiB/15.65 KiB largest lazy
+chunk, and 760.39 KiB/237.22 KiB total assets. The production contact, company,
+deal, and task routes are 27.08/8.46, 44.95/12.98, 54.93/15.64, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.58 KiB/4.63 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.63 KiB/3.22 KiB;
@@ -531,9 +544,14 @@ recovery after delete. Settings exposes independent guarded continuation while
 record composers traverse every stable bounded page and preserve legacy
 overflow. The measured production build is 178.82/57.97 KiB entry,
 54.93/15.65 KiB largest lazy chunk, 11.02/2.92 KiB Email Templates route,
-and 757.71/236.28 KiB aggregate raw/gzip. Only the reviewed aggregate ceilings
-advance from 752/235 to 758/237 KiB; entry, per-route, CSS, and source ceilings
+and, at that slice, 757.71/236.28 KiB aggregate raw/gzip. Only the reviewed aggregate ceilings
+advanced from 752/235 to 758/237 KiB; entry, per-route, CSS, and source ceilings
 remain unchanged.
+
+Bounded saved-view management adds the 233-line shared component and focused
+library/component tests without changing the entry, per-route, CSS, or source
+ceilings. The complete build now measures 760.39/237.22 KiB aggregate raw/gzip;
+the aggregate ratchet alone advances from 758/237 to 761/238 KiB.
 
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and

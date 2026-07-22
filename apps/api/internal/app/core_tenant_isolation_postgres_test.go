@@ -80,8 +80,8 @@ func TestCoreRecordTenantBoundariesAgainstPostgres(t *testing.T) {
 	if err != nil || taskList.Meta.Total != 1 || len(taskList.Tasks) != 1 || taskList.Tasks[0].ID != beta.taskID {
 		t.Fatalf("task list crossed tenant boundary: result=%#v err=%v", taskList, err)
 	}
-	viewList, err := savedViewsService.ListByEntity(ctx, beta.organizationID, beta.userID, "contacts")
-	if err != nil || len(viewList) != 1 || viewList[0].ID != beta.savedViewID {
+	viewList, err := savedViewsService.ListByEntity(ctx, beta.organizationID, beta.userID, "contacts", modulesavedviews.ListQuery{})
+	if err != nil || len(viewList.Views) != 1 || viewList.Views[0].ID != beta.savedViewID {
 		t.Fatalf("saved-view list crossed tenant boundary: result=%#v err=%v", viewList, err)
 	}
 	noteList, err := notesService.ListByEntity(ctx, beta.organizationID, "contact", beta.contactID, platformtimeline.Query{})
@@ -142,11 +142,11 @@ func TestCoreRecordTenantBoundariesAgainstPostgres(t *testing.T) {
 	})
 
 	assertCoreTenantNotFound(t, "update saved view", modulesavedviews.ErrNotFound, func() error {
-		_, err := savedViewsService.Update(ctx, beta.organizationID, beta.userID, alpha.savedViewID, modulesavedviews.Input{EntityType: "contacts", Name: "Denied View", Filters: map[string]string{}, IsDefault: true})
+		_, err := savedViewsService.Update(ctx, beta.organizationID, beta.userID, alpha.savedViewID, modulesavedviews.Input{EntityType: "contacts", Name: "Denied View", Filters: map[string]string{}, IsDefault: true, ExpectedRevision: 1})
 		return err
 	})
 	assertCoreTenantNotFound(t, "delete saved view", modulesavedviews.ErrNotFound, func() error {
-		return savedViewsService.Delete(ctx, beta.organizationID, beta.userID, alpha.savedViewID)
+		return savedViewsService.Delete(ctx, beta.organizationID, beta.userID, alpha.savedViewID, 1)
 	})
 
 	foreignNotes, err := notesService.ListByEntity(ctx, beta.organizationID, "contact", alpha.contactID, platformtimeline.Query{})

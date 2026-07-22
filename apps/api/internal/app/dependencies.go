@@ -251,10 +251,10 @@ type customFieldsService interface {
 }
 
 type savedViewsService interface {
-	ListByEntity(context.Context, int64, int64, string) ([]modulesavedviews.View, error)
+	ListByEntity(context.Context, int64, int64, string, modulesavedviews.ListQuery) (modulesavedviews.Page, error)
 	Create(context.Context, int64, int64, modulesavedviews.Input) (modulesavedviews.View, error)
 	Update(context.Context, int64, int64, int64, modulesavedviews.Input) (modulesavedviews.View, error)
-	Delete(context.Context, int64, int64, int64) error
+	Delete(context.Context, int64, int64, int64, int) error
 }
 
 type onboardingService interface {

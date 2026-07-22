@@ -3,9 +3,11 @@ package app
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	modulesavedviews "github.com/aeml/open_crm/apps/api/internal/modules/savedviews"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
@@ -20,7 +22,12 @@ func handleListSavedViews(auth authService, savedViews savedViewsService, w http
 		return
 	}
 
-	views, err := savedViews.ListByEntity(r.Context(), state.Organization.ID, state.User.ID, strings.TrimSpace(r.URL.Query().Get("entityType")))
+	page, parseErr := platformpagination.Parse(r.URL.Query().Get("page"), r.URL.Query().Get("pageSize"), modulesavedviews.DefaultListPageSize)
+	if parseErr != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid saved-view page")
+		return
+	}
+	views, err := savedViews.ListByEntity(r.Context(), state.Organization.ID, state.User.ID, strings.TrimSpace(r.URL.Query().Get("entityType")), modulesavedviews.ListQuery{Page: page.Number, PageSize: page.Size})
 	if err != nil {
 		if errors.Is(err, modulesavedviews.ErrInvalidInput) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "A valid entity type is required")
@@ -31,7 +38,10 @@ func handleListSavedViews(auth authService, savedViews savedViewsService, w http
 	}
 
 	response := savedViewsListResponse{}
-	response.Data.Views = views
+	response.Data.Views = views.Views
+	response.Data.Meta.Page = views.Page
+	response.Data.Meta.PageSize = views.PageSize
+	response.Data.Meta.Total = views.Total
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -101,7 +111,12 @@ func handleDeleteSavedView(auth authService, savedViews savedViewsService, w htt
 	if !ok {
 		return
 	}
-	if err := savedViews.Delete(r.Context(), state.Organization.ID, state.User.ID, viewID); err != nil {
+	revision, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("revision")))
+	if err != nil || revision <= 0 {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide the current positive saved-view revision")
+		return
+	}
+	if err := savedViews.Delete(r.Context(), state.Organization.ID, state.User.ID, viewID, revision); err != nil {
 		writeSavedViewError(w, requestID, err)
 		return
 	}
@@ -115,10 +130,11 @@ func decodeSavedViewRequest(w http.ResponseWriter, r *http.Request) (modulesaved
 		return modulesavedviews.Input{}, false
 	}
 	return modulesavedviews.Input{
-		EntityType: strings.TrimSpace(request.EntityType),
-		Name:       strings.TrimSpace(request.Name),
-		Filters:    request.Filters,
-		IsDefault:  request.IsDefault,
+		EntityType:       strings.TrimSpace(request.EntityType),
+		Name:             strings.TrimSpace(request.Name),
+		Filters:          request.Filters,
+		IsDefault:        request.IsDefault,
+		ExpectedRevision: request.ExpectedRevision,
 	}, true
 }
 
@@ -129,6 +145,14 @@ func writeSavedViewError(w http.ResponseWriter, requestID string, err error) {
 	}
 	if errors.Is(err, modulesavedviews.ErrDuplicateName) {
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A saved view with that name already exists")
+		return
+	}
+	if errors.Is(err, modulesavedviews.ErrChanged) {
+		platformweb.WriteError(w, http.StatusConflict, requestID, "SAVED_VIEW_CHANGED", "This saved view changed; reload it before continuing")
+		return
+	}
+	if errors.Is(err, modulesavedviews.ErrLimit) {
+		platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "SAVED_VIEW_LIMIT", "Delete an unused saved view before creating another for this record type")
 		return
 	}
 	if errors.Is(err, modulesavedviews.ErrNotFound) {

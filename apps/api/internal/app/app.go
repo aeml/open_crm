@@ -282,15 +282,21 @@ type activitiesListResponse struct {
 }
 
 type savedViewRequest struct {
-	EntityType string            `json:"entityType"`
-	Name       string            `json:"name"`
-	Filters    map[string]string `json:"filters"`
-	IsDefault  bool              `json:"isDefault"`
+	EntityType       string            `json:"entityType"`
+	Name             string            `json:"name"`
+	Filters          map[string]string `json:"filters"`
+	IsDefault        bool              `json:"isDefault"`
+	ExpectedRevision int               `json:"expectedRevision"`
 }
 
 type savedViewsListResponse struct {
 	Data struct {
 		Views []modulesavedviews.View `json:"views"`
+		Meta  struct {
+			Page     int `json:"page"`
+			PageSize int `json:"pageSize"`
+			Total    int `json:"total"`
+		} `json:"meta"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`

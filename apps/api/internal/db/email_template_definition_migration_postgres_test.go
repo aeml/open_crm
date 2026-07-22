@@ -98,6 +98,7 @@ func TestEmailDefinitionManagementMigrationBackfillsAndKeepsOldWritesCompatible(
 		SELECT conname,convalidated
 		FROM pg_constraint
 		WHERE conname IN ('email_templates_revision_positive','email_snippets_revision_positive')
+		  AND connamespace = current_schema()::regnamespace
 		ORDER BY conname
 	`)
 	if err != nil {
