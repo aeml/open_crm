@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -17,12 +19,20 @@ var (
 	ErrInvalidQuota          = errors.New("invalid sales quota")
 	ErrInvalidForecastPeriod = errors.New("invalid forecast period")
 	ErrNotFound              = errors.New("dashboard resource not found")
+	ErrQueryTimeout          = errors.New("dashboard query timed out")
 )
 
 const (
-	dateLayout     = "2006-01-02"
-	maxQuotaAmount = 9999999999.99
+	dashboardQueryTimeout  = 5 * time.Second
+	dashboardWriteAttempts = 4
+	dateLayout             = "2006-01-02"
+	maxQuotaAmount         = 9999999999.99
 )
+
+type dashboardQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
 
 type Activity struct {
 	ID         int64  `json:"id"`
@@ -132,37 +142,71 @@ func NewService(pool *pgxpool.Pool) *Service {
 }
 
 func (s *Service) UpsertSalesQuota(ctx context.Context, organizationID, userID, actorUserID int64, input QuotaInput) (Summary, error) {
-	if s == nil || s.pool == nil {
+	if s == nil || s.pool == nil || organizationID <= 0 || userID <= 0 || actorUserID <= 0 {
 		return Summary{}, fmt.Errorf("dashboard service not configured")
 	}
+	queryCtx, cancel := context.WithTimeout(ctx, dashboardQueryTimeout)
+	defer cancel()
+	now := time.Now().UTC()
+	var lastErr error
+	for attempt := 0; attempt < dashboardWriteAttempts; attempt++ {
+		summary, err := s.upsertSalesQuotaOnce(queryCtx, organizationID, userID, actorUserID, input, now)
+		if err == nil {
+			return summary, nil
+		}
+		lastErr = err
+		if !retryableDashboardTransaction(err) || queryCtx.Err() != nil {
+			return Summary{}, err
+		}
+	}
+	return Summary{}, fmt.Errorf("update dashboard sales quota after %d attempts: %w", dashboardWriteAttempts, lastErr)
+}
+
+func (s *Service) upsertSalesQuotaOnce(ctx context.Context, organizationID, userID, actorUserID int64, input QuotaInput, now time.Time) (Summary, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return Summary{}, dashboardQueryError(ctx, "begin sales quota update", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
 	if strings.TrimSpace(input.Currency) == "" {
-		baseCurrency, err := s.baseCurrencyByOrganization(ctx, organizationID)
+		baseCurrency, err := baseCurrencyByOrganization(ctx, tx, organizationID)
 		if err != nil {
-			return Summary{}, err
+			return Summary{}, dashboardQueryError(ctx, "load sales quota currency", err)
 		}
 		input.Currency = baseCurrency
 	}
-	normalized, err := normalizeQuotaInput(input, time.Now().UTC())
+	normalized, err := normalizeQuotaInput(input, now)
 	if err != nil {
 		return Summary{}, err
 	}
 
-	var memberExists bool
-	if err := s.pool.QueryRow(ctx, `
+	var targetExists, actorCanManage bool
+	if err := tx.QueryRow(ctx, `
+		WITH locked_memberships AS MATERIALIZED (
+			SELECT user_id, role, COALESCE(membership_status, 'active') AS membership_status
+			FROM organization_memberships
+			WHERE organization_id = $1 AND user_id IN ($2, $3)
+			FOR SHARE
+		)
 		SELECT EXISTS (
 			SELECT 1
-			FROM organization_memberships
-			WHERE organization_id = $1 AND user_id = $2
+			FROM locked_memberships
+			WHERE user_id = $2 AND membership_status = 'active'
+		), EXISTS (
+			SELECT 1
+			FROM locked_memberships
+			WHERE user_id = $3 AND membership_status = 'active'
+			  AND role IN ('owner', 'admin')
 		)
-	`, organizationID, userID).Scan(&memberExists); err != nil {
-		return Summary{}, fmt.Errorf("lookup quota user: %w", err)
+	`, organizationID, userID, actorUserID).Scan(&targetExists, &actorCanManage); err != nil {
+		return Summary{}, dashboardQueryError(ctx, "lookup quota users", err)
 	}
-	if !memberExists {
+	if !targetExists || !actorCanManage {
 		return Summary{}, ErrNotFound
 	}
 
-	_, err = s.pool.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		INSERT INTO sales_quotas (organization_id, user_id, period_start, period_end, quota_amount, currency, created_by_user_id, updated_by_user_id)
 		VALUES ($1, $2, $3::date, $4::date, $5::numeric, $6, $7, $7)
 		ON CONFLICT (organization_id, user_id, period_start, period_end)
@@ -172,17 +216,46 @@ func (s *Service) UpsertSalesQuota(ctx context.Context, organizationID, userID, 
 		              updated_at = NOW()
 	`, organizationID, userID, normalized.PeriodStart, normalized.PeriodEnd, normalized.QuotaAmount, normalized.Currency, actorUserID)
 	if err != nil {
-		return Summary{}, fmt.Errorf("upsert sales quota: %w", err)
+		return Summary{}, dashboardQueryError(ctx, "upsert sales quota", err)
 	}
 
-	return s.SummaryByOrganization(ctx, organizationID, ForecastQuery{PeriodStart: normalized.PeriodStart, PeriodEnd: normalized.PeriodEnd})
+	summary, err := s.summaryByOrganization(ctx, tx, organizationID, ForecastQuery{PeriodStart: normalized.PeriodStart, PeriodEnd: normalized.PeriodEnd}, now)
+	if err != nil {
+		return Summary{}, dashboardQueryError(ctx, "load updated dashboard summary", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Summary{}, dashboardQueryError(ctx, "commit sales quota update", err)
+	}
+	return summary, nil
 }
 
 func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int64, forecastQuery ForecastQuery) (Summary, error) {
-	if s == nil || s.pool == nil {
+	if s == nil || s.pool == nil || organizationID <= 0 {
 		return Summary{}, fmt.Errorf("dashboard service not configured")
 	}
+	now := time.Now().UTC()
+	if _, _, err := normalizeForecastPeriod(forecastQuery, now); err != nil {
+		return Summary{}, err
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, dashboardQueryTimeout)
+	defer cancel()
+	tx, err := s.pool.BeginTx(queryCtx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return Summary{}, dashboardQueryError(queryCtx, "begin dashboard snapshot", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(queryCtx)) }()
 
+	summary, err := s.summaryByOrganization(queryCtx, tx, organizationID, forecastQuery, now)
+	if err != nil {
+		return Summary{}, dashboardQueryError(queryCtx, "load dashboard snapshot", err)
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return Summary{}, dashboardQueryError(queryCtx, "commit dashboard snapshot", err)
+	}
+	return summary, nil
+}
+
+func (s *Service) summaryByOrganization(ctx context.Context, query dashboardQuerier, organizationID int64, forecastQuery ForecastQuery, now time.Time) (Summary, error) {
 	summary := Summary{ClientReviews: ClientReviewSummary{
 		Records: []ClientReviewRecord{},
 		Semantics: []string{
@@ -192,7 +265,7 @@ func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int6
 		},
 	}}
 	var missingRateCurrencies string
-	if err := s.pool.QueryRow(ctx, `
+	if err := query.QueryRow(ctx, `
 		WITH org_settings AS (
 			SELECT COALESCE(NULLIF(base_currency, ''), 'USD') AS base_currency
 			FROM organizations
@@ -231,14 +304,14 @@ func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int6
 	}
 	summary.MissingRateCurrencies = splitCurrencyList(missingRateCurrencies)
 
-	forecast, err := s.forecastByOrganization(ctx, organizationID, forecastQuery, time.Now().UTC())
+	forecast, err := s.forecastByOrganization(ctx, query, organizationID, forecastQuery, now)
 	if err != nil {
 		return Summary{}, err
 	}
 	summary.Forecast = forecast
 	summary.MissingRateCurrencies = mergeCurrencyLists(summary.MissingRateCurrencies, forecast.MissingRateCurrencies)
 
-	if err := s.pool.QueryRow(ctx, `
+	if err := query.QueryRow(ctx, `
 		SELECT
 			COUNT(*) FILTER (WHERE status <> 'completed'),
 			COUNT(*) FILTER (WHERE status <> 'completed' AND due_at IS NOT NULL AND due_at < NOW()),
@@ -250,12 +323,12 @@ func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int6
 		return Summary{}, fmt.Errorf("load task summary: %w", err)
 	}
 
-	if err := s.loadClientReviews(ctx, organizationID, &summary.ClientReviews); err != nil {
+	if err := s.loadClientReviews(ctx, query, organizationID, &summary.ClientReviews); err != nil {
 		return Summary{}, err
 	}
 
-	weekStart := time.Now().UTC().AddDate(0, 0, -7)
-	if err := s.pool.QueryRow(ctx, `
+	weekStart := now.AddDate(0, 0, -7)
+	if err := query.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM contacts
 		WHERE organization_id = $1 AND archived_at IS NULL AND created_at >= $2
@@ -263,7 +336,7 @@ func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int6
 		return Summary{}, fmt.Errorf("load contact summary: %w", err)
 	}
 
-	rows, err := s.pool.Query(ctx, `
+	rows, err := query.Query(ctx, `
 		SELECT
 			a.id,
 			a.action,
@@ -306,7 +379,7 @@ func (s *Service) SummaryByOrganization(ctx context.Context, organizationID int6
 	return summary, nil
 }
 
-func (s *Service) loadClientReviews(ctx context.Context, organizationID int64, summary *ClientReviewSummary) error {
+func (s *Service) loadClientReviews(ctx context.Context, query dashboardQuerier, organizationID int64, summary *ClientReviewSummary) error {
 	const validSchedules = `
 		FROM client_review_schedules schedule
 		JOIN tasks task
@@ -325,7 +398,7 @@ func (s *Service) loadClientReviews(ctx context.Context, organizationID int64, s
 		  AND task.archived_at IS NULL AND task.status='open'
 		  AND ((schedule.entity_type='contact' AND contact.id IS NOT NULL)
 		    OR (schedule.entity_type='company' AND company.id IS NOT NULL))`
-	if err := s.pool.QueryRow(ctx, `
+	if err := query.QueryRow(ctx, `
 		SELECT COUNT(*),
 		       COUNT(*) FILTER (WHERE schedule.next_review_at<NOW()),
 		       COUNT(*) FILTER (WHERE schedule.next_review_at>=NOW() AND schedule.next_review_at<NOW()+INTERVAL '30 days'),
@@ -334,7 +407,7 @@ func (s *Service) loadClientReviews(ctx context.Context, organizationID int64, s
 		return fmt.Errorf("load client review counts: %w", err)
 	}
 
-	rows, err := s.pool.Query(ctx, `
+	rows, err := query.Query(ctx, `
 		SELECT schedule.entity_type,schedule.entity_id,
 		       CASE WHEN schedule.entity_type='contact'
 		            THEN COALESCE(NULLIF(trim(contact.first_name||' '||contact.last_name),''),'Contact #'||contact.id::text)
@@ -388,7 +461,7 @@ func (s *Service) loadClientReviews(ctx context.Context, organizationID int64, s
 	return nil
 }
 
-func (s *Service) forecastByOrganization(ctx context.Context, organizationID int64, query ForecastQuery, now time.Time) (Forecast, error) {
+func (s *Service) forecastByOrganization(ctx context.Context, db dashboardQuerier, organizationID int64, query ForecastQuery, now time.Time) (Forecast, error) {
 	periodStart, periodEnd, err := normalizeForecastPeriod(query, now)
 	if err != nil {
 		return Forecast{}, err
@@ -400,13 +473,13 @@ func (s *Service) forecastByOrganization(ctx context.Context, organizationID int
 		Members:     []ForecastMember{},
 		Stages:      []ForecastStage{},
 	}
-	baseCurrency, err := s.baseCurrencyByOrganization(ctx, organizationID)
+	baseCurrency, err := baseCurrencyByOrganization(ctx, db, organizationID)
 	if err != nil {
 		return Forecast{}, err
 	}
 	forecast.Currency = baseCurrency
 
-	rows, err := s.pool.Query(ctx, `
+	rows, err := db.Query(ctx, `
 		WITH org_settings AS (
 			SELECT COALESCE(NULLIF(base_currency, ''), 'USD') AS base_currency
 			FROM organizations
@@ -562,7 +635,7 @@ func (s *Service) forecastByOrganization(ctx context.Context, organizationID int
 		return Forecast{}, fmt.Errorf("iterate forecast summary: %w", err)
 	}
 	rows.Close()
-	stages, err := s.forecastStages(ctx, organizationID, periodStart, periodEnd)
+	stages, err := s.forecastStages(ctx, db, organizationID, periodStart, periodEnd)
 	if err != nil {
 		return Forecast{}, err
 	}
@@ -578,8 +651,8 @@ func (s *Service) forecastByOrganization(ctx context.Context, organizationID int
 	return forecast, nil
 }
 
-func (s *Service) forecastStages(ctx context.Context, organizationID int64, periodStart, periodEnd string) ([]ForecastStage, error) {
-	rows, err := s.pool.Query(ctx, `
+func (s *Service) forecastStages(ctx context.Context, query dashboardQuerier, organizationID int64, periodStart, periodEnd string) ([]ForecastStage, error) {
+	rows, err := query.Query(ctx, `
 		WITH org_settings AS (
 			SELECT COALESCE(NULLIF(base_currency, ''), 'USD') AS base_currency
 			FROM organizations
@@ -741,9 +814,9 @@ func formatPercent(value float64) string {
 	return strconv.FormatFloat(math.Round(value*10)/10, 'f', 1, 64)
 }
 
-func (s *Service) baseCurrencyByOrganization(ctx context.Context, organizationID int64) (string, error) {
+func baseCurrencyByOrganization(ctx context.Context, query dashboardQuerier, organizationID int64) (string, error) {
 	baseCurrency := "USD"
-	if err := s.pool.QueryRow(ctx, `
+	if err := query.QueryRow(ctx, `
 		SELECT COALESCE(NULLIF(base_currency, ''), 'USD')
 		FROM organizations
 		WHERE id = $1
@@ -751,6 +824,18 @@ func (s *Service) baseCurrencyByOrganization(ctx context.Context, organizationID
 		return "", fmt.Errorf("load organization base currency: %w", err)
 	}
 	return baseCurrency, nil
+}
+
+func dashboardQueryError(ctx context.Context, operation string, err error) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return ErrQueryTimeout
+	}
+	return fmt.Errorf("%s: %w", operation, err)
+}
+
+func retryableDashboardTransaction(err error) bool {
+	var postgresError *pgconn.PgError
+	return errors.As(err, &postgresError) && (postgresError.Code == "40001" || postgresError.Code == "40P01")
 }
 
 func splitCurrencyList(value string) []string {

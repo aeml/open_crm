@@ -76,6 +76,28 @@ func TestMigrationFilesIncludeSavedViewManagement(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeDashboardQueryIndexes(t *testing.T) {
+	const name = "118_dashboard_query_indexes.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	sql := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"lock_timeout",
+		"statement_timeout",
+		"idx_activities_dashboard_recent",
+		"idx_contacts_dashboard_recent",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("dashboard query-index migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("dashboard query-index deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeVersionedDealQuotes(t *testing.T) {
 	if !slices.Contains(MigrationFiles(), "093_versioned_deal_quotes.sql") {
 		t.Fatal("expected versioned deal quotes migration to be registered")

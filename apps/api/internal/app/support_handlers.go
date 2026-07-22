@@ -222,6 +222,10 @@ func handleDashboardSummary(auth authService, dashboard dashboardService, w http
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose a valid forecast period no longer than one year")
 			return
 		}
+		if errors.Is(err, moduledashboard.ErrQueryTimeout) {
+			platformweb.WriteError(w, http.StatusGatewayTimeout, requestID, "DASHBOARD_TIMEOUT", "The dashboard exceeded its five-second query limit")
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load dashboard summary")
 		return
 	}
@@ -256,6 +260,10 @@ func handleUpsertDashboardSalesQuota(auth authService, dashboard dashboardServic
 		}
 		if errors.Is(err, moduledashboard.ErrInvalidQuota) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid quota amount, currency, and period")
+			return
+		}
+		if errors.Is(err, moduledashboard.ErrQueryTimeout) {
+			platformweb.WriteError(w, http.StatusGatewayTimeout, requestID, "DASHBOARD_TIMEOUT", "The dashboard exceeded its five-second query limit; reload before retrying the quota")
 			return
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to save sales quota")

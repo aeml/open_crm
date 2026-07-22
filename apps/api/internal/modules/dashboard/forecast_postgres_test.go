@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -151,6 +152,211 @@ func TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantSco
 	otherPeriod, err := dashboardService.SummaryByOrganization(ctx, organizationID, moduledashboard.ForecastQuery{PeriodStart: "2026-07-01", PeriodEnd: "2026-09-30"})
 	if err != nil || otherPeriod.Forecast.OpenPipelineAmount != "4000.00" || otherPeriod.Forecast.WeightedForecastAmount != "3000.00" {
 		t.Fatalf("unexpected alternate-period forecast: forecast=%#v err=%v", otherPeriod.Forecast, err)
+	}
+
+	assertDashboardQuotaAuthorizationAndRollback(t, ctx, pool, dashboardService, organizationID, actorUserID, schema)
+	assertDashboardPilotVolumeAndPlans(t, ctx, pool, dashboardService, organizationID, foreignOrganizationID, actorUserID, stageIDs, foreignStageID)
+	assertDashboardTimeout(t, ctx, pool, dashboardService, organizationID, query)
+}
+
+func assertDashboardQuotaAuthorizationAndRollback(t *testing.T, ctx context.Context, pool *moduledb.Pool, service *moduledashboard.Service, organizationID, actorUserID int64, schema string) {
+	t.Helper()
+	var disabledUserID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO users (email,password_hash,first_name,last_name) VALUES ($1,'hash','Disabled','Admin') RETURNING id`, "disabled-dashboard-"+schema+"@example.test").Scan(&disabledUserID); err != nil {
+		t.Fatalf("create disabled dashboard user: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id,user_id,role,membership_status) VALUES ($1,$2,'admin','disabled')`, organizationID, disabledUserID); err != nil {
+		t.Fatalf("create disabled dashboard membership: %v", err)
+	}
+	input := moduledashboard.QuotaInput{PeriodStart: "2026-04-01", PeriodEnd: "2026-06-30", QuotaAmount: "125000.00", Currency: "USD"}
+	if _, err := service.UpsertSalesQuota(ctx, organizationID, disabledUserID, actorUserID, input); !errors.Is(err, moduledashboard.ErrNotFound) {
+		t.Fatalf("active admin wrote a quota for a disabled member: %v", err)
+	}
+	if _, err := service.UpsertSalesQuota(ctx, organizationID, actorUserID, disabledUserID, input); !errors.Is(err, moduledashboard.ErrNotFound) {
+		t.Fatalf("disabled admin wrote a quota: %v", err)
+	}
+
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin dashboard quota blocker: %v", err)
+	}
+	if _, err := blocker.Exec(ctx, `LOCK TABLE sales_quotas IN ACCESS EXCLUSIVE MODE`); err != nil {
+		_ = blocker.Rollback(ctx)
+		t.Fatalf("lock dashboard quotas: %v", err)
+	}
+	blockedCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	_, blockedErr := service.UpsertSalesQuota(blockedCtx, organizationID, actorUserID, actorUserID, input)
+	cancel()
+	if err := blocker.Rollback(ctx); err != nil {
+		t.Fatalf("release dashboard quota blocker: %v", err)
+	}
+	if !errors.Is(blockedErr, moduledashboard.ErrQueryTimeout) {
+		t.Fatalf("blocked dashboard quota returned %v, want query timeout", blockedErr)
+	}
+	var quota string
+	if err := pool.QueryRow(ctx, `SELECT quota_amount::text FROM sales_quotas WHERE organization_id=$1 AND user_id=$2 AND period_start='2026-04-01' AND period_end='2026-06-30'`, organizationID, actorUserID).Scan(&quota); err != nil || quota != "100000.00" {
+		t.Fatalf("timed-out dashboard quota was not rolled back: quota=%q err=%v", quota, err)
+	}
+	var wait sync.WaitGroup
+	concurrentErrors := make(chan error, 2)
+	for _, amount := range []string{"130000.00", "140000.00"} {
+		wait.Add(1)
+		go func(quotaAmount string) {
+			defer wait.Done()
+			concurrentInput := input
+			concurrentInput.QuotaAmount = quotaAmount
+			_, err := service.UpsertSalesQuota(ctx, organizationID, actorUserID, actorUserID, concurrentInput)
+			concurrentErrors <- err
+		}(amount)
+	}
+	wait.Wait()
+	close(concurrentErrors)
+	for err := range concurrentErrors {
+		if err != nil {
+			t.Fatalf("concurrent dashboard quota update was not retried safely: %v", err)
+		}
+	}
+
+	updated, err := service.UpsertSalesQuota(ctx, organizationID, actorUserID, actorUserID, input)
+	if err != nil || updated.Forecast.TeamQuota != "125000.00" || forecastMember(t, updated.Forecast, actorUserID).QuotaAmount != "125000.00" {
+		t.Fatalf("transactional dashboard quota update: forecast=%#v err=%v", updated.Forecast, err)
+	}
+}
+
+func assertDashboardPilotVolumeAndPlans(t *testing.T, ctx context.Context, pool *moduledb.Pool, service *moduledashboard.Service, organizationID, foreignOrganizationID, actorUserID int64, stageIDs map[string]int64, foreignStageID int64) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO deals (organization_id,stage_id,name,status,value_amount,value_currency,expected_close_date,owner_user_id)
+		SELECT $1,$2,'Pilot dashboard deal '||value,'open',1,'USD','2026-05-15',$3
+		FROM generate_series(1,10000) AS value
+	`, organizationID, stageIDs["Prospect"], actorUserID); err != nil {
+		t.Fatalf("seed local dashboard deal volume: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO deals (organization_id,stage_id,name,status,value_amount,value_currency,expected_close_date,owner_user_id)
+		SELECT $1,$2,'Foreign dashboard deal '||value,'open',1000000,'USD','2026-05-15',$3
+		FROM generate_series(1,10000) AS value
+	`, foreignOrganizationID, foreignStageID, actorUserID); err != nil {
+		t.Fatalf("seed foreign dashboard deal volume: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO contacts (organization_id,first_name,last_name,email,created_at)
+		SELECT $1,'Pilot','Contact '||value,'pilot-dashboard-'||value||'@example.test',
+		       CASE WHEN value<=1000 THEN NOW()-INTERVAL '1 hour' ELSE NOW()-INTERVAL '30 days' END
+		FROM generate_series(1,10000) AS value
+	`, organizationID); err != nil {
+		t.Fatalf("seed local dashboard contact volume: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO contacts (organization_id,first_name,last_name,email,created_at)
+		SELECT $1,'Foreign','Contact '||value,'foreign-dashboard-'||value||'@example.test',
+		       CASE WHEN value<=1000 THEN NOW()-INTERVAL '1 hour' ELSE NOW()-INTERVAL '30 days' END
+		FROM generate_series(1,10000) AS value
+	`, foreignOrganizationID); err != nil {
+		t.Fatalf("seed foreign dashboard contact volume: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO tasks (organization_id,entity_type,entity_id,title,status,due_at,assigned_to_user_id,created_by_user_id)
+		SELECT $1,'deal',value,'Pilot dashboard task '||value,'open',NOW()+INTERVAL '48 hours',$2,$2
+		FROM generate_series(1,10000) AS value
+	`, organizationID, actorUserID); err != nil {
+		t.Fatalf("seed local dashboard task volume: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO tasks (organization_id,entity_type,entity_id,title,status,due_at,assigned_to_user_id,created_by_user_id)
+		SELECT $1,'deal',value,'Foreign dashboard task '||value,'open',NOW()+INTERVAL '48 hours',$2,$2
+		FROM generate_series(1,10000) AS value
+	`, foreignOrganizationID, actorUserID); err != nil {
+		t.Fatalf("seed foreign dashboard task volume: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (organization_id,entity_type,entity_id,actor_user_id,action,summary,created_at)
+		SELECT $1,'deal',value,$2,'dashboard.local','Local dashboard activity',NOW()-value*INTERVAL '1 second'
+		FROM generate_series(1,20000) AS value
+	`, organizationID, actorUserID); err != nil {
+		t.Fatalf("seed local dashboard activity volume: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (organization_id,entity_type,entity_id,actor_user_id,action,summary,created_at)
+		SELECT $1,'deal',value,$2,'dashboard.foreign','Foreign dashboard activity',NOW()-value*INTERVAL '1 second'
+		FROM generate_series(1,20000) AS value
+	`, foreignOrganizationID, actorUserID); err != nil {
+		t.Fatalf("seed foreign dashboard activity volume: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ANALYZE deals; ANALYZE contacts; ANALYZE tasks; ANALYZE activities`); err != nil {
+		t.Fatalf("analyze dashboard volume: %v", err)
+	}
+
+	started := time.Now()
+	summary, err := service.SummaryByOrganization(ctx, organizationID, moduledashboard.ForecastQuery{PeriodStart: "2026-04-01", PeriodEnd: "2026-06-30"})
+	elapsed := time.Since(started)
+	if err != nil || elapsed >= 2*time.Second {
+		t.Fatalf("dashboard pilot-volume budget: elapsed=%s err=%v", elapsed, err)
+	}
+	t.Logf("dashboard pilot-volume snapshot completed in %s", elapsed)
+	if summary.PipelineValue != "52000.00" || summary.OpenDealsCount != 10004 || summary.WonDealsCount != 1 || summary.NewContactsCount != 1000 {
+		t.Fatalf("unexpected dashboard pilot-volume rollup: %#v", summary)
+	}
+	if summary.OpenTasksCount != 10004 || summary.OverdueTasksCount != 1 || summary.DueSoonTasksCount != 1 || summary.UpcomingTasksCount != 10001 {
+		t.Fatalf("unexpected dashboard pilot-volume task buckets: %#v", summary)
+	}
+	if summary.Forecast.TeamQuota != "125000.00" || summary.Forecast.OpenPipelineAmount != "44000.00" || summary.Forecast.WeightedForecastAmount != "33000.00" {
+		t.Fatalf("unexpected dashboard pilot-volume forecast: %#v", summary.Forecast)
+	}
+	if len(summary.RecentActivities) != 8 {
+		t.Fatalf("dashboard recent activity bound=%d, want 8", len(summary.RecentActivities))
+	}
+	for _, activity := range summary.RecentActivities {
+		if activity.Action != "dashboard.local" {
+			t.Fatalf("foreign or stale activity entered dashboard: %#v", activity)
+		}
+	}
+	assertDashboardIndex(t, ctx, pool, `SELECT id FROM activities WHERE organization_id=$1 ORDER BY created_at DESC,id DESC LIMIT 8`, organizationID, "idx_activities_dashboard_recent")
+	assertDashboardIndex(t, ctx, pool, `SELECT COUNT(*) FROM contacts WHERE organization_id=$1 AND archived_at IS NULL AND created_at >= NOW()-INTERVAL '7 days'`, organizationID, "idx_contacts_dashboard_recent")
+}
+
+func assertDashboardTimeout(t *testing.T, ctx context.Context, pool *moduledb.Pool, service *moduledashboard.Service, organizationID int64, query moduledashboard.ForecastQuery) {
+	t.Helper()
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin dashboard read blocker: %v", err)
+	}
+	if _, err := blocker.Exec(ctx, `LOCK TABLE organizations IN ACCESS EXCLUSIVE MODE`); err != nil {
+		_ = blocker.Rollback(ctx)
+		t.Fatalf("lock dashboard organization reads: %v", err)
+	}
+	blockedCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	_, blockedErr := service.SummaryByOrganization(blockedCtx, organizationID, query)
+	cancel()
+	if err := blocker.Rollback(ctx); err != nil {
+		t.Fatalf("release dashboard read blocker: %v", err)
+	}
+	if !errors.Is(blockedErr, moduledashboard.ErrQueryTimeout) {
+		t.Fatalf("blocked dashboard read returned %v, want query timeout", blockedErr)
+	}
+}
+
+func assertDashboardIndex(t *testing.T, ctx context.Context, pool *moduledb.Pool, statement string, organizationID int64, indexName string) {
+	t.Helper()
+	rows, err := pool.Query(ctx, `EXPLAIN (COSTS OFF) `+statement, organizationID)
+	if err != nil {
+		t.Fatalf("explain dashboard query for %s: %v", indexName, err)
+	}
+	defer rows.Close()
+	var planLines []string
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatalf("scan dashboard plan for %s: %v", indexName, err)
+		}
+		planLines = append(planLines, line)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate dashboard plan for %s: %v", indexName, err)
+	}
+	plan := strings.Join(planLines, "\n")
+	if !strings.Contains(plan, indexName) {
+		t.Fatalf("dashboard query did not use %s:\n%s", indexName, plan)
 	}
 }
 

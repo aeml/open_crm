@@ -135,7 +135,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.8` Integration Security Review: planned.
 - `0.8.9` Integration Release Review: planned.
 - `0.9.0` Scale And Reliability: in progress.
-- `0.9.1` Query Performance Review: in progress (core tenant query plans and representative budgets are CI-gated; dashboard/report/import/provider review remains).
+- `0.9.1` Query Performance Review: in progress (core tenant and fixed-dashboard query plans and representative budgets are CI-gated; later report/provider review remains).
 - `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person, product-catalog, quote-template, email-sequence-definition, and personal saved-view management, stable bounded workflow- and saved-report-definition management with exact same-snapshot summaries, PostgreSQL page evidence, serialized stored/active catalog ceilings, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: planned.
@@ -619,6 +619,11 @@ Completion notes:
 - Added a pipeline signal card that highlights clear, untouched, stale, or recently touched pipeline states from the existing dashboard activity feed.
 - Added recently touched contacts/clients from recent activity without introducing new dashboard queries.
 - Covered the new dashboard decision-support UI with router tests.
+- Hardened the complete fixed dashboard as one repeatable-read tenant snapshot
+  with a five-second deadline, timeout-safe API response, transactional quota
+  revalidation/rollback, measured recent-contact/activity indexes, and a
+  two-tenant PostgreSQL gate covering 10,000 deals, contacts, and tasks plus
+  20,000 activities per tenant below two seconds.
 
 ## Version 0.3.6 - Admin Audit Trail
 
@@ -1419,6 +1424,10 @@ date. Deals list, saved-view URL state, and CSV export share close-date range
 filters. Handler/unit tests, a disposable-PostgreSQL tenant-isolation acceptance
 test, focused UI tests, and the clean-schema Chromium journey prove that changing
 a used stage from 65% changes the explainable forecast without detaching its deal.
+The dashboard hardening gate additionally proves the fixed forecast and daily-work
+panels are one repeatable-read snapshot, use bounded selective plans, exclude a
+same-size foreign tenant, fail explicitly after five seconds, and roll back a
+quota write if its returned snapshot cannot complete.
 
 ## Version 0.6.3 - Task Automation Rules
 
@@ -2170,8 +2179,12 @@ and tasks, then budgets concurrent reads and writes through their real services.
 Mapped import write and duplicate checks now have tenant-normalized indexes and
 a 1,000-row regression budget. The same fixture now checks maximum-size adjacent
 core pages for exact totals, stable ordering, no overlap, tenant separation, and
-safe rejection beyond the documented page boundary. Dashboard, later runtime
-report shapes, and provider-specific queries still need review as those
+safe rejection beyond the documented page boundary. The fixed operational
+dashboard now reads one repeatable tenant snapshot under a five-second deadline;
+migration 118 supplies measured recent-contact/activity paths, and its dedicated
+two-tenant fixture budgets 10,000 deals, contacts, and tasks plus 20,000 activities
+per tenant below two seconds while proving timeout/rollback behavior. Later
+runtime report shapes and provider-specific queries still need review as those
 end-to-end workflows converge.
 
 ## Version 0.9.2 - Pagination And Large Dataset Hardening
@@ -2444,38 +2457,21 @@ contacts with duplicate checks and progress ledgers under a 10 s budget. Postmar
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 178.82 KiB/57.96 KiB for the entry, 54.93 KiB/15.65 KiB
-for the largest lazy chunk, and 728.06 KiB/227.23 KiB total assets under the
-reviewed 729/228 KiB aggregate ceilings. Bounded lead-review continuation uses a
-15.46/5.01 KiB lead-forms route and advances only those aggregate ceilings;
-snapshot-bound shared-inbox continuation retains its 15.19/4.42 KiB combined
-mailbox/team-inbox chunk. The isolated
-public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
-retry-safe signature ceremony, terminal states, and certificate access. Hosted
-billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB
-route and retry-key creation is a 0.15 KiB shared helper. Production builds include
-the 47.40/11.16 KiB bounded pipeline-cohort/client-period/saved-table/grouped-bar Reports route,
-whose pipeline-cohort and client-period components are 193 and 162 lines,
-saved-report orchestration is 295
-lines, separately tested catalog/form model is 245 lines, and 33/26-line
-bar/table renderers remain below the source ceiling and whose custom line/funnel/pie/KPI controls are filtered from production
-navigation. They omit booking-link, audience,
-lead-scoring, marketing-email, and nurture-campaign management routes; the bundle
-gate rejects those routes' accidental inclusion. The complete
-quote-template/approval outcome advanced the measured aggregate ceilings to
-659/211 KiB. The later durable and scheduled lead-follow-up outcomes keep their
-lazy settings route to 15.07/4.73 KiB and advance only the aggregate ceilings to 664/212 KiB;
-entry, per-route, and CSS limits remain unchanged.
-Reversible lead-submission review then extends its lazy lead-forms route to
-14.47/4.63 KiB and advances only the aggregate ceilings to 670/214 KiB; the
-saved-table outcome then advances only the aggregate ceilings to 690/220 KiB.
-The complete grouped-bar outcome advances only the aggregate raw ceiling to
-693 KiB; client-period activity advances it to 699 KiB while gzip remains at
-220 KiB.
+CSS. Current production-URL evidence is 178.82 KiB/57.96 KiB for the entry,
+54.93 KiB/15.65 KiB for the largest lazy chunk, and 760.39 KiB/237.22 KiB total
+assets under the reviewed 761/238 KiB aggregate ceilings. The dashboard hardening
+slice changes no frontend bytes. The current Reports route is 50.52/12.07 KiB,
+with 193- and 162-line pipeline-cohort/client-period components, 352-line
+saved-report orchestration, a separately tested 245-line catalog/form model,
+and focused 33/26-line bar/table renderers. Production still filters incomplete
+custom line/funnel/pie/KPI controls and omits booking, audience/scoring,
+marketing/nurture, calling/SMS, and other fake-only management routes; the bundle
+gate rejects accidental inclusion. The incremental budget history and current
+per-route values remain reconciled in `docs/performance-and-failure-budgets.md`.
 Entry, per-route, CSS, and source limits remain unchanged. Tested route
 splits plus bulk/custom-field/touchpoint/close-review/account/health integration
 and focused contact outreach/lead scoring/workspace/detail orchestration plus shared record selection/work, company directory/people/workspace/detail orchestration, and task directory/workspace presentation leave contacts at 449 lines,
-companies at 458, deals at 473, and tasks at 496, down from 2,038, 1,364,
+companies at 461, deals at 473, and tasks at 500, down from 2,038, 1,364,
 1,365, and 1,093 respectively.
 Remaining work is production-like host evidence, real pilot traffic, and later
 provider/feature loads.
@@ -2505,8 +2501,9 @@ initial database connection failed. Production startup now exits before HTTP
 on that failure, the restart policy retries it, container health uses
 dependency-aware `/readyz`, deploy and rollback acceptance require 45 seconds
 of continuous exact-release health, and disposable Compose acceptance proves
-automatic recovery from database-unavailable boot. Restore drills, broader
-load/failure testing, an approved automatic production-host recovery exercise,
+automatic recovery from database-unavailable boot. Production-like host
+load/failure evidence, off-host restore evidence, an approved automatic
+production-host recovery exercise,
 and the complete pilot journey remain before this review can be complete.
 
 Goal: close the reliability milestone before production beta.

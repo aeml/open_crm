@@ -181,3 +181,30 @@ func TestDashboardSummaryRejectsInvalidForecastPeriod(t *testing.T) {
 		t.Fatalf("unexpected invalid-period response: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestDashboardSummaryReportsBoundedQueryTimeout(t *testing.T) {
+	service := &fakeDashboardService{summaryErr: moduledashboard.ErrQueryTimeout}
+	request := httptest.NewRequest(http.MethodGet, "/api/dashboard/summary", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	authenticatedDashboardServer(service).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusGatewayTimeout || !strings.Contains(recorder.Body.String(), `"code":"DASHBOARD_TIMEOUT"`) || !strings.Contains(recorder.Body.String(), "five-second") {
+		t.Fatalf("unexpected dashboard timeout response: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestDashboardQuotaTimeoutRequiresReconciliationBeforeRetry(t *testing.T) {
+	service := &fakeDashboardService{upsertErr: moduledashboard.ErrQueryTimeout}
+	request := httptest.NewRequest(http.MethodPut, "/api/dashboard/sales-quotas/2", strings.NewReader(`{"quotaAmount":"1000","currency":"USD"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	authenticatedDashboardServer(service).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusGatewayTimeout || !strings.Contains(recorder.Body.String(), `"code":"DASHBOARD_TIMEOUT"`) || !strings.Contains(recorder.Body.String(), "reload before retrying") {
+		t.Fatalf("unexpected dashboard quota timeout response: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}

@@ -607,6 +607,13 @@ references.
    value totals; add or correct the rate and reload rather than substituting an
    undocumented estimate. Use matching expected-close filters on Deals and its
    CSV export to reconcile the dated records behind a period.
+5. The complete dashboard is one repeatable-read PostgreSQL snapshot with a
+   five-second execution limit. `504 DASHBOARD_TIMEOUT` means no partial panel
+   was returned; retry once, then inspect database saturation and the
+   `idx_activities_dashboard_recent` / `idx_contacts_dashboard_recent` plans.
+   A forced pre-commit timeout rolls back the quota and snapshot together. Any
+   failed request should still be reloaded before retrying so an operator never
+   guesses whether a failure occurred at the commit boundary.
 
 ### Sales activity reporting and reconciliation
 

@@ -163,6 +163,20 @@ the 100-row saved-report page, 23.9 ms for the 453,869-byte saved-report export,
 52,937-byte/1,000-row import. Test
 failure output includes observed latency or the query plan/budget that regressed.
 
+`apps/api/internal/modules/dashboard/forecast_postgres_test.go` separately gates
+the complete fixed operational dashboard rather than treating its individual
+panels as independent small queries. It migrates an isolated schema, seeds equal
+local and foreign working sets of 10,000 deals, contacts, and tasks plus 20,000
+activities per tenant, and requires the full deal/task/contact/activity,
+client-review, owner, stage, quota, and FX response to reconcile exactly below
+two seconds. The service itself allows at most five seconds and executes every
+panel from one read-only repeatable-read snapshot. Migration 118's recent-activity
+and active-recent-contact plans are asserted after `ANALYZE`; existing task,
+review, membership, quota, exchange-rate, and tenant-deal indexes retain their
+reviewed roles. A forced table lock must become stable `DASHBOARD_TIMEOUT`, and a
+separately blocked quota update must roll back instead of returning an ambiguous
+partial success. This remains a regression budget on CI hardware, not a host SLO.
+
 `apps/api/internal/modules/salesreports/query_plans_postgres_test.go` adds the
 sales-milestone plan gate. It seeds roughly ten months of mixed stage events and
 sales/non-sales activity across organizations and owners, analyzes the tables,
