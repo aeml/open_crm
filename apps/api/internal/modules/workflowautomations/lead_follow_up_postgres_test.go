@@ -215,6 +215,14 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 	if taskTitle != "Call partner lead" || taskAssigneeID != assigneeUserID || taskContactID != matchedContactID || dueAt.Before(time.Now().UTC().Add(23*time.Hour)) {
 		t.Fatalf("task did not retain captured definition: title=%q assignee=%d contact=%d due=%s", taskTitle, taskAssigneeID, taskContactID, dueAt)
 	}
+	retainedRuns, err := automations.ListRuns(ctx, organizationID, moduleworkflowautomations.RunListQuery{AutomationID: rule.ID, Limit: 10})
+	if err != nil || len(retainedRuns) != 1 || len(retainedRuns[0].Actions) != 1 {
+		t.Fatalf("load lead workflow action outcome: runs=%#v err=%v", retainedRuns, err)
+	}
+	retainedAction := retainedRuns[0].Actions[0]
+	if retainedAction.Position != 1 || retainedAction.Label != "Call partner lead" || retainedAction.Status != "succeeded" || retainedAction.Attempts != 1 || retainedAction.TaskID != taskID || retainedAction.TaskDueAt == "" || retainedAction.LastError != "" {
+		t.Fatalf("lead workflow action did not retain its captured outcome: %#v", retainedAction)
+	}
 
 	// A replay after the task transaction committed but queue acknowledgement was
 	// lost returns the exact task instead of creating a second effect.
@@ -384,7 +392,7 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 		t.Fatalf("dead-letter scheduled workflow operation: %v", err)
 	}
 	runs, err := automations.ListRuns(ctx, organizationID, moduleworkflowautomations.RunListQuery{AutomationID: scheduledRule.ID, Limit: 10})
-	if err != nil || len(runs) != 1 || runs[0].ID != scheduledRunID || runs[0].Status != "failed" || runs[0].LastError != "database remained unavailable" || runs[0].RetryCount != 4 || runs[0].CompletedAt == "" || runs[0].Operation == nil || runs[0].Operation.Status != "dead" || runs[0].Operation.Attempts != 5 || runs[0].Operation.MaxAttempts != 5 {
+	if err != nil || len(runs) != 1 || runs[0].ID != scheduledRunID || runs[0].Status != "failed" || runs[0].LastError != "database remained unavailable" || runs[0].RetryCount != 4 || runs[0].CompletedAt == "" || runs[0].Operation == nil || runs[0].Operation.Status != "dead" || runs[0].Operation.Attempts != 5 || runs[0].Operation.MaxAttempts != 5 || len(runs[0].Actions) != 1 || runs[0].Actions[0].Status != "failed" || runs[0].Actions[0].Attempts != 5 || runs[0].Actions[0].LastError != "database remained unavailable" || runs[0].Actions[0].CompletedAt == "" {
 		t.Fatalf("dead workflow operation was not projected into its tenant run: runs=%#v err=%v", runs, err)
 	}
 	stats, err := automations.OperationalStats(ctx)
@@ -399,7 +407,7 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 		t.Fatalf("restore immutable future workflow schedule after replay: %v", err)
 	}
 	runs, err = automations.ListRuns(ctx, organizationID, moduleworkflowautomations.RunListQuery{AutomationID: scheduledRule.ID, Limit: 10})
-	if err != nil || len(runs) != 1 || runs[0].Status != "queued" || runs[0].LastError != "" || runs[0].CompletedAt != "" || runs[0].Operation == nil || runs[0].Operation.Status != "pending" || runs[0].Operation.Attempts != 0 {
+	if err != nil || len(runs) != 1 || runs[0].Status != "queued" || runs[0].LastError != "" || runs[0].CompletedAt != "" || runs[0].Operation == nil || runs[0].Operation.Status != "pending" || runs[0].Operation.Attempts != 0 || len(runs[0].Actions) != 1 || runs[0].Actions[0].Status != "queued" || runs[0].Actions[0].Attempts != 0 || runs[0].Actions[0].LastError != "" || runs[0].Actions[0].CompletedAt != "" {
 		t.Fatalf("replayed workflow operation did not reconcile to queued: runs=%#v err=%v", runs, err)
 	}
 	claimed, err = queue.Claim(ctx, "lead-workflow-worker", []string{moduleworkflowautomations.LeadFollowUpJobType}, 1, time.Minute)

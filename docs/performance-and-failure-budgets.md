@@ -187,11 +187,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 743 KiB | 232 KiB |
+| All JavaScript and CSS | 745 KiB | 233 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
 Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.64 KiB largest lazy
-chunk, and 737.57 KiB/230.21 KiB total assets. The production contact, company,
+chunk, and 744.94 KiB/232.35 KiB total assets. The production contact, company,
 deal, and task routes are 27.72/8.57, 44.95/12.98, 54.93/15.64, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -467,6 +467,26 @@ WCAG scan. The measured production build is 178.82/57.96 KiB entry,
 route-local component. Only the reviewed aggregate ceilings advance from
 738/231 to 743/232 KiB; entry, per-route, CSS, and source ceilings remain
 unchanged.
+
+Immutable workflow action outcomes replace aggregate task counts with an
+expandable, ordered action ledger for the two supported execution contracts.
+The UI shows the captured label, lifecycle state, attempt count, schedule,
+terminal reason, and a same-workspace created-task link without expanding the
+general workflow surface. The measured production build is 178.82/57.97 KiB
+entry, 54.93/15.64 KiB largest lazy chunk, 27.45/8.34 KiB task-automation
+chunk, and 744.94/232.35 KiB aggregate raw/gzip. The run display is isolated
+in a 61-line component. Only the reviewed aggregate ceilings advance from
+743/232 to 745/233 KiB; entry, per-route, CSS, and source ceilings remain
+unchanged.
+
+The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
+requests 25. One repeatable-read transaction selects that bounded run page and
+then its ordered outcomes with a tenant/run-array query. Reviewed execution
+emits at most five actions per run, so the normal screen returns at most 125
+outcomes; the stored-definition validation ceiling of 25 keeps even legacy
+history bounded at 2,500 outcomes for the maximum direct request. A larger
+action history needs an explicit cursor contract and query-plan evidence rather
+than a higher hidden limit.
 
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.

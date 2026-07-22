@@ -151,6 +151,11 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 			continue
 		}
 		if !conditionMatched {
+			for actionIndex, action := range actions {
+				if err := recordTaskActionOutcome(ctx, tx, event.OrganizationID, runID, actionIndex+1, action, "skipped", 0, nil, 0, nil, "Condition did not match."); err != nil {
+					return err
+				}
+			}
 			if err := skipDealTaskRun(ctx, tx, event.OrganizationID, runID, "condition did not match"); err != nil {
 				return err
 			}
@@ -197,6 +202,9 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 				return fmt.Errorf("record automated task activity: %w", err)
 			}
 			taskIDs = append(taskIDs, taskID)
+			if err := recordTaskActionOutcome(ctx, tx, event.OrganizationID, runID, actionIndex+1, action, "succeeded", 1, nil, taskID, &dueAt, ""); err != nil {
+				return err
+			}
 		}
 		taskIDsJSON, err := json.Marshal(taskIDs)
 		if err != nil {

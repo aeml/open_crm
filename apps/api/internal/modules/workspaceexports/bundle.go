@@ -346,6 +346,7 @@ var ordinaryOrganizationTables = []string{
 	"sms_suppressions",
 	"task_reminders",
 	"tasks",
+	"workflow_automation_action_outcomes",
 	"workflow_automation_runs",
 	"workflow_automations",
 }

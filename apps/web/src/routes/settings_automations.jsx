@@ -11,6 +11,7 @@ import { listOrganizationUsers } from '../lib/users'
 import { createWorkflowAutomation, listWorkflowAutomationRuns, listWorkflowAutomations, updateWorkflowAutomation } from '../lib/workflow_automations'
 import { activeRunRefreshDelay } from '../lib/workflow_automation_polling'
 import { usePageTitle } from '../lib/use_page_title'
+import { SettingsAutomationRuns } from './settings_automation_runs'
 import {
   conditionOperatorLabels,
   conditionOperators,
@@ -21,7 +22,6 @@ import {
   equalsOperator,
   eventFromAutomation,
   existsOperator,
-  formatRunTime,
   formFromAutomation,
   isExecutableTaskRule,
   leadFormEvent,
@@ -296,20 +296,7 @@ export function SettingsAutomationsRoute() {
             })}
           </div>
           {automations.length < definitionMeta.total ? <Button className="button-secondary" type="button" disabled={isLoadingMore || isSaving} onClick={loadMoreDefinitions}>{isLoadingMore ? 'Loading stored definitions...' : 'Load more stored definitions'}</Button> : null}
-          <div>
-            <h3>Recent task automation runs</h3>
-            <p className="field-hint">Scheduled and terminal lead runs retain replay-safe status and task counts.</p>
-          </div>
-          <div className="record-list" role="list" aria-label="Task automation runs">
-            {!isLoading && visibleRuns.length === 0 ? (
-              <article className="record-row" role="listitem"><p>No task automation runs yet.</p></article>
-            ) : visibleRuns.map((run) => (
-              <article className={run.status === 'failed' ? 'record-row record-row-alert' : 'record-row'} key={run.id} role="listitem">
-                <div><p>{run.automationName}</p><p className="field-hint">{formatRunTime(run.createdAt)} · {run.actionsCompleted ?? 0}/{run.actionsTotal ?? 0} tasks created</p>{run.status === 'queued' && run.scheduledAt ? <p className="field-hint">Scheduled for {formatRunTime(run.scheduledAt)}</p> : null}{run.operation ? <p className="field-hint">Durable attempt {run.operation.attempts} of {run.operation.maxAttempts} · {run.operation.status}</p> : null}<p>{run.lastError || run.triggerEventKey}</p></div>
-                <div><span className="chip">{run.status}</span>{run.operation?.status === 'dead' && canManage ? <a className="button button-secondary" href="/settings/operations">Review and replay in Operations</a> : run.operation?.status === 'dead' ? <span className="field-hint">Admin replay required</span> : null}</div>
-              </article>
-            ))}
-          </div>
+          <SettingsAutomationRuns canManage={canManage} isLoading={isLoading} runs={visibleRuns} />
         </div>
       </Card>
 

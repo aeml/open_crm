@@ -201,6 +201,20 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	`, organizationID, proposalRule.ID, dealID).Scan(&playbookActionsTotal, &playbookActionsCompleted, &playbookTaskIDs); err != nil || playbookActionsTotal != 2 || playbookActionsCompleted != 2 || playbookTaskIDs != 2 {
 		t.Fatalf("multi-task run evidence mismatch: total=%d completed=%d task_ids=%d err=%v", playbookActionsTotal, playbookActionsCompleted, playbookTaskIDs, err)
 	}
+	proposalRuns, err := automations.ListRuns(ctx, organizationID, moduleworkflowautomations.RunListQuery{AutomationID: proposalRule.ID, Limit: 10})
+	if err != nil || len(proposalRuns) != 1 || len(proposalRuns[0].Actions) != 2 {
+		t.Fatalf("load proposal action outcomes: runs=%#v err=%v", proposalRuns, err)
+	}
+	if proposalRuns[0].Actions[0].Position != 1 || proposalRuns[0].Actions[0].Label != "Prepare proposal" || proposalRuns[0].Actions[0].Status != "succeeded" || proposalRuns[0].Actions[0].Attempts != 1 || proposalRuns[0].Actions[0].TaskID <= 0 || proposalRuns[0].Actions[0].TaskDueAt == "" {
+		t.Fatalf("unexpected first proposal action outcome: %#v", proposalRuns[0].Actions[0])
+	}
+	if proposalRuns[0].Actions[1].Position != 2 || proposalRuns[0].Actions[1].Label != "Schedule decision review" || proposalRuns[0].Actions[1].Status != "succeeded" || proposalRuns[0].Actions[1].Attempts != 1 || proposalRuns[0].Actions[1].TaskID <= 0 || proposalRuns[0].Actions[1].TaskDueAt == "" {
+		t.Fatalf("unexpected second proposal action outcome: %#v", proposalRuns[0].Actions[1])
+	}
+	unmatchedRuns, err := automations.ListRuns(ctx, organizationID, moduleworkflowautomations.RunListQuery{AutomationID: unmatchedRule.ID, Limit: 10})
+	if err != nil || len(unmatchedRuns) != 1 || len(unmatchedRuns[0].Actions) != 1 || unmatchedRuns[0].Actions[0].Status != "skipped" || unmatchedRuns[0].Actions[0].Label != "Must exceed ten thousand" || unmatchedRuns[0].Actions[0].TaskID != 0 || unmatchedRuns[0].Actions[0].LastError != "Condition did not match." {
+		t.Fatalf("unmatched condition action evidence mismatch: runs=%#v err=%v", unmatchedRuns, err)
+	}
 	if err := pool.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM activities
@@ -220,7 +234,7 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 		t.Fatalf("legacy multi-action definition did not fail closed: reason=%q err=%v", legacySkipReason, err)
 	}
 
-	var rollbackDealID, retainedStageID, rollbackTasks, rollbackRuns int64
+	var rollbackDealID, retainedStageID, rollbackTasks, rollbackRuns, rollbackActionOutcomes int64
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO deals (organization_id,stage_id,name,status,owner_user_id,value_amount,value_currency)
 		VALUES ($1,$2,'Atomic rollback opportunity','open',$3,7500,'USD') RETURNING id
@@ -254,6 +268,15 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	}
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_automation_runs WHERE organization_id=$1 AND target_entity_id=$2`, organizationID, rollbackDealID).Scan(&rollbackRuns); err != nil || rollbackRuns != 0 {
 		t.Fatalf("partial playbook runs survived rollback: count=%d err=%v", rollbackRuns, err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM workflow_automation_action_outcomes outcome
+		JOIN workflow_automation_runs run
+		  ON run.organization_id=outcome.organization_id AND run.id=outcome.run_id
+		WHERE run.organization_id=$1 AND run.target_entity_id=$2
+	`, organizationID, rollbackDealID).Scan(&rollbackActionOutcomes); err != nil || rollbackActionOutcomes != 0 {
+		t.Fatalf("partial playbook action outcomes survived rollback: count=%d err=%v", rollbackActionOutcomes, err)
 	}
 
 	var skippedRuns int
@@ -359,6 +382,23 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	}
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='workflow_automation.created'`, organizationID).Scan(&definitionAudits); err != nil || definitionAudits != 8 {
 		t.Fatalf("unexpected definition audit count: count=%d err=%v", definitionAudits, err)
+	}
+	var foreignTaskID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO tasks (organization_id,entity_type,entity_id,title,status,created_by_user_id)
+		VALUES ($1,'deal',1,'Foreign retained task','open',$2) RETURNING id
+	`, foreignOrganizationID, actorUserID).Scan(&foreignTaskID); err != nil {
+		t.Fatalf("create foreign task corruption fixture: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE workflow_automation_action_outcomes SET task_id=$3
+		WHERE organization_id=$1 AND run_id=$2 AND action_position=1
+	`, organizationID, proposalRuns[0].ID, foreignTaskID); err != nil {
+		t.Fatalf("seed corrupt foreign workflow task reference: %v", err)
+	}
+	proposalRuns, err = automations.ListRuns(ctx, organizationID, moduleworkflowautomations.RunListQuery{AutomationID: proposalRule.ID, Limit: 10})
+	if err != nil || len(proposalRuns) != 1 || len(proposalRuns[0].Actions) != 2 || proposalRuns[0].Actions[0].TaskID != 0 || proposalRuns[0].Actions[0].TaskDueAt != "" || proposalRuns[0].Actions[1].TaskID <= 0 {
+		t.Fatalf("foreign workflow task reference leaked through run inspection: runs=%#v err=%v", proposalRuns, err)
 	}
 }
 

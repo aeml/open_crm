@@ -63,7 +63,7 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [{ id: 3, name: 'Sales pipeline', stages: [{ id: 11, name: 'Discovery' }, { id: 12, name: 'Proposal' }] }] } })
       if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
       if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
-      if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [{ id: 21, automationId: 5, automationName: 'Qualify new deals', triggerEventKey: 'deal:7:activity:90', status: 'succeeded', actionsTotal: 1, actionsCompleted: 1, createdAt: '2026-07-19T12:00:00Z' }] } })
+      if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [{ id: 21, automationId: 5, automationName: 'Qualify new deals', triggerEventKey: 'deal:7:activity:90', status: 'succeeded', actionsTotal: 1, actionsCompleted: 1, createdAt: '2026-07-19T12:00:00Z', actions: [{ id: 31, position: 1, type: 'create_task', label: 'Qualify deal', status: 'succeeded', attempts: 1, scheduledAt: '2026-07-19T12:00:00Z', completedAt: '2026-07-19T12:00:01Z', taskId: 88, taskDueAt: '2026-07-20T12:00:00Z', lastError: '' }] }] } })
       if (path.endsWith('/api/workflow-automations') && method === 'POST') {
         storedDefinitions = [createdRule, ...storedDefinitions]
         return jsonResponse({ data: { automation: createdRule } }, 201)
@@ -95,7 +95,13 @@ describe('settings task automations route', () => {
     const deactivateCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations/6') && call[1]?.method === 'PATCH')
     expect(JSON.parse(deactivateCall[1].body)).toEqual({ deactivateOnly: true })
     expect(screen.getByText(/3 of 50 active task actions allocated/i)).toBeInTheDocument()
-    expect(screen.getByRole('list', { name: 'Task automation runs' })).toHaveTextContent('1/1 tasks created')
+    const runList = screen.getByRole('list', { name: 'Task automation runs' })
+    expect(runList).toHaveTextContent('1/1 tasks created')
+    fireEvent.click(within(runList).getByText('Inspect 1 action outcome'))
+    const actionList = screen.getByRole('list', { name: 'Qualify new deals run actions' })
+    expect(actionList).toHaveTextContent('1. Qualify deal')
+    expect(actionList).toHaveTextContent('Action succeeded · 1 attempt')
+    expect(within(actionList).getByRole('link', { name: 'Open created task' })).toHaveAttribute('href', '/tasks/88')
 
     fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Proposal follow-up' } })
     fireEvent.change(screen.getByLabelText('When'), { target: { value: 'stage_changed' } })
@@ -274,7 +280,8 @@ describe('settings task automations route', () => {
       scheduledAt: '2026-07-21T12:00:00Z',
       completedAt: '2026-07-21T12:08:00Z',
       createdAt: '2026-07-21T12:00:00Z',
-      operation: { id: 81, status: 'dead', attempts: 5, maxAttempts: 5, lastError: 'database remained unavailable', runAt: '2026-07-21T12:04:00Z' }
+      operation: { id: 81, status: 'dead', attempts: 5, maxAttempts: 5, lastError: 'database remained unavailable', runAt: '2026-07-21T12:04:00Z', updatedAt: '2026-07-21T12:08:00Z' },
+      actions: [{ id: 91, position: 1, type: 'create_task', label: 'Call inbound lead', status: 'failed', attempts: 5, scheduledAt: '2026-07-21T12:00:00Z', completedAt: '2026-07-21T12:08:00Z', lastError: 'database remained unavailable' }]
     }
     const fetchMock = vi.fn(async (url, options = {}) => {
       const requestURL = new URL(String(url), 'http://localhost')
@@ -296,6 +303,9 @@ describe('settings task automations route', () => {
 
     expect(await screen.findByText('database remained unavailable')).toBeInTheDocument()
     expect(screen.getByText('Durable attempt 5 of 5 · dead')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Inspect 1 action outcome'))
+    expect(screen.getByText('Action failed · 5 attempts')).toBeInTheDocument()
+    expect(screen.getByText('Action issue: database remained unavailable')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Review and replay in Operations' })).toHaveAttribute('href', '/settings/operations')
   })
 

@@ -2078,3 +2078,27 @@ func TestMigrationFilesIncludeEmailSequenceEnrollmentHistory(t *testing.T) {
 		t.Fatalf("email sequence enrollment history deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeWorkflowActionOutcomes(t *testing.T) {
+	const name = "115_workflow_action_outcomes.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"workflow_automation_action_outcomes",
+		"workflow_action_outcomes_run_fk",
+		"idx_workflow_action_outcomes_org_run_position_unique",
+		"Historical task action",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("workflow action outcome migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("workflow action outcome deployment class = %q", class)
+	}
+}

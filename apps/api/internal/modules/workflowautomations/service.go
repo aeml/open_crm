@@ -79,6 +79,7 @@ type Run struct {
 	CreatedAt        string         `json:"createdAt"`
 	UpdatedAt        string         `json:"updatedAt"`
 	Operation        *RunOperation  `json:"operation,omitempty"`
+	Actions          []RunAction    `json:"actions"`
 }
 
 // RunOperation is the durable queue state for workflow outcomes that execute
@@ -91,6 +92,7 @@ type RunOperation struct {
 	MaxAttempts int    `json:"maxAttempts"`
 	LastError   string `json:"lastError"`
 	RunAt       string `json:"runAt"`
+	UpdatedAt   string `json:"updatedAt"`
 }
 
 type RunListQuery struct {
@@ -211,21 +213,25 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 }
 
 func (s *Service) ListRuns(ctx context.Context, organizationID int64, query RunListQuery) ([]Run, error) {
-	if s == nil || s.pool == nil {
+	if s == nil || s.pool == nil || organizationID <= 0 {
 		return nil, fmt.Errorf("workflow automations service not configured")
 	}
 	limit := normalizeRunLimit(query.Limit)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, fmt.Errorf("begin workflow automation run list: %w", err)
+	}
+	defer tx.Rollback(ctx)
 
 	var rows pgx.Rows
-	var err error
 	if query.AutomationID > 0 {
-		rows, err = s.pool.Query(ctx, runListSelect+`
+		rows, err = tx.Query(ctx, runListSelect+`
 			WHERE run.organization_id = $1 AND run.automation_id = $2
 			ORDER BY run.created_at DESC, run.id DESC
 			LIMIT $3
 		`, organizationID, query.AutomationID, limit)
 	} else {
-		rows, err = s.pool.Query(ctx, runListSelect+`
+		rows, err = tx.Query(ctx, runListSelect+`
 			WHERE run.organization_id = $1
 			ORDER BY run.created_at DESC, run.id DESC
 			LIMIT $2
@@ -234,18 +240,26 @@ func (s *Service) ListRuns(ctx context.Context, organizationID int64, query RunL
 	if err != nil {
 		return nil, fmt.Errorf("list workflow automation runs: %w", err)
 	}
-	defer rows.Close()
 
 	runs := make([]Run, 0)
 	for rows.Next() {
 		run, err := scanRunWithOperation(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
 		runs = append(runs, run)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, fmt.Errorf("iterate workflow automation runs: %w", err)
+	}
+	rows.Close()
+	if err := attachRunActions(ctx, tx, organizationID, runs); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit workflow automation run list: %w", err)
 	}
 	return runs, nil
 }
@@ -563,7 +577,8 @@ const runListSelect = `
 	       COALESCE(operation.id,0), COALESCE(operation.status,''),
 	       COALESCE(operation.attempts,0), COALESCE(operation.max_attempts,0),
 	       COALESCE(operation.last_error,''),
-	       COALESCE(TO_CHAR(operation.run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
+	       COALESCE(TO_CHAR(operation.run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), ''),
+	       COALESCE(TO_CHAR(operation.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
 	FROM workflow_automation_runs run
 	LEFT JOIN background_jobs operation
 	  ON operation.organization_id = run.organization_id
@@ -640,6 +655,7 @@ func scanRunWithOperation(scanner automationScanner) (Run, error) {
 		&operation.MaxAttempts,
 		&operation.LastError,
 		&operation.RunAt,
+		&operation.UpdatedAt,
 	)
 	if err != nil {
 		return Run{}, err

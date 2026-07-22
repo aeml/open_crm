@@ -26,7 +26,27 @@ export async function listWorkflowAutomationRuns({ automationId, limit = 10, sig
   const query = params.toString()
   const payload = await apiRequest(`/api/workflow-automation-runs${query ? `?${query}` : ''}`, { fallbackMessage: 'Unable to load workflow automation runs.', signal })
 
-  return Array.isArray(payload?.data?.runs) ? payload.data.runs : []
+  const runs = Array.isArray(payload?.data?.runs) ? payload.data.runs : []
+  return runs.map((run) => {
+    const actions = Array.isArray(run?.actions) ? run.actions : []
+    if (actions.some((action) => !validRunAction(action))) {
+      throw new Error('The server returned invalid workflow action evidence. Refresh before retrying.')
+    }
+    return { ...run, actions }
+  })
+}
+
+const runActionStatuses = new Set(['queued', 'running', 'succeeded', 'failed', 'skipped', 'cancelled'])
+
+function validRunAction(action) {
+  return Number.isInteger(action?.id) && action.id > 0 &&
+    Number.isInteger(action.position) && action.position > 0 &&
+    typeof action.type === 'string' && action.type.length > 0 &&
+    typeof action.label === 'string' && action.label.length > 0 &&
+    runActionStatuses.has(action.status) &&
+    Number.isInteger(action.attempts) && action.attempts >= 0 &&
+    typeof action.scheduledAt === 'string' && action.scheduledAt.length > 0 &&
+    (!action.taskId || (Number.isInteger(action.taskId) && action.taskId > 0))
 }
 
 export async function createWorkflowAutomation(input, { signal } = {}) {

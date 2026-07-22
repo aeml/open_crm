@@ -263,9 +263,21 @@ func TestLeadSubmissionSpamReviewIsTenantSafeReversibleAndIdempotentAgainstPostg
 	if err != nil || !delayedSpamReplay.Replayed || delayedSpamReplay.ReviewStatus != ReviewStatusLegitimate || !delayedSpamReplay.ContactActive || delayedSpamReplay.Effects.CancelledRuns != 0 {
 		t.Fatalf("historical delayed retry changed recovered lead: result=%#v err=%v", delayedSpamReplay, err)
 	}
-	var runCount, auditCount, activityCount, requestCount int
+	var runCount, cancelledActionCount, queuedActionCount, auditCount, activityCount, requestCount int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM workflow_automation_runs WHERE organization_id=$1 AND trigger_payload_json->>'submissionId'=$2`, organizationID, fmt.Sprint(created.Submission.ID)).Scan(&runCount); err != nil || runCount != 3 {
 		t.Fatalf("unexpected recovery run lineage: count=%d err=%v", runCount, err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE outcome.status='cancelled')::int,
+		       COUNT(*) FILTER (WHERE outcome.status='queued')::int
+		FROM workflow_automation_action_outcomes outcome
+		JOIN workflow_automation_runs run
+		  ON run.organization_id=outcome.organization_id AND run.id=outcome.run_id
+		WHERE run.organization_id=$1
+		  AND run.trigger_payload_json->>'submissionId'=$2
+		  AND outcome.action_label='Review inbound lead'
+	`, organizationID, fmt.Sprint(created.Submission.ID)).Scan(&cancelledActionCount, &queuedActionCount); err != nil || cancelledActionCount != 2 || queuedActionCount != 1 {
+		t.Fatalf("workflow action recovery lineage mismatch: cancelled=%d queued=%d err=%v", cancelledActionCount, queuedActionCount, err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type='lead_submission.reviewed'`, organizationID).Scan(&auditCount); err != nil || auditCount != 4 {
 		t.Fatalf("review audit history mismatch: count=%d err=%v", auditCount, err)

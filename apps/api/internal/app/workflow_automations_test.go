@@ -144,7 +144,7 @@ func TestListWorkflowAutomationsRejectsUnsafePaginationBeforeService(t *testing.
 
 func TestListWorkflowAutomationRunsScopesToOrganization(t *testing.T) {
 	matched := true
-	service := &fakeWorkflowAutomationsService{listRunsResult: []moduleworkflowautomations.Run{{ID: 11, AutomationID: 5, AutomationName: "New lead follow-up", TriggerType: "record_created", TargetEntityType: "contact", TargetEntityID: 7, TriggerEventKey: "contact:7:created", Status: "failed", TriggerPayload: map[string]any{"contactId": float64(7)}, ConditionResult: &matched, ActionsTotal: 2, ActionsCompleted: 1, RetryCount: 4, LastError: "provider unavailable", CreatedAt: "2026-06-21T23:10:00Z", Operation: &moduleworkflowautomations.RunOperation{ID: 17, Status: "dead", Attempts: 5, MaxAttempts: 5, LastError: "provider unavailable", RunAt: "2026-06-21T23:15:00Z"}}}}
+	service := &fakeWorkflowAutomationsService{listRunsResult: []moduleworkflowautomations.Run{{ID: 11, AutomationID: 5, AutomationName: "New lead follow-up", TriggerType: "record_created", TargetEntityType: "contact", TargetEntityID: 7, TriggerEventKey: "contact:7:created", Status: "failed", TriggerPayload: map[string]any{"contactId": float64(7)}, ConditionResult: &matched, ActionsTotal: 2, ActionsCompleted: 1, RetryCount: 4, LastError: "provider unavailable", CreatedAt: "2026-06-21T23:10:00Z", Operation: &moduleworkflowautomations.RunOperation{ID: 17, Status: "dead", Attempts: 5, MaxAttempts: 5, LastError: "provider unavailable", RunAt: "2026-06-21T23:15:00Z", UpdatedAt: "2026-06-21T23:20:00Z"}, Actions: []moduleworkflowautomations.RunAction{{ID: 21, Position: 1, Type: "create_task", Label: "Call lead", Status: "failed", Attempts: 5, ScheduledAt: "2026-06-21T23:10:00Z", CompletedAt: "2026-06-21T23:20:00Z", LastError: "provider unavailable"}}}}}
 	server := authenticatedWorkflowAutomationsServer(service, "member")
 
 	request := httptest.NewRequest(http.MethodGet, "/api/workflow-automation-runs?automationId=5&limit=10", nil)
@@ -167,7 +167,7 @@ func TestListWorkflowAutomationRunsScopesToOrganization(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if len(response.Data.Runs) != 1 || response.Data.Runs[0].Status != "failed" || response.Data.Runs[0].TriggerEventKey != "contact:7:created" || response.Data.Runs[0].ConditionResult == nil || !*response.Data.Runs[0].ConditionResult || response.Data.Runs[0].Operation == nil || response.Data.Runs[0].Operation.ID != 17 || response.Data.Runs[0].Operation.Status != "dead" {
+	if len(response.Data.Runs) != 1 || response.Data.Runs[0].Status != "failed" || response.Data.Runs[0].TriggerEventKey != "contact:7:created" || response.Data.Runs[0].ConditionResult == nil || !*response.Data.Runs[0].ConditionResult || response.Data.Runs[0].Operation == nil || response.Data.Runs[0].Operation.ID != 17 || response.Data.Runs[0].Operation.Status != "dead" || len(response.Data.Runs[0].Actions) != 1 || response.Data.Runs[0].Actions[0].Label != "Call lead" || response.Data.Runs[0].Actions[0].Attempts != 5 {
 		t.Fatalf("unexpected workflow automation runs payload: %#v", response.Data.Runs)
 	}
 }

@@ -59,6 +59,16 @@ func QuarantineLeadSubmissionRuns(ctx context.Context, tx pgx.Tx, organizationID
 	}
 	rows.Close()
 	effects.CancelledRuns = len(runIDs)
+	if len(runIDs) > 0 {
+		if _, err := tx.Exec(ctx, `
+			UPDATE workflow_automation_action_outcomes
+			SET status='cancelled',completed_at=NOW(),last_error=$3,updated_at=NOW()
+			WHERE organization_id=$1 AND run_id=ANY($2::bigint[])
+			  AND status IN ('queued','running')
+		`, organizationID, runIDs, leadSubmissionSpamReason); err != nil {
+			return LeadSubmissionReviewEffects{}, fmt.Errorf("cancel queued lead follow-up action outcomes: %w", err)
+		}
+	}
 	// Count after the queued-run update has waited on any worker-held run locks,
 	// so a concurrent completion is represented in the review evidence.
 	if err := tx.QueryRow(ctx, `
@@ -175,6 +185,9 @@ func RecoverLeadSubmissionRuns(ctx context.Context, tx pgx.Tx, organizationID, s
 		}
 		if err != nil {
 			return LeadSubmissionReviewEffects{}, fmt.Errorf("create recovered lead follow-up run: %w", err)
+		}
+		if err := recordTaskActionOutcome(ctx, tx, organizationID, runID, 1, payload.Definition.Action, "queued", 0, &scheduledAt, 0, nil, ""); err != nil {
+			return LeadSubmissionReviewEffects{}, err
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO background_jobs (organization_id,job_type,idempotency_key,payload_json,max_attempts,run_at)

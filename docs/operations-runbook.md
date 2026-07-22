@@ -1053,19 +1053,25 @@ bytes, tokens, or counters with ad hoc SQL.
    unassigned deal does not satisfy **owner is set**.
    Other stored workflow definitions are deliberately hidden and do not gain
    partial execution merely because their schema exists.
-2. Deal event, every task/activity, one run record, and one audit event commit
-   together. A failure rolls back the entire playbook. A timed-out direct
+2. Deal event, every task/activity, one run record, one immutable ordered
+   action-outcome row per task, and one audit event commit together. A failure
+   rolls back the entire playbook. A timed-out direct
    request can be retried normally; a repeated same-stage move is a no-op, and
    stable activity/bulk event keys prevent a completed event from creating the
-   same playbook twice. Run evidence preserves task IDs in action order and each
+   same playbook twice. Action evidence preserves the captured label, status,
+   attempts, due time, and tenant-validated task ID in action order; each
    `task.automated` activity records its one-based action index plus total task
    count. The same transaction loads the tenant-scoped deal/stage snapshot and
-   evaluates any condition before creating effects. Condition evidence retains
-   only the field referenced by that rule.
+   evaluates any condition before creating effects. A reviewed non-match keeps
+   one ordered `skipped` outcome per action and only the event-time field
+   referenced by that rule.
 3. Every task goes to the active deal owner. If that membership is inactive at
    event time, the playbook goes to the active teammate who caused the event.
-   Inspect **Recent task automation runs**, each task's `task.automated` activity, and
-   the `workflow_automation.executed` audit event when reconciling an outcome.
+   Inspect **Recent task automation runs**, expand **Inspect action outcomes**,
+   follow each **Open created task** link, and compare the task's
+   `task.automated` activity with the `workflow_automation.executed` audit event
+   when reconciling an outcome. The stored label is execution-time evidence and
+   does not change when an admin later edits the rule.
    A `skipped` run with **condition did not match** is an expected no-task
    outcome and shows the referenced event-time field. **unsupported rule shape**
    means the rule was not in the reviewed executable contract and made no task.
@@ -1093,8 +1099,9 @@ bytes, tokens, or counters with ad hoc SQL.
    separate 0–365-day due offset measured from task creation. Other
    target/action/timing/approval shapes remain hidden and do not execute.
 2. An accepted public submission snapshots the exact authorized definition and
-   enqueues one `workflow.lead_follow_up` job in the same transaction as its
-   contact, activity, submission, consent evidence, and challenge consumption.
+   enqueues one `workflow.lead_follow_up` job plus its initial immutable action
+   outcome in the same transaction as its contact, activity, submission,
+   consent evidence, and challenge consumption.
    The run's immutable `scheduled_at` and job `run_at` are identical. Editing
    the rule afterward cannot change queued work. Deactivating it stops queued
    work deliberately; it does not remove tasks already committed. Rules created
@@ -1104,11 +1111,15 @@ bytes, tokens, or counters with ad hoc SQL.
    tenant ownership, rule activation, the optional condition, and active
    assignee membership; and commits the task, due/overdue reminder state,
    assignment notification, `task.automated` activity,
-   `workflow_automation.executed` audit event, and terminal run together.
+   `workflow_automation.executed` audit event, terminal action outcome, and
+   terminal run together.
    Managed hosted suspension uses the ordinary durable billing deferral and
    preserves attempts; self-hosted workspaces are never subject to that policy.
-4. Inspect **Recent task automation runs** and **Settings > Operations** before
-   escalating. A future `queued` run is healthy until its displayed schedule;
+4. Inspect **Recent task automation runs**, expand **Inspect action outcome**,
+   and use **Settings > Operations** before escalating. The action shows the
+   captured title, schedule, attempt count, lifecycle state, terminal reason,
+   and same-workspace task link when a task exists. A future `queued` run is
+   healthy until its displayed schedule;
    the browser waits until that boundary instead of polling every second.
    Once due, `queued` or `running` should be transient. `succeeded` names the
    created task. `skipped` means the captured condition did not match or the
@@ -1129,8 +1140,9 @@ bytes, tokens, or counters with ad hoc SQL.
    tenant- and dead-state-gated audited queue replay. A business
    failure whose durable job completed is terminal and intentionally has no
    replay control. Never replay healthy work before its planned time. Do not rewrite
-   `background_jobs`, `workflow_automation_runs`, tasks, activities, or audit
-   rows with manual SQL.
+   `background_jobs`, `workflow_automation_runs`,
+   `workflow_automation_action_outcomes`, tasks, activities, or audit rows with
+   manual SQL.
 6. Monitor `open_crm_workflow_runs{status="queued"}`,
    `open_crm_workflow_runs{status="running"}`,
    `open_crm_workflow_runs_failed_24h`,
@@ -1158,8 +1170,8 @@ bytes, tokens, or counters with ad hoc SQL.
    delay that leaves the team a realistic review window. **Mark spam** requires
    confirmation and accepts an optional internal note. One transaction records
    activity/audit evidence, archives the exact contact created by that
-   submission, cancels every still-queued lead-follow-up run, and completes its
-   unclaimed durable job as a safe no-op. A worker already holding the run lock
+   submission, cancels every still-queued lead-follow-up run and action outcome,
+   and completes its unclaimed durable job as a safe no-op. A worker already holding the run lock
    finishes first; if it committed a task, that task and run remain explicit
    history and the review result reports the completed effect.
 3. Do not restore a spam contact from **Archived Records**. That screen names
@@ -1170,7 +1182,8 @@ bytes, tokens, or counters with ad hoc SQL.
    successor for the latest spam-cancelled run per rule. It never rewrites a
    cancelled run or duplicates a task already completed. The successor honors
    the original future schedule, or becomes runnable now when that boundary has
-   passed.
+   passed. The run panel therefore retains the cancelled predecessor and queued
+   successor as separate action evidence instead of rewriting history.
 4. Exact retries use a tenant/submission-bound digest-only request ledger.
    Replays at the same review version return the retained effect counts; a
    historical delayed retry returns the current decision without reapplying its
@@ -1180,7 +1193,8 @@ bytes, tokens, or counters with ad hoc SQL.
    contact or review changed between the capacity preflight and transaction;
    refresh before deciding again. `PLAN_LIMIT_REACHED` means the archived contact
    cannot currently be restored under the managed plan. Never edit submission,
-   contact, run, job, activity, or audit rows directly to bypass these guards.
+   contact, run, action-outcome, job, activity, or audit rows directly to bypass
+   these guards.
 5. Monitor `open_crm_lead_reviews_available`,
    `open_crm_lead_reviews{state="unreviewed"}`, and
    `open_crm_lead_review_oldest_unreviewed_age_seconds`.

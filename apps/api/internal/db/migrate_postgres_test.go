@@ -198,6 +198,16 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"workflow_automation_runs_retry_count_check",
 		"workflow_automation_runs_action_progress_check",
 		"workflow_automation_runs_terminal_completed_check",
+		"workflow_action_outcomes_run_fk",
+		"workflow_action_outcomes_position_check",
+		"workflow_action_outcomes_type_check",
+		"workflow_action_outcomes_label_check",
+		"workflow_action_outcomes_status_check",
+		"workflow_action_outcomes_attempt_count_check",
+		"workflow_action_outcomes_task_id_check",
+		"workflow_action_outcomes_task_due_check",
+		"workflow_action_outcomes_last_error_check",
+		"workflow_action_outcomes_terminal_completed_check",
 		"custom_report_definitions_name_check",
 		"custom_report_definitions_source_type_check",
 		"custom_report_definitions_columns_json_array_check",
@@ -337,6 +347,8 @@ func TestRunMigrationsAgainstPostgres(t *testing.T) {
 		"idx_workflow_automation_runs_org_created",
 		"idx_workflow_automation_runs_org_status",
 		"idx_workflow_automation_runs_org_automation_created",
+		"idx_workflow_automation_runs_org_id_unique",
+		"idx_workflow_action_outcomes_org_run_position_unique",
 		"idx_custom_report_definitions_org_name_unique",
 		"idx_custom_report_definitions_org_active",
 		"idx_custom_report_definitions_org_source",
@@ -800,10 +812,20 @@ func assertPostgresIntegrityRules(t *testing.T, ctx context.Context, pool *Pool)
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 'evt_bad_payload', '[]'::jsonb)`, organizationID, workflowAutomationID)
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, actions_total, actions_completed, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 'evt_bad_progress', 1, 2, '{}'::jsonb)`, organizationID, workflowAutomationID)
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, status, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 'evt_bad_terminal', 'succeeded', '{}'::jsonb)`, organizationID, workflowAutomationID)
-	if _, err := pool.Exec(ctx, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, target_entity_id, trigger_event_key, trigger_payload_json, actions_total) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 7, 'contact:7:created', '{"contactId":7}'::jsonb, 1)`, organizationID, workflowAutomationID); err != nil {
+	var workflowRunID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, target_entity_id, trigger_event_key, trigger_payload_json, actions_total) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 7, 'contact:7:created', '{"contactId":7}'::jsonb, 1) RETURNING id`, organizationID, workflowAutomationID).Scan(&workflowRunID); err != nil {
 		t.Fatalf("insert workflow automation run: %v", err)
 	}
 	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_runs (organization_id, automation_id, automation_name, trigger_type, target_entity_type, trigger_event_key, trigger_payload_json) VALUES ($1, $2, 'New contact automation', 'record_created', 'contact', 'contact:7:created', '{}'::jsonb)`, organizationID, workflowAutomationID)
+	if _, err := pool.Exec(ctx, `INSERT INTO workflow_automation_action_outcomes (organization_id,run_id,action_position,action_type,action_label,status,scheduled_at) VALUES ($1,$2,1,'create_task','Call new lead','queued',NOW())`, organizationID, workflowRunID); err != nil {
+		t.Fatalf("insert workflow action outcome: %v", err)
+	}
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_action_outcomes (organization_id,run_id,action_position,action_type,action_label,status,scheduled_at) VALUES ($1,$2,1,'create_task','Duplicate action','queued',NOW())`, organizationID, workflowRunID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_action_outcomes (organization_id,run_id,action_position,action_type,action_label,status,scheduled_at) VALUES ($1,$2,2,'create_task','Bad status','waiting',NOW())`, organizationID, workflowRunID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_action_outcomes (organization_id,run_id,action_position,action_type,action_label,status,scheduled_at) VALUES ($1,$2,2,'create_task','Missing completion','succeeded',NOW())`, organizationID, workflowRunID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_action_outcomes (organization_id,run_id,action_position,action_type,action_label,status,scheduled_at) VALUES ($1,$2,0,'create_task','Bad position','queued',NOW())`, organizationID, workflowRunID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_action_outcomes (organization_id,run_id,action_position,action_type,action_label,status,scheduled_at,task_due_at) VALUES ($1,$2,2,'create_task','Missing task','queued',NOW(),NOW())`, organizationID, workflowRunID)
+	expectExecError(t, ctx, pool, `INSERT INTO workflow_automation_action_outcomes (organization_id,run_id,action_position,action_type,action_label,status,scheduled_at) VALUES ($1,$2,2,'create_task','Foreign run','queued',NOW())`, organizationID+999, workflowRunID)
 	expectExecError(t, ctx, pool, `INSERT INTO notes (organization_id, entity_type, entity_id, body, created_by_user_id) VALUES ($1, 'task', 1, 'Bad note', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'invoice', 1, 'Bad task', 'open', $2)`, organizationID, userID)
 	expectExecError(t, ctx, pool, `INSERT INTO tasks (organization_id, entity_type, entity_id, title, status, created_by_user_id) VALUES ($1, 'contact', 1, 'Bad task', 'done', $2)`, organizationID, userID)

@@ -195,6 +195,9 @@ func CaptureLeadFormSubmitted(ctx context.Context, tx pgx.Tx, event LeadFormSubm
 		if err != nil {
 			return fmt.Errorf("reserve lead follow-up workflow run: %w", err)
 		}
+		if err := recordTaskActionOutcome(ctx, tx, event.OrganizationID, runID, 1, snapshot.Action, "queued", 0, &scheduledAt, 0, nil, ""); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO background_jobs (organization_id,job_type,idempotency_key,payload_json,max_attempts,run_at)
 			VALUES ($1,$2,$3,jsonb_build_object('runId',($4::bigint)::text),$5,$6)
@@ -260,7 +263,7 @@ func (s *Service) HandleLeadFollowUpJob(ctx context.Context, job modulejobs.Job)
 		return nil, fmt.Errorf("load lead follow-up workflow state: %w", err)
 	}
 	if !active {
-		return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "cancelled", nil, 0, "Rule was inactive before execution.", job.Attempts)
+		return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "cancelled", nil, 0, nil, "Rule was inactive before execution.", job.Attempts)
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE workflow_automation_runs
@@ -269,20 +272,23 @@ func (s *Service) HandleLeadFollowUpJob(ctx context.Context, job modulejobs.Job)
 	`, job.OrganizationID, runID, maxInt(job.Attempts-1, 0)); err != nil {
 		return nil, fmt.Errorf("start lead follow-up workflow run: %w", err)
 	}
+	if err := recordTaskActionOutcome(ctx, tx, job.OrganizationID, runID, 1, payload.Definition.Action, "running", job.Attempts, nil, 0, nil, ""); err != nil {
+		return nil, err
+	}
 
 	fields, archived, err := hydrateLeadSubmission(ctx, tx, job.OrganizationID, payload)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "skipped", nil, 0, "Submission or contact no longer exists.", job.Attempts)
+			return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "skipped", nil, 0, nil, "Submission or contact no longer exists.", job.Attempts)
 		}
 		return nil, err
 	}
 	if archived {
-		return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "skipped", nil, 0, "Contact was archived before execution.", job.Attempts)
+		return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "skipped", nil, 0, nil, "Contact was archived before execution.", job.Attempts)
 	}
 	matched := EvaluateConditions(payload.Definition.ConditionLogic, payload.Definition.Conditions, fields)
 	if !matched {
-		return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "skipped", &matched, 0, "Conditions did not match.", job.Attempts)
+		return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "skipped", &matched, 0, nil, "Conditions did not match.", job.Attempts)
 	}
 
 	assigneeID := integerConfig(payload.Definition.Action.Config["assignedToUserId"])
@@ -297,7 +303,7 @@ func (s *Service) HandleLeadFollowUpJob(ctx context.Context, job modulejobs.Job)
 		return nil, fmt.Errorf("validate lead follow-up assignee: %w", err)
 	}
 	if !assigneeActive {
-		return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "failed", &matched, 0, "Assigned teammate is no longer active.", job.Attempts)
+		return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "failed", &matched, 0, nil, "Assigned teammate is no longer active.", job.Attempts)
 	}
 
 	title, _ := stringConfig(payload.Definition.Action.Config, "title")
@@ -345,10 +351,10 @@ func (s *Service) HandleLeadFollowUpJob(ctx context.Context, job modulejobs.Job)
 		return nil, fmt.Errorf("audit lead follow-up workflow: %w", err)
 	}
 
-	return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "succeeded", &matched, taskID, "", job.Attempts)
+	return s.finishLeadFollowUp(ctx, tx, job.OrganizationID, runID, payload, "succeeded", &matched, taskID, &dueAt, "", job.Attempts)
 }
 
-func (s *Service) finishLeadFollowUp(ctx context.Context, tx pgx.Tx, organizationID, runID int64, payload leadFollowUpPayload, status string, matched *bool, taskID int64, reason string, attempts int) (map[string]any, error) {
+func (s *Service) finishLeadFollowUp(ctx context.Context, tx pgx.Tx, organizationID, runID int64, payload leadFollowUpPayload, status string, matched *bool, taskID int64, taskDueAt *time.Time, reason string, attempts int) (map[string]any, error) {
 	payload.CreatedTaskID = taskID
 	payload.TerminalReason = reason
 	payloadJSON, err := json.Marshal(payload)
@@ -367,6 +373,9 @@ func (s *Service) finishLeadFollowUp(ctx context.Context, tx pgx.Tx, organizatio
 		WHERE organization_id=$1 AND id=$2
 	`, organizationID, runID, status, string(payloadJSON), matched, actionsCompleted, maxInt(attempts-1, 0), reason); err != nil {
 		return nil, fmt.Errorf("complete lead follow-up workflow run: %w", err)
+	}
+	if err := recordTaskActionOutcome(ctx, tx, organizationID, runID, 1, payload.Definition.Action, status, attempts, nil, taskID, taskDueAt, reason); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit lead follow-up workflow: %w", err)

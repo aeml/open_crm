@@ -566,6 +566,30 @@
   background: rgba(192, 57, 43, 0.06);
 }
 
+.workflow-run-details {
+  margin-top: 0.65rem;
+}
+
+.workflow-run-details summary {
+  color: var(--color-primary);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.automation-action-outcomes {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.automation-action-header {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
 .custom-report-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
