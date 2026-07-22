@@ -1980,3 +1980,27 @@ func TestMigrationFilesIncludeSharedInboxCursor(t *testing.T) {
 		t.Fatalf("shared inbox cursor deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeLeadSubmissionReviewCursor(t *testing.T) {
+	const name = "111_lead_submission_review_cursor.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"idx_lead_capture_submissions_org_created",
+		"idx_lead_capture_submissions_org_form_review_created",
+		"created_at DESC",
+		"id DESC",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("lead submission review cursor migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("lead submission review cursor deployment class = %q", class)
+	}
+}

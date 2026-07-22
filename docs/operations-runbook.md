@@ -1123,7 +1123,11 @@ bytes, tokens, or counters with ad hoc SQL.
 
 1. Owners/admins open **Settings > Lead Forms**. **Lead submission review**
    defaults to the newest 50 unreviewed inquiries and can filter by exact form
-   or `unreviewed`, `legitimate`, or `spam` state. It shows retained business
+   or `unreviewed`, `legitimate`, or `spam` state. **Load older submissions**
+   follows the opaque creation-time/ID cursor in pages of 50 and disappears at
+   the terminal page. A new capture appears on refresh rather than inside an
+   older traversal. Reviewing an item refreshes from the newest page so a live
+   status filter and its exact counts reconcile together. It shows retained business
    fields, attribution, contact state, and bounded follow-up
    counts. This queue contains customer-provided data and is deliberately not
    visible to members or viewers.

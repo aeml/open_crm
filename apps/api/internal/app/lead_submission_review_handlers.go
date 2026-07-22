@@ -43,7 +43,15 @@ func handleListLeadSubmissionReviews(auth authService, forms leadFormsService, w
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Lead submission review service unavailable")
 		return
 	}
-	query := moduleleadforms.SubmissionReviewQuery{Status: strings.TrimSpace(r.URL.Query().Get("status")), Limit: 50}
+	pagination, ok := parseTimelinePagination(w, r)
+	if !ok {
+		return
+	}
+	query := moduleleadforms.SubmissionReviewQuery{
+		Status: strings.TrimSpace(r.URL.Query().Get("status")),
+		Cursor: pagination.Cursor,
+		Limit:  pagination.Limit,
+	}
 	if rawFormID := strings.TrimSpace(r.URL.Query().Get("formId")); rawFormID != "" {
 		formID, err := strconv.ParseInt(rawFormID, 10, 64)
 		if err != nil || formID <= 0 {

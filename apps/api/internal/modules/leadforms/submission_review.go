@@ -21,7 +21,6 @@ const (
 	ReviewStatusLegitimate = "legitimate"
 	ReviewStatusSpam       = "spam"
 	maxReviewNoteLength    = 500
-	maxReviewPageSize      = 50
 )
 
 var (
@@ -29,18 +28,6 @@ var (
 	ErrReviewConflict            = errors.New("lead submission review conflict")
 	ErrReviewIdempotencyConflict = errors.New("lead submission review idempotency conflict")
 )
-
-type SubmissionReviewQuery struct {
-	Status string
-	FormID int64
-	Limit  int
-}
-
-type SubmissionReviewCounts struct {
-	Unreviewed int `json:"unreviewed"`
-	Legitimate int `json:"legitimate"`
-	Spam       int `json:"spam"`
-}
 
 type ReviewedSubmission struct {
 	ID                    int64                                                 `json:"id"`
@@ -70,12 +57,6 @@ type ReviewedSubmission struct {
 	CreatedAt             time.Time                                             `json:"createdAt"`
 	Replayed              bool                                                  `json:"-"`
 	Effects               moduleworkflowautomations.LeadSubmissionReviewEffects `json:"effects,omitempty"`
-}
-
-type SubmissionReviewPage struct {
-	Submissions []ReviewedSubmission   `json:"submissions"`
-	Counts      SubmissionReviewCounts `json:"counts"`
-	Limit       int                    `json:"limit"`
 }
 
 type SubmissionReviewInput struct {
@@ -109,50 +90,6 @@ func (s *Service) SubmissionReviewOperationalStats(ctx context.Context) (Submiss
 		result.OldestUnreviewedAge = 0
 	}
 	return result, nil
-}
-
-func (s *Service) ListSubmissionReviews(ctx context.Context, organizationID int64, query SubmissionReviewQuery) (SubmissionReviewPage, error) {
-	if s == nil || s.pool == nil || organizationID <= 0 {
-		return SubmissionReviewPage{}, fmt.Errorf("lead forms service not configured")
-	}
-	query.Status = strings.ToLower(strings.TrimSpace(query.Status))
-	if query.Status != "" && !validReviewStatus(query.Status) {
-		return SubmissionReviewPage{}, ErrInvalidReview
-	}
-	if query.FormID < 0 {
-		return SubmissionReviewPage{}, ErrInvalidReview
-	}
-	if query.Limit <= 0 || query.Limit > maxReviewPageSize {
-		query.Limit = maxReviewPageSize
-	}
-
-	page := SubmissionReviewPage{Submissions: []ReviewedSubmission{}, Limit: query.Limit}
-	if err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FILTER (WHERE review_status='unreviewed')::int,
-		       COUNT(*) FILTER (WHERE review_status='legitimate')::int,
-		       COUNT(*) FILTER (WHERE review_status='spam')::int
-		FROM lead_capture_submissions
-		WHERE organization_id=$1 AND ($2::bigint=0 OR form_id=$2)
-	`, organizationID, query.FormID).Scan(&page.Counts.Unreviewed, &page.Counts.Legitimate, &page.Counts.Spam); err != nil {
-		return SubmissionReviewPage{}, fmt.Errorf("count lead submission reviews: %w", err)
-	}
-
-	rows, err := s.pool.Query(ctx, submissionReviewListSQL, organizationID, query.Status, query.FormID, query.Limit, int64(0))
-	if err != nil {
-		return SubmissionReviewPage{}, fmt.Errorf("list lead submission reviews: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		submission, err := scanReviewedSubmission(rows)
-		if err != nil {
-			return SubmissionReviewPage{}, err
-		}
-		page.Submissions = append(page.Submissions, submission)
-	}
-	if err := rows.Err(); err != nil {
-		return SubmissionReviewPage{}, fmt.Errorf("iterate lead submission reviews: %w", err)
-	}
-	return page, nil
 }
 
 func (s *Service) ReviewSubmission(ctx context.Context, organizationID, submissionID, actorUserID int64, input SubmissionReviewInput) (ReviewedSubmission, error) {

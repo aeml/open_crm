@@ -153,4 +153,47 @@ describe('settings lead forms route', () => {
 		expect(await screen.findByText(/Lead restored as legitimate\. 1 follow-up rescheduled/)).toBeInTheDocument()
 		expect(reviewCalls[1].body.status).toBe('legitimate')
 	})
+
+	it('loads older review submissions once without replacing a newer duplicate', async () => {
+		const current = { id: 31, formId: 3, formName: 'Website Leads', contactId: 41, contactName: 'Newest Lead', contactEmail: 'newest@example.test', contactActive: true, values: { message: 'Newest request' }, reviewStatus: 'unreviewed', reviewVersion: 0, createdAt: '2026-07-22T12:00:00.123456Z' }
+		const older = { id: 30, formId: 3, formName: 'Website Leads', contactId: 40, contactName: 'Older Lead', contactEmail: 'older@example.test', contactActive: true, values: { message: 'Older request' }, reviewStatus: 'unreviewed', reviewVersion: 0, createdAt: '2026-07-21T12:00:00.123456Z' }
+		const fetchMock = vi.fn(async (url) => {
+			const requestURL = new URL(String(url), 'http://localhost')
+			const path = requestURL.pathname
+			if (path.endsWith('/auth/me')) return sessionResponse()
+			if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+			if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [{ id: 3, name: 'Website Leads', publicId: 'lf_existing', isActive: true, fields: standardFields }] } })
+			if (path.endsWith('/api/lead-capture-submissions')) {
+				if (requestURL.searchParams.get('cursor')) {
+					expect(requestURL.searchParams.get('cursor')).toBe('older-reviews')
+					expect(requestURL.searchParams.get('limit')).toBe('1')
+					return jsonResponse({ data: {
+						submissions: [{ ...current, contactName: 'Stale duplicate', reviewVersion: 0 }, older],
+						counts: { unreviewed: 2, legitimate: 0, spam: 0 },
+						limit: 1,
+						meta: { limit: 1, hasMore: false, nextCursor: '' }
+					} })
+				}
+				return jsonResponse({ data: {
+					submissions: [current],
+					counts: { unreviewed: 2, legitimate: 0, spam: 0 },
+					limit: 1,
+					meta: { limit: 1, hasMore: true, nextCursor: 'older-reviews' }
+				} })
+			}
+			throw new Error(`Unexpected fetch: ${path}`)
+		})
+
+		vi.stubGlobal('fetch', fetchMock)
+		window.history.pushState({}, '', '/settings/lead-forms')
+		render(<AppRouter />)
+
+		expect(await screen.findByRole('heading', { name: 'Newest Lead' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Load older submissions' }))
+		expect(await screen.findByRole('heading', { name: 'Older Lead' })).toBeInTheDocument()
+		expect(screen.getAllByRole('heading', { name: 'Newest Lead' })).toHaveLength(1)
+		expect(screen.queryByRole('heading', { name: 'Stale duplicate' })).not.toBeInTheDocument()
+		expect(screen.queryByRole('button', { name: 'Load older submissions' })).not.toBeInTheDocument()
+		expect(screen.getByText(/Showing 2 of 2 matching submissions/)).toBeInTheDocument()
+	})
 })

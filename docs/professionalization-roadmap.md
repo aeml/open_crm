@@ -136,7 +136,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.9` Integration Release Review: planned.
 - `0.9.0` Scale And Reliability: in progress.
 - `0.9.1` Query Performance Review: in progress (core tenant query plans and representative budgets are CI-gated; dashboard/report/import/provider review remains).
-- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity and the mutable shared inbox, searchable bounded company-linked-person continuation, stable PostgreSQL page evidence, and explicit 10,000-row export refusal are tested and documented; lead-review depth and mutable-catalog ceilings remain explicit decisions).
+- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person continuation, stable PostgreSQL page evidence, and explicit 10,000-row export refusal are tested and documented; only mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: planned.
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
@@ -2224,10 +2224,18 @@ deduplicates by ID and retains the newest optimistic version; freshly migrated
 PostgreSQL acceptance traverses 1,001 equal-time rows, proves the matching index,
 direct bounds, post-snapshot arrival/coordination exclusion, final page, privacy,
 and tenant isolation, while Chromium loads row 51 and reruns WCAG A/AA checks.
-Remaining decisions are explicit rather than silently truncated: lead review
-remains a newest-50 operator queue, and several mutable definition catalogs rely
-on pilot-scale usage rather than an enforced stored-row ceiling. Close or paginate those surfaces as production-like
-evidence requires before this roadmap item is complete.
+Lead review now defaults to 50 and caps at 100 with a strict opaque cursor over
+immutable creation time and ID. The admin UI serializes continuation and review
+actions, appends with ID deduplication, and refreshes from the newest page after
+a mutation. Fresh PostgreSQL acceptance traverses 350 form/status-filtered rows
+inside a 1,001-row equal-time tenant, asserts the combined cursor index, budgets
+the first and adjacent 100-row pages below two seconds, excludes a later arrival
+and foreign tenant, and exposes the arrival on refresh. Chromium loads seeded
+row 51 before quarantine/recovery and repeats the populated WCAG scan. Remaining
+decisions are explicit rather than silently truncated: several mutable
+definition catalogs rely on pilot-scale usage rather than an enforced stored-row
+ceiling. Close or bound those surfaces as production-like evidence requires
+before this roadmap item is complete.
 
 ## Version 0.9.3 - Background Job Runner
 
@@ -2380,11 +2388,12 @@ contacts with duplicate checks and progress ledgers under a 10 s budget. Postmar
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 178.82 KiB/57.98 KiB for the entry, 54.93 KiB/15.65 KiB
-for the largest lazy chunk, and 726.99 KiB/226.82 KiB total assets under the
-existing 727/227 KiB aggregate ceilings. Snapshot-bound shared-inbox continuation
-uses a 15.19/4.42 KiB combined mailbox/team-inbox chunk without raising a byte
-ceiling. The isolated
+CSS. Current production-URL evidence is 178.82 KiB/57.96 KiB for the entry, 54.93 KiB/15.65 KiB
+for the largest lazy chunk, and 728.06 KiB/227.23 KiB total assets under the
+reviewed 729/228 KiB aggregate ceilings. Bounded lead-review continuation uses a
+15.46/5.01 KiB lead-forms route and advances only those aggregate ceilings;
+snapshot-bound shared-inbox continuation retains its 15.19/4.42 KiB combined
+mailbox/team-inbox chunk. The isolated
 public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
 retry-safe signature ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB
@@ -2669,7 +2678,7 @@ Progress:
 - `1.4.6` (drip/nurture campaigns built on the sequence engine foundation): complete as a hidden foundation. Added organization-scoped nurture campaign plans that bind active saved audiences to existing email sequences, validate active campaigns against active sequences, snapshot eligible audience counts, expose authenticated APIs for listing/creating/updating nurture campaigns, and retain a development-only Settings > Nurture Campaigns UI. Production navigation/bundles omit it until automatic audience enrollment, enrollment refresh scheduling, suppression-aware bulk launch approvals, per-nurture performance rollups, and reply/exit rules are complete.
 - `1.4.7` (rule-based lead scoring and routing/assignment foundation): complete as a hidden foundation. Added organization-scoped scoring rules over contact status, source, UTM, title, email, phone, and email-domain signals; persisted contact score/grade/scored-at metadata; exposed admin APIs for scoring-rule management plus a contact evaluation endpoint; routes unassigned contacts only when evaluation is manually invoked; logged lead scoring activity; surfaced retained score evidence in contact list/detail; and retains a development-only Settings > Lead Scoring UI. Production navigation and bundles omit management until automatic form evaluation, bulk rescoring, simulation, SLA queues, round robin, observability, and acceptance tests are complete.
 - `1.4.8` (lead capture from chat/website widget foundation): complete. Added organization-scoped website widget definitions tied to existing lead capture forms, stable public widget IDs, light/blue/dark themes, bottom-left/bottom-right/inline embed positions, authenticated APIs for listing/creating/updating widgets, a public widget lookup endpoint, a `/widget/:publicId` frontend renderer, and a Settings > Website Widgets UI with iframe embed snippets. Widget submissions now use the same delayed one-time challenge and exact consent statement as hosted pages. Live chat, bot conversation trees, agent handoff, widget analytics, edge reputation controls, automatic scoring/routing on submission, and custom script-loader embeds remain future slices.
-- `1.4.9` (lead submission spam review and recovery): complete locally. Owners/admins can inspect the newest 50 submissions by review state and form with retained business payload, attribution, contact, and follow-up summaries; the admin API also returns the retained consent context. A tenant/submission-bound digest-only request ledger makes same-version retries exact, prevents historical delayed retries from reapplying an older decision, rejects changed key reuse, and is excluded from portable exports. A spam decision archives the exact captured contact through the reversible archive model and, under the same transaction, cancels queued lead-follow-up runs plus pending jobs while retaining completed tasks and every prior run as history. Recovery restores only a contact whose archive timestamp is bound to that review, consumes hosted contact capacity when applicable, and creates one successor per latest spam-cancelled rule without rewriting or duplicating completed effects; repeated quarantine/recovery cycles remain one-active-run safe. The generic Archived Records path shows the quarantine but refuses to bypass it. Audit/activity evidence, aggregate unreviewed/legitimate/spam and oldest-unreviewed metrics, validated alerts, stable API errors, admin-only UI, handler tests, disposable-PostgreSQL cross-tenant/replay/lineage/archive tests, and the Chromium quarantine/recovery journey cover the local outcome. This is operator review, not an automatic classifier or an approved edge/reputation boundary; the 24-hour alert is provisional pending pilot cadence evidence.
+- `1.4.9` (lead submission spam review and recovery): complete locally. Owners/admins inspect submissions by review state and form with retained business payload, attribution, contact, and follow-up summaries; the admin API also returns retained consent context and exact form-scoped status counts. The queue defaults to 50 and caps at 100 with a strict opaque creation-time/ID cursor. The UI serializes refresh, continuation, and review work, appends with ID deduplication, and resets to the newest page after a mutation. A tenant/submission-bound digest-only request ledger makes same-version retries exact, prevents historical delayed retries from reapplying an older decision, rejects changed key reuse, and is excluded from portable exports. A spam decision archives the exact captured contact through the reversible archive model and, under the same transaction, cancels queued lead-follow-up runs plus pending jobs while retaining completed tasks and every prior run as history. Recovery restores only a contact whose archive timestamp is bound to that review, consumes hosted contact capacity when applicable, and creates one successor per latest spam-cancelled rule without rewriting or duplicating completed effects; repeated quarantine/recovery cycles remain one-active-run safe. The generic Archived Records path shows the quarantine but refuses to bypass it. Audit/activity evidence, aggregate unreviewed/legitimate/spam and oldest-unreviewed metrics, validated alerts, stable API errors, admin-only UI, handler tests, disposable-PostgreSQL cross-tenant/replay/lineage/archive tests, a 1,001-row equal-time/index/adjacent-page/refresh/tenant PostgreSQL gate, and the Chromium row-51/quarantine/recovery journey cover the local outcome. This is operator review, not an automatic classifier or an approved edge/reputation boundary; the 24-hour alert is provisional pending pilot cadence evidence.
 
 Candidate slices:
 

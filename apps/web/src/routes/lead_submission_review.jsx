@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -7,7 +7,7 @@ import { isAbortError } from '../lib/api'
 import { createIdempotencyKey } from '../lib/idempotency'
 import { listLeadSubmissionReviews, reviewLeadSubmission } from '../lib/lead_forms'
 
-const emptyPage = { submissions: [], counts: { unreviewed: 0, legitimate: 0, spam: 0 }, limit: 50 }
+const emptyPage = { submissions: [], counts: { unreviewed: 0, legitimate: 0, spam: 0 }, limit: 50, meta: { limit: 50, hasMore: false, nextCursor: '' } }
 
 function reviewLabel(status) {
 	if (status === 'spam') return 'Spam'
@@ -36,19 +36,42 @@ export function LeadSubmissionReview({ forms = [] }) {
 	const [formFilter, setFormFilter] = useState('')
 	const [notes, setNotes] = useState({})
 	const [isLoading, setIsLoading] = useState(true)
+	const [isLoadingOlder, setIsLoadingOlder] = useState(false)
 	const [pendingId, setPendingId] = useState(null)
 	const [error, setError] = useState('')
 	const [status, setStatus] = useState('')
+	const operationPending = useRef(false)
 
-	async function loadReviews({ signal } = {}) {
-		setIsLoading(true)
+	async function requestReviews({ signal, cursor = '', append = false } = {}) {
+		append ? setIsLoadingOlder(true) : setIsLoading(true)
 		try {
-			setPage(await listLeadSubmissionReviews({ status: statusFilter, formId: formFilter, signal }))
+			const next = await listLeadSubmissionReviews({ status: statusFilter, formId: formFilter, cursor, limit: append ? (page.meta?.limit || page.limit || 50) : undefined, signal })
+			if (signal?.aborted) return
+			next.meta ||= { limit: next.limit || 50, hasMore: false, nextCursor: '' }
+			if (append) {
+				setPage((current) => {
+					const ids = new Set(current.submissions.map((submission) => submission.id))
+					return { ...next, submissions: [...current.submissions, ...next.submissions.filter((submission) => !ids.has(submission.id))] }
+				})
+			} else {
+				setPage(next)
+			}
 			setError('')
 		} catch (loadError) {
 			if (!isAbortError(loadError)) setError(loadError.message || 'Unable to load lead submissions.')
 		} finally {
-			if (!signal?.aborted) setIsLoading(false)
+			if (!signal?.aborted) append ? setIsLoadingOlder(false) : setIsLoading(false)
+		}
+	}
+
+	async function loadReviews(options = {}) {
+		const userRequested = !options.signal
+		if (userRequested && operationPending.current) return
+		if (userRequested) operationPending.current = true
+		try {
+			await requestReviews(options)
+		} finally {
+			if (userRequested) operationPending.current = false
 		}
 	}
 
@@ -59,8 +82,9 @@ export function LeadSubmissionReview({ forms = [] }) {
 	}, [statusFilter, formFilter])
 
 	async function review(submission, desiredStatus) {
-		if (pendingId !== null) return
+		if (pendingId !== null || operationPending.current) return
 		if (desiredStatus === 'spam' && !window.confirm(`Quarantine ${submission.contactName || 'this captured lead'} as spam? The captured contact will be archived and queued follow-up work will be cancelled.`)) return
+		operationPending.current = true
 		setPendingId(submission.id)
 		setStatus('')
 		try {
@@ -68,17 +92,21 @@ export function LeadSubmissionReview({ forms = [] }) {
 				status: desiredStatus,
 				note: notes[submission.id] || ''
 			}, createIdempotencyKey('lead-review'))
+			if (updated?.id !== submission.id || updated.reviewStatus !== desiredStatus) throw new Error('Unable to verify the reviewed submission. Refresh and try again.')
 			setStatus(effectMessage(updated, desiredStatus))
 			setNotes((current) => ({ ...current, [submission.id]: '' }))
-			await loadReviews()
+			await requestReviews()
 		} catch (reviewError) {
 			setError(reviewError.message || 'Unable to review lead submission.')
 		} finally {
+			operationPending.current = false
 			setPendingId(null)
 		}
 	}
 
 	const counts = page.counts || emptyPage.counts
+	const matchingTotal = statusFilter ? Number(counts[statusFilter] || 0) : Number(counts.unreviewed || 0) + Number(counts.legitimate || 0) + Number(counts.spam || 0)
+	const pageMeta = page.meta || emptyPage.meta
 	return (
 		<div className="card-stack">
 			<div className="section-header">
@@ -89,7 +117,7 @@ export function LeadSubmissionReview({ forms = [] }) {
 			</div>
 			<div className="filters-grid">
 				<Field label="Review status">
-					<select className="text-input" value={statusFilter} disabled={pendingId !== null} onChange={(event) => setStatusFilter(event.target.value)}>
+					<select className="text-input" value={statusFilter} disabled={pendingId !== null || isLoadingOlder} onChange={(event) => setStatusFilter(event.target.value)}>
 						<option value="unreviewed">Needs review ({counts.unreviewed || 0})</option>
 						<option value="spam">Spam ({counts.spam || 0})</option>
 						<option value="legitimate">Legitimate ({counts.legitimate || 0})</option>
@@ -97,7 +125,7 @@ export function LeadSubmissionReview({ forms = [] }) {
 					</select>
 				</Field>
 				<Field label="Lead form">
-					<select className="text-input" value={formFilter} disabled={pendingId !== null} onChange={(event) => setFormFilter(event.target.value)}>
+					<select className="text-input" value={formFilter} disabled={pendingId !== null || isLoadingOlder} onChange={(event) => setFormFilter(event.target.value)}>
 						<option value="">All lead forms</option>
 						{forms.map((form) => <option key={form.id} value={form.id}>{form.name}</option>)}
 					</select>
@@ -106,7 +134,7 @@ export function LeadSubmissionReview({ forms = [] }) {
 			{status ? <p className="field-hint" role="status">{status}</p> : null}
 			{error ? <InlineError message={error} onRetry={() => loadReviews()} retryLabel="Retry lead submissions" /> : null}
 			{isLoading ? <p className="field-hint">Loading lead submissions...</p> : null}
-			<div className="record-list" role="list" aria-label="Lead submissions awaiting review">
+			<div className="record-list" role="list" aria-label="Lead submissions awaiting review" aria-busy={isLoading || isLoadingOlder}>
 				{!isLoading && page.submissions.length === 0 ? (
 					<article className="record-row" role="listitem"><div><p>No submissions match this review filter.</p></div></article>
 				) : page.submissions.map((submission) => (
@@ -134,7 +162,8 @@ export function LeadSubmissionReview({ forms = [] }) {
 					</article>
 				))}
 			</div>
-			<p className="field-hint">Showing the newest {page.limit || 50} matching submissions. Completed follow-up tasks are retained as auditable history.</p>
+			{pageMeta.hasMore && pageMeta.nextCursor ? <Button className="button-secondary" type="button" disabled={isLoading || isLoadingOlder || pendingId !== null} onClick={() => loadReviews({ cursor: pageMeta.nextCursor, append: true })}>{isLoadingOlder ? 'Loading...' : 'Load older submissions'}</Button> : null}
+			<p className="field-hint">Showing {page.submissions.length} of {matchingTotal} matching submissions. Completed follow-up tasks are retained as auditable history.</p>
 		</div>
 	)
 }

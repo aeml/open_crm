@@ -32,6 +32,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Core list page size / maximum offset | 100 rows / 50,000 rows |
 | Two adjacent record-history cursor pages (1,001 rows, 100/page) | 2 s |
 | Each of the first two shared-inbox cursor pages (1,001 rows, 100/page) | 2 s |
+| Each of the first two filtered lead-review cursor pages (1,001 rows, 100/page) | 2 s |
 | Company linked-person page (1,000 links, 100 returned) | 2 s |
 | Transactional contact-create p95 | 1 s |
 | Any transactional contact create | 3 s |
@@ -95,6 +96,20 @@ outbound exclusion, then proves both a newer arrival and an updated first-page r
 do not enter continuation while a refresh exposes current state. Migration 110
 adds the matching tenant/bucket/time/ID partial index with bounded deployment
 lock and statement timeouts.
+
+Lead-submission review uses an immutable creation-key cursor over a live review
+queue. Its default is 50 and maximum is 100; malformed cursors and limits fail
+before service work, direct callers repeat the bound, and exact counts remain
+scoped to the selected tenant/form. Dedicated freshly migrated PostgreSQL
+acceptance seeds 1,001 equal-time submissions across forms and review states,
+traverses all 350 matches without overlap, requires the first and adjacent
+100-row pages individually below two seconds, asserts the combined
+tenant/form/status/time/ID index, rejects direct overflow, and proves foreign
+tenant exclusion. A later arrival remains above an older traversal and appears
+on refresh; a review mutation intentionally reconciles through the same refresh
+because status filters describe a live work queue. Migration 111 also adds the
+unfiltered tenant/time/ID access path with bounded deployment lock and statement
+timeouts.
 
 The failure path also holds the only connection in a one-connection pool, proves a
 waiting request observes its 200 ms deadline, releases capacity, and proves the
@@ -172,11 +187,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 727 KiB | 227 KiB |
+| All JavaScript and CSS | 729 KiB | 228 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.82 KiB/57.98 KiB entry, 54.93 KiB/15.65 KiB largest lazy
-chunk, and 726.99 KiB/226.82 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.82 KiB/57.96 KiB entry, 54.93 KiB/15.65 KiB largest lazy
+chunk, and 728.06 KiB/227.23 KiB total assets. The production contact, company,
 deal, and task routes are 27.72/8.57, 44.95/12.98, 54.93/15.64, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -354,6 +369,21 @@ largest lazy chunk, 15.19/4.42 KiB for the combined mailbox/team-inbox chunk,
 and 726.99/226.82 KiB aggregate raw/gzip. Refresh, continuation, and coordination
 actions are serialized in the focused route, while the backend cursor owns the
 mutable queue snapshot and total order.
+
+Bounded lead-submission review continuation then replaces the newest-50-only
+operator queue with a strict 50/default, 100/maximum API, an immutable
+creation-time/ID cursor, exact form-scoped status counts, ID-deduplicated
+accessible loading, and refresh after a review mutation. Migration 111 supplies
+the unfiltered and combined form/status cursor indexes. Fresh PostgreSQL 16.14
+acceptance traverses 350 filtered rows within a 1,001-row equal-time tenant,
+asserts the combined index, budgets the first and adjacent 100-row pages below
+two seconds, excludes a later arrival and foreign tenant, and proves refresh
+exposes the arrival. Chromium loads seeded row 51 before quarantine/recovery and
+reruns the populated WCAG scan. The measured build is 178.82/57.96 KiB entry,
+54.93/15.65 KiB largest lazy chunk, 15.46/5.01 KiB lead-forms route, and
+728.06/227.23 KiB aggregate raw/gzip. Only the aggregate ceilings advance from
+727/227 to 729/228 KiB for this complete outcome; entry, per-route, CSS, and
+source ceilings remain unchanged.
 
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.

@@ -18,10 +18,12 @@ export async function updateLeadCaptureForm(formId, input, { signal } = {}) {
   return payload?.data?.form
 }
 
-export async function listLeadSubmissionReviews({ status = 'unreviewed', formId = '', signal } = {}) {
+export async function listLeadSubmissionReviews({ status = 'unreviewed', formId = '', cursor = '', limit, signal } = {}) {
 	const query = new URLSearchParams()
 	if (status) query.set('status', status)
 	if (formId) query.set('formId', String(formId))
+	if (cursor) query.set('cursor', cursor)
+	if (limit) query.set('limit', String(limit))
 	const suffix = query.toString() ? `?${query.toString()}` : ''
 	const payload = await apiRequest(`/api/lead-capture-submissions${suffix}`, {
 		fallbackMessage: 'Unable to load lead submissions.',

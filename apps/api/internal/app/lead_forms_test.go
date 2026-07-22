@@ -14,6 +14,7 @@ import (
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
+	platformtimeline "github.com/aeml/open_crm/apps/api/internal/platform/timelinepagination"
 )
 
 type fakeLeadFormsService struct {
@@ -286,20 +287,29 @@ func TestUpdateLeadCaptureFormScopesToOrganization(t *testing.T) {
 }
 
 func TestListLeadSubmissionReviewsRequiresAdminAndScopesFilters(t *testing.T) {
+	cursor, err := platformtimeline.Encode(time.Date(2026, 7, 22, 12, 0, 0, 123456000, time.UTC), 17)
+	if err != nil {
+		t.Fatalf("encode lead review cursor: %v", err)
+	}
 	service := &fakeLeadFormsService{reviewListResult: moduleleadforms.SubmissionReviewPage{
 		Submissions: []moduleleadforms.ReviewedSubmission{{ID: 17, FormID: 9, ContactID: 22, ReviewStatus: moduleleadforms.ReviewStatusUnreviewed}},
 		Counts:      moduleleadforms.SubmissionReviewCounts{Unreviewed: 1},
-		Limit:       50,
+		Limit:       25,
+		Meta:        platformtimeline.Meta{Limit: 25, HasMore: true, NextCursor: "next-page"},
 	}}
 	server := authenticatedLeadFormsServer(service, "admin")
-	request := httptest.NewRequest(http.MethodGet, "/api/lead-capture-submissions?status=unreviewed&formId=9", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/lead-capture-submissions?status=unreviewed&formId=9&limit=25&cursor="+cursor, nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
 	server.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK || service.lastReviewListOrgID != 42 || service.lastReviewListQuery.Status != "unreviewed" || service.lastReviewListQuery.FormID != 9 {
+	if recorder.Code != http.StatusOK || service.lastReviewListOrgID != 42 || service.lastReviewListQuery.Status != "unreviewed" || service.lastReviewListQuery.FormID != 9 || service.lastReviewListQuery.Limit != 25 || service.lastReviewListQuery.Cursor == nil || service.lastReviewListQuery.Cursor.ID != 17 {
 		t.Fatalf("unexpected review list routing: status=%d org=%d query=%#v body=%s", recorder.Code, service.lastReviewListOrgID, service.lastReviewListQuery, recorder.Body.String())
+	}
+	var response leadSubmissionReviewsResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || !response.Data.Meta.HasMore || response.Data.Meta.NextCursor != "next-page" {
+		t.Fatalf("unexpected review continuation response: response=%#v err=%v", response, err)
 	}
 	memberService := &fakeLeadFormsService{}
 	memberServer := authenticatedLeadFormsServer(memberService, "member")
@@ -309,6 +319,27 @@ func TestListLeadSubmissionReviewsRequiresAdminAndScopesFilters(t *testing.T) {
 	memberServer.ServeHTTP(memberRecorder, memberRequest)
 	if memberRecorder.Code != http.StatusForbidden || memberService.lastReviewListOrgID != 0 {
 		t.Fatalf("member reached sensitive review queue: status=%d org=%d", memberRecorder.Code, memberService.lastReviewListOrgID)
+	}
+}
+
+func TestListLeadSubmissionReviewsRejectsMalformedPaginationBeforeService(t *testing.T) {
+	for _, target := range []string{
+		"/api/lead-capture-submissions?cursor=not-a-cursor",
+		"/api/lead-capture-submissions?limit=0",
+		"/api/lead-capture-submissions?limit=101",
+		"/api/lead-capture-submissions?limit=nope",
+	} {
+		service := &fakeLeadFormsService{}
+		server := authenticatedLeadFormsServer(service, "admin")
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		addSessionCookie(request)
+		recorder := httptest.NewRecorder()
+
+		server.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusBadRequest || service.lastReviewListOrgID != 0 {
+			t.Fatalf("%s: invalid pagination status=%d reached_org=%d body=%s", target, recorder.Code, service.lastReviewListOrgID, recorder.Body.String())
+		}
 	}
 }
 

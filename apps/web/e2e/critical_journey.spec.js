@@ -40,6 +40,18 @@ function seedSharedInboxContinuation(ownerEmail, runID) {
   })
 }
 
+function seedLeadReviewContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_lead_reviews', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -229,6 +241,8 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(page.getByText('Lead form created.', { exact: true })).toBeVisible()
   await expect(page.getByRole('listitem').filter({ hasText: `Pilot website form ${runID}` })).toBeVisible()
 
+  seedLeadReviewContinuation(owner.email, runID)
+
   const leadFollowUpRuleName = `Inbound lead follow-up ${runID}`
   const leadFollowUpTaskTitle = `Review inbound lead ${runID}`
   await page.getByRole('link', { name: 'Automations', exact: true }).click()
@@ -292,6 +306,11 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
 	await page.getByRole('link', { name: 'Lead Forms', exact: true }).click()
 	const capturedSubmission = page.getByRole('list', { name: 'Lead submissions awaiting review' }).getByRole('listitem').filter({ hasText: publicLeadEmail })
 	await expect(capturedSubmission).toBeVisible()
+	const oldestSeededReview = `browser-review-51-${runID}@example.test`
+	await expect(page.getByText(oldestSeededReview, { exact: true })).toHaveCount(0)
+	await page.getByRole('button', { name: 'Load older submissions' }).click()
+	await expect(page.getByText(oldestSeededReview, { exact: true })).toBeVisible()
+	await expect(page.getByRole('button', { name: 'Load older submissions' })).toHaveCount(0)
 	const leadReviewAccessibility = await new AxeBuilder({ page })
 		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
 		.analyze()
