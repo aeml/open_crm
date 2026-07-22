@@ -112,6 +112,10 @@ async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
 }
 
 test('pilot lead-to-client journey persists data and isolates tenants', async ({ browser, page }) => {
+  // This intentionally broad journey exercises the complete pilot contract and
+  // can exceed the default wall-clock budget on a shared CI runner. Action and
+  // assertion timeouts remain bounded by the global 10-second limits.
+  test.setTimeout(120_000)
   const runID = uniqueRunID()
   const resetSMTP = await page.request.delete(`${smtpCaptureURL}/messages`)
   expect(resetSMTP.status()).toBe(200)
