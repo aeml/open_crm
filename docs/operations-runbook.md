@@ -1989,6 +1989,32 @@ Before approving a mailbox provider for pilot use:
 Standards references: [RFC 8058](https://www.rfc-editor.org/rfc/rfc8058.html)
 and [RFC 2369](https://www.rfc-editor.org/rfc/rfc2369.html).
 
+### Managing sequence definitions and capacity
+
+**Settings > Email Sequences** loads exact 50-row name-ordered pages and shows
+the filtered total. Search is literal and status can be narrowed to draft,
+active, or paused. Use **Previous page** and **Next page** rather than assuming
+the first response is the complete retained catalog. New contact enrollments
+and nurture configuration receive only the complete active set; drafts and
+paused history never enter those selectors.
+
+A workspace may activate at most 100 definitions. The API serializes the final
+slot across instances, so two approvals racing for it yield one activation and
+one `EMAIL_SEQUENCE_ACTIVE_LIMIT` response. Pause an obsolete active definition
+before retrying the rejected approval. Existing legacy workspaces above the
+ceiling can still read and use every already-active definition, but cannot add
+another until their active count falls below 100. Do not delete retained
+history or raise the ceiling directly in SQL; record the workload and approve a
+new operating limit before changing the checked constant.
+
+Create, update, delete, approval, and effective pause revalidate the acting
+membership and append audit evidence in the same transaction. Update, delete,
+and approval also bind to the revision displayed in the UI. A
+`SEQUENCE_CHANGED` response means another operator changed the definition;
+reload, review its complete steps, then repeat the intended action. Never retry
+with a guessed revision. Repeated approval of the already-active exact revision
+and repeated pause are safe and create no duplicate audit event.
+
 ### Approving and pausing sequence email
 
 New and edited sequence definitions are drafts. An owner or admin must use
@@ -2003,8 +2029,9 @@ pause prevents new provider attempts and causes already queued jobs to defer
 without consuming attempts. A provider attempt that the worker claimed before
 the pause transaction acquired its lock may still finish. Check the contact
 history and the enrolling user's Sent folder before assuming it was stopped.
-An owner/admin can **Approve & resume** the unchanged revision. Approval and
-pause actions appear in Audit Trail.
+An owner/admin can **Approve & resume** the unchanged revision. Create, update,
+delete, approval, and effective pause actions appear in Audit Trail without
+retaining cadence subjects or bodies.
 
 Do not activate or resume a definition by updating `email_sequences` directly:
 the API binds status, approver, approval time, and revision together, while the

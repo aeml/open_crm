@@ -100,6 +100,18 @@ function seedQuoteTemplateContinuation(ownerEmail, runID) {
   })
 }
 
+function seedEmailSequenceContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_email_sequences', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -648,8 +660,19 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
 
   const sequenceName = `Pilot cadence ${runID}`
   const sequenceSubject = `Pilot sequence follow-up ${runID}`
+  seedEmailSequenceContinuation(owner.email, runID)
   await page.getByRole('link', { name: 'Email Sequences', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Email sequences', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `Retained browser sequence ${runID} #001`, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `Retained browser sequence ${runID} #051`, exact: true })).toHaveCount(0)
+  await expect(page.getByText('Showing 50 of 51 email sequences', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(page.getByRole('heading', { name: `Retained browser sequence ${runID} #051`, exact: true })).toBeVisible()
+  await page.getByLabel('Search email sequences').fill(`Retained browser sequence ${runID} #051`)
+  await page.getByRole('button', { name: 'Apply search' }).click()
+  await expect(page.getByText('Showing 1 of 1 email sequences', { exact: false })).toBeVisible()
+  await page.getByLabel('Search email sequences').fill('')
+  await page.getByRole('button', { name: 'Apply search' }).click()
   await page.getByLabel('Sequence name').fill(sequenceName)
   await page.getByLabel('Description').fill('Approved one-step pilot cadence through the durable worker')
   await page.getByLabel('Step 1 delay days').fill('0')
@@ -667,6 +690,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByRole('button', { name: 'Manage sequences', exact: true }).click()
   const enrollmentSequenceSelect = page.getByRole('combobox', { name: 'Sequence', exact: true })
   await expect(enrollmentSequenceSelect.locator('option:checked')).toHaveText(sequenceName)
+  expect((await enrollmentSequenceSelect.locator('option').allTextContents()).join('\n')).not.toContain('Retained browser sequence')
   await page.getByRole('button', { name: 'Enroll contact', exact: true }).click()
   await expect(page.getByText(`Enrolled in ${sequenceName}.`, { exact: true })).toBeVisible()
   await expect.poll(async () => {

@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 36
-	expectedTenantIsolationEvidenceDigest = "01eb8009b7e79b14b45e2cfd92330687d175ba4eea6c975af6db7fa30ceca5d2"
+	expectedTenantIsolationEvidenceCount  = 38
+	expectedTenantIsolationEvidenceDigest = "a263254b7300f16ffacd75bcba6a1cf5b59a5f908a7eeb81190b725f294e2f13"
 )
 
 type tenantIsolationEvidence struct {
@@ -46,6 +46,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "email-sequence-delivery", Source: "apps/api/internal/modules/sequencerunner/service_postgres_test.go", Test: "TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres"},
 	{Surface: "email-sequence-governance", Source: "apps/api/internal/modules/emailsequences/approvals_postgres_test.go", Test: "TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres"},
 	{Surface: "email-sequence-history", Source: "apps/api/internal/modules/emailsequences/enrollment_history_postgres_test.go", Test: "TestSequenceEnrollmentHistoryStableBoundedTenantContinuationAgainstPostgres"},
+	{Surface: "email-sequence-management", Source: "apps/api/internal/modules/emailsequences/definition_management_postgres_test.go", Test: "TestSequenceDefinitionCatalogIsBoundedTenantSafeRevisionedAndCapacitySerialized"},
 	{Surface: "forecast", Source: "apps/api/internal/modules/dashboard/forecast_postgres_test.go", Test: "TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope"},
 	{Surface: "imports-and-rollback", Source: "apps/api/internal/modules/imports/service_postgres_test.go", Test: "TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres"},
 	{Surface: "invitations", Source: "apps/api/internal/modules/users/invitations_postgres_test.go", Test: "TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres"},
@@ -58,6 +59,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "task-reminders", Source: "apps/api/internal/modules/taskreminders/service_postgres_test.go", Test: "TestTaskRemindersAreDurablePreferenceAwareAndIdempotentAgainstPostgres"},
 	{Surface: "touchpoints", Source: "apps/api/internal/modules/touchpoints/service_postgres_test.go", Test: "TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres"},
 	{Surface: "user-lifecycle", Source: "apps/api/internal/modules/users/lifecycle_postgres_test.go", Test: "TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPostgres"},
+	{Surface: "workflow-activation", Source: "apps/api/internal/modules/workflowautomations/activation_postgres_test.go", Test: "TestWorkflowActivationAuthorizationCapacityAndRecovery"},
 	{Surface: "workspace-bootstrap", Source: "apps/api/internal/modules/onboarding/service_postgres_test.go", Test: "TestVerifiedWorkspaceSignupIsIdempotentAndStartsTrialAfterVerificationAgainstPostgres"},
 	{Surface: "workspace-portability", Source: "apps/api/internal/modules/workspaceexports/service_postgres_test.go", Test: "TestWorkspaceExportLifecycleAgainstPostgres"},
 }

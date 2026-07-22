@@ -14,8 +14,8 @@ The audited mutation classes are:
 
 - workspace provisioning, identity verification, invitation, role, member
   lifecycle, password recovery, and active-session revocation;
-- organization profile, pipeline, custom-field, quote-template, approval, and
-  executable automation configuration;
+- organization profile, pipeline, custom-field, quote-template, email-sequence
+  definition lifecycle and approval, and executable automation configuration;
 - archive recovery, imports and rollback, bulk changes and rollback, duplicate
   merge, client review scheduling, and lead-submission quarantine/recovery;
 - billing subscription/reconciliation outcomes, identity- and customer-email
@@ -36,12 +36,18 @@ expanding the boundary.
 
 Producer source count: `44`
 
-Producer source digest: `8999f768482ba39bed8d66cf7bb5c7dc65b9fa684e3b151a6f5369ec63c3c953`
+Producer source digest: `7630d09037322489a5a747b0495c582279cadea23dfcbf4b7a3a68f76c41a5ed`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
 not proof that a schema or passing unit test completes a user outcome; relevant
 handler and PostgreSQL acceptance still remain mandatory.
+
+Email-sequence create, update, delete, exact-revision approval, and effective
+pause events commit in the same tenant transaction as the definition change.
+Idempotent repeated approval or pause writes no duplicate event. Metadata is
+limited to revision, resulting status, and step count; cadence subject/body and
+recipient/provider material remain outside the audit row.
 
 ## Data and secret boundary
 

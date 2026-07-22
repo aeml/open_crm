@@ -75,7 +75,7 @@ func TestSequenceReplyQualificationAndOutcomeAnalyticsAgainstPostgres(t *testing
 		if createErr != nil {
 			t.Fatalf("create %s: %v", name, createErr)
 		}
-		sequence, createErr = sequences.Approve(ctx, organizationID, sequence.ID, senderID)
+		sequence, createErr = sequences.Approve(ctx, organizationID, sequence.ID, senderID, sequence.Revision)
 		if createErr != nil {
 			t.Fatalf("approve %s: %v", name, createErr)
 		}
@@ -225,12 +225,12 @@ func TestSequenceReplyQualificationAndOutcomeAnalyticsAgainstPostgres(t *testing
 		t.Fatalf("suppression must not schedule later steps: jobs=%d err=%v", suppressedJobCount, err)
 	}
 
-	listed, err := sequences.ListByOrganization(ctx, organizationID)
+	listed, err := sequences.ListByOrganization(ctx, organizationID, ListQuery{})
 	if err != nil {
 		t.Fatalf("list sequence outcome analytics: %v", err)
 	}
-	byID := make(map[int64]Sequence, len(listed))
-	for _, sequence := range listed {
+	byID := make(map[int64]Sequence, len(listed.Sequences))
+	for _, sequence := range listed.Sequences {
 		byID[sequence.ID] = sequence
 	}
 	replyOutcomes := byID[replySequence.ID].Outcomes
@@ -245,7 +245,7 @@ func TestSequenceReplyQualificationAndOutcomeAnalyticsAgainstPostgres(t *testing
 	if suppressedOutcomes.Enrolled != 1 || suppressedOutcomes.SuppressedExits != 1 || suppressedOutcomes.SuppressedMessages != 1 || suppressedOutcomes.Active != 0 {
 		t.Fatalf("unexpected suppression outcomes: %#v", suppressedOutcomes)
 	}
-	if foreign, err := sequences.ListByOrganization(ctx, otherOrganizationID); err != nil || len(foreign) != 0 {
+	if foreign, err := sequences.ListByOrganization(ctx, otherOrganizationID, ListQuery{}); err != nil || len(foreign.Sequences) != 0 {
 		t.Fatalf("sequence analytics crossed tenant boundary: sequences=%#v err=%v", foreign, err)
 	}
 }

@@ -76,15 +76,15 @@ func TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres(t *testing.
 	if _, err := service.EnrollContact(ctx, organizationID, EnrollmentInput{SequenceID: sequence.ID, ContactID: contactID, EnrolledByUserID: adminID}); !errors.Is(err, ErrApprovalRequired) {
 		t.Fatalf("expected draft enrollment to require approval, got %v", err)
 	}
-	if _, err := service.Approve(ctx, otherOrganizationID, sequence.ID, adminID); !errors.Is(err, ErrNotFound) {
+	if _, err := service.Approve(ctx, otherOrganizationID, sequence.ID, adminID, sequence.Revision); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected cross-tenant approval to be hidden, got %v", err)
 	}
 
-	sequence, err = service.Approve(ctx, organizationID, sequence.ID, adminID)
+	sequence, err = service.Approve(ctx, organizationID, sequence.ID, adminID, sequence.Revision)
 	if err != nil || sequence.Status != "active" || sequence.ApprovedRevision != sequence.Revision || sequence.ApprovedAt == nil || sequence.ApprovedByUserID != adminID {
 		t.Fatalf("approve exact revision: sequence=%#v err=%v", sequence, err)
 	}
-	if repeated, err := service.Approve(ctx, organizationID, sequence.ID, adminID); err != nil || repeated.Status != "active" {
+	if repeated, err := service.Approve(ctx, organizationID, sequence.ID, adminID, sequence.Revision); err != nil || repeated.Status != "active" {
 		t.Fatalf("expected idempotent repeated approval: sequence=%#v err=%v", repeated, err)
 	}
 	if _, err := service.EnrollContact(ctx, organizationID, EnrollmentInput{SequenceID: sequence.ID, ContactID: contactID}); !errors.Is(err, ErrInvalidInput) {
@@ -139,20 +139,21 @@ func TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres(t *testing.
 	if !errors.Is(result.err, ErrSequencePaused) || result.delivery.Status != "queued" {
 		t.Fatalf("expected committed pause to win before provider claim: delivery=%#v err=%v", result.delivery, result.err)
 	}
-	sequence, err = service.Pause(ctx, organizationID, sequence.ID)
+	sequence, err = service.Pause(ctx, organizationID, sequence.ID, adminID)
 	if err != nil || sequence.Status != "paused" {
 		t.Fatalf("expected idempotent API safety pause: sequence=%#v err=%v", sequence, err)
 	}
 	if _, err := service.LoadScheduledSend(ctx, organizationID, enrollment.ID, 1); !errors.Is(err, ErrSequencePaused) {
 		t.Fatalf("expected pause before load to defer delivery, got %v", err)
 	}
-	if _, err := service.Update(ctx, organizationID, sequence.ID, input); !errors.Is(err, ErrSequenceInUse) {
+	input.ExpectedRevision = sequence.Revision
+	if _, err := service.Update(ctx, organizationID, sequence.ID, adminID, input); !errors.Is(err, ErrSequenceInUse) {
 		t.Fatalf("expected enrollment history to protect sequence content, got %v", err)
 	}
-	if err := service.Delete(ctx, organizationID, sequence.ID); !errors.Is(err, ErrSequenceInUse) {
+	if err := service.Delete(ctx, organizationID, sequence.ID, adminID, sequence.Revision); !errors.Is(err, ErrSequenceInUse) {
 		t.Fatalf("expected enrollment history to protect sequence deletion, got %v", err)
 	}
-	if _, err := service.Pause(ctx, otherOrganizationID, sequence.ID); !errors.Is(err, ErrNotFound) {
+	if _, err := service.Pause(ctx, otherOrganizationID, sequence.ID, adminID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected cross-tenant pause to be hidden, got %v", err)
 	}
 
@@ -160,16 +161,17 @@ func TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres(t *testing.
 	if err != nil {
 		t.Fatalf("create editable draft: %v", err)
 	}
-	editable, err = service.Approve(ctx, organizationID, editable.ID, adminID)
+	editable, err = service.Approve(ctx, organizationID, editable.ID, adminID, editable.Revision)
 	if err != nil {
 		t.Fatalf("approve editable draft: %v", err)
 	}
-	editable, err = service.Pause(ctx, organizationID, editable.ID)
+	editable, err = service.Pause(ctx, organizationID, editable.ID, adminID)
 	if err != nil {
 		t.Fatalf("pause editable sequence: %v", err)
 	}
 	input.Name = "Edited revision"
-	editable, err = service.Update(ctx, organizationID, editable.ID, input)
+	input.ExpectedRevision = editable.Revision
+	editable, err = service.Update(ctx, organizationID, editable.ID, adminID, input)
 	if err != nil || editable.Status != "draft" || editable.Revision != 2 || editable.ApprovedAt != nil || editable.ApprovedRevision != 0 {
 		t.Fatalf("expected edit to revoke approval and increment revision: sequence=%#v err=%v", editable, err)
 	}

@@ -76,7 +76,7 @@ func TestCustomerEmailFeedbackCorrelationAgainstPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create sequence: %v", err)
 	}
-	sequence, err = sequences.Approve(ctx, organizationID, sequence.ID, senderID)
+	sequence, err = sequences.Approve(ctx, organizationID, sequence.ID, senderID, sequence.Revision)
 	if err != nil {
 		t.Fatalf("approve sequence: %v", err)
 	}
@@ -197,12 +197,12 @@ func TestCustomerEmailFeedbackCorrelationAgainstPostgres(t *testing.T) {
 		t.Fatalf("unexpected direct feedback state: outcome=%q suppression=%q", directOutcome, directSuppression)
 	}
 
-	listed, err := sequences.ListByOrganization(ctx, organizationID)
-	if err != nil || len(listed) != 1 {
+	listed, err := sequences.ListByOrganization(ctx, organizationID, moduleemailsequences.ListQuery{})
+	if err != nil || len(listed.Sequences) != 1 {
 		t.Fatalf("list sequence outcomes: sequences=%#v err=%v", listed, err)
 	}
-	if listed[0].Outcomes.ProviderAccepted != 1 || listed[0].Outcomes.BouncedMessages != 0 || listed[0].Outcomes.Complaints != 1 || listed[0].Outcomes.SuppressedExits != 1 {
-		t.Fatalf("unexpected sequence feedback outcomes: %#v", listed[0].Outcomes)
+	if listed.Sequences[0].Outcomes.ProviderAccepted != 1 || listed.Sequences[0].Outcomes.BouncedMessages != 0 || listed.Sequences[0].Outcomes.Complaints != 1 || listed.Sequences[0].Outcomes.SuppressedExits != 1 {
+		t.Fatalf("unexpected sequence feedback outcomes: %#v", listed.Sequences[0].Outcomes)
 	}
 	var unappliedMain, unappliedForeign int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM customer_email_feedback_events WHERE organization_id=$1 AND applied=FALSE`, organizationID).Scan(&unappliedMain); err != nil {

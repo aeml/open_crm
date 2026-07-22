@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
-import { createEmailSequence, deleteEmailSequence, listEmailSequences, transitionEmailSequence, updateEmailSequence } from '../lib/email_sequences'
+import { createEmailSequence, deleteEmailSequence, listEmailSequencePage, transitionEmailSequence, updateEmailSequence } from '../lib/email_sequences'
 import { usePageTitle } from '../lib/use_page_title'
 import { EmailSequenceEnrollmentHistory } from './email_sequence_enrollment_history'
 
 const emptyStep = { delayDays: 0, subject: '', body: '' }
-const emptyForm = { name: '', description: '', steps: [emptyStep] }
+const emptyForm = { name: '', description: '', steps: [emptyStep], expectedRevision: 0 }
+const pageSize = 50
+const emptyMeta = { page: 1, pageSize, total: 0 }
+const maxSequenceSteps = 20
 
 function formFromSequence(sequence) {
   const steps = sequence.steps.length
@@ -19,13 +22,15 @@ function formFromSequence(sequence) {
   return {
     name: sequence.name,
     description: sequence.description,
-    steps
+    steps,
+    expectedRevision: sequence.revision
   }
 }
 
 function payloadFromForm(form) {
-  return {
-    ...form,
+  const payload = {
+    name: form.name,
+    description: form.description,
     status: 'draft',
     steps: form.steps.map((step) => ({
       delayDays: +step.delayDays || 0,
@@ -33,29 +38,46 @@ function payloadFromForm(form) {
       body: step.body
     }))
   }
+  if (form.expectedRevision > 0) payload.expectedRevision = form.expectedRevision
+  return payload
 }
 
 export function SettingsEmailSequencesRoute() {
   const { canWrite: canManage, canAdminister } = useAuth()
   usePageTitle('Email Sequences')
   const [sequences, setSequences] = useState([])
+  const [sequenceMeta, setSequenceMeta] = useState(emptyMeta)
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [pendingSequenceId, setPendingSequenceId] = useState(null)
+  const [statusMessage, setStatusMessage] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const [appliedSearch, setAppliedSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [pageNumber, setPageNumber] = useState(1)
+  const latestLoad = useRef(0)
+  const operationPending = useRef(false)
 
-  async function loadSequences(signal) {
+  async function loadSequences({ signal, requestedPage = pageNumber, search = appliedSearch, sequenceStatus = statusFilter } = {}) {
+    const loadId = latestLoad.current + 1
+    latestLoad.current = loadId
+    setIsLoading(true)
     try {
-      const next = await listEmailSequences({ signal })
-      setSequences(next)
+      const page = await listEmailSequencePage({ search, status: sequenceStatus, page: requestedPage, pageSize, signal })
+      if (signal?.aborted || loadId !== latestLoad.current) return null
+      setSequences(page.sequences)
+      setSequenceMeta(page.meta)
       setError('')
+      return page
     } catch (loadError) {
-      if (!isAbortError(loadError)) {
+      if (!isAbortError(loadError) && loadId === latestLoad.current) {
         setError(loadError.message || 'Unable to load email sequences.')
       }
     } finally {
-      if (!signal.aborted) {
+      if (!signal?.aborted && loadId === latestLoad.current) {
         setIsLoading(false)
       }
     }
@@ -63,11 +85,11 @@ export function SettingsEmailSequencesRoute() {
 
   useEffect(() => {
     const controller = new AbortController()
-    loadSequences(controller.signal)
+    loadSequences({ signal: controller.signal })
     return () => {
       controller.abort()
     }
-  }, [])
+  }, [appliedSearch, pageNumber, statusFilter])
 
   function resetForm() {
     setForm(emptyForm)
@@ -87,6 +109,7 @@ export function SettingsEmailSequencesRoute() {
   }
 
   function addStep() {
+    if (form.steps.length >= maxSequenceSteps) return
     setForm((current) => ({ ...current, steps: [...current.steps, emptyStep] }))
   }
 
@@ -99,45 +122,79 @@ export function SettingsEmailSequencesRoute() {
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (operationPending.current) return
+    operationPending.current = true
     setIsSaving(true)
+    setStatusMessage('')
     try {
       const payload = payloadFromForm(form)
+      const operation = editingId ? 'updated' : 'created'
       if (editingId) {
-        const updated = await updateEmailSequence(editingId, payload)
-        setSequences((current) => current.map((sequence) => (sequence.id === editingId ? updated : sequence)))
+        await updateEmailSequence(editingId, payload)
       } else {
-        const created = await createEmailSequence(payload)
-        setSequences((current) => [...current, created])
+        await createEmailSequence(payload)
       }
       resetForm()
+      setStatusMessage(`Email sequence ${operation}.`)
       setError('')
+      if (pageNumber === 1) await loadSequences({ requestedPage: 1 })
+      else setPageNumber(1)
     } catch (saveError) {
       setError(saveError.message || 'Unable to save email sequence.')
     } finally {
       setIsSaving(false)
+      operationPending.current = false
     }
   }
 
-  async function handleDelete(sequenceId) {
+  async function handleDelete(sequence) {
+    if (operationPending.current) return
+    operationPending.current = true
+    setPendingSequenceId(sequence.id)
+    setStatusMessage('')
     try {
-      await deleteEmailSequence(sequenceId)
-      setSequences((current) => current.filter((sequence) => sequence.id !== sequenceId))
-      if (editingId === sequenceId) {
+      await deleteEmailSequence(sequence.id, sequence.revision)
+      if (editingId === sequence.id) {
         resetForm()
       }
+      setStatusMessage('Email sequence deleted.')
       setError('')
+      const page = await loadSequences()
+      if (page && page.sequences.length === 0 && page.meta.total > 0 && pageNumber > 1) setPageNumber((current) => current - 1)
     } catch (deleteError) {
       setError(deleteError.message || 'Unable to delete email sequence.')
+    } finally {
+      setPendingSequenceId(null)
+      operationPending.current = false
     }
   }
 
-  async function handleTransition(sequenceId, action) {
+  async function handleTransition(sequence, action) {
+    if (operationPending.current) return
+    operationPending.current = true
+    setPendingSequenceId(sequence.id)
+    setStatusMessage('')
     try {
-      const updated = await transitionEmailSequence(sequenceId, action)
-      setSequences((current) => current.map((sequence) => (sequence.id === sequenceId ? updated : sequence)))
+      await transitionEmailSequence(sequence.id, action, sequence.revision)
+      setStatusMessage(action === 'approve' ? 'Email sequence approved and activated.' : 'Email sequence paused.')
       setError('')
+      const page = await loadSequences()
+      if (page && page.sequences.length === 0 && page.meta.total > 0 && pageNumber > 1) setPageNumber((current) => current - 1)
     } catch (transitionError) {
       setError(transitionError.message)
+    } finally {
+      setPendingSequenceId(null)
+      operationPending.current = false
+    }
+  }
+
+  function handleSearch(event) {
+    event.preventDefault()
+    const nextSearch = searchInput.trim()
+    if (nextSearch === appliedSearch && pageNumber === 1) loadSequences({ requestedPage: 1, search: nextSearch })
+    else {
+      setPageNumber(1)
+      setAppliedSearch(nextSearch)
     }
   }
 
@@ -148,10 +205,25 @@ export function SettingsEmailSequencesRoute() {
           <h2>Email sequences</h2>
           {isLoading ? <p className="field-hint">Loading sequences...</p> : null}
           {error ? <InlineError message={error} /> : null}
+          {statusMessage ? <p className="field-hint" role="status">{statusMessage}</p> : null}
+          <form className="filters-grid" onSubmit={handleSearch}>
+            <Field label="Search email sequences">
+              <input className="text-input" maxLength={100} value={searchInput} disabled={isSaving || pendingSequenceId !== null} onChange={(event) => setSearchInput(event.target.value)} placeholder="Sequence name" />
+            </Field>
+            <Field label="Email sequence status">
+              <select className="text-input" value={statusFilter} disabled={isSaving || pendingSequenceId !== null} onChange={(event) => { setPageNumber(1); setStatusFilter(event.target.value) }}>
+                <option value="all">Draft, active, and paused</option>
+                <option value="draft">Draft</option>
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+              </select>
+            </Field>
+            <Button className="button-secondary" type="submit" disabled={isLoading || isSaving || pendingSequenceId !== null}>Apply search</Button>
+          </form>
           <div className="record-list" role="list" aria-label="Email sequences">
             {!isLoading && sequences.length === 0 ? (
               <article className="record-row" role="listitem">
-                <p>No email sequences yet.</p>
+                <p>{appliedSearch || statusFilter !== 'all' ? 'No email sequences match these filters.' : 'No email sequences yet.'}</p>
               </article>
             ) : sequences.map((sequence) => (
               <article className="record-row sequence-row" key={sequence.id} role="listitem">
@@ -165,20 +237,25 @@ export function SettingsEmailSequencesRoute() {
                 </div>
                 {canManage ? (
                   <div>
-                    {sequence.status !== 'active' ? <Button className="button-secondary" type="button" onClick={() => startEdit(sequence)}>Edit</Button> : null}
+                    {sequence.status !== 'active' ? <Button className="button-secondary" type="button" disabled={isSaving || pendingSequenceId !== null} onClick={() => startEdit(sequence)}>Edit</Button> : null}
                     {canAdminister && sequence.status !== 'active' ? (
-                      <Button type="button" onClick={() => handleTransition(sequence.id, 'approve')}>
-                        {sequence.status === 'paused' ? 'Approve & resume' : 'Approve & activate'}
+                      <Button type="button" disabled={isSaving || pendingSequenceId !== null} onClick={() => handleTransition(sequence, 'approve')}>
+                        {pendingSequenceId === sequence.id ? 'Applying…' : sequence.status === 'paused' ? 'Approve & resume' : 'Approve & activate'}
                       </Button>
                     ) : null}
                     {sequence.status === 'active' ? (
-                      <Button className="button-secondary" type="button" onClick={() => handleTransition(sequence.id, 'pause')}>Pause sending</Button>
-                    ) : <Button className="button-secondary" type="button" onClick={() => handleDelete(sequence.id)}>Delete</Button>}
+                      <Button className="button-secondary" type="button" disabled={isSaving || pendingSequenceId !== null} onClick={() => handleTransition(sequence, 'pause')}>{pendingSequenceId === sequence.id ? 'Pausing…' : 'Pause sending'}</Button>
+                    ) : <Button className="button-secondary" type="button" disabled={isSaving || pendingSequenceId !== null} onClick={() => handleDelete(sequence)}>{pendingSequenceId === sequence.id ? 'Deleting…' : 'Delete'}</Button>}
                   </div>
                 ) : null}
                 {sequence.outcomes?.enrolled ? <EmailSequenceEnrollmentHistory sequence={sequence} /> : null}
               </article>
             ))}
+          </div>
+          <p className="field-hint" role="status">Showing {sequences.length} of {sequenceMeta.total} email sequences{appliedSearch ? ` matching “${appliedSearch}”` : ''}. Up to 100 sequences may be active for enrollment and delivery.</p>
+          <div className="button-row">
+            <Button className="button-secondary" type="button" disabled={isLoading || pageNumber <= 1 || isSaving || pendingSequenceId !== null} onClick={() => setPageNumber((current) => current - 1)}>Previous page</Button>
+            <Button className="button-secondary" type="button" disabled={isLoading || pageNumber * sequenceMeta.pageSize >= sequenceMeta.total || isSaving || pendingSequenceId !== null} onClick={() => setPageNumber((current) => current + 1)}>Next page</Button>
           </div>
         </div>
       </Card>
@@ -191,10 +268,10 @@ export function SettingsEmailSequencesRoute() {
               <p className="field-hint">Saves as a draft for admin approval.</p>
             </div>
             <Field label="Sequence name">
-              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+              <input className="text-input" maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
             </Field>
             <Field label="Description">
-              <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+              <textarea className="text-input" maxLength={1000} rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
             </Field>
             <div className="card-stack">
               <div className="section-header">
@@ -202,31 +279,31 @@ export function SettingsEmailSequencesRoute() {
                   <h3>Steps</h3>
                   <p className="field-hint">Pause stops new attempts; a claimed send may finish.</p>
                 </div>
-                <Button className="button-secondary" type="button" onClick={addStep}>Add step</Button>
+                <Button className="button-secondary" type="button" disabled={form.steps.length >= maxSequenceSteps || isSaving || pendingSequenceId !== null} onClick={addStep}>Add step</Button>
               </div>
               {form.steps.map((step, index) => (
                 <Card key={index}>
                   <div className="card-stack">
                     <div className="section-header">
                       <h3>Step {index + 1}</h3>
-                      <Button className="button-secondary" type="button" onClick={() => removeStep(index)} disabled={form.steps.length === 1}>Remove</Button>
+                      <Button className="button-secondary" type="button" onClick={() => removeStep(index)} disabled={form.steps.length === 1 || isSaving || pendingSequenceId !== null}>Remove</Button>
                     </div>
                     <Field label={`Step ${index + 1} delay days`}>
-                      <input className="text-input" min="0" type="number" value={step.delayDays} onChange={(event) => updateStep(index, { delayDays: event.target.value })} required />
+                      <input className="text-input" min="0" max="365" type="number" value={step.delayDays} onChange={(event) => updateStep(index, { delayDays: event.target.value })} required />
                     </Field>
                     <Field label={`Step ${index + 1} subject`}>
-                      <input className="text-input" value={step.subject} onChange={(event) => updateStep(index, { subject: event.target.value })} required />
+                      <input className="text-input" maxLength={500} value={step.subject} onChange={(event) => updateStep(index, { subject: event.target.value })} required />
                     </Field>
                     <Field label={`Step ${index + 1} body`}>
-                      <textarea className="text-input" rows={5} value={step.body} onChange={(event) => updateStep(index, { body: event.target.value })} required />
+                      <textarea className="text-input" maxLength={10000} rows={5} value={step.body} onChange={(event) => updateStep(index, { body: event.target.value })} required />
                     </Field>
                   </div>
                 </Card>
               ))}
             </div>
             <div>
-              <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save changes' : 'Create sequence'}</Button>
-              {editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}
+              <Button type="submit" disabled={isSaving || pendingSequenceId !== null}>{isSaving ? 'Saving...' : editingId ? 'Save changes' : 'Create sequence'}</Button>
+              {editingId ? <Button className="button-secondary" type="button" disabled={isSaving || pendingSequenceId !== null} onClick={resetForm}>Cancel</Button> : null}
             </div>
           </form>
         </Card>

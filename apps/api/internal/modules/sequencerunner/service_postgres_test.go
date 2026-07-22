@@ -290,12 +290,12 @@ func TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres
 	if uncertainStatus != "uncertain" || enrollmentStatus != "active" {
 		t.Fatalf("expected uncertain delivery quarantined without advancing enrollment, delivery=%s enrollment=%s", uncertainStatus, enrollmentStatus)
 	}
-	listed, err := sequences.ListByOrganization(ctx, organizationID)
+	listed, err := sequences.ListByOrganization(ctx, organizationID, moduleemailsequences.ListQuery{})
 	if err != nil {
 		t.Fatalf("list sequence recovery outcomes: %v", err)
 	}
 	var needsReview int64
-	for _, sequence := range listed {
+	for _, sequence := range listed.Sequences {
 		if sequence.ID == sequenceID {
 			needsReview = sequence.Outcomes.NeedsReview
 		}

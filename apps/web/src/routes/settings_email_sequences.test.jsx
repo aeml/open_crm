@@ -31,6 +31,9 @@ function deferred() {
 
 describe('settings email sequences route', () => {
   it('lists sequences and creates a new draft sequence', async () => {
+    const sequences = [
+      { id: 3, name: 'Welcome cadence', description: 'First-touch follow-up', status: 'draft', revision: 1, steps: [{ id: 7, stepOrder: 1, delayDays: 0, subject: 'Welcome', body: 'Hello' }] }
+    ]
     const fetchMock = vi.fn(async (url, options = {}) => {
       const path = new URL(String(url), 'http://localhost').pathname
       const method = options.method || 'GET'
@@ -38,18 +41,19 @@ describe('settings email sequences route', () => {
         return sessionResponse()
       }
       if (path.endsWith('/api/email-sequences') && method === 'POST') {
+        const created = {
+          id: 5,
+          name: 'Trial nurture',
+          description: 'Warm new trials',
+          status: 'draft',
+          revision: 1,
+          steps: [{ id: 10, stepOrder: 1, delayDays: 2, subject: 'Checking in', body: 'Hi {{first_name}}' }]
+        }
+        sequences.push(created)
         return {
           ok: true,
           json: async () => ({
-            data: {
-              sequence: {
-                id: 5,
-                name: 'Trial nurture',
-                description: 'Warm new trials',
-                status: 'draft',
-                steps: [{ id: 10, stepOrder: 1, delayDays: 2, subject: 'Checking in', body: 'Hi {{first_name}}' }]
-              }
-            }
+            data: { sequence: created }
           })
         }
       }
@@ -58,9 +62,8 @@ describe('settings email sequences route', () => {
           ok: true,
           json: async () => ({
             data: {
-              sequences: [
-                { id: 3, name: 'Welcome cadence', description: 'First-touch follow-up', status: 'draft', revision: 1, steps: [{ id: 7, stepOrder: 1, delayDays: 0, subject: 'Welcome', body: 'Hello' }] }
-              ]
+              sequences,
+              meta: { page: 1, pageSize: 50, total: sequences.length }
             }
           })
         }
@@ -100,7 +103,7 @@ describe('settings email sequences route', () => {
   })
 
   it('requires an admin action to activate an exact draft revision', async () => {
-    const draft = {
+    let storedSequence = {
       id: 8,
       name: 'Approved follow-up',
       description: 'Controlled outreach',
@@ -114,13 +117,14 @@ describe('settings email sequences route', () => {
       const method = options.method || 'GET'
       if (path.endsWith('/auth/me')) return sessionResponse()
       if (path.endsWith('/api/email-sequences/8/approve') && method === 'POST') {
+        storedSequence = { ...storedSequence, status: 'active', approvedRevision: 3, approvedAt: '2026-07-20T12:00:00Z' }
         return {
           ok: true,
-          json: async () => ({ data: { sequence: { ...draft, status: 'active', approvedRevision: 3, approvedAt: '2026-07-20T12:00:00Z' } } })
+          json: async () => ({ data: { sequence: storedSequence } })
         }
       }
       if (path.endsWith('/api/email-sequences')) {
-        return { ok: true, json: async () => ({ data: { sequences: [draft] } }) }
+        return { ok: true, json: async () => ({ data: { sequences: [storedSequence], meta: { page: 1, pageSize: 50, total: 1 } } }) }
       }
       return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
     })
@@ -134,11 +138,52 @@ describe('settings email sequences route', () => {
     fireEvent.click(screen.getByRole('button', { name: /approve & activate/i }))
 
     await waitFor(() => {
-      expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/api/email-sequences/8/approve') && call[1]?.method === 'POST')).toBe(true)
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith('/api/email-sequences/8/approve?revision=3') && call[1]?.method === 'POST')).toBe(true)
     })
     expect(await screen.findByText(/active · revision 3/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /pause sending/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument()
+  })
+
+  it('pages and searches retained sequence definitions without hiding the active ceiling', async () => {
+    const sequences = Array.from({ length: 51 }, (_, index) => ({
+      id: index + 1,
+      name: `Retained sequence ${String(index + 1).padStart(3, '0')}`,
+      status: 'draft',
+      revision: 1,
+      steps: [{ id: index + 101, stepOrder: 1, delayDays: 0, subject: 'Hello', body: 'Pilot body' }]
+    }))
+    const fetchMock = vi.fn(async (url) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      if (requestURL.pathname.endsWith('/auth/me')) return sessionResponse()
+      if (requestURL.pathname.endsWith('/api/email-sequences')) {
+        const search = (requestURL.searchParams.get('q') || '').toLowerCase()
+        const status = requestURL.searchParams.get('status') || 'all'
+        const page = Number(requestURL.searchParams.get('page') || 1)
+        const filtered = sequences
+          .filter((sequence) => status === 'all' || sequence.status === status)
+          .filter((sequence) => !search || sequence.name.toLowerCase().includes(search))
+        const start = (page - 1) * 50
+        return jsonResponse({ sequences: filtered.slice(start, start + 50), meta: { page, pageSize: 50, total: filtered.length } })
+      }
+      return jsonResponse({ unreadCount: 0 })
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/email-sequences')
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: 'Retained sequence 001' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Retained sequence 051' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Showing 50 of 51 email sequences/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(await screen.findByRole('heading', { name: 'Retained sequence 051' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Search email sequences'), { target: { value: 'Retained sequence 051' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply search' }))
+    expect(await screen.findByText(/Showing 1 of 1 email sequences matching/)).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/email-sequences\?q=Retained\+sequence\+051&page=1&pageSize=50/), expect.any(Object))
+    expect(screen.getByText(/Up to 100 sequences may be active/)).toBeInTheDocument()
   })
 
   it('drills into bounded enrollment outcomes and deduplicates continuation rows', async () => {

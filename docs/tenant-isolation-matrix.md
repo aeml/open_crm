@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `36`
+Evidence row count: `38`
 
-Evidence digest: `01eb8009b7e79b14b45e2cfd92330687d175ba4eea6c975af6db7fa30ceca5d2`
+Evidence digest: `a263254b7300f16ffacd75bcba6a1cf5b59a5f908a7eeb81190b725f294e2f13`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -47,6 +47,7 @@ the assertions inside those tests remain the proof of behavior.
 | `email-sequence-delivery` | `apps/api/internal/modules/sequencerunner/service_postgres_test.go` | `TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres` | A job carrying another workspace's organization cannot load or send the local enrollment; exact retries do not duplicate provider effects, ambiguous SMTP outcomes remain quarantined, and explicit confirm/retry recovery advances only the owning tenant's enrollment while preserving its prepared message identifier. |
 | `email-sequence-governance` | `apps/api/internal/modules/emailsequences/approvals_postgres_test.go` | `TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres` | Approval, pause, immutable historical content, and enrollment remain bound to the owning organization; enrollment now revalidates the active same-tenant enroller inside its transaction, while missing and foreign actors leave no enrollment or queued work. |
 | `email-sequence-history` | `apps/api/internal/modules/emailsequences/enrollment_history_postgres_test.go` | `TestSequenceEnrollmentHistoryStableBoundedTenantContinuationAgainstPostgres` | Sequence drill-down binds organization and sequence in both the index selection and detail joins; 1,001 equal-time rows retain ID order across bounded opaque continuation, per-enrollment delivery evidence stays local, direct limits reject, and a foreign sequence returns no history. |
+| `email-sequence-management` | `apps/api/internal/modules/emailsequences/definition_management_postgres_test.go` | `TestSequenceDefinitionCatalogIsBoundedTenantSafeRevisionedAndCapacitySerialized` | Exact filtered totals, literal search, stable adjacent pages, selected-definition step/outcome hydration, exact-revision mutations, transactional actor revalidation/audit, and the serialized 100-active ceiling stay inside the owning workspace; foreign definitions and inactive/foreign roles remain missing, and only one concurrent final-slot approval succeeds. |
 | `forecast` | `apps/api/internal/modules/dashboard/forecast_postgres_test.go` | `TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope` | Forecast totals, stages, owners, quotas, and task buckets exclude a seeded high-value foreign pipeline. |
 | `imports-and-rollback` | `apps/api/internal/modules/imports/service_postgres_test.go` | `TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres` | Imported rows, batch history, idempotency, and rollback are tenant scoped; foreign history and rollback IDs stay missing. |
 | `invitations` | `apps/api/internal/modules/users/invitations_postgres_test.go` | `TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres` | Foreign delivery, resend, and revoke attempts return not found and cannot consume or rotate the owner's token lineage. |

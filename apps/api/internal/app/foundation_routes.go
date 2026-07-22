@@ -232,10 +232,10 @@ func registerFoundationRoutes(mux *http.ServeMux, dependencies Dependencies, rat
 		handleDeleteEmailSequence(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
 	})
 	mux.HandleFunc("POST /api/email-sequences/{sequenceID}/approve", func(w http.ResponseWriter, r *http.Request) {
-		handleApproveEmailSequence(dependencies.AuthService, dependencies.EmailSequencesService, dependencies.AuditService, w, r)
+		handleApproveEmailSequence(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
 	})
 	mux.HandleFunc("POST /api/email-sequences/{sequenceID}/pause", func(w http.ResponseWriter, r *http.Request) {
-		handlePauseEmailSequence(dependencies.AuthService, dependencies.EmailSequencesService, dependencies.AuditService, w, r)
+		handlePauseEmailSequence(dependencies.AuthService, dependencies.EmailSequencesService, w, r)
 	})
 	mux.HandleFunc("GET /api/email-sequence-enrollments", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailSequenceEnrollments(dependencies.AuthService, dependencies.EmailSequenceEnrollmentsService, w, r)

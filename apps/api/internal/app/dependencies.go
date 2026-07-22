@@ -329,12 +329,12 @@ type leadAudiencesService interface {
 }
 
 type emailSequencesService interface {
-	ListByOrganization(context.Context, int64) ([]moduleemailsequences.Sequence, error)
+	ListByOrganization(context.Context, int64, moduleemailsequences.ListQuery) (moduleemailsequences.ListPage, error)
 	Create(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
-	Update(context.Context, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
-	Delete(context.Context, int64, int64) error
-	Approve(context.Context, int64, int64, int64) (moduleemailsequences.Sequence, error)
-	Pause(context.Context, int64, int64) (moduleemailsequences.Sequence, error)
+	Update(context.Context, int64, int64, int64, moduleemailsequences.Input) (moduleemailsequences.Sequence, error)
+	Delete(context.Context, int64, int64, int64, int) error
+	Approve(context.Context, int64, int64, int64, int) (moduleemailsequences.Sequence, error)
+	Pause(context.Context, int64, int64, int64) (moduleemailsequences.Sequence, error)
 }
 
 type marketingCampaignsService interface {

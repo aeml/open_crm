@@ -33,6 +33,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Two adjacent record-history cursor pages (1,001 rows, 100/page) | 2 s |
 | Each of the first two shared-inbox cursor pages (1,001 rows, 100/page) | 2 s |
 | Each of the first two filtered lead-review cursor pages (1,001 rows, 100/page) | 2 s |
+| Active and adjacent email-sequence definition pages (1,001 definitions, up to 100 returned) | 2 s each |
 | Company linked-person page (1,000 links, 100 returned) | 2 s |
 | Transactional contact-create p95 | 1 s |
 | Any transactional contact create | 3 s |
@@ -187,16 +188,16 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 745 KiB | 233 KiB |
+| All JavaScript and CSS | 752 KiB | 235 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
 Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.64 KiB largest lazy
-chunk, and 744.94 KiB/232.35 KiB total assets. The production contact, company,
+chunk, and 751.69 KiB/234.60 KiB total assets. The production contact, company,
 deal, and task routes are 27.72/8.57, 44.95/12.98, 54.93/15.64, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
-OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
-revision-bound sequence approval and outcome summary remain in a 5.46 KiB/1.87 KiB route. The
+OAuth-mailbox peer remains separately lazy loaded at 10.63 KiB/3.21 KiB, and
+bounded sequence definition/history management remains in a 12.91 KiB/3.98 KiB route. The
 7.72 KiB/2.72 KiB background-operations route includes labeled replay and an
 explicit lead-follow-up filter, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
@@ -496,6 +497,25 @@ populated WCAG scan. The measured build is 178.82/57.96 KiB entry,
 747.93/233.39 KiB aggregate raw/gzip. Only the reviewed aggregate ceilings
 advance from 745/233 to 748/234 KiB; entry, per-route, CSS, and source ceilings
 remain unchanged.
+
+Bounded email-sequence definition management applies exact repeatable-read
+searchable/status-filtered 50/default and 100/maximum pages with a 50,000
+offset ceiling. Step and outcome joins are restricted to the selected page.
+Every writer is revalidated in the transaction; update, delete, and approval
+bind to the reviewed revision; lifecycle audit commits atomically; and a tenant
+advisory lock serializes the 100-active final slot. Active-only selectors load
+all bounded pages, reject changing totals, and preserve legacy overflow. Fresh
+PostgreSQL 16.14 acceptance seeds 1,001 local definitions plus a foreign
+sentinel, asserts the tenant/status/name plan, budgets the active and adjacent
+management pages below two seconds each, and covers literal wildcard search,
+tenant/role denial, stale revisions, idempotent audit, a one-success/one-limit
+approval race, and pause/reapproval recovery. Chromium loads/searches row 51,
+creates and approves the pilot cadence, excludes drafts from enrollment, then
+completes the SMTP delivery and populated WCAG scan. The measured build is
+178.82/57.97 KiB entry, 54.93/15.64 KiB largest lazy chunk,
+12.91/3.98 KiB Email Sequences route, and 751.69/234.60 KiB aggregate raw/gzip.
+Only the reviewed aggregate ceilings advance from 748/234 to 752/235 KiB;
+entry, per-route, CSS, and source ceilings remain unchanged.
 
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and
