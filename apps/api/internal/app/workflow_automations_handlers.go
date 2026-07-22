@@ -46,6 +46,7 @@ type workflowAutomationRequest struct {
 	Actions          []moduleworkflowautomations.Action    `json:"actions"`
 	IsActive         *bool                                 `json:"isActive"`
 	Position         int                                   `json:"position"`
+	DeactivateOnly   bool                                  `json:"deactivateOnly"`
 }
 
 func handleListWorkflowAutomations(auth authService, automations workflowAutomationsService, w http.ResponseWriter, r *http.Request) {
@@ -159,6 +160,7 @@ func workflowAutomationInput(request workflowAutomationRequest) moduleworkflowau
 		Actions:          request.Actions,
 		IsActive:         request.IsActive,
 		Position:         request.Position,
+		DeactivateOnly:   request.DeactivateOnly,
 	}
 }
 
@@ -171,6 +173,12 @@ func respondWorkflowAutomation(w http.ResponseWriter, requestID string, statusCo
 
 func writeWorkflowAutomationError(w http.ResponseWriter, requestID string, err error) {
 	switch {
+	case errors.Is(err, moduleworkflowautomations.ErrForbidden):
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Only an active workspace owner or admin can change workflow automations")
+	case errors.Is(err, moduleworkflowautomations.ErrNotExecutable):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "WORKFLOW_NOT_EXECUTABLE", "Activate only a reviewed deal or lead task rule; keep broader workflow foundations inactive")
+	case errors.Is(err, moduleworkflowautomations.ErrActiveLimit):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "WORKFLOW_ACTIVE_LIMIT", "Deactivate another rule or reduce its task plan before activating more than 50 task actions")
 	case errors.Is(err, moduleworkflowautomations.ErrInvalidInput):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid automation name, trigger, target record, conditions, actions, config, and order")
 	case errors.Is(err, moduleworkflowautomations.ErrDuplicateName):

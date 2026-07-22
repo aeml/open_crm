@@ -58,7 +58,13 @@ func leadFollowUpDueMinutes(action Action) (int, bool) {
 
 func validLeadFollowUpTrigger(trigger map[string]any, eventFormID int64) bool {
 	for key := range trigger {
-		if key != "formId" {
+		if key != "formId" && key != "taskContract" {
+			return false
+		}
+	}
+	if contract, configured := trigger["taskContract"]; configured {
+		contractName, valid := contract.(string)
+		if !valid || strings.TrimSpace(contractName) != LeadFollowUpTaskContract {
 			return false
 		}
 	}

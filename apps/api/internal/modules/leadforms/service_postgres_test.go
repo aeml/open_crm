@@ -79,8 +79,8 @@ func TestPublicSubmissionHonorsHostedWritePolicyAgainstPostgres(t *testing.T) {
 	active := true
 	if _, err := moduleworkflowautomations.NewService(pool).Create(ctx, organizationID, adminUserID, moduleworkflowautomations.Input{
 		Name: "Public lead follow-up", TriggerType: "form_submitted", TargetEntityType: "lead_form",
-		TriggerConfig: map[string]any{"formId": formID}, IsActive: &active,
-		Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Call public lead", "assignedToUserId": assigneeUserID}, DelayMinutes: 1440}},
+		TriggerConfig: map[string]any{"formId": formID, "taskContract": moduleworkflowautomations.LeadFollowUpTaskContract}, IsActive: &active,
+		Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Call public lead", "assignedToUserId": assigneeUserID, "dueDays": 1}}},
 	}); err != nil {
 		t.Fatalf("create public lead follow-up workflow: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestLeadSubmissionSpamReviewIsTenantSafeReversibleAndIdempotentAgainstPostg
 	active := true
 	if _, err := moduleworkflowautomations.NewService(pool).Create(ctx, organizationID, ownerID, moduleworkflowautomations.Input{
 		Name: "Review-gated follow-up", TriggerType: "form_submitted", TargetEntityType: "lead_form",
-		TriggerConfig: map[string]any{"formId": form.ID}, IsActive: &active,
+		TriggerConfig: map[string]any{"formId": form.ID, "taskContract": moduleworkflowautomations.LeadFollowUpTaskContract}, IsActive: &active,
 		Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Review inbound lead", "assignedToUserId": assigneeID, "dueDays": 1}, DelayMinutes: 1440}},
 	}); err != nil {
 		t.Fatalf("create reviewed lead workflow: %v", err)

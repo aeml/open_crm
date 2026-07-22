@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyForm, formFromAutomation, isExecutableTaskRule, payloadFromForm } from './settings_automation_task_model'
+import { deactivationPayload, emptyForm, formFromAutomation, isExecutableTaskRule, payloadFromForm } from './settings_automation_task_model'
 
 function dealAutomation(actions, triggerConfig = {}) {
   return {
@@ -55,8 +55,13 @@ describe('settings automation task model', () => {
     })
     expect(leadPayload.actions).toHaveLength(1)
     expect(leadPayload.triggerConfig).not.toHaveProperty('taskPlanContract')
+    expect(leadPayload.triggerConfig).toEqual({ taskContract: 'lead_follow_up_task_v1' })
 
     const tooMany = { ...emptyForm(), name: 'Too many', title: 'One', additionalTasks: Array.from({ length: 5 }, (_, index) => ({ title: `Task ${index + 2}`, description: '', dueDays: '1' })) }
     expect(() => payloadFromForm(tooMany)).toThrow('at most 5 tasks')
+  })
+
+  it('uses a safety-only deactivation intent without resubmitting an unknown definition', () => {
+    expect(deactivationPayload()).toEqual({ deactivateOnly: true })
   })
 })

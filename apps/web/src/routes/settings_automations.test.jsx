@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { AppRouter } from '../app/router'
 import { activeRunRefreshDelay } from '../lib/workflow_automation_polling'
 
@@ -50,6 +50,9 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
       if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [{ id: 21, automationId: 5, automationName: 'Qualify new deals', triggerEventKey: 'deal:7:activity:90', status: 'succeeded', actionsTotal: 1, actionsCompleted: 1, createdAt: '2026-07-19T12:00:00Z' }] } })
       if (path.endsWith('/api/workflow-automations') && method === 'POST') return jsonResponse({ data: { automation: createdRule } }, 201)
+      if (path.endsWith('/api/workflow-automations/6') && method === 'PATCH') {
+        return jsonResponse({ data: { automation: { id: 6, name: 'Legacy email action', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditionLogic: 'all', conditions: [], actions: [{ type: 'send_email', config: { subject: 'Welcome', body: 'Hello' } }], isActive: false, position: 0 } } })
+      }
       if (path.endsWith('/api/workflow-automations')) {
         return jsonResponse({ data: { automations: [
           { id: 5, name: 'Qualify new deals', triggerType: 'record_created', targetEntityType: 'deal', triggerConfig: {}, conditions: [], actions: [{ type: 'create_task', config: { title: 'Qualify deal' }, delayMinutes: 1440 }], isActive: true },
@@ -70,6 +73,14 @@ describe('settings task automations route', () => {
     expect(screen.queryByRole('heading', { name: 'Legacy email action' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Unsupported multi-condition lead rule' })).not.toBeInTheDocument()
     expect(screen.getByText(/3 unsupported stored definitions hidden/i)).toBeInTheDocument()
+    expect(screen.getByText(/4 of 50 active task actions allocated/i)).toBeInTheDocument()
+    const recoveryList = screen.getByRole('list', { name: 'Active unsupported workflow definitions' })
+    const legacyRecovery = within(recoveryList).getByText('Legacy email action').closest('article')
+    fireEvent.click(within(legacyRecovery).getByRole('button', { name: 'Deactivate stored definition' }))
+    await waitFor(() => expect(screen.getByText(/Legacy email action deactivated/i)).toBeInTheDocument())
+    const deactivateCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations/6') && call[1]?.method === 'PATCH')
+    expect(JSON.parse(deactivateCall[1].body)).toEqual({ deactivateOnly: true })
+    expect(screen.getByText(/3 of 50 active task actions allocated/i)).toBeInTheDocument()
     expect(screen.getByRole('list', { name: 'Task automation runs' })).toHaveTextContent('1/1 tasks created')
 
     fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Proposal follow-up' } })
@@ -116,7 +127,7 @@ describe('settings task automations route', () => {
       name: 'Partner lead follow-up',
       triggerType: 'form_submitted',
       targetEntityType: 'lead_form',
-      triggerConfig: { formId: 31 },
+    triggerConfig: { taskContract: 'lead_follow_up_task_v1', formId: 31 },
       conditionLogic: 'all',
       conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }],
       actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7, dueDays: 1 }, delayMinutes: 2880 }],
@@ -162,7 +173,7 @@ describe('settings task automations route', () => {
         description: 'Creates one durable assigned follow-up task from an accepted lead form submission.',
         triggerType: 'form_submitted',
         targetEntityType: 'lead_form',
-        triggerConfig: { formId: 31 },
+    triggerConfig: { taskContract: 'lead_follow_up_task_v1', formId: 31 },
         conditionLogic: 'all',
         conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }],
         actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7, dueDays: 1 }, delayMinutes: 2880 }],

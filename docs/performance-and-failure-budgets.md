@@ -187,7 +187,7 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 731 KiB | 229 KiB |
+| All JavaScript and CSS | 734 KiB | 229 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
 Current production-URL evidence: 178.82 KiB/57.96 KiB entry, 54.93 KiB/15.64 KiB largest lazy
@@ -402,6 +402,14 @@ service through finalization with a populated WCAG scan. The measured build is
 product-catalog route, and 730.88/228.33 KiB aggregate raw/gzip. Preserving
 legacy overflow access advances the reviewed aggregate ceilings from 729/228 to
 731/229 KiB; entry, per-route, CSS, and source ceilings remain unchanged.
+Truthful workflow activation then adds exact active-action allocation disclosure,
+latest-load and serialized-writer guards, plus non-destructive recovery for
+unsupported legacy active definitions. The measured production build remains
+178.82/57.97 KiB entry and 54.93/15.64 KiB largest lazy chunk, while aggregate
+assets are 733.07/228.75 KiB raw/gzip. Only the reviewed aggregate raw ceiling
+advances from 731 to 734 KiB; aggregate gzip, entry, per-route, CSS, and source
+ceilings remain unchanged. The task-automation chunk is 22.52/6.88 KiB, with a
+327-line route and separately tested 239-line contract/form model.
 
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.

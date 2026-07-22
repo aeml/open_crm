@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
@@ -193,5 +194,48 @@ func TestUpdateWorkflowAutomationScopesToOrganization(t *testing.T) {
 	}
 	if service.lastUpdateInput.IsActive == nil || *service.lastUpdateInput.IsActive != inactive {
 		t.Fatalf("expected inactive update input, got %#v", service.lastUpdateInput.IsActive)
+	}
+}
+
+func TestWorkflowAutomationWriteErrorsAreStableAndActionable(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "transactional authorization", err: moduleworkflowautomations.ErrForbidden, statusCode: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "unsupported activation", err: moduleworkflowautomations.ErrNotExecutable, statusCode: http.StatusConflict, code: "WORKFLOW_NOT_EXECUTABLE"},
+		{name: "active task capacity", err: moduleworkflowautomations.ErrActiveLimit, statusCode: http.StatusConflict, code: "WORKFLOW_ACTIVE_LIMIT"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := &fakeWorkflowAutomationsService{createErr: test.err}
+			server := authenticatedWorkflowAutomationsServer(service, "owner")
+			request := httptest.NewRequest(http.MethodPost, "/api/workflow-automations", strings.NewReader(`{"name":"Task rule"}`))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != test.statusCode || !strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
+				t.Fatalf("unexpected workflow write error: status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestDeactivateWorkflowAutomationRoutesExplicitSafetyIntent(t *testing.T) {
+	service := &fakeWorkflowAutomationsService{updateResult: moduleworkflowautomations.Automation{ID: 9, Name: "Stored foundation", IsActive: false}}
+	server := authenticatedWorkflowAutomationsServer(service, "owner")
+	request := httptest.NewRequest(http.MethodPatch, "/api/workflow-automations/9", strings.NewReader(`{"deactivateOnly":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || service.lastUpdateOrgID != 42 || service.lastUpdateID != 9 || service.lastUpdateUserID != 1 || !service.lastUpdateInput.DeactivateOnly {
+		t.Fatalf("unexpected workflow deactivation routing: status=%d org=%d id=%d user=%d input=%#v", recorder.Code, service.lastUpdateOrgID, service.lastUpdateID, service.lastUpdateUserID, service.lastUpdateInput)
 	}
 }

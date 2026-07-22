@@ -305,6 +305,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByLabel('Due in days', { exact: false }).fill('1')
   await page.getByRole('button', { name: 'Create task rule' }).click()
   await expect(page.getByRole('heading', { name: leadFollowUpRuleName })).toBeVisible()
+	await expect(page.getByText('1 of 50 active task actions allocated. Each task in a playbook uses one slot.')).toBeVisible()
 
   await page.getByRole('link', { name: 'Landing Pages', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Landing Pages' })).toBeVisible()
@@ -683,6 +684,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(page.getByRole('heading', { name: `New deal qualification ${runID}` })).toBeVisible()
   await expect(page.getByText('Only if value amount is greater than 20000', { exact: true })).toBeVisible()
   await expect(page.getByText(/2-task playbook/)).toBeVisible()
+	await expect(page.getByText('3 of 50 active task actions allocated. Each task in a playbook uses one slot.')).toBeVisible()
 
   const quoteTemplateName = `Pilot services terms ${runID}`
   const quoteTemplateTerms = 'Net 30. Scope changes require written approval under the retained pilot services terms.'

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -21,6 +22,9 @@ var (
 	ErrDuplicateName = errors.New("workflow automation name already exists")
 	ErrInvalidInput  = errors.New("invalid workflow automation")
 	ErrNotFound      = errors.New("workflow automation not found")
+	ErrForbidden     = errors.New("workflow automation action forbidden")
+	ErrNotExecutable = errors.New("workflow automation is not an executable task contract")
+	ErrActiveLimit   = errors.New("workflow automation active task-action limit reached")
 )
 
 type Automation struct {
@@ -107,13 +111,21 @@ type Input struct {
 	Actions          []Action       `json:"actions"`
 	IsActive         *bool          `json:"isActive"`
 	Position         int            `json:"position"`
+	DeactivateOnly   bool           `json:"deactivateOnly,omitempty"`
 }
 
 type Service struct {
 	pool *pgxpool.Pool
 }
 
-const maxActionDelayMinutes = 525600
+const (
+	maxActionDelayMinutes       = 525600
+	maxDefinitionNameLength     = 120
+	maxDefinitionDescriptionLen = 2000
+	maxStoredDefinitionEntries  = 25
+	maxDefinitionConditionValue = 2000
+	maxDefinitionPosition       = 1000000
+)
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
@@ -277,13 +289,24 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		isActive = *input.IsActive
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Automation{}, fmt.Errorf("begin create workflow automation: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := validateLeadFollowUpReferences(ctx, tx, organizationID, input); err != nil {
+	if err := lockWorkflowDefinitionWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Automation{}, err
+	}
+	if isActive {
+		if err := validateExecutableActivation(input); err != nil {
+			return Automation{}, err
+		}
+		if err := validateExecutableReferences(ctx, tx, organizationID, input); err != nil {
+			return Automation{}, err
+		}
+		if err := requireActiveTaskActionCapacity(ctx, tx, organizationID, 0, len(input.Actions)); err != nil {
+			return Automation{}, err
+		}
 	}
 	var automationID int64
 	if err := tx.QueryRow(ctx, `
@@ -306,6 +329,9 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 	if s == nil || s.pool == nil {
 		return Automation{}, fmt.Errorf("workflow automations service not configured")
 	}
+	if input.DeactivateOnly {
+		return s.deactivate(ctx, organizationID, automationID, actorUserID)
+	}
 	input = normalizeInput(input)
 	if err := validateInput(input); err != nil {
 		return Automation{}, err
@@ -327,13 +353,32 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 		isActive = *input.IsActive
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Automation{}, fmt.Errorf("begin update workflow automation: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := validateLeadFollowUpReferences(ctx, tx, organizationID, input); err != nil {
+	if err := lockWorkflowDefinitionWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Automation{}, err
+	}
+	currentActive, err := lockWorkflowDefinition(ctx, tx, organizationID, automationID)
+	if err != nil {
+		return Automation{}, err
+	}
+	desiredActive := currentActive
+	if input.IsActive != nil {
+		desiredActive = *input.IsActive
+	}
+	if desiredActive {
+		if err := validateExecutableActivation(input); err != nil {
+			return Automation{}, err
+		}
+		if err := validateExecutableReferences(ctx, tx, organizationID, input); err != nil {
+			return Automation{}, err
+		}
+		if err := requireActiveTaskActionCapacity(ctx, tx, organizationID, automationID, len(input.Actions)); err != nil {
+			return Automation{}, err
+		}
 	}
 	updated, err := tx.Exec(ctx, `
 		UPDATE workflow_automations
@@ -357,11 +402,51 @@ func (s *Service) Update(ctx context.Context, organizationID, automationID, acto
 	if updated.RowsAffected() == 0 {
 		return Automation{}, ErrNotFound
 	}
-	if err := auditAutomationDefinition(ctx, tx, organizationID, actorUserID, automationID, "workflow_automation.updated", "Workflow automation updated", input, isActive); err != nil {
+	if err := auditAutomationDefinition(ctx, tx, organizationID, actorUserID, automationID, "workflow_automation.updated", "Workflow automation updated", input, desiredActive); err != nil {
 		return Automation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Automation{}, fmt.Errorf("commit update workflow automation: %w", err)
+	}
+	return s.getByID(ctx, organizationID, automationID)
+}
+
+func (s *Service) deactivate(ctx context.Context, organizationID, automationID, actorUserID int64) (Automation, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Automation{}, fmt.Errorf("begin deactivate workflow automation: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lockWorkflowDefinitionWriter(ctx, tx, organizationID, actorUserID); err != nil {
+		return Automation{}, err
+	}
+	active, err := lockWorkflowDefinition(ctx, tx, organizationID, automationID)
+	if err != nil {
+		return Automation{}, err
+	}
+	if active {
+		if _, err := tx.Exec(ctx, `
+			UPDATE workflow_automations
+			SET is_active=FALSE,updated_by_user_id=$3,updated_at=NOW()
+			WHERE organization_id=$1 AND id=$2
+		`, organizationID, automationID, actorUserID); err != nil {
+			return Automation{}, fmt.Errorf("deactivate workflow automation: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
+			SELECT organization_id,$3,'workflow_automation.updated','workflow_automation',id,
+			       'Workflow automation deactivated',
+			       jsonb_build_object('name',name,'triggerType',trigger_type,'targetEntityType',target_entity_type,
+			                          'active',FALSE,'actionCount',jsonb_array_length(actions_json),
+			                          'conditionCount',jsonb_array_length(conditions_json))
+			FROM workflow_automations
+			WHERE organization_id=$1 AND id=$2
+		`, organizationID, automationID, actorUserID); err != nil {
+			return Automation{}, fmt.Errorf("audit workflow automation deactivation: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Automation{}, fmt.Errorf("commit workflow automation deactivation: %w", err)
 	}
 	return s.getByID(ctx, organizationID, automationID)
 }
@@ -709,13 +794,20 @@ func normalizeActionType(actionType string) string {
 }
 
 func validateInput(input Input) error {
-	if input.Name == "" || input.Position < 0 || !isAllowedTriggerType(input.TriggerType) || !isAllowedTargetEntity(input.TargetEntityType) || !isAllowedConditionLogic(input.ConditionLogic) {
+	if input.Name == "" || utf8.RuneCountInString(input.Name) > maxDefinitionNameLength ||
+		utf8.RuneCountInString(input.Description) > maxDefinitionDescriptionLen ||
+		input.Position < 0 || input.Position > maxDefinitionPosition ||
+		len(input.Conditions) > maxStoredDefinitionEntries || len(input.Actions) > maxStoredDefinitionEntries ||
+		!isAllowedTriggerType(input.TriggerType) || !isAllowedTargetEntity(input.TargetEntityType) || !isAllowedConditionLogic(input.ConditionLogic) {
 		return ErrInvalidInput
 	}
 	if !triggerAllowsTarget(input.TriggerType, input.TargetEntityType) {
 		return ErrInvalidInput
 	}
 	for _, condition := range input.Conditions {
+		if utf8.RuneCountInString(condition.Value) > maxDefinitionConditionValue {
+			return ErrInvalidInput
+		}
 		if err := validateCondition(input.TargetEntityType, condition); err != nil {
 			return err
 		}

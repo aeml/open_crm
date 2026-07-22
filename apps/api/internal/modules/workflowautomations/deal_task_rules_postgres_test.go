@@ -2,6 +2,7 @@ package workflowautomations_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -77,16 +78,18 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 
 	automations := moduleworkflowautomations.NewService(pool)
 	active := true
+	inactive := false
 	createdRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
 		Name: "Qualify new deals", TriggerType: "record_created", TargetEntityType: "deal", IsActive: &active,
-		Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Qualify new deal", "description": "Confirm fit and next step."}, DelayMinutes: 1440}},
+		TriggerConfig: map[string]any{"taskPlanContract": moduleworkflowautomations.DealTaskPlanContract},
+		Actions:       []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Qualify new deal", "description": "Confirm fit and next step."}, DelayMinutes: 1440}},
 	})
 	if err != nil {
 		t.Fatalf("create deal-created rule: %v", err)
 	}
 	ownerConditionRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
 		Name: "Owned deal review", TriggerType: "record_created", TargetEntityType: "deal",
-		TriggerConfig: map[string]any{"conditionContract": moduleworkflowautomations.DealSnapshotConditionContract}, IsActive: &active,
+		TriggerConfig: map[string]any{"conditionContract": moduleworkflowautomations.DealSnapshotConditionContract, "taskPlanContract": moduleworkflowautomations.DealTaskPlanContract}, IsActive: &active,
 		Conditions: []moduleworkflowautomations.Condition{{Field: "ownerUserId", Operator: "exists"}},
 		Actions:    []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Review owned deal"}}},
 	})
@@ -106,7 +109,7 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	}
 	legacyMultiRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
 		Name: "Unreviewed proposal actions", TriggerType: "stage_changed", TargetEntityType: "deal",
-		TriggerConfig: map[string]any{"stageId": proposalStageID}, IsActive: &active,
+		TriggerConfig: map[string]any{"stageId": proposalStageID}, IsActive: &inactive,
 		Actions: []moduleworkflowautomations.Action{
 			{Type: "create_task", Config: map[string]any{"title": "Legacy proposal first"}},
 			{Type: "create_task", Config: map[string]any{"title": "Legacy proposal second"}},
@@ -116,21 +119,33 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 		t.Fatalf("create legacy multi-action rule: %v", err)
 	}
 	if _, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
-		Name: "Archived deal review", TriggerType: "record_updated", TargetEntityType: "deal", TriggerConfig: map[string]any{"event": "archived"}, IsActive: &active,
+		Name: "Archived deal review", TriggerType: "record_updated", TargetEntityType: "deal", TriggerConfig: map[string]any{"event": "archived", "taskPlanContract": moduleworkflowautomations.DealTaskPlanContract}, IsActive: &active,
 		Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Review archived deal"}}},
 	}); err != nil {
 		t.Fatalf("create archive rule: %v", err)
 	}
-	if _, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
+	unsupportedRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
 		Name: "Unsupported conditional rule", TriggerType: "stage_changed", TargetEntityType: "deal", TriggerConfig: map[string]any{"stageId": proposalStageID}, IsActive: &active,
 		Conditions: []moduleworkflowautomations.Condition{{Field: "status", Operator: "equals", Value: "open"}},
 		Actions:    []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Must remain hidden"}}},
-	}); err != nil {
+	})
+	if !errors.Is(err, moduleworkflowautomations.ErrNotExecutable) {
+		t.Fatalf("expected unsupported active rule rejection, got definition=%#v err=%v", unsupportedRule, err)
+	}
+	unsupportedRule, err = automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
+		Name: "Unsupported conditional rule", TriggerType: "stage_changed", TargetEntityType: "deal", TriggerConfig: map[string]any{"stageId": proposalStageID}, IsActive: &inactive,
+		Conditions: []moduleworkflowautomations.Condition{{Field: "status", Operator: "equals", Value: "open"}},
+		Actions:    []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Must remain hidden"}}},
+	})
+	if err != nil {
 		t.Fatalf("create unsupported legacy rule: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE workflow_automations SET is_active=TRUE WHERE organization_id=$1 AND id IN ($2,$3)`, organizationID, legacyMultiRule.ID, unsupportedRule.ID); err != nil {
+		t.Fatalf("seed pre-contract active definitions: %v", err)
 	}
 	conditionedRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
 		Name: "Strategic proposal review", TriggerType: "stage_changed", TargetEntityType: "deal",
-		TriggerConfig: map[string]any{"stageId": proposalStageID, "conditionContract": moduleworkflowautomations.DealSnapshotConditionContract}, IsActive: &active,
+		TriggerConfig: map[string]any{"stageId": proposalStageID, "conditionContract": moduleworkflowautomations.DealSnapshotConditionContract, "taskPlanContract": moduleworkflowautomations.DealTaskPlanContract}, IsActive: &active,
 		Conditions: []moduleworkflowautomations.Condition{{Field: "valueAmount", Operator: "greaterThan", Value: "5000"}},
 		Actions:    []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Review strategic deal"}, DelayMinutes: 1440}},
 	})
@@ -139,7 +154,7 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	}
 	unmatchedRule, err := automations.Create(ctx, organizationID, actorUserID, moduleworkflowautomations.Input{
 		Name: "Very large proposal review", TriggerType: "stage_changed", TargetEntityType: "deal",
-		TriggerConfig: map[string]any{"stageId": proposalStageID, "conditionContract": moduleworkflowautomations.DealSnapshotConditionContract}, IsActive: &active,
+		TriggerConfig: map[string]any{"stageId": proposalStageID, "conditionContract": moduleworkflowautomations.DealSnapshotConditionContract, "taskPlanContract": moduleworkflowautomations.DealTaskPlanContract}, IsActive: &active,
 		Conditions: []moduleworkflowautomations.Condition{{Field: "valueAmount", Operator: "greaterThan", Value: "10000"}},
 		Actions:    []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Must exceed ten thousand"}}},
 	})
@@ -148,7 +163,8 @@ func TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant(t *testi
 	}
 	if _, err := automations.Create(ctx, foreignOrganizationID, actorUserID, moduleworkflowautomations.Input{
 		Name: "Foreign rule", TriggerType: "record_created", TargetEntityType: "deal", IsActive: &active,
-		Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Foreign task"}}},
+		TriggerConfig: map[string]any{"taskPlanContract": moduleworkflowautomations.DealTaskPlanContract},
+		Actions:       []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Foreign task"}}},
 	}); err != nil {
 		t.Fatalf("create foreign rule: %v", err)
 	}

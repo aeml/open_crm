@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -15,6 +15,7 @@ import {
   conditionOperatorLabels,
   conditionOperators,
   conditionSummary,
+  deactivationPayload,
   dealConditionDefinitions,
   emptyForm,
   equalsOperator,
@@ -24,6 +25,7 @@ import {
   formFromAutomation,
   isExecutableTaskRule,
   leadFormEvent,
+  maxActiveTaskActions,
   maxDealPlanTasks,
   payloadFromForm,
   stageChangedEvent,
@@ -46,8 +48,12 @@ export function SettingsAutomationsRoute() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const loadVersion = useRef(0)
+  const mutationPending = useRef(false)
 
   async function loadAutomations({ signal } = {}) {
+    const version = loadVersion.current + 1
+    loadVersion.current = version
     setIsLoading(true)
     try {
       const [nextAutomations, nextRuns, nextPipelines, nextLeadForms, nextUsers] = await Promise.all([
@@ -57,6 +63,7 @@ export function SettingsAutomationsRoute() {
         listLeadCaptureForms({ signal }),
         listOrganizationUsers({ signal })
       ])
+      if (signal?.aborted || loadVersion.current !== version) return
       setAutomations(nextAutomations)
       setRuns(nextRuns)
       setPipelines(nextPipelines)
@@ -64,9 +71,9 @@ export function SettingsAutomationsRoute() {
       setUsers(nextUsers)
       setError('')
     } catch (loadError) {
-      if (!isAbortError(loadError)) setError(loadError.message || 'Unable to load task automation rules.')
+      if (!isAbortError(loadError) && loadVersion.current === version) setError(loadError.message || 'Unable to load task automation rules.')
     } finally {
-      if (!signal?.aborted) setIsLoading(false)
+      if (!signal?.aborted && loadVersion.current === version) setIsLoading(false)
     }
   }
 
@@ -97,6 +104,8 @@ export function SettingsAutomationsRoute() {
   const executableIDs = useMemo(() => new Set(executableRules.map((automation) => automation.id)), [executableRules])
   const visibleRuns = useMemo(() => runs.filter((run) => executableIDs.has(run.automationId)), [executableIDs, runs])
   const hiddenDefinitions = automations.length - executableRules.length
+  const unsupportedActiveDefinitions = useMemo(() => automations.filter((automation) => automation.isActive && !isExecutableTaskRule(automation)), [automations])
+  const activeActionCount = useMemo(() => automations.reduce((total, automation) => total + (automation.isActive ? (automation.actions || []).length : 0), 0), [automations])
   const stages = useMemo(() => pipelines.flatMap((pipeline) => (pipeline.stages || []).map((stage) => ({ ...stage, pipelineName: pipeline.name }))), [pipelines])
   const stagesById = useMemo(() => new Map(stages.map((stage) => [stage.id, `${stage.pipelineName} · ${stage.name}`])), [stages])
   const formsById = useMemo(() => new Map(leadForms.map((leadForm) => [leadForm.id, leadForm.name])), [leadForms])
@@ -133,7 +142,7 @@ export function SettingsAutomationsRoute() {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    if (!canManage) return
+    if (!canManage || mutationPending.current) return
     let payload
     try {
       payload = payloadFromForm(form)
@@ -141,15 +150,18 @@ export function SettingsAutomationsRoute() {
       setError(validationError.message)
       return
     }
+    mutationPending.current = true
     setIsSaving(true)
     setStatus('')
     try {
       if (editingId) {
         const updated = await updateWorkflowAutomation(editingId, payload)
+        if (!updated || updated.id !== editingId) throw new Error('The server returned a different task automation rule. Refresh before retrying.')
         setAutomations((current) => current.map((automation) => (automation.id === editingId ? updated : automation)))
         setStatus('Task automation rule updated.')
       } else {
         const created = await createWorkflowAutomation(payload)
+        if (!created || !Number.isInteger(created.id) || created.id <= 0) throw new Error('The server did not return the created task automation rule. Refresh before retrying.')
         setAutomations((current) => [created, ...current])
         setStatus('Task automation rule created.')
       }
@@ -158,6 +170,26 @@ export function SettingsAutomationsRoute() {
     } catch (saveError) {
       setError(saveError.message || 'Unable to save task automation rule.')
     } finally {
+      mutationPending.current = false
+      setIsSaving(false)
+    }
+  }
+
+  async function deactivateUnsupported(automation) {
+    if (!canManage || mutationPending.current) return
+    mutationPending.current = true
+    setIsSaving(true)
+    setStatus('')
+    try {
+      const updated = await updateWorkflowAutomation(automation.id, deactivationPayload(automation))
+      if (!updated || updated.id !== automation.id || updated.isActive) throw new Error('The server did not confirm deactivation. Refresh before retrying.')
+      setAutomations((current) => current.map((candidate) => candidate.id === automation.id ? updated : candidate))
+      setError('')
+      setStatus(`${automation.name} deactivated. Its stored foundation remains available for future review.`)
+    } catch (saveError) {
+      setError(saveError.message || 'Unable to deactivate the unsupported definition.')
+    } finally {
+      mutationPending.current = false
       setIsSaving(false)
     }
   }
@@ -180,7 +212,19 @@ export function SettingsAutomationsRoute() {
           {isLoading ? <p className="field-hint">Loading task automation rules...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadAutomations()} retryLabel="Retry task automations" /> : null}
+          <p className="field-hint">{activeActionCount} of {maxActiveTaskActions} active task actions allocated. Each task in a playbook uses one slot.</p>
           {hiddenDefinitions > 0 ? <p className="field-hint">{hiddenDefinitions} unsupported stored {hiddenDefinitions === 1 ? 'definition' : 'definitions'} hidden.</p> : null}
+          {unsupportedActiveDefinitions.length > 0 ? (
+            <div className="record-list" role="list" aria-label="Active unsupported workflow definitions">
+              <div><h3>Active unsupported definitions</h3><p className="field-hint">These definitions do not have a supported execution contract, but still consume active capacity. Deactivate them until they can be reviewed.</p></div>
+              {unsupportedActiveDefinitions.map((automation) => (
+                <article className="record-row record-row-alert" key={automation.id} role="listitem">
+                  <div><p>{automation.name}</p><p className="field-hint">{(automation.actions || []).length} stored {(automation.actions || []).length === 1 ? 'action' : 'actions'} · unsupported active definition</p></div>
+                  {canManage ? <Button className="button-secondary" type="button" disabled={isSaving} onClick={() => deactivateUnsupported(automation)}>Deactivate stored definition</Button> : <span className="chip">Admin action required</span>}
+                </article>
+              ))}
+            </div>
+          ) : null}
           <div className="record-list" role="list" aria-label="Task automation rules">
             {!isLoading && executableRules.length === 0 ? (
               <article className="record-row" role="listitem"><p>No executable task rules yet.</p></article>

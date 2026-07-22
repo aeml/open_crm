@@ -85,12 +85,13 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 
 	automations := moduleworkflowautomations.NewService(pool)
 	active := true
+	inactive := false
 	ruleInput := moduleworkflowautomations.Input{
 		Name:             "Partner lead follow-up",
 		Description:      "Create one assigned task for partner leads.",
 		TriggerType:      "form_submitted",
 		TargetEntityType: "lead_form",
-		TriggerConfig:    map[string]any{"formId": formID},
+		TriggerConfig:    map[string]any{"formId": formID, "taskContract": moduleworkflowautomations.LeadFollowUpTaskContract},
 		ConditionLogic:   "all",
 		Conditions:       []moduleworkflowautomations.Condition{{Field: "utmSource", Operator: "equals", Value: "partner"}},
 		Actions: []moduleworkflowautomations.Action{{
@@ -99,8 +100,9 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 				"title":            "Call partner lead",
 				"description":      "Confirm fit and schedule discovery.",
 				"assignedToUserId": assigneeUserID,
+				"dueDays":          1,
 			},
-			DelayMinutes: 1440,
+			DelayMinutes: 0,
 		}},
 		IsActive: &active,
 	}
@@ -110,25 +112,25 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 	}
 	foreignInput := ruleInput
 	foreignInput.Name = "Foreign assignee"
-	foreignInput.Actions = []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Cross tenant", "assignedToUserId": foreignUserID}}}
+	foreignInput.Actions = []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Cross tenant", "assignedToUserId": foreignUserID, "dueDays": 1}}}
 	if _, err := automations.Create(ctx, organizationID, adminUserID, foreignInput); !errors.Is(err, moduleworkflowautomations.ErrInvalidInput) {
 		t.Fatalf("expected foreign assignee rejection, got %v", err)
 	}
 	disabledInput := ruleInput
 	disabledInput.Name = "Disabled assignee"
-	disabledInput.Actions = []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Unavailable", "assignedToUserId": disabledUserID}}}
+	disabledInput.Actions = []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Unavailable", "assignedToUserId": disabledUserID, "dueDays": 1}}}
 	if _, err := automations.Create(ctx, organizationID, adminUserID, disabledInput); !errors.Is(err, moduleworkflowautomations.ErrInvalidInput) {
 		t.Fatalf("expected disabled assignee rejection, got %v", err)
 	}
 	foreignFormInput := ruleInput
 	foreignFormInput.Name = "Foreign form"
-	foreignFormInput.TriggerConfig = map[string]any{"formId": formID + 999999}
+	foreignFormInput.TriggerConfig = map[string]any{"formId": formID + 999999, "taskContract": moduleworkflowautomations.LeadFollowUpTaskContract}
 	if _, err := automations.Create(ctx, organizationID, adminUserID, foreignFormInput); !errors.Is(err, moduleworkflowautomations.ErrInvalidInput) {
 		t.Fatalf("expected foreign form rejection, got %v", err)
 	}
 	fractionalFormInput := ruleInput
 	fractionalFormInput.Name = "Malformed form"
-	fractionalFormInput.TriggerConfig = map[string]any{"formId": float64(formID) + 0.5}
+	fractionalFormInput.TriggerConfig = map[string]any{"formId": float64(formID) + 0.5, "taskContract": moduleworkflowautomations.LeadFollowUpTaskContract}
 	if _, err := automations.Create(ctx, organizationID, adminUserID, fractionalFormInput); !errors.Is(err, moduleworkflowautomations.ErrInvalidInput) {
 		t.Fatalf("expected malformed form rejection, got %v", err)
 	}
@@ -145,6 +147,7 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 	}
 	broaderFoundationInput := ruleInput
 	broaderFoundationInput.Name = "Hidden multi-condition foundation"
+	broaderFoundationInput.IsActive = &inactive
 	broaderFoundationInput.Conditions = []moduleworkflowautomations.Condition{
 		{Field: "utmSource", Operator: "equals", Value: "partner"},
 		{Field: "utmMedium", Operator: "equals", Value: "paid"},
@@ -154,6 +157,7 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 	}
 	hiddenFieldInput := ruleInput
 	hiddenFieldInput.Name = "Hidden non-attribution condition foundation"
+	hiddenFieldInput.IsActive = &inactive
 	hiddenFieldInput.Conditions = []moduleworkflowautomations.Condition{{Field: "formId", Operator: "equals", Value: strconv.FormatInt(formID, 10)}}
 	if _, err := automations.Create(ctx, organizationID, adminUserID, hiddenFieldInput); err != nil {
 		t.Fatalf("retain hidden non-attribution workflow foundation: %v", err)
@@ -268,7 +272,6 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 
 	// Deactivation is a safety stop for work captured but not yet executed.
 	_, cancelledContactID := captureLeadWorkflowSubmission(t, ctx, pool, organizationID, formID, formPublicID, adminUserID, "partner")
-	inactive := false
 	ruleInput.IsActive = &inactive
 	if _, err := automations.Update(ctx, organizationID, rule.ID, adminUserID, ruleInput); err != nil {
 		t.Fatalf("deactivate lead follow-up rule: %v", err)
@@ -330,7 +333,7 @@ func TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant(t *testing.
 		Description:      "Wait one day, then create a task due two days later.",
 		TriggerType:      "form_submitted",
 		TargetEntityType: "lead_form",
-		TriggerConfig:    map[string]any{"formId": formID},
+		TriggerConfig:    map[string]any{"formId": formID, "taskContract": moduleworkflowautomations.LeadFollowUpTaskContract},
 		ConditionLogic:   "all",
 		Conditions:       []moduleworkflowautomations.Condition{{Field: "utmSource", Operator: "equals", Value: "partner"}},
 		Actions: []moduleworkflowautomations.Action{{

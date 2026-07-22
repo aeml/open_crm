@@ -9,7 +9,9 @@ export const triggerOptions = [
 
 const dealConditionContract = 'deal_snapshot_v1'
 const dealTaskPlanContract = 'deal_task_plan_v1'
+const leadFollowUpTaskContract = 'lead_follow_up_task_v1'
 export const maxDealPlanTasks = 5
+export const maxActiveTaskActions = 50
 export const conditionOperatorLabels = { greaterThan: 'is greater than', lessThan: 'is less than', equals: 'equals', notEquals: 'does not equal', exists: 'is set' }
 export const equalsOperator = 'equals'
 export const existsOperator = 'exists'
@@ -81,6 +83,7 @@ export function isExecutableTaskRule(automation) {
       (event !== stageChangedEvent || !automation.triggerConfig?.stageId || (Number.isInteger(stageID) && stageID > 0))
   }
   const formID = Number(automation.triggerConfig?.formId || 0)
+  const leadContract = automation.triggerConfig?.taskContract
   const assigneeID = Number(config.assignedToUserId || 0)
   const hasDueDays = Object.hasOwn(config, 'dueDays')
   const dueDays = Number(config.dueDays)
@@ -88,6 +91,7 @@ export function isExecutableTaskRule(automation) {
   const allowedOperators = new Set(['equals', 'notEquals', 'contains', 'exists'])
   const conditions = automation.conditions || []
   return actions.length === 1 && event === leadFormEvent && conditions.length <= 1 &&
+    (!leadContract || leadContract === leadFollowUpTaskContract) &&
     (!automation.triggerConfig?.formId || (Number.isInteger(formID) && formID > 0)) &&
     Number.isInteger(assigneeID) && assigneeID > 0 &&
     Object.keys(config).every((key) => ['title', 'description', 'assignedToUserId', 'dueDays'].includes(key)) &&
@@ -145,8 +149,9 @@ export function payloadFromForm(form) {
     : form.event === stageChangedEvent && form.stageId
       ? { stageId: Number(form.stageId) }
       : leadFollowUp && form.formId
-        ? { formId: Number(form.formId) }
+        ? { taskContract: leadFollowUpTaskContract, formId: Number(form.formId) }
         : {}
+  if (leadFollowUp && !form.formId) triggerConfig.taskContract = leadFollowUpTaskContract
   const dealCondition = !leadFollowUp && form.conditionField
   if (dealCondition) triggerConfig.conditionContract = dealConditionContract
   if (!leadFollowUp) triggerConfig.taskPlanContract = dealTaskPlanContract
@@ -186,6 +191,10 @@ export function payloadFromForm(form) {
     isActive: form.isActive,
     position: 0
   }
+}
+
+export function deactivationPayload() {
+  return { deactivateOnly: true }
 }
 
 export function conditionSummary(automation, usersById) {
