@@ -195,15 +195,24 @@ func handleListSharedInboxMessages(auth authService, messages emailMessagesServi
 		return
 	}
 
-	limit := int(parseQueryInt64(r.URL.Query().Get("limit")))
-	records, err := messages.ListSharedInbox(r.Context(), state.Organization.ID, limit)
+	query, err := moduleemailmessages.ParseSharedInboxQuery(r.URL.Query().Get("cursor"), r.URL.Query().Get("limit"))
 	if err != nil {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Cursor must be valid and limit must be between 1 and 100")
+		return
+	}
+	page, err := messages.ListSharedInbox(r.Context(), state.Organization.ID, query)
+	if err != nil {
+		if errors.Is(err, moduleemailmessages.ErrInvalidSharedInboxPage) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Cursor must be valid and limit must be between 1 and 100")
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load shared inbox")
 		return
 	}
 
-	response := emailMessagesListResponse{}
-	response.Data.Messages = toEmailMessageViews(records)
+	response := sharedInboxMessagesListResponse{}
+	response.Data.Messages = toEmailMessageViews(page.Messages)
+	response.Data.Meta = page.Meta
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }

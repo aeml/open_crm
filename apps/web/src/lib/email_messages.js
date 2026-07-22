@@ -1,5 +1,10 @@
 import { apiRequest } from './api'
 
+async function listRequest(path, params, fallbackMessage, signal) {
+  const query = params.toString()
+  return apiRequest(`${path}${query ? `?${query}` : ''}`, { fallbackMessage, signal })
+}
+
 export function formatEmailTimestamp(value) {
   if (!value) return ''
   const date = new Date(value)
@@ -30,8 +35,7 @@ export async function listEmailMessages({ entityType, entityId, limit, signal } 
   if (entityType) params.set('entityType', entityType)
   if (entityId) params.set('entityId', String(entityId))
   if (limit) params.set('limit', String(limit))
-  const suffix = params.toString() ? `?${params.toString()}` : ''
-  const payload = await apiRequest(`/api/email-messages${suffix}`, { fallbackMessage: 'Unable to load email log.', signal })
+  const payload = await listRequest('/api/email-messages', params, 'Unable to load email log.', signal)
 
   return payload?.data?.messages || []
 }
@@ -39,19 +43,19 @@ export async function listEmailMessages({ entityType, entityId, limit, signal } 
 export async function listMyEmailMessages({ limit, signal } = {}) {
   const params = new URLSearchParams()
   if (limit) params.set('limit', String(limit))
-  const suffix = params.toString() ? `?${params.toString()}` : ''
-  const payload = await apiRequest(`/api/me/email-messages${suffix}`, { fallbackMessage: 'Unable to load your mailbox.', signal })
+  const payload = await listRequest('/api/me/email-messages', params, 'Unable to load your mailbox.', signal)
 
   return payload?.data?.messages || []
 }
 
-export async function listSharedInboxEmailMessages({ limit, signal } = {}) {
+export async function listSharedInboxEmailMessages({ cursor = '', limit, signal } = {}) {
   const params = new URLSearchParams()
   if (limit) params.set('limit', String(limit))
-  const suffix = params.toString() ? `?${params.toString()}` : ''
-  const payload = await apiRequest(`/api/shared-inbox/email-messages${suffix}`, { fallbackMessage: 'Unable to load shared inbox.', signal })
+  if (cursor) params.set('cursor', cursor)
+  const payload = await listRequest('/api/shared-inbox/email-messages', params, 'Unable to load shared inbox.', signal)
 
-  return payload?.data?.messages || []
+  const page = payload?.data || {}
+  return { messages: page.messages || [], meta: page.meta || { hasMore: false } }
 }
 
 export async function getEmailMessage(messageId, { signal } = {}) {

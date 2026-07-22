@@ -20,7 +20,7 @@ type fakeEmailMessagesService struct {
 	entityResult              []moduleemailmessages.Message
 	senderResult              []moduleemailmessages.Message
 	mailboxResult             []moduleemailmessages.Message
-	sharedInboxResult         []moduleemailmessages.Message
+	sharedInboxResult         moduleemailmessages.SharedInboxPage
 	getResult                 moduleemailmessages.Message
 	getErr                    error
 	updateResult              moduleemailmessages.Message
@@ -56,7 +56,7 @@ type fakeEmailMessagesService struct {
 	lastIncludePrivate        bool
 	lastSenderID              int64
 	lastMailboxUserID         int64
-	lastSharedLimit           int
+	lastSharedQuery           moduleemailmessages.SharedInboxQuery
 	lastUpdateID              int64
 	lastUpdateInput           moduleemailmessages.SharedInboxUpdateInput
 	lastOpenedToken           string
@@ -300,9 +300,9 @@ func (f *fakeEmailMessagesService) ListMailboxByUser(_ context.Context, organiza
 	return f.mailboxResult, nil
 }
 
-func (f *fakeEmailMessagesService) ListSharedInbox(_ context.Context, organizationID int64, limit int) ([]moduleemailmessages.Message, error) {
+func (f *fakeEmailMessagesService) ListSharedInbox(_ context.Context, organizationID int64, query moduleemailmessages.SharedInboxQuery) (moduleemailmessages.SharedInboxPage, error) {
 	f.lastOrgID = organizationID
-	f.lastSharedLimit = limit
+	f.lastSharedQuery = query
 	return f.sharedInboxResult, nil
 }
 
@@ -451,7 +451,10 @@ func TestMyEmailMessagesAllowsMemberAndScopesToCurrentUser(t *testing.T) {
 
 func TestSharedInboxAllowsMemberAndListsSharedInbound(t *testing.T) {
 	service := &fakeEmailMessagesService{
-		sharedInboxResult: []moduleemailmessages.Message{{ID: 7, Direction: "inbound", Visibility: "shared", FromEmail: "lead@example.test", ToEmail: "team@acme.test", Subject: "Need help", Status: "received", SharedInboxStatus: "open", SharedInboxAssignedToUserID: 1, SharedInboxAssignedToName: "Demo Owner", CreatedAt: time.Now()}},
+		sharedInboxResult: moduleemailmessages.SharedInboxPage{
+			Messages: []moduleemailmessages.Message{{ID: 7, Direction: "inbound", Visibility: "shared", FromEmail: "lead@example.test", ToEmail: "team@acme.test", Subject: "Need help", Status: "received", SharedInboxStatus: "open", SharedInboxAssignedToUserID: 1, SharedInboxAssignedToName: "Demo Owner", CreatedAt: time.Now()}},
+			Meta:     moduleemailmessages.SharedInboxPageMeta{Limit: 25, HasMore: true, NextCursor: "opaque-next"},
+		},
 	}
 	server := emailMessagesServer(service, "member")
 
@@ -463,12 +466,13 @@ func TestSharedInboxAllowsMemberAndListsSharedInbound(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200 for member shared inbox, got %d", recorder.Code)
 	}
-	if service.lastOrgID != 42 || service.lastSharedLimit != 25 {
-		t.Fatalf("unexpected shared inbox scoping: org=%d limit=%d", service.lastOrgID, service.lastSharedLimit)
+	if service.lastOrgID != 42 || service.lastSharedQuery.Limit != 25 || service.lastSharedQuery.Cursor != nil {
+		t.Fatalf("unexpected shared inbox scoping: org=%d query=%#v", service.lastOrgID, service.lastSharedQuery)
 	}
 	var response struct {
 		Data struct {
-			Messages []emailMessageView `json:"messages"`
+			Messages []emailMessageView                      `json:"messages"`
+			Meta     moduleemailmessages.SharedInboxPageMeta `json:"meta"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -476,6 +480,53 @@ func TestSharedInboxAllowsMemberAndListsSharedInbound(t *testing.T) {
 	}
 	if len(response.Data.Messages) != 1 || response.Data.Messages[0].SharedInboxStatus != "open" || response.Data.Messages[0].SharedInboxAssignedToUserName != "Demo Owner" {
 		t.Fatalf("unexpected shared inbox payload: %#v", response.Data.Messages)
+	}
+	if response.Data.Meta.Limit != 25 || !response.Data.Meta.HasMore || response.Data.Meta.NextCursor != "opaque-next" {
+		t.Fatalf("unexpected shared inbox pagination: %#v", response.Data.Meta)
+	}
+}
+
+func TestSharedInboxRejectsMalformedCursorAndUnsafeLimitBeforeService(t *testing.T) {
+	for _, target := range []string{
+		"/api/shared-inbox/email-messages?cursor=not-a-cursor",
+		"/api/shared-inbox/email-messages?limit=0",
+		"/api/shared-inbox/email-messages?limit=101",
+		"/api/shared-inbox/email-messages?limit=nope",
+	} {
+		service := &fakeEmailMessagesService{}
+		server := emailMessagesServer(service, "member")
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		addSessionCookie(request)
+		recorder := httptest.NewRecorder()
+
+		server.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("%s: expected 400, got %d body=%s", target, recorder.Code, recorder.Body.String())
+		}
+		if service.lastOrgID != 0 {
+			t.Fatalf("%s: invalid pagination reached service", target)
+		}
+	}
+}
+
+func TestSharedInboxAllowsViewerReadWithSafeDefaults(t *testing.T) {
+	service := &fakeEmailMessagesService{sharedInboxResult: moduleemailmessages.SharedInboxPage{
+		Messages: []moduleemailmessages.Message{{ID: 17, Direction: "inbound", Visibility: "shared", SharedInboxStatus: "open", CreatedAt: time.Now()}},
+		Meta:     moduleemailmessages.SharedInboxPageMeta{Limit: moduleemailmessages.SharedInboxDefaultLimit},
+	}}
+	server := emailMessagesServer(service, "viewer")
+	request := httptest.NewRequest(http.MethodGet, "/api/shared-inbox/email-messages", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected viewer read status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.lastOrgID != 42 || service.lastSharedQuery.Limit != moduleemailmessages.SharedInboxDefaultLimit {
+		t.Fatalf("unexpected viewer shared inbox scope: org=%d query=%#v", service.lastOrgID, service.lastSharedQuery)
 	}
 }
 

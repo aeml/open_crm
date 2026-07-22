@@ -31,6 +31,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Any mixed service read | 2 s |
 | Core list page size / maximum offset | 100 rows / 50,000 rows |
 | Two adjacent record-history cursor pages (1,001 rows, 100/page) | 2 s |
+| Each of the first two shared-inbox cursor pages (1,001 rows, 100/page) | 2 s |
 | Company linked-person page (1,000 links, 100 returned) | 2 s |
 | Transactional contact-create p95 | 1 s |
 | Any transactional contact create | 3 s |
@@ -80,6 +81,20 @@ timeouts. Primary changes serialize on the company row, unchanged PUTs add no
 duplicate activity, archived primaries cannot block an active replacement, and
 unlink deterministically promotes one remaining active person. Individual-client
 PUT atomically replaces the sole link, while DELETE cannot create a zero-link state.
+
+Shared inbox uses a separate mutable-queue keyset. Its default is 50 and maximum
+is 100; malformed cursors and limits fail before service work, and direct callers
+repeat the bound. The opaque cursor retains the first-page database snapshot,
+open/closed work bucket, effective received time, and ID. Rows arriving or being
+assigned/closed after that snapshot wait for refresh, preventing an already seen
+open message from moving into a later closed page. Dedicated freshly migrated
+PostgreSQL acceptance traverses 1,001 equal-time rows, requires the first two
+100-row requests individually to finish within two seconds, asserts the cursor
+index plan, final-page termination, direct overflow rejection, and foreign/private/
+outbound exclusion, then proves both a newer arrival and an updated first-page row
+do not enter continuation while a refresh exposes current state. Migration 110
+adds the matching tenant/bucket/time/ID partial index with bounded deployment
+lock and statement timeouts.
 
 The failure path also holds the only connection in a one-connection pool, proves a
 waiting request observes its 200 ms deadline, releases capacity, and proves the
@@ -160,8 +175,8 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 727 KiB | 227 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.64 KiB largest lazy
-chunk, and 726.08 KiB/226.44 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.82 KiB/57.98 KiB entry, 54.93 KiB/15.65 KiB largest lazy
+chunk, and 726.99 KiB/226.82 KiB total assets. The production contact, company,
 deal, and task routes are 27.72/8.57, 44.95/12.98, 54.93/15.64, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -331,6 +346,14 @@ and 54.93/15.64 KiB for the largest lazy chunk; the company route is
 44.95/12.98 KiB and aggregate assets are 726.08/226.44 KiB raw/gzip. Entry,
 per-route, and CSS ceilings remain unchanged; only the reviewed aggregate
 ceilings advance from 717/225 to 727/227 KiB for this complete outcome.
+
+Snapshot-bound shared-inbox continuation then adds a strict 50/default,
+100/maximum API and accessible row-51 loading without raising those ceilings.
+The measured build is 178.82/57.98 KiB for the entry, 54.93/15.65 KiB for the
+largest lazy chunk, 15.19/4.42 KiB for the combined mailbox/team-inbox chunk,
+and 726.99/226.82 KiB aggregate raw/gzip. Refresh, continuation, and coordination
+actions are serialized in the focused route, while the backend cursor owns the
+mutable queue snapshot and total order.
 
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.

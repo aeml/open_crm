@@ -1,10 +1,12 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
 
 const apiURL = process.env.OPEN_CRM_E2E_API_URL || 'http://127.0.0.1:8081'
 const smtpCaptureURL = process.env.OPEN_CRM_E2E_SMTP_CAPTURE_URL || 'http://127.0.0.1:2526'
 const smtpHost = process.env.OPEN_CRM_E2E_SMTP_HOST || 'localhost'
 const smtpPort = process.env.OPEN_CRM_E2E_SMTP_PORT || '2525'
+const databaseURL = process.env.OPEN_CRM_E2E_DATABASE_URL
 
 // This journey plus the accessibility scan intentionally consume the exact
 // three-request public signup budget. Retrying would exceed that production
@@ -24,6 +26,18 @@ function datetimeLocalDaysFromNow(days) {
 function utcDateDaysFromNow(days) {
   const value = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
   return value.toISOString().slice(0, 10)
+}
+
+function seedSharedInboxContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_shared_inbox', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
 }
 
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
@@ -68,6 +82,22 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByRole('checkbox', { name: 'Use TLS / STARTTLS' }).uncheck()
   await page.getByRole('button', { name: 'Save connection' }).click()
   await expect(page.getByText('Email account saved. Emails you send to contacts will come from your address.')).toBeVisible()
+
+  seedSharedInboxContinuation(owner.email, runID)
+  await page.getByRole('link', { name: 'Team Inbox', exact: true }).click()
+  await expect(page.getByRole('heading', { name: `Browser inbox ${runID} #1`, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `Browser inbox ${runID} #51`, exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Load older messages' }).click()
+  await expect(page.getByRole('heading', { name: `Browser inbox ${runID} #51`, exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Load older messages' })).toHaveCount(0)
+  const sharedInboxContinuationAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-shared-inbox-continuation', {
+    body: JSON.stringify({ url: page.url(), violations: sharedInboxContinuationAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(sharedInboxContinuationAccessibility.violations).toEqual([])
 
   await page.getByRole('link', { name: 'My Profile', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Preferences' })).toBeVisible()

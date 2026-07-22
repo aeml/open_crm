@@ -778,30 +778,6 @@ func (s *Service) ListMailboxByUser(ctx context.Context, organizationID, userID 
 	return scanMessages(rows)
 }
 
-// ListSharedInbox returns shared inbound messages available to the team inbox.
-func (s *Service) ListSharedInbox(ctx context.Context, organizationID int64, limit int) ([]Message, error) {
-	if s == nil || s.pool == nil {
-		return nil, fmt.Errorf("email messages service not configured")
-	}
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-	rows, err := s.pool.Query(ctx, baseSelect+`
-		WHERE m.organization_id = $1
-		  AND m.direction = 'inbound'
-		  AND COALESCE(m.visibility, 'shared') = 'shared'
-		ORDER BY CASE WHEN COALESCE(m.shared_inbox_status, 'open') = 'open' THEN 0 ELSE 1 END,
-		         COALESCE(m.received_at, m.created_at) DESC,
-		         m.id DESC
-		LIMIT $2
-	`, organizationID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list shared inbox email messages: %w", err)
-	}
-	defer rows.Close()
-	return scanMessages(rows)
-}
-
 type rows interface {
 	Next() bool
 	Scan(dest ...any) error

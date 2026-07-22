@@ -1956,3 +1956,27 @@ func TestMigrationFilesIncludeCompanyLinkedContactPaging(t *testing.T) {
 		t.Fatalf("company linked-contact paging deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeSharedInboxCursor(t *testing.T) {
+	const name = "110_shared_inbox_cursor.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"idx_email_messages_shared_inbox_cursor",
+		"CASE WHEN shared_inbox_status = 'open' THEN 0 ELSE 1 END",
+		"COALESCE(received_at, created_at)",
+		"id DESC",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("shared inbox cursor migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("shared inbox cursor deployment class = %q", class)
+	}
+}
