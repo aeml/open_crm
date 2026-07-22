@@ -75,6 +75,10 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO contacts (organization_id,first_name,last_name,email,custom_fields) VALUES ($1,'Morgan','Pilot','morgan@portable.test','{"region":"West"}'::jsonb)`, organizationID); err != nil {
 		t.Fatalf("seed portable workspace contact: %v", err)
 	}
+	var portableContactID int64
+	if err := pool.QueryRow(ctx, `SELECT id FROM contacts WHERE organization_id=$1 AND email='morgan@portable.test'`, organizationID).Scan(&portableContactID); err != nil {
+		t.Fatalf("load portable workspace contact: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 		WITH form AS (
 			INSERT INTO lead_capture_forms (
@@ -277,7 +281,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO email_messages (organization_id,to_email,subject,body,status,visibility,rfc_message_id,in_reply_to,reference_message_ids) VALUES
-			($1,'shared@portable.test','Shared customer thread','Shared body','sent','shared','<shared@crm.example.test>','<prior@buyer.test>',ARRAY['<older@buyer.test>']),
+			($1,'shared@portable.test','Shared customer thread',E'Shared body\n\nUnsubscribe: https://crm.example.test/u/shared-unsubscribe-secret','sent','shared','<shared@crm.example.test>','<prior@buyer.test>',ARRAY['<older@buyer.test>']),
 			($1,'private@portable.test','Private mailbox thread','Private body','sent','private','','','{}'::TEXT[])
 	`, organizationID); err != nil {
 		t.Fatalf("seed portable workspace email: %v", err)
@@ -298,6 +302,19 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		($1,$6,$6,$3,'owner@portable.test','private@portable.test','Re: Private mailbox thread','Private pending reply','private','<reply-private@crm.example.test>','<private@buyer.test>',$7,$8)
 	`, organizationID, sharedMessageID, ownerID, strings.Repeat("a", 64), strings.Repeat("b", 64), privateMessageID, strings.Repeat("c", 64), strings.Repeat("d", 64)); err != nil {
 		t.Fatalf("seed portable email reply intents: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO record_email_deliveries (
+		  organization_id,entity_type,entity_id,recipient_contact_id,actor_user_id,sender_email,recipient_email,
+		  subject,text_body,rfc_message_id,idempotency_key_hash,request_sha256,tracking_token,tracked_links_json,
+		  html_body,list_unsubscribe_url
+		) VALUES ($1,'contact',$2,$2,$3,'owner@portable.test','morgan@portable.test',
+		  'Portable record email intent',E'Portable durable body\n\nUnsubscribe: https://crm.example.test/u/unsubscribe-secret',
+		  '<portable-record-email@crm.example.test>',$4,$5,'','[]'::jsonb,
+		  '<p>Portable durable body</p><img src="https://crm.example.test/open/html-tracking-secret">',
+		  'https://crm.example.test/u/unsubscribe-secret')
+	`, organizationID, portableContactID, ownerID, strings.Repeat("e", 64), strings.Repeat("f", 64)); err != nil {
+		t.Fatalf("seed portable record email intent: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO user_email_accounts (
@@ -427,12 +444,16 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		}
 	}
 	sharedMessages := string(files["data/email_messages_shared.ndjson"])
-	if !strings.Contains(sharedMessages, "Shared customer thread") || strings.Contains(sharedMessages, "Private mailbox thread") || strings.Contains(sharedMessages, "tracking_token") || strings.Contains(sharedMessages, "rfc_message_id") || strings.Contains(sharedMessages, "in_reply_to") || strings.Contains(sharedMessages, "reference_message_ids") || strings.Contains(sharedMessages, "delivery_feedback_email_message_id") {
+	if !strings.Contains(sharedMessages, "Shared customer thread") || !strings.Contains(sharedMessages, "Shared body") || strings.Contains(sharedMessages, "shared-unsubscribe-secret") || strings.Contains(sharedMessages, "Private mailbox thread") || strings.Contains(sharedMessages, "tracking_token") || strings.Contains(sharedMessages, "rfc_message_id") || strings.Contains(sharedMessages, "in_reply_to") || strings.Contains(sharedMessages, "reference_message_ids") || strings.Contains(sharedMessages, "delivery_feedback_email_message_id") {
 		t.Fatalf("workspace email privacy boundary failed: %s", sharedMessages)
 	}
 	sharedReplies := string(files["data/email_reply_requests_shared.ndjson"])
 	if !strings.Contains(sharedReplies, "Shared pending reply") || strings.Contains(sharedReplies, "Private pending reply") || strings.Contains(sharedReplies, "idempotency_key_hash") || strings.Contains(sharedReplies, "request_sha256") || strings.Contains(sharedReplies, "rfc_message_id") || strings.Contains(sharedReplies, "in_reply_to") || strings.Contains(sharedReplies, strings.Repeat("a", 64)) {
 		t.Fatalf("workspace reply privacy/correlation boundary failed: %s", sharedReplies)
+	}
+	recordDeliveries := string(files["data/record_email_deliveries.ndjson"])
+	if !strings.Contains(recordDeliveries, "Portable record email intent") || !strings.Contains(recordDeliveries, "Portable durable body") || strings.Contains(recordDeliveries, "idempotency_key_hash") || strings.Contains(recordDeliveries, "request_sha256") || strings.Contains(recordDeliveries, "tracking_token") || strings.Contains(recordDeliveries, "tracked_links_json") || strings.Contains(recordDeliveries, "rfc_message_id") || strings.Contains(recordDeliveries, "unsubscribe-secret") || strings.Contains(recordDeliveries, "html-tracking-secret") || strings.Contains(recordDeliveries, strings.Repeat("e", 64)) {
+		t.Fatalf("workspace record email correlation boundary failed: %s", recordDeliveries)
 	}
 	if _, exists := files["data/customer_email_feedback_events.ndjson"]; exists {
 		t.Fatal("workspace export included internal customer feedback correlation ledger")
@@ -444,7 +465,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		}
 	}
 	var manifestValue manifest
-	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 2 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["deal_quote_approvals"] != 1 || manifestValue.DatasetCounts["quote_templates"] != 1 || manifestValue.DatasetCounts["organization_quote_policies"] != 1 || manifestValue.DatasetCounts["deal_signature_requests"] != 1 || manifestValue.DatasetCounts["lead_capture_forms"] != 1 || manifestValue.DatasetCounts["lead_capture_submissions"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 {
+	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 2 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["deal_quote_approvals"] != 1 || manifestValue.DatasetCounts["quote_templates"] != 1 || manifestValue.DatasetCounts["organization_quote_policies"] != 1 || manifestValue.DatasetCounts["deal_signature_requests"] != 1 || manifestValue.DatasetCounts["lead_capture_forms"] != 1 || manifestValue.DatasetCounts["lead_capture_submissions"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 || manifestValue.DatasetCounts["record_email_deliveries"] != 1 {
 		t.Fatalf("unexpected workspace export manifest: manifest=%#v err=%v", manifestValue, err)
 	}
 	if manifestValue.DatasetCounts["audit_events"] < 1 {

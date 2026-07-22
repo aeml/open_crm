@@ -41,7 +41,11 @@ type fakeUserEmailService struct {
 func (f *fakeUserEmailService) Configured() bool { return f.configured }
 
 func (f *fakeUserEmailService) GetForUser(_ context.Context, _, _ int64) (moduleuseremail.Account, error) {
-	return f.account, f.getErr
+	account := f.account
+	if f.getErr == nil && account.FromEmail == "" {
+		account.FromEmail = "owner@acme.test"
+	}
+	return account, f.getErr
 }
 
 func (f *fakeUserEmailService) Upsert(_ context.Context, _, userID int64, _ moduleuseremail.UpsertInput) (moduleuseremail.Account, error) {
@@ -103,8 +107,9 @@ func authenticatedContactEmailServer(contacts *fakeContactsService, accounts *fa
 				Membership:   moduleauth.Membership{Role: "owner"},
 			},
 		},
-		ContactsService:  contacts,
-		UserEmailService: accounts,
+		ContactsService:      contacts,
+		UserEmailService:     accounts,
+		EmailMessagesService: &fakeEmailMessagesService{},
 	})
 }
 
@@ -253,6 +258,7 @@ func TestSendContactEmailBlocksSuppressedRecipient(t *testing.T) {
 		ContactsService:          contacts,
 		UserEmailService:         accounts,
 		EmailSuppressionsService: suppressions,
+		EmailMessagesService:     &fakeEmailMessagesService{},
 	})
 
 	body := bytes.NewBufferString(`{"subject":"Hi","body":"Body"}`)
@@ -291,6 +297,7 @@ func TestSendContactEmailAddsUnsubscribeFooter(t *testing.T) {
 		ContactsService:          contacts,
 		UserEmailService:         accounts,
 		EmailSuppressionsService: suppressions,
+		EmailMessagesService:     &fakeEmailMessagesService{},
 	})
 
 	body := bytes.NewBufferString(`{"subject":"Hi","body":"Body"}`)

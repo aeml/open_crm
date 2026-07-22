@@ -138,8 +138,8 @@ export async function archiveDeal(dealID, { signal } = {}) {
   return apiRequest(`/api/deals/${dealID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive deal.', signal })
 }
 
-export async function sendDealEmail(dealID, input, { signal } = {}) {
-  const payload = await apiRequest(`/api/deals/${dealID}/email`, { method: 'POST', body: input, fallbackMessage: 'Unable to send email.', signal })
+export async function sendDealEmail(dealID, input, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest(`/api/deals/${dealID}/email`, { method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: 'Unable to send email.', signal })
 
   return payload?.data
 }

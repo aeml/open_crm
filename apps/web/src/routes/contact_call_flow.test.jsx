@@ -73,7 +73,7 @@ describe('contact call flow', () => {
       expect(JSON.parse(completeCall[1].body)).toEqual({ status: 'completed', disposition: 'Connected', notes: 'Asked for a quote' })
     })
     expect(await screen.findByText(/call outcome logged/i)).toBeInTheDocument()
-    expect(screen.getByText(/connected/i)).toBeInTheDocument()
+    expect(screen.getByText('Connected', { exact: true })).toBeInTheDocument()
 
     fireEvent.click(await screen.findByRole('button', { name: /edit recording controls/i }))
     fireEvent.change(screen.getByLabelText(/recording url/i), { target: { value: 'https://recordings.example/call-44.mp3' } })

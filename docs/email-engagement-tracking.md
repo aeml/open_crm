@@ -24,6 +24,15 @@ only aggregate open and click counts plus first/last observation timestamps. It
 does not persist the requesting client address, user agent, or referrer for
 these endpoints.
 
+The durable record-email intent retains the exact token/link snapshot only
+while the provider effect is `prepared`, `sending`, or `uncertain`, because an
+explicit retry must reproduce the same message. Terminal acceptance copies the
+tracking material into the ordinary email-message lifecycle and immediately
+scrubs the duplicate intent fields; terminal failure also scrubs them. A later
+confirm-sent decision measures the 90-day window from the original provider
+claim, not from the operator's resolution time, so ambiguity cannot extend
+retention.
+
 The observations are directional hints, not proof a person read or acted on a
 message. Mail security scanners can follow links, privacy proxies can fetch
 pixels, clients can suppress images, and forwarding can attribute another

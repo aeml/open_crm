@@ -5,13 +5,13 @@ import (
 	"net/http"
 	"strings"
 
+	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	modulecompanies "github.com/aeml/open_crm/apps/api/internal/modules/companies"
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
 	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleemailtemplates "github.com/aeml/open_crm/apps/api/internal/modules/emailtemplates"
-	modulenotes "github.com/aeml/open_crm/apps/api/internal/modules/notes"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -24,13 +24,25 @@ type sendRecordEmailRequest struct {
 }
 
 type sendEmailResponse struct {
-	Data struct {
-		Sent bool   `json:"sent"`
-		To   string `json:"to"`
-	} `json:"data"`
+	Data recordEmailDeliveryView `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
 	} `json:"meta"`
+}
+
+type recordEmailDeliveryView struct {
+	ID                 int64  `json:"id"`
+	EntityType         string `json:"entityType"`
+	EntityID           int64  `json:"entityId"`
+	ActorUserID        int64  `json:"actorUserId"`
+	To                 string `json:"to"`
+	Subject            string `json:"subject"`
+	Status             string `json:"status"`
+	Sent               bool   `json:"sent"`
+	LastError          string `json:"lastError,omitempty"`
+	OwnedByCurrentUser bool   `json:"ownedByCurrentUser"`
+	CanRetry           bool   `json:"canRetry"`
+	CanResolve         bool   `json:"canResolve"`
 }
 
 // handleSendContactEmail sends a one-to-one email to a contact through the
@@ -44,7 +56,7 @@ func handleSendContactEmail(auth authService, contacts contactsService, accounts
 	if !ok {
 		return
 	}
-	if contacts == nil {
+	if contacts == nil || messages == nil {
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Contacts service unavailable")
 		return
 	}
@@ -55,6 +67,14 @@ func handleSendContactEmail(auth authService, contacts contactsService, accounts
 
 	contactID, ok := parsePathInt64(w, r, "contactID")
 	if !ok {
+		return
+	}
+	var request sendRecordEmailRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	key, ok := recordEmailDeliveryKey(w, r, requestID, state.User.ID, "contact", contactID, contactID, request)
+	if !ok || replayRecordEmailDelivery(w, r, requestID, accounts, messages, suppressions, state, key) {
 		return
 	}
 	detail, err := contacts.GetByID(r.Context(), state.Organization.ID, contactID)
@@ -72,13 +92,8 @@ func handleSendContactEmail(auth authService, contacts contactsService, accounts
 		return
 	}
 
-	var request sendRecordEmailRequest
-	if !decodeJSONRequest(w, r, requestID, &request) {
-		return
-	}
-
 	fields := contactMergeFields(detail)
-	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "contact", contactID, to, request.Subject, request.Body, request.TrackEngagement, fields, "Connect your email account in Settings before sending email to contacts")
+	prepareAndSendRecordEmail(w, r, requestID, accounts, messages, suppressions, state, key, contactID, to, request, fields)
 }
 
 func handleSendCompanyEmail(auth authService, companies companiesService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
@@ -87,7 +102,7 @@ func handleSendCompanyEmail(auth authService, companies companiesService, accoun
 	if !ok {
 		return
 	}
-	if companies == nil {
+	if companies == nil || messages == nil {
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Companies service unavailable")
 		return
 	}
@@ -100,6 +115,14 @@ func handleSendCompanyEmail(auth authService, companies companiesService, accoun
 	if !ok {
 		return
 	}
+	var request sendRecordEmailRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	key, ok := recordEmailDeliveryKey(w, r, requestID, state.User.ID, "company", companyID, request.ContactID, request)
+	if !ok || replayRecordEmailDelivery(w, r, requestID, accounts, messages, suppressions, state, key) {
+		return
+	}
 	detail, err := companies.GetByID(r.Context(), state.Organization.ID, companyID)
 	if err != nil {
 		if writeResourceNotFound(w, requestID, err) {
@@ -109,10 +132,6 @@ func handleSendCompanyEmail(auth authService, companies companiesService, accoun
 		return
 	}
 
-	var request sendRecordEmailRequest
-	if !decodeJSONRequest(w, r, requestID, &request) {
-		return
-	}
 	recipient, ok := companyEmailRecipient(detail, request.ContactID)
 	if !ok {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Company has no linked contact with an email address")
@@ -120,7 +139,7 @@ func handleSendCompanyEmail(auth authService, companies companiesService, accoun
 	}
 
 	fields := companyMergeFields(detail, recipient)
-	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "company", companyID, recipient.Email, request.Subject, request.Body, request.TrackEngagement, fields, "Connect your email account in Settings before sending email")
+	prepareAndSendRecordEmail(w, r, requestID, accounts, messages, suppressions, state, key, recipient.ID, recipient.Email, request, fields)
 }
 
 func handleSendDealEmail(auth authService, deals dealsService, contacts contactsService, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
@@ -129,7 +148,7 @@ func handleSendDealEmail(auth authService, deals dealsService, contacts contacts
 	if !ok {
 		return
 	}
-	if deals == nil {
+	if deals == nil || messages == nil {
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Deals service unavailable")
 		return
 	}
@@ -146,6 +165,14 @@ func handleSendDealEmail(auth authService, deals dealsService, contacts contacts
 	if !ok {
 		return
 	}
+	var request sendRecordEmailRequest
+	if !decodeJSONRequest(w, r, requestID, &request) {
+		return
+	}
+	key, ok := recordEmailDeliveryKey(w, r, requestID, state.User.ID, "deal", dealID, request.ContactID, request)
+	if !ok || replayRecordEmailDelivery(w, r, requestID, accounts, messages, suppressions, state, key) {
+		return
+	}
 	detail, err := deals.GetByID(r.Context(), state.Organization.ID, dealID)
 	if err != nil {
 		if writeResourceNotFound(w, requestID, err) {
@@ -155,10 +182,6 @@ func handleSendDealEmail(auth authService, deals dealsService, contacts contacts
 		return
 	}
 
-	var request sendRecordEmailRequest
-	if !decodeJSONRequest(w, r, requestID, &request) {
-		return
-	}
 	if detail.Summary.PrimaryContactID <= 0 {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Deal has no primary contact")
 		return
@@ -183,7 +206,7 @@ func handleSendDealEmail(auth authService, deals dealsService, contacts contacts
 	}
 
 	fields := dealMergeFields(detail, contact)
-	sendRenderedEntityEmail(w, r, requestID, accounts, notes, messages, suppressions, state.Organization.ID, state.User.ID, "deal", dealID, to, request.Subject, request.Body, request.TrackEngagement, fields, "Connect your email account in Settings before sending email")
+	prepareAndSendRecordEmail(w, r, requestID, accounts, messages, suppressions, state, key, detail.Summary.PrimaryContactID, to, request, fields)
 }
 
 func contactMergeFields(detail modulecontacts.Detail) map[string]string {
@@ -269,9 +292,40 @@ func dealMergeFields(detail moduledeals.Detail, contact modulecontacts.Detail) m
 	return fields
 }
 
-func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID string, accounts userEmailAccountService, notes notesService, messages emailMessagesService, suppressions emailSuppressionsService, organizationID, userID int64, entityType string, entityID int64, to, subjectTemplate, bodyTemplate string, trackEngagement bool, fields map[string]string, accountRequiredMessage string) {
-	subject := strings.TrimSpace(moduleemailtemplates.Render(subjectTemplate, fields))
-	body := strings.TrimSpace(moduleemailtemplates.Render(bodyTemplate, fields))
+func recordEmailDeliveryKey(w http.ResponseWriter, r *http.Request, requestID string, actorUserID int64, entityType string, entityID, requestedContactID int64, request sendRecordEmailRequest) (moduleemailmessages.RecordDeliveryKeyInput, bool) {
+	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if len(idempotencyKey) < 16 || len(idempotencyKey) > 200 {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide an Idempotency-Key header of 16-200 characters")
+		return moduleemailmessages.RecordDeliveryKeyInput{}, false
+	}
+	return moduleemailmessages.RecordDeliveryKeyInput{
+		EntityType: entityType, EntityID: entityID, RecipientContactID: requestedContactID,
+		ActorUserID: actorUserID, SubjectTemplate: request.Subject, BodyTemplate: request.Body,
+		TrackEngagement: request.TrackEngagement, IdempotencyKey: idempotencyKey,
+	}, true
+}
+
+func replayRecordEmailDelivery(w http.ResponseWriter, r *http.Request, requestID string, accounts userEmailAccountService, messages emailMessagesService, suppressions emailSuppressionsService, state moduleauth.SessionState, key moduleemailmessages.RecordDeliveryKeyInput) bool {
+	delivery, found, err := messages.ReplayRecordDelivery(r.Context(), state.Organization.ID, key)
+	if err != nil {
+		writeRecordEmailDeliveryServiceError(w, requestID, err)
+		return true
+	}
+	if !found {
+		return false
+	}
+	if delivery.Status == "prepared" || delivery.Status == "sending" {
+		sendRecordEmailDelivery(w, r, requestID, accounts, messages, suppressions, state, delivery)
+		return true
+	}
+	writeRecordEmailDeliveryResponse(w, http.StatusOK, requestID, state, delivery)
+	return true
+}
+
+func prepareAndSendRecordEmail(w http.ResponseWriter, r *http.Request, requestID string, accounts userEmailAccountService, messages emailMessagesService, suppressions emailSuppressionsService, state moduleauth.SessionState, key moduleemailmessages.RecordDeliveryKeyInput, resolvedContactID int64, to string, request sendRecordEmailRequest, fields map[string]string) {
+	organizationID := state.Organization.ID
+	subject := strings.TrimSpace(moduleemailtemplates.Render(request.Subject, fields))
+	body := strings.TrimSpace(moduleemailtemplates.Render(request.Body, fields))
 	if subject == "" || body == "" {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Subject and body are required")
 		return
@@ -292,11 +346,7 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 	trackingToken := ""
 	trackingURL := ""
 	trackingBaseURL := ""
-	if trackEngagement {
-		if messages == nil {
-			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Engagement tracking is unavailable")
-			return
-		}
+	if request.TrackEngagement {
 		trackingToken = newEmailTrackingToken()
 		trackingBaseURL = emailTrackingBaseURL(r)
 		trackingURL = emailTrackingURL(trackingBaseURL, trackingToken)
@@ -310,76 +360,113 @@ func sendRenderedEntityEmail(w http.ResponseWriter, r *http.Request, requestID s
 	if trackingURL != "" || unsubscribeURL != "" {
 		htmlBody, trackedLinks = trackedHTMLBody(body, trackingURL, trackingBaseURL, unsubscribeURL)
 	}
-
-	receipt, err := accounts.SendMessageAs(r.Context(), organizationID, userID, moduleemail.Message{
-		To:                 to,
-		Subject:            subject,
-		TextBody:           bodyToSend,
-		HTMLBody:           htmlBody,
-		ListUnsubscribeURL: moduleemail.OneClickUnsubscribeURL(unsubscribeURL),
+	account, err := accounts.GetForUser(r.Context(), organizationID, state.User.ID)
+	if err != nil {
+		writeRecordEmailAccountError(w, requestID, err)
+		return
+	}
+	rfcMessageID, err := moduleemail.NewMessageID(emailAddressDomain(account.FromEmail))
+	if err != nil {
+		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to prepare email delivery")
+		return
+	}
+	delivery, err := messages.PrepareRecordDelivery(r.Context(), organizationID, moduleemailmessages.PrepareRecordDeliveryInput{
+		Request: key, ResolvedRecipientContactID: resolvedContactID, SenderEmail: account.FromEmail,
+		RecipientEmail: to, Subject: subject, TextBody: bodyToSend, HTMLBody: htmlBody,
+		ListUnsubscribeURL: moduleemail.OneClickUnsubscribeURL(unsubscribeURL), RFCMessageID: rfcMessageID,
+		TrackingToken: trackingToken, TrackedLinks: trackedLinks,
 	})
 	if err != nil {
-		if errors.Is(err, moduleuseremail.ErrNotFound) {
-			platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", accountRequiredMessage)
+		writeRecordEmailDeliveryServiceError(w, requestID, err)
+		return
+	}
+	sendRecordEmailDelivery(w, r, requestID, accounts, messages, suppressions, state, delivery)
+}
+
+func sendRecordEmailDelivery(w http.ResponseWriter, r *http.Request, requestID string, accounts userEmailAccountService, messages emailMessagesService, suppressions emailSuppressionsService, state moduleauth.SessionState, delivery moduleemailmessages.RecordDelivery) {
+	claimed, shouldSend, err := messages.ClaimRecordDelivery(r.Context(), state.Organization.ID, delivery.ID, state.User.ID)
+	if err != nil {
+		writeRecordEmailDeliveryServiceError(w, requestID, err)
+		return
+	}
+	if !shouldSend {
+		status := http.StatusAccepted
+		if claimed.Status == "accepted" || claimed.Status == "failed" || claimed.Status == "uncertain" {
+			status = http.StatusOK
+		}
+		writeRecordEmailDeliveryResponse(w, status, requestID, state, claimed)
+		return
+	}
+	account, err := accounts.GetForUser(r.Context(), state.Organization.ID, claimed.ActorUserID)
+	if err != nil {
+		_, _ = messages.FailRecordDelivery(r.Context(), state.Organization.ID, claimed.ID, err, false)
+		writeRecordEmailAccountError(w, requestID, err)
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(account.FromEmail), claimed.SenderEmail) {
+		failure := errors.New("connected mailbox sender changed; compose a new email")
+		_, _ = messages.FailRecordDelivery(r.Context(), state.Organization.ID, claimed.ID, failure, false)
+		platformweb.WriteError(w, http.StatusConflict, requestID, "EMAIL_SENDER_CHANGED", failure.Error())
+		return
+	}
+	if suppressions != nil {
+		suppressed, suppressionErr := suppressions.IsSuppressed(r.Context(), state.Organization.ID, claimed.RecipientEmail)
+		if suppressionErr != nil {
+			_, _ = messages.FailRecordDelivery(r.Context(), state.Organization.ID, claimed.ID, suppressionErr, false)
+			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to check email suppression status")
 			return
 		}
-		if errors.Is(err, moduleuseremail.ErrOAuthReconnectRequired) {
-			platformweb.WriteError(w, http.StatusConflict, requestID, "EMAIL_OAUTH_RECONNECT_REQUIRED", "Reconnect your mailbox in Settings to approve sending email")
+		if suppressed {
+			failure := errors.New("recipient is suppressed")
+			_, _ = messages.FailRecordDelivery(r.Context(), state.Organization.ID, claimed.ID, failure, false)
+			platformweb.WriteError(w, http.StatusConflict, requestID, "EMAIL_SUPPRESSED", "This recipient has unsubscribed from email")
 			return
 		}
-		if errors.Is(err, moduleuseremail.ErrOAuthDeliveryUnavailable) {
-			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "OAuth mailbox delivery is not configured on this server")
+	}
+	receipt, err := accounts.SendMessageAs(r.Context(), state.Organization.ID, claimed.ActorUserID, moduleemail.Message{
+		To: claimed.RecipientEmail, Subject: claimed.Subject, TextBody: claimed.TextBody,
+		HTMLBody: claimed.HTMLBody, MessageID: claimed.RFCMessageID,
+		ListUnsubscribeURL: claimed.ListUnsubscribeURL,
+	})
+	if err != nil {
+		uncertain := errors.Is(err, moduleuseremail.ErrOAuthDeliveryUncertain) || errors.Is(err, moduleemail.ErrDeliveryUncertain)
+		if _, recordErr := messages.FailRecordDelivery(r.Context(), state.Organization.ID, claimed.ID, err, uncertain); recordErr != nil {
+			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to record mailbox delivery outcome")
 			return
 		}
-		if errors.Is(err, moduleuseremail.ErrOAuthDeliveryUncertain) {
-			recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackEngagement, trackingToken, trackedLinks, moduleuseremail.SendReceipt{})
-			platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_DELIVERY_UNCERTAIN", "The provider outcome is uncertain. Check your Sent folder before retrying")
+		if uncertain {
+			platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_DELIVERY_UNCERTAIN", "The provider outcome is uncertain. Check your Sent folder before resolving this email")
 			return
 		}
-		recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "failed", err.Error(), trackEngagement, trackingToken, trackedLinks, moduleuseremail.SendReceipt{})
+		writeRecordEmailAccountError(w, requestID, err)
+		return
+	}
+	completed, err := messages.CompleteRecordDelivery(r.Context(), state.Organization.ID, claimed.ID, receipt)
+	if err != nil {
+		_, _ = messages.FailRecordDelivery(r.Context(), state.Organization.ID, claimed.ID, err, true)
+		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_DELIVERY_UNCERTAIN", "The mailbox accepted the email but CRM completion was interrupted. Resolve it after checking Sent mail")
+		return
+	}
+	writeRecordEmailDeliveryResponse(w, http.StatusOK, requestID, state, completed)
+}
+
+func writeRecordEmailAccountError(w http.ResponseWriter, requestID string, err error) {
+	switch {
+	case errors.Is(err, moduleuseremail.ErrNotFound):
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "EMAIL_ACCOUNT_REQUIRED", "Connect your email account in Settings before sending email")
+	case errors.Is(err, moduleuseremail.ErrOAuthReconnectRequired):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "EMAIL_OAUTH_RECONNECT_REQUIRED", "Reconnect your mailbox in Settings to approve sending email")
+	case errors.Is(err, moduleuseremail.ErrOAuthDeliveryUnavailable):
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "OAuth mailbox delivery is not configured on this server")
+	default:
 		platformweb.WriteError(w, http.StatusBadGateway, requestID, "EMAIL_SEND_FAILED", "Unable to send email through your connected mailbox")
-		return
 	}
-
-	recordEntityEmail(r, messages, organizationID, userID, entityType, entityID, to, subject, bodyToSend, "sent", "", trackEngagement, trackingToken, trackedLinks, receipt)
-	logEntityEmailNote(r, notes, organizationID, userID, entityType, entityID, subject)
-
-	response := sendEmailResponse{}
-	response.Data.Sent = true
-	response.Data.To = to
-	response.Meta.RequestID = requestID
-	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
-func logEntityEmailNote(r *http.Request, notes notesService, organizationID, userID int64, entityType string, entityID int64, subject string) {
-	if notes == nil {
-		return
+func emailAddressDomain(value string) string {
+	separator := strings.LastIndexByte(strings.TrimSpace(value), '@')
+	if separator < 0 || separator == len(value)-1 {
+		return ""
 	}
-	_, _ = notes.Create(r.Context(), organizationID, userID, modulenotes.CreateInput{
-		EntityType: entityType,
-		EntityID:   entityID,
-		Body:       "Sent email: " + subject,
-	})
-}
-
-func recordEntityEmail(r *http.Request, messages emailMessagesService, organizationID, userID int64, entityType string, entityID int64, to, subject, body, status, errMsg string, trackEngagement bool, trackingToken string, trackedLinks []moduleemailmessages.TrackedLinkInput, receipt moduleuseremail.SendReceipt) {
-	if messages == nil {
-		return
-	}
-	_ = messages.Record(r.Context(), organizationID, moduleemailmessages.RecordInput{
-		ToEmail:           to,
-		Subject:           subject,
-		Body:              body,
-		Status:            status,
-		Error:             errMsg,
-		EntityType:        entityType,
-		EntityID:          entityID,
-		SentByUserID:      userID,
-		TrackEngagement:   trackEngagement,
-		TrackingToken:     trackingToken,
-		TrackedLinks:      trackedLinks,
-		RFCMessageID:      receipt.RFCMessageID,
-		ProviderMessageID: receipt.ProviderMessageID,
-		ProviderThreadID:  receipt.ProviderThreadID,
-	})
+	return value[separator+1:]
 }

@@ -8,6 +8,7 @@ const maxMessageBytes = 1024 * 1024
 const maxMessages = 100
 
 let messages = []
+let disconnectAfterAcceptOnce = false
 
 function writeLine(socket, line) {
   socket.write(`${line}\r\n`)
@@ -46,6 +47,12 @@ const smtpServer = net.createServer((socket) => {
       acceptedAt: new Date().toISOString()
     })
     if (messages.length > maxMessages) messages = messages.slice(-maxMessages)
+    if (disconnectAfterAcceptOnce) {
+      disconnectAfterAcceptOnce = false
+      resetEnvelope()
+      socket.destroy()
+      return
+    }
     writeLine(socket, '250 2.0.0 Accepted by Open CRM test sandbox')
     resetEnvelope()
   }
@@ -132,7 +139,13 @@ const httpServer = http.createServer((request, response) => {
   }
   if (request.method === 'DELETE' && request.url === '/messages') {
     messages = []
+    disconnectAfterAcceptOnce = false
     response.end(JSON.stringify({ messages: [] }))
+    return
+  }
+  if (request.method === 'POST' && request.url === '/disconnect-after-accept-once') {
+    disconnectAfterAcceptOnce = true
+    response.end(JSON.stringify({ disconnectAfterAcceptOnce }))
     return
   }
   response.statusCode = 404

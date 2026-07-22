@@ -58,48 +58,53 @@ type leadSubmissionKey struct {
 // Collector stores process-local counters. Durable queue gauges and backup
 // timestamps are supplied at scrape time through RuntimeSnapshot.
 type Collector struct {
-	mu                             sync.RWMutex
-	startedAt                      time.Time
-	requests                       map[requestKey]uint64
-	durations                      map[durationKey]*durationSeries
-	providerCalls                  map[providerKey]uint64
-	providerSeconds                map[providerKey]float64
-	jobOutcomes                    map[jobKey]uint64
-	rateLimits                     map[rateLimitKey]uint64
-	leadSubmissions                map[leadSubmissionKey]uint64
-	retentionRuns                  map[string]uint64
-	retentionRows                  map[string]uint64
-	retentionLastAt                time.Time
-	retentionLastOK                bool
-	emailTrackingRetentionRuns     map[string]uint64
-	emailTrackingRetentionPurged   uint64
-	emailTrackingRetentionLastAt   time.Time
-	emailTrackingRetentionLastOK   bool
-	emailReplyRecoveryRuns         map[string]uint64
-	emailReplyRecoveryRecovered    uint64
-	emailReplyRecoveryLastAt       time.Time
-	emailReplyRecoveryLastOK       bool
-	quoteDeliveryRecoveryRuns      map[string]uint64
-	quoteDeliveryRecoveryRecovered uint64
-	quoteDeliveryRecoveryLastAt    time.Time
-	quoteDeliveryRecoveryLastOK    bool
+	mu                                   sync.RWMutex
+	startedAt                            time.Time
+	requests                             map[requestKey]uint64
+	durations                            map[durationKey]*durationSeries
+	providerCalls                        map[providerKey]uint64
+	providerSeconds                      map[providerKey]float64
+	jobOutcomes                          map[jobKey]uint64
+	rateLimits                           map[rateLimitKey]uint64
+	leadSubmissions                      map[leadSubmissionKey]uint64
+	retentionRuns                        map[string]uint64
+	retentionRows                        map[string]uint64
+	retentionLastAt                      time.Time
+	retentionLastOK                      bool
+	emailTrackingRetentionRuns           map[string]uint64
+	emailTrackingRetentionPurged         uint64
+	emailTrackingRetentionLastAt         time.Time
+	emailTrackingRetentionLastOK         bool
+	emailReplyRecoveryRuns               map[string]uint64
+	emailReplyRecoveryRecovered          uint64
+	emailReplyRecoveryLastAt             time.Time
+	emailReplyRecoveryLastOK             bool
+	recordEmailDeliveryRecoveryRuns      map[string]uint64
+	recordEmailDeliveryRecoveryRecovered uint64
+	recordEmailDeliveryRecoveryLastAt    time.Time
+	recordEmailDeliveryRecoveryLastOK    bool
+	quoteDeliveryRecoveryRuns            map[string]uint64
+	quoteDeliveryRecoveryRecovered       uint64
+	quoteDeliveryRecoveryLastAt          time.Time
+	quoteDeliveryRecoveryLastOK          bool
 }
 
 func NewCollector() *Collector {
 	return &Collector{
-		startedAt:                  time.Now(),
-		requests:                   make(map[requestKey]uint64),
-		durations:                  make(map[durationKey]*durationSeries),
-		providerCalls:              make(map[providerKey]uint64),
-		providerSeconds:            make(map[providerKey]float64),
-		jobOutcomes:                make(map[jobKey]uint64),
-		rateLimits:                 make(map[rateLimitKey]uint64),
-		leadSubmissions:            make(map[leadSubmissionKey]uint64),
-		retentionRuns:              make(map[string]uint64),
-		retentionRows:              make(map[string]uint64),
-		emailTrackingRetentionRuns: make(map[string]uint64),
-		emailReplyRecoveryRuns:     make(map[string]uint64),
-		quoteDeliveryRecoveryRuns:  make(map[string]uint64),
+		startedAt:                       time.Now(),
+		requests:                        make(map[requestKey]uint64),
+		durations:                       make(map[durationKey]*durationSeries),
+		providerCalls:                   make(map[providerKey]uint64),
+		providerSeconds:                 make(map[providerKey]float64),
+		jobOutcomes:                     make(map[jobKey]uint64),
+		rateLimits:                      make(map[rateLimitKey]uint64),
+		leadSubmissions:                 make(map[leadSubmissionKey]uint64),
+		retentionRuns:                   make(map[string]uint64),
+		retentionRows:                   make(map[string]uint64),
+		emailTrackingRetentionRuns:      make(map[string]uint64),
+		emailReplyRecoveryRuns:          make(map[string]uint64),
+		recordEmailDeliveryRecoveryRuns: make(map[string]uint64),
+		quoteDeliveryRecoveryRuns:       make(map[string]uint64),
 	}
 }
 
@@ -188,65 +193,69 @@ func (c *Collector) ObserveLeadSubmission(outcome string) {
 }
 
 type RuntimeSnapshot struct {
-	CollectionSuccess              bool
-	DatabaseUp                     bool
-	JobsAvailable                  bool
-	JobsPending                    int
-	JobsRunning                    int
-	JobsRetryable                  int
-	JobsDead                       int
-	OldestReadyLag                 time.Duration
-	NotificationsAvailable         bool
-	NotificationsUnread            int64
-	NotificationsCreated24h        int64
-	NotificationRecipients24h      int64
-	NotificationMaxPerRecipient24h int64
-	OldestUnreadAge                time.Duration
-	NotificationEvents24h          map[string]int64
-	PasswordResetsAvailable        bool
-	PasswordResetsOutstanding      int64
-	PasswordResetStalePending      int64
-	PasswordResetFailed24h         int64
-	SystemEmailFeedbackAvailable   bool
-	SystemEmailBounces24h          int64
-	SystemEmailComplaints24h       int64
-	SystemEmailUnapplied24h        int64
-	CustomerEmailFeedbackAvailable bool
-	CustomerEmailBounces24h        int64
-	CustomerEmailComplaints24h     int64
-	CustomerEmailUnapplied24h      int64
-	EmailRepliesAvailable          bool
-	EmailRepliesSending            int64
-	EmailRepliesStaleSending       int64
-	EmailRepliesUncertain          int64
-	QuoteDeliveriesAvailable       bool
-	QuoteDeliveriesSending         int64
-	QuoteDeliveriesStaleSending    int64
-	QuoteDeliveriesUncertain       int64
-	QuoteApprovalsPending          int64
-	QuoteApprovalsApproved         int64
-	QuoteApprovalsRejected         int64
-	QuoteOldestApprovalPendingAge  time.Duration
-	QuoteSignaturesAwaiting        int64
-	QuoteSignaturesExpired         int64
-	QuoteSignaturesSigned          int64
-	QuoteSignaturesPending         int64
-	QuoteOldestPendingAge          time.Duration
-	QuoteSignaturesConverted       int64
-	QuoteSignaturesDeclined        int64
-	QuoteSignaturesVoided          int64
-	WorkflowRunsAvailable          bool
-	WorkflowRunsQueued             int64
-	WorkflowRunsRunning            int64
-	WorkflowRunsFailed24h          int64
-	WorkflowRunsSkipped24h         int64
-	WorkflowOldestActiveAge        time.Duration
-	LeadReviewsAvailable           bool
-	LeadReviewsUnreviewed          int64
-	LeadReviewsLegitimate          int64
-	LeadReviewsSpam                int64
-	LeadReviewOldestUnreviewedAge  time.Duration
-	Backup                         BackupStatus
+	CollectionSuccess                 bool
+	DatabaseUp                        bool
+	JobsAvailable                     bool
+	JobsPending                       int
+	JobsRunning                       int
+	JobsRetryable                     int
+	JobsDead                          int
+	OldestReadyLag                    time.Duration
+	NotificationsAvailable            bool
+	NotificationsUnread               int64
+	NotificationsCreated24h           int64
+	NotificationRecipients24h         int64
+	NotificationMaxPerRecipient24h    int64
+	OldestUnreadAge                   time.Duration
+	NotificationEvents24h             map[string]int64
+	PasswordResetsAvailable           bool
+	PasswordResetsOutstanding         int64
+	PasswordResetStalePending         int64
+	PasswordResetFailed24h            int64
+	SystemEmailFeedbackAvailable      bool
+	SystemEmailBounces24h             int64
+	SystemEmailComplaints24h          int64
+	SystemEmailUnapplied24h           int64
+	CustomerEmailFeedbackAvailable    bool
+	CustomerEmailBounces24h           int64
+	CustomerEmailComplaints24h        int64
+	CustomerEmailUnapplied24h         int64
+	EmailRepliesAvailable             bool
+	EmailRepliesSending               int64
+	EmailRepliesStaleSending          int64
+	EmailRepliesUncertain             int64
+	RecordEmailDeliveriesAvailable    bool
+	RecordEmailDeliveriesSending      int64
+	RecordEmailDeliveriesStaleSending int64
+	RecordEmailDeliveriesUncertain    int64
+	QuoteDeliveriesAvailable          bool
+	QuoteDeliveriesSending            int64
+	QuoteDeliveriesStaleSending       int64
+	QuoteDeliveriesUncertain          int64
+	QuoteApprovalsPending             int64
+	QuoteApprovalsApproved            int64
+	QuoteApprovalsRejected            int64
+	QuoteOldestApprovalPendingAge     time.Duration
+	QuoteSignaturesAwaiting           int64
+	QuoteSignaturesExpired            int64
+	QuoteSignaturesSigned             int64
+	QuoteSignaturesPending            int64
+	QuoteOldestPendingAge             time.Duration
+	QuoteSignaturesConverted          int64
+	QuoteSignaturesDeclined           int64
+	QuoteSignaturesVoided             int64
+	WorkflowRunsAvailable             bool
+	WorkflowRunsQueued                int64
+	WorkflowRunsRunning               int64
+	WorkflowRunsFailed24h             int64
+	WorkflowRunsSkipped24h            int64
+	WorkflowOldestActiveAge           time.Duration
+	LeadReviewsAvailable              bool
+	LeadReviewsUnreviewed             int64
+	LeadReviewsLegitimate             int64
+	LeadReviewsSpam                   int64
+	LeadReviewOldestUnreviewedAge     time.Duration
+	Backup                            BackupStatus
 }
 
 type SnapshotSource func(context.Context) RuntimeSnapshot
@@ -305,6 +314,10 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	emailReplyRecoveryRecovered := c.emailReplyRecoveryRecovered
 	emailReplyRecoveryLastAt := c.emailReplyRecoveryLastAt
 	emailReplyRecoveryLastOK := c.emailReplyRecoveryLastOK
+	recordEmailDeliveryRecoveryRuns := copyMap(c.recordEmailDeliveryRecoveryRuns)
+	recordEmailDeliveryRecoveryRecovered := c.recordEmailDeliveryRecoveryRecovered
+	recordEmailDeliveryRecoveryLastAt := c.recordEmailDeliveryRecoveryLastAt
+	recordEmailDeliveryRecoveryLastOK := c.recordEmailDeliveryRecoveryLastOK
 	quoteDeliveryRecoveryRuns := copyMap(c.quoteDeliveryRecoveryRuns)
 	quoteDeliveryRecoveryRecovered := c.quoteDeliveryRecoveryRecovered
 	quoteDeliveryRecoveryLastAt := c.quoteDeliveryRecoveryLastAt
@@ -394,6 +407,10 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	writeEmailReplyMetrics(&output, snapshot, emailReplyRecoverySnapshot{
 		Runs: emailReplyRecoveryRuns, Recovered: emailReplyRecoveryRecovered,
 		LastRunAt: emailReplyRecoveryLastAt, LastRunOK: emailReplyRecoveryLastOK,
+	})
+	writeRecordEmailDeliveryMetrics(&output, snapshot, recordEmailDeliveryRecoverySnapshot{
+		Runs: recordEmailDeliveryRecoveryRuns, Recovered: recordEmailDeliveryRecoveryRecovered,
+		LastRunAt: recordEmailDeliveryRecoveryLastAt, LastRunOK: recordEmailDeliveryRecoveryLastOK,
 	})
 	writeQuoteDeliveryMetrics(&output, snapshot, quoteDeliveryRecoverySnapshot{
 		Runs: quoteDeliveryRecoveryRuns, Recovered: quoteDeliveryRecoveryRecovered,

@@ -318,6 +318,42 @@ groups:
           summary: Connected-mailbox replies require explicit operator resolution
           runbook: docs/operations-runbook.md#connected-mailbox-reply-recovery
 
+      - alert: OpenCRMRecordEmailDeliveryMetricsUnavailable
+        expr: open_crm_record_email_deliveries_available != 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM cannot read durable one-to-one record-email delivery health
+          runbook: docs/operations-runbook.md#one-to-one-record-email-delivery-recovery
+
+      - alert: OpenCRMRecordEmailDeliveryRecoveryErrors
+        expr: open_crm_record_email_delivery_recovery_last_run_timestamp_seconds > 0 and open_crm_record_email_delivery_recovery_last_run_success == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM interrupted record-email recovery is failing
+          runbook: docs/operations-runbook.md#one-to-one-record-email-delivery-recovery
+
+      - alert: OpenCRMRecordEmailDeliveryRecoveryStale
+        expr: open_crm_database_up == 1 and (open_crm_record_email_delivery_recovery_last_run_timestamp_seconds == 0 or time() - open_crm_record_email_delivery_recovery_last_run_timestamp_seconds > 300)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Open CRM record-email recovery has not completed for five minutes
+          runbook: docs/operations-runbook.md#one-to-one-record-email-delivery-recovery
+
+      - alert: OpenCRMRecordEmailsNeedResolution
+        expr: open_crm_record_email_delivery_uncertain > 0 or open_crm_record_email_delivery_stale_sending > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: One-to-one record emails require explicit operator resolution
+          runbook: docs/operations-runbook.md#one-to-one-record-email-delivery-recovery
+
       - alert: OpenCRMQuoteDeliveryMetricsUnavailable
         expr: open_crm_quote_deliveries_available != 1
         for: 5m

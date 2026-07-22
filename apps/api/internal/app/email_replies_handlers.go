@@ -169,7 +169,7 @@ func handleSendEmailReply(auth authService, accounts userEmailAccountService, me
 	sendEmailReply(accounts, messages, suppressions, state.Organization.ID, state.User.ID, reply, w, r)
 }
 
-func handleResolveEmailReply(auth authService, accounts userEmailAccountService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
+func handleResolveEmailReply(auth authService, billing billingService, accounts userEmailAccountService, messages emailMessagesService, suppressions emailSuppressionsService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgWriter(auth, w, r)
 	if !ok {
@@ -185,6 +185,10 @@ func handleResolveEmailReply(auth authService, accounts userEmailAccountService,
 	}
 	var input emailReplyResolutionRequest
 	if !decodeJSONRequest(w, r, requestID, &input) {
+		return
+	}
+	input.Resolution = strings.ToLower(strings.TrimSpace(input.Resolution))
+	if input.Resolution == "retry" && !enforceActiveSubscription(billing, state.Organization.ID, w, r) {
 		return
 	}
 	resolution, err := messages.ResolveReply(r.Context(), state.Organization.ID, replyID, state.User.ID, input.Resolution)

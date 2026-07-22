@@ -1,9 +1,11 @@
 import { useLayoutEffect, useState } from 'react'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { RecordEmailComposer } from '../components/record_email_composer'
+import { sendContactEmail } from '../lib/contacts'
 import { ClientAccountContext } from './client_account_context'
 import { ClientReviewSchedule } from './client_review_schedule'
-import { ContactEmailCard, ContactSequencesCard } from './contact_communications'
+import { ContactSequencesCard } from './contact_communications'
 import { ContactFoundationCommunications } from './contact_foundation_communications'
 import { ContactForm } from './contact_form'
 import { ContactAttributionCard, ContactLeadScoreCard } from './contact_insights'
@@ -51,9 +53,11 @@ export function ContactWorkspace({
   work
 }) {
   const [foundationCommunicationsSnapshot, setFoundationCommunicationsSnapshot] = useState('')
+  const [emailDeliveryRevision, setEmailDeliveryRevision] = useState(0)
 
   useLayoutEffect(() => {
     setFoundationCommunicationsSnapshot('')
+    setEmailDeliveryRevision(0)
   }, [contact.id])
 
   return (
@@ -117,18 +121,14 @@ export function ContactWorkspace({
             onSnapshotChange={setFoundationCommunicationsSnapshot}
           />
         ) : null}
-        <ContactEmailCard
+        <RecordEmailComposer
+          entityType="contact"
+          entityId={contact.id}
           canWrite={canWrite}
-          form={outreach.emailForm}
-          history={outreach.emailHistory}
-          isSending={outreach.isSendingEmail}
-          onApplyTemplate={outreach.applyEmailTemplate}
-          onSend={outreach.handleSendEmail}
-          onSetForm={outreach.setEmailForm}
-          onToggle={outreach.handleToggleEmail}
-          open={outreach.emailOpen}
-          status={outreach.emailStatus}
-          templates={outreach.emailTemplates}
+          recipientOptions={contact.email ? [{ id: contact.id, label: `${fullContactName(contact)} <${contact.email}>` }] : []}
+          sendEmail={sendContactEmail}
+          emptyMessage="Add an email address to this contact before sending email."
+          onDeliveryChanged={() => setEmailDeliveryRevision((current) => current + 1)}
         />
         <ContactSequencesCard
           canWrite={canWrite}
@@ -143,7 +143,7 @@ export function ContactWorkspace({
           options={outreach.sequenceOptions}
           status={outreach.sequenceStatus}
         />
-        <TouchpointSummary entityType="contact" entityId={contact.id} refreshKey={JSON.stringify({ activities: work.activities, notes: work.notes, tasks: work.tasks, emailHistory: outreach.emailHistory, foundationCommunicationsSnapshot })} />
+        <TouchpointSummary entityType="contact" entityId={contact.id} refreshKey={JSON.stringify({ activities: work.activities, notes: work.notes, tasks: work.tasks, emailDeliveryRevision, foundationCommunicationsSnapshot })} />
         <RecordWorkCards
           activities={work.activities}
           canWrite={canWrite}

@@ -90,8 +90,8 @@ export async function archiveCompany(companyID, { signal } = {}) {
   return apiRequest(`/api/companies/${companyID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive company.', signal })
 }
 
-export async function sendCompanyEmail(companyID, input, { signal } = {}) {
-  const payload = await apiRequest(`/api/companies/${companyID}/email`, { method: 'POST', body: input, fallbackMessage: 'Unable to send email.', signal })
+export async function sendCompanyEmail(companyID, input, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest(`/api/companies/${companyID}/email`, { method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: 'Unable to send email.', signal })
 
   return payload?.data
 }

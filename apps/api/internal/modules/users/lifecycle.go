@@ -428,6 +428,38 @@ func stopDisabledUserEffects(ctx context.Context, tx pgx.Tx, organizationID, use
 		return fmt.Errorf("quiesce disabled user quote deliveries: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
+		UPDATE record_email_deliveries
+		SET status = CASE status WHEN 'sending' THEN 'uncertain' ELSE 'failed' END,
+		    last_error = CASE status
+		      WHEN 'sending' THEN 'The sender was disabled while the mailbox provider outcome may be unknown.'
+		      ELSE 'The sender was disabled before record email delivery.'
+		    END,
+		    text_body = CASE WHEN status='prepared' AND list_unsubscribe_url<>''
+		      THEN REPLACE(text_body,E'\n\nUnsubscribe: '||list_unsubscribe_url,'') ELSE text_body END,
+		    html_body = CASE status WHEN 'prepared' THEN '' ELSE html_body END,
+		    list_unsubscribe_url = CASE status WHEN 'prepared' THEN '' ELSE list_unsubscribe_url END,
+		    tracking_token = CASE status WHEN 'prepared' THEN '' ELSE tracking_token END,
+		    tracked_links_json = CASE status WHEN 'prepared' THEN '[]'::jsonb ELSE tracked_links_json END,
+		    claimed_at = COALESCE(claimed_at, NOW()), finalized_at = NOW(), updated_at = NOW()
+		WHERE organization_id = $1 AND actor_user_id = $2
+		  AND status IN ('prepared', 'sending')
+	`, organizationID, userID); err != nil {
+		return fmt.Errorf("quiesce disabled user record email deliveries: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE email_reply_requests
+		SET status = CASE status WHEN 'sending' THEN 'uncertain' ELSE 'failed' END,
+		    last_error = CASE status
+		      WHEN 'sending' THEN 'The sender was disabled while the mailbox provider outcome may be unknown.'
+		      ELSE 'The sender was disabled before mailbox reply delivery.'
+		    END,
+		    claimed_at = COALESCE(claimed_at, NOW()), finalized_at = NOW(), updated_at = NOW()
+		WHERE organization_id = $1 AND actor_user_id = $2
+		  AND status IN ('prepared', 'sending')
+	`, organizationID, userID); err != nil {
+		return fmt.Errorf("quiesce disabled user mailbox replies: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE background_jobs
 		SET status = 'succeeded', result_json = '{"status":"skipped","reason":"member_disabled"}'::jsonb,
 		    completed_at = NOW(), updated_at = NOW(), last_error = ''

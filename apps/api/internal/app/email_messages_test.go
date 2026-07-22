@@ -16,62 +16,193 @@ import (
 )
 
 type fakeEmailMessagesService struct {
-	orgResult           []moduleemailmessages.Message
-	entityResult        []moduleemailmessages.Message
-	senderResult        []moduleemailmessages.Message
-	mailboxResult       []moduleemailmessages.Message
-	sharedInboxResult   []moduleemailmessages.Message
-	getResult           moduleemailmessages.Message
-	getErr              error
-	updateResult        moduleemailmessages.Message
-	updateErr           error
-	recordErr           error
-	lastRecord          moduleemailmessages.RecordInput
-	lastOrgID           int64
-	lastGetID           int64
-	lastEntity          string
-	lastEntityID        int64
-	lastEntityViewer    int64
-	lastIncludePrivate  bool
-	lastSenderID        int64
-	lastMailboxUserID   int64
-	lastSharedLimit     int
-	lastUpdateID        int64
-	lastUpdateInput     moduleemailmessages.SharedInboxUpdateInput
-	lastOpenedToken     string
-	lastClickedToken    string
-	clickTargetURL      string
-	clickErr            error
-	prepareReplyResult  moduleemailmessages.ReplyRequest
-	prepareReplyErr     error
-	replayReplyResult   moduleemailmessages.ReplyRequest
-	replayReplyFound    bool
-	replayReplyErr      error
-	claimReplyResult    moduleemailmessages.ReplyRequest
-	claimShouldSend     bool
-	claimReplyErr       error
-	completeReplyResult moduleemailmessages.ReplyRequest
-	completeReplyErr    error
-	failReplyResult     moduleemailmessages.ReplyRequest
-	failReplyErr        error
-	resolveReplyResult  moduleemailmessages.ReplyResolution
-	resolveReplyErr     error
-	threadMessages      []moduleemailmessages.Message
-	threadReplies       []moduleemailmessages.ReplyRequest
-	lastPrepareInput    moduleemailmessages.PrepareReplyInput
-	lastReplayInput     moduleemailmessages.PrepareReplyInput
-	lastClaimReplyID    int64
-	lastClaimActorID    int64
-	lastCompleteReplyID int64
-	lastCompleteReceipt moduleuseremail.SendReceipt
-	lastFailReplyID     int64
-	lastFailUncertain   bool
-	lastResolveReplyID  int64
-	lastResolveActorID  int64
-	lastResolution      string
-	lastThreadRootID    int64
-	lastThreadViewerID  int64
-	lastThreadPrivate   bool
+	orgResult                 []moduleemailmessages.Message
+	entityResult              []moduleemailmessages.Message
+	senderResult              []moduleemailmessages.Message
+	mailboxResult             []moduleemailmessages.Message
+	sharedInboxResult         []moduleemailmessages.Message
+	getResult                 moduleemailmessages.Message
+	getErr                    error
+	updateResult              moduleemailmessages.Message
+	updateErr                 error
+	recordErr                 error
+	lastRecord                moduleemailmessages.RecordInput
+	replayDeliveryResult      moduleemailmessages.RecordDelivery
+	replayDeliveryFound       bool
+	replayDeliveryErr         error
+	prepareDeliveryResult     moduleemailmessages.RecordDelivery
+	prepareDeliveryErr        error
+	claimDeliveryResult       moduleemailmessages.RecordDelivery
+	claimDeliverySend         bool
+	claimDeliveryErr          error
+	completeDeliveryResult    moduleemailmessages.RecordDelivery
+	completeDeliveryErr       error
+	failDeliveryResult        moduleemailmessages.RecordDelivery
+	failDeliveryErr           error
+	resolveDeliveryResult     moduleemailmessages.RecordDeliveryResolution
+	resolveDeliveryErr        error
+	recordDeliveries          []moduleemailmessages.RecordDelivery
+	lastDeliveryKey           moduleemailmessages.RecordDeliveryKeyInput
+	lastPrepareDelivery       moduleemailmessages.PrepareRecordDeliveryInput
+	lastDeliveryID            int64
+	lastDeliveryActorID       int64
+	lastDeliveryResolution    string
+	lastFailDeliveryUncertain bool
+	lastOrgID                 int64
+	lastGetID                 int64
+	lastEntity                string
+	lastEntityID              int64
+	lastEntityViewer          int64
+	lastIncludePrivate        bool
+	lastSenderID              int64
+	lastMailboxUserID         int64
+	lastSharedLimit           int
+	lastUpdateID              int64
+	lastUpdateInput           moduleemailmessages.SharedInboxUpdateInput
+	lastOpenedToken           string
+	lastClickedToken          string
+	clickTargetURL            string
+	clickErr                  error
+	prepareReplyResult        moduleemailmessages.ReplyRequest
+	prepareReplyErr           error
+	replayReplyResult         moduleemailmessages.ReplyRequest
+	replayReplyFound          bool
+	replayReplyErr            error
+	claimReplyResult          moduleemailmessages.ReplyRequest
+	claimShouldSend           bool
+	claimReplyErr             error
+	completeReplyResult       moduleemailmessages.ReplyRequest
+	completeReplyErr          error
+	failReplyResult           moduleemailmessages.ReplyRequest
+	failReplyErr              error
+	resolveReplyResult        moduleemailmessages.ReplyResolution
+	resolveReplyErr           error
+	threadMessages            []moduleemailmessages.Message
+	threadReplies             []moduleemailmessages.ReplyRequest
+	lastPrepareInput          moduleemailmessages.PrepareReplyInput
+	lastReplayInput           moduleemailmessages.PrepareReplyInput
+	lastClaimReplyID          int64
+	lastClaimActorID          int64
+	lastCompleteReplyID       int64
+	lastCompleteReceipt       moduleuseremail.SendReceipt
+	lastFailReplyID           int64
+	lastFailUncertain         bool
+	lastResolveReplyID        int64
+	lastResolveActorID        int64
+	lastResolution            string
+	lastThreadRootID          int64
+	lastThreadViewerID        int64
+	lastThreadPrivate         bool
+}
+
+func (f *fakeEmailMessagesService) ReplayRecordDelivery(_ context.Context, organizationID int64, input moduleemailmessages.RecordDeliveryKeyInput) (moduleemailmessages.RecordDelivery, bool, error) {
+	f.lastOrgID = organizationID
+	f.lastDeliveryKey = input
+	return f.replayDeliveryResult, f.replayDeliveryFound, f.replayDeliveryErr
+}
+
+func (f *fakeEmailMessagesService) PrepareRecordDelivery(_ context.Context, organizationID int64, input moduleemailmessages.PrepareRecordDeliveryInput) (moduleemailmessages.RecordDelivery, error) {
+	f.lastOrgID = organizationID
+	f.lastPrepareDelivery = input
+	if f.prepareDeliveryErr != nil || f.prepareDeliveryResult.ID != 0 {
+		return f.prepareDeliveryResult, f.prepareDeliveryErr
+	}
+	return moduleemailmessages.RecordDelivery{
+		ID: 91, OrganizationID: organizationID, EntityType: input.Request.EntityType, EntityID: input.Request.EntityID,
+		RecipientContactID: input.ResolvedRecipientContactID, ActorUserID: input.Request.ActorUserID,
+		SenderEmail: input.SenderEmail, RecipientEmail: input.RecipientEmail, Subject: input.Subject,
+		TextBody: input.TextBody, HTMLBody: input.HTMLBody, ListUnsubscribeURL: input.ListUnsubscribeURL,
+		RFCMessageID: input.RFCMessageID, TrackEngagement: input.Request.TrackEngagement,
+		TrackingToken: input.TrackingToken, TrackedLinks: input.TrackedLinks, Status: "prepared",
+	}, nil
+}
+
+func (f *fakeEmailMessagesService) ClaimRecordDelivery(_ context.Context, organizationID, deliveryID, actorID int64) (moduleemailmessages.RecordDelivery, bool, error) {
+	f.lastOrgID = organizationID
+	f.lastDeliveryID = deliveryID
+	f.lastDeliveryActorID = actorID
+	if f.claimDeliveryErr != nil || f.claimDeliveryResult.ID != 0 {
+		return f.claimDeliveryResult, f.claimDeliverySend, f.claimDeliveryErr
+	}
+	delivery := f.prepareDeliveryResult
+	if delivery.ID == 0 {
+		delivery = moduleemailmessages.RecordDelivery{ID: deliveryID, OrganizationID: organizationID, ActorUserID: actorID, SenderEmail: "owner@acme.test", RecipientEmail: "ada@acme.test", Subject: "Email", TextBody: "Body", RFCMessageID: "<direct@open-crm.invalid>"}
+		if f.lastPrepareDelivery.Request.ActorUserID != 0 {
+			delivery.EntityType = f.lastPrepareDelivery.Request.EntityType
+			delivery.EntityID = f.lastPrepareDelivery.Request.EntityID
+			delivery.RecipientContactID = f.lastPrepareDelivery.ResolvedRecipientContactID
+			delivery.SenderEmail = f.lastPrepareDelivery.SenderEmail
+			delivery.RecipientEmail = f.lastPrepareDelivery.RecipientEmail
+			delivery.Subject = f.lastPrepareDelivery.Subject
+			delivery.TextBody = f.lastPrepareDelivery.TextBody
+			delivery.HTMLBody = f.lastPrepareDelivery.HTMLBody
+			delivery.ListUnsubscribeURL = f.lastPrepareDelivery.ListUnsubscribeURL
+			delivery.RFCMessageID = f.lastPrepareDelivery.RFCMessageID
+			delivery.TrackEngagement = f.lastPrepareDelivery.Request.TrackEngagement
+			delivery.TrackingToken = f.lastPrepareDelivery.TrackingToken
+			delivery.TrackedLinks = f.lastPrepareDelivery.TrackedLinks
+		}
+	}
+	delivery.Status = "sending"
+	return delivery, true, nil
+}
+
+func (f *fakeEmailMessagesService) CompleteRecordDelivery(_ context.Context, organizationID, deliveryID int64, receipt moduleuseremail.SendReceipt) (moduleemailmessages.RecordDelivery, error) {
+	f.lastOrgID = organizationID
+	f.lastDeliveryID = deliveryID
+	if f.completeDeliveryErr != nil || f.completeDeliveryResult.ID != 0 {
+		return f.completeDeliveryResult, f.completeDeliveryErr
+	}
+	delivery := f.claimDeliveryResult
+	if delivery.ID == 0 {
+		delivery = moduleemailmessages.RecordDelivery{ID: deliveryID, OrganizationID: organizationID, ActorUserID: f.lastDeliveryActorID, RecipientEmail: f.lastPrepareDelivery.RecipientEmail, Subject: f.lastPrepareDelivery.Subject}
+	}
+	delivery.Status = "accepted"
+	delivery.ProviderMessageID = receipt.ProviderMessageID
+	delivery.ProviderThreadID = receipt.ProviderThreadID
+	delivery.OutboundEmailMessageID = 92
+	rfcMessageID := receipt.RFCMessageID
+	if rfcMessageID == "" {
+		rfcMessageID = f.lastPrepareDelivery.RFCMessageID
+	}
+	f.lastRecord = moduleemailmessages.RecordInput{
+		FromEmail: f.lastPrepareDelivery.SenderEmail, ToEmail: f.lastPrepareDelivery.RecipientEmail,
+		Subject: f.lastPrepareDelivery.Subject, Body: f.lastPrepareDelivery.TextBody, Status: "sent",
+		EntityType: f.lastPrepareDelivery.Request.EntityType, EntityID: f.lastPrepareDelivery.Request.EntityID,
+		SentByUserID: f.lastPrepareDelivery.Request.ActorUserID, TrackEngagement: f.lastPrepareDelivery.Request.TrackEngagement,
+		TrackingToken: f.lastPrepareDelivery.TrackingToken, TrackedLinks: f.lastPrepareDelivery.TrackedLinks,
+		RFCMessageID: rfcMessageID, ProviderMessageID: receipt.ProviderMessageID, ProviderThreadID: receipt.ProviderThreadID,
+	}
+	return delivery, nil
+}
+
+func (f *fakeEmailMessagesService) FailRecordDelivery(_ context.Context, organizationID, deliveryID int64, _ error, uncertain bool) (moduleemailmessages.RecordDelivery, error) {
+	f.lastOrgID = organizationID
+	f.lastDeliveryID = deliveryID
+	f.lastFailDeliveryUncertain = uncertain
+	if f.failDeliveryErr != nil || f.failDeliveryResult.ID != 0 {
+		return f.failDeliveryResult, f.failDeliveryErr
+	}
+	status := "failed"
+	if uncertain {
+		status = "uncertain"
+	}
+	return moduleemailmessages.RecordDelivery{ID: deliveryID, OrganizationID: organizationID, ActorUserID: f.lastDeliveryActorID, Status: status}, nil
+}
+
+func (f *fakeEmailMessagesService) ResolveRecordDelivery(_ context.Context, organizationID, deliveryID, actorID int64, resolution string) (moduleemailmessages.RecordDeliveryResolution, error) {
+	f.lastOrgID = organizationID
+	f.lastDeliveryID = deliveryID
+	f.lastDeliveryActorID = actorID
+	f.lastDeliveryResolution = resolution
+	return f.resolveDeliveryResult, f.resolveDeliveryErr
+}
+
+func (f *fakeEmailMessagesService) ListRecordDeliveriesByEntity(_ context.Context, organizationID int64, entityType string, entityID int64) ([]moduleemailmessages.RecordDelivery, error) {
+	f.lastOrgID = organizationID
+	f.lastEntity = entityType
+	f.lastEntityID = entityID
+	return f.recordDeliveries, nil
 }
 
 func (f *fakeEmailMessagesService) ReplayReply(_ context.Context, organizationID int64, input moduleemailmessages.PrepareReplyInput) (moduleemailmessages.ReplyRequest, bool, error) {

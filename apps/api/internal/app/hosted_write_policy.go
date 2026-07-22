@@ -20,6 +20,8 @@ var hostedWriteRecoveryRoutes = map[string]struct{}{
 	"PATCH /api/notifications/{notificationID}/read":               {},
 	"POST /api/notifications/read-all":                             {},
 	"POST /api/admin/background-jobs/{jobID}/replay":               {},
+	"POST /api/email-replies/{replyID}/resolve":                    {},
+	"POST /api/record-email-deliveries/{deliveryID}/resolve":       {},
 	"POST /api/billing/change-plan":                                {},
 	"POST /api/billing/checkout-session":                           {},
 	"POST /api/billing/portal-session":                             {},

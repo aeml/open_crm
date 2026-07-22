@@ -381,7 +381,7 @@ Exit criteria:
 - No behavior changes beyond tested refactors.
 
 Current convergence evidence: `app.go` is now 409 lines and uses the default
-500-line CI ceiling. All 248 explicit registrations live in focused 175-line
+500-line CI ceiling. All 250 explicit registrations live in focused 175-line
 platform, 294-line foundation, and 342-line core-CRM files, called centrally by
 `NewServer`; package-wide inventory and hosted-write-policy scans preserve the
 complete route set after the split. HTTP rate limiting, proxy-aware client
@@ -418,9 +418,9 @@ selection/work plus a 134-line contact-detail orchestrator leave `contacts.jsx`
 at 449 lines, down from 2,038 and below the default 500-line ceiling. Tested 68-line selection and
 142-line work hooks abort obsolete loads, distinguish repeated A-to-B-to-A visits,
 serialize contact mutations, validate returned record/work identities, and keep
-late saves, notes, and tasks off the active contact. The 229-line outreach hook clears record-scoped email and
-sequence state on contact changes and rejects late responses from prior
-selection epochs; a tested 59-line lead-score hook additionally rejects duplicate
+late saves, notes, and tasks off the active contact. The 123-line outreach hook clears record-scoped
+sequence state on contact changes and rejects late responses from prior selection
+epochs; the shared 303-line record-email composer owns direct-send state and recovery. A tested 59-line lead-score hook additionally rejects duplicate
 in-flight evaluations, mismatched contact identities, and late responses after
 leave-and-return navigation. Development-only call, SMS, and meeting orchestration remains
 in a 456-line focused module excluded from production builds. Shared record-work cards,
@@ -2340,8 +2340,8 @@ contacts with duplicate checks and progress ledgers under a 10 s budget. Postmar
 later recovery tests complement durable sequence coverage that quarantines
 ambiguous SMTP outcomes without duplicate sends. Production frontend builds
 enforce raw and gzip budgets for the entry, every lazy chunk, total assets, and
-CSS. Current production-URL evidence is 178.92 KiB/58.01 KiB for the entry, 54.78 KiB/15.63 KiB
-for the largest lazy chunk, and 709.29 KiB/222.36 KiB total assets. The isolated
+CSS. Current production-URL evidence is 178.83 KiB/57.98 KiB for the entry, 54.69 KiB/15.60 KiB
+for the largest lazy chunk, and 709.60 KiB/222.25 KiB total assets. The isolated
 public quote route is 6.62 KiB/2.33 KiB with retained currency disclosure,
 retry-safe signature ceremony, terminal states, and certificate access. Hosted
 billing, invoice visibility, measured usage, and portable workspace export remain isolated in a 14.58 KiB/4.63 KiB
@@ -2501,6 +2501,7 @@ Progress:
 - `1.1.4` (email outbox/log): complete. Added migration `018_email_messages.sql` and an `emailmessages` module recording every customer email send (status `sent`/`failed`, recipient, subject, body, linked record, sender). Sends from contacts are recorded automatically. `GET /api/email-messages` serves both the per-record history (`?entityType=contact&entityId=` — any member) and the org-wide log (no filter — admin only). Frontend: an admin "Email Log" settings page and a lazy-loaded email history on the contact detail. Backend handler tests and a frontend page test added. Live server configured with Postmark (system mail) + `CREDENTIAL_ENCRYPTION_KEY` (per-user SMTP) and verified healthy.
 - `1.1.2` (admin sets member mailbox): complete. Org admins/owners can connect, view, and remove a team member's mailbox via `GET/PUT/DELETE /api/users/{id}/email-account` (membership-verified before write). Frontend: a "Set up email for a member" panel on the Users settings page with a member selector. Backend handler tests (admin gating, non-member rejection) and a frontend flow test added.
 - `1.1.6` (send-from-company/deal): complete. Added `POST /api/companies/{id}/email` and `POST /api/deals/{id}/email`, both sending through the current user's connected mailbox, rendering record-specific merge fields, recording to `email_messages`, and adding a note to the source record. Frontend: shared record email composer on company and deal detail pages with lazy template/history loading. Backend company/deal send tests and a frontend company-send flow test added.
+- `1.1.6` (durable one-to-one record-email boundary): complete locally; approved live-provider evidence pending. Migration `106_record_email_deliveries.sql` replaces provider-first contact/company/deal sends with an actor-scoped idempotent state machine. The API persists the exact rendered sender/recipient/content/RFC/tracking snapshot before SMTP/Gmail/Microsoft, validates the exact active tenant contact/address, claims once under concurrency, rechecks active membership, connected sender identity, and suppression, and atomically commits provider acceptance with the email/link/note/activity/audit evidence. A browser retains the same key across transport ambiguity. Definite failures retain a failed email; ambiguous SMTP/OAuth effects and five-minute interrupted sends become visible `uncertain` records and are never automatically retried. Only the original active sender may explicitly retry after a duplicate-risk warning and only while hosted writes are active; owners/admins may confirm sent or mark not sent without a provider call during suspension. Deactivation quiesces prepared/claimed record emails and threaded replies, startup/minutely recovery is observable through aggregate alerts, normal product navigation surfaces unresolved work after refresh, terminal intents drop duplicate tracking material without extending the 90-day window, and portable export removes hashes/RFC/provider/HTML/tracking/signed-link material. Handler/component/metrics/migration/export tests, freshly migrated PostgreSQL replay/conflict/exact-recipient/tenant/permission/concurrent-claim/atomicity/failure/recovery/lifecycle acceptance, and the real-SMTP Chromium normal send plus forced post-acceptance disconnect/reload/no-resend confirmation with WCAG cover the local boundary. Remaining: retain approved SMTP/Gmail/Microsoft ambiguity recovery evidence and validate the recovery wording with a pilot.
 - `1.1.6` (personal mailbox/sent view): complete. Added member-safe `GET /api/me/email-messages` backed by `emailmessages.ListBySender`, plus a primary-nav "Mailbox" page showing the current user's sent CRM emails and links back to source contacts/companies/deals. Backend scoping test and frontend route test added.
 - `1.1.6` (email message detail): complete. Added `GET /api/email-messages/{id}` with admin-or-sender access control so users can inspect full body/error detail without exposing other users' message bodies to members. The Mailbox and admin Email Log now include "View details" panels. Backend access-control tests and frontend detail tests added.
 - `1.1.4` (open tracking foundation): privacy/retention contract complete locally; provider/pilot validation pending. Migration `091_email_engagement_tracking_privacy.sql` leaves collection off per one-to-one send unless the sender explicitly confirms authorization, binds the acknowledgement and expiry to the message, ends collection after 90 days, and immediately expires legacy rows with no acknowledgement. Expired observations disappear from APIs before cleanup; pixels become indistinguishable no-ops. An immediate/hourly 500-row `SKIP LOCKED` pass transactionally scrubs open tokens/counts/timestamps with aggregate metrics, stale/error alerts, a runbook, and no client-address/user-agent/referrer retention. Handler/UI/migration/metrics and disposable-PostgreSQL expiry/replay acceptance cover the local result.
@@ -2525,7 +2526,7 @@ Candidate slices:
 - `1.1.3` Automatic email logging to matching contacts/companies/deals with privacy controls (shared vs. private).
 - `1.1.4` Email open and link-click tracking with per-message and aggregate engagement.
 - `1.1.5` Email templates, snippets, and merge fields: complete.
-- `1.1.6` One-to-one send from record pages and a connected-inbox view.
+- `1.1.6` One-to-one send from record pages and a connected-inbox view: complete locally with durable intent, explicit ambiguity recovery, and SMTP sandbox evidence; approved live-provider/pilot evidence remains.
 - `1.1.7` Bulk/mass email with list selection, unsubscribe management, and CAN-SPAM/GDPR compliance footers. Suppression/unsubscribe primitives are complete; bulk campaign UX remains future work.
 - `1.1.8` Email sequences / cadences: multi-step automated outreach with conditions and reply detection.
 - `1.1.9` Shared team inboxes and assignment for collaborative reply workflows: locally complete with own-mailbox threaded replies and explicit recovery; live-provider/pilot evidence pending.

@@ -1,6 +1,6 @@
 # Audit Event Policy
 
-Last reconciled: 2026-07-21
+Last reconciled: 2026-07-22
 
 Open CRM's admin audit trail is durable evidence for high-impact workspace,
 identity, configuration, recovery, provider, and commercial operations. It is
@@ -19,7 +19,8 @@ The audited mutation classes are:
 - archive recovery, imports and rollback, bulk changes and rollback, duplicate
   merge, client review scheduling, and lead-submission quarantine/recovery;
 - billing subscription/reconciliation outcomes, identity- and customer-email
-  feedback, uncertain email/quote resolution, and background-job replay;
+  feedback, accepted one-to-one record email, uncertain email/quote resolution,
+  and background-job replay;
 - immutable quote finalization, approval, delivery, receipt, signature,
   decline, reissue, conversion, and client handoff;
 - workspace and audit export request/readiness/download evidence; and
@@ -33,9 +34,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `43`
+Producer source count: `44`
 
-Producer source digest: `4a67bc827c6c212bd1f30c87bbc2962cd61b464966638fbb49d97672cf07189d`
+Producer source digest: `8999f768482ba39bed8d66cf7bb5c7dc65b9fa684e3b151a6f5369ec63c3c953`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -56,6 +57,13 @@ boundary. Summaries and metadata may contain normal business identifiers such
 as record IDs, user email addresses, provider event IDs, immutable digests, or
 decision notes, but must not contain raw credentials, bearer links, session
 material, mailbox content, or provider payloads.
+
+One-to-one record-email acceptance records only the record, durable delivery,
+and resulting email-message IDs. Explicit uncertain resolution records the
+delivery ID and the finite `confirmed_sent`, `retry`, or `not_sent` decision.
+Neither event contains sender/recipient addresses, subject/body, RFC/provider
+identifiers, tracking tokens/links, idempotency keys, or request hashes; the
+tenant-scoped delivery and email ledgers remain the detailed evidence.
 
 ## Retention and deletion
 

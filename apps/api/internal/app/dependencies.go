@@ -412,6 +412,7 @@ type mailboxSyncService interface {
 }
 
 type emailMessagesService interface {
+	recordEmailDeliveryService
 	Record(context.Context, int64, moduleemailmessages.RecordInput) error
 	ReplayReply(context.Context, int64, moduleemailmessages.PrepareReplyInput) (moduleemailmessages.ReplyRequest, bool, error)
 	PrepareReply(context.Context, int64, moduleemailmessages.PrepareReplyInput) (moduleemailmessages.ReplyRequest, error)

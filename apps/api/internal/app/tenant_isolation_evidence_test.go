@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 25
-	expectedTenantIsolationEvidenceDigest = "f6e61354ff37aeb92019a0a54315c45e61858eab024e0cb90d6520a862649a93"
+	expectedTenantIsolationEvidenceCount  = 26
+	expectedTenantIsolationEvidenceDigest = "f8d90e3fd540be57730664de9f58494fd6e8271fef2e443a5434edbb3d3b055e"
 )
 
 type tenantIsolationEvidence struct {
@@ -42,6 +42,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "imports-and-rollback", Source: "apps/api/internal/modules/imports/service_postgres_test.go", Test: "TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres"},
 	{Surface: "invitations", Source: "apps/api/internal/modules/users/invitations_postgres_test.go", Test: "TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres"},
 	{Surface: "pipeline-configuration", Source: "apps/api/internal/modules/deals/pipeline_configuration_postgres_test.go", Test: "TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgres"},
+	{Surface: "record-email-delivery", Source: "apps/api/internal/modules/emailmessages/record_deliveries_postgres_test.go", Test: "TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPostgres"},
 	{Surface: "sales-activity-reporting", Source: "apps/api/internal/modules/salesreports/service_postgres_test.go", Test: "TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAgainstPostgres"},
 	{Surface: "session-management", Source: "apps/api/internal/modules/auth/sessions_postgres_test.go", Test: "TestSessionManagementIsPrivateGlobalAndAuditedAgainstPostgres"},
 	{Surface: "task-reminders", Source: "apps/api/internal/modules/taskreminders/service_postgres_test.go", Test: "TestTaskRemindersAreDurablePreferenceAwareAndIdempotentAgainstPostgres"},

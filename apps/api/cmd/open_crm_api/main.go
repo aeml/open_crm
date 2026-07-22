@@ -337,6 +337,7 @@ func main() {
 	if emailMessagesService != nil {
 		go emailMessagesService.RunTrackingRetentionScheduler(ctx, logger, 0, metrics)
 		go emailMessagesService.RunReplyRecoveryScheduler(ctx, logger, 0, metrics)
+		go emailMessagesService.RunRecordDeliveryRecoveryScheduler(ctx, logger, 0, metrics)
 	}
 	if dealsService != nil {
 		go dealsService.RunQuoteDeliveryRecoveryScheduler(ctx, logger, 0, metrics)
@@ -418,6 +419,16 @@ func main() {
 			snapshot.EmailRepliesSending = stats.Sending
 			snapshot.EmailRepliesStaleSending = stats.StaleSending
 			snapshot.EmailRepliesUncertain = stats.Uncertain
+		}
+		if emailMessagesService == nil {
+			snapshot.CollectionSuccess = false
+		} else if stats, err := emailMessagesService.RecordDeliveryOperationalStats(ctx); err != nil {
+			snapshot.CollectionSuccess = false
+		} else {
+			snapshot.RecordEmailDeliveriesAvailable = true
+			snapshot.RecordEmailDeliveriesSending = stats.Sending
+			snapshot.RecordEmailDeliveriesStaleSending = stats.StaleSending
+			snapshot.RecordEmailDeliveriesUncertain = stats.Uncertain
 		}
 		if dealsService == nil {
 			snapshot.CollectionSuccess = false

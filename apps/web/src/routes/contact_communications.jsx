@@ -195,55 +195,6 @@ export function ContactMeetingsCard({
   )
 }
 
-export function ContactEmailCard({ canWrite, form, history, isSending, onApplyTemplate, onSend, onSetForm, onToggle, open, status, templates }) {
-  return (
-    <Card>
-      <div className="card-stack">
-        <div className="section-header">
-          <h3>Email</h3>
-          {canWrite ? <Button className="button-secondary" type="button" onClick={onToggle}>{open ? 'Close' : 'Send email'}</Button> : null}
-        </div>
-        {status ? <p className="field-hint" role="status">{status}</p> : null}
-        {canWrite && open ? (
-          <form className="auth-form" onSubmit={onSend}>
-            {templates.length > 0 ? (
-              <Field label="Template">
-                <select className="text-input" defaultValue="" onChange={(event) => onApplyTemplate(event.target.value)}>
-                  <option value="">Start from scratch</option>
-                  {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-                </select>
-              </Field>
-            ) : null}
-            <Field label="Subject">
-              <input className="text-input" value={form.subject} onChange={(event) => onSetForm({ ...form, subject: event.target.value })} required />
-            </Field>
-            <Field label="Body">
-              <textarea className="text-input" rows={6} value={form.body} onChange={(event) => onSetForm({ ...form, body: event.target.value })} required />
-            </Field>
-            <p className="field-hint">Merge fields like {'{{first_name}}'} are filled in when the email is sent.</p>
-            <label className="field-hint">
-              <input type="checkbox" checked={form.trackEngagement} onChange={(event) => onSetForm({ ...form, trackEngagement: event.target.checked })} /> Track opens/links (90 days, approximate). I confirm authorization.
-            </label>
-            <Button type="submit" disabled={isSending}>{isSending ? 'Sending...' : 'Send email'}</Button>
-          </form>
-        ) : null}
-        {open && history.length > 0 ? (
-          <div className="record-list" role="list" aria-label="Email history">
-            {history.map((message) => (
-              <article className="record-row" key={message.id} role="listitem">
-                <div>
-                  <p>{message.subject}</p>
-                  <p className="field-hint">{message.status === 'failed' ? 'Failed' : 'Sent'} · {message.sentByName || 'You'}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </Card>
-  )
-}
-
 export function ContactSequencesCard({
   canWrite,
   enrollments,

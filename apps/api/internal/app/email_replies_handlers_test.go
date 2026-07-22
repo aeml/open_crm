@@ -11,6 +11,7 @@ import (
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
+	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleemailmessages "github.com/aeml/open_crm/apps/api/internal/modules/emailmessages"
 	moduleuseremail "github.com/aeml/open_crm/apps/api/internal/modules/useremail"
 )
@@ -198,6 +199,27 @@ func TestEmailReplyRetryRechecksSuppressionAfterClaim(t *testing.T) {
 	server.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusConflict || messages.lastResolution != "retry" || messages.lastClaimReplyID != 70 || messages.lastFailReplyID != 70 || messages.lastFailUncertain || accounts.sendCalled {
 		t.Fatalf("suppressed retry must be claimed then terminally failed without send: code=%d resolution=%q claim=%d fail=%d uncertain=%t send=%t", recorder.Code, messages.lastResolution, messages.lastClaimReplyID, messages.lastFailReplyID, messages.lastFailUncertain, accounts.sendCalled)
+	}
+}
+
+func TestEmailReplyRetryRequiresWritableHostedSubscription(t *testing.T) {
+	messages := &fakeEmailMessagesService{resolveReplyResult: moduleemailmessages.ReplyResolution{
+		Reply: moduleemailmessages.ReplyRequest{ID: 70, ActorUserID: 1, Status: "prepared"}, ShouldSend: true,
+	}}
+	billing := &fakeBillingService{writableErr: modulebilling.ErrSubscriptionInactive}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User: moduleauth.User{ID: 1}, Organization: moduleauth.Organization{ID: 42}, Membership: moduleauth.Membership{Role: "member"},
+		}},
+		BillingService: billing, UserEmailService: &fakeUserEmailService{}, EmailMessagesService: messages,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/email-replies/70/resolve", strings.NewReader(`{"resolution":"retry"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusPaymentRequired || !billing.writableChecked || billing.writableOrgID != 42 || messages.lastResolution != "" {
+		t.Fatalf("hosted reply retry crossed write boundary: status=%d checked=%t org=%d resolution=%q body=%s", recorder.Code, billing.writableChecked, billing.writableOrgID, messages.lastResolution, recorder.Body.String())
 	}
 }
 

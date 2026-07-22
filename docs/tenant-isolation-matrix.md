@@ -1,10 +1,10 @@
 # Tenant Isolation Evidence Matrix
 
-Last reconciled: 2026-07-21
+Last reconciled: 2026-07-22
 
-Evidence row count: `25`
+Evidence row count: `26`
 
-Evidence digest: `f6e61354ff37aeb92019a0a54315c45e61858eab024e0cb90d6520a862649a93`
+Evidence digest: `f8d90e3fd540be57730664de9f58494fd6e8271fef2e443a5434edbb3d3b055e`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -42,6 +42,7 @@ the assertions inside those tests remain the proof of behavior.
 | `imports-and-rollback` | `apps/api/internal/modules/imports/service_postgres_test.go` | `TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres` | Imported rows, batch history, idempotency, and rollback are tenant scoped; foreign history and rollback IDs stay missing. |
 | `invitations` | `apps/api/internal/modules/users/invitations_postgres_test.go` | `TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres` | Foreign delivery, resend, and revoke attempts return not found and cannot consume or rotate the owner's token lineage. |
 | `pipeline-configuration` | `apps/api/internal/modules/deals/pipeline_configuration_postgres_test.go` | `TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgres` | Foreign pipelines and stages cannot be renamed, reordered, deleted, or assigned to local deals. |
+| `record-email-delivery` | `apps/api/internal/modules/emailmessages/record_deliveries_postgres_test.go` | `TestRecordEmailDeliveriesIsolationIdempotencyAtomicityAndRecoveryAgainstPostgres` | Foreign records, recipients, actors, and delivery IDs reject; claims cannot cross twice; completion, failure, recovery, and explicit resolution keep every email/note/activity/audit effect atomic and tenant scoped. |
 | `sales-activity-reporting` | `apps/api/internal/modules/salesreports/service_postgres_test.go` | `TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAgainstPostgres` | Event snapshots, activity rollups, and pipeline cohorts exclude foreign deals; foreign owners and foreign pipeline/stage pairs reject rather than disclose. |
 | `session-management` | `apps/api/internal/modules/auth/sessions_postgres_test.go` | `TestSessionManagementIsPrivateGlobalAndAuditedAgainstPostgres` | A user cannot list or revoke another user's session, including a session in a foreign workspace. |
 | `task-reminders` | `apps/api/internal/modules/taskreminders/service_postgres_test.go` | `TestTaskRemindersAreDurablePreferenceAwareAndIdempotentAgainstPostgres` | A foreign tenant cannot consume another tenant's reminder job or receive its notification/activity effects. |
@@ -54,7 +55,7 @@ the assertions inside those tests remain the proof of behavior.
 
 - `apps/api/internal/app/cross_org_test.go` verifies that the core HTTP handlers
   translate service misses to non-disclosing `404` responses.
-- `apps/api/internal/app/security_inventory_test.go` digest-gates all 248
+- `apps/api/internal/app/security_inventory_test.go` digest-gates all 250
   registered routes, so a new selector must receive an explicit session/token
   tenant policy and test reference.
 - Role and viewer denial are handler concerns and remain covered by the route

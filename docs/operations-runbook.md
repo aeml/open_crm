@@ -21,9 +21,9 @@ durable queue state/lag, worker outcomes, Postmark/SMTP/Gmail/Microsoft send and
 OAuth-refresh outcomes, and verified
 backup/restore evidence. It also reports aggregate notification backlog, age,
 reviewed event mix, per-recipient concentration, notification retention, and
-email-engagement cleanup outcomes plus connected-mailbox reply claims,
-uncertain outcomes, and recovery-pass health without tenant, recipient,
-message, or record labels. Public-lead counters report only bounded challenge,
+email-engagement cleanup outcomes plus one-to-one record-email and
+connected-mailbox reply claims, uncertain outcomes, and recovery-pass health
+without tenant, recipient, message, or record labels. Public-lead counters report only bounded challenge,
 accepted, replayed, rejected, and internal-error outcomes. Lead-review gauges
 report aggregate unreviewed, legitimate, and spam states plus the age of the
 oldest unreviewed submission without tenant, form, contact, or payload labels.
@@ -73,7 +73,8 @@ The reference rules alert on metrics collection or database failure, sustained
 5xx ratio/p95 latency, queue collection/lag/dead letters/worker errors,
 provider failures, password-recovery and system-email feedback health,
 notification collection/retention/elevated recipient volume, email-engagement
-retention, connected-mailbox reply recovery, public-lead internal errors and
+retention, one-to-one record-email recovery, connected-mailbox reply recovery,
+public-lead internal errors and
 elevated rejections, unavailable lead-review health and submissions left
 unreviewed for more than one day,
 backup evidence/failure/freshness, and restore-drill failure/freshness. They do
@@ -1732,6 +1733,71 @@ the retention index exists and inspect lock contention before changing the
 bounded batch. A different retention period is a product/privacy policy change:
 review it, update UI copy, tests, this runbook, and the focused policy document
 together rather than changing timestamps in place.
+
+### One-to-one record email delivery recovery
+
+Email sent from a contact, company, or deal uses the acting teammate's own
+connected SMTP, Gmail, or Microsoft mailbox. Open CRM stores the exact rendered
+sender, recipient, subject/body, RFC `Message-ID`, optional tracking snapshot,
+and actor-scoped request hash before contacting that provider. The send is
+claimed once; the active membership, active record, exact contact/address,
+sender identity, and suppression are checked again immediately before the effect,
+and no ambiguous provider call is retried
+automatically.
+
+Provider acceptance becomes **Sent** only when the outbound email record,
+record link, note, activity, delivery state, and audit event commit together.
+It does not prove inbox placement. A definite rejection becomes **Failed** with
+the failed email evidence retained. SMTP errors after message data begins,
+OAuth outcomes that cannot prove rejection, provider acceptance followed by a
+failed CRM commit, and claims interrupted for five minutes become
+`uncertain`. The startup/minutely recovery pass only changes durable state; it
+never calls a provider.
+
+1. Confirm `open_crm_record_email_deliveries_available` is `1`. Inspect
+   `open_crm_record_email_delivery_sending`,
+   `open_crm_record_email_delivery_stale_sending`,
+   `open_crm_record_email_delivery_uncertain`, and the recovery last-run
+   timestamp/success. These metrics contain no workspace, record, sender,
+   recipient, message, provider, or request-key labels.
+2. If recovery fails or becomes stale, find
+   `record email delivery recovery failed` in structured logs, repair
+   PostgreSQL/migration health, and let the
+   next one-minute pass retry. Never update the delivery ledger directly.
+3. Open the exact contact/company/deal Email card. For an uncertain item, check
+   the connected mailbox Sent folder using its exact recipient, subject, time,
+   and stable RFC `Message-ID`. Choose **Confirm sent** only when present,
+   **Mark not sent** only when definitely absent, or **Retry explicitly** only
+   after accepting that an earlier provider acceptance could make it a
+   duplicate. Only the original active sender may retry; owners/admins may
+   confirm or reject another sender's item after the same evidence review.
+4. Confirm-sent records the normal sent email/note/activity/audit transaction
+   without another provider effect. Mark-not-sent records a failed email and
+   closes the intent. Explicit retry returns the same immutable intent to
+   `prepared`, then rechecks active membership, the active record and exact
+   contact/address, connected sender identity, suppression, and hosted writability
+   before one new provider claim.
+5. Deactivating or revoking a sender atomically fails their prepared record
+   emails and moves already claimed sends to `uncertain`. Do not reactivate a
+   teammate merely to bypass recovery; an owner/admin should resolve the
+   evidence. A portable workspace export retains business delivery state while
+   stripping idempotency/request hashes, provider correlation, and tracking
+   tokens/links.
+6. Resolve the alert only after stale claims are zero, every uncertain item has
+   an evidence-backed terminal decision, the recovery timestamp advances, and
+   a controlled new record email succeeds once on the exact deployed release.
+
+An authorized database operator may inspect aggregate state only:
+
+```sql
+SELECT status, COUNT(*)
+FROM record_email_deliveries
+GROUP BY status
+ORDER BY status;
+```
+
+Do not select addresses, content, message IDs, provider IDs, tracking material,
+or request hashes for routine alert triage.
 
 ### Connected mailbox reply recovery
 

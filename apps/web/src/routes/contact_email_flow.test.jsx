@@ -72,6 +72,7 @@ describe('contact email flow', () => {
         (call) => String(call[0]).endsWith('/api/contacts/7/email') && (call[1]?.method === 'POST')
       )
       expect(sendCall).toBeTruthy()
+      expect(sendCall[1].headers['Idempotency-Key']).toMatch(/^record-email-/)
       expect(JSON.parse(sendCall[1].body)).toEqual({ subject: 'Hello {{first_name}}', body: 'Hi {{first_name}}!', trackEngagement: false })
     })
     expect(await screen.findByText(/email sent to morgan@acme.test/i)).toBeInTheDocument()

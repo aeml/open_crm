@@ -401,7 +401,14 @@ func buildPortableDatasets() []dataset {
 			]::text[]
 			FROM deal_signature_requests signature WHERE organization_id=$1 ORDER BY id`},
 		{name: "email_messages_shared", query: `
-			SELECT to_jsonb(m) - ARRAY['tracking_token','provider_message_id','provider_thread_id','rfc_message_id','in_reply_to','reference_message_ids','delivery_feedback_email_message_id']::text[]
+			SELECT (to_jsonb(m) - ARRAY[
+			  'tracking_token','provider_message_id','provider_thread_id','rfc_message_id','in_reply_to',
+			  'reference_message_ids','delivery_feedback_email_message_id','body'
+			]::text[]) || jsonb_build_object(
+			  'body',CASE WHEN direction='outbound'
+			    THEN REGEXP_REPLACE(body,E'\\n\\nUnsubscribe: https?://[^\\n\\r]+$','')
+			    ELSE body END
+			)
 			FROM email_messages m WHERE organization_id=$1 AND visibility='shared' ORDER BY id`},
 		{name: "email_message_entity_links_shared", query: `
 			SELECT to_jsonb(link)
@@ -423,6 +430,17 @@ func buildPortableDatasets() []dataset {
 				'created_at',created_at,'updated_at',updated_at
 			)
 			FROM email_reply_requests WHERE organization_id=$1 AND visibility='shared' ORDER BY id`},
+		{name: "record_email_deliveries", query: `
+			SELECT (to_jsonb(delivery) - ARRAY[
+			  'tracking_token','tracked_links_json','idempotency_key_hash','request_sha256',
+			  'provider_message_id','provider_thread_id','rfc_message_id','html_body',
+			  'list_unsubscribe_url','text_body'
+			]::text[]) || jsonb_build_object(
+			  'body',CASE WHEN list_unsubscribe_url <> ''
+			    THEN REPLACE(text_body,E'\n\nUnsubscribe: ' || list_unsubscribe_url,'')
+			    ELSE text_body END
+			)
+			FROM record_email_deliveries delivery WHERE organization_id=$1 ORDER BY id`},
 		{name: "email_sequence_steps", query: `
 			SELECT to_jsonb(step)
 			FROM email_sequence_steps step
@@ -473,6 +491,7 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"email_messages",
 		"email_message_entity_links",
 		"email_reply_requests",
+		"record_email_deliveries",
 		"user_email_accounts",
 		"background_jobs",
 		"billing_checkout_requests",

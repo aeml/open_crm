@@ -118,9 +118,9 @@ level-9-gzip bytes using only Node's standard library.
 | All JavaScript and CSS | 710 KiB | 223 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.92 KiB/58.01 KiB entry, 54.78 KiB/15.63 KiB largest lazy
-chunk, and 709.29 KiB/222.36 KiB total assets. The production contact, company,
-deal, and task routes are 29.81/9.19, 34.71/10.48, 54.78/15.63, and 24.67/7.31
+Current production-URL evidence: 178.83 KiB/57.98 KiB entry, 54.69 KiB/15.60 KiB largest lazy
+chunk, and 709.60 KiB/222.25 KiB total assets. The production contact, company,
+deal, and task routes are 26.83/8.33, 34.62/10.18, 54.69/15.60, and 24.67/7.13
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
@@ -259,6 +259,13 @@ complete build is 709.29/222.36 KiB, so the reviewed aggregate ceilings advance
 from 707/222 to 710/223 KiB. The task-automation chunk is 20.33/6.28 KiB; its
 283-line route and 230-line pure model remain separately below the source
 ceiling. Entry, per-async-chunk, CSS, and all source ceilings remain unchanged.
+The durable record-email outcome then reuses one shared recovery composer across
+contact, company, and deal routes and removes the superseded contact-only send
+state. The measured production build is 178.83/57.98 KiB entry,
+54.69/15.60 KiB largest lazy chunk, and 709.60/222.25 KiB aggregate raw/gzip.
+The contact/company/deal route chunks are 26.83/8.33, 34.62/10.18, and
+54.69/15.60 KiB, so all existing byte ceilings remain unchanged.
+
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 
@@ -272,15 +279,15 @@ logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health
 and client-review integration plus focused development-only communications and
 production outreach and lead-score orchestrators, a focused contact create/detail workspace and detail orchestrator, plus focused company-directory, linked-
 people, create/detail workspace presentation, directory/detail orchestration, and shared record selection/work leave the parent routes at 449 contact lines,
-458 company lines, 460 deal lines, and
+458 company lines, 473 deal lines, and
 496 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 142-line work
 hooks now serve contacts, companies, and deals, abort obsolete loads, distinguish repeated
 A-to-B-to-A visits, serialize per-record mutations, validate record/work
-identities, and keep late saves and work off the active contact. The 229-line
-contact outreach hook also
-clears record-scoped email and sequence state on selection changes and rejects
-late responses from prior selection epochs. A 59-line lead-score hook rejects
+identities, and keep late saves and work off the active contact. The 123-line
+contact outreach hook clears record-scoped sequence state on selection changes
+and rejects late responses from prior selection epochs; the shared 303-line
+record-email composer owns direct-send state and recovery. A 59-line lead-score hook rejects
 duplicate evaluations, wrong-contact responses, and late results across
 leave-and-return navigation. Deal directory, shared form, and editor
 presentation live in focused 157-, 74-, and 87-line modules, while a 107-line
@@ -319,7 +326,7 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 409 lines, down from 996. Its audited 248-route
+The API composition root is 409 lines, down from 996. Its audited 250-route
 surface is registered through 175-line platform, 294-line foundation, and
 342-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot

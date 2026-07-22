@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,6 +104,9 @@ func authenticatedContactsServer(service *fakeContactsService) http.Handler {
 
 func addSessionCookie(request *http.Request) {
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	if request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/email") && request.Header.Get("Idempotency-Key") == "" {
+		request.Header.Set("Idempotency-Key", "record-email-test-key-1234")
+	}
 }
 
 func TestListContactsUsesCurrentOrganizationAndQuery(t *testing.T) {

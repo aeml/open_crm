@@ -1861,3 +1861,29 @@ func TestMigrationFilesIncludeCustomReportGroupedBarContract(t *testing.T) {
 		t.Fatalf("grouped bar contract deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeRecordEmailDeliveries(t *testing.T) {
+	const name = "106_record_email_deliveries.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	sql := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"CREATE TABLE record_email_deliveries",
+		"idempotency_key_hash",
+		"request_sha256",
+		"idx_record_email_deliveries_stale_sending",
+		"idx_record_email_deliveries_one_unresolved_actor_entity",
+		"status IN ('prepared', 'sending', 'accepted', 'failed', 'uncertain')",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("record email delivery migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("record email delivery deployment class = %q", class)
+	}
+}

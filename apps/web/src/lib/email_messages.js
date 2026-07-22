@@ -74,6 +74,19 @@ export async function sendEmailReply(messageId, body, idempotencyKey, { signal }
   return payload?.data?.reply
 }
 
+export async function listRecordEmailDeliveries({ entityType, entityId }, { signal } = {}) {
+  const params = new URLSearchParams({ entityType, entityId: String(entityId) })
+  const payload = await apiRequest(`/api/record-email-deliveries?${params.toString()}`, { fallbackMessage: 'Unable to load record email delivery status.', signal })
+  return payload?.data?.deliveries || []
+}
+
+export async function resolveRecordEmailDelivery(deliveryId, resolution, { signal } = {}) {
+  const payload = await apiRequest(`/api/record-email-deliveries/${deliveryId}/resolve`, {
+    method: 'POST', body: { resolution }, fallbackMessage: 'Unable to resolve record email delivery.', signal
+  })
+  return payload?.data
+}
+
 export async function resolveEmailReply(replyId, resolution, { signal } = {}) {
   const payload = await apiRequest(`/api/email-replies/${replyId}/resolve`, {
     method: 'POST', body: { resolution }, fallbackMessage: 'Unable to resolve email reply.', signal

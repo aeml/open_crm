@@ -80,8 +80,8 @@ export async function archiveContact(contactID, { signal } = {}) {
   return apiRequest(`/api/contacts/${contactID}`, { method: 'DELETE', fallbackMessage: 'Unable to archive contact.', signal })
 }
 
-export async function sendContactEmail(contactID, input, { signal } = {}) {
-  const payload = await apiRequest(`/api/contacts/${contactID}/email`, { method: 'POST', body: input, fallbackMessage: 'Unable to send email.', signal })
+export async function sendContactEmail(contactID, input, idempotencyKey, { signal } = {}) {
+  const payload = await apiRequest(`/api/contacts/${contactID}/email`, { method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey }, fallbackMessage: 'Unable to send email.', signal })
 
   return payload?.data
 }

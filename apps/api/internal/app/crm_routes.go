@@ -90,6 +90,12 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 	mux.HandleFunc("GET /api/email-messages", func(w http.ResponseWriter, r *http.Request) {
 		handleListEmailMessages(dependencies.AuthService, dependencies.EmailMessagesService, w, r)
 	})
+	mux.HandleFunc("GET /api/record-email-deliveries", func(w http.ResponseWriter, r *http.Request) {
+		handleListRecordEmailDeliveries(dependencies.AuthService, dependencies.EmailMessagesService, w, r)
+	})
+	mux.HandleFunc("POST /api/record-email-deliveries/{deliveryID}/resolve", func(w http.ResponseWriter, r *http.Request) {
+		handleResolveRecordEmailDelivery(dependencies.AuthService, dependencies.BillingService, dependencies.UserEmailService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+	})
 	mux.HandleFunc("GET /api/email-messages/{messageID}", func(w http.ResponseWriter, r *http.Request) {
 		handleGetEmailMessage(dependencies.AuthService, dependencies.EmailMessagesService, w, r)
 	})
@@ -100,7 +106,7 @@ func registerCRMRoutes(mux *http.ServeMux, dependencies Dependencies, rateLimite
 		handleSendEmailReply(dependencies.AuthService, dependencies.UserEmailService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("POST /api/email-replies/{replyID}/resolve", func(w http.ResponseWriter, r *http.Request) {
-		handleResolveEmailReply(dependencies.AuthService, dependencies.UserEmailService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
+		handleResolveEmailReply(dependencies.AuthService, dependencies.BillingService, dependencies.UserEmailService, dependencies.EmailMessagesService, dependencies.EmailSuppressionsService, w, r)
 	})
 	mux.HandleFunc("GET /api/me/email-messages", func(w http.ResponseWriter, r *http.Request) {
 		handleListMyEmailMessages(dependencies.AuthService, dependencies.EmailMessagesService, w, r)

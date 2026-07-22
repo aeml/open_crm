@@ -97,7 +97,7 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	if err := pool.QueryRow(ctx, `INSERT INTO deal_stages (organization_id, pipeline_id, name, position) VALUES ($1, $2, 'Open', 1) RETURNING id`, organizationID, pipelineID).Scan(&stageID); err != nil {
 		t.Fatalf("create lifecycle stage: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO contacts (organization_id, first_name, last_name, owner_user_id, status) VALUES ($1, 'Active', 'Contact', $2, 'lead') RETURNING id`, organizationID, memberID).Scan(&activeContactID); err != nil {
+	if err := pool.QueryRow(ctx, `INSERT INTO contacts (organization_id, first_name, last_name, email, owner_user_id, status) VALUES ($1, 'Active', 'Contact', 'buyer@example.test', $2, 'lead') RETURNING id`, organizationID, memberID).Scan(&activeContactID); err != nil {
 		t.Fatalf("create owned contact: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `INSERT INTO contacts (organization_id, first_name, last_name, owner_user_id, status, archived_at) VALUES ($1, 'Archived', 'Contact', $2, 'lead', NOW()) RETURNING id`, organizationID, memberID).Scan(&archivedContactID); err != nil {
@@ -207,6 +207,49 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	}
 	if _, shouldSend, err := quoteService.ClaimQuoteDelivery(ctx, organizationID, sendingQuoteDelivery.Delivery.ID, memberID); err != nil || !shouldSend {
 		t.Fatalf("claim in-flight lifecycle quote delivery: send=%t err=%v", shouldSend, err)
+	}
+	emailMessagesService := moduleemailmessages.NewService(pool)
+	preparedRecordEmail, err := emailMessagesService.PrepareRecordDelivery(ctx, organizationID, moduleemailmessages.PrepareRecordDeliveryInput{
+		Request: moduleemailmessages.RecordDeliveryKeyInput{
+			EntityType: "contact", EntityID: activeContactID, RecipientContactID: activeContactID, ActorUserID: memberID,
+			SubjectTemplate: "Prepared lifecycle email", BodyTemplate: "Prepared body", IdempotencyKey: "lifecycle-record-email-prepared-0001",
+		},
+		ResolvedRecipientContactID: activeContactID, SenderEmail: "member@example.test", RecipientEmail: "buyer@example.test",
+		Subject: "Prepared lifecycle email", TextBody: "Prepared body", RFCMessageID: "<lifecycle-record-prepared@example.test>",
+	})
+	if err != nil {
+		t.Fatalf("prepare lifecycle record email: %v", err)
+	}
+	sendingRecordEmail, err := emailMessagesService.PrepareRecordDelivery(ctx, organizationID, moduleemailmessages.PrepareRecordDeliveryInput{
+		Request: moduleemailmessages.RecordDeliveryKeyInput{
+			EntityType: "deal", EntityID: ownedDealID, RecipientContactID: activeContactID, ActorUserID: memberID,
+			SubjectTemplate: "Sending lifecycle email", BodyTemplate: "Sending body", IdempotencyKey: "lifecycle-record-email-sending-0002",
+		},
+		ResolvedRecipientContactID: activeContactID, SenderEmail: "member@example.test", RecipientEmail: "buyer@example.test",
+		Subject: "Sending lifecycle email", TextBody: "Sending body", RFCMessageID: "<lifecycle-record-sending@example.test>",
+	})
+	if err != nil {
+		t.Fatalf("prepare in-flight lifecycle record email: %v", err)
+	}
+	if _, shouldSend, err := emailMessagesService.ClaimRecordDelivery(ctx, organizationID, sendingRecordEmail.ID, memberID); err != nil || !shouldSend {
+		t.Fatalf("claim in-flight lifecycle record email: send=%t err=%v", shouldSend, err)
+	}
+	preparedReplySource := insertLifecycleInboundEmail(t, ctx, pool, organizationID, memberID, "Prepared lifecycle reply", "<lifecycle-reply-prepared@example.test>")
+	sendingReplySource := insertLifecycleInboundEmail(t, ctx, pool, organizationID, memberID, "Sending lifecycle reply", "<lifecycle-reply-sending@example.test>")
+	preparedReply, err := emailMessagesService.PrepareReply(ctx, organizationID, moduleemailmessages.PrepareReplyInput{
+		SourceMessageID: preparedReplySource, ActorUserID: memberID, SenderEmail: "member@example.test", Body: "Prepared reply", IdempotencyKey: "lifecycle-email-reply-prepared-0001",
+	})
+	if err != nil {
+		t.Fatalf("prepare lifecycle mailbox reply: %v", err)
+	}
+	sendingReply, err := emailMessagesService.PrepareReply(ctx, organizationID, moduleemailmessages.PrepareReplyInput{
+		SourceMessageID: sendingReplySource, ActorUserID: memberID, SenderEmail: "member@example.test", Body: "Sending reply", IdempotencyKey: "lifecycle-email-reply-sending-0002",
+	})
+	if err != nil {
+		t.Fatalf("prepare in-flight lifecycle mailbox reply: %v", err)
+	}
+	if _, shouldSend, err := emailMessagesService.ClaimReply(ctx, organizationID, sendingReply.ID, memberID); err != nil || !shouldSend {
+		t.Fatalf("claim in-flight lifecycle mailbox reply: send=%t err=%v", shouldSend, err)
 	}
 
 	service := moduleusers.NewService(pool)
@@ -349,6 +392,23 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	if _, shouldSend, err := quoteService.ClaimQuoteDelivery(ctx, organizationID, preparedQuoteDelivery.Delivery.ID, memberID); !errors.Is(err, moduledeals.ErrQuoteDeliveryForbidden) || shouldSend {
 		t.Fatalf("disabled member reclaimed quote delivery: send=%t err=%v", shouldSend, err)
 	}
+	for _, expectation := range []struct {
+		table      string
+		id         int64
+		wantStatus string
+		wantError  string
+	}{
+		{"record_email_deliveries", preparedRecordEmail.ID, "failed", "The sender was disabled before record email delivery."},
+		{"record_email_deliveries", sendingRecordEmail.ID, "uncertain", "The sender was disabled while the mailbox provider outcome may be unknown."},
+		{"email_reply_requests", preparedReply.ID, "failed", "The sender was disabled before mailbox reply delivery."},
+		{"email_reply_requests", sendingReply.ID, "uncertain", "The sender was disabled while the mailbox provider outcome may be unknown."},
+	} {
+		var effectStatus, effectError string
+		query := fmt.Sprintf(`SELECT status,last_error FROM %s WHERE organization_id=$1 AND id=$2`, expectation.table)
+		if err := pool.QueryRow(ctx, query, organizationID, expectation.id).Scan(&effectStatus, &effectError); err != nil || effectStatus != expectation.wantStatus || effectError != expectation.wantError {
+			t.Fatalf("disabled sender effect %s/%d: status=%q error=%q err=%v", expectation.table, expectation.id, effectStatus, effectError, err)
+		}
+	}
 	authService := moduleauth.NewService(pool)
 	if _, err := authService.CurrentSession(ctx, memberSessionToken); !errors.Is(err, moduleauth.ErrUnauthorized) {
 		t.Fatalf("expected old member session invalidated, got %v", err)
@@ -369,7 +429,7 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	if err := pool.QueryRow(ctx, `SELECT id FROM email_messages WHERE organization_id = $1 AND subject = 'Open inbound'`, organizationID).Scan(&openMessageID); err != nil {
 		t.Fatalf("load shared inbox fixture: %v", err)
 	}
-	emailMessagesService := moduleemailmessages.NewService(pool)
+	emailMessagesService = moduleemailmessages.NewService(pool)
 	openMessage, err := emailMessagesService.GetByID(ctx, organizationID, openMessageID)
 	if err != nil {
 		t.Fatalf("load shared inbox version: %v", err)
@@ -406,6 +466,19 @@ func insertLifecycleUser(t *testing.T, ctx context.Context, pool *moduledb.Pool,
 		t.Fatalf("create lifecycle user %s: %v", email, err)
 	}
 	return userID
+}
+
+func insertLifecycleInboundEmail(t *testing.T, ctx context.Context, pool *moduledb.Pool, organizationID, mailboxUserID int64, subject, rfcMessageID string) int64 {
+	t.Helper()
+	var messageID int64
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO email_messages (organization_id,direction,from_email,to_email,subject,body,status,visibility,mailbox_user_id,rfc_message_id,received_at)
+		VALUES ($1,'inbound','buyer@example.test','member@example.test',$3,'Customer reply','received','shared',$2,$4,NOW())
+		RETURNING id
+	`, organizationID, mailboxUserID, subject, rfcMessageID).Scan(&messageID); err != nil {
+		t.Fatalf("create lifecycle inbound email: %v", err)
+	}
+	return messageID
 }
 
 func lifecycleDatabaseURL(t *testing.T, rawURL, schema string) string {

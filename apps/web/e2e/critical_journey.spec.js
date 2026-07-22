@@ -332,11 +332,80 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByRole('button', { name: 'Avery Buyer', exact: true }).click()
   const contactFollowUp = page.locator('.touchpoint-summary-card')
   await expect(contactFollowUp.getByText(/No qualifying touch yet/)).toBeVisible()
+  const directEmailSubject = `Pilot introduction ${runID}`
+  let directEmailRequestCount = 0
+  let directEmailIdempotencyKey = ''
+  page.on('request', (request) => {
+    if (request.method() !== 'POST' || !/\/api\/contacts\/\d+\/email$/.test(new URL(request.url()).pathname)) return
+    directEmailRequestCount += 1
+    directEmailIdempotencyKey = request.headers()['idempotency-key'] || ''
+  })
   await page.getByRole('button', { name: 'Send email', exact: true }).click()
   const trackingConsent = page.getByRole('checkbox', { name: /track opens\/links/i })
   await expect(trackingConsent).not.toBeChecked()
   await trackingConsent.check()
   await expect(trackingConsent).toBeChecked()
+  await page.getByLabel('Subject').fill(directEmailSubject)
+  await page.getByLabel('Body').fill(`Hello Avery, this is the durable pilot follow-up ${runID}.`)
+  await page.getByRole('button', { name: 'Send email', exact: true }).click()
+  await expect(page.getByText(`Email sent to avery-${runID}@example.test.`, { exact: true })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'contact email history' }).getByText(directEmailSubject, { exact: true })).toBeVisible()
+  expect(directEmailRequestCount).toBe(1)
+  expect(directEmailIdempotencyKey).toMatch(/^record-email-/)
+  await expect.poll(async () => {
+    const response = await page.request.get(`${smtpCaptureURL}/messages`)
+    const payload = await response.json()
+    return payload.messages.filter((message) => message.data.includes(`Subject: ${directEmailSubject}`)).length
+  }).toBe(1)
+  const recordEmailAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-record-email-delivery', {
+    body: JSON.stringify({ url: page.url(), violations: recordEmailAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(recordEmailAccessibility.violations).toEqual([])
+  await page.reload()
+  await page.getByRole('button', { name: 'Send email', exact: true }).click()
+  await expect(page.getByRole('list', { name: 'contact email history' }).getByText(directEmailSubject, { exact: true })).toBeVisible()
+  expect(directEmailRequestCount).toBe(1)
+
+  const uncertainEmailSubject = `Pilot uncertain delivery ${runID}`
+  const armSMTPDisconnect = await page.request.post(`${smtpCaptureURL}/disconnect-after-accept-once`)
+  expect(armSMTPDisconnect.status()).toBe(200)
+  await page.getByLabel('Subject').fill(uncertainEmailSubject)
+  await page.getByLabel('Body').fill(`This provider acceptance loses its acknowledgement ${runID}.`)
+  await page.getByRole('button', { name: 'Send email', exact: true }).click()
+  await expect(page.getByText(/provider outcome is uncertain/i).first()).toBeVisible()
+  const unresolvedRecordEmail = page.getByRole('list', { name: 'Unresolved record email deliveries' }).getByRole('listitem').filter({ hasText: uncertainEmailSubject })
+  await expect(unresolvedRecordEmail).toContainText(/Outcome uncertain/i)
+  await expect(unresolvedRecordEmail.getByRole('button', { name: 'Confirm sent' })).toBeVisible()
+  expect(directEmailRequestCount).toBe(2)
+  await expect.poll(async () => {
+    const response = await page.request.get(`${smtpCaptureURL}/messages`)
+    const payload = await response.json()
+    return payload.messages.filter((message) => message.data.includes(`Subject: ${uncertainEmailSubject}`)).length
+  }).toBe(1)
+  const recordEmailRecoveryAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-record-email-recovery', {
+    body: JSON.stringify({ url: page.url(), violations: recordEmailRecoveryAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(recordEmailRecoveryAccessibility.violations).toEqual([])
+
+  await page.reload()
+  await page.getByRole('button', { name: 'Send email', exact: true }).click()
+  const reloadedUncertainEmail = page.getByRole('list', { name: 'Unresolved record email deliveries' }).getByRole('listitem').filter({ hasText: uncertainEmailSubject })
+  await expect(reloadedUncertainEmail).toContainText(/Outcome uncertain/i)
+  page.once('dialog', (dialog) => dialog.accept())
+  await reloadedUncertainEmail.getByRole('button', { name: 'Confirm sent' }).click()
+  await expect(page.getByText(`Email to avery-${runID}@example.test confirmed sent.`, { exact: true })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'contact email history' }).getByText(uncertainEmailSubject, { exact: true })).toBeVisible()
+  expect(directEmailRequestCount).toBe(2)
+  const recoveredSMTPMessages = await page.request.get(`${smtpCaptureURL}/messages`)
+  expect((await recoveredSMTPMessages.json()).messages.filter((message) => message.data.includes(`Subject: ${uncertainEmailSubject}`))).toHaveLength(1)
   await page.getByRole('button', { name: 'Close', exact: true }).click()
   const contactNoteForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Add note' }) })
   await contactNoteForm.getByLabel('New note').fill(`Pilot follow-up ${runID}`)
