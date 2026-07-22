@@ -10,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	platformtimeline "github.com/aeml/open_crm/apps/api/internal/platform/timelinepagination"
 )
 
 var ErrAlreadyEnrolled = errors.New("contact already enrolled in email sequence")
@@ -23,6 +25,7 @@ type Enrollment struct {
 	SequenceStatus      string     `json:"sequenceStatus"`
 	ContactID           int64      `json:"contactId"`
 	ContactName         string     `json:"contactName"`
+	ContactEmail        string     `json:"contactEmail,omitempty"`
 	EnrolledByUserID    int64      `json:"enrolledByUserId,omitempty"`
 	EnrolledByName      string     `json:"enrolledByName,omitempty"`
 	Status              string     `json:"status"`
@@ -34,8 +37,19 @@ type Enrollment struct {
 	RepliedAt           *time.Time `json:"repliedAt,omitempty"`
 	ReplyEmailMessageID int64      `json:"replyEmailMessageId,omitempty"`
 	CancelledAt         *time.Time `json:"cancelledAt,omitempty"`
+	ProviderAccepted    int64      `json:"providerAccepted"`
+	BouncedMessages     int64      `json:"bouncedMessages"`
+	Complaints          int64      `json:"complaints"`
+	SuppressedMessages  int64      `json:"suppressedMessages"`
+	QueuedMessages      int64      `json:"queuedMessages"`
+	NeedsReview         int64      `json:"needsReview"`
 	CreatedAt           time.Time  `json:"createdAt"`
 	UpdatedAt           time.Time  `json:"updatedAt"`
+}
+
+type EnrollmentPage struct {
+	Enrollments []Enrollment          `json:"enrollments"`
+	Meta        platformtimeline.Meta `json:"meta"`
 }
 
 type EnrollmentInput struct {
@@ -107,11 +121,104 @@ func (s *Service) ListEnrollmentsByContact(ctx context.Context, organizationID, 
 	return enrollments, nil
 }
 
+// ListEnrollmentsBySequence returns immutable enrollment history newest first.
+// Creation time and ID form the stable cursor because later status and delivery
+// outcomes may change without moving an enrollment between pages.
+func (s *Service) ListEnrollmentsBySequence(ctx context.Context, organizationID, sequenceID int64, query platformtimeline.Query) (EnrollmentPage, error) {
+	if s == nil || s.pool == nil {
+		return EnrollmentPage{}, fmt.Errorf("email sequences service not configured")
+	}
+	if organizationID <= 0 || sequenceID <= 0 {
+		return EnrollmentPage{}, ErrInvalidInput
+	}
+	query, err := platformtimeline.Normalize(query)
+	if err != nil {
+		return EnrollmentPage{}, ErrInvalidInput
+	}
+
+	args := []any{organizationID, sequenceID}
+	cursorFilter := ""
+	if query.Cursor != nil {
+		args = append(args, query.Cursor.CreatedAt, query.Cursor.ID)
+		cursorFilter = " AND (created_at, id) < ($3, $4)"
+	}
+	args = append(args, query.Limit+1)
+	rows, err := s.pool.Query(ctx, `
+		WITH selected_enrollments AS MATERIALIZED (
+			SELECT id
+			FROM email_sequence_enrollments
+			WHERE organization_id = $1 AND sequence_id = $2`+cursorFilter+`
+			ORDER BY created_at DESC, id DESC
+			LIMIT $`+fmt.Sprint(len(args))+`
+		)
+		SELECT e.id, e.sequence_id, seq.name, seq.status, e.contact_id,
+		       COALESCE(NULLIF(TRIM(COALESCE(contact.first_name, '') || ' ' || COALESCE(contact.last_name, '')), ''), contact.email, 'Contact #' || contact.id::text),
+		       COALESCE(contact.email, ''),
+		       COALESCE(membership.user_id, 0), COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.email, ''),
+		       e.status, e.current_step_order, e.next_send_at, e.last_sent_at, e.completed_at,
+		       COALESCE(e.completion_reason, ''), e.replied_at, COALESCE(e.reply_email_message_id, 0),
+		       e.cancelled_at, e.created_at, e.updated_at,
+		       COALESCE(delivery.provider_accepted, 0), COALESCE(delivery.bounced_messages, 0),
+		       COALESCE(delivery.complaints, 0), COALESCE(delivery.suppressed_messages, 0),
+		       COALESCE(delivery.queued_messages, 0), COALESCE(delivery.needs_review, 0)
+		FROM selected_enrollments selected
+		JOIN email_sequence_enrollments e ON e.id = selected.id AND e.organization_id = $1 AND e.sequence_id = $2
+		JOIN email_sequences seq ON seq.id = e.sequence_id AND seq.organization_id = e.organization_id
+		JOIN contacts contact ON contact.id = e.contact_id AND contact.organization_id = e.organization_id
+		LEFT JOIN organization_memberships membership
+		  ON membership.organization_id = e.organization_id AND membership.user_id = e.enrolled_by_user_id
+		LEFT JOIN users u ON u.id = membership.user_id
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*) FILTER (WHERE status = 'sent') AS provider_accepted,
+			       COUNT(*) FILTER (WHERE delivery_outcome = 'bounced') AS bounced_messages,
+			       COUNT(*) FILTER (WHERE delivery_outcome = 'complaint') AS complaints,
+			       COUNT(*) FILTER (WHERE status = 'suppressed') AS suppressed_messages,
+			       COUNT(*) FILTER (WHERE status = 'queued') AS queued_messages,
+			       COUNT(*) FILTER (WHERE status = 'uncertain') AS needs_review
+			FROM email_sequence_deliveries
+			WHERE organization_id = $1 AND enrollment_id = e.id
+		) delivery ON TRUE
+		ORDER BY e.created_at DESC, e.id DESC
+	`, args...)
+	if err != nil {
+		return EnrollmentPage{}, fmt.Errorf("list email sequence enrollment history: %w", err)
+	}
+	defer rows.Close()
+
+	page := EnrollmentPage{
+		Enrollments: make([]Enrollment, 0, query.Limit),
+		Meta:        platformtimeline.Meta{Limit: query.Limit},
+	}
+	for rows.Next() {
+		enrollment, scanErr := scanEnrollmentHistory(rows)
+		if scanErr != nil {
+			return EnrollmentPage{}, fmt.Errorf("scan email sequence enrollment history: %w", scanErr)
+		}
+		page.Enrollments = append(page.Enrollments, enrollment)
+	}
+	if err := rows.Err(); err != nil {
+		return EnrollmentPage{}, fmt.Errorf("iterate email sequence enrollment history: %w", err)
+	}
+
+	hasMore := len(page.Enrollments) > query.Limit
+	if hasMore {
+		page.Enrollments = page.Enrollments[:query.Limit]
+	}
+	if len(page.Enrollments) > 0 {
+		last := page.Enrollments[len(page.Enrollments)-1]
+		page.Meta, err = platformtimeline.MetaForPage(query.Limit, hasMore, last.CreatedAt, last.ID)
+		if err != nil {
+			return EnrollmentPage{}, err
+		}
+	}
+	return page, nil
+}
+
 func (s *Service) EnrollContact(ctx context.Context, organizationID int64, input EnrollmentInput) (Enrollment, error) {
 	if s == nil || s.pool == nil {
 		return Enrollment{}, fmt.Errorf("email sequences service not configured")
 	}
-	if organizationID <= 0 || input.SequenceID <= 0 || input.ContactID <= 0 {
+	if organizationID <= 0 || input.SequenceID <= 0 || input.ContactID <= 0 || input.EnrolledByUserID <= 0 {
 		return Enrollment{}, ErrInvalidInput
 	}
 
@@ -127,19 +234,29 @@ func (s *Service) EnrollContact(ctx context.Context, organizationID int64, input
 		FROM email_sequences seq
 		JOIN email_sequence_steps step ON step.sequence_id = seq.id AND step.step_order = 1
 		JOIN contacts contact ON contact.id = $3 AND contact.organization_id = $1 AND contact.archived_at IS NULL
+		JOIN organization_memberships membership
+		  ON membership.organization_id = $1 AND membership.user_id = $4
+		 AND COALESCE(membership.membership_status, 'active') = 'active'
 		WHERE seq.organization_id = $1 AND seq.id = $2
 		  AND seq.status = 'active' AND seq.approved_revision = seq.revision AND seq.approved_at IS NOT NULL
-		FOR SHARE OF seq
-	`, organizationID, input.SequenceID, input.ContactID).Scan(&delayDays)
+		FOR SHARE OF seq, contact, membership
+	`, organizationID, input.SequenceID, input.ContactID, input.EnrolledByUserID).Scan(&delayDays)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			var inactive bool
+			var inactive, activeActor bool
 			stateErr := tx.QueryRow(ctx, `
-				SELECT TRUE
+				SELECT TRUE, EXISTS (
+					SELECT 1 FROM organization_memberships membership
+					WHERE membership.organization_id = $1 AND membership.user_id = $4
+					  AND COALESCE(membership.membership_status, 'active') = 'active'
+				)
 				FROM email_sequences seq
 				JOIN contacts contact ON contact.id = $3 AND contact.organization_id = $1 AND contact.archived_at IS NULL
 				WHERE seq.organization_id = $1 AND seq.id = $2
-			`, organizationID, input.SequenceID, input.ContactID).Scan(&inactive)
+			`, organizationID, input.SequenceID, input.ContactID, input.EnrolledByUserID).Scan(&inactive, &activeActor)
+			if stateErr == nil && !activeActor {
+				return Enrollment{}, ErrNotFound
+			}
 			if stateErr == nil && inactive {
 				return Enrollment{}, ErrApprovalRequired
 			}
@@ -317,14 +434,16 @@ func (s *Service) GetEnrollmentByID(ctx context.Context, organizationID, enrollm
 const enrollmentSelect = `
 	SELECT e.id, e.sequence_id, seq.name, seq.status, e.contact_id,
 	       TRIM(COALESCE(contact.first_name, '') || ' ' || COALESCE(contact.last_name, '')),
-	       COALESCE(e.enrolled_by_user_id, 0), TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')),
+	       COALESCE(membership.user_id, 0), TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')),
 	       e.status, e.current_step_order, e.next_send_at, e.last_sent_at, e.completed_at,
 	       COALESCE(e.completion_reason, ''), e.replied_at, COALESCE(e.reply_email_message_id, 0),
 	       e.cancelled_at, e.created_at, e.updated_at
 	FROM email_sequence_enrollments e
 	JOIN email_sequences seq ON seq.id = e.sequence_id AND seq.organization_id = e.organization_id
 	JOIN contacts contact ON contact.id = e.contact_id AND contact.organization_id = e.organization_id
-	LEFT JOIN users u ON u.id = e.enrolled_by_user_id
+	LEFT JOIN organization_memberships membership
+	  ON membership.organization_id = e.organization_id AND membership.user_id = e.enrolled_by_user_id
+	LEFT JOIN users u ON u.id = membership.user_id
 `
 
 type enrollmentScanner interface {
@@ -347,6 +466,48 @@ func scanEnrollment(scanner enrollmentScanner) (Enrollment, error) {
 		return Enrollment{}, err
 	}
 	enrollment.ContactName = strings.TrimSpace(enrollment.ContactName)
+	enrollment.EnrolledByName = strings.TrimSpace(enrollment.EnrolledByName)
+	if nextSendAt.Valid {
+		value := nextSendAt.Time
+		enrollment.NextSendAt = &value
+	}
+	if lastSentAt.Valid {
+		value := lastSentAt.Time
+		enrollment.LastSentAt = &value
+	}
+	if completedAt.Valid {
+		value := completedAt.Time
+		enrollment.CompletedAt = &value
+	}
+	if repliedAt.Valid {
+		value := repliedAt.Time
+		enrollment.RepliedAt = &value
+	}
+	if cancelledAt.Valid {
+		value := cancelledAt.Time
+		enrollment.CancelledAt = &value
+	}
+	return enrollment, nil
+}
+
+func scanEnrollmentHistory(scanner enrollmentScanner) (Enrollment, error) {
+	var (
+		enrollment  Enrollment
+		nextSendAt  pgtype.Timestamptz
+		lastSentAt  pgtype.Timestamptz
+		completedAt pgtype.Timestamptz
+		repliedAt   pgtype.Timestamptz
+		cancelledAt pgtype.Timestamptz
+	)
+	if err := scanner.Scan(&enrollment.ID, &enrollment.SequenceID, &enrollment.SequenceName, &enrollment.SequenceStatus, &enrollment.ContactID,
+		&enrollment.ContactName, &enrollment.ContactEmail, &enrollment.EnrolledByUserID, &enrollment.EnrolledByName, &enrollment.Status, &enrollment.CurrentStepOrder,
+		&nextSendAt, &lastSentAt, &completedAt, &enrollment.CompletionReason, &repliedAt, &enrollment.ReplyEmailMessageID,
+		&cancelledAt, &enrollment.CreatedAt, &enrollment.UpdatedAt, &enrollment.ProviderAccepted, &enrollment.BouncedMessages,
+		&enrollment.Complaints, &enrollment.SuppressedMessages, &enrollment.QueuedMessages, &enrollment.NeedsReview); err != nil {
+		return Enrollment{}, err
+	}
+	enrollment.ContactName = strings.TrimSpace(enrollment.ContactName)
+	enrollment.ContactEmail = strings.TrimSpace(enrollment.ContactEmail)
 	enrollment.EnrolledByName = strings.TrimSpace(enrollment.EnrolledByName)
 	if nextSendAt.Valid {
 		value := nextSendAt.Time

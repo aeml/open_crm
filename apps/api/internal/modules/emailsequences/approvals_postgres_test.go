@@ -41,7 +41,7 @@ func TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres(t *testing.
 	}
 	defer pool.Close()
 
-	var organizationID, otherOrganizationID, adminID, contactID int64
+	var organizationID, otherOrganizationID, adminID, foreignUserID, contactID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO organizations (name, slug) VALUES ('Sequence Approval', $1) RETURNING id`, "sequence-approval-"+schema).Scan(&organizationID); err != nil {
 		t.Fatalf("create organization: %v", err)
 	}
@@ -51,8 +51,14 @@ func TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres(t *testing.
 	if err := pool.QueryRow(ctx, `INSERT INTO users (email, password_hash, first_name, last_name) VALUES ($1, 'hash', 'Admin', 'User') RETURNING id`, "sequence-approval-"+schema+"@example.test").Scan(&adminID); err != nil {
 		t.Fatalf("create approver: %v", err)
 	}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (email, password_hash, first_name, last_name) VALUES ($1, 'hash', 'Foreign', 'User') RETURNING id`, "foreign-sequence-approval-"+schema+"@example.test").Scan(&foreignUserID); err != nil {
+		t.Fatalf("create foreign enroller: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id, user_id, role) VALUES ($1, $2, 'admin')`, organizationID, adminID); err != nil {
 		t.Fatalf("create approver membership: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id, user_id, role) VALUES ($1, $2, 'admin')`, otherOrganizationID, foreignUserID); err != nil {
+		t.Fatalf("create foreign enroller membership: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `INSERT INTO contacts (organization_id, first_name, last_name, email, status) VALUES ($1, 'Pilot', 'Lead', 'pilot@example.test', 'lead') RETURNING id`, organizationID).Scan(&contactID); err != nil {
 		t.Fatalf("create contact: %v", err)
@@ -80,6 +86,16 @@ func TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres(t *testing.
 	}
 	if repeated, err := service.Approve(ctx, organizationID, sequence.ID, adminID); err != nil || repeated.Status != "active" {
 		t.Fatalf("expected idempotent repeated approval: sequence=%#v err=%v", repeated, err)
+	}
+	if _, err := service.EnrollContact(ctx, organizationID, EnrollmentInput{SequenceID: sequence.ID, ContactID: contactID}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected enrollment without an active actor to fail, got %v", err)
+	}
+	if _, err := service.EnrollContact(ctx, organizationID, EnrollmentInput{SequenceID: sequence.ID, ContactID: contactID, EnrolledByUserID: foreignUserID}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected a foreign actor to remain hidden during enrollment, got %v", err)
+	}
+	var enrollmentCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM email_sequence_enrollments WHERE organization_id=$1 AND sequence_id=$2`, organizationID, sequence.ID).Scan(&enrollmentCount); err != nil || enrollmentCount != 0 {
+		t.Fatalf("forbidden enrollment left history: count=%d err=%v", enrollmentCount, err)
 	}
 	enrollment, err := service.EnrollContact(ctx, organizationID, EnrollmentInput{SequenceID: sequence.ID, ContactID: contactID, EnrolledByUserID: adminID})
 	if err != nil {

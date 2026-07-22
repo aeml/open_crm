@@ -2053,3 +2053,28 @@ func TestMigrationFilesIncludeCustomReportDefinitionPaging(t *testing.T) {
 		t.Fatalf("custom report definition paging deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeEmailSequenceEnrollmentHistory(t *testing.T) {
+	const name = "114_email_sequence_enrollment_history.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"idx_email_sequence_enrollments_org_sequence_created",
+		"organization_id",
+		"sequence_id",
+		"created_at DESC",
+		"id DESC",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("email sequence enrollment history migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("email sequence enrollment history deployment class = %q", class)
+	}
+}

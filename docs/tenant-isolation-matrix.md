@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `33`
+Evidence row count: `35`
 
-Evidence digest: `7e9f54030be6da00fcbc2aa86aaa3355ef46a2a335a9d7a0589560d60442545d`
+Evidence digest: `68f2edbb2ba963e8234878633325b0fb5c96493a53977f5abe15c8b66e644765`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -45,6 +45,8 @@ the assertions inside those tests remain the proof of behavior.
 | `workflow-run-recovery` | `apps/api/internal/modules/workflowautomations/lead_follow_up_postgres_test.go` | `TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant` | Run inspection joins a durable lead job only by organization, reviewed job type, and exact run-derived idempotency key. A same-key foreign dead job cannot affect local status/error/attempt evidence; local dead work leaves active health, enters failed health, and returns to queued only after tenant-authorized replay. |
 | `duplicate-management` | `apps/api/internal/modules/duplicateoperations/service_postgres_test.go` | `TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres` | Foreign candidates remain invisible and a cross-tenant merge key/record pair rejects without relationship changes. |
 | `email-sequence-delivery` | `apps/api/internal/modules/sequencerunner/service_postgres_test.go` | `TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres` | A job carrying another workspace's organization cannot load or send the local enrollment; exact retries do not duplicate provider effects, ambiguous SMTP outcomes remain quarantined, and explicit confirm/retry recovery advances only the owning tenant's enrollment while preserving its prepared message identifier. |
+| `email-sequence-governance` | `apps/api/internal/modules/emailsequences/approvals_postgres_test.go` | `TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres` | Approval, pause, immutable historical content, and enrollment remain bound to the owning organization; enrollment now revalidates the active same-tenant enroller inside its transaction, while missing and foreign actors leave no enrollment or queued work. |
+| `email-sequence-history` | `apps/api/internal/modules/emailsequences/enrollment_history_postgres_test.go` | `TestSequenceEnrollmentHistoryStableBoundedTenantContinuationAgainstPostgres` | Sequence drill-down binds organization and sequence in both the index selection and detail joins; 1,001 equal-time rows retain ID order across bounded opaque continuation, per-enrollment delivery evidence stays local, direct limits reject, and a foreign sequence returns no history. |
 | `forecast` | `apps/api/internal/modules/dashboard/forecast_postgres_test.go` | `TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope` | Forecast totals, stages, owners, quotas, and task buckets exclude a seeded high-value foreign pipeline. |
 | `imports-and-rollback` | `apps/api/internal/modules/imports/service_postgres_test.go` | `TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres` | Imported rows, batch history, idempotency, and rollback are tenant scoped; foreign history and rollback IDs stay missing. |
 | `invitations` | `apps/api/internal/modules/users/invitations_postgres_test.go` | `TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres` | Foreign delivery, resend, and revoke attempts return not found and cannot consume or rotate the owner's token lineage. |

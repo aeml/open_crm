@@ -7,6 +7,7 @@ import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { createEmailSequence, deleteEmailSequence, listEmailSequences, transitionEmailSequence, updateEmailSequence } from '../lib/email_sequences'
 import { usePageTitle } from '../lib/use_page_title'
+import { EmailSequenceEnrollmentHistory } from './email_sequence_enrollment_history'
 
 const emptyStep = { delayDays: 0, subject: '', body: '' }
 const emptyForm = { name: '', description: '', steps: [emptyStep] }
@@ -153,7 +154,7 @@ export function SettingsEmailSequencesRoute() {
                 <p>No email sequences yet.</p>
               </article>
             ) : sequences.map((sequence) => (
-              <article className="record-row" key={sequence.id} role="listitem">
+              <article className="record-row sequence-row" key={sequence.id} role="listitem">
                 <div>
                   <h3>{sequence.name}</h3>
                   <p className="field-hint">{sequence.status} · revision {sequence.revision} · {sequence.approvedAt && sequence.approvedRevision === sequence.revision ? 'approved' : 'approval required'} · steps {sequence.steps.length}</p>
@@ -175,6 +176,7 @@ export function SettingsEmailSequencesRoute() {
                     ) : <Button className="button-secondary" type="button" onClick={() => handleDelete(sequence.id)}>Delete</Button>}
                   </div>
                 ) : null}
+                {sequence.outcomes?.enrolled ? <EmailSequenceEnrollmentHistory sequence={sequence} /> : null}
               </article>
             ))}
           </div>

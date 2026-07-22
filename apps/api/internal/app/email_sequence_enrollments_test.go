@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,19 +12,31 @@ import (
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
+	platformtimeline "github.com/aeml/open_crm/apps/api/internal/platform/timelinepagination"
 )
 
 type fakeEmailSequenceEnrollmentsService struct {
 	listResult             []moduleemailsequences.Enrollment
+	sequencePageResult     moduleemailsequences.EnrollmentPage
+	sequencePageErr        error
 	enrollResult           moduleemailsequences.Enrollment
 	enrollErr              error
 	cancelErr              error
 	lastListOrgID          int64
 	lastListContactID      int64
+	lastListSequenceID     int64
+	lastSequenceQuery      platformtimeline.Query
 	lastEnrollOrgID        int64
 	lastEnrollInput        moduleemailsequences.EnrollmentInput
 	lastCancelOrgID        int64
 	lastCancelEnrollmentID int64
+}
+
+func (f *fakeEmailSequenceEnrollmentsService) ListEnrollmentsBySequence(_ context.Context, organizationID, sequenceID int64, query platformtimeline.Query) (moduleemailsequences.EnrollmentPage, error) {
+	f.lastListOrgID = organizationID
+	f.lastListSequenceID = sequenceID
+	f.lastSequenceQuery = query
+	return f.sequencePageResult, f.sequencePageErr
 }
 
 func (f *fakeEmailSequenceEnrollmentsService) ListEnrollmentsByContact(_ context.Context, organizationID, contactID int64) ([]moduleemailsequences.Enrollment, error) {
@@ -75,6 +88,68 @@ func TestListEmailSequenceEnrollmentsScopesToContact(t *testing.T) {
 	}
 	if service.lastListOrgID != 42 || service.lastListContactID != 7 {
 		t.Fatalf("unexpected list routing: org=%d contact=%d", service.lastListOrgID, service.lastListContactID)
+	}
+}
+
+func TestListEmailSequenceEnrollmentHistoryUsesBoundedSequenceCursor(t *testing.T) {
+	service := &fakeEmailSequenceEnrollmentsService{
+		sequencePageResult: moduleemailsequences.EnrollmentPage{
+			Enrollments: []moduleemailsequences.Enrollment{{ID: 9, SequenceID: 4, ContactID: 7, ContactName: "Pilot Buyer", Status: "completed"}},
+			Meta:        platformtimeline.Meta{Limit: 25, HasMore: true, NextCursor: "next-page"},
+		},
+	}
+	server := authenticatedEmailSequenceEnrollmentsServer(service, "member")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/email-sequence-enrollments?sequenceId=4&limit=25", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if service.lastListOrgID != 42 || service.lastListSequenceID != 4 || service.lastSequenceQuery.Limit != 25 || service.lastSequenceQuery.Cursor != nil {
+		t.Fatalf("unexpected sequence history routing: org=%d sequence=%d query=%+v", service.lastListOrgID, service.lastListSequenceID, service.lastSequenceQuery)
+	}
+	var response struct {
+		Data struct {
+			Enrollments []moduleemailsequences.Enrollment `json:"enrollments"`
+			Meta        platformtimeline.Meta             `json:"meta"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode sequence enrollment history response: %v", err)
+	}
+	if len(response.Data.Enrollments) != 1 || response.Data.Meta.Limit != 25 || !response.Data.Meta.HasMore || response.Data.Meta.NextCursor != "next-page" {
+		t.Fatalf("unexpected sequence enrollment history response: %+v", response.Data)
+	}
+}
+
+func TestListEmailSequenceEnrollmentsRejectsAmbiguousAndInvalidSelectors(t *testing.T) {
+	tests := []string{
+		"/api/email-sequence-enrollments",
+		"/api/email-sequence-enrollments?contactId=7&sequenceId=4",
+		"/api/email-sequence-enrollments?contactId=7&limit=25",
+		"/api/email-sequence-enrollments?contactId=invalid",
+		"/api/email-sequence-enrollments?sequenceId=invalid",
+		"/api/email-sequence-enrollments?sequenceId=4&limit=101",
+		"/api/email-sequence-enrollments?sequenceId=4&cursor=not-a-cursor",
+	}
+	for _, target := range tests {
+		t.Run(target, func(t *testing.T) {
+			service := &fakeEmailSequenceEnrollmentsService{}
+			server := authenticatedEmailSequenceEnrollmentsServer(service, "member")
+			request := httptest.NewRequest(http.MethodGet, target, nil)
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+			}
+			if service.lastListContactID != 0 || service.lastListSequenceID != 0 {
+				t.Fatalf("invalid selector reached service: %#v", service)
+			}
+		})
 	}
 }
 

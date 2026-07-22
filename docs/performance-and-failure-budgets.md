@@ -187,7 +187,7 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 738 KiB | 231 KiB |
+| All JavaScript and CSS | 743 KiB | 232 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
 Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.64 KiB largest lazy
@@ -452,6 +452,21 @@ is 178.82/57.97 KiB entry, 54.93/15.64 KiB largest lazy chunk,
 737.57/230.21 KiB aggregate raw/gzip. Only the aggregate raw ceiling advances
 from 737 to 738 KiB; entry, per-route, aggregate gzip, CSS, and source ceilings
 remain unchanged.
+
+Bounded sequence-enrollment history replaces an aggregate-only management view
+with an on-demand 50/default and 100/maximum immutable creation/ID cursor,
+per-enrollment delivery aggregation, explicit uncertain-delivery recovery, and
+stale/continuation guards. Migration 114 adds the exact tenant/sequence cursor
+index. Fresh PostgreSQL 16.14 acceptance seeds 1,001 equal-time local rows plus
+a foreign sequence, asserts the index, traverses repeat/adjacent/final pages,
+rejects a direct oversized limit, and reconciles detailed delivery outcomes.
+The SMTP Chromium journey expands the completed enrollment before its populated
+WCAG scan. The measured production build is 178.82/57.96 KiB entry,
+54.93/15.63 KiB largest lazy chunk, 10.00/3.16 KiB Email Sequences route, and
+742.74/231.58 KiB aggregate raw/gzip. The drill-down is isolated in a 160-line
+route-local component. Only the reviewed aggregate ceilings advance from
+738/231 to 743/232 KiB; entry, per-route, CSS, and source ceilings remain
+unchanged.
 
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.

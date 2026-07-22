@@ -11,6 +11,19 @@ export async function listEmailSequenceEnrollments({ contactId }, { signal } = {
   return payload?.data?.enrollments || []
 }
 
+export async function listEmailSequenceEnrollmentPage({ sequenceId, cursor = '', limit = 50 }, { signal } = {}) {
+  const params = new URLSearchParams({ sequenceId: String(sequenceId), limit: String(limit) })
+  if (cursor) {
+    params.set('cursor', cursor)
+  }
+  const payload = await apiRequest(`/api/email-sequence-enrollments?${params.toString()}`, { fallbackMessage: 'Unable to load sequence enrollment history.', signal })
+
+  return {
+    enrollments: payload?.data?.enrollments || [],
+    meta: payload?.data?.meta || { limit, hasMore: false, nextCursor: '' }
+  }
+}
+
 export async function createEmailSequenceEnrollment(input, { signal } = {}) {
   const payload = await apiRequest('/api/email-sequence-enrollments', { method: 'POST', body: input, fallbackMessage: 'Unable to enroll contact in sequence.', signal })
 

@@ -50,6 +50,7 @@ import (
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
 	moduleworkspaceexports "github.com/aeml/open_crm/apps/api/internal/modules/workspaceexports"
 	platformtelemetry "github.com/aeml/open_crm/apps/api/internal/platform/telemetry"
+	platformtimeline "github.com/aeml/open_crm/apps/api/internal/platform/timelinepagination"
 )
 
 type authService interface {
@@ -388,6 +389,7 @@ type touchpointsService interface {
 
 type emailSequenceEnrollmentsService interface {
 	ListEnrollmentsByContact(context.Context, int64, int64) ([]moduleemailsequences.Enrollment, error)
+	ListEnrollmentsBySequence(context.Context, int64, int64, platformtimeline.Query) (moduleemailsequences.EnrollmentPage, error)
 	EnrollContact(context.Context, int64, moduleemailsequences.EnrollmentInput) (moduleemailsequences.Enrollment, error)
 	CancelEnrollment(context.Context, int64, int64) error
 }

@@ -500,6 +500,28 @@
   gap: var(--space-2);
 }
 
+.sequence-row {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.sequence-enrollment-history {
+  display: grid;
+  flex-basis: 100%;
+  min-width: 0;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.sequence-enrollment-history > .button {
+  justify-self: start;
+}
+
+.sequence-enrollment-row {
+  align-items: flex-start;
+}
+
 .record-row {
   display: flex;
   min-width: 0;

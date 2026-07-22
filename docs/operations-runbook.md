@@ -1998,7 +1998,14 @@ worker independently verifies the same policy at its effect boundary.
 
 ### Interpreting sequence outcomes
 
-**Settings > Email Sequences** shows cumulative, tenant-scoped counts. **Accepted**
+**Settings > Email Sequences** shows cumulative, tenant-scoped counts. Use
+**View enrollments** on a sequence to reconcile those totals against individual
+contacts, enrollers, timestamps, terminal reasons, and accepted/bounced/
+complaint/suppressed/queued/review delivery evidence. History is newest first,
+loads 50 rows at a time, and offers **Load older enrollments** while a bounded
+opaque continuation remains. A **Review delivery** link on an uncertain row
+opens **Settings > Operations**; perform the Sent-folder procedure below before
+choosing a resolution. **Accepted**
 means the configured SMTP/Gmail/Graph adapter returned success or an operator
 confirmed acceptance from the provider's Sent/log evidence; it does not prove
 delivery to an inbox. **Replied** means Open CRM retained an inbound message from
@@ -2018,7 +2025,8 @@ baseline against a fresh PostgreSQL database and the SMTP provider sandbox. It
 creates a draft, approves the exact revision, enrolls a contact, waits for the
 durable worker, requires one captured SMTP message with the merged contact,
 prepared `Message-ID`, multipart body, and unsubscribe fallback, then requires
-the management total to show exactly one accepted and one finished outcome.
+the management total and its individual contact drill-down to show exactly one
+accepted and one finished outcome.
 It also scans that populated screen for WCAG A/AA violations. A failure in any
 part of this path blocks deployment; do not replace the provider-boundary wait
 with a seeded delivery or mark the outcome accepted directly in SQL.

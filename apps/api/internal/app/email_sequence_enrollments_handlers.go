@@ -4,14 +4,17 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	moduleemailsequences "github.com/aeml/open_crm/apps/api/internal/modules/emailsequences"
+	platformtimeline "github.com/aeml/open_crm/apps/api/internal/platform/timelinepagination"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
 type emailSequenceEnrollmentsListResponse struct {
 	Data struct {
 		Enrollments []moduleemailsequences.Enrollment `json:"enrollments"`
+		Pagination  *platformtimeline.Meta            `json:"meta,omitempty"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -42,20 +45,47 @@ func handleListEmailSequenceEnrollments(auth authService, enrollments emailSeque
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "SERVICE_UNAVAILABLE", "Email sequence enrollments service unavailable")
 		return
 	}
-	contactID := parseQueryInt64(r.URL.Query().Get("contactId"))
-	if contactID <= 0 {
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "contactId is required")
-		return
-	}
-
-	list, err := enrollments.ListEnrollmentsByContact(r.Context(), state.Organization.ID, contactID)
-	if err != nil {
-		writeEmailSequenceEnrollmentError(w, requestID, err)
+	query := r.URL.Query()
+	rawContactID := strings.TrimSpace(query.Get("contactId"))
+	rawSequenceID := strings.TrimSpace(query.Get("sequenceId"))
+	if (rawContactID == "") == (rawSequenceID == "") {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Exactly one of contactId or sequenceId is required")
 		return
 	}
 
 	response := emailSequenceEnrollmentsListResponse{}
-	response.Data.Enrollments = list
+	if rawContactID != "" {
+		contactID, err := strconv.ParseInt(rawContactID, 10, 64)
+		if err != nil || contactID <= 0 || strings.TrimSpace(query.Get("cursor")) != "" || strings.TrimSpace(query.Get("limit")) != "" {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "A positive contactId without pagination is required")
+			return
+		}
+		list, err := enrollments.ListEnrollmentsByContact(r.Context(), state.Organization.ID, contactID)
+		if err != nil {
+			writeEmailSequenceEnrollmentError(w, requestID, err)
+			return
+		}
+		response.Data.Enrollments = list
+	} else {
+		sequenceID, err := strconv.ParseInt(rawSequenceID, 10, 64)
+		if err != nil || sequenceID <= 0 {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "A positive sequenceId is required")
+			return
+		}
+		pagination, err := platformtimeline.Parse(query.Get("cursor"), query.Get("limit"))
+		if err != nil {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid sequence enrollment pagination")
+			return
+		}
+		page, err := enrollments.ListEnrollmentsBySequence(r.Context(), state.Organization.ID, sequenceID, pagination)
+		if err != nil {
+			writeEmailSequenceEnrollmentError(w, requestID, err)
+			return
+		}
+		response.Data.Enrollments = page.Enrollments
+		response.Data.Pagination = &page.Meta
+	}
+
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
