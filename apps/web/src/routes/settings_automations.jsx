@@ -34,10 +34,13 @@ import {
   triggerSummary
 } from './settings_automation_task_model'
 
+const activeActionSize = (automation) => automation?.isActive ? automation.actions?.length || 0 : 0
+
 export function SettingsAutomationsRoute() {
   const { canAdminister: canManage } = useAuth()
   usePageTitle('Automations')
   const [automations, setAutomations] = useState([])
+  const [definitionMeta, setDefinitionMeta] = useState({ page: 1, pageSize: 50, total: 0, activeActionCount: 0 })
   const [runs, setRuns] = useState([])
   const [pipelines, setPipelines] = useState([])
   const [leadForms, setLeadForms] = useState([])
@@ -48,23 +51,28 @@ export function SettingsAutomationsRoute() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const loadVersion = useRef(0)
+  const definitionLoadVersion = useRef(0)
   const mutationPending = useRef(false)
 
   async function loadAutomations({ signal } = {}) {
     const version = loadVersion.current + 1
+    const definitionVersion = definitionLoadVersion.current + 1
     loadVersion.current = version
+    definitionLoadVersion.current = definitionVersion
     setIsLoading(true)
     try {
-      const [nextAutomations, nextRuns, nextPipelines, nextLeadForms, nextUsers] = await Promise.all([
+      const [nextDefinitions, nextRuns, nextPipelines, nextLeadForms, nextUsers] = await Promise.all([
         listWorkflowAutomations({ signal }),
         listWorkflowAutomationRuns({ limit: 25, signal }),
         listDealPipelines({ signal }),
         listLeadCaptureForms({ signal }),
         listOrganizationUsers({ signal })
       ])
-      if (signal?.aborted || loadVersion.current !== version) return
-      setAutomations(nextAutomations)
+      if (signal?.aborted || loadVersion.current !== version || definitionLoadVersion.current !== definitionVersion) return
+      setAutomations(nextDefinitions.automations)
+      setDefinitionMeta(nextDefinitions.meta)
       setRuns(nextRuns)
       setPipelines(nextPipelines)
       setLeadForms(nextLeadForms)
@@ -100,12 +108,50 @@ export function SettingsAutomationsRoute() {
     }
   }, [runs])
 
+  async function loadMoreDefinitions() {
+    if (isLoadingMore || automations.length >= definitionMeta.total) return
+    const version = definitionLoadVersion.current + 1
+    definitionLoadVersion.current = version
+    setIsLoadingMore(true)
+    try {
+      const nextPage = await listWorkflowAutomations({ page: definitionMeta.page + 1, pageSize: definitionMeta.pageSize })
+      if (definitionLoadVersion.current !== version) return
+      setAutomations((current) => {
+        const seen = new Set(current.map((automation) => automation.id))
+        return [...current, ...nextPage.automations.filter((automation) => !seen.has(automation.id))]
+      })
+      setDefinitionMeta(nextPage.meta)
+      setError('')
+    } catch (loadError) {
+      if (definitionLoadVersion.current === version) setError(loadError.message || 'Unable to load more stored definitions.')
+    } finally {
+      if (definitionLoadVersion.current === version) setIsLoadingMore(false)
+    }
+  }
+
+  async function refreshDefinitionsAfterMutation(successMessage) {
+    const version = definitionLoadVersion.current + 1
+    definitionLoadVersion.current = version
+    try {
+      const firstPage = await listWorkflowAutomations()
+      if (definitionLoadVersion.current !== version) return
+      setAutomations(firstPage.automations)
+      setDefinitionMeta(firstPage.meta)
+      setError('')
+      setStatus(successMessage)
+    } catch (loadError) {
+      if (definitionLoadVersion.current !== version) return
+      setStatus(`${successMessage} The stored-definition list could not refresh; reload before another change.`)
+      setError(loadError.message || 'Unable to refresh stored definitions.')
+    }
+  }
+
   const executableRules = useMemo(() => automations.filter(isExecutableTaskRule), [automations])
   const executableIDs = useMemo(() => new Set(executableRules.map((automation) => automation.id)), [executableRules])
   const visibleRuns = useMemo(() => runs.filter((run) => executableIDs.has(run.automationId)), [executableIDs, runs])
   const hiddenDefinitions = automations.length - executableRules.length
   const unsupportedActiveDefinitions = useMemo(() => automations.filter((automation) => automation.isActive && !isExecutableTaskRule(automation)), [automations])
-  const activeActionCount = useMemo(() => automations.reduce((total, automation) => total + (automation.isActive ? (automation.actions || []).length : 0), 0), [automations])
+  const activeActionCount = definitionMeta.activeActionCount
   const stages = useMemo(() => pipelines.flatMap((pipeline) => (pipeline.stages || []).map((stage) => ({ ...stage, pipelineName: pipeline.name }))), [pipelines])
   const stagesById = useMemo(() => new Map(stages.map((stage) => [stage.id, `${stage.pipelineName} · ${stage.name}`])), [stages])
   const formsById = useMemo(() => new Map(leadForms.map((leadForm) => [leadForm.id, leadForm.name])), [leadForms])
@@ -155,18 +201,20 @@ export function SettingsAutomationsRoute() {
     setStatus('')
     try {
       if (editingId) {
+        const previous = automations.find((automation) => automation.id === editingId)
         const updated = await updateWorkflowAutomation(editingId, payload)
         if (!updated || updated.id !== editingId) throw new Error('The server returned a different task automation rule. Refresh before retrying.')
         setAutomations((current) => current.map((automation) => (automation.id === editingId ? updated : automation)))
-        setStatus('Task automation rule updated.')
+        setDefinitionMeta((current) => ({ ...current, activeActionCount: Math.max(0, current.activeActionCount - activeActionSize(previous) + activeActionSize(updated)) }))
+        await refreshDefinitionsAfterMutation('Task automation rule updated.')
       } else {
         const created = await createWorkflowAutomation(payload)
         if (!created || !Number.isInteger(created.id) || created.id <= 0) throw new Error('The server did not return the created task automation rule. Refresh before retrying.')
         setAutomations((current) => [created, ...current])
-        setStatus('Task automation rule created.')
+        setDefinitionMeta((current) => ({ ...current, total: current.total + 1, activeActionCount: current.activeActionCount + activeActionSize(created) }))
+        await refreshDefinitionsAfterMutation('Task automation rule created.')
       }
       resetForm()
-      setError('')
     } catch (saveError) {
       setError(saveError.message || 'Unable to save task automation rule.')
     } finally {
@@ -184,8 +232,8 @@ export function SettingsAutomationsRoute() {
       const updated = await updateWorkflowAutomation(automation.id, deactivationPayload(automation))
       if (!updated || updated.id !== automation.id || updated.isActive) throw new Error('The server did not confirm deactivation. Refresh before retrying.')
       setAutomations((current) => current.map((candidate) => candidate.id === automation.id ? updated : candidate))
-      setError('')
-      setStatus(`${automation.name} deactivated. Its stored foundation remains available for future review.`)
+      setDefinitionMeta((current) => ({ ...current, activeActionCount: Math.max(0, current.activeActionCount - activeActionSize(automation)) }))
+      await refreshDefinitionsAfterMutation(`${automation.name} deactivated. Its stored foundation remains available for future review.`)
     } catch (saveError) {
       setError(saveError.message || 'Unable to deactivate the unsupported definition.')
     } finally {
@@ -213,7 +261,8 @@ export function SettingsAutomationsRoute() {
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadAutomations()} retryLabel="Retry task automations" /> : null}
           <p className="field-hint">{activeActionCount} of {maxActiveTaskActions} active task actions allocated. Each task in a playbook uses one slot.</p>
-          {hiddenDefinitions > 0 ? <p className="field-hint">{hiddenDefinitions} unsupported stored {hiddenDefinitions === 1 ? 'definition' : 'definitions'} hidden.</p> : null}
+          <p className="field-hint">Showing {automations.length} of {definitionMeta.total} stored definitions.</p>
+          {hiddenDefinitions > 0 ? <p className="field-hint">{hiddenDefinitions} unsupported loaded {hiddenDefinitions === 1 ? 'definition' : 'definitions'} hidden.</p> : null}
           {unsupportedActiveDefinitions.length > 0 ? (
             <div className="record-list" role="list" aria-label="Active unsupported workflow definitions">
               <div><h3>Active unsupported definitions</h3><p className="field-hint">These definitions do not have a supported execution contract, but still consume active capacity. Deactivate them until they can be reviewed.</p></div>
@@ -246,6 +295,7 @@ export function SettingsAutomationsRoute() {
               )
             })}
           </div>
+          {automations.length < definitionMeta.total ? <Button className="button-secondary" type="button" disabled={isLoadingMore || isSaving} onClick={loadMoreDefinitions}>{isLoadingMore ? 'Loading stored definitions...' : 'Load more stored definitions'}</Button> : null}
           <div>
             <h3>Recent task automation runs</h3>
             <p className="field-hint">Scheduled and terminal lead runs retain replay-safe status and task counts.</p>

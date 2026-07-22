@@ -15,7 +15,7 @@ import (
 )
 
 type fakeWorkflowAutomationsService struct {
-	listResult        []moduleworkflowautomations.Automation
+	listResult        moduleworkflowautomations.ListPage
 	listErr           error
 	listRunsResult    []moduleworkflowautomations.Run
 	listRunsErr       error
@@ -24,6 +24,7 @@ type fakeWorkflowAutomationsService struct {
 	updateResult      moduleworkflowautomations.Automation
 	updateErr         error
 	lastListOrgID     int64
+	lastListQuery     moduleworkflowautomations.ListQuery
 	lastListRunsOrgID int64
 	lastListRunsQuery moduleworkflowautomations.RunListQuery
 	lastCreateOrgID   int64
@@ -35,8 +36,9 @@ type fakeWorkflowAutomationsService struct {
 	lastUpdateInput   moduleworkflowautomations.Input
 }
 
-func (f *fakeWorkflowAutomationsService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleworkflowautomations.Automation, error) {
+func (f *fakeWorkflowAutomationsService) ListByOrganization(_ context.Context, organizationID int64, query moduleworkflowautomations.ListQuery) (moduleworkflowautomations.ListPage, error) {
 	f.lastListOrgID = organizationID
+	f.lastListQuery = query
 	return f.listResult, f.listErr
 }
 
@@ -75,10 +77,13 @@ func authenticatedWorkflowAutomationsServer(service *fakeWorkflowAutomationsServ
 }
 
 func TestListWorkflowAutomationsScopesToOrganization(t *testing.T) {
-	service := &fakeWorkflowAutomationsService{listResult: []moduleworkflowautomations.Automation{{ID: 5, Name: "New lead follow-up", TriggerType: "record_created", TargetEntityType: "contact", ConditionLogic: "all", Conditions: []moduleworkflowautomations.Condition{{Field: "status", Operator: "equals", Value: "lead"}}, Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Call lead"}, DelayMinutes: 30}}, IsActive: true}}}
+	service := &fakeWorkflowAutomationsService{listResult: moduleworkflowautomations.ListPage{
+		Automations: []moduleworkflowautomations.Automation{{ID: 5, Name: "New lead follow-up", TriggerType: "record_created", TargetEntityType: "contact", ConditionLogic: "all", Conditions: []moduleworkflowautomations.Condition{{Field: "status", Operator: "equals", Value: "lead"}}, Actions: []moduleworkflowautomations.Action{{Type: "create_task", Config: map[string]any{"title": "Call lead"}, DelayMinutes: 30}}, IsActive: true}},
+		Page:        2, PageSize: 25, Total: 31, ActiveActionCount: 7,
+	}}
 	server := authenticatedWorkflowAutomationsServer(service, "member")
 
-	request := httptest.NewRequest(http.MethodGet, "/api/workflow-automations", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/workflow-automations?page=2&pageSize=25", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -87,12 +92,18 @@ func TestListWorkflowAutomationsScopesToOrganization(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
 	}
-	if service.lastListOrgID != 42 {
-		t.Fatalf("expected list scoped to org 42, got %d", service.lastListOrgID)
+	if service.lastListOrgID != 42 || service.lastListQuery.Page != 2 || service.lastListQuery.PageSize != 25 {
+		t.Fatalf("unexpected workflow list scope: org=%d query=%#v", service.lastListOrgID, service.lastListQuery)
 	}
 	var response struct {
 		Data struct {
 			Automations []moduleworkflowautomations.Automation `json:"automations"`
+			Meta        struct {
+				Page              int `json:"page"`
+				PageSize          int `json:"pageSize"`
+				Total             int `json:"total"`
+				ActiveActionCount int `json:"activeActionCount"`
+			} `json:"meta"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -100,6 +111,34 @@ func TestListWorkflowAutomationsScopesToOrganization(t *testing.T) {
 	}
 	if len(response.Data.Automations) != 1 || response.Data.Automations[0].TriggerType != "record_created" || len(response.Data.Automations[0].Conditions) != 1 || len(response.Data.Automations[0].Actions) != 1 {
 		t.Fatalf("unexpected workflow automations payload: %#v", response.Data.Automations)
+	}
+	if response.Data.Meta.Page != 2 || response.Data.Meta.PageSize != 25 || response.Data.Meta.Total != 31 || response.Data.Meta.ActiveActionCount != 7 {
+		t.Fatalf("unexpected workflow automations metadata: %#v", response.Data.Meta)
+	}
+}
+
+func TestListWorkflowAutomationsRejectsUnsafePaginationBeforeService(t *testing.T) {
+	for _, target := range []string{
+		"/api/workflow-automations?page=0",
+		"/api/workflow-automations?page=bad",
+		"/api/workflow-automations?pageSize=101",
+		"/api/workflow-automations?page=502&pageSize=100",
+	} {
+		t.Run(target, func(t *testing.T) {
+			service := &fakeWorkflowAutomationsService{}
+			request := httptest.NewRequest(http.MethodGet, target, nil)
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+
+			authenticatedWorkflowAutomationsServer(service, "member").ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "50,000") {
+				t.Fatalf("expected bounded pagination error, got %d: %s", recorder.Code, recorder.Body.String())
+			}
+			if service.lastListOrgID != 0 {
+				t.Fatalf("unsafe pagination reached workflow service for org %d", service.lastListOrgID)
+			}
+		})
 	}
 }
 

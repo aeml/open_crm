@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `29`
+Evidence row count: `30`
 
-Evidence digest: `d21786810ea75485e85699687c73c59f601baf878cfa76fa992c7c51885ea542`
+Evidence digest: `88071472ebc157b525f9b2306b528477f3d393ac63d3ce2123d8ef1ab7b41af0`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -40,6 +40,7 @@ the assertions inside those tests remain the proof of behavior.
 | `deal-close-and-handoff` | `apps/api/internal/modules/deals/win_loss_postgres_test.go` | `TestDealCloseReviewsKeepOutcomeContextCoherentAndTenantScopedAgainstPostgres` | Foreign stages/accounts cannot alter close state or handoff evidence; replay and reopening preserve the owning tenant's history. |
 | `deal-task-automation` | `apps/api/internal/modules/workflowautomations/deal_task_rules_postgres_test.go` | `TestDealTaskRulesExecuteTransactionallyIdempotentlyAndWithinTenant` | Foreign definitions do not execute for local deal events; every task in a reviewed multi-task plan plus its ordered activity/run evidence remains source-tenant bound and commits atomically. |
 | `workflow-activation` | `apps/api/internal/modules/workflowautomations/activation_postgres_test.go` | `TestWorkflowActivationAuthorizationCapacityAndRecovery` | The writer revalidates active owner/admin membership inside the locked tenant transaction; member, disabled, and foreign actors leave no definition; unsupported contracts cannot activate; simultaneous final-slot writers produce exactly one tenant-local winner and an exact 50-action total; deactivation restores only that tenant's capacity. |
+| `workflow-definition-management` | `apps/api/internal/modules/workflowautomations/definition_pagination_postgres_test.go` | `TestWorkflowDefinitionPagesAreBoundedStableAndTenantScoped` | Exact stored-definition totals, workspace-wide active-action summaries, stable bounded pages, repeat reads, direct limits, and the management index remain tenant scoped; a foreign definition is absent from every page and summary. |
 | `duplicate-management` | `apps/api/internal/modules/duplicateoperations/service_postgres_test.go` | `TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres` | Foreign candidates remain invisible and a cross-tenant merge key/record pair rejects without relationship changes. |
 | `forecast` | `apps/api/internal/modules/dashboard/forecast_postgres_test.go` | `TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope` | Forecast totals, stages, owners, quotas, and task buckets exclude a seeded high-value foreign pipeline. |
 | `imports-and-rollback` | `apps/api/internal/modules/imports/service_postgres_test.go` | `TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres` | Imported rows, batch history, idempotency, and rollback are tenant scoped; foreign history and rollback IDs stay missing. |

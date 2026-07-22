@@ -64,6 +64,18 @@ function seedProductCatalogContinuation(ownerEmail, runID) {
   })
 }
 
+function seedWorkflowDefinitionContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_workflow_definitions', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -306,6 +318,16 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByRole('button', { name: 'Create task rule' }).click()
   await expect(page.getByRole('heading', { name: leadFollowUpRuleName })).toBeVisible()
 	await expect(page.getByText('1 of 50 active task actions allocated. Each task in a playbook uses one slot.')).toBeVisible()
+
+	seedWorkflowDefinitionContinuation(owner.email, runID)
+	await page.reload()
+	const oldestSeededWorkflow = `Browser workflow ${runID} #001`
+	await expect(page.getByText('Showing 50 of 52 stored definitions.')).toBeVisible()
+	await expect(page.getByRole('heading', { name: oldestSeededWorkflow })).toHaveCount(0)
+	await page.getByRole('button', { name: 'Load more stored definitions' }).click()
+	await expect(page.getByRole('heading', { name: oldestSeededWorkflow })).toBeVisible()
+	await expect(page.getByText('Showing 52 of 52 stored definitions.')).toBeVisible()
+	await expect(page.getByRole('button', { name: 'Load more stored definitions' })).toHaveCount(0)
 
   await page.getByRole('link', { name: 'Landing Pages', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Landing Pages' })).toBeVisible()

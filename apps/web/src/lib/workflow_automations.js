@@ -1,9 +1,22 @@
 import { apiRequest } from './api'
 
-export async function listWorkflowAutomations({ signal } = {}) {
-  const payload = await apiRequest('/api/workflow-automations', { fallbackMessage: 'Unable to load workflow automations.', signal })
+export async function listWorkflowAutomations({ page = 1, pageSize = 50, signal } = {}) {
+  const payload = await apiRequest(`/api/workflow-automations?page=${page}&pageSize=${pageSize}`, { fallbackMessage: 'Unable to load workflow automations.', signal })
+  const automations = Array.isArray(payload?.data?.automations) ? payload.data.automations : []
+  const responseMeta = payload?.data?.meta
+  if (responseMeta && (!Number.isInteger(responseMeta.page) || responseMeta.page !== page || !Number.isInteger(responseMeta.pageSize) || responseMeta.pageSize !== pageSize || automations.length > responseMeta.pageSize || !Number.isInteger(responseMeta.total) || responseMeta.total < automations.length || !Number.isInteger(responseMeta.activeActionCount) || responseMeta.activeActionCount < 0)) {
+    throw new Error('The server returned an invalid workflow automation page. Refresh before retrying.')
+  }
 
-  return payload?.data?.automations || []
+  return {
+    automations,
+    meta: responseMeta || {
+      page,
+      pageSize,
+      total: automations.length,
+      activeActionCount: automations.reduce((total, automation) => total + (automation.isActive ? (automation.actions || []).length : 0), 0)
+    }
+  }
 }
 
 export async function listWorkflowAutomationRuns({ automationId, limit = 10, signal } = {}) {

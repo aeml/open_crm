@@ -16,6 +16,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 )
 
 var (
@@ -83,6 +85,19 @@ type RunListQuery struct {
 	Limit        int
 }
 
+type ListQuery struct {
+	Page     int
+	PageSize int
+}
+
+type ListPage struct {
+	Automations       []Automation `json:"automations"`
+	Page              int          `json:"page"`
+	PageSize          int          `json:"pageSize"`
+	Total             int          `json:"total"`
+	ActiveActionCount int          `json:"activeActionCount"`
+}
+
 type RunInput struct {
 	TriggerEventKey string         `json:"triggerEventKey"`
 	TargetEntityID  int64          `json:"targetEntityId"`
@@ -119,44 +134,67 @@ type Service struct {
 }
 
 const (
-	maxActionDelayMinutes       = 525600
-	maxDefinitionNameLength     = 120
-	maxDefinitionDescriptionLen = 2000
-	maxStoredDefinitionEntries  = 25
-	maxDefinitionConditionValue = 2000
-	maxDefinitionPosition       = 1000000
+	DefaultDefinitionListPageSize = 50
+	maxActionDelayMinutes         = 525600
+	maxDefinitionNameLength       = 120
+	maxDefinitionDescriptionLen   = 2000
+	maxStoredDefinitionEntries    = 25
+	maxDefinitionConditionValue   = 2000
+	maxDefinitionPosition         = 1000000
 )
 
 func NewService(pool *pgxpool.Pool) *Service {
 	return &Service{pool: pool}
 }
 
-func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]Automation, error) {
-	if s == nil || s.pool == nil {
-		return nil, fmt.Errorf("workflow automations service not configured")
+func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, query ListQuery) (ListPage, error) {
+	if s == nil || s.pool == nil || organizationID <= 0 {
+		return ListPage{}, fmt.Errorf("workflow automations service not configured")
+	}
+	page, err := platformpagination.Normalize(query.Page, query.PageSize, DefaultDefinitionListPageSize)
+	if err != nil {
+		return ListPage{}, ErrInvalidInput
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return ListPage{}, fmt.Errorf("begin workflow automation list: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	result := ListPage{Automations: []Automation{}, Page: page.Number, PageSize: page.Size}
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*)::int,
+		       COALESCE(SUM(jsonb_array_length(actions_json)) FILTER (WHERE is_active),0)::int
+		FROM workflow_automations
+		WHERE organization_id=$1
+	`, organizationID).Scan(&result.Total, &result.ActiveActionCount); err != nil {
+		return ListPage{}, fmt.Errorf("count workflow automations: %w", err)
 	}
 
-	rows, err := s.pool.Query(ctx, automationSelect+`
+	rows, err := tx.Query(ctx, automationSelect+`
 		WHERE organization_id = $1
 		ORDER BY is_active DESC, position ASC, updated_at DESC, id DESC
-	`, organizationID)
+		LIMIT $2 OFFSET $3
+	`, organizationID, page.Size, page.Offset)
 	if err != nil {
-		return nil, fmt.Errorf("list workflow automations: %w", err)
+		return ListPage{}, fmt.Errorf("list workflow automations: %w", err)
 	}
 	defer rows.Close()
 
-	automations := make([]Automation, 0)
 	for rows.Next() {
 		automation, err := scanAutomation(rows)
 		if err != nil {
-			return nil, err
+			return ListPage{}, err
 		}
-		automations = append(automations, automation)
+		result.Automations = append(result.Automations, automation)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate workflow automations: %w", err)
+		return ListPage{}, fmt.Errorf("iterate workflow automations: %w", err)
 	}
-	return automations, nil
+	if err := tx.Commit(ctx); err != nil {
+		return ListPage{}, fmt.Errorf("commit workflow automation list: %w", err)
+	}
+	return result, nil
 }
 
 func (s *Service) ListRuns(ctx context.Context, organizationID int64, query RunListQuery) ([]Run, error) {

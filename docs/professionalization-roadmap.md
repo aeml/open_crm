@@ -136,7 +136,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.9` Integration Release Review: planned.
 - `0.9.0` Scale And Reliability: in progress.
 - `0.9.1` Query Performance Review: in progress (core tenant query plans and representative budgets are CI-gated; dashboard/report/import/provider review remains).
-- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person and product-catalog management, stable PostgreSQL page evidence, a concurrency-safe 100-active-item quote catalog, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
+- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person and product-catalog management, stable bounded workflow-definition management with exact active-action summaries, PostgreSQL page evidence, a concurrency-safe 100-active-item quote catalog, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: planned.
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
@@ -2243,10 +2243,20 @@ index, adjacent two-second pages, tenant/role denials, wildcard escaping, and a
 one-success/one-limit activation race with archive/reactivation recovery.
 Chromium loads/searches row 51, creates an active service, excludes inactive
 history from quote selection, and uses the service through finalization and a
-WCAG scan. Remaining decisions are explicit rather than silently truncated: the
-other mutable definition catalogs rely on pilot-scale usage rather than an
-enforced stored-row ceiling. Close or bound those surfaces as evidence requires
-before this roadmap item is complete.
+  WCAG scan. Workflow-definition management now defaults to 50, caps at 100 and
+  offset 50,000, and returns exact stored-definition and workspace active-action
+  totals from one repeatable-read snapshot. Stable active/position/update/ID
+  order, visible ID-deduplicated continuation, stale-response rejection, and
+  first-page refresh after mutations preserve inactive and unsupported legacy
+  history without returning the full catalog. Migration 112 adds the matching
+  management index; freshly migrated 1,001-row PostgreSQL acceptance budgets
+  adjacent 100-row pages below two seconds and proves the plan, repeated order,
+  direct bounds, exact summaries, and foreign-tenant absence. Chromium proves
+  row 51 is absent from the first 50, loads it explicitly, and then executes the
+  reviewed deal rule. Remaining decisions are explicit rather than silently
+  truncated: the other mutable definition catalogs rely on pilot-scale usage
+  rather than an enforced stored-row ceiling. Close or bound those surfaces as
+  evidence requires before this roadmap item is complete.
 
 ## Version 0.9.3 - Background Job Runner
 
@@ -2730,6 +2740,10 @@ Version `1.5.12` makes activation itself fail closed: only reviewed task
 contracts can become newly active, service writers revalidate owner/admin and
 references inside the transaction, and one serialized 50-active-task-action
 budget bounds amplification across the supported lead and deal outcomes.
+Version `1.5.13` makes the retained definition catalog bounded and reviewable:
+the management API and UI page stable results while preserving inactive and
+unsupported history, return exact stored/action summaries, and refresh safely
+after mutations.
 Other targets/actions, general schedules,
 nested branches, approval steps, provider dispatch, and general retry
 orchestration still do not execute and must not be inferred complete from the
@@ -2749,6 +2763,7 @@ Progress:
 - `1.5.10` (event-time deal task condition): complete locally. Existing create, real-stage-change, and archive task rules can now opt into exactly one typed `all` condition over deal value amount, three-letter currency, owner, or derived open/won/lost status. The event transaction reads the tenant-scoped deal and stage snapshot without converting an unassigned owner into a present value, evaluates the rule before any effect, and retains only the referenced field in run evidence; a non-match records an exact terminal skip. The explicit `deal_snapshot_v1` marker keeps every legacy/unreviewed condition inert, while multi-condition, `any`, and unsupported field/operator shapes remain hidden and skipped instead of gaining partial execution. Stable event/run/task identities and the existing transactional task, reminder, activity, and audit boundary are unchanged. Unit/UI validation and disposable-PostgreSQL match/non-match/unassigned/legacy/replay/tenant acceptance plus the value-conditioned Chromium journey cover the local outcome. Broader branching and actions remain hidden; condition language and operating usefulness still require pilot validation.
 - `1.5.11` (atomic deal task playbooks): complete locally. The reviewed deal-event outcome now authors and executes 1–5 literal `create_task` actions with independent 0–365-day due offsets. The exact `deal_task_plan_v1` marker activates multi-task plans; existing one-task definitions remain compatible, while legacy multi-action, unknown-contract, non-task, delayed-action, and more-than-five-task shapes fail closed. Every task, reminder, indexed activity, ordered task-ID run result, and audit record commits inside the originating deal transaction, so a failure leaves no partial playbook and stable event keys make replay harmless. The 283-line route delegates contract parsing, restoration, validation, and payload construction to a separately tested 230-line pure model. Unit/UI and disposable-PostgreSQL execution/replay/tenant/evidence tests plus the two-task Chromium task/export journey and populated-authoring WCAG scan cover the local outcome. Reordering controls, delayed task creation, non-task actions, branching, and pilot validation remain outside this bounded slice.
 - `1.5.12` (truthful activation and bounded task amplification): complete locally. Create/update now acquire a per-workspace transaction lock before reading mutable state, revalidate the actor as an active owner/admin inside that transaction, lock the target definition on update, and revalidate active stage/form/owner/assignee references before commit. Newly active definitions must use exact reviewed `deal_task_plan_v1` or `lead_follow_up_task_v1` task shapes; broad action/trigger/branch foundations remain storable only while inactive. A concurrency-safe shared ceiling counts every action in every active stored definition, including legacy definitions, and permits at most 50 task actions per workspace; deactivation immediately recovers capacity. Settings discloses the exact allocation and exposes unsupported legacy active definitions with a safety-only, non-destructive admin deactivation intent instead of silently hiding the problem or resubmitting a definition shape the current runtime may not understand. Stable `403`, unsupported-activation `409`, and active-limit `409` responses make authorization and recovery actionable. Unit/handler/UI tests, disposable-PostgreSQL owner/admin/member/disabled/foreign/reference evidence, unknown-future-definition preservation, a simultaneous final-slot race, exact-total/recovery assertions, and Chromium budget disclosure cover the boundary. Existing active legacy rows are not silently mutated; they remain runtime-fail-closed until an admin reviews or deactivates them. Broader execution, approvals, loop protection, action-level retries, and pilot validation remain.
+- `1.5.13` (bounded retained-definition management): complete locally. The management API defaults to 50 definitions, caps page size at 100 and offset at 50,000, and returns exact stored-definition plus workspace active-action totals from the same repeatable-read transaction as the page. Active/position/update/ID ordering is total and backed by migration `112_workflow_definition_paging.sql`. Settings exposes accessible continuation, deduplicates IDs, rejects stale responses, serializes writes, and returns to page one after create, update, or safety deactivation while retaining the successful row and an actionable reload error if reconciliation fails. Handler/unit/UI tests, freshly migrated 1,001-row adjacent-page/index/repeat/direct-bound/tenant PostgreSQL acceptance, and Chromium first-50/row-51 continuation before reviewed deal-rule execution cover the outcome. This closes management cardinality without treating stored inactive foundations as executable or deleting legacy history; broader execution and pilot validation remain.
 
 Candidate slices:
 
@@ -2764,6 +2779,7 @@ Candidate slices:
 - `1.5.10` One optional event-time deal-snapshot condition for the existing task outcome: complete locally; pilot validation remains.
 - `1.5.11` Versioned 1–5-task atomic deal-event playbooks with independent due offsets and ordered evidence: complete locally; pilot validation remains.
 - `1.5.12` Transactionally authorized reviewed activation with one exact 50-active-task-action workspace budget and legacy recovery: complete locally; pilot validation remains.
+- `1.5.13` Stable bounded retained-definition management with exact stored/action summaries and visible continuation: complete locally; pilot validation remains.
 
 Exit criteria:
 

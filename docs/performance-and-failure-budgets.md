@@ -187,11 +187,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 734 KiB | 229 KiB |
+| All JavaScript and CSS | 735 KiB | 230 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.82 KiB/57.96 KiB entry, 54.93 KiB/15.64 KiB largest lazy
-chunk, and 730.88 KiB/228.33 KiB total assets. The production contact, company,
+Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.65 KiB largest lazy
+chunk, and 735.00 KiB/229.57 KiB total assets. The production contact, company,
 deal, and task routes are 27.72/8.57, 44.95/12.98, 54.93/15.64, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
@@ -410,6 +410,23 @@ assets are 733.07/228.75 KiB raw/gzip. Only the reviewed aggregate raw ceiling
 advances from 731 to 734 KiB; aggregate gzip, entry, per-route, CSS, and source
 ceilings remain unchanged. The task-automation chunk is 22.52/6.88 KiB, with a
 327-line route and separately tested 239-line contract/form model.
+
+Bounded workflow-definition management then replaces the complete retained
+definition payload with 50/default and 100/maximum pages, a 50,000 maximum
+offset, exact stored-definition and active-action totals from one repeatable-read
+snapshot, stable active/position/update/ID order, visible ID-deduplicated
+continuation, and a fresh first page after mutations. Migration 112 adds the
+matching tenant management index. Fresh PostgreSQL 16.14 acceptance seeds 1,001
+local definitions plus a foreign row, asserts that index, budgets adjacent
+100-row pages below two seconds, and proves repeat stability, exact summary,
+direct-service bounds, and tenant exclusion. Chromium starts with 52 stored
+definitions, proves row 51 is absent from the first 50 and visible after “Load
+more,” then executes the reviewed deal rule. The measured build is
+178.82/57.97 KiB entry, 54.93/15.65 KiB largest lazy chunk, 25.04/7.63 KiB
+task-automation chunk, and 735.00/229.57 KiB aggregate raw/gzip. The route is
+377 lines and retains the separately tested 239-line contract/form model. Only
+the reviewed aggregate ceilings advance from 734/229 to 735/230 KiB; entry,
+per-route, CSS, and source ceilings remain unchanged.
 
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.

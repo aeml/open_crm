@@ -5,12 +5,19 @@ import (
 	"net/http"
 
 	moduleworkflowautomations "github.com/aeml/open_crm/apps/api/internal/modules/workflowautomations"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
 type workflowAutomationsListResponse struct {
 	Data struct {
 		Automations []moduleworkflowautomations.Automation `json:"automations"`
+		Meta        struct {
+			Page              int `json:"page"`
+			PageSize          int `json:"pageSize"`
+			Total             int `json:"total"`
+			ActiveActionCount int `json:"activeActionCount"`
+		} `json:"meta"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -60,14 +67,27 @@ func handleListWorkflowAutomations(auth authService, automations workflowAutomat
 		return
 	}
 
-	items, err := automations.ListByOrganization(r.Context(), state.Organization.ID)
+	page, err := platformpagination.Parse(r.URL.Query().Get("page"), r.URL.Query().Get("pageSize"), moduleworkflowautomations.DefaultDefinitionListPageSize)
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load workflow automations")
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Workflow automation page values must be positive, page size must not exceed 100, and offset must not exceed 50,000 records")
+		return
+	}
+	result, err := automations.ListByOrganization(r.Context(), state.Organization.ID, moduleworkflowautomations.ListQuery{Page: page.Number, PageSize: page.Size})
+	if err != nil {
+		if errors.Is(err, moduleworkflowautomations.ErrInvalidInput) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid workflow automation page")
+		} else {
+			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load workflow automations")
+		}
 		return
 	}
 
 	response := workflowAutomationsListResponse{}
-	response.Data.Automations = items
+	response.Data.Automations = result.Automations
+	response.Data.Meta.Page = result.Page
+	response.Data.Meta.PageSize = result.PageSize
+	response.Data.Meta.Total = result.Total
+	response.Data.Meta.ActiveActionCount = result.ActiveActionCount
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }

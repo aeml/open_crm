@@ -13,6 +13,15 @@ function sessionResponse() {
   return jsonResponse({ data: { user: { id: 1, email: 'owner@acme.test' }, organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' }, membership: { role: 'owner' } } })
 }
 
+function workflowPage(automations, { page = 1, pageSize = 50, total = automations.length } = {}) {
+  return jsonResponse({ data: { automations, meta: {
+    page,
+    pageSize,
+    total,
+    activeActionCount: automations.reduce((sum, automation) => sum + (automation.isActive ? (automation.actions || []).length : 0), 0)
+  } } })
+}
+
 describe('settings task automations route', () => {
   it('polls due work promptly without hot-polling future scheduled runs', () => {
     const now = Date.parse('2026-07-21T12:00:00Z')
@@ -39,6 +48,12 @@ describe('settings task automations route', () => {
       isActive: true,
       position: 0
     }
+    let storedDefinitions = [
+      { id: 5, name: 'Qualify new deals', triggerType: 'record_created', targetEntityType: 'deal', triggerConfig: {}, conditions: [], actions: [{ type: 'create_task', config: { title: 'Qualify deal' }, delayMinutes: 1440 }], isActive: true },
+      { id: 6, name: 'Legacy email action', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditionLogic: 'all', conditions: [], actions: [{ type: 'send_email', config: { subject: 'Welcome', body: 'Hello' } }], isActive: true },
+      { id: 7, name: 'Unsupported multi-condition lead rule', triggerType: 'form_submitted', targetEntityType: 'lead_form', triggerConfig: {}, conditionLogic: 'all', conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }, { field: 'utmMedium', operator: 'equals', value: 'paid' }], actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7 } }], isActive: true },
+      { id: 10, name: 'Legacy deal condition', triggerType: 'stage_changed', targetEntityType: 'deal', triggerConfig: { stageId: 12 }, conditionLogic: 'all', conditions: [{ field: 'valueAmount', operator: 'greaterThan', value: '5000' }], actions: [{ type: 'create_task', config: { title: 'Must remain hidden' } }], isActive: true }
+    ]
     const fetchMock = vi.fn(async (url, options = {}) => {
       const requestURL = new URL(String(url), 'http://localhost')
       const path = requestURL.pathname
@@ -49,18 +64,16 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
       if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
       if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [{ id: 21, automationId: 5, automationName: 'Qualify new deals', triggerEventKey: 'deal:7:activity:90', status: 'succeeded', actionsTotal: 1, actionsCompleted: 1, createdAt: '2026-07-19T12:00:00Z' }] } })
-      if (path.endsWith('/api/workflow-automations') && method === 'POST') return jsonResponse({ data: { automation: createdRule } }, 201)
+      if (path.endsWith('/api/workflow-automations') && method === 'POST') {
+        storedDefinitions = [createdRule, ...storedDefinitions]
+        return jsonResponse({ data: { automation: createdRule } }, 201)
+      }
       if (path.endsWith('/api/workflow-automations/6') && method === 'PATCH') {
-        return jsonResponse({ data: { automation: { id: 6, name: 'Legacy email action', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditionLogic: 'all', conditions: [], actions: [{ type: 'send_email', config: { subject: 'Welcome', body: 'Hello' } }], isActive: false, position: 0 } } })
+        const updated = { ...storedDefinitions.find((automation) => automation.id === 6), isActive: false, position: 0 }
+        storedDefinitions = storedDefinitions.map((automation) => automation.id === 6 ? updated : automation)
+        return jsonResponse({ data: { automation: updated } })
       }
-      if (path.endsWith('/api/workflow-automations')) {
-        return jsonResponse({ data: { automations: [
-          { id: 5, name: 'Qualify new deals', triggerType: 'record_created', targetEntityType: 'deal', triggerConfig: {}, conditions: [], actions: [{ type: 'create_task', config: { title: 'Qualify deal' }, delayMinutes: 1440 }], isActive: true },
-          { id: 6, name: 'Legacy email action', triggerType: 'record_created', targetEntityType: 'contact', triggerConfig: {}, conditions: [], actions: [{ type: 'send_email', config: { subject: 'Welcome', body: 'Hello' } }], isActive: true },
-          { id: 7, name: 'Unsupported multi-condition lead rule', triggerType: 'form_submitted', targetEntityType: 'lead_form', triggerConfig: {}, conditionLogic: 'all', conditions: [{ field: 'utmSource', operator: 'equals', value: 'partner' }, { field: 'utmMedium', operator: 'equals', value: 'paid' }], actions: [{ type: 'create_task', config: { title: 'Call partner lead', assignedToUserId: 7 } }], isActive: true },
-          { id: 10, name: 'Legacy deal condition', triggerType: 'stage_changed', targetEntityType: 'deal', triggerConfig: { stageId: 12 }, conditionLogic: 'all', conditions: [{ field: 'valueAmount', operator: 'greaterThan', value: '5000' }], actions: [{ type: 'create_task', config: { title: 'Must remain hidden' } }], isActive: true }
-        ] } })
-      }
+      if (path.endsWith('/api/workflow-automations')) return workflowPage(storedDefinitions)
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -72,7 +85,8 @@ describe('settings task automations route', () => {
     expect(await screen.findByRole('heading', { name: 'Qualify new deals' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Legacy email action' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Unsupported multi-condition lead rule' })).not.toBeInTheDocument()
-    expect(screen.getByText(/3 unsupported stored definitions hidden/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing 4 of 4 stored definitions/i)).toBeInTheDocument()
+    expect(screen.getByText(/3 unsupported loaded definitions hidden/i)).toBeInTheDocument()
     expect(screen.getByText(/4 of 50 active task actions allocated/i)).toBeInTheDocument()
     const recoveryList = screen.getByRole('list', { name: 'Active unsupported workflow definitions' })
     const legacyRecovery = within(recoveryList).getByText('Legacy email action').closest('article')
@@ -134,6 +148,7 @@ describe('settings task automations route', () => {
       isActive: true,
       position: 0
     }
+    let storedDefinitions = []
     const fetchMock = vi.fn(async (url, options = {}) => {
       const requestURL = new URL(String(url), 'http://localhost')
       const path = requestURL.pathname
@@ -144,8 +159,11 @@ describe('settings task automations route', () => {
       if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [{ id: 31, name: 'Partner inquiry', isActive: true }] } })
       if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [{ id: 7, firstName: 'Riley', lastName: 'Chen', email: 'riley@example.test', status: 'active' }] } })
       if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [] } })
-      if (path.endsWith('/api/workflow-automations') && method === 'POST') return jsonResponse({ data: { automation: createdRule } }, 201)
-      if (path.endsWith('/api/workflow-automations')) return jsonResponse({ data: { automations: [] } })
+      if (path.endsWith('/api/workflow-automations') && method === 'POST') {
+        storedDefinitions = [createdRule]
+        return jsonResponse({ data: { automation: createdRule } }, 201)
+      }
+      if (path.endsWith('/api/workflow-automations')) return workflowPage(storedDefinitions)
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -185,6 +203,50 @@ describe('settings task automations route', () => {
     expect(screen.getByText('When Partner inquiry is submitted')).toBeInTheDocument()
     expect(screen.getByText(/create after 2 days · due 1 day later/i)).toBeInTheDocument()
     expect(screen.getByText(/assign to Riley Chen/i)).toBeInTheDocument()
+  })
+
+  it('loads stored definition row 51 with exact continuation metadata', async () => {
+    const definition = (id, name) => ({
+      id,
+      name,
+      triggerType: 'record_created',
+      targetEntityType: 'deal',
+      triggerConfig: { taskPlanContract: 'deal_task_plan_v1' },
+      conditionLogic: 'all',
+      conditions: [],
+      actions: [{ type: 'create_task', config: { title: `Task ${id}` } }],
+      isActive: false,
+      position: 0
+    })
+    const firstPage = Array.from({ length: 50 }, (_, index) => definition(index + 1, `Stored rule ${index + 1}`))
+    const row51 = definition(51, 'Stored continuation rule')
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const path = requestURL.pathname
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [] } })
+      if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
+      if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [] } })
+      if (path.endsWith('/api/workflow-automations')) {
+        const page = Number(requestURL.searchParams.get('page'))
+        return workflowPage(page === 2 ? [row51] : firstPage, { page, total: 51 })
+      }
+      throw new Error(`Unexpected fetch: ${options.method || 'GET'} ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/automations')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText('Showing 50 of 51 stored definitions.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: row51.name })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Load more stored definitions' }))
+    expect(await screen.findByRole('heading', { name: row51.name })).toBeInTheDocument()
+    expect(screen.getByText('Showing 51 of 51 stored definitions.')).toBeInTheDocument()
+    const continuationCall = fetchMock.mock.calls.find((call) => new URL(String(call[0]), 'http://localhost').searchParams.get('page') === '2')
+    expect(new URL(String(continuationCall[0]), 'http://localhost').searchParams.get('pageSize')).toBe('50')
   })
 
   it('refreshes an active durable run until its terminal task evidence is visible', async () => {

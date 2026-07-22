@@ -2004,3 +2004,28 @@ func TestMigrationFilesIncludeLeadSubmissionReviewCursor(t *testing.T) {
 		t.Fatalf("lead submission review cursor deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeWorkflowDefinitionPaging(t *testing.T) {
+	const name = "112_workflow_definition_paging.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"idx_workflow_automations_org_management_page",
+		"is_active DESC",
+		"position ASC",
+		"updated_at DESC",
+		"id DESC",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("workflow definition paging migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("workflow definition paging deployment class = %q", class)
+	}
+}
