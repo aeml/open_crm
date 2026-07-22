@@ -572,7 +572,7 @@ the aggregate ratchet alone advances from 758/237 to 761/238 KiB.
 Durable filtered CRM exports add exact-filter handoff from all four core lists,
 an admin request/progress/failure/download path, and the shared API helper. The
 new UI was reduced after its first measurement by removing redundant filter
-editing while preserving the originating list criteria. The measured build is
+editing while preserving the originating list criteria. At that slice the measured build was
 178.87/57.99 KiB entry, 55.12/15.73 KiB largest lazy chunk, and 765.81/239.24
 KiB aggregate raw/gzip. Only the reviewed aggregate ceilings advance from
 761/238 to 766/240 KiB; entry, per-route, CSS, and source ceilings stay fixed.
@@ -660,16 +660,20 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 420 lines, down from 996. Its audited 263-route
+The API composition root is 426 lines, down from 996. Its audited 263-route
 surface is registered through 184-line platform, 297-line foundation, and
 378-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot
 silently remove a route from either guard. Shared handler helpers are isolated
 in a 297-line file, invitation delivery is isolated in a 123-line handler, and
-record history owns a focused 106-line handler, and `support_handlers.go` is 380
+record history owns a focused 106-line handler, and `support_handlers.go` is 388
 lines. The service-contract catalog is 438 lines and the unchanged explicit
 runtime dependency container is isolated at 70 lines, replacing the former
-500-line mixed file. Every production file in `internal/app` now has headroom
+500-line mixed file. The former 491-line authentication/user handler is split
+into 90-line session-cookie authentication, 125-line public onboarding, and
+296-line tenant user-lifecycle handlers, so these distinct security boundaries
+can be reviewed without unrelated behavior. Every production file in
+`internal/app` now has headroom
 under the default 500-line ceiling.
 
 ## Source-size no-growth ratchet

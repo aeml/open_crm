@@ -74,7 +74,7 @@ the assertions inside those tests remain the proof of behavior.
   registered routes, so a new selector must receive an explicit session/token
   tenant policy and test reference.
 - `apps/api/internal/app/list_endpoint_inventory_test.go` separately
-  digest-gates all 103 registered GET routes, so a new collection cannot bypass
+  digest-gates all 105 registered GET routes, so a new collection cannot bypass
   a cardinality, ordering, overflow, and pagination review.
 - Role and viewer denial are handler concerns and remain covered by the route
   family permission tests named in `security-surface-inventory.md`; the

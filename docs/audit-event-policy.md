@@ -37,12 +37,18 @@ expanding the boundary.
 
 Producer source count: `47`
 
-Producer source digest: `4d8f81f207a22f3336d0584c09f8457567caa70a55c7fdc837929e101aea689e`
+Producer source digest: `21224e9db73c8c422aec081185120674c33cafa8caf0901d2d09c051b1d0e4d7`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
 not proof that a schema or passing unit test completes a user outcome; relevant
 handler and PostgreSQL acceptance still remain mandatory.
+
+The 2026-07-22 source-boundary review moved the existing invitation, role, and
+password-setup producers from the mixed authentication/user handler into the
+focused tenant user-lifecycle handler. The mutation classes, metadata, secret
+boundary, retention, and export behavior are unchanged; only the reviewed
+producer source path changed.
 
 Email-sequence create, update, delete, exact-revision approval, and effective
 pause events commit in the same tenant transaction as the definition change.

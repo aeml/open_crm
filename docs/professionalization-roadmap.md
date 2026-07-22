@@ -380,18 +380,21 @@ Exit criteria:
 - Handler files are easier to review in isolation.
 - No behavior changes beyond tested refactors.
 
-Current convergence evidence: `app.go` is now 420 lines and uses the default
-500-line CI ceiling. All 260 explicit registrations live in focused 175-line
+Current convergence evidence: `app.go` is now 426 lines and uses the default
+500-line CI ceiling. All 263 explicit registrations live in focused 184-line
 platform, 297-line foundation, and 378-line core-CRM files, called centrally by
 `NewServer`; package-wide inventory and hosted-write-policy scans preserve the
 complete route set after the split. HTTP rate limiting, proxy-aware client
-identity, CSRF/CORS, and security/release headers live in a focused 285-line
-policy file. Service contracts and dependency composition live in a focused
-497-line file. Shared request decoding, response shaping, audit helpers, and
+identity, CSRF/CORS, and security/release headers live in a focused 302-line
+policy file. The service-contract catalog and explicit dependency container
+live in focused 438- and 70-line files. Shared request decoding, response shaping, audit helpers, and
 session-cookie behavior now live in a 297-line helper file, while invitation
 lifecycle delivery lives in a focused handler. Record history has a focused
-106-line handler and leaves `support_handlers.go`
-at 380 lines. Every production file in `internal/app` is
+106-line handler and leaves `support_handlers.go` at 388 lines. The former
+491-line mixed authentication/user handler is split by security boundary into
+90-line session authentication, 125-line public onboarding, and 296-line tenant
+user-lifecycle handlers; its invitation, role, and password-setup audit
+producers retain the same policy under the reviewed source-set digest. Every production file in `internal/app` is
 therefore under the default 500-line CI ceiling, with existing behavior tests
 preserved.
 
@@ -655,7 +658,7 @@ Completion notes:
 - Invitation resend and revocation record secret-free lifecycle audit events; repeated revocation is idempotent and does not duplicate evidence.
 - Added an admin-only audit API and Settings audit view with event filtering and retention guidance.
 - Covered audit event access, metadata sanitization, role updates, and audit UI behavior with tests.
-- Convergence hardening now makes audit rows append-only in PostgreSQL for the workspace lifetime, permits removal only through the parent-workspace cascade, rejects top-level secret-like metadata keys at both the service and database boundaries, and decodes boolean, numeric, and nested JSON metadata safely. Owners/admins can download a formula-neutralized exact-filter CSV up to 10,000 rows with explicit overflow refusal and an audit event for the download; the complete workspace package retains `audit_events.ndjson`. A digest-gated 41-file producer inventory, handler/UI tests, disposable-PostgreSQL immutability/tenant/secret/overflow acceptance, portable-export assertions, WCAG scan, and the clean browser journey keep the policy executable.
+- Convergence hardening now makes audit rows append-only in PostgreSQL for the workspace lifetime, permits removal only through the parent-workspace cascade, rejects top-level secret-like metadata keys at both the service and database boundaries, and decodes boolean, numeric, and nested JSON metadata safely. Owners/admins can download a formula-neutralized exact-filter CSV up to 10,000 rows with explicit overflow refusal and an audit event for the download; the complete workspace package retains `audit_events.ndjson`. A digest-gated 47-file producer inventory, handler/UI tests, disposable-PostgreSQL immutability/tenant/secret/overflow acceptance, portable-export assertions, WCAG scan, and the clean browser journey keep the policy executable.
 
 ## Version 0.3.7 - Data Export
 
@@ -2212,7 +2215,7 @@ Exit criteria:
 - Large datasets do not break core list workflows.
 - Pagination behavior is consistent and documented.
 
-Current convergence evidence: all 103 registered GET routes are digest-gated to
+Current convergence evidence: all 105 registered GET routes are digest-gated to
 `docs/list-endpoint-inventory.md`, which records collection cardinality, stable
 ordering, totals, caller/service limits, overflow behavior, and the trigger for
 keyset conversion. Contacts, companies, deals, and tasks share an overflow-safe
