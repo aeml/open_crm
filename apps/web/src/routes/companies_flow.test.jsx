@@ -323,18 +323,6 @@ describe('companies flow', () => {
         ok: true,
         json: async () => ({
           data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false },
-              { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead', isClient: false }
-            ],
-            meta: { page: 1, pageSize: 20, total: 2 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
             users: [
               { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
               { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
@@ -405,7 +393,25 @@ describe('companies flow', () => {
         json: async () => ({})
       })
 
-    vi.stubGlobal('fetch', withTouchpointSummary(fetchMock))
+    const fetchWithContactLookup = vi.fn((url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      if (requestURL.pathname.endsWith('/api/contacts') && requestURL.searchParams.get('pageSize') === '20') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: {
+              contacts: [
+                { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false },
+                { id: 8, firstName: 'Ava', lastName: 'Stone', email: 'ava@acme.test', phone: '555-0101', jobTitle: 'COO', status: 'lead', isClient: false }
+              ],
+              meta: { page: 1, pageSize: 20, total: 2 }
+            }
+          })
+        })
+      }
+      return fetchMock(url, options)
+    })
+    vi.stubGlobal('fetch', withTouchpointSummary(fetchWithContactLookup))
     window.history.pushState({}, '', '/companies')
 
     render(<AppRouter />)
@@ -418,6 +424,7 @@ describe('companies flow', () => {
     expect(screen.queryByLabelText(/linked contact ids/i)).not.toBeInTheDocument()
     expect(within(createForm).getByLabelText(/linked contact/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/client type/i)).toHaveValue('organization')
+    expect(await within(createForm).findByRole('option', { name: /morgan lee/i })).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/client name/i), { target: { value: 'Atlas Manufacturing' } })
     fireEvent.change(screen.getByLabelText(/address line 1/i), { target: { value: '55 Foundry Way' } })
@@ -445,7 +452,7 @@ describe('companies flow', () => {
     const detailForm = screen.getByRole('button', { name: /update client/i }).closest('form')
     expect(detailForm).not.toBeNull()
     expect(screen.queryByLabelText(/linked contact ids/i)).not.toBeInTheDocument()
-    expect(within(detailForm).getByLabelText(/linked contact/i)).toBeInTheDocument()
+    expect(within(detailForm).queryByLabelText(/linked contact/i)).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/status/i), { target: { value: 'customer' } })
     fireEvent.change(screen.getByLabelText(/address line 1/i), { target: { value: '55 Foundry Way' } })
@@ -453,7 +460,6 @@ describe('companies flow', () => {
     fireEvent.change(screen.getByLabelText(/state/i), { target: { value: 'MI' } })
     fireEvent.change(screen.getByLabelText(/postal code/i), { target: { value: '48201' } })
     fireEvent.change(screen.getByLabelText(/country/i), { target: { value: 'US' } })
-    fireEvent.change(within(detailForm).getByLabelText(/linked contact/i), { target: { value: '8' } })
     fireEvent.click(screen.getByRole('button', { name: /update client/i }))
 
     expect(await screen.findByText(/company updated/i)).toBeInTheDocument()
@@ -475,7 +481,9 @@ describe('companies flow', () => {
 
     const updateCall = fetchMock.mock.calls.find(([url, options]) => String(url).match(/\/api\/companies\/6$/) && options?.method === 'PATCH')
     expect(updateCall).toBeTruthy()
-    expect(JSON.parse(updateCall[1].body)).toMatchObject({ clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US', linkedContactIDs: [8] })
+    const updatePayload = JSON.parse(updateCall[1].body)
+    expect(updatePayload).toMatchObject({ clientType: 'organization', addressLine1: '55 Foundry Way', city: 'Detroit', state: 'MI', postalCode: '48201', country: 'US' })
+    expect(updatePayload).not.toHaveProperty('linkedContactIDs')
   })
 
   it('adds a new linked person from company detail', async () => {

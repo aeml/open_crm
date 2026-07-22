@@ -1,18 +1,15 @@
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { CustomFieldsForm } from '../components/ui/custom_fields_form'
+import { ContactLookupSelect } from './contact_lookup_select'
 import {
-  applyLinkedContactSelection,
   isIndividualClient,
   limitLinkedContacts,
-  linkedContactFieldHint,
-  linkedContactFieldLabel,
   nameFieldLabel,
-  normalizeClientType,
   phoneFieldLabel
 } from './company_view'
 
-export function CompanyForm({ canSubmit = true, contacts, customDefinitions = [], form, includeStatus = false, isSubmitting = false, onSetForm, onSubmit, submitLabel }) {
+export function CompanyForm({ canSubmit = true, contactLookup, customDefinitions = [], form, includeLinkedContact = true, includeStatus = false, isSubmitting = false, onSetForm, onSubmit, submitLabel }) {
   const setField = (name) => (event) => onSetForm((current) => ({ ...current, [name]: event.target.value }))
   return (
     <form className="auth-form" onSubmit={onSubmit}>
@@ -69,12 +66,7 @@ export function CompanyForm({ canSubmit = true, contacts, customDefinitions = []
           </select>
         </Field>
       ) : null}
-      <Field label={linkedContactFieldLabel(form.clientType)} hint={linkedContactFieldHint(form.clientType)}>
-        <select className="text-input" value={form.linkedContactIDs} onChange={(event) => onSetForm((current) => applyLinkedContactSelection(current, contacts, event.target.value))}>
-          <option value="">{normalizeClientType(form.clientType) === 'individual' ? 'Select person record' : 'No linked contact'}</option>
-          {contacts.map((contact) => <option key={contact.id} value={contact.id}>{`${contact.firstName} ${contact.lastName}`.trim()}</option>)}
-        </select>
-      </Field>
+      {includeLinkedContact && contactLookup ? <ContactLookupSelect form={form} lookup={contactLookup} onSetForm={onSetForm} /> : null}
       {!isIndividualClient(form.clientType) ? (
         <>
           <Field label="Industry">

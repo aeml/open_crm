@@ -2,9 +2,9 @@
 
 Audit date: 2026-07-22
 
-Registered GET route count: `102`
+Registered GET route count: `103`
 
-Registered GET route digest: `2c13ce40e4b23aa7a2a467caf5ed4f8e7d4850850fa66d1a87288f95bcdadb84`
+Registered GET route digest: `77527ebfed5440091a8944ed5232f694e73efbbcd5f66f365b871b85ed6351f1`
 
 This is the Phase 1 inventory for every production GET route that can return a
 collection or a large generated result. The executable guard derives the count
@@ -22,6 +22,7 @@ decision.
 | Surface | Result contract | Stable order / continuation | Overflow and failure behavior | Current evidence and decision |
 | --- | --- | --- | --- | --- |
 | Core contacts, companies, deals, and tasks: `GET /api/contacts`, `/companies`, `/deals`, `/tasks` | Offset page; default `page=1`, `pageSize=20`; maximum page size 100; maximum offset 50,000; exact filtered totals | Contacts: last name, first name, ID; companies: name, ID; deals: pipeline position, stage position, ID; tasks: completion bucket, due time, ID. Every order ends in the immutable ID tie-breaker | Missing values use defaults. Explicit malformed/non-positive values, page sizes above 100, arithmetic overflow, and offsets above 50,000 return `400` before the service/database. Services repeat the same check for non-HTTP callers | Handler tests cover all four rejection paths and the exact 50,000 boundary. The real-PostgreSQL pilot gate checks 100-row adjacent pages, repeat stability, no overlap, exact totals, tenant separation, and direct-service rejection. Offset paging remains appropriate for the approved hosted ceiling of 50,000 contacts/deals and the UI's page-number navigation; introduce keyset paging only if a larger approved workload or measured plan regression requires it. |
+| Company linked people: bounded detail embed plus `GET /api/companies/{companyID}/linked-contacts` | Company detail embeds the first 50 active links. The dedicated member endpoint defaults to 50, caps page size at 100 and offset at 50,000, returns an exact search total, and supports name, email, and relationship-title search | Primary first, then last name, first name, and immutable contact ID. The UI searches explicitly and offers “Load more”; the initial-contact and existing-contact selectors independently use bounded core-contact search pages | Malformed/non-positive/oversized/overflowing pages return `400` before service work and direct callers repeat the bound. Missing, archived, and foreign companies are the same `404`. Generic company `PATCH` ignores the legacy relationship array so a cached incomplete selector cannot replace unseen links; writer-only item `PUT`/`DELETE` own relationship changes. For an individual client, `PUT` atomically replaces the sole person and `DELETE` refuses a zero-link state | Handler and viewer-role tests cover transport and gates. Fresh PostgreSQL acceptance proves 50/50/final pages, exact totals, adjacent-page separation, three-field search, detail bounding, foreign denial, safe ordinary edits, idempotent linking, one-primary repair/promotion, active and archived individual-person replacement, unlink-to-zero rejection, and a 100-row page from 1,000 links under two seconds. The Chromium pilot journey searches and links an existing contact, filters linked people, changes primary, unlinks, and scans the populated control for WCAG A/AA issues. Offset paging matches the core contract and remains measured below budget. |
 | Saved report results: `GET /api/report-definitions/{definitionID}/results` | Offset page; default size 50; page and page size each max 100; at most 10,000 addressable rows | Static typed registry supplies deterministic source ordering with ID tie-breaker; response includes `hasMore` | Invalid page is `400`; query deadline is five seconds; unsupported/historical definitions fail closed | Handler/UI/real-PostgreSQL all-source, overflow, timeout, tenant, and 100-row performance acceptance. |
 | Operational reports: sales activity, pipeline funnel, follow-up, client activity, client health, data quality, dashboard, collaboration digest | Complete bounded aggregate or a fixed/request-bounded sample (25, 50, or 100 rows depending on the report) | Every record sample has a documented timestamp/ID or semantic grouping order | Date/range/limit validation is explicit where caller-controlled; report queries have bounded deadlines where their runtime can scale | Handler and real-PostgreSQL report reconciliation/performance tests. These are reports, not record browsers; paging is deferred unless a pilot needs complete drill-down rather than the current focused sample/export. |
 | Lead submission review: `GET /api/lead-capture-submissions` | Fixed newest 50 plus exact status counts | Creation time then ID descending | Invalid form/status filters are `400`; review workflow deliberately shows the most recent queue | Browser quarantine/recovery journey and PostgreSQL tenant/lifecycle acceptance. Add cursor continuation before a pilot needs more than the newest review window. |
@@ -47,13 +48,12 @@ decision.
   Their complete-list shape is a known pilot-scale constraint, not a promise of
   unlimited scale.
 - Standalone notes and contact/company/deal/task activity now use one bounded
-  opaque cursor contract with visible older-history access. The remaining
-  reviewed growth decisions are shared-inbox continuation, the fixed newest-50
-  lead-submission review queue, mutable definition catalogs without stored-row
-  ceilings, and company linked contacts. Linked contacts deliberately remain
-  complete because record-email recipient selection and relationship editing
-  consume that set; replacing it requires a searchable paged selection contract,
-  not a silent detail-response cap.
+  opaque cursor contract with visible older-history access. Company linked
+  people now have a bounded first page plus explicit searchable continuation;
+  stable unfiltered primary context is retained while a search result drives
+  only the visible relationship list. The remaining reviewed growth decisions
+  are shared-inbox continuation, the fixed newest-50 lead-submission review
+  queue, and mutable definition catalogs without stored-row ceilings.
 - New list endpoints must define tenant scope, stable total order with an ID
   tie-breaker, page/limit maximum, malformed-input behavior, overflow behavior,
   timeout, and handler plus PostgreSQL boundary tests before the GET digest is

@@ -348,7 +348,7 @@ func handleCreateCompany(auth authService, companies companiesService, w http.Re
 		return
 	}
 
-	input, ok := decodeCompanyRequest(w, r)
+	input, ok := decodeCompanyRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -388,10 +388,14 @@ func handleUpdateCompany(auth authService, companies companiesService, w http.Re
 	if !ok {
 		return
 	}
-	input, decoded := decodeCompanyRequest(w, r)
+	input, decoded := decodeCompanyRequest(w, r, false)
 	if !decoded {
 		return
 	}
+	// Relationship changes have their own tenant-scoped endpoints. Ignoring the
+	// legacy replacement field here keeps an older cached UI from deleting
+	// relationships it never loaded while API and frontend releases converge.
+	input.LinkedContactIDs = nil
 	result, err := companies.Update(r.Context(), state.Organization.ID, companyID, state.User.ID, modulecompanies.UpdateInput(input))
 	if err != nil {
 		if errors.Is(err, modulecompanies.ErrActiveReviewSchedule) {

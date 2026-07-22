@@ -31,6 +31,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Any mixed service read | 2 s |
 | Core list page size / maximum offset | 100 rows / 50,000 rows |
 | Two adjacent record-history cursor pages (1,001 rows, 100/page) | 2 s |
+| Company linked-person page (1,000 links, 100 returned) | 2 s |
 | Transactional contact-create p95 | 1 s |
 | Any transactional contact create | 3 s |
 | Client-period activity page (500 clients, 100 returned) | 2 s |
@@ -66,6 +67,19 @@ also fixes equal-timestamp order, inserts a newer row between page requests,
 requires complete terminal-page traversal, and proves a foreign tenant receives
 no rows. Migration 108 supplies matching tenant/entity/time/ID indexes for notes
 and activities with bounded deployment lock and statement timeouts.
+
+Company linked people use the compatible core offset shape because exact totals,
+explicit page continuation, and search are part of relationship management. A
+dedicated freshly migrated PostgreSQL acceptance seeds 121 linked people to
+prove 50/50/final-page order and no overlap, exact search by name/email/title,
+foreign denial, bounded detail, and preservation of every unseen relationship
+during an ordinary client edit. The same test seeds 1,000 links and requires a
+100-row page plus exact total under two seconds. Migration 109 adds the matching
+tenant/company/contact access path with bounded deployment lock and statement
+timeouts. Primary changes serialize on the company row, unchanged PUTs add no
+duplicate activity, archived primaries cannot block an active replacement, and
+unlink deterministically promotes one remaining active person. Individual-client
+PUT atomically replaces the sole link, while DELETE cannot create a zero-link state.
 
 The failure path also holds the only connection in a one-connection pool, proves a
 waiting request observes its 200 ms deadline, releases capacity, and proves the
@@ -143,12 +157,12 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 717 KiB | 225 KiB |
+| All JavaScript and CSS | 727 KiB | 227 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.82 KiB/57.96 KiB entry, 54.93 KiB/15.65 KiB largest lazy
-chunk, and 716.13 KiB/223.87 KiB total assets. The production contact, company,
-deal, and task routes are 27.72/8.58, 35.70/10.48, 54.93/15.65, and 26.53/7.64
+Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.64 KiB largest lazy
+chunk, and 726.08 KiB/226.44 KiB total assets. The production contact, company,
+deal, and task routes are 27.72/8.57, 44.95/12.98, 54.93/15.64, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.38 KiB/3.13 KiB, and
@@ -310,6 +324,14 @@ detail hydration, and accessible older-history controls. The measured build is
 unchanged; only the reviewed aggregate ceilings advance from 713/223 to
 717/225 KiB for this complete user-visible outcome.
 
+Bounded company-linked-person management then replaces the first-page-only
+relationship editor with searchable continuation, safe linking, primary repair,
+and unlink recovery. The measured build remains 178.82/57.97 KiB for the entry
+and 54.93/15.64 KiB for the largest lazy chunk; the company route is
+44.95/12.98 KiB and aggregate assets are 726.08/226.44 KiB raw/gzip. Entry,
+per-route, and CSS ceilings remain unchanged; only the reviewed aggregate
+ceilings advance from 717/225 to 727/227 KiB for this complete outcome.
+
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.
 
@@ -346,7 +368,7 @@ URL/history synchronization, and request identity, preventing late list replacem
 without repeating the full bootstrap after each filter change.
 The 178-line company-detail hook applies the same contract to direct routes,
 directory selection, related-deal and work loading, and locally seeded creates.
-A tested 176-line company-directory hook owns bootstrap data, filters, loading,
+A tested 171-line company-directory hook owns bootstrap data, filters, loading,
 and request identity, so a late initial load or older search cannot overwrite the
 latest directory even when a client ignores abort signals.
 A 168-line contact create/detail workspace composes scoring, outreach, customer
@@ -354,7 +376,7 @@ context, review scheduling, touchpoints, and record work; a 134-line contact-det
 hook owns direct-route and directory selection, record/related-deal/work loading,
 and visit-scoped form state. The contact parent route is therefore back under the
 default ceiling without weakening the existing stale-response guards.
-A 155-line company create/detail workspace similarly composes the client editor,
+A 173-line company create/detail workspace similarly composes the client editor,
 linked people, email, account/review context, touchpoints, and shared work cards
 without changing the route boundary.
 The shared record-work follower control also resets on record changes and
@@ -370,12 +392,12 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 420 lines, down from 996. Its audited 257-route
+The API composition root is 420 lines, down from 996. Its audited 260-route
 surface is registered through 175-line platform, 297-line foundation, and
-369-line core-CRM files. The security inventory and hosted-write-policy tests
+378-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot
 silently remove a route from either guard. Shared handler helpers are isolated
-in a 250-line file, invitation delivery is isolated in a 123-line handler, and
+in a 297-line file, invitation delivery is isolated in a 123-line handler, and
 record history owns a focused 106-line handler, and `support_handlers.go` is 380
 lines, so every production file in `internal/app`
 now uses the default 500-line ceiling.

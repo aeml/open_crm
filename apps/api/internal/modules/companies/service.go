@@ -17,9 +17,11 @@ import (
 )
 
 var (
-	ErrDuplicateCompany     = errors.New("duplicate company")
-	ErrNotFound             = errors.New("company not found")
-	ErrActiveReviewSchedule = moduleclientreviews.ErrActiveSchedule
+	ErrDuplicateCompany      = errors.New("duplicate company")
+	ErrNotFound              = errors.New("company not found")
+	ErrIndividualCompanyLink = errors.New("individual clients must keep exactly one linked person")
+	ErrRelationshipTitleLong = errors.New("relationship title must be 200 characters or fewer")
+	ErrActiveReviewSchedule  = moduleclientreviews.ErrActiveSchedule
 )
 
 type DuplicateError struct {
@@ -100,6 +102,22 @@ type ListResult struct {
 	Meta      ListMeta
 }
 
+type LinkedContactListQuery struct {
+	Search   string
+	Page     int
+	PageSize int
+}
+
+type LinkedContactListResult struct {
+	LinkedContacts []LinkedContact
+	Meta           ListMeta
+}
+
+type LinkedContactInput struct {
+	RelationshipTitle string `json:"relationshipTitle"`
+	IsPrimary         bool   `json:"isPrimary"`
+}
+
 type CreateInput struct {
 	Name             string                    `json:"name"`
 	ClientType       string                    `json:"clientType"`
@@ -135,10 +153,11 @@ type UpdateInput struct {
 }
 
 type Detail struct {
-	Summary        Summary
-	LinkedContacts []LinkedContact
-	Activities     []ActivityEntry
-	ActivityMeta   moduleactivityfeed.Meta
+	Summary           Summary
+	LinkedContacts    []LinkedContact
+	LinkedContactMeta ListMeta
+	Activities        []ActivityEntry
+	ActivityMeta      moduleactivityfeed.Meta
 }
 
 type Service struct {
@@ -302,28 +321,12 @@ func (s *Service) GetByID(ctx context.Context, organizationID, companyID int64) 
 	}
 	detail.Summary.CustomFields = customFields
 
-	linkedRows, err := s.pool.Query(ctx, `
-		SELECT c.id, c.first_name, c.last_name, COALESCE(c.email, ''), COALESCE(l.relationship_title, ''), l.is_primary
-		FROM contact_company_links l
-		JOIN contacts c ON c.id = l.contact_id
-		WHERE l.organization_id = $1 AND l.company_id = $2 AND c.archived_at IS NULL
-		ORDER BY l.is_primary DESC, c.last_name ASC, c.first_name ASC, c.id ASC
-	`, organizationID, companyID)
+	linkedPage, err := s.ListLinkedContacts(ctx, organizationID, companyID, LinkedContactListQuery{Page: 1, PageSize: 50})
 	if err != nil {
 		return Detail{}, fmt.Errorf("list linked contacts: %w", err)
 	}
-	defer linkedRows.Close()
-
-	for linkedRows.Next() {
-		var contact LinkedContact
-		if err := linkedRows.Scan(&contact.ID, &contact.FirstName, &contact.LastName, &contact.Email, &contact.RelationshipTitle, &contact.IsPrimary); err != nil {
-			return Detail{}, fmt.Errorf("scan linked contact: %w", err)
-		}
-		detail.LinkedContacts = append(detail.LinkedContacts, contact)
-	}
-	if err := linkedRows.Err(); err != nil {
-		return Detail{}, fmt.Errorf("iterate linked contacts: %w", err)
-	}
+	detail.LinkedContacts = linkedPage.LinkedContacts
+	detail.LinkedContactMeta = linkedPage.Meta
 
 	activityPage, err := moduleactivityfeed.NewService(s.pool).FirstPage(ctx, organizationID, "company", companyID)
 	if err != nil {
@@ -341,7 +344,7 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	}
 
 	input = normalizeCreateInput(input)
-	if err := validateInput(input.Name, input.ClientType, input.LinkedContactIDs); err != nil {
+	if err := validateCreateInput(input.Name, input.ClientType, input.LinkedContactIDs); err != nil {
 		return Detail{}, err
 	}
 	if err := ensureNoDuplicateCompany(ctx, s.pool, organizationID, 0, input); err != nil {
@@ -391,7 +394,7 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 	}
 
 	input = normalizeUpdateInput(input)
-	if err := validateInput(input.Name, input.ClientType, input.LinkedContactIDs); err != nil {
+	if err := validateUpdateInput(input.Name, input.ClientType, input.LinkedContactIDs); err != nil {
 		return Detail{}, err
 	}
 	if err := ensureNoDuplicateCompany(ctx, s.pool, organizationID, companyID, CreateInput(input)); err != nil {
@@ -410,6 +413,20 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 			return Detail{}, ErrNotFound
 		}
 		return Detail{}, fmt.Errorf("lock company custom fields: %w", err)
+	}
+	if input.ClientType == "individual" && input.LinkedContactIDs == nil {
+		var activeLinkedContacts int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*)
+			FROM contact_company_links link
+			JOIN contacts contact ON contact.id=link.contact_id AND contact.organization_id=link.organization_id
+			WHERE link.organization_id=$1 AND link.company_id=$2 AND contact.archived_at IS NULL
+		`, organizationID, companyID).Scan(&activeLinkedContacts); err != nil {
+			return Detail{}, fmt.Errorf("count individual client contacts: %w", err)
+		}
+		if activeLinkedContacts != 1 {
+			return Detail{}, fmt.Errorf("individual clients must have exactly one linked contact")
+		}
 	}
 	managed, err := moduleclientreviews.LockForEntity(ctx, tx, organizationID, "company", companyID)
 	if err != nil {
@@ -457,8 +474,10 @@ func (s *Service) Update(ctx context.Context, organizationID, companyID, actorUs
 		return Detail{}, ErrNotFound
 	}
 
-	if err := replaceLinkedContacts(ctx, tx, organizationID, companyID, input.LinkedContactIDs); err != nil {
-		return Detail{}, fmt.Errorf("replace linked contacts: %w", err)
+	if input.LinkedContactIDs != nil {
+		if err := replaceLinkedContacts(ctx, tx, organizationID, companyID, input.LinkedContactIDs); err != nil {
+			return Detail{}, fmt.Errorf("replace linked contacts: %w", err)
+		}
 	}
 	if err := insertActivity(ctx, tx, organizationID, companyID, actorUserID, "company.updated", companyActivitySummary(input.ClientType, "updated")); err != nil {
 		return Detail{}, fmt.Errorf("insert company activity: %w", err)
@@ -554,6 +573,9 @@ func replaceLinkedContacts(ctx context.Context, executor activityExecutor, organ
 }
 
 func uniquePositiveIDs(values []int64) []int64 {
+	if values == nil {
+		return nil
+	}
 	result := make([]int64, 0, len(values))
 	seen := make(map[int64]struct{}, len(values))
 	for _, value := range values {
@@ -611,7 +633,7 @@ func normalizeClientType(value string) string {
 	return value
 }
 
-func validateInput(name, clientType string, linkedContactIDs []int64) error {
+func validateCreateInput(name, clientType string, linkedContactIDs []int64) error {
 	if name == "" {
 		return fmt.Errorf("company name is required")
 	}
@@ -619,6 +641,19 @@ func validateInput(name, clientType string, linkedContactIDs []int64) error {
 		return fmt.Errorf("client type must be organization or individual")
 	}
 	if clientType == "individual" && len(linkedContactIDs) != 1 {
+		return fmt.Errorf("individual clients must have exactly one linked contact")
+	}
+	return nil
+}
+
+func validateUpdateInput(name, clientType string, linkedContactIDs []int64) error {
+	if name == "" {
+		return fmt.Errorf("company name is required")
+	}
+	if clientType != "organization" && clientType != "individual" {
+		return fmt.Errorf("client type must be organization or individual")
+	}
+	if clientType == "individual" && linkedContactIDs != nil && len(linkedContactIDs) != 1 {
 		return fmt.Errorf("individual clients must have exactly one linked contact")
 	}
 	return nil

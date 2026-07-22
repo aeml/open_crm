@@ -35,6 +35,7 @@ function DealRows({ deals, empty, onOpen }) {
 export function ClientAccountContext({
   canWrite,
   contacts = [],
+  contactTotal,
   deals = [],
   isCustomer = false,
   labels,
@@ -52,6 +53,7 @@ export function ClientAccountContext({
   const visibleTasks = tasks.slice(0, 5)
   const visibleNotes = notes.slice(0, 3)
   const visibleContacts = contacts.slice(0, 5)
+  const exactContactTotal = Number.isInteger(contactTotal) ? contactTotal : contacts.length
 
   return (
     <>
@@ -65,7 +67,7 @@ export function ClientAccountContext({
             <div className="button-row" aria-label="Account summary totals">
               <span className="chip">Won {plural}: {wonDeals.length}</span>
               <span className="chip">Open account tasks: {tasks.length}</span>
-              {contacts.length > 0 ? <span className="chip">Key contacts: {contacts.length}</span> : null}
+              {exactContactTotal > 0 ? <span className="chip">Key contacts: {exactContactTotal}</span> : null}
             </div>
             <div>
               <h4>{`Won ${plural}`}</h4>

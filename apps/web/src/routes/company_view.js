@@ -90,7 +90,7 @@ export function limitLinkedContacts(clientType, value) {
   return ids.join(',')
 }
 
-export function buildCompanyPayload(form, definitions = []) {
+export function buildCompanyPayload(form, definitions = [], { includeLinkedContacts = true } = {}) {
   const individual = isIndividualClient(form.clientType)
   return {
     name: form.name,
@@ -106,7 +106,7 @@ export function buildCompanyPayload(form, definitions = []) {
     phone: form.phone,
     website: individual ? '' : form.website,
     status: form.status,
-    linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs),
+    ...(includeLinkedContacts ? { linkedContactIDs: parseLinkedContactIDs(form.linkedContactIDs) } : {}),
     customFields: customFieldPayload(definitions, form.customFields)
   }
 }
@@ -136,13 +136,13 @@ export function clientTypeLabel(clientType) {
 }
 
 export function linkedContactFieldLabel(clientType) {
-  return isIndividualClient(clientType) ? 'Person record' : 'Linked contact'
+  return isIndividualClient(clientType) ? 'Person record' : 'Initial linked contact'
 }
 
 export function linkedContactFieldHint(clientType) {
   return isIndividualClient(clientType)
     ? 'Individual clients need one linked person record.'
-    : 'Link the main person for this organization client.'
+    : 'Optionally link one existing person now. Additional people are managed from the client record.'
 }
 
 export function createDescription(clientType) {

@@ -11,9 +11,7 @@ import {
   individualClientFromContact,
   isIndividualClient,
   organizationClientFromCompany,
-  primaryLinkedContactID,
   relatedPipelineLabels,
-  sortContactOptions,
   splitFullName
 } from './company_view'
 import { CompanyDirectory } from './company_directory'
@@ -21,6 +19,8 @@ import { CompanyCreateWorkspace, CompanyWorkspace } from './company_workspace'
 import { buildCompaniesPath, useCompanyDirectory } from './use_company_directory'
 import { useCompanyDetail } from './use_company_detail'
 import { useCompanyPeople } from './use_company_people'
+import { useCompanyLinkedContacts } from './use_company_linked_contacts'
+import { useContactLookup } from './use_contact_lookup'
 import { ClientHealthReport } from './client_health_report'
 import { requireRecordResponse } from './use_record_selection'
 
@@ -43,7 +43,6 @@ export function CompaniesRoute() {
     companies,
     companyCustomDefinitions,
     contactCustomDefinitions,
-    contactOptions,
     customDefinitionsLoaded,
     customFilter,
     duplicateCandidate,
@@ -58,7 +57,6 @@ export function CompaniesRoute() {
     selectedClientIds,
     setBulkEntityType,
     setCompanies,
-    setContactOptions,
     setCustomFilter,
     setDuplicateCandidate,
     setDuplicateSearch,
@@ -69,6 +67,7 @@ export function CompaniesRoute() {
     setSelectedClientIds,
     userOptions
   } = directory
+  const contactLookup = useContactLookup()
   const companyDetail = useCompanyDetail({
     companyCustomDefinitions,
     customDefinitionsLoaded,
@@ -108,7 +107,12 @@ export function CompaniesRoute() {
   } = companyWork
 
   const selectedCompany = detail?.company || null
-  const linkedContacts = detail?.linkedContacts || []
+  const companyLinks = useCompanyLinkedContacts({
+    companyId: selectedCompanyId,
+    initialContacts: detail?.linkedContacts,
+    initialMeta: detail?.linkedContactMeta
+  })
+  const linkedContacts = companyLinks.contacts
   const selectedDeals = detail?.deals || []
   const hasFilter = search.trim() !== '' || ownerFilter !== 'all' || customFilter.fieldKey !== ''
   const companyPeople = useCompanyPeople({
@@ -116,7 +120,8 @@ export function CompaniesRoute() {
     selectedCompany,
     customDefinitions: contactCustomDefinitions,
     onCreated: handleLinkedPersonCreated,
-    onError: handleLinkedPersonError
+    onError: handleLinkedPersonError,
+    onRelationshipsChanged: companyLinks.refresh
   })
 
   useEffect(() => {
@@ -192,7 +197,7 @@ export function CompaniesRoute() {
       return
     }
     const params = new URLSearchParams({ companyId: String(selectedCompanyId) })
-    const contactID = primaryLinkedContactID(linkedContacts)
+    const contactID = companyLinks.primaryContact?.id || 0
     if (contactID > 0) {
       params.set('primaryContactId', String(contactID))
     }
@@ -289,7 +294,7 @@ export function CompaniesRoute() {
     setIsSavingCompany(true)
     try {
       const data = requireRecordResponse(await updateCompany(operation.entityId, {
-        ...buildCompanyPayload(form, companyCustomDefinitions)
+        ...buildCompanyPayload(form, companyCustomDefinitions, { includeLinkedContacts: false })
       }), 'company', operation.entityId, 'Unable to update company.')
       if (!companySelection.canApply(operation)) return
       setCompanies((current) => current.map((entry) => (entry.entityType === 'company' && entry.entityId === operation.entityId ? organizationClientFromCompany(data.company) : entry)))
@@ -315,11 +320,8 @@ export function CompaniesRoute() {
 
   function handleLinkedPersonCreated(result) {
     const linkedContact = { ...result.contact, ...result.link }
-    setContactOptions((current) => sortContactOptions([...current.filter((entry) => entry.id !== result.contact.id), result.contact]))
-    setDetail((current) => {
-      if (current?.company?.id !== selectedCompanyId) return current
-      return { ...current, linkedContacts: [...(current.linkedContacts || []).filter((entry) => entry.id !== linkedContact.id), linkedContact] }
-    })
+    contactLookup.includeContacts([result.contact])
+    companyLinks.include(linkedContact)
     if (result.activity?.id) setActivities((current) => [result.activity, ...current.filter((entry) => entry.id !== result.activity.id)])
     setError('')
     setDuplicateSearch('')
@@ -418,7 +420,7 @@ export function CompaniesRoute() {
         <CompanyCreateWorkspace
           companyCustomDefinitions={companyCustomDefinitions}
           contactCustomDefinitions={contactCustomDefinitions}
-          contacts={contactOptions}
+          contactLookup={contactLookup}
           form={form}
           isSaving={isSavingCompany}
           onSetForm={setForm}
@@ -431,14 +433,15 @@ export function CompaniesRoute() {
           canWrite={canWrite}
           company={selectedCompany}
           companyPeople={companyPeople}
+          contactLookup={contactLookup}
           companyCustomDefinitions={companyCustomDefinitions}
           contactCustomDefinitions={contactCustomDefinitions}
-          contactOptions={contactOptions}
           form={form}
           isArchiving={isArchivingCompany}
           isLoading={isDetailLoading}
           isSaving={isSavingCompany}
           linkedContacts={linkedContacts}
+          linkedContactDirectory={companyLinks}
           onArchive={handleArchive}
           onCreateDeal={handleCreateRelatedDeal}
           onOpenContact={(contactID) => navigate(`/contacts/${contactID}`)}

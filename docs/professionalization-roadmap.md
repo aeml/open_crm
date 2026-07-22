@@ -136,7 +136,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.9` Integration Release Review: planned.
 - `0.9.0` Scale And Reliability: in progress.
 - `0.9.1` Query Performance Review: in progress (core tenant query plans and representative budgets are CI-gated; dashboard/report/import/provider review remains).
-- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, stable PostgreSQL page evidence, and explicit 10,000-row export refusal are tested and documented; company linked-contact selection, shared-inbox continuation, lead-review depth, and mutable-catalog ceilings remain explicit decisions).
+- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, searchable bounded company-linked-person continuation, stable PostgreSQL page evidence, and explicit 10,000-row export refusal are tested and documented; shared-inbox continuation, lead-review depth, and mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: planned.
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
@@ -381,16 +381,16 @@ Exit criteria:
 - No behavior changes beyond tested refactors.
 
 Current convergence evidence: `app.go` is now 420 lines and uses the default
-500-line CI ceiling. All 257 explicit registrations live in focused 175-line
-platform, 297-line foundation, and 369-line core-CRM files, called centrally by
+500-line CI ceiling. All 260 explicit registrations live in focused 175-line
+platform, 297-line foundation, and 378-line core-CRM files, called centrally by
 `NewServer`; package-wide inventory and hosted-write-policy scans preserve the
 complete route set after the split. HTTP rate limiting, proxy-aware client
 identity, CSRF/CORS, and security/release headers live in a focused 285-line
 policy file. Service contracts and dependency composition live in a focused
-460-line file. Shared request decoding, response shaping, audit helpers, and
-session-cookie behavior now live in a 250-line helper file, while invitation
-lifecycle delivery lives in a focused handler, leaving
-record history has a focused 106-line handler and leaves `support_handlers.go`
+497-line file. Shared request decoding, response shaping, audit helpers, and
+session-cookie behavior now live in a 297-line helper file, while invitation
+lifecycle delivery lives in a focused handler. Record history has a focused
+106-line handler and leaves `support_handlers.go`
 at 380 lines. Every production file in `internal/app` is
 therefore under the default 500-line CI ceiling, with existing behavior tests
 preserved.
@@ -426,9 +426,10 @@ in-flight evaluations, mismatched contact identities, and late responses after
 leave-and-return navigation. Development-only call, SMS, and meeting orchestration remains
 in a 456-line focused module excluded from production builds. Shared record-work cards,
 touchpoints/account/health context, company editor/view helpers, and focused
-142-line directory plus 82-line linked-people presentation, a 155-line create/detail
-workspace, and tested 70-line company-people plus 176-line directory-state hooks leave `companies.jsx`
-at 458 lines, down from 1,364 and below the default 500-line ceiling. The directory hook owns
+142-line directory plus 146-line linked-people presentation, a 173-line create/detail
+workspace, shared 27-line explicitly labeled search controls, and tested 149-line
+people, 171-line directory, 113-line linked-list, and 82-line lookup hooks leave `companies.jsx`
+at 461 lines, down from 1,364 and below the default 500-line ceiling. The directory hook owns
 bootstrap data, filters, loading, and request identity so stale bootstrap/search results cannot replace
 the latest list. A 178-line
 company-detail orchestrator owns direct-route, directory-selection, related-deal,
@@ -2188,7 +2189,7 @@ Exit criteria:
 - Large datasets do not break core list workflows.
 - Pagination behavior is consistent and documented.
 
-Current convergence evidence: all 102 registered GET routes are digest-gated to
+Current convergence evidence: all 103 registered GET routes are digest-gated to
 `docs/list-endpoint-inventory.md`, which records collection cardinality, stable
 ordering, totals, caller/service limits, overflow behavior, and the trigger for
 keyset conversion. Contacts, companies, deals, and tasks share an overflow-safe
@@ -2208,9 +2209,16 @@ rejected, and normal navigation discloses accessible “Load older” controls.
 Fresh PostgreSQL acceptance proves equal-timestamp ordering, stable continuation
 when a newer row arrives between requests, terminal pages, direct-service bounds,
 and tenant exclusion; the pilot gate reads two adjacent 100-row pages from 1,001
-activities under a two-second budget. Remaining decisions are explicit rather
-than silently truncated: company linked contacts feed recipient and relationship
-editing workflows and need searchable paged selection, shared inbox needs cursor
+activities under a two-second budget. Company detail now embeds only the first
+50 linked people and exposes exact total metadata; a searchable member endpoint
+shares the 100-row/50,000-offset bound, while explicit UI search/load-more and
+separate writer link/unlink endpoints preserve stable primary/account context.
+Generic company edits ignore the legacy relationship array so an older cached
+selector cannot delete unseen links. An individual-client PUT atomically replaces
+its sole person, while DELETE cannot create a zero-link state. Handler/role/component/hook tests, freshly migrated
+PostgreSQL 121-link semantics plus a 1,000-link two-second budget, and the
+Chromium search/link/primary/unlink/WCAG journey cover the outcome. Remaining
+decisions are explicit rather than silently truncated: shared inbox needs cursor
 continuation before promotion, lead review remains a newest-50 operator queue,
 and several mutable definition catalogs rely on pilot-scale usage rather than an
 enforced stored-row ceiling. Close or paginate those surfaces as production-like

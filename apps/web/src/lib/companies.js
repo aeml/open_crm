@@ -59,6 +59,29 @@ export async function getCompany(companyID, { signal } = {}) {
   return payload?.data
 }
 
+export async function listCompanyLinkedContacts(companyID, query = {}, { signal } = {}) {
+  const params = new URLSearchParams()
+  if (query.search) params.set('q', query.search)
+  if (query.page) params.set('page', String(query.page))
+  if (query.pageSize) params.set('pageSize', String(query.pageSize))
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  const payload = await apiRequest(`/api/companies/${companyID}/linked-contacts${suffix}`, { fallbackMessage: 'Unable to load linked people.', signal })
+  return payload?.data || { linkedContacts: [], meta: { page: 1, pageSize: 50, total: 0 } }
+}
+
+export async function linkCompanyContact(companyID, contactID, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/companies/${companyID}/linked-contacts/${contactID}`, {
+    method: 'PUT', body: input, fallbackMessage: 'Unable to link contact.', signal
+  })
+  return payload?.data
+}
+
+export async function unlinkCompanyContact(companyID, contactID, { signal } = {}) {
+  return apiRequest(`/api/companies/${companyID}/linked-contacts/${contactID}`, {
+    method: 'DELETE', fallbackMessage: 'Unable to unlink contact.', signal
+  })
+}
+
 export async function createCompany(input, { signal } = {}) {
   try {
     const payload = await apiRequest('/api/companies', { method: 'POST', body: input, fallbackMessage: 'Unable to create company.', signal })

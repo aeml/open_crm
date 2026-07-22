@@ -4,7 +4,7 @@ import { listCompanies } from '../lib/companies'
 import { listContacts } from '../lib/contacts'
 import { listCustomFields } from '../lib/custom_fields'
 import { listOrganizationUsers } from '../lib/users'
-import { buildClientRecords, organizationClientFromCompany, sortContactOptions } from './company_view'
+import { buildClientRecords, organizationClientFromCompany } from './company_view'
 
 export function buildCompaniesPath(search = '', owner = 'all', customFilter = {}) {
   const params = new URLSearchParams()
@@ -27,7 +27,6 @@ export function useCompanyDirectory({ initialCustomFilter, initialOwnerFilter, i
   const [search, setSearch] = useState(initialSearch)
   const [ownerFilter, setOwnerFilter] = useState(initialOwnerFilter)
   const [customFilter, setCustomFilter] = useState(initialCustomFilter)
-  const [contactOptions, setContactOptions] = useState([])
   const [userOptions, setUserOptions] = useState([])
   const [ownerOptions, setOwnerOptions] = useState([])
   const [companyCustomDefinitions, setCompanyCustomDefinitions] = useState([])
@@ -108,15 +107,13 @@ export function useCompanyDirectory({ initialCustomFilter, initialOwnerFilter, i
     async function run() {
       setIsListLoading(true)
       try {
-        const [listApplied, contacts, owners, companyDefinitions, contactDefinitions] = await Promise.all([
+        const [listApplied, owners, companyDefinitions, contactDefinitions] = await Promise.all([
           loadCompanies(initialSearch, initialOwnerFilter, { request, signal: listController.signal, nextCustomFilter: initialCustomFilter }),
-          listContacts('', { signal: bootstrapController.signal }),
           listOrganizationUsers({ includeDisabled: true, signal: bootstrapController.signal }),
           listCustomFields('company', { signal: bootstrapController.signal }),
           listCustomFields('contact', { signal: bootstrapController.signal })
         ])
         if (bootstrapController.signal.aborted) return
-        setContactOptions(sortContactOptions(contacts.contacts || []))
         setOwnerOptions(owners)
         setUserOptions(owners.filter((user) => (user.status || 'active') === 'active'))
         setCompanyCustomDefinitions(companyDefinitions)
@@ -147,7 +144,6 @@ export function useCompanyDirectory({ initialCustomFilter, initialOwnerFilter, i
     companies,
     companyCustomDefinitions,
     contactCustomDefinitions,
-    contactOptions,
     customDefinitionsLoaded,
     customFilter,
     duplicateCandidate,
@@ -162,7 +158,6 @@ export function useCompanyDirectory({ initialCustomFilter, initialOwnerFilter, i
     selectedClientIds,
     setBulkEntityType,
     setCompanies,
-    setContactOptions,
     setCustomFilter,
     setDuplicateCandidate,
     setDuplicateSearch,

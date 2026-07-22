@@ -1934,3 +1934,25 @@ func TestMigrationFilesIncludeTimelineCursorIndexes(t *testing.T) {
 		t.Fatalf("timeline cursor deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeCompanyLinkedContactPaging(t *testing.T) {
+	const name = "109_company_linked_contact_paging.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"idx_contact_company_links_org_company_contact",
+		"organization_id, company_id, contact_id",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("company linked-contact paging migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("company linked-contact paging deployment class = %q", class)
+	}
+}

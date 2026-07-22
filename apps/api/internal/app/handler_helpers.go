@@ -36,7 +36,7 @@ func decodeContactRequest(w http.ResponseWriter, r *http.Request) (modulecontact
 	return input, true
 }
 
-func decodeCompanyRequest(w http.ResponseWriter, r *http.Request) (modulecompanies.CreateInput, bool) {
+func decodeCompanyRequest(w http.ResponseWriter, r *http.Request, requireIndividualLink bool) (modulecompanies.CreateInput, bool) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	var request companyRequest
 	if !decodeJSONRequest(w, r, requestID, &request) {
@@ -51,7 +51,7 @@ func decodeCompanyRequest(w http.ResponseWriter, r *http.Request) (modulecompani
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Client type must be organization or individual")
 		return modulecompanies.CreateInput{}, false
 	}
-	if input.ClientType == "individual" && len(uniquePositiveInt64s(input.LinkedContactIDs)) != 1 {
+	if input.ClientType == "individual" && (requireIndividualLink || input.LinkedContactIDs != nil) && len(uniquePositiveInt64s(input.LinkedContactIDs)) != 1 {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Individual clients must have exactly one linked contact")
 		return modulecompanies.CreateInput{}, false
 	}
@@ -135,6 +135,7 @@ func respondCompanyDetail(w http.ResponseWriter, r *http.Request, statusCode int
 	response := companyDetailResponse{}
 	response.Data.Company = detail.Summary
 	response.Data.LinkedContacts = detail.LinkedContacts
+	response.Data.LinkedContactMeta = detail.LinkedContactMeta
 	response.Data.Activities = detail.Activities
 	response.Data.ActivityMeta = detail.ActivityMeta
 	response.Meta.RequestID = platformweb.RequestIDFromContext(r.Context())

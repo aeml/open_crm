@@ -102,6 +102,9 @@ type contactsService interface {
 
 type companiesService interface {
 	ListByOrganization(context.Context, int64, modulecompanies.ListQuery) (modulecompanies.ListResult, error)
+	ListLinkedContacts(context.Context, int64, int64, modulecompanies.LinkedContactListQuery) (modulecompanies.LinkedContactListResult, error)
+	LinkContact(context.Context, int64, int64, int64, int64, modulecompanies.LinkedContactInput) (modulecompanies.LinkedContact, error)
+	UnlinkContact(context.Context, int64, int64, int64, int64) error
 	GetByID(context.Context, int64, int64) (modulecompanies.Detail, error)
 	Create(context.Context, int64, int64, modulecompanies.CreateInput) (modulecompanies.Detail, error)
 	Update(context.Context, int64, int64, int64, modulecompanies.UpdateInput) (modulecompanies.Detail, error)

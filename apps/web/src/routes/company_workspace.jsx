@@ -9,7 +9,7 @@ import { createDescription, detailSubtitle, emailRecipientOptions, isIndividualC
 import { RecordWorkCards } from './record_work'
 import { TouchpointSummary } from './touchpoint_summary'
 
-export function CompanyCreateWorkspace({ companyCustomDefinitions, contactCustomDefinitions, contacts, form, isSaving, onSetForm, onSubmit }) {
+export function CompanyCreateWorkspace({ companyCustomDefinitions, contactCustomDefinitions, contactLookup, form, isSaving, onSetForm, onSubmit }) {
   return (
     <Card>
       <div className="card-stack">
@@ -18,7 +18,7 @@ export function CompanyCreateWorkspace({ companyCustomDefinitions, contactCustom
           <p>{createDescription(form.clientType)}</p>
         </div>
         <CompanyForm
-          contacts={contacts}
+          contactLookup={contactLookup}
           customDefinitions={isIndividualClient(form.clientType) ? contactCustomDefinitions : companyCustomDefinitions}
           form={form}
           isSubmitting={isSaving}
@@ -35,14 +35,15 @@ export function CompanyWorkspace({
   canWrite,
   company,
   companyPeople,
+  contactLookup,
   companyCustomDefinitions,
   contactCustomDefinitions,
-  contactOptions,
   form,
   isArchiving,
   isLoading,
   isSaving,
   linkedContacts,
+  linkedContactDirectory,
   onArchive,
   onCreateDeal,
   onOpenContact,
@@ -56,7 +57,8 @@ export function CompanyWorkspace({
   users,
   work
 }) {
-  const emailRecipients = emailRecipientOptions(linkedContacts)
+  const stableLinkedContacts = linkedContactDirectory.unfilteredContacts
+  const emailRecipients = emailRecipientOptions(linkedContactDirectory.knownContacts)
 
   return (
     <Card>
@@ -65,7 +67,7 @@ export function CompanyWorkspace({
         <div className="section-header">
           <div>
             <h2>{company.name}</h2>
-            <p>{detailSubtitle(company, linkedContacts)}</p>
+            <p>{detailSubtitle(company, stableLinkedContacts)}</p>
           </div>
           {canWrite ? (
             <Button className="button-danger" disabled={isArchiving || isSaving} onClick={onArchive}>
@@ -75,9 +77,9 @@ export function CompanyWorkspace({
         </div>
         <CompanyForm
           canSubmit={canWrite}
-          contacts={contactOptions}
           customDefinitions={companyCustomDefinitions}
           form={form}
+          includeLinkedContact={false}
           includeStatus
           isSubmitting={isSaving}
           onSetForm={onSetForm}
@@ -88,14 +90,24 @@ export function CompanyWorkspace({
           canWrite={canWrite}
           company={company}
           contacts={linkedContacts}
+          directory={linkedContactDirectory}
           customDefinitions={contactCustomDefinitions}
           form={companyPeople.form}
+          contactLookup={contactLookup}
+          onLinkSubmit={companyPeople.handleLinkSubmit}
+          onMakePrimary={companyPeople.handleMakePrimary}
           isSaving={companyPeople.isSaving}
+          isLinking={companyPeople.isLinking}
           onOpenContact={onOpenContact}
           onSetForm={companyPeople.setForm}
           onSubmit={companyPeople.handleSubmit}
+          onToggleLinkForm={companyPeople.handleToggleLinkForm}
           onToggleForm={companyPeople.handleToggleForm}
+          onUnlink={companyPeople.handleUnlink}
+          linkForm={companyPeople.linkForm}
+          onSetLinkForm={companyPeople.setLinkForm}
           showForm={companyPeople.showForm}
+          showLinkForm={companyPeople.showLinkForm}
         />
         <RecordEmailComposer
           entityType="company"
@@ -107,7 +119,8 @@ export function CompanyWorkspace({
         />
         <ClientAccountContext
           canWrite={canWrite}
-          contacts={linkedContacts}
+          contacts={stableLinkedContacts}
+          contactTotal={linkedContactDirectory.unfilteredMeta.total}
           deals={selectedDeals}
           isCustomer={company.status === 'customer'}
           labels={pipelineLabels}
@@ -125,7 +138,7 @@ export function CompanyWorkspace({
           users={users}
           onChanged={onReviewChanged}
         />
-        <TouchpointSummary entityType="company" entityId={company.id} refreshKey={JSON.stringify({ activities: work.activities, notes: work.notes, tasks: work.tasks, linkedContacts })} />
+        <TouchpointSummary entityType="company" entityId={company.id} refreshKey={JSON.stringify({ activities: work.activities, notes: work.notes, tasks: work.tasks, linkedContacts: stableLinkedContacts })} />
         <RecordWorkCards
           activities={work.activities}
           activityMeta={work.activityMeta}

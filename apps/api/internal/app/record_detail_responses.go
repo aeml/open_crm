@@ -22,10 +22,11 @@ type contactDetailResponse struct {
 
 type companyDetailResponse struct {
 	Data struct {
-		Company        modulecompanies.Summary         `json:"company"`
-		LinkedContacts []modulecompanies.LinkedContact `json:"linkedContacts"`
-		Activities     []modulecompanies.ActivityEntry `json:"activities"`
-		ActivityMeta   moduleactivityfeed.Meta         `json:"activityMeta"`
+		Company           modulecompanies.Summary         `json:"company"`
+		LinkedContacts    []modulecompanies.LinkedContact `json:"linkedContacts"`
+		LinkedContactMeta modulecompanies.ListMeta        `json:"linkedContactMeta"`
+		Activities        []modulecompanies.ActivityEntry `json:"activities"`
+		ActivityMeta      moduleactivityfeed.Meta         `json:"activityMeta"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`

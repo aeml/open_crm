@@ -69,6 +69,20 @@ func TestViewerCanReadDeals(t *testing.T) {
 	}
 }
 
+func TestViewerCanReadCompanyLinkedContacts(t *testing.T) {
+	service := &fakeCompaniesService{}
+	server := serverWithRole("viewer", Dependencies{CompaniesService: service})
+	request := httptest.NewRequest(http.MethodGet, "/api/companies/6/linked-contacts", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || service.lastLinkedListOrgID != 42 {
+		t.Fatalf("expected viewer-scoped linked-contact read, got status=%d org=%d", recorder.Code, service.lastLinkedListOrgID)
+	}
+}
+
 // ── Viewer: write access blocked ─────────────────────────────────────────────
 
 func TestViewerCannotCreateContact(t *testing.T) {
@@ -104,6 +118,29 @@ func TestViewerCannotCreateDeal(t *testing.T) {
 
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for viewer creating deal, got %d", recorder.Code)
+	}
+}
+
+func TestViewerCannotMutateCompanyLinkedContacts(t *testing.T) {
+	for _, test := range []struct {
+		method string
+		body   string
+	}{
+		{method: http.MethodPut, body: `{}`},
+		{method: http.MethodDelete},
+	} {
+		service := &fakeCompaniesService{}
+		server := serverWithRole("viewer", Dependencies{CompaniesService: service})
+		request := httptest.NewRequest(test.method, "/api/companies/6/linked-contacts/9", bytes.NewBufferString(test.body))
+		request.Header.Set("Content-Type", "application/json")
+		addSessionCookie(request)
+		recorder := httptest.NewRecorder()
+
+		server.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusForbidden || service.lastLinkOrgID != 0 || service.lastUnlinkOrgID != 0 {
+			t.Fatalf("%s: expected viewer rejection before service, got status=%d link_org=%d unlink_org=%d", test.method, recorder.Code, service.lastLinkOrgID, service.lastUnlinkOrgID)
+		}
 	}
 }
 

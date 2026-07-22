@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	expectedRegisteredGetRouteCount  = 102
-	expectedRegisteredGetRouteDigest = "2c13ce40e4b23aa7a2a467caf5ed4f8e7d4850850fa66d1a87288f95bcdadb84"
+	expectedRegisteredGetRouteCount  = 103
+	expectedRegisteredGetRouteDigest = "77527ebfed5440091a8944ed5232f694e73efbbcd5f66f365b871b85ed6351f1"
 )
 
 func TestListEndpointInventoryMatchesRegisteredGetRoutes(t *testing.T) {
