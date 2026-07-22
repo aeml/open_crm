@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `32`
+Evidence row count: `33`
 
-Evidence digest: `fa576aba585fb664e14a0c894f8163762659866327f51acce6648abc436651c5`
+Evidence digest: `7e9f54030be6da00fcbc2aa86aaa3355ef46a2a335a9d7a0589560d60442545d`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -44,6 +44,7 @@ the assertions inside those tests remain the proof of behavior.
 | `workflow-definition-management` | `apps/api/internal/modules/workflowautomations/definition_pagination_postgres_test.go` | `TestWorkflowDefinitionPagesAreBoundedStableAndTenantScoped` | Exact stored-definition totals, workspace-wide active-action summaries, stable bounded pages, repeat reads, direct limits, and the management index remain tenant scoped; a foreign definition is absent from every page and summary. |
 | `workflow-run-recovery` | `apps/api/internal/modules/workflowautomations/lead_follow_up_postgres_test.go` | `TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant` | Run inspection joins a durable lead job only by organization, reviewed job type, and exact run-derived idempotency key. A same-key foreign dead job cannot affect local status/error/attempt evidence; local dead work leaves active health, enters failed health, and returns to queued only after tenant-authorized replay. |
 | `duplicate-management` | `apps/api/internal/modules/duplicateoperations/service_postgres_test.go` | `TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres` | Foreign candidates remain invisible and a cross-tenant merge key/record pair rejects without relationship changes. |
+| `email-sequence-delivery` | `apps/api/internal/modules/sequencerunner/service_postgres_test.go` | `TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres` | A job carrying another workspace's organization cannot load or send the local enrollment; exact retries do not duplicate provider effects, ambiguous SMTP outcomes remain quarantined, and explicit confirm/retry recovery advances only the owning tenant's enrollment while preserving its prepared message identifier. |
 | `forecast` | `apps/api/internal/modules/dashboard/forecast_postgres_test.go` | `TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope` | Forecast totals, stages, owners, quotas, and task buckets exclude a seeded high-value foreign pipeline. |
 | `imports-and-rollback` | `apps/api/internal/modules/imports/service_postgres_test.go` | `TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres` | Imported rows, batch history, idempotency, and rollback are tenant scoped; foreign history and rollback IDs stay missing. |
 | `invitations` | `apps/api/internal/modules/users/invitations_postgres_test.go` | `TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres` | Foreign delivery, resend, and revoke attempts return not found and cannot consume or rotate the owner's token lineage. |
@@ -78,6 +79,11 @@ the assertions inside those tests remain the proof of behavior.
   other workspace's client-period collection remains `200` but contains none
   of the pilot workspace's clients, counts, or sources, while foreign pipeline
   and entry-stage identifiers fail closed in the cohort report.
+- The same clean-database journey exercises the promoted sequence's normal
+  tenant path from exact-revision approval and enrollment through one real SMTP
+  sandbox effect and reconciled accepted/finished outcomes; the named runner
+  evidence row above proves a job cannot substitute another organization at
+  the provider boundary.
 - Composite tenant foreign keys are used where stable relational tables permit
   them. Polymorphic record IDs are revalidated under the tenant predicate at
   the transactional service boundary.

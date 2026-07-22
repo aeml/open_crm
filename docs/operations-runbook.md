@@ -2013,6 +2013,22 @@ uncertain and needs the procedure below. Historical completions from before
 migration 88 remain unclassified rather than being guessed; the API exposes
 those counts even though the compact settings summary does not.
 
+The CI-gated Chromium pilot journey exercises the local production-capable
+baseline against a fresh PostgreSQL database and the SMTP provider sandbox. It
+creates a draft, approves the exact revision, enrolls a contact, waits for the
+durable worker, requires one captured SMTP message with the merged contact,
+prepared `Message-ID`, multipart body, and unsubscribe fallback, then requires
+the management total to show exactly one accepted and one finished outcome.
+It also scans that populated screen for WCAG A/AA violations. A failure in any
+part of this path blocks deployment; do not replace the provider-boundary wait
+with a seeded delivery or mark the outcome accepted directly in SQL.
+
+This sandbox proves the same generic SMTP adapter and durable state transitions
+without using customer infrastructure. It does not validate downstream inbox
+placement, DKIM preservation, real Gmail/Microsoft refresh behavior, or real
+DSN/ARF formats. Retain the controlled provider evidence described above before
+calling the capability `validated with a real provider/pilot`.
+
 Reply detection is deliberately conservative about tenant, active contact
 email, enrolling mailbox, provider-accepted time, and message correlation.
 Every new durable sequence send stores an opaque RFC `Message-ID` before the

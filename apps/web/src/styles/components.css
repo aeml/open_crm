@@ -50,7 +50,15 @@
 .contact-link {
   font-size: 1rem;
   font-weight: 700;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   text-align: left;
+  white-space: normal;
+}
+
+.record-select-checkbox + .contact-link {
+  max-width: calc(100% - 2.75rem);
+  vertical-align: middle;
 }
 
 .eyebrow {

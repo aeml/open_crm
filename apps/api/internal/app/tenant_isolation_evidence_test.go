@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 32
-	expectedTenantIsolationEvidenceDigest = "fa576aba585fb664e14a0c894f8163762659866327f51acce6648abc436651c5"
+	expectedTenantIsolationEvidenceCount  = 33
+	expectedTenantIsolationEvidenceDigest = "7e9f54030be6da00fcbc2aa86aaa3355ef46a2a335a9d7a0589560d60442545d"
 )
 
 type tenantIsolationEvidence struct {
@@ -43,6 +43,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "workflow-definition-management", Source: "apps/api/internal/modules/workflowautomations/definition_pagination_postgres_test.go", Test: "TestWorkflowDefinitionPagesAreBoundedStableAndTenantScoped"},
 	{Surface: "workflow-run-recovery", Source: "apps/api/internal/modules/workflowautomations/lead_follow_up_postgres_test.go", Test: "TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant"},
 	{Surface: "duplicate-management", Source: "apps/api/internal/modules/duplicateoperations/service_postgres_test.go", Test: "TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres"},
+	{Surface: "email-sequence-delivery", Source: "apps/api/internal/modules/sequencerunner/service_postgres_test.go", Test: "TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres"},
 	{Surface: "forecast", Source: "apps/api/internal/modules/dashboard/forecast_postgres_test.go", Test: "TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope"},
 	{Surface: "imports-and-rollback", Source: "apps/api/internal/modules/imports/service_postgres_test.go", Test: "TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres"},
 	{Surface: "invitations", Source: "apps/api/internal/modules/users/invitations_postgres_test.go", Test: "TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres"},
