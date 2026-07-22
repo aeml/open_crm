@@ -1989,6 +1989,33 @@ Before approving a mailbox provider for pilot use:
 Standards references: [RFC 8058](https://www.rfc-editor.org/rfc/rfc8058.html)
 and [RFC 2369](https://www.rfc-editor.org/rfc/rfc2369.html).
 
+### Managing email templates, snippets, and capacity
+
+**Settings > Email Templates** loads independent exact 50-row name-ordered
+pages for templates and snippets. Each search is literal and limited to the
+definition name. Use the catalog-specific previous/next controls rather than
+assuming the first page is complete. Record composers separately traverse and
+verify every bounded page so existing definitions remain selectable; if a
+catalog changes during that traversal, reopen the composer or retry after the
+other writer finishes.
+
+A workspace may store at most 100 templates and 100 snippets. The API
+serializes the final slot across instances, so concurrent creates at a ceiling
+produce one success and one `EMAIL_TEMPLATE_LIMIT` or `EMAIL_SNIPPET_LIMIT`.
+Delete an obsolete definition through Settings to free its catalog's slot.
+Deletion does not rewrite already prepared or sent email evidence, which
+retains rendered content in its purpose-specific delivery/message ledger, and
+the definition deletion remains in the audit trail.
+
+Every edit and delete is bound to the revision displayed when the operator
+selected the row. A `409 DEFINITION_CHANGED` means another writer changed or
+deleted that definition; reload the catalog, review the new content, and apply
+the intended action again. Never guess a revision, bypass a ceiling with SQL,
+or rewrite template/snippet rows to repair a composer. If a legacy workspace
+already exceeds a new ceiling, the complete loader preserves read/use access
+but no new definition can be created until the applicable stored count falls
+below 100.
+
 ### Managing sequence definitions and capacity
 
 **Settings > Email Sequences** loads exact 50-row name-ordered pages and shows

@@ -286,14 +286,14 @@ type emailFeedbackService interface {
 }
 
 type emailTemplatesService interface {
-	ListByOrganization(context.Context, int64) ([]moduleemailtemplates.Template, error)
-	Create(context.Context, int64, moduleemailtemplates.Input) (moduleemailtemplates.Template, error)
-	Update(context.Context, int64, int64, moduleemailtemplates.Input) (moduleemailtemplates.Template, error)
-	Delete(context.Context, int64, int64) error
-	ListSnippetsByOrganization(context.Context, int64) ([]moduleemailtemplates.Snippet, error)
-	CreateSnippet(context.Context, int64, moduleemailtemplates.SnippetInput) (moduleemailtemplates.Snippet, error)
-	UpdateSnippet(context.Context, int64, int64, moduleemailtemplates.SnippetInput) (moduleemailtemplates.Snippet, error)
-	DeleteSnippet(context.Context, int64, int64) error
+	ListByOrganization(context.Context, int64, moduleemailtemplates.ListQuery) (moduleemailtemplates.TemplatePage, error)
+	Create(context.Context, int64, int64, moduleemailtemplates.Input) (moduleemailtemplates.Template, error)
+	Update(context.Context, int64, int64, int64, moduleemailtemplates.Input) (moduleemailtemplates.Template, error)
+	Delete(context.Context, int64, int64, int64, int) error
+	ListSnippetsByOrganization(context.Context, int64, moduleemailtemplates.ListQuery) (moduleemailtemplates.SnippetPage, error)
+	CreateSnippet(context.Context, int64, int64, moduleemailtemplates.SnippetInput) (moduleemailtemplates.Snippet, error)
+	UpdateSnippet(context.Context, int64, int64, int64, moduleemailtemplates.SnippetInput) (moduleemailtemplates.Snippet, error)
+	DeleteSnippet(context.Context, int64, int64, int64, int) error
 }
 
 type productCatalogService interface {

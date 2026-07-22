@@ -3,22 +3,32 @@
 package emailtemplates
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 
 	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
-	ErrDuplicateName = errors.New("email template name already exists")
-	ErrInvalidInput  = errors.New("invalid email template")
-	ErrNotFound      = errors.New("email template not found")
+	ErrConflict      = errors.New("email template or snippet changed")
+	ErrDuplicateName = errors.New("email template or snippet name already exists")
+	ErrInvalidInput  = errors.New("invalid email template or snippet")
+	ErrNotFound      = errors.New("email template or snippet not found")
+	ErrSnippetLimit  = errors.New("email snippet limit reached")
+	ErrTemplateLimit = errors.New("email template limit reached")
+)
+
+const (
+	DefaultListPageSize   = 50
+	MaxListSearchLength   = 100
+	MaxStoredSnippets     = 100
+	MaxStoredTemplates    = 100
+	MaxTemplateBodyLength = 10000
+	MaxTemplateNameLength = 120
+	MaxTemplateSubjectLen = 500
+	MaxSnippetBodyLength  = 10000
+	MaxSnippetNameLength  = 120
 )
 
 type Template struct {
@@ -26,6 +36,7 @@ type Template struct {
 	Name      string    `json:"name"`
 	Subject   string    `json:"subject"`
 	Body      string    `json:"body"`
+	Revision  int       `json:"revision"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -34,6 +45,7 @@ type Snippet struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
 	Body      string    `json:"body"`
+	Revision  int       `json:"revision"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -51,14 +63,16 @@ type MergeFieldGroup struct {
 }
 
 type Input struct {
-	Name    string `json:"name"`
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
+	Name             string `json:"name"`
+	Subject          string `json:"subject"`
+	Body             string `json:"body"`
+	ExpectedRevision int    `json:"expectedRevision"`
 }
 
 type SnippetInput struct {
-	Name string `json:"name"`
-	Body string `json:"body"`
+	Name             string `json:"name"`
+	Body             string `json:"body"`
+	ExpectedRevision int    `json:"expectedRevision"`
 }
 
 type Service struct {
@@ -146,224 +160,4 @@ func appendCustomFieldGroup(groups []MergeFieldGroup, key, label, namespace stri
 		return groups
 	}
 	return append(groups, MergeFieldGroup{Key: key, Label: label, Fields: fields})
-}
-
-func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]Template, error) {
-	if s == nil || s.pool == nil {
-		return nil, fmt.Errorf("email templates service not configured")
-	}
-
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, subject, body, created_at, updated_at
-		FROM email_templates
-		WHERE organization_id = $1
-		ORDER BY lower(name) ASC, id ASC
-	`, organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("list email templates: %w", err)
-	}
-	defer rows.Close()
-
-	templates := make([]Template, 0)
-	for rows.Next() {
-		var t Template
-		if err := rows.Scan(&t.ID, &t.Name, &t.Subject, &t.Body, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan email template: %w", err)
-		}
-		templates = append(templates, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate email templates: %w", err)
-	}
-	return templates, nil
-}
-
-func (s *Service) Create(ctx context.Context, organizationID int64, input Input) (Template, error) {
-	if s == nil || s.pool == nil {
-		return Template{}, fmt.Errorf("email templates service not configured")
-	}
-	input = normalizeInput(input)
-	if err := validateInput(input); err != nil {
-		return Template{}, err
-	}
-
-	var t Template
-	err := s.pool.QueryRow(ctx, `
-		INSERT INTO email_templates (organization_id, name, subject, body)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, name, subject, body, created_at, updated_at
-	`, organizationID, input.Name, input.Subject, input.Body).Scan(&t.ID, &t.Name, &t.Subject, &t.Body, &t.CreatedAt, &t.UpdatedAt)
-	if err != nil {
-		return Template{}, mapSaveError(err)
-	}
-	return t, nil
-}
-
-func (s *Service) Update(ctx context.Context, organizationID, templateID int64, input Input) (Template, error) {
-	if s == nil || s.pool == nil {
-		return Template{}, fmt.Errorf("email templates service not configured")
-	}
-	input = normalizeInput(input)
-	if err := validateInput(input); err != nil {
-		return Template{}, err
-	}
-
-	var t Template
-	err := s.pool.QueryRow(ctx, `
-		UPDATE email_templates
-		SET name = $3, subject = $4, body = $5, updated_at = NOW()
-		WHERE organization_id = $1 AND id = $2
-		RETURNING id, name, subject, body, created_at, updated_at
-	`, organizationID, templateID, input.Name, input.Subject, input.Body).Scan(&t.ID, &t.Name, &t.Subject, &t.Body, &t.CreatedAt, &t.UpdatedAt)
-	if err != nil {
-		return Template{}, mapSaveError(err)
-	}
-	return t, nil
-}
-
-func (s *Service) Delete(ctx context.Context, organizationID, templateID int64) error {
-	if s == nil || s.pool == nil {
-		return fmt.Errorf("email templates service not configured")
-	}
-
-	tag, err := s.pool.Exec(ctx, `
-		DELETE FROM email_templates
-		WHERE organization_id = $1 AND id = $2
-	`, organizationID, templateID)
-	if err != nil {
-		return fmt.Errorf("delete email template: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func (s *Service) ListSnippetsByOrganization(ctx context.Context, organizationID int64) ([]Snippet, error) {
-	if s == nil || s.pool == nil {
-		return nil, fmt.Errorf("email templates service not configured")
-	}
-
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, body, created_at, updated_at
-		FROM email_snippets
-		WHERE organization_id = $1
-		ORDER BY lower(name) ASC, id ASC
-	`, organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("list email snippets: %w", err)
-	}
-	defer rows.Close()
-
-	snippets := make([]Snippet, 0)
-	for rows.Next() {
-		var snippet Snippet
-		if err := rows.Scan(&snippet.ID, &snippet.Name, &snippet.Body, &snippet.CreatedAt, &snippet.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan email snippet: %w", err)
-		}
-		snippets = append(snippets, snippet)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate email snippets: %w", err)
-	}
-	return snippets, nil
-}
-
-func (s *Service) CreateSnippet(ctx context.Context, organizationID int64, input SnippetInput) (Snippet, error) {
-	if s == nil || s.pool == nil {
-		return Snippet{}, fmt.Errorf("email templates service not configured")
-	}
-	input = normalizeSnippetInput(input)
-	if err := validateSnippetInput(input); err != nil {
-		return Snippet{}, err
-	}
-
-	var snippet Snippet
-	err := s.pool.QueryRow(ctx, `
-		INSERT INTO email_snippets (organization_id, name, body)
-		VALUES ($1, $2, $3)
-		RETURNING id, name, body, created_at, updated_at
-	`, organizationID, input.Name, input.Body).Scan(&snippet.ID, &snippet.Name, &snippet.Body, &snippet.CreatedAt, &snippet.UpdatedAt)
-	if err != nil {
-		return Snippet{}, mapSaveError(err)
-	}
-	return snippet, nil
-}
-
-func (s *Service) UpdateSnippet(ctx context.Context, organizationID, snippetID int64, input SnippetInput) (Snippet, error) {
-	if s == nil || s.pool == nil {
-		return Snippet{}, fmt.Errorf("email templates service not configured")
-	}
-	input = normalizeSnippetInput(input)
-	if err := validateSnippetInput(input); err != nil {
-		return Snippet{}, err
-	}
-
-	var snippet Snippet
-	err := s.pool.QueryRow(ctx, `
-		UPDATE email_snippets
-		SET name = $3, body = $4, updated_at = NOW()
-		WHERE organization_id = $1 AND id = $2
-		RETURNING id, name, body, created_at, updated_at
-	`, organizationID, snippetID, input.Name, input.Body).Scan(&snippet.ID, &snippet.Name, &snippet.Body, &snippet.CreatedAt, &snippet.UpdatedAt)
-	if err != nil {
-		return Snippet{}, mapSaveError(err)
-	}
-	return snippet, nil
-}
-
-func (s *Service) DeleteSnippet(ctx context.Context, organizationID, snippetID int64) error {
-	if s == nil || s.pool == nil {
-		return fmt.Errorf("email templates service not configured")
-	}
-
-	tag, err := s.pool.Exec(ctx, `
-		DELETE FROM email_snippets
-		WHERE organization_id = $1 AND id = $2
-	`, organizationID, snippetID)
-	if err != nil {
-		return fmt.Errorf("delete email snippet: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-func normalizeInput(input Input) Input {
-	input.Name = strings.TrimSpace(input.Name)
-	input.Subject = strings.TrimSpace(input.Subject)
-	input.Body = strings.TrimSpace(input.Body)
-	return input
-}
-
-func validateInput(input Input) error {
-	if input.Name == "" || input.Subject == "" || input.Body == "" {
-		return ErrInvalidInput
-	}
-	return nil
-}
-
-func normalizeSnippetInput(input SnippetInput) SnippetInput {
-	input.Name = strings.TrimSpace(input.Name)
-	input.Body = strings.TrimSpace(input.Body)
-	return input
-}
-
-func validateSnippetInput(input SnippetInput) error {
-	if input.Name == "" || input.Body == "" {
-		return ErrInvalidInput
-	}
-	return nil
-}
-
-func mapSaveError(err error) error {
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return ErrDuplicateName
-	}
-	return fmt.Errorf("save email template: %w", err)
 }

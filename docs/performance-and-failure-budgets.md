@@ -33,6 +33,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Two adjacent record-history cursor pages (1,001 rows, 100/page) | 2 s |
 | Each of the first two shared-inbox cursor pages (1,001 rows, 100/page) | 2 s |
 | Each of the first two filtered lead-review cursor pages (1,001 rows, 100/page) | 2 s |
+| Each adjacent email-template and snippet management page (1,001 definitions/catalog, up to 100 returned) | 2 s each |
 | Active and adjacent email-sequence definition pages (1,001 definitions, up to 100 returned) | 2 s each |
 | Company linked-person page (1,000 links, 100 returned) | 2 s |
 | Transactional contact-create p95 | 1 s |
@@ -188,16 +189,17 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 752 KiB | 235 KiB |
+| All JavaScript and CSS | 758 KiB | 237 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.64 KiB largest lazy
-chunk, and 751.69 KiB/234.60 KiB total assets. The production contact, company,
-deal, and task routes are 27.72/8.57, 44.95/12.98, 54.93/15.64, and 26.53/7.64
+Current production-URL evidence: 178.82 KiB/57.97 KiB entry, 54.93 KiB/15.65 KiB largest lazy
+chunk, and 757.71 KiB/236.28 KiB total assets. The production contact, company,
+deal, and task routes are 27.08/8.46, 44.95/12.98, 54.93/15.65, and 26.53/7.64
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
-portable workspace export, and measured usage remain isolated in a 14.24 KiB/4.51 KiB settings route. Its
-OAuth-mailbox peer remains separately lazy loaded at 10.63 KiB/3.21 KiB, and
-bounded sequence definition/history management remains in a 12.91 KiB/3.98 KiB route. The
+portable workspace export, and measured usage remain isolated in a 14.58 KiB/4.63 KiB settings route. Its
+OAuth-mailbox peer remains separately lazy loaded at 10.63 KiB/3.22 KiB;
+bounded template/snippet management is 11.02 KiB/2.92 KiB; and bounded
+sequence definition/history management remains in a 12.91 KiB/3.98 KiB route. The
 7.72 KiB/2.72 KiB background-operations route includes labeled replay and an
 explicit lead-follow-up filter, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
@@ -516,6 +518,22 @@ completes the SMTP delivery and populated WCAG scan. The measured build is
 12.91/3.98 KiB Email Sequences route, and 751.69/234.60 KiB aggregate raw/gzip.
 Only the reviewed aggregate ceilings advance from 748/234 to 752/235 KiB;
 entry, per-route, CSS, and source ceilings remain unchanged.
+
+Bounded email-template and snippet management gives each catalog an exact
+repeatable-read filtered total, literal 100-character name search, 50/default
+and 100/maximum page size, and 50,000 offset ceiling. Stable case-insensitive
+name/ID order uses tenant indexes. Fresh PostgreSQL 16 acceptance seeds 1,001
+local rows in each catalog plus foreign sentinels, requires adjacent pages
+below two seconds, and proves direct bounds, literal wildcard search, tenant
+and actor denial, exact-revision update/delete, content-free transactional
+audit, one-success/one-limit concurrent final-slot creates, and capacity
+recovery after delete. Settings exposes independent guarded continuation while
+record composers traverse every stable bounded page and preserve legacy
+overflow. The measured production build is 178.82/57.97 KiB entry,
+54.93/15.65 KiB largest lazy chunk, 11.02/2.92 KiB Email Templates route,
+and 757.71/236.28 KiB aggregate raw/gzip. Only the reviewed aggregate ceilings
+advance from 752/235 to 758/237 KiB; entry, per-route, CSS, and source ceilings
+remain unchanged.
 
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and

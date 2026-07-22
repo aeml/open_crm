@@ -14,8 +14,9 @@ The audited mutation classes are:
 
 - workspace provisioning, identity verification, invitation, role, member
   lifecycle, password recovery, and active-session revocation;
-- organization profile, pipeline, custom-field, quote-template, email-sequence
-  definition lifecycle and approval, and executable automation configuration;
+- organization profile, pipeline, custom-field, quote-template, email-template,
+  email-snippet, and email-sequence definition lifecycle and approval, plus
+  executable automation configuration;
 - archive recovery, imports and rollback, bulk changes and rollback, duplicate
   merge, client review scheduling, and lead-submission quarantine/recovery;
 - billing subscription/reconciliation outcomes, identity- and customer-email
@@ -34,9 +35,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `44`
+Producer source count: `45`
 
-Producer source digest: `7630d09037322489a5a747b0495c582279cadea23dfcbf4b7a3a68f76c41a5ed`
+Producer source digest: `b100b9333ed81c5824f2235e030d79b0fd0d117cd4fe945de8237113bd1e5087`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -48,6 +49,12 @@ pause events commit in the same tenant transaction as the definition change.
 Idempotent repeated approval or pause writes no duplicate event. Metadata is
 limited to revision, resulting status, and step count; cadence subject/body and
 recipient/provider material remain outside the audit row.
+
+Email-template and snippet create, exact-revision update, and exact-revision
+delete events likewise commit with the tenant definition. Their audit metadata
+contains only the resulting revision; summaries may name the definition but
+never retain its subject, body, merge-field content, recipient material, or
+provider data.
 
 ## Data and secret boundary
 

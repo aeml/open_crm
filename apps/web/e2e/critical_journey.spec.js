@@ -112,6 +112,18 @@ function seedEmailSequenceContinuation(ownerEmail, runID) {
   })
 }
 
+function seedEmailDefinitionContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_email_definitions', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -315,14 +327,41 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   const recordEmailTemplateName = `Relationship follow-up ${runID}`
   const recordEmailTemplateSubject = `Pilot relationship {{first_name}} ${runID}`
   const recordEmailTemplateBody = 'Hello {{first_name}}, your relationship segment is {{contact.custom.relationship_segment}}.'
+  seedEmailDefinitionContinuation(owner.email, runID)
   await page.getByRole('link', { name: 'Email Templates', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Email templates', exact: true })).toBeVisible()
   await expect(page.getByText('{{contact.custom.relationship_segment}}', { exact: true })).toBeVisible()
+  const seededTemplateName = `Browser email template ${runID} #051`
+  const seededSnippetName = `Browser email snippet ${runID} #051`
+  await expect(page.getByRole('heading', { name: `Browser email template ${runID} #001`, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: seededTemplateName, exact: true })).toHaveCount(0)
+  await expect(page.getByText('Showing 50 of 51 email templates', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Next template page' }).click()
+  await expect(page.getByRole('heading', { name: seededTemplateName, exact: true })).toBeVisible()
+  await page.getByLabel('Search email templates').fill(seededTemplateName)
+  await page.getByRole('button', { name: 'Apply template search' }).click()
+  await expect(page.getByText('Showing 1 of 1 email templates', { exact: false })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `Browser email snippet ${runID} #001`, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: seededSnippetName, exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Next snippet page' }).click()
+  await expect(page.getByRole('heading', { name: seededSnippetName, exact: true })).toBeVisible()
+  await page.getByLabel('Search email snippets').fill(seededSnippetName)
+  await page.getByRole('button', { name: 'Apply snippet search' }).click()
+  await expect(page.getByText('Showing 1 of 1 email snippets', { exact: false })).toBeVisible()
+  const emailDefinitionAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-email-definition-continuation', {
+    body: JSON.stringify({ url: page.url(), violations: emailDefinitionAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(emailDefinitionAccessibility.violations).toEqual([])
   const emailTemplateForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Create template' }) })
   await emailTemplateForm.getByLabel('Name').fill(recordEmailTemplateName)
   await emailTemplateForm.getByLabel('Subject').fill(recordEmailTemplateSubject)
   await emailTemplateForm.getByLabel('Body').fill(recordEmailTemplateBody)
   await emailTemplateForm.getByRole('button', { name: 'Create template' }).click()
+  await expect(page.getByText('Email template created.', { exact: true })).toBeVisible()
   await expect(page.getByRole('list', { name: 'Email templates' }).getByText(recordEmailTemplateName, { exact: true })).toBeVisible()
 
   const publicLeadEmail = `website-lead-${runID}@example.test`

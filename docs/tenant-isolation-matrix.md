@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-22
 
-Evidence row count: `38`
+Evidence row count: `39`
 
-Evidence digest: `a263254b7300f16ffacd75bcba6a1cf5b59a5f908a7eeb81190b725f294e2f13`
+Evidence digest: `9ca957198ec18098714805826737a24d7bdb93c2bf599b665b6e8dc1e3421ef8`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -44,6 +44,7 @@ the assertions inside those tests remain the proof of behavior.
 | `workflow-definition-management` | `apps/api/internal/modules/workflowautomations/definition_pagination_postgres_test.go` | `TestWorkflowDefinitionPagesAreBoundedStableAndTenantScoped` | Exact stored-definition totals, workspace-wide active-action summaries, stable bounded pages, repeat reads, direct limits, and the management index remain tenant scoped; a foreign definition is absent from every page and summary. |
 | `workflow-run-recovery` | `apps/api/internal/modules/workflowautomations/lead_follow_up_postgres_test.go` | `TestLeadFollowUpWorkflowSnapshotsExecutesAndReplaysWithinTenant` | Run inspection joins durable action/job evidence only by organization, reviewed job type, and exact run-derived idempotency key. A same-key foreign dead job cannot affect local run/action status, error, or attempt evidence; local dead work leaves active health, enters failed health, and returns to queued only after tenant-authorized replay. |
 | `duplicate-management` | `apps/api/internal/modules/duplicateoperations/service_postgres_test.go` | `TestDuplicateReviewAndMergePreserveRelationshipsAgainstPostgres` | Foreign candidates remain invisible and a cross-tenant merge key/record pair rejects without relationship changes. |
+| `email-template-management` | `apps/api/internal/modules/emailtemplates/management_postgres_test.go` | `TestEmailDefinitionCatalogsAreBoundedTenantSafeRevisionedAndCapacitySerialized` | Exact filtered totals, literal search, stable adjacent template/snippet pages, exact-revision mutation/delete, transactional active-writer revalidation/audit, and each serialized 100-stored-definition ceiling stay inside the owning workspace; foreign definitions and viewer/disabled/foreign actors remain missing, and concurrent final-slot creates produce one local winner per catalog. |
 | `email-sequence-delivery` | `apps/api/internal/modules/sequencerunner/service_postgres_test.go` | `TestSequenceJobsAdvanceExactlyOnceAndQuarantineUncertainSMTPAgainstPostgres` | A job carrying another workspace's organization cannot load or send the local enrollment; exact retries do not duplicate provider effects, ambiguous SMTP outcomes remain quarantined, and explicit confirm/retry recovery advances only the owning tenant's enrollment while preserving its prepared message identifier. |
 | `email-sequence-governance` | `apps/api/internal/modules/emailsequences/approvals_postgres_test.go` | `TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres` | Approval, pause, immutable historical content, and enrollment remain bound to the owning organization; enrollment now revalidates the active same-tenant enroller inside its transaction, while missing and foreign actors leave no enrollment or queued work. |
 | `email-sequence-history` | `apps/api/internal/modules/emailsequences/enrollment_history_postgres_test.go` | `TestSequenceEnrollmentHistoryStableBoundedTenantContinuationAgainstPostgres` | Sequence drill-down binds organization and sequence in both the index selection and detail joins; 1,001 equal-time rows retain ID order across bounded opaque continuation, per-enrollment delivery evidence stays local, direct limits reject, and a foreign sequence returns no history. |

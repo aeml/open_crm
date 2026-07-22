@@ -25,6 +25,32 @@ func TestMigrationFilesIncludeInitialSchema(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeEmailTemplateDefinitionManagement(t *testing.T) {
+	const name = "116_email_template_definition_management.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	sql := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"lock_timeout",
+		"statement_timeout",
+		"email_templates_revision_positive",
+		"email_snippets_revision_positive",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT",
+		"idx_email_templates_org_name_id",
+		"idx_email_snippets_org_name_id",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("email definition management migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("email definition management deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeVersionedDealQuotes(t *testing.T) {
 	if !slices.Contains(MigrationFiles(), "093_versioned_deal_quotes.sql") {
 		t.Fatal("expected versioned deal quotes migration to be registered")

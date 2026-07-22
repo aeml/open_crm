@@ -1,9 +1,15 @@
 import { apiRequest } from './api'
 
-export async function listEmailTemplates({ signal } = {}) {
-  const payload = await apiRequest('/api/email-templates', { fallbackMessage: 'Unable to load email templates.', signal })
+export async function listEmailTemplatePage({ search = '', page = 1, pageSize = 50, signal } = {}) {
+  const query = definitionQuery(search, page, pageSize)
+  const payload = await apiRequest(`/api/email-templates?${query}`, { fallbackMessage: 'Unable to load email templates.', signal })
+  const data = payload?.data || {}
+  const templates = data.templates || []
+  return { templates, meta: data.meta || { page, pageSize, total: templates.length } }
+}
 
-  return payload?.data?.templates || []
+export async function listEmailTemplates({ signal } = {}) {
+  return loadCompleteDefinitions('template', ({ page, pageSize }) => listEmailTemplatePage({ page, pageSize, signal }))
 }
 
 export async function listEmailTemplateMergeFields({ signal } = {}) {
@@ -12,10 +18,16 @@ export async function listEmailTemplateMergeFields({ signal } = {}) {
   return payload?.data?.groups || []
 }
 
-export async function listEmailSnippets({ signal } = {}) {
-  const payload = await apiRequest('/api/email-snippets', { fallbackMessage: 'Unable to load email snippets.', signal })
+export async function listEmailSnippetPage({ search = '', page = 1, pageSize = 50, signal } = {}) {
+  const query = definitionQuery(search, page, pageSize)
+  const payload = await apiRequest(`/api/email-snippets?${query}`, { fallbackMessage: 'Unable to load email snippets.', signal })
+  const data = payload?.data || {}
+  const snippets = data.snippets || []
+  return { snippets, meta: data.meta || { page, pageSize, total: snippets.length } }
+}
 
-  return payload?.data?.snippets || []
+export async function listEmailSnippets({ signal } = {}) {
+  return loadCompleteDefinitions('snippet', ({ page, pageSize }) => listEmailSnippetPage({ page, pageSize, signal }))
 }
 
 export async function createEmailTemplate(input, { signal } = {}) {
@@ -30,8 +42,8 @@ export async function updateEmailTemplate(templateId, input, { signal } = {}) {
   return payload?.data?.template
 }
 
-export async function deleteEmailTemplate(templateId, { signal } = {}) {
-  await apiRequest(`/api/email-templates/${templateId}`, { method: 'DELETE', fallbackMessage: 'Unable to delete email template.', signal })
+export async function deleteEmailTemplate(templateId, revision, { signal } = {}) {
+  await apiRequest(`/api/email-templates/${templateId}?revision=${encodeURIComponent(revision)}`, { method: 'DELETE', fallbackMessage: 'Unable to delete email template.', signal })
 }
 
 export async function createEmailSnippet(input, { signal } = {}) {
@@ -46,6 +58,32 @@ export async function updateEmailSnippet(snippetId, input, { signal } = {}) {
   return payload?.data?.snippet
 }
 
-export async function deleteEmailSnippet(snippetId, { signal } = {}) {
-  await apiRequest(`/api/email-snippets/${snippetId}`, { method: 'DELETE', fallbackMessage: 'Unable to delete email snippet.', signal })
+export async function deleteEmailSnippet(snippetId, revision, { signal } = {}) {
+  await apiRequest(`/api/email-snippets/${snippetId}?revision=${encodeURIComponent(revision)}`, { method: 'DELETE', fallbackMessage: 'Unable to delete email snippet.', signal })
+}
+
+function definitionQuery(search, page, pageSize) {
+  const query = new URLSearchParams()
+  if (search) query.set('q', search)
+  query.set('page', String(page))
+  query.set('pageSize', String(pageSize))
+  return query.toString()
+}
+
+async function loadCompleteDefinitions(kind, loadPage) {
+  const rowsById = new Map()
+  let expectedTotal = null
+  const field = kind === 'template' ? 'templates' : 'snippets'
+  for (let page = 1; page <= 501; page += 1) {
+    const result = await loadPage({ page, pageSize: 100 })
+    const total = Number(result.meta?.total)
+    if (!Number.isSafeInteger(total) || total < 0 || (expectedTotal !== null && total !== expectedTotal)) {
+      throw new Error(`The email ${kind} catalog changed while options were loading. Try again.`)
+    }
+    expectedTotal = total
+    result[field].forEach((row) => rowsById.set(row.id, row))
+    if (rowsById.size >= expectedTotal) return [...rowsById.values()]
+    if (result[field].length === 0) break
+  }
+  throw new Error(`The complete email ${kind} catalog could not be loaded. Delete legacy overflow and try again.`)
 }
