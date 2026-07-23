@@ -22,6 +22,17 @@ until policy and provider evidence are explicit.
 | `P3-D3` | Upgrade, downgrade, proration, cancellation, resubscription, and dunning contract | (A) Stripe Checkout/Portal is authoritative and Open CRM makes no separate proration promise; (B) implement an application-owned policy; (C) manual support process | **A for the pilot**, with exact Portal settings and Stripe retry rules reviewed and captured before enablement. Keep current signed webhook/reconciliation state authoritative and do not infer money state from browser redirects. | Customer-facing lifecycle copy, deterministic acceptance scenarios, and support runbook. |
 | `P3-D4` | Tenant deletion and retention | (A) export, immediate hard delete; (B) export, time-bounded recoverable cancellation, then verified purge; (C) indefinite retention after cancellation | **B**, but the grace period, legal holds, backup expiry, audit/provider-ledger exceptions, and owner confirmation must be approved before implementation. Until then, cancellation is read-only/recoverable and no hard-delete claim is made. | Tenant deletion API/worker, backup purge behavior, privacy copy, and deletion drill. |
 
+Fresh-schema PostgreSQL evidence on 2026-07-23 makes the current `P3-D4`
+boundary explicit. All organization-scoped tables are cascade-reachable from
+the workspace except notifications and retained scheduled-report run/recipient
+evidence; billing webhook receipts deliberately survive with their tenant
+reference set to null. The passing inventory test proves that an ordered
+transaction removing those three tenant-owned leaf sets can then delete the
+workspace while retaining only the de-identified provider receipt. This is
+referential evidence, not an implemented deletion workflow: export
+verification, grace timing, legal holds, identity cleanup, backups, provider
+ledgers, and an external deletion certificate remain policy-gated.
+
 ## Credentialed provider evidence
 
 | ID | Required authority/input | Safe test to run after approval | Evidence required for closure |
