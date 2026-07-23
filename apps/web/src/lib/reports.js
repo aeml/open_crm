@@ -45,6 +45,79 @@ export function reportExportURL(definitionId) {
   return apiURL(`/api/report-definitions/${definitionId}/export.csv`)
 }
 
+const sharedDashboardWidths = new Set(['half', 'full'])
+
+function validDashboardRevision(value) {
+  return Number.isInteger(value) && value >= 0
+}
+
+function normalizeSharedDashboard(payload) {
+  const dashboard = payload?.data?.dashboard
+  if (!dashboard || !validDashboardRevision(dashboard.revision) || !Array.isArray(dashboard.widgets) || dashboard.widgets.length > 6) {
+    throw new Error('The server returned an invalid shared dashboard. Refresh before retrying.')
+  }
+  const seen = new Set()
+  const widgets = dashboard.widgets.map((widget, position) => {
+    const definitionId = widget?.reportDefinitionId
+    if (!Number.isInteger(widget?.id) || widget.id <= 0 || !Number.isInteger(definitionId) || definitionId <= 0 || widget.position !== position || !sharedDashboardWidths.has(widget.width) || seen.has(definitionId) || !widget.definition || widget.definition.id !== definitionId || typeof widget.definition.name !== 'string') {
+      throw new Error('The server returned an invalid shared dashboard. Refresh before retrying.')
+    }
+    seen.add(definitionId)
+    return widget
+  })
+  if ((dashboard.id === 0 && dashboard.revision !== 0) || (dashboard.id !== 0 && (!Number.isInteger(dashboard.id) || dashboard.id <= 0))) {
+    throw new Error('The server returned an invalid shared dashboard. Refresh before retrying.')
+  }
+  return { ...dashboard, widgets }
+}
+
+function normalizeDashboardInput(input) {
+  if (!validDashboardRevision(input?.revision) || !Array.isArray(input?.widgets) || input.widgets.length > 6) {
+    throw new Error('Choose no more than six shared dashboard reports.')
+  }
+  const seen = new Set()
+  const widgets = input.widgets.map((widget) => {
+    if (!Number.isInteger(widget?.reportDefinitionId) || widget.reportDefinitionId <= 0 || !sharedDashboardWidths.has(widget.width) || seen.has(widget.reportDefinitionId)) {
+      throw new Error('Choose distinct grouped-bar reports and a supported dashboard width.')
+    }
+    seen.add(widget.reportDefinitionId)
+    return { reportDefinitionId: widget.reportDefinitionId, width: widget.width }
+  })
+  return { revision: input.revision, widgets }
+}
+
+export async function getSharedReportDashboard({ signal } = {}) {
+  const payload = await apiRequest('/api/report-dashboard', { fallbackMessage: 'Unable to load the shared report dashboard.', signal })
+  return normalizeSharedDashboard(payload)
+}
+
+export async function updateSharedReportDashboard(input, { signal } = {}) {
+  const normalizedInput = normalizeDashboardInput(input)
+  const payload = await apiRequest('/api/report-dashboard', { method: 'PUT', body: normalizedInput, fallbackMessage: 'Unable to update the shared report dashboard.', signal })
+  const dashboard = normalizeSharedDashboard(payload)
+  if (dashboard.widgets.length !== normalizedInput.widgets.length || dashboard.widgets.some((widget, index) => widget.reportDefinitionId !== normalizedInput.widgets[index].reportDefinitionId || widget.width !== normalizedInput.widgets[index].width)) {
+    throw new Error('The shared dashboard response did not match the saved configuration. Refresh before retrying.')
+  }
+  return dashboard
+}
+
+export async function getSharedReportDashboardResults({ signal } = {}) {
+  const payload = await apiRequest('/api/report-dashboard/results', { fallbackMessage: 'Unable to run the shared report dashboard.', signal })
+  const data = payload?.data
+  if (!data || !validDashboardRevision(data.revision) || !Array.isArray(data.widgets) || data.widgets.length > 6 || Number.isNaN(Date.parse(data.generatedAt))) {
+    throw new Error('The server returned invalid shared dashboard results. Refresh before retrying.')
+  }
+  const widgets = data.widgets.map((widget, position) => {
+    const definition = widget?.definition
+    const result = widget?.result
+    if (widget?.position !== position || !sharedDashboardWidths.has(widget?.width) || !definition || !Number.isInteger(definition.id) || definition.id <= 0 || definition.isActive !== true || definition.visualizationType !== 'bar' || definition.visualizationContract !== 'grouped_bar_v1' || !result || result.definitionId !== definition.id || result.visualizationType !== 'bar' || result.visualizationContract !== 'grouped_bar_v1' || result.page !== 1 || result.pageSize !== 12 || !Array.isArray(result.columns) || result.columns.length !== 2 || !Array.isArray(result.rows) || result.rows.length > 12 || result.generatedAt !== data.generatedAt) {
+      throw new Error('The server returned invalid shared dashboard results. Refresh before retrying.')
+    }
+    return { ...widget, result: { ...result, hasMore: result.hasMore === true } }
+  })
+  return { ...data, widgets }
+}
+
 export async function getDataQualitySummary({ staleDays = 30, signal } = {}) {
   const params = new URLSearchParams({ staleDays: String(staleDays) })
   const payload = await apiRequest(`/api/data-quality/summary?${params.toString()}`, { fallbackMessage: 'Unable to load data quality reports.', signal })

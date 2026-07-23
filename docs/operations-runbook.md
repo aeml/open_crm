@@ -1397,8 +1397,9 @@ bytes, tokens, or counters with ad hoc SQL.
 1. Open **Reports**. Owners, admins, and members can create or edit a saved
    table or grouped bar report; viewers can run existing active reports but
    cannot change their definitions. Production hides pre-contract grouped bars,
-   line, funnel, pie, KPI, dashboard, sharing, and scheduled-delivery
-   definitions.
+   line, funnel, pie, KPI, personal-dashboard, external-sharing, and
+   scheduled-delivery definitions. One bounded shared grouped-bar dashboard is
+   managed separately in the same Reports screen.
 2. Choose contacts, companies, deals, or tasks and add only the typed operators
    offered for each field. A table selects result fields and can use **No
    aggregation** or a supported summary. A grouped bar selects exactly one
@@ -1435,6 +1436,31 @@ bytes, tokens, or counters with ad hoc SQL.
    seconds and each export within five seconds, including foreign-workspace
    denial and overflow/audit checks. Repeated production latency near either
    budget is an incident even when the request still succeeds.
+
+### Shared report-dashboard configuration and recovery
+
+1. Open **Reports > Dashboard reports**. A writer can publish at most six
+   distinct active grouped-bar reports, choose half/full width, and reorder them
+   with the visible move buttons. Every member sees the same configuration on
+   **Dashboard > Report dashboard**; there is no personal or externally shared
+   dashboard claim.
+2. A save uses the exact displayed revision. `CONFLICT` means another writer
+   changed the dashboard; reload and reapply the intended order. An unchanged
+   save creates no revision or audit event. A successful change records only
+   `report_dashboard.updated` with its revision and widget count.
+3. All widgets run inside one tenant-scoped repeatable-read snapshot with one
+   generated time and a five-second deadline. Each widget returns the first 12
+   categories plus `hasMore`; open the saved report for complete paging or CSV.
+   `DASHBOARD_TIMEOUT` means narrow an expensive saved report before retrying.
+4. `DASHBOARD_CONFIGURATION_STALE` means a configured report was deactivated;
+   `DASHBOARD_CONFIGURATION_INVALID` means its executable grouped-bar contract
+   no longer validates. A writer should remove, reactivate, or replace it in
+   Reports. Do not repair the dashboard or definition with manual SQL.
+5. If results appear to cross workspaces, retain the request ID and exact
+   release, stop treating the dashboard as trustworthy, and run the promoted
+   dashboard PostgreSQL/Chromium isolation evidence. Configuration, execution,
+   definitions, audit, and portable export are all required to agree on the
+   session tenant.
 
 ### Saved-view limits and stale-change recovery
 

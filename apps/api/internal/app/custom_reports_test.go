@@ -15,31 +15,39 @@ import (
 )
 
 type fakeCustomReportsService struct {
-	listResult      modulecustomreports.ListPage
-	listErr         error
-	createResult    modulecustomreports.Definition
-	createErr       error
-	updateResult    modulecustomreports.Definition
-	updateErr       error
-	executeResult   modulecustomreports.Execution
-	executeErr      error
-	exportResult    modulecustomreports.CSVFile
-	exportErr       error
-	lastListOrgID   int64
-	lastListQuery   modulecustomreports.ListQuery
-	lastCreateOrgID int64
-	lastCreateUser  int64
-	lastCreateInput modulecustomreports.Input
-	lastUpdateOrgID int64
-	lastUpdateID    int64
-	lastUpdateUser  int64
-	lastUpdateInput modulecustomreports.Input
-	lastExecuteOrg  int64
-	lastExecuteID   int64
-	lastExecute     modulecustomreports.ExecuteQuery
-	lastExportOrg   int64
-	lastExportUser  int64
-	lastExportID    int64
+	listResult          modulecustomreports.ListPage
+	listErr             error
+	createResult        modulecustomreports.Definition
+	createErr           error
+	updateResult        modulecustomreports.Definition
+	updateErr           error
+	executeResult       modulecustomreports.Execution
+	executeErr          error
+	exportResult        modulecustomreports.CSVFile
+	exportErr           error
+	dashboardResult     modulecustomreports.Dashboard
+	dashboardErr        error
+	dashboardRun        modulecustomreports.DashboardExecution
+	dashboardRunErr     error
+	lastListOrgID       int64
+	lastListQuery       modulecustomreports.ListQuery
+	lastCreateOrgID     int64
+	lastCreateUser      int64
+	lastCreateInput     modulecustomreports.Input
+	lastUpdateOrgID     int64
+	lastUpdateID        int64
+	lastUpdateUser      int64
+	lastUpdateInput     modulecustomreports.Input
+	lastExecuteOrg      int64
+	lastExecuteID       int64
+	lastExecute         modulecustomreports.ExecuteQuery
+	lastExportOrg       int64
+	lastExportUser      int64
+	lastExportID        int64
+	lastDashboardOrg    int64
+	lastDashboardUser   int64
+	lastDashboardInput  modulecustomreports.DashboardInput
+	lastDashboardRunOrg int64
 }
 
 func (f *fakeCustomReportsService) ListByOrganization(_ context.Context, organizationID int64, query modulecustomreports.ListQuery) (modulecustomreports.ListPage, error) {
@@ -75,6 +83,23 @@ func (f *fakeCustomReportsService) ExportCSV(_ context.Context, organizationID, 
 	f.lastExportUser = actorUserID
 	f.lastExportID = definitionID
 	return f.exportResult, f.exportErr
+}
+
+func (f *fakeCustomReportsService) GetDashboard(_ context.Context, organizationID int64) (modulecustomreports.Dashboard, error) {
+	f.lastDashboardOrg = organizationID
+	return f.dashboardResult, f.dashboardErr
+}
+
+func (f *fakeCustomReportsService) UpdateDashboard(_ context.Context, organizationID, actorUserID int64, input modulecustomreports.DashboardInput) (modulecustomreports.Dashboard, error) {
+	f.lastDashboardOrg = organizationID
+	f.lastDashboardUser = actorUserID
+	f.lastDashboardInput = input
+	return f.dashboardResult, f.dashboardErr
+}
+
+func (f *fakeCustomReportsService) ExecuteDashboard(_ context.Context, organizationID int64) (modulecustomreports.DashboardExecution, error) {
+	f.lastDashboardRunOrg = organizationID
+	return f.dashboardRun, f.dashboardRunErr
 }
 
 func authenticatedCustomReportsServer(service *fakeCustomReportsService, role string) http.Handler {
@@ -384,4 +409,177 @@ func TestCustomReportDefinitionMapsConcurrentDeactivation(t *testing.T) {
 	if recorder.Code != http.StatusForbidden || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"FORBIDDEN"`)) {
 		t.Fatalf("expected stable forbidden response, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
+}
+
+func TestGetCustomReportDashboardAllowsViewerAndScopesToCurrentOrganization(t *testing.T) {
+	service := &fakeCustomReportsService{dashboardResult: modulecustomreports.Dashboard{
+		ID: 21, Revision: 3, Widgets: []modulecustomreports.DashboardWidget{{
+			ID: 31, ReportDefinitionID: 12, Position: 0, Width: "half",
+		}},
+	}}
+	server := authenticatedCustomReportsServer(service, "viewer")
+	request := httptest.NewRequest(http.MethodGet, "/api/report-dashboard", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if service.lastDashboardOrg != 42 {
+		t.Fatalf("dashboard read used organization %d, want 42", service.lastDashboardOrg)
+	}
+	var response customReportDashboardResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode dashboard response: %v", err)
+	}
+	if response.Data.Dashboard.ID != 21 || response.Data.Dashboard.Revision != 3 || len(response.Data.Dashboard.Widgets) != 1 || response.Data.Dashboard.Widgets[0].ReportDefinitionID != 12 {
+		t.Fatalf("unexpected dashboard response: %#v", response.Data.Dashboard)
+	}
+}
+
+func TestUpdateCustomReportDashboardRequiresWriterAndForwardsExactRevision(t *testing.T) {
+	service := &fakeCustomReportsService{dashboardResult: modulecustomreports.Dashboard{ID: 21, Revision: 4, Widgets: []modulecustomreports.DashboardWidget{}}}
+	server := authenticatedCustomReportsServer(service, "member")
+	request := httptest.NewRequest(http.MethodPut, "/api/report-dashboard", bytes.NewBufferString(`{
+		"revision":3,
+		"widgets":[
+			{"reportDefinitionId":12,"width":"half"},
+			{"reportDefinitionId":13,"width":"full"}
+		]
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if service.lastDashboardOrg != 42 || service.lastDashboardUser != 1 || service.lastDashboardInput.Revision != 3 || len(service.lastDashboardInput.Widgets) != 2 {
+		t.Fatalf("unexpected dashboard update scope: org=%d user=%d input=%#v", service.lastDashboardOrg, service.lastDashboardUser, service.lastDashboardInput)
+	}
+	if service.lastDashboardInput.Widgets[0].ReportDefinitionID != 12 || service.lastDashboardInput.Widgets[0].Width != "half" || service.lastDashboardInput.Widgets[1].ReportDefinitionID != 13 || service.lastDashboardInput.Widgets[1].Width != "full" {
+		t.Fatalf("unexpected dashboard widgets: %#v", service.lastDashboardInput.Widgets)
+	}
+}
+
+func TestUpdateCustomReportDashboardRejectsViewerBeforeService(t *testing.T) {
+	service := &fakeCustomReportsService{}
+	server := authenticatedCustomReportsServer(service, "viewer")
+	request := httptest.NewRequest(http.MethodPut, "/api/report-dashboard", bytes.NewBufferString(`{"revision":0,"widgets":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusForbidden, recorder.Code, recorder.Body.String())
+	}
+	if service.lastDashboardUser != 0 {
+		t.Fatal("viewer reached shared report dashboard update service")
+	}
+}
+
+func TestUpdateCustomReportDashboardReturnsStableErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "deactivated writer", err: modulecustomreports.ErrForbidden, statusCode: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "stale revision", err: modulecustomreports.ErrDashboardRevisionConflict, statusCode: http.StatusConflict, code: "CONFLICT"},
+		{name: "invalid widgets", err: modulecustomreports.ErrInvalidInput, statusCode: http.StatusBadRequest, code: "BAD_REQUEST"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := authenticatedCustomReportsServer(&fakeCustomReportsService{dashboardErr: test.err}, "owner")
+			request := httptest.NewRequest(http.MethodPut, "/api/report-dashboard", bytes.NewBufferString(`{"revision":0,"widgets":[]}`))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != test.statusCode || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"`+test.code+`"`)) {
+				t.Fatalf("expected %d/%s, got %d body=%s", test.statusCode, test.code, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestExecuteCustomReportDashboardAllowsViewerAndScopesSnapshot(t *testing.T) {
+	value := "4"
+	service := &fakeCustomReportsService{dashboardRun: modulecustomreports.DashboardExecution{
+		Revision: 4,
+		Widgets: []modulecustomreports.DashboardWidgetExecution{{
+			Position: 0, Width: "full",
+			Definition: modulecustomreports.Definition{ID: 12, Name: "Contacts by status", VisualizationType: "bar", VisualizationContract: "grouped_bar_v1"},
+			Result: modulecustomreports.Execution{
+				DefinitionID: 12,
+				Columns:      []modulecustomreports.ResultColumn{{Key: "count", Label: "Count", DataType: "number"}},
+				Rows:         []modulecustomreports.ResultRow{{Values: map[string]*string{"count": &value}}},
+			},
+		}},
+	}}
+	server := authenticatedCustomReportsServer(service, "viewer")
+	request := httptest.NewRequest(http.MethodGet, "/api/report-dashboard/results", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d body=%s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if service.lastDashboardRunOrg != 42 {
+		t.Fatalf("dashboard execution used organization %d, want 42", service.lastDashboardRunOrg)
+	}
+	var response customReportDashboardExecutionResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode dashboard execution: %v", err)
+	}
+	if response.Data.Revision != 4 || len(response.Data.Widgets) != 1 || response.Data.Widgets[0].Definition.ID != 12 || reportResponseValue(response.Data.Widgets[0].Result, 0, "count") != "4" {
+		t.Fatalf("unexpected dashboard execution response: %#v", response.Data)
+	}
+}
+
+func TestExecuteCustomReportDashboardReturnsStableRecoveryErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "inactive report", err: modulecustomreports.ErrInactive, statusCode: http.StatusConflict, code: "DASHBOARD_CONFIGURATION_STALE"},
+		{name: "unsupported report", err: modulecustomreports.ErrUnsupportedVisualization, statusCode: http.StatusConflict, code: "DASHBOARD_CONFIGURATION_STALE"},
+		{name: "invalid contract", err: modulecustomreports.ErrInvalidInput, statusCode: http.StatusConflict, code: "DASHBOARD_CONFIGURATION_INVALID"},
+		{name: "invalid query", err: modulecustomreports.ErrInvalidQuery, statusCode: http.StatusConflict, code: "DASHBOARD_CONFIGURATION_INVALID"},
+		{name: "timeout", err: modulecustomreports.ErrQueryTimeout, statusCode: http.StatusGatewayTimeout, code: "DASHBOARD_TIMEOUT"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := authenticatedCustomReportsServer(&fakeCustomReportsService{dashboardRunErr: test.err}, "member")
+			request := httptest.NewRequest(http.MethodGet, "/api/report-dashboard/results", nil)
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != test.statusCode || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"`+test.code+`"`)) {
+				t.Fatalf("expected %d/%s, got %d body=%s", test.statusCode, test.code, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func reportResponseValue(result modulecustomreports.Execution, row int, key string) string {
+	if row >= len(result.Rows) || result.Rows[row].Values[key] == nil {
+		return ""
+	}
+	return *result.Rows[row].Values[key]
 }

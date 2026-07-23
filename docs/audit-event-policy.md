@@ -1,6 +1,6 @@
 # Audit Event Policy
 
-Last reconciled: 2026-07-22
+Last reconciled: 2026-07-23
 
 Open CRM's admin audit trail is durable evidence for high-impact workspace,
 identity, configuration, recovery, provider, and commercial operations. It is
@@ -27,7 +27,8 @@ The audited mutation classes are:
 - immutable quote finalization, approval, delivery, receipt, signature,
   decline, reissue, conversion, and client handoff;
 - workspace, filtered CRM, and audit export request/readiness/download evidence; and
-- saved-report definition changes and successful saved-report CSV downloads.
+- saved-report definition changes, shared report-dashboard configuration, and
+  successful saved-report CSV downloads.
 
 Ordinary contact, company, deal, task, note, and preference edits use their
 tenant-scoped activity or domain history unless the operation crosses one of
@@ -37,9 +38,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `52`
+Producer source count: `53`
 
-Producer source digest: `9af13601b13c78cca4cc668f2449a77c5665608d76b15eec38392bee0f691a8d`
+Producer source digest: `4fca5a26196c1b6cde284f4256f922ddbd515fe36eea705e2a0a07b93e6492bd`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -88,6 +89,13 @@ delete events likewise commit with the tenant definition. Their audit metadata
 contains only the resulting revision; summaries may name the definition but
 never retain its subject, body, merge-field content, recipient material, or
 provider data.
+
+Shared report-dashboard changes commit `report_dashboard.updated` in the same
+tenant transaction as the exact-revision configuration. Metadata contains only
+the resulting revision and bounded widget count. Definition names, source
+tables, filters, result values, actor input, and request fingerprints remain
+outside the event. A semantic no-op writes neither a new revision nor an audit
+row, and a failed audit insert rolls back the complete configuration change.
 
 Import submission records `import.queued` in the same transaction as the
 tenant-scoped batch, retained source, and `import.execute` job. Its metadata is

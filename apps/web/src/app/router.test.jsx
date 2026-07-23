@@ -6,9 +6,19 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+function withEmptyReportDashboard(sequenceMock) {
+  return vi.fn((url, options) => {
+    const requestURL = new URL(String(url), 'http://localhost')
+    if (requestURL.pathname.endsWith('/api/report-dashboard/results')) {
+      return Promise.resolve({ ok: true, json: async () => ({ data: { revision: 0, generatedAt: '2026-07-23T02:00:00Z', widgets: [] } }) })
+    }
+    return sequenceMock(url, options)
+  })
+}
+
 describe('AppRouter', () => {
   it('renders dashboard summary metrics and recent activity when authenticated', async () => {
-    const fetchMock = vi
+    const fetchSequence = vi
       .fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -95,6 +105,7 @@ describe('AppRouter', () => {
         })
       })
 
+    const fetchMock = withEmptyReportDashboard(fetchSequence)
     vi.stubGlobal('fetch', fetchMock)
 
     window.history.pushState({}, '', '/dashboard')
@@ -221,7 +232,7 @@ describe('AppRouter', () => {
   })
 
   it('shows first-use setup guidance on an empty dashboard', async () => {
-    const fetchMock = vi
+    const fetchSequence = vi
       .fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -252,6 +263,7 @@ describe('AppRouter', () => {
         })
       })
 
+    const fetchMock = withEmptyReportDashboard(fetchSequence)
     vi.stubGlobal('fetch', fetchMock)
 
     window.history.pushState({}, '', '/dashboard')
@@ -266,7 +278,7 @@ describe('AppRouter', () => {
   })
 
   it('adapts dashboard metric copy for service businesses', async () => {
-    const fetchMock = vi
+    const fetchSequence = vi
       .fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -319,6 +331,7 @@ describe('AppRouter', () => {
         })
       })
 
+    const fetchMock = withEmptyReportDashboard(fetchSequence)
     vi.stubGlobal('fetch', fetchMock)
 
     window.history.pushState({}, '', '/dashboard')
@@ -613,7 +626,7 @@ describe('AppRouter', () => {
   })
 
   it('logs out from the app header and returns to login', async () => {
-    const fetchMock = vi
+    const fetchSequence = vi
       .fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -661,6 +674,7 @@ describe('AppRouter', () => {
         json: async () => ({})
       })
 
+    const fetchMock = withEmptyReportDashboard(fetchSequence)
     vi.stubGlobal('fetch', fetchMock)
 
     window.history.pushState({}, '', '/dashboard')

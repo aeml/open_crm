@@ -602,6 +602,22 @@
   text-align: left;
 }
 
+.report-dashboard-heading,
+.report-dashboard-widget-full {
+  grid-column: 1 / -1;
+}
+
+.report-dashboard-widget-controls {
+  display: grid;
+  gap: var(--space-2);
+  min-width: min(100%, 18rem);
+  text-align: left;
+}
+
+.report-dashboard-widget .button {
+  justify-self: start;
+}
+
 .report-bar-chart {
   display: grid;
   gap: var(--space-2);

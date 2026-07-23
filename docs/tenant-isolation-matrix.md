@@ -1,10 +1,10 @@
 # Tenant Isolation Evidence Matrix
 
-Last reconciled: 2026-07-22
+Last reconciled: 2026-07-23
 
-Evidence row count: `44`
+Evidence row count: `45`
 
-Evidence digest: `1f5c766409be877dd2c277c979859b3abe41478f22be701e7c9c61282b3c9837`
+Evidence digest: `6aedd51ff8851319b17f6a5c3532f5ceaec68fa3d324f532ea84d1919a749a7b`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -36,6 +36,7 @@ the assertions inside those tests remain the proof of behavior.
 | `custom-fields` | `apps/api/internal/modules/customfields/service_postgres_test.go` | `TestCustomFieldsEndToEndAgainstPostgres` | Definitions, values, filters, imports, exports, and archive operations remain tenant scoped; a foreign definition ID is hidden. |
 | `custom-report-execution` | `apps/api/internal/modules/customreports/execution_postgres_test.go` | `TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres` | Definition mutations, contact/company/deal/task table and grouped-bar queries, and admin CSV exports bind the owning organization and active actor, exclude archived and foreign markers, reject cross-tenant definition IDs without disclosure, and leave no partial definition/download audit on forbidden or oversized paths. |
 | `report-definition-management` | `apps/api/internal/modules/customreports/definition_pagination_postgres_test.go` | `TestCustomReportDefinitionPagesAreBoundedStableAndTenantScoped` | Exact stored-definition totals and stable bounded active/update/ID pages remain tenant scoped; direct page limits, adjacent and repeat reads, final/empty pages, and the management index exclude a foreign definition and keep its total independent. |
+| `shared-report-dashboard` | `apps/api/internal/modules/customreports/dashboard_postgres_test.go` | `TestSharedReportDashboardIsRevisionedTenantSafeAndSnapshotBounded` | One workspace configuration binds every widget and definition through composite tenant keys; viewer, disabled, foreign, corrupt, inactive, unsupported, stale, and concurrent writer paths leave no partial state. Successful execution reads at most six widgets and 12 groups each from one repeatable-read snapshot, excludes foreign markers, recovers after timeout, and portable export includes only the owning tenant's configuration. |
 | `data-quality` | `apps/api/internal/modules/dataquality/service_postgres_test.go` | `TestDataQualityReportsAreExplainableBusinessAwareAndTenantSafeAgainstPostgres` | Fixed-quality queues and counts exclude every seeded foreign record. |
 | `deal-assignments` | `apps/api/internal/modules/deals/assignment_notifications_postgres_test.go` | `TestDealAssignmentsAreTransactionalPreferenceAwareAndIdempotentAgainstPostgres` | A foreign owner is rejected before deal or notification effects; transactional notification failure also rolls back the assignment. |
 | `deal-close-and-handoff` | `apps/api/internal/modules/deals/win_loss_postgres_test.go` | `TestDealCloseReviewsKeepOutcomeContextCoherentAndTenantScopedAgainstPostgres` | Foreign stages/accounts cannot alter close state or handoff evidence; replay and reopening preserve the owning tenant's history. |
@@ -73,11 +74,11 @@ the assertions inside those tests remain the proof of behavior.
 
 - `apps/api/internal/app/cross_org_test.go` verifies that the core HTTP handlers
   translate service misses to non-disclosing `404` responses.
-- `apps/api/internal/app/security_inventory_test.go` digest-gates all 265
+- `apps/api/internal/app/security_inventory_test.go` digest-gates all 268
   registered routes, so a new selector must receive an explicit session/token
   tenant policy and test reference.
 - `apps/api/internal/app/list_endpoint_inventory_test.go` separately
-  digest-gates all 106 registered GET routes, so a new collection cannot bypass
+  digest-gates all 108 registered GET routes, so a new collection cannot bypass
   a cardinality, ordering, overflow, and pagination review.
 - Role and viewer denial are handler concerns and remain covered by the route
   family permission tests named in `security-surface-inventory.md`; the

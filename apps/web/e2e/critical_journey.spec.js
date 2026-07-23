@@ -1331,6 +1331,38 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   })
   expect(barReportAccessibility.violations, 'saved table and grouped bar reports must have no automated WCAG A/AA violations').toEqual([])
 
+  const dashboardSettings = page.locator('.report-dashboard-settings')
+  await dashboardSettings.getByLabel('Add grouped-bar report').selectOption({ label: barReportName })
+  await dashboardSettings.getByRole('button', { name: 'Add to dashboard' }).click()
+  await dashboardSettings.getByLabel(`Width for ${barReportName}`).selectOption('full')
+  const [dashboardUpdateResponse] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'PUT' && new URL(response.url()).pathname === '/api/report-dashboard'),
+    dashboardSettings.getByRole('button', { name: 'Save dashboard' }).click()
+  ])
+  expect(dashboardUpdateResponse.status()).toBe(200)
+  await expect(dashboardSettings.getByText('Shared dashboard updated. Everyone in this workspace will see the same snapshot on Dashboard.')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Dashboard', exact: true }).click()
+  const sharedReportDashboard = page.getByRole('region', { name: 'Report dashboard' })
+  await expect(sharedReportDashboard.getByText(/All charts use one workspace snapshot generated/)).toBeVisible()
+  await expect(sharedReportDashboard.getByRole('heading', { name: barReportName, exact: true })).toBeVisible()
+  await expect(sharedReportDashboard.getByRole('img', { name: new RegExp(`${barReportName} grouped bar chart`) })).toBeVisible()
+  const dashboardBarData = sharedReportDashboard.getByRole('region', { name: `${barReportName} chart data` })
+  await expect(dashboardBarData.getByRole('columnheader', { name: 'Status' })).toBeVisible()
+  await expect(dashboardBarData.getByRole('columnheader', { name: 'Record count' })).toBeVisible()
+  await expect(dashboardBarData.getByText('lead', { exact: true })).toBeVisible()
+  const dashboardAccessibility = await new AxeBuilder({ page })
+    .include('.report-dashboard-grid')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-shared-report-dashboard', {
+    body: JSON.stringify({ url: page.url(), violations: dashboardAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(dashboardAccessibility.violations, 'shared report dashboard must have no automated WCAG A/AA violations').toEqual([])
+  await sharedReportDashboard.getByRole('button', { name: 'Manage reports' }).click()
+  await expect(page).toHaveURL(/\/reports$/)
+
   await incompleteDealReport.getByRole('link', { name: `Website renewal ${runID}` }).click()
   await expect(page).toHaveURL(/\/deals\/\d+/)
 
@@ -1703,6 +1735,19 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     expect(crossTenantBarReport.status()).toBe(404)
     const crossTenantBarReportExport = await otherContext.request.get(`${apiURL}/api/report-definitions/${barReportID}/export.csv`)
     expect(crossTenantBarReportExport.status()).toBe(404)
+    const otherDashboardResponse = await otherContext.request.get(`${apiURL}/api/report-dashboard`)
+    expect(otherDashboardResponse.status()).toBe(200)
+    const otherDashboard = await otherDashboardResponse.json()
+    expect(otherDashboard.data.dashboard.widgets).toEqual([])
+    const crossTenantDashboardUpdate = await otherContext.request.put(`${apiURL}/api/report-dashboard`, {
+      data: { revision: otherDashboard.data.dashboard.revision, widgets: [{ reportDefinitionId: barReportID, width: 'half' }] }
+    })
+    expect(crossTenantDashboardUpdate.status()).toBe(400)
+    const crossTenantDashboardResults = await otherContext.request.get(`${apiURL}/api/report-dashboard/results`)
+    expect(crossTenantDashboardResults.status()).toBe(200)
+    const crossTenantDashboardResultsBody = await crossTenantDashboardResults.json()
+    expect(crossTenantDashboardResultsBody.data.widgets).toEqual([])
+    expect(JSON.stringify(crossTenantDashboardResultsBody)).not.toContain(barReportName)
     const crossTenantClientActivity = await otherContext.request.get(`${apiURL}/api/reports/client-activity?entityType=company&from=${utcDateDaysFromNow(-29)}&to=${utcDateDaysFromNow(0)}`)
     expect(crossTenantClientActivity.status()).toBe(200)
     const crossTenantClientActivityBody = await crossTenantClientActivity.json()

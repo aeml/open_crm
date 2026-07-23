@@ -2269,3 +2269,30 @@ func TestMigrationFilesIncludeWorkflowDealOwnerAssignment(t *testing.T) {
 		t.Fatalf("workflow owner-assignment migration deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeSharedReportDashboard(t *testing.T) {
+	const name = "124_shared_report_dashboard.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"custom_report_dashboards",
+		"custom_report_dashboard_widgets",
+		"custom_report_dashboards_revision_positive",
+		"custom_report_dashboard_widgets_dashboard_fk",
+		"custom_report_dashboard_widgets_definition_fk",
+		"custom_report_dashboard_widgets_position_check",
+		"custom_report_dashboard_widgets_width_check",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("shared report dashboard migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("shared report dashboard migration deployment class = %q", class)
+	}
+}

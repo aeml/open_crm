@@ -13,6 +13,7 @@ import { PipelineFunnelReport } from './pipeline_funnel_report'
 import { ClientActivityReport } from './client_activity_report'
 import { FollowUpReport } from './follow_up_report'
 import { CustomReportResults } from './custom_report_results'
+import { ReportDashboardSettings } from './report_dashboard_settings'
 import {
   aggregationFieldOptions,
   aggregationOptionsForVisualization,
@@ -209,12 +210,19 @@ export function ReportsFoundationRoute() {
       <ClientActivityReport />
       <FollowUpReport />
       <DataQualityPanel />
+      <ReportDashboardSettings
+        definitions={definitions}
+        totalDefinitions={definitionMeta.total}
+        canManage={canManage}
+        isLoadingMore={isLoadingMore}
+        onLoadMore={loadMoreDefinitions}
+      />
       <Card>
         <div className="card-stack">
           <div className="section-header">
             <div>
               <h2>Reports</h2>
-              <p>Build, run, and export bounded saved table or grouped bar reports for {session?.organization?.name || 'your team'}. Other charts, dashboards, sharing, and scheduling remain hidden.</p>
+              <p>Build, run, export, and publish bounded saved table or grouped-bar reports for {session?.organization?.name || 'your team'}. Other chart types, personal dashboards, external sharing, and scheduling remain hidden.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading report definitions...</p> : null}

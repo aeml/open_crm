@@ -9,6 +9,7 @@ import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
 import { DashboardForecast } from './dashboard_forecast'
 import { DashboardClientReviews } from './dashboard_client_reviews'
+import { DashboardSavedReports } from './dashboard_saved_reports'
 
 function formatMoney(value, currency = 'USD') {
   const amount = Number.parseFloat(value || '0')
@@ -314,6 +315,8 @@ export function DashboardRoute() {
           </div>
         </Card>
       ) : null}
+
+      <DashboardSavedReports />
 
       <section className="dashboard-grid">
         <Card>

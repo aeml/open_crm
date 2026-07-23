@@ -1,6 +1,6 @@
 # Performance And Failure Budgets
 
-Last reviewed: 2026-07-22
+Last reviewed: 2026-07-23
 
 These budgets are regression gates for the 5–50-person pilot profile. They are
 not a capacity guarantee for an arbitrary host, a substitute for production
@@ -41,6 +41,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Any transactional contact create | 3 s |
 | Client-period activity page (500 clients, 100 returned) | 2 s |
 | Saved-report page (100 rows) | 2 s |
+| Shared report dashboard (6 grouped bars over 10,000 contacts, 12 groups/widget) | 2 s |
 | Core or saved-report export (10,000 rows) | 5 s |
 | Mapped/deduplicated 1,000-row contact import | 10 s |
 | Exhausted one-connection pool deadline | 200 ms |
@@ -139,6 +140,14 @@ two seconds and its complete 10,000-row CSV at five seconds, verifies the parsed
 header and row count, and proves a foreign workspace cannot execute or export
 it. After row 10,001, saved-report export must also fail explicitly without
 creating a second `report.export_downloaded` audit event.
+`apps/api/internal/modules/customreports/dashboard_postgres_test.go` separately
+configures the six-widget shared-dashboard ceiling over 10,000 contacts and
+requires the complete grouped-bar snapshot below two seconds. Every widget is
+capped at 12 returned categories with explicit `hasMore`; all widgets share one
+read-only repeatable-read transaction and generated time under the five-second
+report deadline. The same suite proves a blocked query returns the bounded
+timeout, releases the connection, and lets the next request recover, while a
+foreign workspace cannot attach or observe the configured definitions.
 The same 500-company tenant is promoted to active clients and receives one
 qualifying note per client. The client-period gate requires exact 500-client/
 500-touch totals, a bounded 100-row page under two seconds, and an empty report
@@ -621,6 +630,15 @@ entry, 55.12/15.73 KiB largest lazy chunk, 12.09/3.78 KiB for Users settings,
 and 781.91/243.21 KiB aggregate raw/gzip. Every existing 782/244 KiB aggregate,
 entry, per-route, CSS, hidden-foundation, and source ceiling remains unchanged.
 
+The shared report-dashboard slice adds a guarded 201-line editor, a 100-line
+Dashboard renderer, strict client response validation, and a shared grouped-bar
+chunk without growing either parent beyond the 500-line source ceiling. The
+Node 24 production build measures 178.92/58.02 KiB entry, 55.12/15.73 KiB
+largest lazy chunk, 51.93/12.37 KiB Reports, 23.49/6.23 KiB Dashboard, and
+794.45/246.87 KiB aggregate raw/gzip. Only the aggregate ceilings advance from
+782/244 to 795/247 KiB; entry, per-route, CSS, hidden-foundation, and source
+ceilings remain unchanged.
+
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and
 then its ordered outcomes with a tenant/run-array query. Reviewed execution
@@ -693,14 +711,14 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 426 lines, down from 996. Its audited 265-route
-surface is registered through 184-line platform, 297-line foundation, and
-378-line core-CRM files. The security inventory and hosted-write-policy tests
+The API composition root is 426 lines, down from 996. Its audited 268-route
+surface is registered through 184-line platform, 312-line foundation, and
+380-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot
 silently remove a route from either guard. Shared handler helpers are isolated
 in a 297-line file, invitation delivery is isolated in a 123-line handler, and
 record history owns a focused 106-line handler, and `support_handlers.go` is 388
-lines. The service-contract catalog is 438 lines and the unchanged explicit
+lines. The service-contract catalog is 443 lines and the unchanged explicit
 runtime dependency container is isolated at 70 lines, replacing the former
 500-line mixed file. The former 491-line authentication/user handler is split
 into 90-line session-cookie authentication, 125-line public onboarding, and

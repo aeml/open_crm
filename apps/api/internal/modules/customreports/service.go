@@ -146,19 +146,26 @@ func scanDefinition(row rowScanner) (Definition, error) {
 	if err := row.Scan(&definition.ID, &definition.Name, &definition.Description, &definition.SourceType, &definition.VisualizationType, &definition.VisualizationContract, &columnsJSON, &filtersJSON, &definition.GroupBy, &aggregationJSON, &definition.IsActive, &definition.CreatedAt, &definition.UpdatedAt); err != nil {
 		return Definition{}, err
 	}
+	if err := decodeDefinitionJSON(&definition, columnsJSON, filtersJSON, aggregationJSON); err != nil {
+		return Definition{}, err
+	}
+	return definition, nil
+}
+
+func decodeDefinitionJSON(definition *Definition, columnsJSON, filtersJSON, aggregationJSON []byte) error {
 	if len(columnsJSON) > 0 {
 		if err := json.Unmarshal(columnsJSON, &definition.Columns); err != nil {
-			return Definition{}, fmt.Errorf("decode custom report columns: %w", err)
+			return fmt.Errorf("decode custom report columns: %w", err)
 		}
 	}
 	if len(filtersJSON) > 0 {
 		if err := json.Unmarshal(filtersJSON, &definition.Filters); err != nil {
-			return Definition{}, fmt.Errorf("decode custom report filters: %w", err)
+			return fmt.Errorf("decode custom report filters: %w", err)
 		}
 	}
 	if len(aggregationJSON) > 0 {
 		if err := json.Unmarshal(aggregationJSON, &definition.Aggregation); err != nil {
-			return Definition{}, fmt.Errorf("decode custom report aggregation: %w", err)
+			return fmt.Errorf("decode custom report aggregation: %w", err)
 		}
 	}
 	if definition.Columns == nil {
@@ -168,7 +175,7 @@ func scanDefinition(row rowScanner) (Definition, error) {
 		definition.Filters = []Filter{}
 	}
 	definition.Aggregation = normalizeAggregation(definition.Aggregation)
-	return definition, nil
+	return nil
 }
 
 func encodeDefinitionJSON(input Input) ([]byte, []byte, []byte, error) {

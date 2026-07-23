@@ -310,6 +310,8 @@ var ordinaryOrganizationTables = []string{
 	"contact_company_links",
 	"contacts",
 	"custom_field_definitions",
+	"custom_report_dashboard_widgets",
+	"custom_report_dashboards",
 	"custom_report_definitions",
 	"deal_line_items",
 	"deal_quote_line_items",
