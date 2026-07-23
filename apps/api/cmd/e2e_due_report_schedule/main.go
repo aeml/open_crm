@@ -12,6 +12,7 @@ import (
 
 	moduledb "github.com/aeml/open_crm/apps/api/internal/db"
 	modulecustomreports "github.com/aeml/open_crm/apps/api/internal/modules/customreports"
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 )
 
 func main() {
@@ -48,7 +49,7 @@ func main() {
 	if result.RowsAffected() != 1 {
 		log.Fatal("report schedule e2e helper expected exactly one active schedule")
 	}
-	service := modulecustomreports.NewService(pool)
+	service := modulecustomreports.NewServiceWithDelivery(pool, moduleemail.NewFakeProvider(nil), true)
 	if enqueued, err := service.EnqueueDueDeliveries(ctx, 1); err != nil || enqueued != 1 {
 		log.Fatalf("enqueue browser report schedule: count=%d error=%v", enqueued, err)
 	}
