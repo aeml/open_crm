@@ -59,6 +59,45 @@ fi
 grep -qx "$good_release" "$test_root/state/current-release"
 grep -q '"status":"succeeded"' "$test_root/state/last-deploy.json"
 
+# A rotated/mistyped protected database secret must fail against the running
+# database before Compose can recreate PostgreSQL and strand the healthy API.
+preflight_api_container="$(compose_good_release ps -q api)"
+preflight_postgres_container="$(compose_good_release ps -q postgres)"
+[[ -n "$preflight_api_container" && -n "$preflight_postgres_container" ]] || {
+  echo "credential-drift preflight requires the healthy current stack" >&2
+  exit 1
+}
+credential_drift_unexpectedly_succeeded=false
+sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=drifted-open-crm-password/' "$test_root/test.env"
+if "$REPO_ROOT/scripts/remote-deploy.sh" "$REPO_ROOT" "$next_release"; then
+  credential_drift_unexpectedly_succeeded=true
+fi
+sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=open_crm/' "$test_root/test.env"
+if [[ "$credential_drift_unexpectedly_succeeded" == "true" ]]; then
+  echo "deployment unexpectedly accepted a drifted database credential" >&2
+  exit 1
+fi
+[[ "$(compose_good_release ps -q api)" == "$preflight_api_container" ]] || {
+  echo "credential drift replaced the healthy API before validation" >&2
+  exit 1
+}
+[[ "$(compose_good_release ps -q postgres)" == "$preflight_postgres_container" ]] || {
+  echo "credential drift replaced PostgreSQL before validation" >&2
+  exit 1
+}
+grep -qx "$good_release" "$test_root/state/current-release"
+grep -q '"status":"succeeded"' "$test_root/state/last-deploy.json"
+published_address="$(compose_good_release port api 8080 | head -n 1)"
+published_port="${published_address##*:}"
+observed_release="$(curl --fail --silent --show-error --max-time 2 \
+  --dump-header - --output /dev/null "http://127.0.0.1:${published_port}/readyz" \
+  | tr -d '\r' | sed -n 's/^[Xx]-[Oo]pen-[Cc][Rr][Mm]-[Rr]elease: *//p' | head -n 1)"
+[[ "$observed_release" == "$good_release" ]] || {
+  echo "credential drift disrupted the current ready release" >&2
+  exit 1
+}
+echo "database_credential_drift_preflight_succeeded release=$good_release"
+
 published_address="$(compose_good_release port api 8080 | head -n 1)"
 published_port="${published_address##*:}"
 [[ "$published_port" =~ ^[0-9]+$ ]] || { echo "deployed API port is missing" >&2; exit 1; }

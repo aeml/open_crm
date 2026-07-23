@@ -164,8 +164,27 @@ if docker image inspect "$release_image" >/dev/null 2>&1; then
 else
   "${COMPOSE[@]}" build api
 fi
+
+# When a healthy database already exists, prove that the newly uploaded
+# credentials and migration image can reach it before Compose is allowed to
+# recreate PostgreSQL for an environment or image change. Besides applying the
+# same transactional expand migrations slightly earlier, --no-deps is the
+# critical safety boundary: a stale/rotated secret fails while the current
+# database and API containers are still untouched.
+migrations_applied=false
+existing_postgres="$("${COMPOSE[@]}" ps -q postgres 2>/dev/null || true)"
+if [[ -n "$existing_postgres" ]] &&
+  [[ "$(docker inspect --format '{{.State.Running}}' "$existing_postgres" 2>/dev/null || true)" == "true" ]]; then
+  echo "deploy_database_preflight release=$requested_release"
+  if ! "${COMPOSE[@]}" run --rm --no-deps migrate; then
+    deploy_error "database credential or migration preflight failed before PostgreSQL restart; current containers were left unchanged"
+  fi
+  migrations_applied=true
+fi
 "${COMPOSE[@]}" up -d postgres
-"${COMPOSE[@]}" run --rm migrate
+if [[ "$migrations_applied" != "true" ]]; then
+  "${COMPOSE[@]}" run --rm migrate
+fi
 "${COMPOSE[@]}" up -d api --remove-orphans --force-recreate
 
 if ! wait_for_release "$requested_release" true; then

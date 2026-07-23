@@ -143,7 +143,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.9.6` Restore Drill Automation: complete (real off-host validation remains required for pilot evidence).
 - `0.9.7` Monitoring And Alerting Hooks: in progress (implementation complete; production scrape/destination validation pending).
 - `0.9.8` Load And Failure Testing: in progress (read/write/query/database-failure/export/import/provider/bundle budgets complete; production-like host evidence remains).
-- `0.9.9` Reliability Release Review: in progress (immutable deploy recovery and migration compatibility complete; load/failure review remains).
+- `0.9.9` Reliability Release Review: in progress (immutable deploy recovery, pre-restart database-credential/migration validation, and migration compatibility complete; load/failure review remains).
 - `0.10.0` Production Beta: in progress (license inventory/notice gate complete; approved pilot readiness evidence remains).
 
 ### Part II — Competitive SaaS Platform
@@ -2568,6 +2568,18 @@ automatic recovery from database-unavailable boot. Production-like host
 load/failure evidence, off-host restore evidence, an approved automatic
 production-host recovery exercise,
 and the complete pilot journey remain before this review can be complete.
+
+A 2026-07-22 protected database-secret rotation then exposed that Compose could
+recreate the running PostgreSQL container before the new migration process
+proved its credential, degrading the previous API even though its release was
+otherwise healthy. Existing deployments now run the exact new migration image
+with `--no-deps` before any PostgreSQL recreation. The disposable recovery test
+injects a wrong password and proves a nonzero deploy leaves both current
+container IDs, accepted release state, and exact readiness unchanged, then
+continues through normal deployment and every existing recovery case. The
+operations runbook treats persistent-role rotation as an explicitly approved,
+backup-gated, secret-safe maintenance action rather than something a deploy
+silently guesses or performs.
 
 Goal: close the reliability milestone before production beta.
 

@@ -1621,9 +1621,14 @@ scripts/remote-deploy.sh "$PWD" "<git-commit-sha>"
 
 The workflow supplies the full Git commit SHA as the release ID. The deploy
 script builds one immutable `open-crm-api:<release>` image for both migration
-and API processes, starts PostgreSQL, applies compatible migrations, recreates
-the API, and accepts the release only when the container is healthy and
-`/readyz` reports the exact expected `X-Open-CRM-Release` header continuously
+and API processes. When PostgreSQL is already running, that image first applies
+compatible migrations with `--no-deps`; this proves the newly uploaded database
+credentials and migration path before Compose may recreate PostgreSQL. A stale
+or mistyped protected password therefore exits nonzero while the current API,
+database container, and accepted release state remain untouched. A first-time
+bootstrap instead starts PostgreSQL and then migrates it. The deploy recreates
+the API only after that boundary and accepts the release only when it is
+healthy and `/readyz` reports the exact expected `X-Open-CRM-Release` header continuously
 for 45 seconds. This stabilization window covers dependency or container-daemon
 restarts immediately after the first successful probe. It can be configured
 from 0 through 120 seconds with `OPEN_CRM_DEPLOY_STABILITY_SECONDS`; retain the
@@ -1653,10 +1658,11 @@ If a normal expand deployment fails its post-migration readiness check,
 `remote-deploy.sh` automatically recreates the previously accepted immutable
 image, verifies its release header and health, records `rolled_back` in
 `var/deploy/last-deploy.json`, and exits nonzero so CI remains failed. The
-disposable CI acceptance test proves failed-readiness recovery, a manual
-rollback without reversing database migrations, and database-unavailable boot
-recovery. A production-configured API exits before opening HTTP whenever its
-database configuration is invalid or its initial connection fails. Compose's
+disposable CI acceptance test proves pre-restart credential-drift refusal,
+failed-readiness recovery, a manual rollback without reversing database
+migrations, and database-unavailable boot recovery. A production-configured API
+exits before opening HTTP whenever its database configuration is invalid or its
+initial connection fails. Compose's
 `unless-stopped` restart policy then retries the process until PostgreSQL and
 Docker DNS are usable; the `/readyz` container healthcheck prevents a partial
 database-disabled application from being classified as healthy. Development
@@ -1670,6 +1676,42 @@ Docker DNS was unavailable and remained alive with database services disabled;
 PostgreSQL was healthy restored the exact release. The fail-fast startup,
 readiness healthcheck, stabilization window, and disposable interruption test
 above are the permanent controls for that incident class.
+
+On 2026-07-22, a protected `POSTGRES_PASSWORD` change did not match the role
+credential retained in the persistent PostgreSQL volume. Compose recreated the
+database container before the migration process authenticated, which also
+stranded the previous API at degraded readiness. The role was reconciled to the
+already configured protected value without changing business rows, the previous
+release recovered, and the exact commit was redeployed through CI. The
+pre-restart migration/credential preflight and its disposable container-identity
+test are the permanent controls for that incident class.
+
+Changing `POSTGRES_PASSWORD` in the protected environment does not rotate an
+existing PostgreSQL role. Treat a rotation as a maintenance operation:
+
+1. Require explicit incident/change approval and verify a fresh encrypted
+   off-host backup plus recent restore drill before touching the role.
+2. Stage one new generated value in the protected CI environment and the host
+   environment without printing it, placing it in shell history, or copying it
+   into a ticket.
+3. From the database host, use local PostgreSQL administrative access to change
+   only the deployment role password to that same protected value. Pass the SQL
+   through protected standard input; do not place the credential in a command
+   argument or log. This is configuration maintenance, not permission to edit
+   CRM rows.
+4. Immediately rerun the CI workflow for the intended `main` commit. Require
+   the preflight, migrations, continuous exact-release readiness, and public
+   release-header check to pass, then verify worker/database health.
+5. Revoke the old credential and retain only timestamps, operator/change
+   approval, backup evidence, release SHA, and pass/fail results—not either
+   credential.
+
+If preflight reports database credential drift while the current release is
+healthy, stop. Either restore the protected configuration to the current role
+value or complete the approved rotation above; repeated deploys cannot repair a
+persistent role. If an older deploy path already restarted PostgreSQL and
+degraded the API, reconcile only the role credential, restart the existing API,
+prove its exact release is healthy, and then rerun the CI-gated deployment.
 
 Check service state:
 
