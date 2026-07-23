@@ -2296,3 +2296,39 @@ func TestMigrationFilesIncludeSharedReportDashboard(t *testing.T) {
 		t.Fatalf("shared report dashboard migration deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeScheduledReportDelivery(t *testing.T) {
+	const name = "125_scheduled_report_delivery.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"custom_report_schedules",
+		"custom_report_schedule_recipients",
+		"custom_report_delivery_runs",
+		"custom_report_recipient_deliveries",
+		"custom_report_schedules_definition_fk",
+		"custom_report_schedule_recipients_membership_fk",
+		"custom_report_delivery_runs_artifact_shape",
+		"custom_report_recipient_deliveries_run_fk",
+		"custom_report_recipient_deliveries_resolution_check",
+		"idx_custom_report_schedules_due",
+		"idx_custom_report_recipient_deliveries_recovery",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("scheduled report delivery migration missing %q", expected)
+		}
+	}
+	for _, forbidden := range []string{"provider_api_key", "smtp_password", "oauth_token"} {
+		if strings.Contains(strings.ToLower(content), forbidden) {
+			t.Fatalf("scheduled report delivery migration stores forbidden secret %q", forbidden)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("scheduled report delivery migration deployment class = %q", class)
+	}
+}

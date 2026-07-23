@@ -373,6 +373,9 @@ type customReportsService interface {
 	GetDashboard(context.Context, int64) (modulecustomreports.Dashboard, error)
 	UpdateDashboard(context.Context, int64, int64, modulecustomreports.DashboardInput) (modulecustomreports.Dashboard, error)
 	ExecuteDashboard(context.Context, int64) (modulecustomreports.DashboardExecution, error)
+	ListSchedules(context.Context, int64, int64) (modulecustomreports.ScheduleOverview, error)
+	UpsertSchedule(context.Context, int64, int64, int64, modulecustomreports.ReportScheduleInput) (modulecustomreports.ReportSchedule, error)
+	ResolveRecipientDelivery(context.Context, int64, int64, int64, modulecustomreports.DeliveryResolutionInput) (modulecustomreports.DeliveryRun, error)
 }
 
 type dataQualityService interface {

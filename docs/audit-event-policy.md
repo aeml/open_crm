@@ -27,8 +27,9 @@ The audited mutation classes are:
 - immutable quote finalization, approval, delivery, receipt, signature,
   decline, reissue, conversion, and client handoff;
 - workspace, filtered CRM, and audit export request/readiness/download evidence; and
-- saved-report definition changes, shared report-dashboard configuration, and
-  successful saved-report CSV downloads.
+- saved-report definition changes, shared report-dashboard configuration,
+  successful saved-report CSV downloads, and scheduled-report configuration,
+  queue, generation, per-recipient delivery/recovery, and completion evidence.
 
 Ordinary contact, company, deal, task, note, and preference edits use their
 tenant-scoped activity or domain history unless the operation crosses one of
@@ -38,9 +39,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `53`
+Producer source count: `58`
 
-Producer source digest: `4fca5a26196c1b6cde284f4256f922ddbd515fe36eea705e2a0a07b93e6492bd`
+Producer source digest: `7bd1f6e0a51e9a7d80d8cba11b2686211e675dafbd19d3a6bd3995bcdaa71252`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -96,6 +97,23 @@ the resulting revision and bounded widget count. Definition names, source
 tables, filters, result values, actor input, and request fingerprints remain
 outside the event. A semantic no-op writes neither a new revision nor an audit
 row, and a failed audit insert rolls back the complete configuration change.
+
+Scheduled-report configuration commits `report_schedule.created` or
+`report_schedule.updated` with the exact tenant/revision/recipient change;
+failure to insert the audit row rolls back the schedule. Due discovery commits
+`report_schedule.queued` with the occurrence and source-guarded job. Generation,
+provider acceptance, ambiguity, exhausted failure, explicit admin resolution,
+and terminal run state use the finite `report_schedule.*` events in the same
+transaction as their durable state transition. Every actively scheduled
+definition edit commits its definition audit and a reason-coded schedule
+revision audit together; an inactive or non-executable result also pauses the
+schedule. An audit failure rolls back both. Metadata is limited to tenant-
+safe definition/schedule/run/user identifiers, bounded report name, cadence and
+bounded counts, finite state/recovery choices, artifact byte/row counts, and
+SHA-256. Recipient
+addresses, CSV bytes and values, provider message identifiers, provider or
+internal error text, and request keys remain only in their purpose-specific
+operational ledgers and are excluded from the portable audit trail.
 
 Import submission records `import.queued` in the same transaction as the
 tenant-scoped batch, retained source, and `import.execute` job. Its metadata is

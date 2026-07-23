@@ -119,6 +119,7 @@ func (s *Service) buildBundle(ctx context.Context, organizationID int64) (bundle
 			"connected-mailbox delivery-feedback correlation ledgers",
 			"quote access tokens, idempotency hashes, and mailbox-provider correlation identifiers",
 			"workflow-approval idempotency keys and request fingerprints",
+			"scheduled-report CSV artifacts, provider message identifiers, and internal delivery errors",
 		},
 		ExternalFiles: "Open CRM currently stores recording and invoice references, not uploaded attachment bodies. Referenced external files are not embedded in this bundle.",
 	}
@@ -313,6 +314,8 @@ var ordinaryOrganizationTables = []string{
 	"custom_report_dashboard_widgets",
 	"custom_report_dashboards",
 	"custom_report_definitions",
+	"custom_report_schedule_recipients",
+	"custom_report_schedules",
 	"deal_line_items",
 	"deal_quote_line_items",
 	"deal_pipelines",
@@ -406,6 +409,24 @@ func buildPortableDatasets() []dataset {
 		{name: "workflow_automation_approvals", query: `
 			SELECT to_jsonb(approval) - ARRAY['decision_key_hash','decision_request_sha256']::text[]
 			FROM workflow_automation_approvals approval WHERE organization_id=$1 ORDER BY id`},
+		{name: "custom_report_delivery_runs", query: `
+			SELECT jsonb_build_object(
+				'id',id,'organization_id',organization_id,'schedule_id',schedule_id,
+				'report_definition_id',report_definition_id,'schedule_revision',schedule_revision,
+				'scheduled_for',scheduled_for,'status',status,'filename',filename,
+				'content_sha256',content_sha256,'byte_size',byte_size,'row_count',row_count,
+				'artifact_expires_at',artifact_expires_at,'completed_at',completed_at,
+				'created_at',created_at,'updated_at',updated_at
+			)
+			FROM custom_report_delivery_runs WHERE organization_id=$1 ORDER BY id`},
+		{name: "custom_report_recipient_deliveries", query: `
+			SELECT jsonb_build_object(
+				'id',id,'organization_id',organization_id,'delivery_run_id',delivery_run_id,
+				'recipient_user_id',recipient_user_id,'status',status,'attempt_count',attempt_count,
+				'attempted_at',attempted_at,'accepted_at',accepted_at,'resolved_at',resolved_at,
+				'resolved_by_user_id',resolved_by_user_id,'created_at',created_at,'updated_at',updated_at
+			)
+			FROM custom_report_recipient_deliveries WHERE organization_id=$1 ORDER BY id`},
 		{name: "deal_signature_requests", query: `
 			SELECT to_jsonb(signature) - ARRAY[
 			  'completion_idempotency_key_hash','completion_request_sha256',
@@ -520,6 +541,8 @@ func buildClassifiedOrganizationTables() map[string]struct{} {
 		"crm_exports",
 		"workspace_bootstrap_requests",
 		"workspace_exports",
+		"custom_report_delivery_runs",
+		"custom_report_recipient_deliveries",
 	} {
 		classified[table] = struct{}{}
 	}
@@ -535,7 +558,9 @@ record per line. manifest.json lists record counts and security exclusions.
 Archived records, configuration, CRM history, audit history, compliance
 suppressions, and shared communication content are included. Authentication
 secrets, provider credentials, session material, private mailbox messages, and
-internal delivery, billing, and public-request challenge ledgers are deliberately excluded. External file
+internal delivery, billing, and public-request challenge ledgers are deliberately excluded. Scheduled-report
+configuration and safe delivery evidence are included; generated CSV bodies, provider references, and internal
+errors are not. External file
 references are preserved where they are ordinary record fields, but Open CRM
 does not currently store uploaded attachment bodies for inclusion.
 

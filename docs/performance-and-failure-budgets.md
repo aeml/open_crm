@@ -42,6 +42,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Client-period activity page (500 clients, 100 returned) | 2 s |
 | Saved-report page (100 rows) | 2 s |
 | Shared report dashboard (6 grouped bars over 10,000 contacts, 12 groups/widget) | 2 s |
+| Scheduled-report overview (20 schedules, latest 20 runs, at most 10 recipients each) | 2 s |
 | Core or saved-report export (10,000 rows) | 5 s |
 | Mapped/deduplicated 1,000-row contact import | 10 s |
 | Exhausted one-connection pool deadline | 200 ms |
@@ -639,6 +640,33 @@ largest lazy chunk, 51.93/12.37 KiB Reports, 23.49/6.23 KiB Dashboard, and
 782/244 to 795/247 KiB; entry, per-route, CSS, hidden-foundation, and source
 ceilings remain unchanged.
 
+Scheduled saved-report delivery reuses the same five-second execution and
+10,000-row export boundaries and adds a hard 5 MiB attachment ceiling. The
+workspace catalog is capped at 20 schedules, each occurrence at 10 recipients,
+and admin history at the latest 20 runs; freshly migrated PostgreSQL acceptance
+serializes the concurrent final schedule slot and requires the complete bounded
+overview below two seconds. Minutely due discovery processes 50 schedules by
+default and never more than 100 per transaction with `SKIP LOCKED`; an active
+schedule more than five minutes overdue is alertable. Recovery captures one
+oldest retained due occurrence and advances to the next future cadence instead
+of generating an unbounded missed-occurrence backlog. Missing provider
+configuration leaves due work overdue and creates no dead-job stream. Provider work has three
+leased attempts, ambiguous contact has a five-minute quarantine and no automatic
+retry, and the one exact CSV artifact is recoverable for seven days before a
+100/default and 1,000/maximum `SKIP LOCKED` cleanup pass removes its bytes.
+Availability, active schedules/runs, overdue age, uncertain recipients, and
+trailing-24-hour failures are aggregate-only metrics. The PostgreSQL acceptance
+also proves exact artifact reuse, tenant isolation, retry exhaustion, deliberate
+ambiguity recovery, revision/definition-lifecycle cancellation, the concurrent
+final-slot ceiling, cleanup, and post-failure recovery.
+The 229-line schedule component is loaded only for owner/admin report users in a
+separate 9.00/3.12 KiB raw/gzip chunk, leaving the 363-line Reports route at
+51.50/12.38 KiB and the largest lazy chunk at the unchanged 55.12/15.73 KiB.
+The complete Node 24 build is 178.92/58.01 KiB entry and 805.82/250.58 KiB
+aggregate raw/gzip. Only aggregate ceilings advance from 795/247 to 806/251
+KiB; entry, per-route, CSS, hidden-foundation, and source ceilings remain
+unchanged.
+
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and
 then its ordered outcomes with a tenant/run-array query. Reviewed execution
@@ -711,7 +739,7 @@ executable task-rule subset also reduced that route from 669 to 261 lines.
 Every production route file now uses the default source ceiling; future splits
 must preserve that no-exception baseline.
 
-The API composition root is 426 lines, down from 996. Its audited 268-route
+The API composition root is 426 lines, down from 996. Its audited 271-route
 surface is registered through 184-line platform, 312-line foundation, and
 380-line core-CRM files. The security inventory and hosted-write-policy tests
 scan all production files in the package, so splitting registrations cannot

@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-23
 
-Evidence row count: `45`
+Evidence row count: `46`
 
-Evidence digest: `6aedd51ff8851319b17f6a5c3532f5ceaec68fa3d324f532ea84d1919a749a7b`
+Evidence digest: `4aff4ecc09e4773ab5a4d2403a5096491b0043f2b38a568cf9a94e729bcf4080`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -37,6 +37,7 @@ the assertions inside those tests remain the proof of behavior.
 | `custom-report-execution` | `apps/api/internal/modules/customreports/execution_postgres_test.go` | `TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres` | Definition mutations, contact/company/deal/task table and grouped-bar queries, and admin CSV exports bind the owning organization and active actor, exclude archived and foreign markers, reject cross-tenant definition IDs without disclosure, and leave no partial definition/download audit on forbidden or oversized paths. |
 | `report-definition-management` | `apps/api/internal/modules/customreports/definition_pagination_postgres_test.go` | `TestCustomReportDefinitionPagesAreBoundedStableAndTenantScoped` | Exact stored-definition totals and stable bounded active/update/ID pages remain tenant scoped; direct page limits, adjacent and repeat reads, final/empty pages, and the management index exclude a foreign definition and keep its total independent. |
 | `shared-report-dashboard` | `apps/api/internal/modules/customreports/dashboard_postgres_test.go` | `TestSharedReportDashboardIsRevisionedTenantSafeAndSnapshotBounded` | One workspace configuration binds every widget and definition through composite tenant keys; viewer, disabled, foreign, corrupt, inactive, unsupported, stale, and concurrent writer paths leave no partial state. Successful execution reads at most six widgets and 12 groups each from one repeatable-read snapshot, excludes foreign markers, recovers after timeout, and portable export includes only the owning tenant's configuration. |
+| `scheduled-report-delivery` | `apps/api/internal/modules/customreports/schedule_postgres_test.go` | `TestScheduledReportDeliveryIsTenantSafeDurableAndRecoverable` | Composite tenant keys and explicit organization predicates bind configuration, saved definition, active recipients, occurrences, retained artifact, provider claims, admin recovery, audits, and jobs. Member/foreign actors and foreign recipients fail closed; members cannot edit an actively scheduled definition; audit failure rolls back; exact discovery/replay cannot duplicate effects; disabled recipients skip; ambiguous and failed outcomes require explicit same-tenant recovery; schedule revision and definition lifecycle changes cancel untouched effects; concurrent final-slot writers produce exactly one 20th schedule; portable export omits artifact/provider/error secrets. |
 | `data-quality` | `apps/api/internal/modules/dataquality/service_postgres_test.go` | `TestDataQualityReportsAreExplainableBusinessAwareAndTenantSafeAgainstPostgres` | Fixed-quality queues and counts exclude every seeded foreign record. |
 | `deal-assignments` | `apps/api/internal/modules/deals/assignment_notifications_postgres_test.go` | `TestDealAssignmentsAreTransactionalPreferenceAwareAndIdempotentAgainstPostgres` | A foreign owner is rejected before deal or notification effects; transactional notification failure also rolls back the assignment. |
 | `deal-close-and-handoff` | `apps/api/internal/modules/deals/win_loss_postgres_test.go` | `TestDealCloseReviewsKeepOutcomeContextCoherentAndTenantScopedAgainstPostgres` | Foreign stages/accounts cannot alter close state or handoff evidence; replay and reopening preserve the owning tenant's history. |
@@ -74,11 +75,11 @@ the assertions inside those tests remain the proof of behavior.
 
 - `apps/api/internal/app/cross_org_test.go` verifies that the core HTTP handlers
   translate service misses to non-disclosing `404` responses.
-- `apps/api/internal/app/security_inventory_test.go` digest-gates all 268
+- `apps/api/internal/app/security_inventory_test.go` digest-gates all 271
   registered routes, so a new selector must receive an explicit session/token
   tenant policy and test reference.
 - `apps/api/internal/app/list_endpoint_inventory_test.go` separately
-  digest-gates all 108 registered GET routes, so a new collection cannot bypass
+  digest-gates all 109 registered GET routes, so a new collection cannot bypass
   a cardinality, ordering, overflow, and pagination review.
 - Role and viewer denial are handler concerns and remain covered by the route
   family permission tests named in `security-surface-inventory.md`; the

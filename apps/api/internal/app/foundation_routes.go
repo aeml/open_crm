@@ -204,6 +204,15 @@ func registerFoundationRoutes(mux *http.ServeMux, dependencies Dependencies, rat
 	mux.HandleFunc("GET /api/report-dashboard/results", func(w http.ResponseWriter, r *http.Request) {
 		handleExecuteCustomReportDashboard(dependencies.AuthService, dependencies.CustomReportsService, w, r)
 	})
+	mux.HandleFunc("GET /api/report-schedules", func(w http.ResponseWriter, r *http.Request) {
+		handleListCustomReportSchedules(dependencies.AuthService, dependencies.CustomReportsService, w, r)
+	})
+	mux.HandleFunc("PUT /api/report-definitions/{definitionID}/schedule", func(w http.ResponseWriter, r *http.Request) {
+		handleUpsertCustomReportSchedule(dependencies.AuthService, dependencies.CustomReportsService, w, r)
+	})
+	mux.HandleFunc("POST /api/report-recipient-deliveries/{deliveryID}/resolve", func(w http.ResponseWriter, r *http.Request) {
+		handleResolveCustomReportDelivery(dependencies.AuthService, dependencies.CustomReportsService, w, r)
+	})
 	mux.HandleFunc("GET /api/data-quality/summary", func(w http.ResponseWriter, r *http.Request) {
 		handleDataQualitySummary(dependencies.AuthService, dependencies.DataQualityService, w, r)
 	})

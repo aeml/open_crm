@@ -100,8 +100,8 @@ for (const chunk of asynchronousChunks) {
   enforce(`async chunk ${chunk.name} raw`, chunk.raw, 60 * 1024)
   enforce(`async chunk ${chunk.name} gzip`, chunk.gzip, 16 * 1024)
 }
-enforce('all JavaScript and CSS raw', totals.raw, 795 * 1024)
-enforce('all JavaScript and CSS gzip', totals.gzip, 247 * 1024)
+enforce('all JavaScript and CSS raw', totals.raw, 806 * 1024)
+enforce('all JavaScript and CSS gzip', totals.gzip, 251 * 1024)
 enforce('all CSS raw', cssTotals.raw, 20 * 1024)
 enforce('all CSS gzip', cssTotals.gzip, 5 * 1024)
 

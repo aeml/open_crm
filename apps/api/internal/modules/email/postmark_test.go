@@ -2,6 +2,7 @@ package email
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -64,12 +65,34 @@ func TestPostmarkSendCarriesCorrelationMetadataAndReturnsMessageID(t *testing.T)
 		}, nil
 	})}
 	metadata := map[string]string{"open_crm_system_email": "v1", "open_crm_delivery_key": "delivery-key"}
-	result, err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Identity", TextBody: "Hello", Metadata: metadata})
+	result, err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Identity", TextBody: "Hello", Metadata: metadata, Attachments: []Attachment{{Name: "pilot.csv", ContentType: "text/csv", Content: []byte("name\nAda\n")}}})
 	if err != nil || result.ProviderMessageID != "postmark-message-correlated" {
 		t.Fatalf("send correlated Postmark message: result=%#v err=%v", result, err)
 	}
 	if sent.MessageStream != "outbound" || sent.Metadata["open_crm_system_email"] != "v1" || sent.Metadata["open_crm_delivery_key"] != "delivery-key" {
 		t.Fatalf("Postmark request omitted correlation metadata: %#v", sent)
+	}
+	if len(sent.Attachments) != 1 || sent.Attachments[0].Name != "pilot.csv" || sent.Attachments[0].ContentType != "text/csv" {
+		t.Fatalf("Postmark request omitted the bounded attachment: %#v", sent.Attachments)
+	}
+	decoded, decodeErr := base64.StdEncoding.DecodeString(sent.Attachments[0].Content)
+	if decodeErr != nil || string(decoded) != "name\nAda\n" {
+		t.Fatalf("Postmark attachment is not exact base64 content: body=%q err=%v", decoded, decodeErr)
+	}
+}
+
+func TestPostmarkSendRejectsUnsafeOrEmptyAttachmentsBeforeProvider(t *testing.T) {
+	provider := NewPostmarkProvider("tok", "from@acme.test", "outbound", nil)
+	for _, attachment := range []Attachment{
+		{Name: "../secret.csv", ContentType: "text/csv", Content: []byte("x")},
+		{Name: "report.csv\r\nX-Header: value", ContentType: "text/csv", Content: []byte("x")},
+		{Name: "report.csv", ContentType: "text/csv\r\nX-Header: value", Content: []byte("x")},
+		{Name: "empty.csv", ContentType: "text/csv"},
+		{Name: "missing-type.csv", Content: []byte("x")},
+	} {
+		if _, err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Report", Attachments: []Attachment{attachment}}); err == nil || !strings.Contains(err.Error(), "invalid attachment") {
+			t.Fatalf("unsafe attachment %#v returned %v", attachment, err)
+		}
 	}
 }
 
@@ -83,8 +106,23 @@ func TestPostmarkSendRejectsAcceptedResponseWithoutMessageID(t *testing.T) {
 			Request:    request,
 		}, nil
 	})}
-	if _, err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Identity"}); err == nil || !strings.Contains(err.Error(), "missing message id") {
+	if _, err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Identity"}); err == nil || !strings.Contains(err.Error(), "missing message id") || !errors.Is(err, ErrDeliveryUncertain) {
 		t.Fatalf("missing Postmark correlation reference returned %v", err)
+	}
+}
+
+func TestPostmarkSendTreatsMalformedAcceptedResponseAsUncertain(t *testing.T) {
+	provider := NewPostmarkProvider("server-token", "from@acme.test", "outbound", nil)
+	provider.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"ErrorCode":`)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})}
+	if _, err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Identity"}); !errors.Is(err, ErrDeliveryUncertain) {
+		t.Fatalf("malformed accepted response could cause an automatic duplicate: %v", err)
 	}
 }
 
@@ -140,6 +178,9 @@ func TestPostmarkSendHonorsContextDeadline(t *testing.T) {
 	_, err := provider.Send(ctx, Message{To: "person@example.test", Subject: "Pilot follow-up"})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected provider request deadline, got %v", err)
+	}
+	if !errors.Is(err, ErrDeliveryUncertain) {
+		t.Fatalf("provider transport interruption must be classified as uncertain, got %v", err)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("provider deadline surfaced after %s", elapsed)

@@ -215,7 +215,8 @@ func main() {
 			nurtureCampaignsService = modulenurturecampaigns.NewService(pool)
 			leadScoringService = moduleleadscoring.NewService(pool)
 			workflowAutomationsService = moduleworkflowautomations.NewService(pool)
-			customReportsService = modulecustomreports.NewService(pool)
+			allowFakeReportDelivery := strings.EqualFold(env.GOEnv, "development") || strings.EqualFold(env.GOEnv, "test")
+			customReportsService = modulecustomreports.NewServiceWithDelivery(pool, emailProvider, allowFakeReportDelivery)
 			dataQualityService = moduledataquality.NewService(pool)
 			salesReportsService = modulesalesreports.NewService(pool)
 			touchpointsService = moduletouchpoints.NewService(pool)
@@ -329,6 +330,20 @@ func main() {
 		}
 		if sequenceRunnerService != nil && sequenceRunnerService.Configured() {
 			jobHandlers[moduleemailsequences.SequenceSendJobType] = sequenceRunnerService.HandleJob
+		}
+		if customReportsService != nil {
+			jobHandlers[modulecustomreports.ScheduledDeliveryJobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
+				result, err := customReportsService.HandleScheduledDeliveryJob(ctx, job)
+				if modulecustomreports.ScheduledDeliveryPermanentFailure(err) {
+					return nil, modulejobs.Permanent(err)
+				}
+				if modulecustomreports.ScheduledDeliveryDeferred(err) {
+					return nil, modulejobs.Deferred(err, time.Now().Add(5*time.Minute))
+				}
+				return result, err
+			}
+			go customReportsService.RunDeliveryScheduler(ctx, logger, 0)
+			go customReportsService.RunDeliveryArtifactCleanupScheduler(ctx, logger, 0)
 		}
 		if workflowAutomationsService != nil {
 			jobHandlers[moduleworkflowautomations.LeadFollowUpJobType] = func(ctx context.Context, job modulejobs.Job) (map[string]any, error) {
@@ -452,6 +467,18 @@ func main() {
 			snapshot.RecordEmailDeliveriesSending = stats.Sending
 			snapshot.RecordEmailDeliveriesStaleSending = stats.StaleSending
 			snapshot.RecordEmailDeliveriesUncertain = stats.Uncertain
+		}
+		if customReportsService == nil {
+			snapshot.CollectionSuccess = false
+		} else if stats, err := customReportsService.ScheduledDeliveryOperationalStats(ctx); err != nil {
+			snapshot.CollectionSuccess = false
+		} else {
+			snapshot.ScheduledReportsAvailable = true
+			snapshot.ScheduledReportActiveSchedules = stats.ActiveSchedules
+			snapshot.ScheduledReportActiveRuns = stats.ActiveRuns
+			snapshot.ScheduledReportUncertain = stats.Uncertain
+			snapshot.ScheduledReportFailed24h = stats.Failed24h
+			snapshot.ScheduledReportOldestOverdueAge = time.Duration(stats.OldestOverdueAge) * time.Second
 		}
 		if dealsService == nil {
 			snapshot.CollectionSuccess = false

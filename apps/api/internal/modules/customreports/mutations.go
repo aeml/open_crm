@@ -75,6 +75,9 @@ func (s *Service) Update(ctx context.Context, organizationID, definitionID, acto
 	if err := requireActiveReportWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Definition{}, err
 	}
+	if err := requireScheduledDefinitionWrite(ctx, tx, organizationID, definitionID, actorUserID); err != nil {
+		return Definition{}, err
+	}
 	definition, err := scanDefinition(tx.QueryRow(ctx, `
 		UPDATE custom_report_definitions
 		SET name = $3,
@@ -94,6 +97,9 @@ func (s *Service) Update(ctx context.Context, organizationID, definitionID, acto
 	`, organizationID, definitionID, input.Name, input.Description, input.SourceType, input.VisualizationType, input.VisualizationContract, string(columnsJSON), string(filtersJSON), input.GroupBy, string(aggregationJSON), isActive, actorUserID))
 	if err != nil {
 		return Definition{}, mapSaveError(err)
+	}
+	if err := reconcileScheduledDefinitionWrite(ctx, tx, organizationID, actorUserID, definition); err != nil {
+		return Definition{}, err
 	}
 	if err := recordDefinitionAudit(ctx, tx, organizationID, actorUserID, definition, "report_definition.updated", "Updated saved report definition"); err != nil {
 		return Definition{}, err

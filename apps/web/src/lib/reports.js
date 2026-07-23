@@ -118,6 +118,37 @@ export async function getSharedReportDashboardResults({ signal } = {}) {
   return { ...data, widgets }
 }
 
+function validScheduleCollection(data) {
+  return data && typeof data.provider === 'string' && typeof data.deliveryAvailable === 'boolean' && Array.isArray(data.schedules) && data.schedules.length <= 20 && Array.isArray(data.deliveryRuns) && data.deliveryRuns.length <= 20
+}
+
+export async function listReportSchedules({ signal } = {}) {
+  const payload = await apiRequest('/api/report-schedules', { fallbackMessage: 'Unable to load scheduled report delivery.', signal })
+  const data = payload?.data
+  if (!validScheduleCollection(data) || data.schedules.some((schedule) => !Number.isInteger(schedule.id) || schedule.id <= 0 || !Number.isInteger(schedule.revision) || schedule.revision <= 0 || !Array.isArray(schedule.recipients) || schedule.recipients.length > 10) || data.deliveryRuns.some((run) => !Number.isInteger(run.id) || run.id <= 0 || !Array.isArray(run.recipients) || run.recipients.length > 10)) {
+    throw new Error('The server returned invalid scheduled report delivery state. Refresh before retrying.')
+  }
+  return data
+}
+
+export async function upsertReportSchedule(definitionId, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/report-definitions/${definitionId}/schedule`, { method: 'PUT', body: input, fallbackMessage: 'Unable to save scheduled report delivery.', signal })
+  const schedule = payload?.data?.schedule
+  if (!schedule || schedule.reportDefinitionId !== definitionId || !Number.isInteger(schedule.revision) || schedule.revision < Math.max(1, input.revision) || !Array.isArray(schedule.recipients)) {
+    throw new Error('The scheduled report response was invalid. Refresh before retrying.')
+  }
+  return schedule
+}
+
+export async function resolveReportRecipientDelivery(deliveryId, input, { signal } = {}) {
+  const payload = await apiRequest(`/api/report-recipient-deliveries/${deliveryId}/resolve`, { method: 'POST', body: input, fallbackMessage: 'Unable to resolve scheduled report delivery.', signal })
+  const run = payload?.data?.deliveryRun
+  if (!run || !Number.isInteger(run.id) || run.id <= 0 || !Array.isArray(run.recipients) || !run.recipients.some((delivery) => delivery.id === deliveryId)) {
+    throw new Error('The delivery recovery response was invalid. Refresh before retrying.')
+  }
+  return run
+}
+
 export async function getDataQualitySummary({ staleDays = 30, signal } = {}) {
   const params = new URLSearchParams({ staleDays: String(staleDays) })
   const payload = await apiRequest(`/api/data-quality/summary?${params.toString()}`, { fallbackMessage: 'Unable to load data quality reports.', signal })

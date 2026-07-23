@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -33,6 +33,8 @@ import {
   visualizationLabel,
   visualizationOptions
 } from './report_definition_model'
+
+const ScheduledReportDelivery = lazy(() => import('./scheduled_report_delivery').then((module) => ({ default: module.ScheduledReportDelivery })))
 
 export function ReportsFoundationRoute() {
   const { session, canWrite: canManage } = useAuth()
@@ -217,12 +219,13 @@ export function ReportsFoundationRoute() {
         isLoadingMore={isLoadingMore}
         onLoadMore={loadMoreDefinitions}
       />
+      {canExport ? <Suspense fallback={<p className="field-hint" role="status">Loading scheduled report delivery…</p>}><ScheduledReportDelivery definitions={definitions} /></Suspense> : null}
       <Card>
         <div className="card-stack">
           <div className="section-header">
             <div>
               <h2>Reports</h2>
-              <p>Build, run, export, and publish bounded saved table or grouped-bar reports for {session?.organization?.name || 'your team'}. Other chart types, personal dashboards, external sharing, and scheduling remain hidden.</p>
+              <p>Build, run, export, publish, and schedule bounded saved table or grouped-bar reports for {session?.organization?.name || 'your team'}. Other chart types, personal dashboards, and external sharing remain hidden.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading report definitions...</p> : null}

@@ -253,6 +253,12 @@ type RuntimeSnapshot struct {
 	WorkflowOldestActiveAge           time.Duration
 	WorkflowApprovalsPending          int64
 	WorkflowOldestApprovalAge         time.Duration
+	ScheduledReportsAvailable         bool
+	ScheduledReportActiveSchedules    int64
+	ScheduledReportActiveRuns         int64
+	ScheduledReportUncertain          int64
+	ScheduledReportFailed24h          int64
+	ScheduledReportOldestOverdueAge   time.Duration
 	LeadReviewsAvailable              bool
 	LeadReviewsUnreviewed             int64
 	LeadReviewsLegitimate             int64
@@ -420,6 +426,7 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 		LastRunAt: quoteDeliveryRecoveryLastAt, LastRunOK: quoteDeliveryRecoveryLastOK,
 	})
 	writeWorkflowAutomationMetrics(&output, snapshot)
+	writeScheduledReportMetrics(&output, snapshot)
 	writeLeadSubmissionReviewMetrics(&output, snapshot)
 	writeHelpType(&output, "open_crm_password_resets_available", "Whether aggregate password-reset health was collected successfully.", "gauge")
 	writeBool(&output, "open_crm_password_resets_available", snapshot.PasswordResetsAvailable)
@@ -447,6 +454,21 @@ func (c *Collector) render(snapshot RuntimeSnapshot) string {
 	fmt.Fprintf(&output, "open_crm_customer_email_feedback_unapplied_24h %d\n", nonNegative64(snapshot.CustomerEmailUnapplied24h))
 	writeBackupMetrics(&output, snapshot.Backup)
 	return output.String()
+}
+
+func writeScheduledReportMetrics(output *strings.Builder, snapshot RuntimeSnapshot) {
+	writeHelpType(output, "open_crm_scheduled_reports_available", "Whether aggregate scheduled saved-report delivery health was collected successfully.", "gauge")
+	writeBool(output, "open_crm_scheduled_reports_available", snapshot.ScheduledReportsAvailable)
+	writeHelpType(output, "open_crm_scheduled_report_active_schedules", "Active saved-report delivery schedules across all workspaces; no tenant labels are exposed.", "gauge")
+	fmt.Fprintf(output, "open_crm_scheduled_report_active_schedules %d\n", nonNegative64(snapshot.ScheduledReportActiveSchedules))
+	writeHelpType(output, "open_crm_scheduled_report_active_runs", "Scheduled saved-report delivery runs currently pending or sending.", "gauge")
+	fmt.Fprintf(output, "open_crm_scheduled_report_active_runs %d\n", nonNegative64(snapshot.ScheduledReportActiveRuns))
+	writeHelpType(output, "open_crm_scheduled_report_uncertain_recipients", "Scheduled saved-report recipients requiring explicit operator resolution after ambiguous provider contact.", "gauge")
+	fmt.Fprintf(output, "open_crm_scheduled_report_uncertain_recipients %d\n", nonNegative64(snapshot.ScheduledReportUncertain))
+	writeHelpType(output, "open_crm_scheduled_report_failed_recipients_24h", "Scheduled saved-report recipient deliveries currently failed and updated in the trailing 24 hours.", "gauge")
+	fmt.Fprintf(output, "open_crm_scheduled_report_failed_recipients_24h %d\n", nonNegative64(snapshot.ScheduledReportFailed24h))
+	writeHelpType(output, "open_crm_scheduled_report_oldest_overdue_seconds", "Age of the oldest active saved-report schedule whose next occurrence has not been enqueued.", "gauge")
+	fmt.Fprintf(output, "open_crm_scheduled_report_oldest_overdue_seconds %s\n", durationValue(snapshot.ScheduledReportOldestOverdueAge))
 }
 
 func normalizeRoute(method, route string) string {

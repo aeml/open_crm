@@ -1397,9 +1397,9 @@ bytes, tokens, or counters with ad hoc SQL.
 1. Open **Reports**. Owners, admins, and members can create or edit a saved
    table or grouped bar report; viewers can run existing active reports but
    cannot change their definitions. Production hides pre-contract grouped bars,
-   line, funnel, pie, KPI, personal-dashboard, external-sharing, and
-   scheduled-delivery definitions. One bounded shared grouped-bar dashboard is
-   managed separately in the same Reports screen.
+   line, funnel, pie, KPI, personal-dashboard, and external-sharing definitions.
+   One bounded shared grouped-bar dashboard and one bounded scheduled CSV
+   delivery outcome are managed separately in the same Reports screen.
 2. Choose contacts, companies, deals, or tasks and add only the typed operators
    offered for each field. A table selects result fields and can use **No
    aggregation** or a supported summary. A grouped bar selects exactly one
@@ -1461,6 +1461,68 @@ bytes, tokens, or counters with ad hoc SQL.
    dashboard PostgreSQL/Chromium isolation evidence. Configuration, execution,
    definitions, audit, and portable export are all required to agree on the
    session tenant.
+
+### Scheduled saved-report delivery
+
+1. Open **Reports > Scheduled CSV delivery** as an active owner or admin. The
+   complete workspace catalog is bounded to 20 schedules, one per active
+   executable saved report. Each schedule is daily or weekly at an exact UTC
+   hour and has 1–10 currently active workspace recipients. Use the displayed
+   revision when changing cadence, recipients, or active state. `CONFLICT`
+   means another admin won; reload before deliberately applying the change.
+   `REPORT_SCHEDULE_LIMIT` means the workspace already retains the supported
+   20-schedule catalog. Continue using one of those scheduled saved reports;
+   pausing one does not erase its evidence or free a new catalog slot. Do not
+   delete or repoint schedule history with SQL.
+2. Production requires the configured Postmark system-email provider. A fake
+   provider is accepted only with an explicit development/test runtime;
+   `REPORT_DELIVERY_NOT_CONFIGURED` prevents activating a schedule otherwise.
+   The scheduler checks due work once per minute, captures the exact schedule
+   revision and currently active recipients transactionally, and enqueues one
+   `report.schedule.deliver` job. After downtime it creates the oldest retained
+   due occurrence once and advances directly to the next future cadence; it
+   does not fan out every missed day/week. A five-minute overdue age is an
+   incident. If provider configuration is lost, discovery leaves the occurrence
+   overdue rather than advancing cadence or creating recurring dead jobs;
+   restore configuration and confirm the retained occurrence is then queued.
+3. Each occurrence executes the saved tenant-scoped report under its existing
+   five-second and 10,000-row limits, refuses an attachment above 5 MiB, and
+   stores one formula-safe CSV plus SHA-256 for every recipient. The same exact
+   artifact is retained for seven days for recovery; it is never regenerated
+   during a retry. `REPORT_NOT_EXECUTABLE`, `EXPORT_TOO_LARGE`, or a size error
+   means correct or narrow the saved definition through Reports, then wait for
+   or deliberately reschedule a future occurrence. An expired or purged
+   artifact is not recoverable.
+4. A provider acceptance is terminal for that recipient. A definite provider
+   failure consumes at most three leased job attempts and then appears as
+   **Failed**. Correct the provider/configuration cause and select **Retry exact
+   CSV**; the retained artifact and a new recovery generation make replay
+   explicit and idempotent. Ordinary Operations replay is still available for
+   a dead job, but never edit the job payload, occurrence, recipient state, or
+   provider reference directly.
+5. A transport interruption after possible provider contact appears as
+   **Uncertain** and is never resent automatically. First inspect the controlled
+   Postmark recipient/activity using the occurrence time and recipient; do not
+   copy provider identifiers into tickets or audit metadata. If delivery is
+   found, select **Confirm sent**. If it is not found and the business accepts
+   the possibility of a duplicate, check the explicit duplicate-risk control
+   and retry the exact retained CSV. While a definition has an active schedule,
+   only an owner/admin may edit that definition. Every successful edit advances
+   the schedule revision and cancels untouched queued work so changed report
+   content cannot cross an older occurrence boundary. Deactivating it or
+   changing it to a non-executable contract also pauses the schedule; making
+   the definition executable again never silently resumes email. An in-flight
+   provider contact must still reach a terminal or operator-resolved state.
+6. The protected metrics endpoint exposes
+   `open_crm_scheduled_reports_available`, active schedule/run counts,
+   `open_crm_scheduled_report_oldest_overdue_seconds`, uncertain recipients,
+   and failed recipients in the trailing 24 hours. On unavailable metrics,
+   verify database readiness and the metrics scrape. On overdue discovery,
+   inspect API scheduler logs and the due schedule before restarting one API
+   instance. On uncertain/failed alerts, use the tenant admin history and the
+   decision process above. Record exact release, request/job ID, occurrence,
+   finite status, resolution, and alert receipt/resolve time without recipient
+   addresses, CSV values, provider IDs, or internal errors.
 
 ### Saved-view limits and stale-change recovery
 
@@ -1831,10 +1893,11 @@ idempotency key remain for 400 days before deletion. All current producers also
 recheck durable source state (for example reminder, delivery, enrollment,
 subscription, usage-snapshot, or export state), so work older than the queue's
 400-day replay window cannot rely on the queue row as its only duplicate guard.
-Retention is allowlisted to the nine currently reviewed production job types:
+Retention is allowlisted to the eleven currently reviewed production job types:
 `billing.reconcile`, `billing.usage.snapshot`, `calendar.reminder`,
-`email_sequence.send`, `import.execute`, `mailbox.sync`, `task.reminder`,
-`workflow.lead_follow_up`, and `workspace.export.generate`. A new worker type retains full history until its
+`crm.export.generate`, `email_sequence.send`, `import.execute`, `mailbox.sync`,
+`report.schedule.deliver`, `task.reminder`, `workflow.lead_follow_up`, and
+`workspace.export.generate`. A new worker type retains full history until its
 source-state guard is reviewed.
 Pending, running, retryable, and dead jobs are never selected. Dead work stays
 visible until an administrator resolves and replays it; an increasing dead count

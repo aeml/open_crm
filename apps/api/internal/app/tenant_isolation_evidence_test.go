@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 45
-	expectedTenantIsolationEvidenceDigest = "6aedd51ff8851319b17f6a5c3532f5ceaec68fa3d324f532ea84d1919a749a7b"
+	expectedTenantIsolationEvidenceCount  = 46
+	expectedTenantIsolationEvidenceDigest = "4aff4ecc09e4773ab5a4d2403a5096491b0043f2b38a568cf9a94e729bcf4080"
 )
 
 type tenantIsolationEvidence struct {
@@ -37,6 +37,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "custom-report-execution", Source: "apps/api/internal/modules/customreports/execution_postgres_test.go", Test: "TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres"},
 	{Surface: "report-definition-management", Source: "apps/api/internal/modules/customreports/definition_pagination_postgres_test.go", Test: "TestCustomReportDefinitionPagesAreBoundedStableAndTenantScoped"},
 	{Surface: "shared-report-dashboard", Source: "apps/api/internal/modules/customreports/dashboard_postgres_test.go", Test: "TestSharedReportDashboardIsRevisionedTenantSafeAndSnapshotBounded"},
+	{Surface: "scheduled-report-delivery", Source: "apps/api/internal/modules/customreports/schedule_postgres_test.go", Test: "TestScheduledReportDeliveryIsTenantSafeDurableAndRecoverable"},
 	{Surface: "data-quality", Source: "apps/api/internal/modules/dataquality/service_postgres_test.go", Test: "TestDataQualityReportsAreExplainableBusinessAwareAndTenantSafeAgainstPostgres"},
 	{Surface: "deal-assignments", Source: "apps/api/internal/modules/deals/assignment_notifications_postgres_test.go", Test: "TestDealAssignmentsAreTransactionalPreferenceAwareAndIdempotentAgainstPostgres"},
 	{Surface: "deal-close-and-handoff", Source: "apps/api/internal/modules/deals/win_loss_postgres_test.go", Test: "TestDealCloseReviewsKeepOutcomeContextCoherentAndTenantScopedAgainstPostgres"},

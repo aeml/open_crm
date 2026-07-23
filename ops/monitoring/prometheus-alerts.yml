@@ -457,6 +457,42 @@ groups:
           description: Inspect causal run evidence before changing the rule; do not bypass the re-entry, depth, or causal-tree fan-out boundary.
           runbook: docs/operations-runbook.md#deal-task-automation-and-recovery
 
+      - alert: OpenCRMScheduledReportMetricsUnavailable
+        expr: open_crm_scheduled_reports_available != 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Open CRM cannot read durable scheduled-report delivery health
+          runbook: docs/operations-runbook.md#scheduled-saved-report-delivery
+
+      - alert: OpenCRMScheduledReportDiscoveryOverdue
+        expr: open_crm_scheduled_reports_available == 1 and open_crm_scheduled_report_oldest_overdue_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: An active saved-report schedule is overdue for durable enqueue
+          runbook: docs/operations-runbook.md#scheduled-saved-report-delivery
+
+      - alert: OpenCRMScheduledReportDeliveryUncertain
+        expr: open_crm_scheduled_reports_available == 1 and open_crm_scheduled_report_uncertain_recipients > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Scheduled-report recipients require an explicit delivery decision
+          runbook: docs/operations-runbook.md#scheduled-saved-report-delivery
+
+      - alert: OpenCRMScheduledReportDeliveryFailed
+        expr: open_crm_scheduled_reports_available == 1 and open_crm_scheduled_report_failed_recipients_24h > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Scheduled-report recipient delivery failed in the trailing 24 hours
+          runbook: docs/operations-runbook.md#scheduled-saved-report-delivery
+
       - alert: OpenCRMBackupStatusUnavailable
         expr: open_crm_backup_status_available == 0
         for: 30m

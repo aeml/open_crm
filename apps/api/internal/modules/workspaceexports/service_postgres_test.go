@@ -103,6 +103,33 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("seed portable dashboard widget: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
+		WITH schedule AS (
+		  INSERT INTO custom_report_schedules(
+		    organization_id,report_definition_id,revision,cadence,hour_utc,is_active,next_run_at,
+		    created_by_user_id,updated_by_user_id
+		  ) VALUES($1,$2,2,'daily',9,TRUE,NOW()+INTERVAL '1 day',$3,$3)
+		  RETURNING id
+		), recipient AS (
+		  INSERT INTO custom_report_schedule_recipients(organization_id,schedule_id,recipient_user_id)
+		  SELECT $1,id,$3 FROM schedule RETURNING schedule_id
+		), run AS (
+		  INSERT INTO custom_report_delivery_runs(
+		    organization_id,schedule_id,report_definition_id,schedule_revision,scheduled_for,status,
+		    filename,content_sha256,byte_size,row_count,artifact,artifact_expires_at,last_error,completed_at
+		  ) SELECT $1,schedule_id,$2,2,NOW()-INTERVAL '1 day','partial','portable-report.csv',
+		    repeat('a',64),octet_length(convert_to('scheduled-report-artifact-secret','UTF8')),1,
+		    convert_to('scheduled-report-artifact-secret','UTF8'),NOW()+INTERVAL '7 days',
+		    'scheduled-report-internal-run-error',NOW()
+		  FROM recipient RETURNING id
+		)
+		INSERT INTO custom_report_recipient_deliveries(
+		  organization_id,delivery_run_id,recipient_user_id,status,attempt_count,provider_message_id,last_error,attempted_at
+		) SELECT $1,id,$3,'uncertain',1,'scheduled-report-provider-secret','scheduled-report-internal-delivery-error',NOW()
+		FROM run
+	`, organizationID, portableReportID, ownerID); err != nil {
+		t.Fatalf("seed portable scheduled-report evidence: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
 		WITH definition AS (
 			INSERT INTO custom_report_definitions(
 				organization_id,name,source_type,visualization_type,visualization_contract,
@@ -419,7 +446,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("generate workspace export: summary=%#v err=%v job_error=%s", summary, err, lastError)
 	}
 	history, err := service.List(ctx, organizationID)
-	if err != nil || len(history) != 4 || history[0].ID != requested.ID || history[0].Status != "ready" || history[0].ContentSHA256 == "" || history[0].ByteSize <= 0 || history[0].DatasetCounts["contacts"] != 1 || history[0].DatasetCounts["deal_quotes"] != 2 || history[0].DatasetCounts["deal_quote_line_items"] != 2 || history[0].DatasetCounts["deal_quote_deliveries"] != 1 || history[0].DatasetCounts["deal_quote_approvals"] != 1 || history[0].DatasetCounts["quote_templates"] != 1 || history[0].DatasetCounts["organization_quote_policies"] != 1 || history[0].DatasetCounts["deal_signature_requests"] != 1 || history[0].DatasetCounts["email_messages_shared"] != 1 || history[0].DatasetCounts["custom_report_definitions"] != 1 || history[0].DatasetCounts["custom_report_dashboards"] != 1 || history[0].DatasetCounts["custom_report_dashboard_widgets"] != 1 {
+	if err != nil || len(history) != 4 || history[0].ID != requested.ID || history[0].Status != "ready" || history[0].ContentSHA256 == "" || history[0].ByteSize <= 0 || history[0].DatasetCounts["contacts"] != 1 || history[0].DatasetCounts["deal_quotes"] != 2 || history[0].DatasetCounts["deal_quote_line_items"] != 2 || history[0].DatasetCounts["deal_quote_deliveries"] != 1 || history[0].DatasetCounts["deal_quote_approvals"] != 1 || history[0].DatasetCounts["quote_templates"] != 1 || history[0].DatasetCounts["organization_quote_policies"] != 1 || history[0].DatasetCounts["deal_signature_requests"] != 1 || history[0].DatasetCounts["email_messages_shared"] != 1 || history[0].DatasetCounts["custom_report_definitions"] != 1 || history[0].DatasetCounts["custom_report_dashboards"] != 1 || history[0].DatasetCounts["custom_report_dashboard_widgets"] != 1 || history[0].DatasetCounts["custom_report_schedules"] != 1 || history[0].DatasetCounts["custom_report_schedule_recipients"] != 1 || history[0].DatasetCounts["custom_report_delivery_runs"] != 1 || history[0].DatasetCounts["custom_report_recipient_deliveries"] != 1 {
 		t.Fatalf("unexpected workspace export history: history=%#v err=%v", history, err)
 	}
 	var retainedReady, cappedExpired int
@@ -445,6 +472,18 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	portableDashboardWidgets := string(files["data/custom_report_dashboard_widgets.ndjson"])
 	if !strings.Contains(portableReportDefinitions, "Portable contact dashboard") || strings.Contains(portableReportDefinitions, "Foreign private dashboard") || !strings.Contains(portableDashboards, `"revision": 2`) || !strings.Contains(portableDashboardWidgets, `"width": "full"`) || !strings.Contains(portableDashboardWidgets, `"report_definition_id": `+strconv.FormatInt(portableReportID, 10)) {
 		t.Fatalf("portable shared dashboard missing or cross-tenant: definitions=%s dashboards=%s widgets=%s", portableReportDefinitions, portableDashboards, portableDashboardWidgets)
+	}
+	portableSchedules := string(files["data/custom_report_schedules.ndjson"])
+	portableScheduleRecipients := string(files["data/custom_report_schedule_recipients.ndjson"])
+	portableDeliveryRuns := string(files["data/custom_report_delivery_runs.ndjson"])
+	portableRecipientDeliveries := string(files["data/custom_report_recipient_deliveries.ndjson"])
+	if !strings.Contains(portableSchedules, `"cadence": "daily"`) || !strings.Contains(portableScheduleRecipients, `"recipient_user_id": `+strconv.FormatInt(ownerID, 10)) || !strings.Contains(portableDeliveryRuns, `"status": "partial"`) || !strings.Contains(portableDeliveryRuns, `"row_count": 1`) || !strings.Contains(portableRecipientDeliveries, `"status": "uncertain"`) {
+		t.Fatalf("portable scheduled-report configuration/evidence missing: schedules=%s recipients=%s runs=%s deliveries=%s", portableSchedules, portableScheduleRecipients, portableDeliveryRuns, portableRecipientDeliveries)
+	}
+	for _, secret := range []string{"scheduled-report-artifact-secret", "scheduled-report-provider-secret", "scheduled-report-internal-run-error", "scheduled-report-internal-delivery-error", "provider_message_id", "last_error", `"artifact"`} {
+		if strings.Contains(portableDeliveryRuns, secret) || strings.Contains(portableRecipientDeliveries, secret) {
+			t.Fatalf("workspace export leaked scheduled-report internal data %q", secret)
+		}
 	}
 	portableImports := string(files["data/import_batches.ndjson"])
 	if !strings.Contains(portableImports, "portable-import.csv") || strings.Contains(portableImports, retainedImportSecret) || strings.Contains(portableImports, "source_csv") || strings.Contains(portableImports, "source_expires_at") {
@@ -532,7 +571,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		}
 	}
 	var manifestValue manifest
-	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["members"] != 2 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 2 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["deal_quote_approvals"] != 1 || manifestValue.DatasetCounts["quote_templates"] != 1 || manifestValue.DatasetCounts["organization_quote_policies"] != 1 || manifestValue.DatasetCounts["deal_signature_requests"] != 1 || manifestValue.DatasetCounts["lead_capture_forms"] != 1 || manifestValue.DatasetCounts["lead_capture_submissions"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 || manifestValue.DatasetCounts["record_email_deliveries"] != 1 || manifestValue.DatasetCounts["custom_report_definitions"] != 1 || manifestValue.DatasetCounts["custom_report_dashboards"] != 1 || manifestValue.DatasetCounts["custom_report_dashboard_widgets"] != 1 {
+	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["members"] != 2 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 2 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["deal_quote_approvals"] != 1 || manifestValue.DatasetCounts["quote_templates"] != 1 || manifestValue.DatasetCounts["organization_quote_policies"] != 1 || manifestValue.DatasetCounts["deal_signature_requests"] != 1 || manifestValue.DatasetCounts["lead_capture_forms"] != 1 || manifestValue.DatasetCounts["lead_capture_submissions"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 || manifestValue.DatasetCounts["record_email_deliveries"] != 1 || manifestValue.DatasetCounts["custom_report_definitions"] != 1 || manifestValue.DatasetCounts["custom_report_dashboards"] != 1 || manifestValue.DatasetCounts["custom_report_dashboard_widgets"] != 1 || manifestValue.DatasetCounts["custom_report_schedules"] != 1 || manifestValue.DatasetCounts["custom_report_schedule_recipients"] != 1 || manifestValue.DatasetCounts["custom_report_delivery_runs"] != 1 || manifestValue.DatasetCounts["custom_report_recipient_deliveries"] != 1 {
 		t.Fatalf("unexpected workspace export manifest: manifest=%#v err=%v", manifestValue, err)
 	}
 	if manifestValue.DatasetCounts["audit_events"] < 1 {

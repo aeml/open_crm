@@ -3,6 +3,7 @@ package email
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,13 +49,20 @@ func (p *PostmarkProvider) Configured() bool {
 }
 
 type postmarkSendRequest struct {
-	From          string            `json:"From"`
-	To            string            `json:"To"`
-	Subject       string            `json:"Subject"`
-	HtmlBody      string            `json:"HtmlBody,omitempty"`
-	TextBody      string            `json:"TextBody,omitempty"`
-	MessageStream string            `json:"MessageStream,omitempty"`
-	Metadata      map[string]string `json:"Metadata,omitempty"`
+	From          string               `json:"From"`
+	To            string               `json:"To"`
+	Subject       string               `json:"Subject"`
+	HtmlBody      string               `json:"HtmlBody,omitempty"`
+	TextBody      string               `json:"TextBody,omitempty"`
+	MessageStream string               `json:"MessageStream,omitempty"`
+	Metadata      map[string]string    `json:"Metadata,omitempty"`
+	Attachments   []postmarkAttachment `json:"Attachments,omitempty"`
+}
+
+type postmarkAttachment struct {
+	Name        string `json:"Name"`
+	Content     string `json:"Content"`
+	ContentType string `json:"ContentType"`
 }
 
 type postmarkSendResponse struct {
@@ -73,6 +81,10 @@ func (p *PostmarkProvider) Send(ctx context.Context, msg Message) (SendResult, e
 	if to == "" || subject == "" {
 		return SendResult{}, fmt.Errorf("postmark: missing to/subject")
 	}
+	attachments, err := postmarkAttachments(msg.Attachments)
+	if err != nil {
+		return SendResult{}, err
+	}
 
 	payload := postmarkSendRequest{
 		From:          p.fromEmail,
@@ -82,6 +94,7 @@ func (p *PostmarkProvider) Send(ctx context.Context, msg Message) (SendResult, e
 		TextBody:      msg.TextBody,
 		MessageStream: p.messageStream,
 		Metadata:      msg.Metadata,
+		Attachments:   attachments,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -98,26 +111,55 @@ func (p *PostmarkProvider) Send(ctx context.Context, msg Message) (SendResult, e
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return SendResult{}, fmt.Errorf("postmark: send: %w", err)
+		return SendResult{}, fmt.Errorf("%w: postmark send: %w", ErrDeliveryUncertain, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var pm postmarkSendResponse
-	_ = json.Unmarshal(body, &pm)
 	if resp.StatusCode >= 300 {
+		_ = json.Unmarshal(body, &pm)
 		if strings.TrimSpace(pm.Message) != "" {
 			return SendResult{}, fmt.Errorf("postmark: http %d: %s", resp.StatusCode, pm.Message)
 		}
 		return SendResult{}, fmt.Errorf("postmark: http %d", resp.StatusCode)
 	}
+	if readErr != nil {
+		return SendResult{}, fmt.Errorf("%w: postmark accepted response could not be read: %v", ErrDeliveryUncertain, readErr)
+	}
+	if err := json.Unmarshal(body, &pm); err != nil {
+		return SendResult{}, fmt.Errorf("%w: postmark accepted response was invalid: %v", ErrDeliveryUncertain, err)
+	}
 	messageID := strings.TrimSpace(pm.MessageID)
 	if pm.ErrorCode != 0 || messageID == "" || len(messageID) > 200 {
-		return SendResult{}, fmt.Errorf("postmark: accepted response has invalid or missing message id")
+		return SendResult{}, fmt.Errorf("%w: postmark accepted response has invalid or missing message id", ErrDeliveryUncertain)
 	}
 
 	if p.logger != nil {
 		p.logger.Info("postmark email sent")
 	}
 	return SendResult{ProviderMessageID: messageID}, nil
+}
+
+func postmarkAttachments(values []Attachment) ([]postmarkAttachment, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	if len(values) > 10 {
+		return nil, fmt.Errorf("postmark: too many attachments")
+	}
+	result := make([]postmarkAttachment, 0, len(values))
+	for _, value := range values {
+		name := strings.TrimSpace(value.Name)
+		contentType := strings.TrimSpace(value.ContentType)
+		if name == "" || len(name) > 255 || strings.ContainsAny(name, "/\\\x00\r\n") || contentType == "" || len(contentType) > 100 || strings.ContainsAny(contentType, "\x00\r\n") || len(value.Content) == 0 {
+			return nil, fmt.Errorf("postmark: invalid attachment")
+		}
+		result = append(result, postmarkAttachment{
+			Name:        name,
+			Content:     base64.StdEncoding.EncodeToString(value.Content),
+			ContentType: contentType,
+		})
+	}
+	return result, nil
 }

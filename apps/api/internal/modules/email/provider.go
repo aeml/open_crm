@@ -28,6 +28,15 @@ type Message struct {
 	References         []string
 	ListUnsubscribeURL string
 	Metadata           map[string]string
+	Attachments        []Attachment
+}
+
+// Attachment is an in-memory outbound file. Callers must enforce a
+// product-specific size ceiling before entering the provider boundary.
+type Attachment struct {
+	Name        string
+	ContentType string
+	Content     []byte
 }
 
 // SendResult is the provider's durable correlation reference for an accepted

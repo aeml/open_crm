@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleauth "github.com/aeml/open_crm/apps/api/internal/modules/auth"
@@ -29,6 +30,11 @@ type fakeCustomReportsService struct {
 	dashboardErr        error
 	dashboardRun        modulecustomreports.DashboardExecution
 	dashboardRunErr     error
+	scheduleOverview    modulecustomreports.ScheduleOverview
+	scheduleResult      modulecustomreports.ReportSchedule
+	deliveryRunResult   modulecustomreports.DeliveryRun
+	scheduleErr         error
+	deliveryRunErr      error
 	lastListOrgID       int64
 	lastListQuery       modulecustomreports.ListQuery
 	lastCreateOrgID     int64
@@ -48,6 +54,12 @@ type fakeCustomReportsService struct {
 	lastDashboardUser   int64
 	lastDashboardInput  modulecustomreports.DashboardInput
 	lastDashboardRunOrg int64
+	lastScheduleOrg     int64
+	lastScheduleUser    int64
+	lastScheduleReport  int64
+	lastScheduleInput   modulecustomreports.ReportScheduleInput
+	lastDeliveryID      int64
+	lastDeliveryInput   modulecustomreports.DeliveryResolutionInput
 }
 
 func (f *fakeCustomReportsService) ListByOrganization(_ context.Context, organizationID int64, query modulecustomreports.ListQuery) (modulecustomreports.ListPage, error) {
@@ -100,6 +112,28 @@ func (f *fakeCustomReportsService) UpdateDashboard(_ context.Context, organizati
 func (f *fakeCustomReportsService) ExecuteDashboard(_ context.Context, organizationID int64) (modulecustomreports.DashboardExecution, error) {
 	f.lastDashboardRunOrg = organizationID
 	return f.dashboardRun, f.dashboardRunErr
+}
+
+func (f *fakeCustomReportsService) ListSchedules(_ context.Context, organizationID, actorUserID int64) (modulecustomreports.ScheduleOverview, error) {
+	f.lastScheduleOrg = organizationID
+	f.lastScheduleUser = actorUserID
+	return f.scheduleOverview, f.scheduleErr
+}
+
+func (f *fakeCustomReportsService) UpsertSchedule(_ context.Context, organizationID, reportDefinitionID, actorUserID int64, input modulecustomreports.ReportScheduleInput) (modulecustomreports.ReportSchedule, error) {
+	f.lastScheduleOrg = organizationID
+	f.lastScheduleReport = reportDefinitionID
+	f.lastScheduleUser = actorUserID
+	f.lastScheduleInput = input
+	return f.scheduleResult, f.scheduleErr
+}
+
+func (f *fakeCustomReportsService) ResolveRecipientDelivery(_ context.Context, organizationID, actorUserID, deliveryID int64, input modulecustomreports.DeliveryResolutionInput) (modulecustomreports.DeliveryRun, error) {
+	f.lastScheduleOrg = organizationID
+	f.lastScheduleUser = actorUserID
+	f.lastDeliveryID = deliveryID
+	f.lastDeliveryInput = input
+	return f.deliveryRunResult, f.deliveryRunErr
 }
 
 func authenticatedCustomReportsServer(service *fakeCustomReportsService, role string) http.Handler {
@@ -572,6 +606,95 @@ func TestExecuteCustomReportDashboardReturnsStableRecoveryErrors(t *testing.T) {
 
 			if recorder.Code != test.statusCode || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"`+test.code+`"`)) {
 				t.Fatalf("expected %d/%s, got %d body=%s", test.statusCode, test.code, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestScheduledReportHandlersScopeAdminManagementAndRecovery(t *testing.T) {
+	next := time.Date(2026, time.July, 24, 8, 0, 0, 0, time.UTC)
+	service := &fakeCustomReportsService{
+		scheduleOverview: modulecustomreports.ScheduleOverview{
+			Provider: "postmark", DeliveryAvailable: true,
+			Schedules: []modulecustomreports.ReportSchedule{{ID: 7, ReportDefinitionID: 12, ReportName: "Pipeline pulse", Revision: 2, Cadence: "daily", HourUTC: 8, IsActive: true, NextRunAt: &next}},
+		},
+		scheduleResult:    modulecustomreports.ReportSchedule{ID: 7, ReportDefinitionID: 12, Revision: 3, Cadence: "weekly", HourUTC: 9, IsActive: true},
+		deliveryRunResult: modulecustomreports.DeliveryRun{ID: 21, ScheduleID: 7, Status: "sending"},
+	}
+	server := authenticatedCustomReportsServer(service, "owner")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/report-schedules", nil)
+	addSessionCookie(request)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || service.lastScheduleOrg != 42 || service.lastScheduleUser != 1 || !strings.Contains(response.Body.String(), `"deliveryAvailable":true`) {
+		t.Fatalf("list scheduled reports: status=%d service=%#v body=%s", response.Code, service, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPut, "/api/report-definitions/12/schedule", bytes.NewBufferString(`{"revision":2,"cadence":"weekly","weekdayUtc":1,"hourUtc":9,"recipientUserIds":[1,2],"isActive":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || service.lastScheduleReport != 12 || service.lastScheduleInput.Revision != 2 || service.lastScheduleInput.WeekdayUTC == nil || *service.lastScheduleInput.WeekdayUTC != 1 || len(service.lastScheduleInput.RecipientUserIDs) != 2 {
+		t.Fatalf("update scheduled report: status=%d input=%#v body=%s", response.Code, service.lastScheduleInput, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/report-recipient-deliveries/44/resolve", bytes.NewBufferString(`{"resolution":"retry","confirmDuplicateRisk":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || service.lastDeliveryID != 44 || service.lastDeliveryInput.Resolution != "retry" || !service.lastDeliveryInput.ConfirmDuplicateRisk || !strings.Contains(response.Body.String(), `"status":"sending"`) {
+		t.Fatalf("resolve scheduled report: status=%d input=%#v body=%s", response.Code, service.lastDeliveryInput, response.Body.String())
+	}
+
+	memberServer := authenticatedCustomReportsServer(service, "member")
+	for _, path := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/report-schedules", ""},
+		{http.MethodPut, "/api/report-definitions/12/schedule", `{"cadence":"daily","hourUtc":9,"recipientUserIds":[1],"isActive":true}`},
+		{http.MethodPost, "/api/report-recipient-deliveries/44/resolve", `{"resolution":"retry"}`},
+	} {
+		request = httptest.NewRequest(path.method, path.path, strings.NewReader(path.body))
+		addSessionCookie(request)
+		response = httptest.NewRecorder()
+		memberServer.ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("member %s %s status=%d body=%s", path.method, path.path, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestScheduledReportHandlersReturnStableRecoveryErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "permission", err: modulecustomreports.ErrForbidden, statusCode: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "stale", err: modulecustomreports.ErrScheduleConflict, statusCode: http.StatusConflict, code: "CONFLICT"},
+		{name: "limit", err: modulecustomreports.ErrScheduleLimit, statusCode: http.StatusConflict, code: "REPORT_SCHEDULE_LIMIT"},
+		{name: "provider", err: modulecustomreports.ErrDeliveryNotConfigured, statusCode: http.StatusConflict, code: "REPORT_DELIVERY_NOT_CONFIGURED"},
+		{name: "inactive", err: modulecustomreports.ErrInactive, statusCode: http.StatusConflict, code: "REPORT_NOT_EXECUTABLE"},
+		{name: "expired artifact", err: modulecustomreports.ErrDeliveryNotRecoverable, statusCode: http.StatusConflict, code: "DELIVERY_NOT_RECOVERABLE"},
+		{name: "bad request", err: modulecustomreports.ErrInvalidInput, statusCode: http.StatusBadRequest, code: "BAD_REQUEST"},
+		{name: "missing", err: modulecustomreports.ErrNotFound, statusCode: http.StatusNotFound, code: "NOT_FOUND"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &fakeCustomReportsService{scheduleErr: test.err}
+			server := authenticatedCustomReportsServer(service, "owner")
+			request := httptest.NewRequest(http.MethodPut, "/api/report-definitions/12/schedule", bytes.NewBufferString(`{"cadence":"daily","hourUtc":9,"recipientUserIds":[1],"isActive":true}`))
+			addSessionCookie(request)
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, request)
+			if response.Code != test.statusCode || !strings.Contains(response.Body.String(), `"code":"`+test.code+`"`) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 			}
 		})
 	}

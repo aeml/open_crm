@@ -88,6 +88,18 @@ function seedReportDefinitionContinuation(ownerEmail, runID) {
   })
 }
 
+function makeReportScheduleDue(ownerEmail) {
+  execFileSync('go', ['run', './cmd/e2e_due_report_schedule', ownerEmail], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 function seedQuoteTemplateContinuation(ownerEmail, runID) {
   execFileSync('go', ['run', './cmd/e2e_seed_quote_templates', ownerEmail, runID], {
     cwd: '../api',
@@ -1300,6 +1312,43 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   })
   expect(savedReportAccessibility.violations, 'saved table report must have no automated WCAG A/AA violations').toEqual([])
 
+  const scheduledDelivery = page.locator('.scheduled-report-delivery')
+  await scheduledDelivery.getByLabel('Saved report').selectOption({ label: savedReportName })
+  const ownerRecipient = scheduledDelivery.getByLabel(owner.email, { exact: false })
+  if (!(await ownerRecipient.isChecked())) await ownerRecipient.check()
+  await scheduledDelivery.getByLabel('Cadence').selectOption('daily')
+  await scheduledDelivery.getByLabel('Hour (UTC)').selectOption('9')
+  const [scheduleResponse] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'PUT' && new URL(response.url()).pathname === `/api/report-definitions/${savedReportID}/schedule`),
+    scheduledDelivery.getByRole('button', { name: 'Save and enable schedule' }).click()
+  ])
+  expect(scheduleResponse.status()).toBe(200)
+  expect((await scheduleResponse.json()).data.schedule.revision).toBe(1)
+  makeReportScheduleDue(owner.email)
+  let scheduledRecipientDeliveryID = 0
+  await expect.poll(async () => {
+    const response = await page.context().request.get(`${apiURL}/api/report-schedules`)
+    if (response.status() !== 200) return false
+    const body = await response.json()
+    const run = body.data.deliveryRuns.find((candidate) => candidate.reportDefinitionId === savedReportID)
+    const accepted = run?.recipients.find((delivery) => delivery.status === 'accepted')
+    scheduledRecipientDeliveryID = accepted?.id || 0
+    return run?.status === 'succeeded' && run.rowCount === 1 && scheduledRecipientDeliveryID > 0
+  }, { timeout: 15_000 }).toBe(true)
+  await scheduledDelivery.getByRole('button', { name: 'Refresh delivery evidence' }).click()
+  const scheduledHistory = scheduledDelivery.getByRole('list', { name: 'Scheduled report delivery history' })
+  await expect(scheduledHistory.getByText('Accepted by provider', { exact: false })).toBeVisible()
+  await expect(scheduledHistory.getByText(/1 rows/)).toBeVisible()
+  const scheduledDeliveryAccessibility = await new AxeBuilder({ page })
+    .include('.scheduled-report-delivery')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-scheduled-report-delivery', {
+    body: JSON.stringify({ url: page.url(), violations: scheduledDeliveryAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(scheduledDeliveryAccessibility.violations, 'scheduled report delivery must have no automated WCAG A/AA violations').toEqual([])
+
   const barReportName = `Contacts by status ${runID}`
   await savedReportForm.getByLabel('Name', { exact: true }).fill(barReportName)
   await savedReportForm.getByLabel('Visualization').selectOption('bar')
@@ -1735,6 +1784,19 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     expect(crossTenantBarReport.status()).toBe(404)
     const crossTenantBarReportExport = await otherContext.request.get(`${apiURL}/api/report-definitions/${barReportID}/export.csv`)
     expect(crossTenantBarReportExport.status()).toBe(404)
+    const otherSchedulesResponse = await otherContext.request.get(`${apiURL}/api/report-schedules`)
+    expect(otherSchedulesResponse.status()).toBe(200)
+    const otherSchedules = await otherSchedulesResponse.json()
+    expect(otherSchedules.data.schedules).toEqual([])
+    expect(otherSchedules.data.deliveryRuns).toEqual([])
+    const crossTenantSchedule = await otherContext.request.put(`${apiURL}/api/report-definitions/${savedReportID}/schedule`, {
+      data: { revision: 0, cadence: 'daily', weekdayUtc: null, hourUtc: 9, recipientUserIds: [1], isActive: true }
+    })
+    expect(crossTenantSchedule.status()).toBe(404)
+    const crossTenantScheduleRecovery = await otherContext.request.post(`${apiURL}/api/report-recipient-deliveries/${scheduledRecipientDeliveryID}/resolve`, {
+      data: { resolution: 'confirmed_sent', confirmDuplicateRisk: false }
+    })
+    expect(crossTenantScheduleRecovery.status()).toBe(404)
     const otherDashboardResponse = await otherContext.request.get(`${apiURL}/api/report-dashboard`)
     expect(otherDashboardResponse.status()).toBe(200)
     const otherDashboard = await otherDashboardResponse.json()

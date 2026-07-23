@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	moduleemail "github.com/aeml/open_crm/apps/api/internal/modules/email"
 	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -80,13 +81,23 @@ type ListPage struct {
 }
 
 type Service struct {
-	pool *pgxpool.Pool
+	pool              *pgxpool.Pool
+	deliveryProvider  moduleemail.Provider
+	allowFakeDelivery bool
+	now               func() time.Time
 }
 
 const DefaultDefinitionListPageSize = 50
 
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+	return &Service{pool: pool, now: time.Now}
+}
+
+// NewServiceWithDelivery enables scheduled report delivery. Fake delivery is
+// permitted only in explicitly local/test runtimes; production callers must
+// provide a real configured provider.
+func NewServiceWithDelivery(pool *pgxpool.Pool, provider moduleemail.Provider, allowFake bool) *Service {
+	return &Service{pool: pool, deliveryProvider: provider, allowFakeDelivery: allowFake, now: time.Now}
 }
 
 func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, query ListQuery) (ListPage, error) {
