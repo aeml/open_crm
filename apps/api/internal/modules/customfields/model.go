@@ -11,6 +11,8 @@ var (
 	ErrInvalidInput  = errors.New("invalid custom field input")
 	ErrNotFound      = errors.New("custom field not found")
 	ErrInactiveActor = errors.New("custom field actor is not an active organization member")
+	ErrForbidden     = errors.New("custom field actor is not an organization administrator")
+	ErrChanged       = errors.New("custom field changed")
 )
 
 const MaxDefinitionsPerEntity = 25
@@ -27,6 +29,7 @@ type Definition struct {
 	Required        bool       `json:"required"`
 	ShowInList      bool       `json:"showInList"`
 	Position        int        `json:"position"`
+	Revision        int        `json:"revision"`
 	CreatedByUserID int64      `json:"createdByUserId"`
 	CreatedAt       time.Time  `json:"createdAt"`
 	UpdatedAt       time.Time  `json:"updatedAt"`
@@ -50,6 +53,7 @@ type UpdateInput struct {
 	Required   bool     `json:"required"`
 	ShowInList bool     `json:"showInList"`
 	Position   int      `json:"position"`
+	Revision   int      `json:"revision"`
 }
 
 type Filter struct {

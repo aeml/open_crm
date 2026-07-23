@@ -202,12 +202,12 @@ func TestCustomFieldsEndToEndAgainstPostgres(t *testing.T) {
 		t.Fatalf("company custom field was not imported: serviceTier=%q err=%v", importedServiceTier, err)
 	}
 
-	if _, err := fieldsService.Update(ctx, organizationID, ownerID, region.ID, modulecustomfields.UpdateInput{Label: "Region", Options: []string{"East"}}); !errors.Is(err, modulecustomfields.ErrConflict) {
+	if _, err := fieldsService.Update(ctx, organizationID, ownerID, region.ID, modulecustomfields.UpdateInput{Label: "Region", Options: []string{"East"}, Revision: region.Revision}); !errors.Is(err, modulecustomfields.ErrConflict) {
 		t.Fatalf("expected used select option removal conflict, got %v", err)
 	}
 	testCustomFieldMerge(t, ctx, pool, duplicatesService, organizationID, ownerID)
 
-	if err := fieldsService.Archive(ctx, organizationID, ownerID, annualValue.ID); err != nil {
+	if err := fieldsService.Archive(ctx, organizationID, ownerID, annualValue.ID, annualValue.Revision); err != nil {
 		t.Fatalf("archive custom field definition: %v", err)
 	}
 	definitions, err := fieldsService.List(ctx, organizationID, "contact", false)
@@ -231,7 +231,7 @@ func TestCustomFieldsEndToEndAgainstPostgres(t *testing.T) {
 	if err != nil || len(foreignDefinitions) != 1 || foreignDefinitions[0].ID != foreignRegion.ID {
 		t.Fatalf("foreign tenant definition isolation failed: definitions=%#v err=%v", foreignDefinitions, err)
 	}
-	if err := fieldsService.Archive(ctx, organizationID, ownerID, foreignRegion.ID); !errors.Is(err, modulecustomfields.ErrNotFound) {
+	if err := fieldsService.Archive(ctx, organizationID, ownerID, foreignRegion.ID, foreignRegion.Revision); !errors.Is(err, modulecustomfields.ErrNotFound) {
 		t.Fatalf("expected cross-tenant definition rejection, got %v", err)
 	}
 	foreignContactList, err := contactsService.ListByOrganization(ctx, foreignOrganizationID, modulecontacts.ListQuery{})

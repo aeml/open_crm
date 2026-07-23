@@ -2382,3 +2382,28 @@ func TestMigrationFilesIncludeLeadFormCustomFieldMapping(t *testing.T) {
 		t.Fatalf("lead form custom-field mapping migration deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeCustomFieldRevisions(t *testing.T) {
+	const name = "128_custom_field_revisions.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"custom_field_definitions",
+		"revision INTEGER DEFAULT 1",
+		"custom_field_definitions_revision_positive",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("custom-field revision migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("custom-field revision migration deployment class = %q", class)
+	}
+}

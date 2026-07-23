@@ -18,6 +18,8 @@ type Service struct{ pool *pgxpool.Pool }
 
 func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
 
+const definitionTransactionAttempts = 4
+
 func (s *Service) List(ctx context.Context, organizationID int64, entityType string, includeArchived bool) ([]Definition, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("custom fields service not configured")
@@ -33,51 +35,47 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if err != nil {
 		return Definition{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return Definition{}, fmt.Errorf("begin custom field create: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	if err := requireActiveActor(ctx, tx, organizationID, actorUserID); err != nil {
-		return Definition{}, err
-	}
-	var count int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM custom_field_definitions WHERE organization_id=$1 AND entity_type=$2 AND archived_at IS NULL`, organizationID, input.EntityType).Scan(&count); err != nil {
-		return Definition{}, fmt.Errorf("count custom fields: %w", err)
-	}
-	if count >= MaxDefinitionsPerEntity {
-		return Definition{}, fmt.Errorf("%w: at most %d active fields are allowed per record type", ErrConflict, MaxDefinitionsPerEntity)
-	}
-	if input.FieldKey == "" {
-		input.FieldKey, err = availableFieldKey(ctx, tx, organizationID, input.EntityType, slugKey(input.Label))
+	return runDefinitionTransaction(ctx, s.pool, "custom field create", func(tx pgx.Tx) (Definition, error) {
+		if err := lockDefinitionWriter(ctx, tx, organizationID, actorUserID); err != nil {
+			return Definition{}, err
+		}
+		var count int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM custom_field_definitions WHERE organization_id=$1 AND entity_type=$2 AND archived_at IS NULL`, organizationID, input.EntityType).Scan(&count); err != nil {
+			return Definition{}, fmt.Errorf("count custom fields: %w", err)
+		}
+		if count >= MaxDefinitionsPerEntity {
+			return Definition{}, fmt.Errorf("%w: at most %d active fields are allowed per record type", ErrConflict, MaxDefinitionsPerEntity)
+		}
+		fieldKey := input.FieldKey
+		if fieldKey == "" {
+			var err error
+			fieldKey, err = availableFieldKey(ctx, tx, organizationID, input.EntityType, slugKey(input.Label))
+			if err != nil {
+				return Definition{}, err
+			}
+		}
+		if input.EntityType == "contact" && input.Required {
+			if err := ensureRequiredLeadFormCoverage(ctx, tx, organizationID, fieldKey); err != nil {
+				return Definition{}, err
+			}
+		}
+		optionsJSON, _ := json.Marshal(input.Options)
+		definition, err := scanDefinition(tx.QueryRow(ctx, `
+			INSERT INTO custom_field_definitions (organization_id,created_by_user_id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position)
+			VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10)
+			RETURNING id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position,revision,created_by_user_id,created_at,updated_at,archived_at
+		`, organizationID, actorUserID, input.EntityType, fieldKey, input.Label, input.DataType, optionsJSON, input.Required, input.ShowInList, input.Position))
 		if err != nil {
+			if isUniqueViolation(err) {
+				return Definition{}, fmt.Errorf("%w: a field with that key or label already exists", ErrConflict)
+			}
+			return Definition{}, fmt.Errorf("create custom field: %w", err)
+		}
+		if err := auditDefinition(ctx, tx, organizationID, actorUserID, definition, "custom_field.created", "Created custom field"); err != nil {
 			return Definition{}, err
 		}
-	}
-	if input.EntityType == "contact" && input.Required {
-		if err := ensureRequiredLeadFormCoverage(ctx, tx, organizationID, input.FieldKey); err != nil {
-			return Definition{}, err
-		}
-	}
-	optionsJSON, _ := json.Marshal(input.Options)
-	definition, err := scanDefinition(tx.QueryRow(ctx, `
-		INSERT INTO custom_field_definitions (organization_id,created_by_user_id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position)
-		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10)
-		RETURNING id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position,created_by_user_id,created_at,updated_at,archived_at
-	`, organizationID, actorUserID, input.EntityType, input.FieldKey, input.Label, input.DataType, optionsJSON, input.Required, input.ShowInList, input.Position))
-	if err != nil {
-		if isUniqueViolation(err) {
-			return Definition{}, fmt.Errorf("%w: a field with that key or label already exists", ErrConflict)
-		}
-		return Definition{}, fmt.Errorf("create custom field: %w", err)
-	}
-	if err := auditDefinition(ctx, tx, organizationID, actorUserID, definition, "custom_field.created", "Created custom field"); err != nil {
-		return Definition{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Definition{}, fmt.Errorf("commit custom field create: %w", err)
-	}
-	return definition, nil
+		return definition, nil
+	})
 }
 
 func (s *Service) Update(ctx context.Context, organizationID, actorUserID, definitionID int64, raw UpdateInput) (Definition, error) {
@@ -88,119 +86,149 @@ func (s *Service) Update(ctx context.Context, organizationID, actorUserID, defin
 	if err != nil {
 		return Definition{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return Definition{}, fmt.Errorf("begin custom field update: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	if err := requireActiveActor(ctx, tx, organizationID, actorUserID); err != nil {
-		return Definition{}, err
-	}
-	current, err := loadDefinitionForUpdate(ctx, tx, organizationID, definitionID)
-	if err != nil {
-		return Definition{}, err
-	}
-	if current.ArchivedAt != nil {
-		return Definition{}, ErrNotFound
-	}
-	if err := validateOptions(current.DataType, input.Options); err != nil {
-		return Definition{}, err
-	}
-	if current.DataType == "select" {
-		if err := ensureUsedOptionsRemain(ctx, tx, organizationID, current, input.Options); err != nil {
+	return runDefinitionTransaction(ctx, s.pool, "custom field update", func(tx pgx.Tx) (Definition, error) {
+		if err := lockDefinitionWriter(ctx, tx, organizationID, actorUserID); err != nil {
 			return Definition{}, err
 		}
-	}
-	if current.EntityType == "contact" && input.Required {
-		if err := ensureRequiredLeadFormCoverage(ctx, tx, organizationID, current.FieldKey); err != nil {
+		current, err := loadDefinitionForUpdate(ctx, tx, organizationID, definitionID)
+		if err != nil {
 			return Definition{}, err
 		}
-	}
-	optionsJSON, _ := json.Marshal(input.Options)
-	definition, err := scanDefinition(tx.QueryRow(ctx, `
-		UPDATE custom_field_definitions SET label=$3,options_json=$4::jsonb,is_required=$5,show_in_list=$6,position=$7,updated_at=NOW()
-		WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL
-		RETURNING id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position,created_by_user_id,created_at,updated_at,archived_at
-	`, organizationID, definitionID, input.Label, optionsJSON, input.Required, input.ShowInList, input.Position))
-	if err != nil {
-		if isUniqueViolation(err) {
-			return Definition{}, fmt.Errorf("%w: a field with that label already exists", ErrConflict)
+		if current.ArchivedAt != nil {
+			return Definition{}, ErrNotFound
 		}
-		return Definition{}, fmt.Errorf("update custom field: %w", err)
-	}
-	if err := auditDefinition(ctx, tx, organizationID, actorUserID, definition, "custom_field.updated", "Updated custom field"); err != nil {
-		return Definition{}, err
-	}
-	if definition.EntityType == "contact" {
-		if err := advanceMappedLeadForms(ctx, tx, organizationID, actorUserID, definition.FieldKey, "Contact custom field definition changed"); err != nil {
+		if current.Revision != input.Revision {
+			return Definition{}, ErrChanged
+		}
+		if err := validateOptions(current.DataType, input.Options); err != nil {
 			return Definition{}, err
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Definition{}, fmt.Errorf("commit custom field update: %w", err)
-	}
-	return definition, nil
+		if current.DataType == "select" {
+			if err := ensureUsedOptionsRemain(ctx, tx, organizationID, current, input.Options); err != nil {
+				return Definition{}, err
+			}
+		}
+		if current.EntityType == "contact" && input.Required {
+			if err := ensureRequiredLeadFormCoverage(ctx, tx, organizationID, current.FieldKey); err != nil {
+				return Definition{}, err
+			}
+		}
+		optionsJSON, _ := json.Marshal(input.Options)
+		definition, err := scanDefinition(tx.QueryRow(ctx, `
+			UPDATE custom_field_definitions
+			SET label=$3,options_json=$4::jsonb,is_required=$5,show_in_list=$6,position=$7,
+			    revision=revision+1,updated_at=NOW()
+			WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL AND revision=$8
+			RETURNING id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position,revision,created_by_user_id,created_at,updated_at,archived_at
+		`, organizationID, definitionID, input.Label, optionsJSON, input.Required, input.ShowInList, input.Position, input.Revision))
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return Definition{}, ErrChanged
+			}
+			if isUniqueViolation(err) {
+				return Definition{}, fmt.Errorf("%w: a field with that label already exists", ErrConflict)
+			}
+			return Definition{}, fmt.Errorf("update custom field: %w", err)
+		}
+		if err := auditDefinition(ctx, tx, organizationID, actorUserID, definition, "custom_field.updated", "Updated custom field"); err != nil {
+			return Definition{}, err
+		}
+		if definition.EntityType == "contact" {
+			if err := advanceMappedLeadForms(ctx, tx, organizationID, actorUserID, definition.FieldKey, "Contact custom field definition changed"); err != nil {
+				return Definition{}, err
+			}
+		}
+		return definition, nil
+	})
 }
 
-func (s *Service) Archive(ctx context.Context, organizationID, actorUserID, definitionID int64) error {
+func (s *Service) Archive(ctx context.Context, organizationID, actorUserID, definitionID int64, expectedRevision int) error {
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("custom fields service not configured")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return fmt.Errorf("begin custom field archive: %w", err)
+	if expectedRevision <= 0 {
+		return ErrInvalidInput
 	}
-	defer tx.Rollback(ctx)
-	if err := requireActiveActor(ctx, tx, organizationID, actorUserID); err != nil {
-		return err
-	}
-	current, err := loadDefinitionForUpdate(ctx, tx, organizationID, definitionID)
-	if errors.Is(err, pgx.ErrNoRows) || current.ArchivedAt != nil {
-		return ErrNotFound
-	}
-	if err != nil {
-		return fmt.Errorf("load custom field for archive: %w", err)
-	}
-	if current.EntityType == "contact" {
-		var mappedByActiveForm bool
-		if err := tx.QueryRow(ctx, `
-			SELECT EXISTS (
-				SELECT 1
-				FROM lead_capture_forms form
-				CROSS JOIN LATERAL jsonb_array_elements(form.fields_json) field
-				WHERE form.organization_id=$1 AND form.is_active=TRUE
-				  AND field->>'mapTo'=$2
-			)
-		`, organizationID, "custom:"+current.FieldKey).Scan(&mappedByActiveForm); err != nil {
-			return fmt.Errorf("check active lead form custom-field mapping: %w", err)
+	_, err := runDefinitionTransaction(ctx, s.pool, "custom field archive", func(tx pgx.Tx) (struct{}, error) {
+		if err := lockDefinitionWriter(ctx, tx, organizationID, actorUserID); err != nil {
+			return struct{}{}, err
 		}
-		if mappedByActiveForm {
-			return fmt.Errorf("%w: deactivate or remap active lead forms before archiving this field", ErrConflict)
+		current, err := loadDefinitionForUpdate(ctx, tx, organizationID, definitionID)
+		if err != nil {
+			return struct{}{}, err
+		}
+		if current.ArchivedAt != nil {
+			return struct{}{}, ErrNotFound
+		}
+		if current.Revision != expectedRevision {
+			return struct{}{}, ErrChanged
+		}
+		if current.EntityType == "contact" {
+			var mappedByActiveForm bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1
+					FROM lead_capture_forms form
+					CROSS JOIN LATERAL jsonb_array_elements(form.fields_json) field
+					WHERE form.organization_id=$1 AND form.is_active=TRUE
+					  AND field->>'mapTo'=$2
+				)
+			`, organizationID, "custom:"+current.FieldKey).Scan(&mappedByActiveForm); err != nil {
+				return struct{}{}, fmt.Errorf("check active lead form custom-field mapping: %w", err)
+			}
+			if mappedByActiveForm {
+				return struct{}{}, fmt.Errorf("%w: deactivate or remap active lead forms before archiving this field", ErrConflict)
+			}
+		}
+		definition, err := scanDefinition(tx.QueryRow(ctx, `
+			UPDATE custom_field_definitions
+			SET archived_at=NOW(),revision=revision+1,updated_at=NOW()
+			WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL AND revision=$3
+			RETURNING id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position,revision,created_by_user_id,created_at,updated_at,archived_at
+		`, organizationID, definitionID, expectedRevision))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return struct{}{}, ErrChanged
+		}
+		if err != nil {
+			return struct{}{}, fmt.Errorf("archive custom field: %w", err)
+		}
+		if err := auditDefinition(ctx, tx, organizationID, actorUserID, definition, "custom_field.archived", "Archived custom field"); err != nil {
+			return struct{}{}, err
+		}
+		if definition.EntityType == "contact" {
+			if err := advanceMappedLeadForms(ctx, tx, organizationID, actorUserID, definition.FieldKey, "Mapped contact custom field was archived"); err != nil {
+				return struct{}{}, err
+			}
+		}
+		return struct{}{}, nil
+	})
+	return err
+}
+
+func runDefinitionTransaction[T any](ctx context.Context, pool *pgxpool.Pool, operation string, work func(pgx.Tx) (T, error)) (T, error) {
+	var zero T
+	var lastErr error
+	for attempt := 0; attempt < definitionTransactionAttempts; attempt++ {
+		tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+		if err != nil {
+			return zero, fmt.Errorf("begin %s: %w", operation, err)
+		}
+		result, err := work(tx)
+		if err == nil {
+			if commitErr := tx.Commit(ctx); commitErr != nil {
+				err = fmt.Errorf("commit %s: %w", operation, commitErr)
+			}
+		}
+		if err == nil {
+			return result, nil
+		}
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		lastErr = err
+		if !retryableDefinitionTransaction(err) || ctx.Err() != nil {
+			return zero, err
 		}
 	}
-	definition, err := scanDefinition(tx.QueryRow(ctx, `
-		UPDATE custom_field_definitions SET archived_at=NOW(),updated_at=NOW()
-		WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL
-		RETURNING id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position,created_by_user_id,created_at,updated_at,archived_at
-	`, organizationID, definitionID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return fmt.Errorf("archive custom field: %w", err)
-	}
-	if err := auditDefinition(ctx, tx, organizationID, actorUserID, definition, "custom_field.archived", "Archived custom field"); err != nil {
-		return err
-	}
-	if definition.EntityType == "contact" {
-		if err := advanceMappedLeadForms(ctx, tx, organizationID, actorUserID, definition.FieldKey, "Mapped contact custom field was archived"); err != nil {
-			return err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit custom field archive: %w", err)
-	}
-	return nil
+	return zero, fmt.Errorf("%s after %d attempts: %w", operation, definitionTransactionAttempts, lastErr)
 }
 
 type definitionScanner interface{ Scan(...any) error }
@@ -208,7 +236,7 @@ type definitionScanner interface{ Scan(...any) error }
 func scanDefinition(row definitionScanner) (Definition, error) {
 	var definition Definition
 	var optionsJSON []byte
-	if err := row.Scan(&definition.ID, &definition.EntityType, &definition.FieldKey, &definition.Label, &definition.DataType, &optionsJSON, &definition.Required, &definition.ShowInList, &definition.Position, &definition.CreatedByUserID, &definition.CreatedAt, &definition.UpdatedAt, &definition.ArchivedAt); err != nil {
+	if err := row.Scan(&definition.ID, &definition.EntityType, &definition.FieldKey, &definition.Label, &definition.DataType, &optionsJSON, &definition.Required, &definition.ShowInList, &definition.Position, &definition.Revision, &definition.CreatedByUserID, &definition.CreatedAt, &definition.UpdatedAt, &definition.ArchivedAt); err != nil {
 		return Definition{}, err
 	}
 	if err := json.Unmarshal(optionsJSON, &definition.Options); err != nil {
@@ -247,7 +275,7 @@ func normalizeUpdateInput(input UpdateInput) (UpdateInput, error) {
 	}
 	input.Label = strings.TrimSpace(input.Label)
 	input.Options = normalizeOptions(input.Options)
-	if input.Label == "" || len(input.Label) > 100 || input.Position < 0 || input.Position > 1000 {
+	if input.Label == "" || len(input.Label) > 100 || input.Position < 0 || input.Position > 1000 || input.Revision <= 0 {
 		return UpdateInput{}, fmt.Errorf("%w: valid label and position are required", ErrInvalidInput)
 	}
 	return input, nil
@@ -336,7 +364,7 @@ func availableFieldKey(ctx context.Context, tx pgx.Tx, organizationID int64, ent
 
 func loadDefinitionForUpdate(ctx context.Context, tx pgx.Tx, organizationID, definitionID int64) (Definition, error) {
 	definition, err := scanDefinition(tx.QueryRow(ctx, `
-		SELECT id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position,created_by_user_id,created_at,updated_at,archived_at
+		SELECT id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position,revision,created_by_user_id,created_at,updated_at,archived_at
 		FROM custom_field_definitions WHERE organization_id=$1 AND id=$2 FOR UPDATE
 	`, organizationID, definitionID))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -361,13 +389,29 @@ func ensureUsedOptionsRemain(ctx context.Context, tx pgx.Tx, organizationID int6
 	return nil
 }
 
-func requireActiveActor(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64) error {
-	var active bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM organization_memberships WHERE organization_id=$1 AND user_id=$2 AND membership_status='active')`, organizationID, actorUserID).Scan(&active); err != nil {
+func lockDefinitionWriter(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64) error {
+	if organizationID <= 0 || actorUserID <= 0 {
+		return ErrForbidden
+	}
+	var role string
+	err := tx.QueryRow(ctx, `
+		SELECT role
+		FROM organization_memberships
+		WHERE organization_id=$1 AND user_id=$2 AND membership_status='active'
+		FOR UPDATE
+	`, organizationID, actorUserID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInactiveActor
+	}
+	if err != nil {
 		return fmt.Errorf("validate custom field actor: %w", err)
 	}
-	if !active {
-		return ErrInactiveActor
+	if role != "owner" && role != "admin" {
+		return ErrForbidden
+	}
+	lockKey := fmt.Sprintf("custom-field-active-capacity:%d", organizationID)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, lockKey); err != nil {
+		return fmt.Errorf("lock custom field capacity: %w", err)
 	}
 	return nil
 }
@@ -375,8 +419,8 @@ func requireActiveActor(ctx context.Context, tx pgx.Tx, organizationID, actorUse
 func auditDefinition(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64, definition Definition, eventType, summary string) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO audit_events (organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json)
-		VALUES ($1,$2,$3,'custom_field',$4,$5,jsonb_build_object('recordType',$6::text,'fieldKey',$7::text,'dataType',$8::text))
-	`, organizationID, actorUserID, eventType, definition.ID, summary, definition.EntityType, definition.FieldKey, definition.DataType)
+		VALUES ($1,$2,$3,'custom_field',$4,$5,jsonb_build_object('recordType',$6::text,'fieldKey',$7::text,'dataType',$8::text,'revision',$9::int))
+	`, organizationID, actorUserID, eventType, definition.ID, summary, definition.EntityType, definition.FieldKey, definition.DataType, definition.Revision)
 	if err != nil {
 		return fmt.Errorf("audit custom field: %w", err)
 	}
@@ -386,4 +430,9 @@ func auditDefinition(ctx context.Context, tx pgx.Tx, organizationID, actorUserID
 func isUniqueViolation(err error) bool {
 	var postgresError *pgconn.PgError
 	return errors.As(err, &postgresError) && postgresError.Code == "23505"
+}
+
+func retryableDefinitionTransaction(err error) bool {
+	var postgresError *pgconn.PgError
+	return errors.As(err, &postgresError) && (postgresError.Code == "40001" || postgresError.Code == "40P01")
 }

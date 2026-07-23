@@ -1220,6 +1220,28 @@ removing a select option still in use returns a conflict. Handler/unit/UI tests,
 a real-PostgreSQL vertical acceptance suite, and the Chromium pilot journey
 cover the foundation.
 
+Hardening evidence (2026-07-23): migration 128 gives historical definitions and
+rolling old-writer inserts/updates a positive revision without a required-column
+rewrite. Every management mutation now revalidates a current active owner/admin
+under a row lock, takes one tenant catalog lock, and binds update/archive to the
+exact reviewed revision. The same lock serializes the 25th active slot across API
+instances; archive frees capacity without deleting retained values or portable
+definition history. The complete active catalog returns server-derived total and
+limit metadata, while the settings route ignores obsolete record-type responses,
+serializes mutations, shows capacity, and sends exact revisions. Fresh and
+rolling PostgreSQL acceptance proves one winner at the final slot, active-member
+and disabled-actor denial, stale-write rejection, audit rollback, replacement
+after archive, and tenant separation. Handler/UI tests and the Chromium journey
+cover strict revisions, revision advancement, explicit archive, and capacity
+reconciliation. These definition writes have no asynchronous or external effect;
+a failed transaction leaves no operator work, so the existing request/audit
+diagnostics remain the recovery path. Serializable writes retain the existing
+lead-form/custom-definition race protection and use four bounded whole-
+transaction retries for serialization or deadlock conflicts. The 168-line route
+is 7.07/2.36 KiB raw/gzip; the measured Node 24 build is 179.04/58.06 KiB entry,
+55.16/15.75 KiB largest lazy chunk, and 816.93/254.62 KiB aggregate under the
+unchanged 817/255 KiB aggregate ceiling.
+
 ## Version 0.5.6 - Custom Field Filtering
 
 Status: complete.

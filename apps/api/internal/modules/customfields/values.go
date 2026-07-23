@@ -30,7 +30,7 @@ func LoadDefinitions(ctx context.Context, querier definitionQuerier, organizatio
 		archivedFilter = ""
 	}
 	rows, err := querier.Query(ctx, `
-		SELECT id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position,created_by_user_id,created_at,updated_at,archived_at
+		SELECT id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position,revision,created_by_user_id,created_at,updated_at,archived_at
 		FROM custom_field_definitions
 		WHERE organization_id=$1 AND entity_type=$2`+archivedFilter+`
 		ORDER BY position,id

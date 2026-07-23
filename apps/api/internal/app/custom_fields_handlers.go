@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	modulecustomfields "github.com/aeml/open_crm/apps/api/internal/modules/customfields"
@@ -15,6 +16,8 @@ type customFieldsListResponse struct {
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
+		Total     int    `json:"total"`
+		Limit     int    `json:"limit"`
 	} `json:"meta"`
 }
 
@@ -45,6 +48,8 @@ func handleListCustomFields(auth authService, service customFieldsService, w htt
 	response := customFieldsListResponse{}
 	response.Data.Definitions = definitions
 	response.Meta.RequestID = requestID
+	response.Meta.Total = len(definitions)
+	response.Meta.Limit = modulecustomfields.MaxDefinitionsPerEntity
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
 
@@ -88,6 +93,10 @@ func handleUpdateCustomField(auth authService, service customFieldsService, w ht
 	if !decodeJSONRequest(w, r, requestID, &input) {
 		return
 	}
+	if input.Revision <= 0 {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide the current positive custom-field revision")
+		return
+	}
 	definition, err := service.Update(r.Context(), state.Organization.ID, state.User.ID, definitionID, input)
 	if err != nil {
 		writeCustomFieldError(w, requestID, err)
@@ -110,7 +119,12 @@ func handleArchiveCustomField(auth authService, service customFieldsService, w h
 	if !ok {
 		return
 	}
-	if err := service.Archive(r.Context(), state.Organization.ID, state.User.ID, definitionID); err != nil {
+	revision, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("revision")))
+	if err != nil || revision <= 0 {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide the current positive custom-field revision")
+		return
+	}
+	if err := service.Archive(r.Context(), state.Organization.ID, state.User.ID, definitionID, revision); err != nil {
 		writeCustomFieldError(w, requestID, err)
 		return
 	}
@@ -132,8 +146,12 @@ func writeCustomFieldError(w http.ResponseWriter, requestID string, err error) {
 		platformweb.WriteError(w, http.StatusNotFound, requestID, "NOT_FOUND", "Custom field not found")
 	case errors.Is(err, modulecustomfields.ErrConflict):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", err.Error())
+	case errors.Is(err, modulecustomfields.ErrChanged):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "Custom field changed; reload before retrying")
 	case errors.Is(err, modulecustomfields.ErrInactiveActor):
 		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Your organization access is no longer active")
+	case errors.Is(err, modulecustomfields.ErrForbidden):
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Owner or admin access is required")
 	default:
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to manage custom fields")
 	}

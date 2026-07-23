@@ -122,9 +122,10 @@ func TestLeadFormCustomFieldMappingIsTypedRevisionedAuditedAndTenantSafeAgainstP
 		t.Fatalf("issue revision-one challenge: challenge=%#v err=%v", challenge, err)
 	}
 
-	if _, err := customFields.Update(ctx, organizationID, ownerID, region.ID, modulecustomfields.UpdateInput{
-		Label: region.Label, Options: []string{"North", "South", "West"}, Required: true, Position: region.Position,
-	}); err != nil {
+	region, err = customFields.Update(ctx, organizationID, ownerID, region.ID, modulecustomfields.UpdateInput{
+		Label: region.Label, Options: []string{"North", "South", "West"}, Required: true, Position: region.Position, Revision: region.Revision,
+	})
+	if err != nil {
 		t.Fatalf("update mapped select definition: %v", err)
 	}
 	service.now = func() time.Time { return challenge.NotBefore.Add(time.Millisecond) }
@@ -148,7 +149,7 @@ func TestLeadFormCustomFieldMappingIsTypedRevisionedAuditedAndTenantSafeAgainstP
 	companyRegion := createLeadMappingDefinition(t, ctx, customFields, organizationID, ownerID, modulecustomfields.CreateInput{
 		EntityType: "company", FieldKey: "region", Label: "Company region", DataType: "text", Required: true,
 	})
-	if err := customFields.Archive(ctx, organizationID, ownerID, companyRegion.ID); err != nil {
+	if err := customFields.Archive(ctx, organizationID, ownerID, companyRegion.ID, companyRegion.Revision); err != nil {
 		t.Fatalf("same-key company field should not be coupled to contact lead forms: %v", err)
 	}
 	var revisionAfterCompanyLifecycle int
@@ -232,13 +233,13 @@ func TestLeadFormCustomFieldMappingIsTypedRevisionedAuditedAndTenantSafeAgainstP
 	if _, err := service.Update(ctx, organizationID, form.ID, ownerID, staleInput); !errors.Is(err, ErrStaleRevision) {
 		t.Fatalf("stale form update error=%v, want stale revision", err)
 	}
-	if err := customFields.Archive(ctx, organizationID, ownerID, budget.ID); !errors.Is(err, modulecustomfields.ErrConflict) {
+	if err := customFields.Archive(ctx, organizationID, ownerID, budget.ID, budget.Revision); !errors.Is(err, modulecustomfields.ErrConflict) {
 		t.Fatalf("archive active mapped field error=%v, want conflict", err)
 	}
 	newRequired := createLeadMappingDefinition(t, ctx, customFields, organizationID, ownerID, modulecustomfields.CreateInput{
 		EntityType: "contact", FieldKey: "new_required", Label: "New required", DataType: "text",
 	})
-	if _, err := customFields.Update(ctx, organizationID, ownerID, newRequired.ID, modulecustomfields.UpdateInput{Label: newRequired.Label, Required: true, Position: newRequired.Position}); !errors.Is(err, modulecustomfields.ErrConflict) {
+	if _, err := customFields.Update(ctx, organizationID, ownerID, newRequired.ID, modulecustomfields.UpdateInput{Label: newRequired.Label, Required: true, Position: newRequired.Position, Revision: newRequired.Revision}); !errors.Is(err, modulecustomfields.ErrConflict) {
 		t.Fatalf("required field without active-form coverage error=%v, want conflict", err)
 	}
 
@@ -249,7 +250,7 @@ func TestLeadFormCustomFieldMappingIsTypedRevisionedAuditedAndTenantSafeAgainstP
 	if err != nil || deactivated.IsActive || deactivated.Revision != 4 {
 		t.Fatalf("deactivate mapped form: form=%#v err=%v", deactivated, err)
 	}
-	if err := customFields.Archive(ctx, organizationID, ownerID, region.ID); err != nil {
+	if err := customFields.Archive(ctx, organizationID, ownerID, region.ID, region.Revision); err != nil {
 		t.Fatalf("archive field mapped only by inactive form: %v", err)
 	}
 	formPage, err = service.ListByOrganization(ctx, organizationID, FormListQuery{})

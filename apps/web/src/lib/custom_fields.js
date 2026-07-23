@@ -1,9 +1,19 @@
 import { apiRequest } from './api'
 
 export async function listCustomFields(entityType, { signal } = {}) {
+  const catalog = await listCustomFieldCatalog(entityType, { signal })
+  return catalog.definitions
+}
+
+export async function listCustomFieldCatalog(entityType, { signal } = {}) {
   const params = new URLSearchParams({ entityType })
   const payload = await apiRequest(`/api/custom-fields?${params.toString()}`, { fallbackMessage: 'Unable to load custom fields.', signal })
-  return payload?.data?.definitions || []
+  const definitions = payload?.data?.definitions || []
+  return {
+    definitions,
+    total: Number(payload?.meta?.total ?? definitions.length),
+    limit: Number(payload?.meta?.limit ?? 25)
+  }
 }
 
 export async function createCustomField(input) {
@@ -16,8 +26,8 @@ export async function updateCustomField(definitionId, input) {
   return payload?.data?.definition || null
 }
 
-export async function archiveCustomField(definitionId) {
-  return apiRequest(`/api/custom-fields/${definitionId}`, { method: 'DELETE', fallbackMessage: 'Unable to archive custom field.' })
+export async function archiveCustomField(definitionId, revision) {
+  return apiRequest(`/api/custom-fields/${definitionId}?revision=${encodeURIComponent(revision)}`, { method: 'DELETE', fallbackMessage: 'Unable to archive custom field.' })
 }
 
 export function customFieldFormValues(definitions, values = {}) {

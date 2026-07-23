@@ -14,16 +14,17 @@ import (
 )
 
 type fakeCustomFieldsService struct {
-	definitions []modulecustomfields.Definition
-	definition  modulecustomfields.Definition
-	err         error
-	lastOrgID   int64
-	lastActorID int64
-	lastID      int64
-	lastEntity  string
-	lastCreate  modulecustomfields.CreateInput
-	lastUpdate  modulecustomfields.UpdateInput
-	archived    bool
+	definitions  []modulecustomfields.Definition
+	definition   modulecustomfields.Definition
+	err          error
+	lastOrgID    int64
+	lastActorID  int64
+	lastID       int64
+	lastRevision int
+	lastEntity   string
+	lastCreate   modulecustomfields.CreateInput
+	lastUpdate   modulecustomfields.UpdateInput
+	archived     bool
 }
 
 func (f *fakeCustomFieldsService) List(_ context.Context, organizationID int64, entityType string, _ bool) ([]modulecustomfields.Definition, error) {
@@ -41,8 +42,8 @@ func (f *fakeCustomFieldsService) Update(_ context.Context, organizationID, acto
 	return f.definition, f.err
 }
 
-func (f *fakeCustomFieldsService) Archive(_ context.Context, organizationID, actorUserID, definitionID int64) error {
-	f.lastOrgID, f.lastActorID, f.lastID, f.archived = organizationID, actorUserID, definitionID, true
+func (f *fakeCustomFieldsService) Archive(_ context.Context, organizationID, actorUserID, definitionID int64, revision int) error {
+	f.lastOrgID, f.lastActorID, f.lastID, f.lastRevision, f.archived = organizationID, actorUserID, definitionID, revision, true
 	return f.err
 }
 
@@ -62,13 +63,13 @@ func TestListCustomFieldsAllowsMembersAndScopesTenant(t *testing.T) {
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || service.lastOrgID != 42 || service.lastEntity != "contact" || !strings.Contains(recorder.Body.String(), "service_tier") {
+	if recorder.Code != http.StatusOK || service.lastOrgID != 42 || service.lastEntity != "contact" || !strings.Contains(recorder.Body.String(), "service_tier") || !strings.Contains(recorder.Body.String(), `"total":1`) || !strings.Contains(recorder.Body.String(), `"limit":25`) {
 		t.Fatalf("unexpected custom field list: status=%d service=%#v body=%s", recorder.Code, service, recorder.Body.String())
 	}
 }
 
 func TestManageCustomFieldsRequiresAdminAndPassesTenantActor(t *testing.T) {
-	service := &fakeCustomFieldsService{definition: modulecustomfields.Definition{ID: 9, EntityType: "company", FieldKey: "service_tier", Label: "Service tier", DataType: "select"}}
+	service := &fakeCustomFieldsService{definition: modulecustomfields.Definition{ID: 9, EntityType: "company", FieldKey: "service_tier", Label: "Service tier", DataType: "select", Revision: 2}}
 	server := authenticatedCustomFieldsServer("admin", service)
 	create := httptest.NewRequest(http.MethodPost, "/api/custom-fields", strings.NewReader(`{"entityType":"company","label":"Service tier","dataType":"select","options":["Gold","Silver"],"showInList":true}`))
 	create.Header.Set("Content-Type", "application/json")
@@ -79,20 +80,20 @@ func TestManageCustomFieldsRequiresAdminAndPassesTenantActor(t *testing.T) {
 		t.Fatalf("unexpected custom field create: status=%d service=%#v body=%s", createRecorder.Code, service, createRecorder.Body.String())
 	}
 
-	update := httptest.NewRequest(http.MethodPatch, "/api/custom-fields/9", strings.NewReader(`{"label":"Account tier","options":["Gold"],"required":true,"position":3}`))
+	update := httptest.NewRequest(http.MethodPatch, "/api/custom-fields/9", strings.NewReader(`{"label":"Account tier","options":["Gold"],"required":true,"position":3,"revision":1}`))
 	update.Header.Set("Content-Type", "application/json")
 	addSessionCookie(update)
 	updateRecorder := httptest.NewRecorder()
 	server.ServeHTTP(updateRecorder, update)
-	if updateRecorder.Code != http.StatusOK || service.lastID != 9 || service.lastUpdate.Label != "Account tier" || !service.lastUpdate.Required {
+	if updateRecorder.Code != http.StatusOK || service.lastID != 9 || service.lastUpdate.Label != "Account tier" || !service.lastUpdate.Required || service.lastUpdate.Revision != 1 {
 		t.Fatalf("unexpected custom field update: status=%d service=%#v body=%s", updateRecorder.Code, service, updateRecorder.Body.String())
 	}
 
-	archive := httptest.NewRequest(http.MethodDelete, "/api/custom-fields/9", nil)
+	archive := httptest.NewRequest(http.MethodDelete, "/api/custom-fields/9?revision=2", nil)
 	addSessionCookie(archive)
 	archiveRecorder := httptest.NewRecorder()
 	server.ServeHTTP(archiveRecorder, archive)
-	if archiveRecorder.Code != http.StatusNoContent || !service.archived || service.lastID != 9 {
+	if archiveRecorder.Code != http.StatusNoContent || !service.archived || service.lastID != 9 || service.lastRevision != 2 {
 		t.Fatalf("unexpected custom field archive: status=%d service=%#v", archiveRecorder.Code, service)
 	}
 
@@ -108,6 +109,26 @@ func TestManageCustomFieldsRequiresAdminAndPassesTenantActor(t *testing.T) {
 	}
 }
 
+func TestCustomFieldRevisionIsRequiredBeforeServiceWork(t *testing.T) {
+	service := &fakeCustomFieldsService{}
+	server := authenticatedCustomFieldsServer("owner", service)
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodPatch, "/api/custom-fields/9", strings.NewReader(`{"label":"No revision","position":0}`)),
+		httptest.NewRequest(http.MethodDelete, "/api/custom-fields/9", nil),
+	} {
+		request.Header.Set("Content-Type", "application/json")
+		addSessionCookie(request)
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("missing revision status=%d, want 400 body=%s", recorder.Code, recorder.Body.String())
+		}
+	}
+	if service.lastOrgID != 0 || service.lastID != 0 || service.archived {
+		t.Fatalf("missing revision reached custom-field service: %#v", service)
+	}
+}
+
 func TestCustomFieldErrorsMapToStableHTTPStatuses(t *testing.T) {
 	cases := []struct {
 		err    error
@@ -116,7 +137,9 @@ func TestCustomFieldErrorsMapToStableHTTPStatuses(t *testing.T) {
 		{modulecustomfields.ErrInvalidInput, http.StatusBadRequest},
 		{modulecustomfields.ErrNotFound, http.StatusNotFound},
 		{modulecustomfields.ErrConflict, http.StatusConflict},
+		{modulecustomfields.ErrChanged, http.StatusConflict},
 		{modulecustomfields.ErrInactiveActor, http.StatusForbidden},
+		{modulecustomfields.ErrForbidden, http.StatusForbidden},
 		{errors.New("database unavailable"), http.StatusInternalServerError},
 	}
 	for _, testCase := range cases {

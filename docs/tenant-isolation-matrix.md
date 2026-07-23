@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-23
 
-Evidence row count: `47`
+Evidence row count: `49`
 
-Evidence digest: `4e9d305de5b441b41e59ea15dd6afcf261d44ea6fc26a0d267fdef78b3fed09b`
+Evidence digest: `cc5ada60d815f18ca2efdd4f0be3678bef704eb4b874ce83570a94b039b911eb`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -33,7 +33,8 @@ the assertions inside those tests remain the proof of behavior.
 | `company-linked-contacts` | `apps/api/internal/modules/companies/linked_contacts_postgres_test.go` | `TestLinkedContactsAreBoundedSearchableAndTenantScopedAgainstPostgres` | Linked-person count, pages, search, detail embeds, existing-link mutation, primary repair, and unlink stay inside the exact active company/contact tenant; foreign company/contact IDs remain missing, ordinary company edits preserve unseen links, and individual clients atomically replace their sole active person but cannot be unlinked to zero. |
 | `core-csv-export` | `apps/api/internal/performance/pilot_load_postgres_test.go` | `TestPilotReadLoadAndFailureBudgetsAgainstPostgres` | Adjacent 100-row contact/company/deal/task pages retain stable totals and no overlap; the same contact page contains no foreign tenant ID, and a foreign marker is absent from the maximum supported contact export under representative multi-tenant load. |
 | `core-record-boundaries` | `apps/api/internal/app/core_tenant_isolation_postgres_test.go` | `TestCoreRecordTenantBoundariesAgainstPostgres` | Contacts, companies, deals, tasks, saved views, and notes reject foreign list/get/update/archive/delete, relationship, stage, entity, actor, and assignee paths without partial effects. |
-| `custom-fields` | `apps/api/internal/modules/customfields/service_postgres_test.go` | `TestCustomFieldsEndToEndAgainstPostgres` | Definitions, values, filters, imports, exports, and archive operations remain tenant scoped; a foreign definition ID is hidden. |
+| `custom-field-management` | `apps/api/internal/modules/customfields/management_postgres_test.go` | `TestCustomFieldManagementIsRevisionSafeAuthorizedAndCapacitySerializedAgainstPostgres` | Complete active catalogs, current owner/admin authorization, serialized final-slot creation, exact update/archive revisions, audit rollback, capacity reuse, and foreign definition IDs remain tenant scoped; foreign IDs are hidden. |
+| `custom-field-values` | `apps/api/internal/modules/customfields/service_postgres_test.go` | `TestCustomFieldsEndToEndAgainstPostgres` | Definitions, typed values, filters, imports, exports, merge selection, and archive-with-value-retention remain tenant scoped; a foreign definition ID is hidden. |
 | `custom-report-execution` | `apps/api/internal/modules/customreports/execution_postgres_test.go` | `TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres` | Definition mutations, contact/company/deal/task table and grouped-bar queries, and admin CSV exports bind the owning organization and active actor, exclude archived and foreign markers, reject cross-tenant definition IDs without disclosure, and leave no partial definition/download audit on forbidden or oversized paths. |
 | `report-definition-management` | `apps/api/internal/modules/customreports/definition_pagination_postgres_test.go` | `TestCustomReportDefinitionPagesAreBoundedStableAndTenantScoped` | Exact stored-definition totals and stable bounded active/update/ID pages remain tenant scoped; direct page limits, adjacent and repeat reads, final/empty pages, and the management index exclude a foreign definition and keep its total independent. |
 | `shared-report-dashboard` | `apps/api/internal/modules/customreports/dashboard_postgres_test.go` | `TestSharedReportDashboardIsRevisionedTenantSafeAndSnapshotBounded` | One workspace configuration binds every widget and definition through composite tenant keys; viewer, disabled, foreign, corrupt, inactive, unsupported, stale, and concurrent writer paths leave no partial state. Successful execution reads at most six widgets and 12 groups each from one repeatable-read snapshot, excludes foreign markers, recovers after timeout, and portable export includes only the owning tenant's configuration. |

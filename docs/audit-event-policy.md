@@ -80,13 +80,21 @@ same-tenant run and records only automation/run/deal/action identifiers, finite
 depth, and one reviewed reason. It contains no notification body, recipient,
 customer value, trigger payload, or idempotency material.
 
+Custom-field create/update/archive events commit in the same bounded-retry
+serializable tenant transaction as the exact-revision definition mutation. The
+acting owner/admin is revalidated under the membership row lock, and a failed
+audit insert rolls back the definition and revision. Metadata contains only
+record type, stable field key, immutable data type, and resulting positive
+revision. It excludes the mutable label, select options, required/list-display
+choices, record values, filters, imports, and every customer identity.
+
 The lead-form mapping review adds transactional create/update producers and a
 custom-field-driven mapping-revision producer. The acting owner/admin is
-revalidated inside the serializable definition transaction; a failed audit
-insert rolls back the definition or custom-field change. Metadata contains
-only form identity, current/previous revision, active state, bounded field and
-mapping counts, and the stable custom-field key that invalidated a mapping. It
-contains no submitted value, consent statement, contact identity, public or
+revalidated inside the bounded-retry serializable definition transaction; a
+failed audit insert rolls back the definition or custom-field change. Metadata
+contains only form identity, current/previous revision, active state, bounded
+field and mapping counts, and the stable custom-field key that invalidated a
+mapping. It contains no submitted value, consent statement, contact identity, public or
 challenge token, request digest, source URL, attribution, or provider data.
 The portable audit trail retains these configuration events; detailed form and
 submission evidence remains in its own portable datasets.

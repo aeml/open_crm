@@ -246,7 +246,7 @@ type customFieldsService interface {
 	List(context.Context, int64, string, bool) ([]modulecustomfields.Definition, error)
 	Create(context.Context, int64, int64, modulecustomfields.CreateInput) (modulecustomfields.Definition, error)
 	Update(context.Context, int64, int64, int64, modulecustomfields.UpdateInput) (modulecustomfields.Definition, error)
-	Archive(context.Context, int64, int64, int64) error
+	Archive(context.Context, int64, int64, int64, int) error
 }
 
 type savedViewsService interface {

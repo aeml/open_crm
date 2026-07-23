@@ -363,6 +363,12 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await customFieldForm.getByLabel('Show in record lists').check()
   await customFieldForm.getByRole('button', { name: 'Create field' }).click()
   await expect(page.getByText('created with stable key custom:relationship_segment', { exact: false })).toBeVisible()
+  const relationshipFieldRow = page.locator('article').filter({ hasText: 'custom:relationship_segment' })
+  await expect(relationshipFieldRow.getByText('revision 1', { exact: false })).toBeVisible()
+  await relationshipFieldRow.getByLabel('Position for Relationship segment').fill('1')
+  await relationshipFieldRow.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByText('Relationship segment updated.', { exact: true })).toBeVisible()
+  await expect(relationshipFieldRow.getByText('revision 2', { exact: false })).toBeVisible()
 
   await customFieldForm.getByRole('combobox', { name: 'Record type', exact: true }).selectOption('company')
   await customFieldForm.getByRole('textbox', { name: 'Label', exact: true }).fill('Service tier')
@@ -372,6 +378,16 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await customFieldForm.getByLabel('Show in record lists').check()
   await customFieldForm.getByRole('button', { name: 'Create field' }).click()
   await expect(page.getByText('created with stable key custom:service_tier', { exact: false })).toBeVisible()
+  await expect(page.getByText('1 of 25 active fields used for this record type.', { exact: true })).toBeVisible()
+  await customFieldForm.getByRole('textbox', { name: 'Label', exact: true }).fill('Temporary migration note')
+  await customFieldForm.getByRole('combobox', { name: 'Type', exact: true }).selectOption('text')
+  await customFieldForm.getByRole('button', { name: 'Create field' }).click()
+  const temporaryFieldRow = page.locator('article').filter({ hasText: 'custom:temporary_migration_note' })
+  await expect(temporaryFieldRow.getByText('revision 1', { exact: false })).toBeVisible()
+  page.once('dialog', (dialog) => dialog.accept())
+  await temporaryFieldRow.getByRole('button', { name: 'Archive field' }).click()
+  await expect(page.getByText('Temporary migration note archived. Existing record values were retained.', { exact: true })).toBeVisible()
+  await expect(page.getByText('1 of 25 active fields used for this record type.', { exact: true })).toBeVisible()
 
   const recordEmailTemplateName = `Relationship follow-up ${runID}`
   const recordEmailTemplateSubject = `Pilot relationship {{first_name}} ${runID}`

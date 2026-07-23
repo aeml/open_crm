@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 47
-	expectedTenantIsolationEvidenceDigest = "4e9d305de5b441b41e59ea15dd6afcf261d44ea6fc26a0d267fdef78b3fed09b"
+	expectedTenantIsolationEvidenceCount  = 49
+	expectedTenantIsolationEvidenceDigest = "cc5ada60d815f18ca2efdd4f0be3678bef704eb4b874ce83570a94b039b911eb"
 )
 
 type tenantIsolationEvidence struct {
@@ -33,7 +33,8 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "company-linked-contacts", Source: "apps/api/internal/modules/companies/linked_contacts_postgres_test.go", Test: "TestLinkedContactsAreBoundedSearchableAndTenantScopedAgainstPostgres"},
 	{Surface: "core-csv-export", Source: "apps/api/internal/performance/pilot_load_postgres_test.go", Test: "TestPilotReadLoadAndFailureBudgetsAgainstPostgres"},
 	{Surface: "core-record-boundaries", Source: "apps/api/internal/app/core_tenant_isolation_postgres_test.go", Test: "TestCoreRecordTenantBoundariesAgainstPostgres"},
-	{Surface: "custom-fields", Source: "apps/api/internal/modules/customfields/service_postgres_test.go", Test: "TestCustomFieldsEndToEndAgainstPostgres"},
+	{Surface: "custom-field-management", Source: "apps/api/internal/modules/customfields/management_postgres_test.go", Test: "TestCustomFieldManagementIsRevisionSafeAuthorizedAndCapacitySerializedAgainstPostgres"},
+	{Surface: "custom-field-values", Source: "apps/api/internal/modules/customfields/service_postgres_test.go", Test: "TestCustomFieldsEndToEndAgainstPostgres"},
 	{Surface: "custom-report-execution", Source: "apps/api/internal/modules/customreports/execution_postgres_test.go", Test: "TestSavedTableReportsExecuteTenantSafeTypedQueriesAgainstPostgres"},
 	{Surface: "report-definition-management", Source: "apps/api/internal/modules/customreports/definition_pagination_postgres_test.go", Test: "TestCustomReportDefinitionPagesAreBoundedStableAndTenantScoped"},
 	{Surface: "shared-report-dashboard", Source: "apps/api/internal/modules/customreports/dashboard_postgres_test.go", Test: "TestSharedReportDashboardIsRevisionedTenantSafeAndSnapshotBounded"},
@@ -58,6 +59,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "imports-and-rollback", Source: "apps/api/internal/modules/imports/service_postgres_test.go", Test: "TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres"},
 	{Surface: "invitations", Source: "apps/api/internal/modules/users/invitations_postgres_test.go", Test: "TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres"},
 	{Surface: "lead-form-custom-field-mapping", Source: "apps/api/internal/modules/leadforms/custom_field_mapping_postgres_test.go", Test: "TestLeadFormCustomFieldMappingIsTypedRevisionedAuditedAndTenantSafeAgainstPostgres"},
+	{Surface: "lead-surface-definition-management", Source: "apps/api/internal/modules/leadforms/lead_surface_catalog_postgres_test.go", Test: "TestLeadSurfaceCatalogsAreBoundedRevisionedAuditedAndTenantSafeAgainstPostgres"},
 	{Surface: "note-history", Source: "apps/api/internal/modules/notes/list_postgres_test.go", Test: "TestNoteCursorIsStableBoundedAndTenantScopedAgainstPostgres"},
 	{Surface: "pipeline-configuration", Source: "apps/api/internal/modules/deals/pipeline_configuration_postgres_test.go", Test: "TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgres"},
 	{Surface: "quote-template-management", Source: "apps/api/internal/modules/quotetemplates/service_postgres_test.go", Test: "TestQuoteTemplateCatalogIsBoundedTenantSafeAndCapacitySerialized"},
