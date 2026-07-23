@@ -2,7 +2,8 @@ import { Field } from '../components/ui/field'
 import { useAuth } from '../app/providers'
 import { createLeadChatWidget, leadChatWidgetEmbedCode, listLeadChatWidgetPage, publicLeadChatWidgetURL, updateLeadChatWidget } from '../lib/lead_chat_widgets'
 import { usePageTitle } from '../lib/use_page_title'
-import { LeadSurfaceCatalogCard, LeadSurfaceCatalogItem, LeadSurfaceEditorCard, LeadSurfaceTextField, LeadSurfaceThemeField, useLeadSurfaceCatalog, useLeadSurfaceEditor } from './lead_surface_catalog'
+import { DefinitionTextField } from './definition_catalog'
+import { LeadSurfaceCatalogCard, LeadSurfaceCatalogItem, LeadSurfaceEditorCard, LeadSurfaceThemeField, useLeadSurfaceCatalog, useLeadSurfaceEditor } from './lead_surface_catalog'
 
 function emptyForm(firstLeadFormId = '') {
   return {
@@ -105,11 +106,11 @@ export function SettingsLeadWidgetsRoute() {
           isSaving={isSaving} onSubmit={handleSubmit} saveLabel="Save website widget"
           createLabel="Create website widget" onCancel={resetForm}
         >
-          <LeadSurfaceTextField label="Name" name="name" form={form} setForm={setForm} placeholder="Website chat" maxLength="100" required />
-          <LeadSurfaceTextField label="Title" name="title" form={form} setForm={setForm} placeholder="Need help?" maxLength="200" required />
-          <LeadSurfaceTextField label="Welcome message" name="welcomeMessage" form={form} setForm={setForm} multiline rows={3} maxLength="2000" />
-          <LeadSurfaceTextField label="Prompt label" name="promptLabel" form={form} setForm={setForm} maxLength="100" required />
-          <LeadSurfaceTextField label="CTA label" name="ctaLabel" form={form} setForm={setForm} maxLength="100" required />
+          <DefinitionTextField label="Name" name="name" form={form} setForm={setForm} placeholder="Website chat" maxLength="100" required />
+          <DefinitionTextField label="Title" name="title" form={form} setForm={setForm} placeholder="Need help?" maxLength="200" required />
+          <DefinitionTextField label="Welcome message" name="welcomeMessage" form={form} setForm={setForm} multiline rows={3} maxLength="2000" />
+          <DefinitionTextField label="Prompt label" name="promptLabel" form={form} setForm={setForm} maxLength="100" required />
+          <DefinitionTextField label="CTA label" name="ctaLabel" form={form} setForm={setForm} maxLength="100" required />
           <LeadSurfaceThemeField form={form} setForm={setForm} />
           <Field label="Position">
             <select className="text-input" value={form.position} onChange={(event) => setForm({ ...form, position: event.target.value })}>

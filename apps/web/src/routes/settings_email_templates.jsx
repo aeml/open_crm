@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { MergeFieldCatalog } from '../components/merge_field_catalog'
 import { useAuth } from '../app/providers'
@@ -18,9 +17,8 @@ import {
   updateEmailTemplate
 } from '../lib/email_templates'
 import { usePageTitle } from '../lib/use_page_title'
+import { DefinitionCatalogFilters, DefinitionCatalogPagination, DefinitionTextField, useDefinitionCatalog } from './definition_catalog'
 
-const pageSize = 50
-const emptyMeta = { page: 1, pageSize, total: 0 }
 const emptyForm = { name: '', subject: '', body: '', expectedRevision: 0 }
 const emptySnippetForm = { name: '', body: '', expectedRevision: 0 }
 
@@ -44,90 +42,41 @@ function formFromSnippet(snippet) {
 export function SettingsEmailTemplatesRoute() {
   const { session, canWrite: canManage } = useAuth()
   usePageTitle('Email Templates')
-  const [templates, setTemplates] = useState([])
-  const [templateMeta, setTemplateMeta] = useState(emptyMeta)
-  const [snippets, setSnippets] = useState([])
-  const [snippetMeta, setSnippetMeta] = useState(emptyMeta)
   const [mergeFieldGroups, setMergeFieldGroups] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [snippetForm, setSnippetForm] = useState(emptySnippetForm)
   const [editingId, setEditingId] = useState(null)
   const [editingSnippetId, setEditingSnippetId] = useState(null)
-  const [templateError, setTemplateError] = useState('')
-  const [snippetError, setSnippetError] = useState('')
   const [mergeFieldError, setMergeFieldError] = useState('')
   const [templateStatus, setTemplateStatus] = useState('')
   const [snippetStatus, setSnippetStatus] = useState('')
-  const [isLoadingTemplates, setIsLoadingTemplates] = useState(true)
-  const [isLoadingSnippets, setIsLoadingSnippets] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingSnippet, setIsSavingSnippet] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState(null)
   const [deletingSnippetId, setDeletingSnippetId] = useState(null)
-  const [templateSearchInput, setTemplateSearchInput] = useState('')
-  const [templateSearch, setTemplateSearch] = useState('')
-  const [templatePage, setTemplatePage] = useState(1)
-  const [snippetSearchInput, setSnippetSearchInput] = useState('')
-  const [snippetSearch, setSnippetSearch] = useState('')
-  const [snippetPage, setSnippetPage] = useState(1)
-  const latestTemplateLoad = useRef(0)
-  const latestSnippetLoad = useRef(0)
-  const operationPending = useRef(false)
+  const {
+    appliedSearch: templateSearch, error: templateError, handleSearch: applyTemplateSearch,
+    isLoading: isLoadingTemplates, items: templates, load: loadTemplates, meta: templateMeta,
+    operationPending, pageNumber: templatePage, searchInput: templateSearchInput,
+    setAppliedSearch: setTemplateSearch, setError: setTemplateError,
+    setPageNumber: setTemplatePage, setSearchInput: setTemplateSearchInput
+  } = useDefinitionCatalog({
+    requestPage: listEmailTemplatePage,
+    itemsKey: 'templates',
+    loadErrorMessage: 'Unable to load email templates.'
+  })
+  const {
+    appliedSearch: snippetSearch, error: snippetError, handleSearch: applySnippetSearch,
+    isLoading: isLoadingSnippets, items: snippets, load: loadSnippets, meta: snippetMeta,
+    pageNumber: snippetPage, searchInput: snippetSearchInput,
+    setAppliedSearch: setSnippetSearch, setError: setSnippetError,
+    setPageNumber: setSnippetPage, setSearchInput: setSnippetSearchInput
+  } = useDefinitionCatalog({
+    requestPage: listEmailSnippetPage,
+    itemsKey: 'snippets',
+    loadErrorMessage: 'Unable to load email snippets.'
+  })
   const mutationPending = isSaving || isSavingSnippet || deletingTemplateId !== null || deletingSnippetId !== null
-
-  async function loadTemplates({ signal, requestedPage = templatePage, search = templateSearch } = {}) {
-    const loadId = latestTemplateLoad.current + 1
-    latestTemplateLoad.current = loadId
-    setIsLoadingTemplates(true)
-    try {
-      const catalog = await listEmailTemplatePage({ search, page: requestedPage, pageSize, signal })
-      if (signal?.aborted || loadId !== latestTemplateLoad.current) return null
-      setTemplates(catalog.templates)
-      setTemplateMeta(catalog.meta)
-      setTemplateError('')
-      return catalog
-    } catch (loadError) {
-      if (!isAbortError(loadError) && loadId === latestTemplateLoad.current) {
-        setTemplateError(loadError.message || 'Unable to load email templates.')
-      }
-      return null
-    } finally {
-      if (!signal?.aborted && loadId === latestTemplateLoad.current) setIsLoadingTemplates(false)
-    }
-  }
-
-  async function loadSnippets({ signal, requestedPage = snippetPage, search = snippetSearch } = {}) {
-    const loadId = latestSnippetLoad.current + 1
-    latestSnippetLoad.current = loadId
-    setIsLoadingSnippets(true)
-    try {
-      const catalog = await listEmailSnippetPage({ search, page: requestedPage, pageSize, signal })
-      if (signal?.aborted || loadId !== latestSnippetLoad.current) return null
-      setSnippets(catalog.snippets)
-      setSnippetMeta(catalog.meta)
-      setSnippetError('')
-      return catalog
-    } catch (loadError) {
-      if (!isAbortError(loadError) && loadId === latestSnippetLoad.current) {
-        setSnippetError(loadError.message || 'Unable to load email snippets.')
-      }
-      return null
-    } finally {
-      if (!signal?.aborted && loadId === latestSnippetLoad.current) setIsLoadingSnippets(false)
-    }
-  }
-
-  useEffect(() => {
-    const controller = new AbortController()
-    loadTemplates({ signal: controller.signal })
-    return () => controller.abort()
-  }, [templatePage, templateSearch])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    loadSnippets({ signal: controller.signal })
-    return () => controller.abort()
-  }, [snippetPage, snippetSearch])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -276,26 +225,6 @@ export function SettingsEmailTemplatesRoute() {
     }
   }
 
-  function applyTemplateSearch(event) {
-    event.preventDefault()
-    const nextSearch = templateSearchInput.trim()
-    if (nextSearch === templateSearch && templatePage === 1) loadTemplates({ requestedPage: 1, search: nextSearch })
-    else {
-      setTemplatePage(1)
-      setTemplateSearch(nextSearch)
-    }
-  }
-
-  function applySnippetSearch(event) {
-    event.preventDefault()
-    const nextSearch = snippetSearchInput.trim()
-    if (nextSearch === snippetSearch && snippetPage === 1) loadSnippets({ requestedPage: 1, search: nextSearch })
-    else {
-      setSnippetPage(1)
-      setSnippetSearch(nextSearch)
-    }
-  }
-
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
@@ -304,16 +233,12 @@ export function SettingsEmailTemplatesRoute() {
           {templateStatus ? <p className="field-hint" role="status">{templateStatus}</p> : null}
           {isLoadingTemplates ? <p className="field-hint" role="status">Loading templates…</p> : null}
           {templateError ? <InlineError message={templateError} /> : null}
-          <form className="filters-grid" onSubmit={applyTemplateSearch}>
-            <Field label="Search email templates"><input className="text-input" maxLength={100} value={templateSearchInput} disabled={mutationPending} onChange={(event) => setTemplateSearchInput(event.target.value)} placeholder="Template name" /></Field>
-            <Button className="button-secondary" type="submit" disabled={isLoadingTemplates || mutationPending}>Apply template search</Button>
-          </form>
+          <DefinitionCatalogFilters applyLabel="Apply template search" disabled={mutationPending} handleSearch={applyTemplateSearch} isLoading={isLoadingTemplates} searchInput={templateSearchInput} searchLabel="Search email templates" searchPlaceholder="Template name" setSearchInput={setTemplateSearchInput} />
           <div className="record-list" role="list" aria-label="Email templates">
             {!isLoadingTemplates && templates.length === 0 ? <article className="record-row" role="listitem"><div><p>{templateSearch ? 'No email templates match this search.' : 'No email templates yet.'}</p><p className="field-hint">{templateSearch ? 'Change the search and try again.' : 'Create your first template to reuse common messages.'}</p></div></article> : null}
             {templates.map((template) => <article className="record-row" key={template.id} role="listitem"><div><h3>{template.name}</h3><p className="field-hint">{template.subject} · revision {template.revision}</p></div>{canManage ? <div><Button className="button-secondary" type="button" disabled={mutationPending} onClick={() => startEdit(template)}>Edit</Button><Button className="button-danger" type="button" disabled={mutationPending} onClick={() => handleDelete(template)}>{deletingTemplateId === template.id ? 'Deleting…' : 'Delete'}</Button></div> : null}</article>)}
           </div>
-          <p className="field-hint" role="status">Showing {templates.length} of {templateMeta.total} email templates{templateSearch ? ` matching “${templateSearch}”` : ''}. Up to 100 templates may be stored.</p>
-          <div className="button-row"><Button className="button-secondary" type="button" disabled={isLoadingTemplates || templatePage <= 1 || mutationPending} onClick={() => setTemplatePage((current) => current - 1)}>Previous template page</Button><Button className="button-secondary" type="button" disabled={isLoadingTemplates || templatePage * templateMeta.pageSize >= templateMeta.total || mutationPending} onClick={() => setTemplatePage((current) => current + 1)}>Next template page</Button></div>
+          <DefinitionCatalogPagination appliedSearch={templateSearch} disabled={mutationPending} isLoading={isLoadingTemplates} itemCount={templates.length} limitHint="Up to 100 templates may be stored." meta={templateMeta} nextLabel="Next template page" noun="email templates" pageNumber={templatePage} previousLabel="Previous template page" setPageNumber={setTemplatePage} />
           {mergeFieldError ? <InlineError message={mergeFieldError} /> : null}
           {mergeFieldGroups.length > 0 ? <div className="card-stack"><div><h3>Available merge fields</h3><p className="field-hint">Use these tokens in template subjects and bodies. Active contact and company custom fields use a collision-safe custom namespace.</p></div><MergeFieldCatalog groups={mergeFieldGroups} /></div> : null}
         </div>
@@ -325,22 +250,18 @@ export function SettingsEmailTemplatesRoute() {
           {snippetStatus ? <p className="field-hint" role="status">{snippetStatus}</p> : null}
           {isLoadingSnippets ? <p className="field-hint" role="status">Loading snippets…</p> : null}
           {snippetError ? <InlineError message={snippetError} /> : null}
-          <form className="filters-grid" onSubmit={applySnippetSearch}>
-            <Field label="Search email snippets"><input className="text-input" maxLength={100} value={snippetSearchInput} disabled={mutationPending} onChange={(event) => setSnippetSearchInput(event.target.value)} placeholder="Snippet name" /></Field>
-            <Button className="button-secondary" type="submit" disabled={isLoadingSnippets || mutationPending}>Apply snippet search</Button>
-          </form>
+          <DefinitionCatalogFilters applyLabel="Apply snippet search" disabled={mutationPending} handleSearch={applySnippetSearch} isLoading={isLoadingSnippets} searchInput={snippetSearchInput} searchLabel="Search email snippets" searchPlaceholder="Snippet name" setSearchInput={setSnippetSearchInput} />
           <div className="record-list" role="list" aria-label="Email snippets">
             {!isLoadingSnippets && snippets.length === 0 ? <article className="record-row" role="listitem"><div><p>{snippetSearch ? 'No email snippets match this search.' : 'No email snippets yet.'}</p><p className="field-hint">{snippetSearch ? 'Change the search and try again.' : 'Create short answers, CTAs, or scheduling blocks for reuse.'}</p></div></article> : null}
             {snippets.map((snippet) => <article className="record-row" key={snippet.id} role="listitem"><div><h3>{snippet.name}</h3><p className="field-hint">{snippet.body} · revision {snippet.revision}</p></div>{canManage ? <div><Button className="button-secondary" type="button" disabled={mutationPending} onClick={() => startSnippetEdit(snippet)}>Edit</Button><Button className="button-danger" type="button" disabled={mutationPending} onClick={() => handleSnippetDelete(snippet)}>{deletingSnippetId === snippet.id ? 'Deleting…' : 'Delete'}</Button></div> : null}</article>)}
           </div>
-          <p className="field-hint" role="status">Showing {snippets.length} of {snippetMeta.total} email snippets{snippetSearch ? ` matching “${snippetSearch}”` : ''}. Up to 100 snippets may be stored.</p>
-          <div className="button-row"><Button className="button-secondary" type="button" disabled={isLoadingSnippets || snippetPage <= 1 || mutationPending} onClick={() => setSnippetPage((current) => current - 1)}>Previous snippet page</Button><Button className="button-secondary" type="button" disabled={isLoadingSnippets || snippetPage * snippetMeta.pageSize >= snippetMeta.total || mutationPending} onClick={() => setSnippetPage((current) => current + 1)}>Next snippet page</Button></div>
+          <DefinitionCatalogPagination appliedSearch={snippetSearch} disabled={mutationPending} isLoading={isLoadingSnippets} itemCount={snippets.length} limitHint="Up to 100 snippets may be stored." meta={snippetMeta} nextLabel="Next snippet page" noun="email snippets" pageNumber={snippetPage} previousLabel="Previous snippet page" setPageNumber={setSnippetPage} />
         </div>
       </Card>
 
-      {canManage ? <Card><form className="auth-form card-stack" aria-label={editingId ? 'Edit email template' : 'Create email template'} onSubmit={handleSubmit}><h2>{editingId ? 'Edit template' : 'New template'}</h2><Field label="Name"><input className="text-input" maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field><Field label="Subject"><input className="text-input" maxLength={500} value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} required /></Field><Field label="Body"><textarea className="text-input" maxLength={10000} rows={8} value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} required /></Field><div className="button-row"><Button type="submit" disabled={mutationPending}>{isSaving ? 'Saving…' : editingId ? 'Save changes' : 'Create template'}</Button>{editingId ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={resetForm}>Cancel</Button> : null}</div></form></Card> : null}
+      {canManage ? <Card><form className="auth-form card-stack" aria-label={editingId ? 'Edit email template' : 'Create email template'} onSubmit={handleSubmit}><h2>{editingId ? 'Edit template' : 'New template'}</h2><DefinitionTextField form={form} label="Name" maxLength={120} name="name" required setForm={setForm} /><DefinitionTextField form={form} label="Subject" maxLength={500} name="subject" required setForm={setForm} /><DefinitionTextField form={form} label="Body" maxLength={10000} multiline name="body" required rows={8} setForm={setForm} /><div className="button-row"><Button type="submit" disabled={mutationPending}>{isSaving ? 'Saving…' : editingId ? 'Save changes' : 'Create template'}</Button>{editingId ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={resetForm}>Cancel</Button> : null}</div></form></Card> : null}
 
-      {canManage ? <Card><form className="auth-form card-stack" aria-label={editingSnippetId ? 'Edit email snippet' : 'Create email snippet'} onSubmit={handleSnippetSubmit}><h2>{editingSnippetId ? 'Edit snippet' : 'New snippet'}</h2><Field label="Snippet name"><input className="text-input" maxLength={120} value={snippetForm.name} onChange={(event) => setSnippetForm({ ...snippetForm, name: event.target.value })} required /></Field><Field label="Snippet body"><textarea className="text-input" maxLength={10000} rows={5} value={snippetForm.body} onChange={(event) => setSnippetForm({ ...snippetForm, body: event.target.value })} required /></Field><div className="button-row"><Button type="submit" disabled={mutationPending}>{isSavingSnippet ? 'Saving…' : editingSnippetId ? 'Save snippet' : 'Create snippet'}</Button>{editingSnippetId ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={resetSnippetForm}>Cancel</Button> : null}</div></form></Card> : null}
+      {canManage ? <Card><form className="auth-form card-stack" aria-label={editingSnippetId ? 'Edit email snippet' : 'Create email snippet'} onSubmit={handleSnippetSubmit}><h2>{editingSnippetId ? 'Edit snippet' : 'New snippet'}</h2><DefinitionTextField form={snippetForm} label="Snippet name" maxLength={120} name="name" required setForm={setSnippetForm} /><DefinitionTextField form={snippetForm} label="Snippet body" maxLength={10000} multiline name="body" rows={5} setForm={setSnippetForm} /><div className="button-row"><Button type="submit" disabled={mutationPending}>{isSavingSnippet ? 'Saving…' : editingSnippetId ? 'Save snippet' : 'Create snippet'}</Button>{editingSnippetId ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={resetSnippetForm}>Cancel</Button> : null}</div></form></Card> : null}
     </section>
   )
 }

@@ -215,20 +215,6 @@ export function LeadSurfaceEditorCard({
   )
 }
 
-export function LeadSurfaceTextField({ label, hint, name, form, setForm, multiline = false, ...props }) {
-  const controlProps = {
-    ...props,
-    className: 'text-input',
-    value: form[name],
-    onChange: (event) => setForm((current) => ({ ...current, [name]: event.target.value }))
-  }
-  return (
-    <Field label={label} hint={hint}>
-      {multiline ? <textarea {...controlProps} /> : <input {...controlProps} />}
-    </Field>
-  )
-}
-
 export function LeadSurfaceThemeField({ form, setForm }) {
   return (
     <Field label="Theme">

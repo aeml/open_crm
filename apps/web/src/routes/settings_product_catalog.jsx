@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
-import { isAbortError } from '../lib/api'
 import { archiveProductCatalogItem, createProductCatalogItem, listProductCatalogPage, updateProductCatalogItem } from '../lib/product_catalog'
 import { usePageTitle } from '../lib/use_page_title'
+import { DefinitionCatalogFilters, DefinitionCatalogPagination, DefinitionTextField, useDefinitionCatalog } from './definition_catalog'
 
 const emptyForm = {
   name: '',
@@ -18,9 +18,6 @@ const emptyForm = {
   unitName: 'unit',
   isActive: true
 }
-const pageSize = 50
-const emptyMeta = { page: 1, pageSize, total: 0 }
-
 function formFromItem(item) {
   return {
     name: item.name || '',
@@ -55,51 +52,19 @@ function priceLabel(item) {
 export function SettingsProductCatalogRoute() {
   const { session, canWrite: canManage } = useAuth()
   usePageTitle('Product Catalog')
-  const [items, setItems] = useState([])
-  const [meta, setMeta] = useState(emptyMeta)
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
   const [status, setStatus] = useState('')
-  const [error, setError] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [pendingArchiveId, setPendingArchiveId] = useState(null)
-  const [searchInput, setSearchInput] = useState('')
-  const [appliedSearch, setAppliedSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [pageNumber, setPageNumber] = useState(1)
-  const operationPending = useRef(false)
-  const latestLoad = useRef(0)
-
-  async function loadCatalog({ signal, requestedPage = pageNumber, search = appliedSearch, itemStatus = statusFilter } = {}) {
-    const loadID = latestLoad.current + 1
-    latestLoad.current = loadID
-    setIsLoading(true)
-    try {
-      const next = await listProductCatalogPage({ search, status: itemStatus, page: requestedPage, pageSize, signal })
-      if (signal?.aborted || loadID !== latestLoad.current) return null
-      setItems(next.items)
-      setMeta(next.meta)
-      setError('')
-      return next
-    } catch (loadError) {
-      if (!isAbortError(loadError) && loadID === latestLoad.current) {
-        setError(loadError.message || 'Unable to load product catalog.')
-      }
-    } finally {
-      if (!signal?.aborted && loadID === latestLoad.current) {
-        setIsLoading(false)
-      }
-    }
-  }
-
-  useEffect(() => {
-    const controller = new AbortController()
-    loadCatalog({ signal: controller.signal })
-    return () => {
-      controller.abort()
-    }
-  }, [appliedSearch, pageNumber, statusFilter])
+  const {
+    appliedSearch, error, handleSearch, isLoading, items, load: loadCatalog,
+    meta, operationPending, pageNumber, searchInput, setError, setPageNumber,
+    setSearchInput, setStatusFilter, statusFilter
+  } = useDefinitionCatalog({
+    requestPage: listProductCatalogPage,
+    loadErrorMessage: 'Unable to load product catalog.'
+  })
 
   function resetForm() {
     setEditingId(null)
@@ -161,15 +126,7 @@ export function SettingsProductCatalogRoute() {
     }
   }
 
-  function handleSearch(event) {
-    event.preventDefault()
-    const nextSearch = searchInput.trim()
-    if (nextSearch === appliedSearch && pageNumber === 1) loadCatalog({ requestedPage: 1, search: nextSearch })
-    else {
-      setPageNumber(1)
-      setAppliedSearch(nextSearch)
-    }
-  }
+  const mutationPending = isSaving || pendingArchiveId !== null
 
   return (
     <section className="dashboard-grid settings-grid">
@@ -184,19 +141,16 @@ export function SettingsProductCatalogRoute() {
           {isLoading ? <p className="field-hint">Loading product catalog...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadCatalog()} retryLabel="Retry product catalog" /> : null}
-          <form className="filters-grid" onSubmit={handleSearch}>
-            <Field label="Search product catalog">
-              <input className="text-input" maxLength={100} value={searchInput} disabled={isSaving || pendingArchiveId !== null} onChange={(event) => setSearchInput(event.target.value)} placeholder="Name or SKU" />
-            </Field>
-            <Field label="Catalog status">
-              <select className="text-input" value={statusFilter} disabled={isSaving || pendingArchiveId !== null} onChange={(event) => { setPageNumber(1); setStatusFilter(event.target.value) }}>
-                <option value="all">Active and inactive</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </Field>
-            <Button className="button-secondary" type="submit" disabled={isLoading || isSaving || pendingArchiveId !== null}>Apply search</Button>
-          </form>
+          <DefinitionCatalogFilters
+            disabled={mutationPending} handleSearch={handleSearch} isLoading={isLoading}
+            searchInput={searchInput} searchLabel="Search product catalog" searchPlaceholder="Name or SKU"
+            setPageNumber={setPageNumber} setSearchInput={setSearchInput} setStatusFilter={setStatusFilter}
+            statusFilter={statusFilter} statusLabel="Catalog status"
+          >
+            <option value="all">Active and inactive</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </DefinitionCatalogFilters>
           <div className="record-list" role="list" aria-label="Product catalog items">
             {!isLoading && items.length === 0 ? (
               <article className="record-row" role="listitem">
@@ -214,17 +168,17 @@ export function SettingsProductCatalogRoute() {
                 </div>
                 <div>
                   <span className="chip">{item.isActive ? 'Active' : 'Inactive'}</span>
-                  {canManage ? <Button className="button-secondary" type="button" disabled={isSaving || pendingArchiveId !== null} onClick={() => startEdit(item)}>Edit</Button> : null}
-                  {canManage && item.isActive ? <Button className="button-secondary" type="button" disabled={isSaving || pendingArchiveId !== null} onClick={() => handleArchive(item.id)}>{pendingArchiveId === item.id ? 'Archiving...' : 'Archive'}</Button> : null}
+                  {canManage ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={() => startEdit(item)}>Edit</Button> : null}
+                  {canManage && item.isActive ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={() => handleArchive(item.id)}>{pendingArchiveId === item.id ? 'Archiving...' : 'Archive'}</Button> : null}
                 </div>
               </article>
             ))}
           </div>
-          <p className="field-hint" role="status">Showing {items.length} of {meta.total} catalog items{appliedSearch ? ` matching “${appliedSearch}”` : ''}. Up to 100 items may be active for quote selection.</p>
-          <div>
-            <Button className="button-secondary" type="button" disabled={isLoading || pageNumber <= 1 || isSaving || pendingArchiveId !== null} onClick={() => setPageNumber((current) => current - 1)}>Previous page</Button>
-            <Button className="button-secondary" type="button" disabled={isLoading || pageNumber * meta.pageSize >= meta.total || isSaving || pendingArchiveId !== null} onClick={() => setPageNumber((current) => current + 1)}>Next page</Button>
-          </div>
+          <DefinitionCatalogPagination
+            appliedSearch={appliedSearch} className="" disabled={mutationPending} isLoading={isLoading}
+            itemCount={items.length} limitHint="Up to 100 items may be active for quote selection."
+            meta={meta} noun="catalog items" pageNumber={pageNumber} setPageNumber={setPageNumber}
+          />
         </div>
       </Card>
 
@@ -235,36 +189,26 @@ export function SettingsProductCatalogRoute() {
               <h2>{editingId ? 'Edit catalog item' : 'New catalog item'}</h2>
               <p className="field-hint">Prices are stored as fixed two-decimal amounts with a three-letter currency.</p>
             </div>
-            <Field label="Name">
-              <input className="text-input" maxLength={150} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Implementation package" required />
-            </Field>
-            <Field label="SKU">
-              <input className="text-input" maxLength={80} value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} placeholder="SERV-001" />
-            </Field>
+            <DefinitionTextField form={form} label="Name" maxLength={150} name="name" placeholder="Implementation package" required setForm={setForm} />
+            <DefinitionTextField form={form} label="SKU" maxLength={80} name="sku" placeholder="SERV-001" setForm={setForm} />
             <Field label="Type">
               <select className="text-input" value={form.itemType} onChange={(event) => setForm({ ...form, itemType: event.target.value })}>
                 <option value="product">Product</option>
                 <option value="service">Service</option>
               </select>
             </Field>
-            <Field label="Unit price">
-              <input className="text-input" inputMode="decimal" maxLength={13} pattern="\d{1,10}(\.\d{1,2})?" value={form.unitPrice} onChange={(event) => setForm({ ...form, unitPrice: event.target.value })} placeholder="150.00" required />
-            </Field>
+            <DefinitionTextField form={form} inputMode="decimal" label="Unit price" maxLength={13} name="unitPrice" pattern="\d{1,10}(\.\d{1,2})?" placeholder="150.00" required setForm={setForm} />
             <Field label="Currency">
               <input className="text-input" maxLength={3} value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} required />
             </Field>
-            <Field label="Unit">
-              <input className="text-input" maxLength={50} value={form.unitName} onChange={(event) => setForm({ ...form, unitName: event.target.value })} placeholder="hour" required />
-            </Field>
-            <Field label="Description">
-              <textarea className="text-input" maxLength={2000} rows={4} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-            </Field>
+            <DefinitionTextField form={form} label="Unit" maxLength={50} name="unitName" placeholder="hour" required setForm={setForm} />
+            <DefinitionTextField form={form} label="Description" maxLength={2000} multiline name="description" rows={4} setForm={setForm} />
             <label className="field-hint">
               <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active catalog item
             </label>
             <div>
-              <Button type="submit" disabled={isSaving || pendingArchiveId !== null}>{isSaving ? 'Saving...' : editingId ? 'Save catalog item' : 'Create catalog item'}</Button>
-              {editingId ? <Button className="button-secondary" type="button" disabled={isSaving || pendingArchiveId !== null} onClick={resetForm}>Cancel</Button> : null}
+              <Button type="submit" disabled={mutationPending}>{isSaving ? 'Saving...' : editingId ? 'Save catalog item' : 'Create catalog item'}</Button>
+              {editingId ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={resetForm}>Cancel</Button> : null}
             </div>
           </form>
         </Card>

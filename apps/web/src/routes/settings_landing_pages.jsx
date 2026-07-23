@@ -1,7 +1,8 @@
 import { useAuth } from '../app/providers'
 import { createLeadLandingPage, listLeadLandingPagePage, publicLeadLandingPageURL, updateLeadLandingPage } from '../lib/landing_pages'
 import { usePageTitle } from '../lib/use_page_title'
-import { LeadSurfaceCatalogCard, LeadSurfaceCatalogItem, LeadSurfaceEditorCard, LeadSurfaceTextField, LeadSurfaceThemeField, useLeadSurfaceCatalog, useLeadSurfaceEditor } from './lead_surface_catalog'
+import { DefinitionTextField } from './definition_catalog'
+import { LeadSurfaceCatalogCard, LeadSurfaceCatalogItem, LeadSurfaceEditorCard, LeadSurfaceThemeField, useLeadSurfaceCatalog, useLeadSurfaceEditor } from './lead_surface_catalog'
 
 function emptyForm(firstLeadFormId = '') {
   return {
@@ -103,12 +104,12 @@ export function SettingsLandingPagesRoute() {
           isSaving={isSaving} onSubmit={handleSubmit} saveLabel="Save landing page"
           createLabel="Create landing page" onCancel={resetForm}
         >
-          <LeadSurfaceTextField label="Name" name="name" form={form} setForm={setForm} placeholder="Demo campaign page" maxLength="100" required />
-          <LeadSurfaceTextField label="Slug" hint="Public URL path, globally unique across hosted pages." name="slug" form={form} setForm={setForm} placeholder="demo-request" maxLength="80" />
-          <LeadSurfaceTextField label="Title" name="title" form={form} setForm={setForm} placeholder="Book a better CRM demo" maxLength="200" />
-          <LeadSurfaceTextField label="Subtitle" name="subtitle" form={form} setForm={setForm} placeholder="A focused page for one offer or campaign." maxLength="500" />
-          <LeadSurfaceTextField label="Body" name="body" form={form} setForm={setForm} multiline rows={5} placeholder="Explain the offer, audience, and next step." maxLength="10000" />
-          <LeadSurfaceTextField label="CTA label" name="ctaLabel" form={form} setForm={setForm} maxLength="100" required />
+          <DefinitionTextField label="Name" name="name" form={form} setForm={setForm} placeholder="Demo campaign page" maxLength="100" required />
+          <DefinitionTextField label="Slug" hint="Public URL path, globally unique across hosted pages." name="slug" form={form} setForm={setForm} placeholder="demo-request" maxLength="80" />
+          <DefinitionTextField label="Title" name="title" form={form} setForm={setForm} placeholder="Book a better CRM demo" maxLength="200" />
+          <DefinitionTextField label="Subtitle" name="subtitle" form={form} setForm={setForm} placeholder="A focused page for one offer or campaign." maxLength="500" />
+          <DefinitionTextField label="Body" name="body" form={form} setForm={setForm} multiline rows={5} placeholder="Explain the offer, audience, and next step." maxLength="10000" />
+          <DefinitionTextField label="CTA label" name="ctaLabel" form={form} setForm={setForm} maxLength="100" required />
           <LeadSurfaceThemeField form={form} setForm={setForm} />
         </LeadSurfaceEditorCard>
       ) : null}

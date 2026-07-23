@@ -473,6 +473,18 @@ holding every production route to the default 500-line ceiling with no explicit 
 The application dependency boundary now keeps its 438-line service-contract
 catalog separate from the unchanged 70-line explicit runtime container, removing
 the former exact-ceiling hotspot without changing construction or test injection.
+A 125-line shared definition-catalog boundary now owns abortable latest-request
+identity, exact-page search/status loading, page-one search reconciliation,
+mutation exclusion, filters, pagination, and controlled fields used by product,
+quote-template, email-sequence, email-template/snippet, landing-page, and
+website-widget administration. The four larger route files are now
+218/310/266/267 lines; together with the 228-line lead-surface boundary and its
+118/126-line routes, this removes 99 production source lines and lowers aggregate
+raw assets from 816.13 to 812.78 KiB without changing the 817/255 KiB ceilings.
+The measured gzip aggregate is 254.72 KiB, so the raw/source reduction is retained
+without claiming a compressed-size reduction. Existing route tests prove search,
+row-51 continuation, stale-response rejection, mutation serialization, exact
+revision writes, and draft preservation through the shared boundary.
 
 ## Version 0.2.3 - Database Integrity
 
