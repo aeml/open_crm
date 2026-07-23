@@ -487,7 +487,14 @@ from 254.51 to 254.33 KiB without changing the 817/255 KiB ceilings; the largest
 lazy chunk falls from 55.16/15.74 to 54.10/15.64 KiB raw/gzip. Existing route tests prove search,
 row-51 continuation, stale-response rejection, mutation serialization, exact
 revision writes, draft preservation, and the retained form behavior through the
-shared boundaries.
+shared boundaries. A subsequent dashboard model boundary keeps the existing JSX
+and request orchestration in a 305-line route while moving response
+normalization, formatting, adaptive labels, setup state, record deduplication,
+and pipeline-attention derivation into a separately tested 166-line pure model.
+Five deterministic tests cover those branches. The resulting Dashboard chunk is
+23.52/6.25 KiB and the current production-URL build is 179.10/58.08 KiB entry,
+54.10/15.64 KiB largest lazy chunk, and 807.92/254.35 KiB aggregate raw/gzip
+under the unchanged 817/255 KiB ceilings.
 
 ## Version 0.2.3 - Database Integrity
 

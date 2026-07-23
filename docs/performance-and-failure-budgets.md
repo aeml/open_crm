@@ -725,10 +725,14 @@ Product, quote-template, email-sequence, and email-template/snippet routes are
 218/310/266/267 lines and 6.29/2.26, 10.51/3.56, 11.67/3.73, and 8.92/2.64 KiB
 raw/gzip. Landing-page and website-widget routes are 118/126 lines and
 4.02/1.59 and 4.47/1.69 KiB. The current Node 24 production build is
-179.10/58.09 KiB entry, 54.10/15.64 KiB largest lazy chunk, and 807.89/254.33
-KiB aggregate raw/gzip under the unchanged 817/255 KiB aggregate ceilings;
-every entry, per-route, CSS, hidden-foundation, and source ceiling remains
-unchanged.
+179.10/58.08 KiB entry, 54.10/15.64 KiB largest lazy chunk, and 807.92/254.35
+KiB aggregate raw/gzip under the unchanged 817/255 KiB aggregate ceilings.
+The operational Dashboard chunk remains 23.52/6.25 KiB while its route falls
+from 480 to 305 lines and a separately tested 166-line pure model owns response
+normalization, formatting, adaptive labels, setup state, record deduplication,
+and pipeline-attention derivation. Five deterministic model tests cover the
+extracted branches. Every entry, per-route, CSS, hidden-foundation, and source
+ceiling remains unchanged.
 
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and

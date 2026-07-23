@@ -10,147 +10,19 @@ import { usePageTitle } from '../lib/use_page_title'
 import { DashboardForecast } from './dashboard_forecast'
 import { DashboardClientReviews } from './dashboard_client_reviews'
 import { DashboardSavedReports } from './dashboard_saved_reports'
-
-function formatMoney(value, currency = 'USD') {
-  const amount = Number.parseFloat(value || '0')
-  if (!Number.isFinite(amount)) {
-    return '$0.00'
-  }
-  const normalizedCurrency = String(currency || 'USD').toUpperCase()
-  const safeCurrency = /^[A-Z]{3}$/.test(normalizedCurrency) ? normalizedCurrency : 'USD'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: safeCurrency }).format(amount)
-}
-
-const emptyForecast = {
-  periodStart: '',
-  periodEnd: '',
-  currency: 'USD',
-  teamQuota: '0',
-  wonAmount: '0',
-  openPipelineAmount: '0',
-  weightedForecastAmount: '0',
-  attainmentPct: '0',
-  coveragePct: '0',
-  missingRateCurrencies: [],
-  members: [],
-  stages: []
-}
-
-const emptySummary = {
-  pipelineValue: '0',
-  baseCurrency: 'USD',
-  missingRateCurrencies: [],
-  openDealsCount: 0,
-  wonDealsCount: 0,
-  openTasksCount: 0,
-  overdueTasksCount: 0,
-  dueSoonTasksCount: 0,
-  upcomingTasksCount: 0,
-  newContactsCount: 0,
-  forecast: emptyForecast,
-  clientReviews: { total: 0, overdue: 0, dueWithin30Days: 0, later: 0, records: [], semantics: [] },
-  recentActivities: []
-}
-
-function normalizeDashboardSummary(summary) {
-  return {
-    ...emptySummary,
-    ...(summary || {}),
-    forecast: {
-      ...emptyForecast,
-      ...(summary?.forecast || {}),
-      missingRateCurrencies: summary?.forecast?.missingRateCurrencies || [],
-      members: summary?.forecast?.members || [],
-      stages: summary?.forecast?.stages || []
-    },
-    missingRateCurrencies: summary?.missingRateCurrencies || [],
-    clientReviews: {
-      ...emptySummary.clientReviews,
-      ...(summary?.clientReviews || {}),
-      records: summary?.clientReviews?.records || [],
-      semantics: summary?.clientReviews?.semantics || []
-    },
-    recentActivities: summary?.recentActivities || []
-  }
-}
-
-function quotaDraftsFromForecast(forecast) {
-  return (forecast?.members || []).reduce((drafts, member) => ({ ...drafts, [member.userId]: member.quotaAmount || '' }), {})
-}
-
-function formatRelativeTimestamp(value) {
-  if (!value) {
-    return 'Just now'
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return 'Just now'
-  }
-
-  return date.toLocaleString()
-}
-
-function parseTimestamp(value) {
-  if (!value) {
-    return null
-  }
-
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
-}
-
-function daysSince(value) {
-  const parsed = parseTimestamp(value)
-  if (!parsed) {
-    return null
-  }
-
-  const elapsed = Date.now() - parsed.getTime()
-  return Math.max(0, Math.floor(elapsed / (24 * 60 * 60 * 1000)))
-}
-
-function latestActivityFor(activities, entityType) {
-  return (activities || []).find((activity) => activity.entityType === entityType) || null
-}
-
-function recentlyTouchedRecords(activities) {
-  const seen = new Set()
-  return (activities || []).filter((activity) => {
-    if (activity.entityType !== 'contact' && activity.entityType !== 'company') {
-      return false
-    }
-
-    const key = `${activity.entityType}:${activity.entityId}`
-    if (seen.has(key)) {
-      return false
-    }
-    seen.add(key)
-    return true
-  }).slice(0, 3)
-}
-
-function dashboardLabels(businessType) {
-  if (businessType === 'services' || businessType === 'construction-services') {
-    return {
-      pipelineLabel: 'Open jobs value',
-      contactsLabel: 'New contacts',
-      openRecordsLabel: 'Open jobs',
-      wonRecordsLabel: 'Won jobs',
-      recordsLower: 'jobs',
-      activityDescription: 'The last real changes across jobs, contacts, clients, and service tasks.'
-    }
-  }
-
-  return {
-    pipelineLabel: 'Open pipeline',
-    contactsLabel: 'New contacts',
-    openRecordsLabel: 'Open deals',
-    wonRecordsLabel: 'Won deals',
-    recordsLower: 'deals',
-    activityDescription: 'The last real changes across deals, contacts, companies, and tasks.'
-  }
-}
+import {
+  dashboardHasWorkspaceData,
+  dashboardHeroMetrics,
+  dashboardLabels,
+  dashboardPipelineAttention,
+  dashboardSetupSteps,
+  emptyForecast,
+  emptySummary,
+  formatDashboardTimestamp,
+  normalizeDashboardSummary,
+  quotaDraftsFromForecast,
+  recentlyTouchedRecords
+} from './dashboard_model'
 
 export function DashboardRoute() {
   const navigate = useNavigate()
@@ -221,61 +93,14 @@ export function DashboardRoute() {
   }
 
   const heroMetrics = useMemo(
-    () => [
-      { label: labels.pipelineLabel, value: formatMoney(summary.pipelineValue, summary.baseCurrency) },
-      { label: 'Due soon', value: `${summary.dueSoonTasksCount} tasks` },
-      { label: labels.contactsLabel, value: `${summary.newContactsCount} this week` }
-    ],
+    () => dashboardHeroMetrics(summary, labels),
     [labels.contactsLabel, labels.pipelineLabel, summary.baseCurrency, summary.dueSoonTasksCount, summary.newContactsCount, summary.pipelineValue]
   )
-  const latestPipelineActivity = latestActivityFor(summary.recentActivities, 'deal')
-  const latestPipelineDays = daysSince(latestPipelineActivity?.createdAt)
   const touchedRecords = useMemo(() => recentlyTouchedRecords(summary.recentActivities), [summary.recentActivities])
   const forecast = summary.forecast || emptyForecast
-  const pipelineAttention = useMemo(() => {
-    if (summary.openDealsCount <= 0) {
-      return {
-        title: `No open ${labels.recordsLower}`,
-        description: 'The active pipeline is clear. Review recent activity or create the next opportunity when work appears.',
-        action: 'Review activity',
-        path: '/deals'
-      }
-    }
-
-    if (!latestPipelineActivity) {
-      return {
-        title: `${summary.openDealsCount} open ${labels.recordsLower} need a touch`,
-        description: `No recent ${labels.recordsLower} activity appears in the dashboard feed. Check stage age and next steps before work stalls.`,
-        action: `Review ${labels.recordsLower}`,
-        path: '/deals'
-      }
-    }
-
-    if (latestPipelineDays !== null && latestPipelineDays >= 7) {
-      return {
-        title: `Pipeline has been quiet for ${latestPipelineDays} days`,
-        description: `The latest ${labels.recordsLower.slice(0, -1)} activity was ${latestPipelineActivity.summary.toLowerCase()}. Confirm the next move.`,
-        action: `Review ${labels.recordsLower}`,
-        path: '/deals'
-      }
-    }
-
-    return {
-      title: 'Pipeline touched recently',
-      description: `${latestPipelineActivity.summary} is the latest pipeline signal. Keep the next task tied to the record.`,
-      action: `Open ${labels.recordsLower}`,
-      path: '/deals'
-    }
-  }, [labels.recordsLower, latestPipelineActivity, latestPipelineDays, summary.openDealsCount])
-  const hasWorkspaceData = Number.parseFloat(summary.pipelineValue || '0') > 0 || Number.parseFloat(forecast.teamQuota || '0') > 0 || summary.openDealsCount > 0 || summary.wonDealsCount > 0 || summary.openTasksCount > 0 || summary.dueSoonTasksCount > 0 || summary.newContactsCount > 0 || summary.recentActivities.length > 0
-  const setupSteps = useMemo(() => {
-    const pipelineLabel = businessType === 'services' || businessType === 'construction-services' ? 'Create your first job' : 'Create your first deal'
-    return [
-      { label: 'Add a contact', description: 'Start with the person you need to follow up with.', action: 'Add contact', path: '/contacts' },
-      { label: 'Add a client', description: 'Create the company or individual client behind the work.', action: 'Add client', path: '/companies' },
-      { label: pipelineLabel, description: 'Track the opportunity, job, or active revenue conversation.', action: pipelineLabel, path: '/deals' }
-    ]
-  }, [businessType])
+  const pipelineAttention = dashboardPipelineAttention(summary, labels)
+  const hasWorkspaceData = dashboardHasWorkspaceData(summary)
+  const setupSteps = useMemo(() => dashboardSetupSteps(businessType), [businessType])
 
   return (
     <>
@@ -442,7 +267,7 @@ export function DashboardRoute() {
                       <p className="field-hint">{activity.actorName || 'System'} • {activity.entityType} #{activity.entityId}</p>
                     </div>
                     <div>
-                      <p>{formatRelativeTimestamp(activity.createdAt)}</p>
+                      <p>{formatDashboardTimestamp(activity.createdAt)}</p>
                     </div>
                   </article>
                 ))}
