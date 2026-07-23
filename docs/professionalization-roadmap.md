@@ -136,7 +136,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.9` Integration Release Review: planned.
 - `0.9.0` Scale And Reliability: in progress.
 - `0.9.1` Query Performance Review: in progress (core tenant and fixed-dashboard query plans and representative budgets are CI-gated; later report/provider review remains).
-- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded team-member, company-linked-person, product-catalog, quote-template, email-sequence-definition, and personal saved-view management, stable bounded workflow- and saved-report-definition management with exact same-snapshot summaries, PostgreSQL page evidence, serialized stored/active catalog ceilings, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
+- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded team-member, company-linked-person, product-catalog, quote-template, email-sequence-definition, and personal saved-view management, stable bounded workflow- and saved-report-definition management with exact same-snapshot summaries, server-disclosed 10-pipeline/20-stage ceilings with deterministic final-slot concurrency, PostgreSQL page evidence, serialized stored/active catalog ceilings, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: complete locally (imports and exact-filter core CSV artifacts are durable; pilot workload validation remains).
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
@@ -1443,19 +1443,23 @@ Exit criteria:
 - Admins can configure pipelines without database edits.
 - Existing deals remain valid after stage configuration changes.
 
-Completion evidence (2026-07-19): owners and admins can create, rename, and
+Completion evidence (updated 2026-07-23): owners and admins can create, rename, and
 choose the default among at most 10 tenant pipelines, then create, rename,
 classify, and exactly reorder at most 20 unique stages per pipeline from the
-dedicated Pipelines settings route. Serializable writes lock tenant
-configuration, preserve stable stage IDs, and reject open/won/lost
+dedicated Pipelines settings route. The API discloses both capacities and the
+route derives its copy and controls from them. Read-committed writers revalidate
+the active owner/admin and serialize on the organization row, so simultaneous
+final-slot requests produce exactly one success and one stable capacity conflict
+instead of a transaction serialization error. Writes preserve stable stage IDs
+and reject open/won/lost
 reclassification while any active or archived deal uses a stage; safe renames
 continue to update attached deals. Each change emits a transactional audit
-event. Handler role/conflict tests, disposable-PostgreSQL uniqueness,
-ordering, default, disabled-actor, cross-tenant, usage-protection, and audit
-acceptance, focused UI tests, and the clean-schema Chromium journey cover stage
-creation plus an attached deal surviving a stage rename. The 6.12 KiB lazy
-admin route also removes inline creation from `deals.jsx`, reducing it from
-1,052 to 1,016 lines.
+event. Handler role/conflict tests, disposable-PostgreSQL uniqueness, final-slot
+pipeline/stage concurrency, ordering, default, disabled-actor, cross-tenant,
+usage-protection, and audit acceptance, focused UI tests, and the clean-schema
+Chromium journey cover the disclosed limits, stage creation, and an attached
+deal surviving a stage rename. Complete reads retain any legacy/operator-created
+overflow instead of silently hiding definitions.
 
 ## Version 0.6.2 - Deal Probability And Forecasting
 
@@ -2372,6 +2376,14 @@ and 810.25/255.34 KiB aggregate raw/gzip. Only the aggregate gzip ceiling
 advances from 255 to 256 KiB for this measured outcome; the 817 KiB
 aggregate-raw ceiling and every entry, per-route, CSS, hidden-foundation, and
 source ceiling remain unchanged.
+Pipeline and stage definitions remain a deliberately complete catalog rather
+than a record browser. The API now discloses its 10-pipeline and 20-stage-per-
+pipeline ceilings, the settings route derives copy and controls from those
+values, and every writer serializes through the organization row under read
+committed isolation. Fresh PostgreSQL final-slot races prove exactly one success
+and one precise capacity conflict for each catalog; complete reads preserve
+legacy overflow. Pipelines and stages therefore no longer belong to the set of
+mutable definition catalogs without a proven stored-row ceiling.
 Workflow-definition
 management now defaults to 50, caps at 100 and
   offset 50,000, and returns exact stored-definition and workspace active-action
@@ -2385,10 +2397,11 @@ management now defaults to 50, caps at 100 and
   row 51 is absent from the first 50, loads it explicitly, and then executes the
   reviewed deal rule. Remaining decisions are explicit rather than silently
   truncated: lead-form management now has the same exact bounded page contract
-  and complete drift-checked dependent loading; the other mutable definition
-  catalogs rely on pilot-scale usage rather than an enforced stored-row
-  ceiling. Close or bound those surfaces as evidence requires before this
-  roadmap item is complete.
+  and complete drift-checked dependent loading; pipeline/stage and custom-field
+  catalogs have enforced complete-set ceilings; the other mutable definition
+  catalogs rely on pilot-scale usage rather than an enforced stored-row ceiling.
+  Close or bound those surfaces as evidence requires before this roadmap item is
+  complete.
 
 ## Version 0.9.3 - Background Job Runner
 

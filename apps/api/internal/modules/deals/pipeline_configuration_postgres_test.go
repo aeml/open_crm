@@ -12,7 +12,6 @@ import (
 
 	moduledb "github.com/aeml/open_crm/apps/api/internal/db"
 	moduledeals "github.com/aeml/open_crm/apps/api/internal/modules/deals"
-	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 )
 
 func TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgres(t *testing.T) {
@@ -42,7 +41,7 @@ func TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgre
 	}
 	defer pool.Close()
 
-	var organizationID, foreignOrganizationID, actorUserID int64
+	var organizationID, foreignOrganizationID, actorUserID, memberUserID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO organizations (name,slug) VALUES ('Pipeline team',$1) RETURNING id`, "pipeline-"+schema).Scan(&organizationID); err != nil {
 		t.Fatalf("create pipeline organization: %v", err)
 	}
@@ -52,8 +51,14 @@ func TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgre
 	if err := pool.QueryRow(ctx, `INSERT INTO users (email,password_hash,first_name,last_name) VALUES ($1,'hash','Pipeline','Admin') RETURNING id`, "pipeline-"+schema+"@example.test").Scan(&actorUserID); err != nil {
 		t.Fatalf("create pipeline actor: %v", err)
 	}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (email,password_hash,first_name,last_name) VALUES ($1,'hash','Pipeline','Member') RETURNING id`, "pipeline-member-"+schema+"@example.test").Scan(&memberUserID); err != nil {
+		t.Fatalf("create pipeline member: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id,user_id,role,membership_status) VALUES ($1,$3,'admin','active'),($2,$3,'admin','active')`, organizationID, foreignOrganizationID, actorUserID); err != nil {
 		t.Fatalf("create pipeline memberships: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id,user_id,role,membership_status) VALUES ($1,$2,'member','active')`, organizationID, memberUserID); err != nil {
+		t.Fatalf("create ordinary pipeline member: %v", err)
 	}
 	var originalPipelineID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO deal_pipelines (organization_id,name,position,is_default,created_by_user_id) VALUES ($1,'Sales',1,TRUE,$2) RETURNING id`, organizationID, actorUserID).Scan(&originalPipelineID); err != nil {
@@ -76,6 +81,7 @@ func TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgre
 	if err != nil || len(created.Stages) != 3 || created.IsDefault {
 		t.Fatalf("create configured pipeline: pipeline=%#v err=%v", created, err)
 	}
+	assertPipelineWriterDenied(t, ctx, service, organizationID, created, memberUserID)
 	configured, err := service.UpdatePipeline(ctx, organizationID, created.ID, actorUserID, moduledeals.PipelineUpdateInput{Name: "Renewals", MakeDefault: true})
 	if err != nil || configured.Name != "Renewals" || !configured.IsDefault {
 		t.Fatalf("update configured pipeline: pipeline=%#v err=%v", configured, err)
@@ -142,25 +148,30 @@ func TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgre
 	if err := pool.QueryRow(ctx, `SELECT stage_id FROM deals WHERE organization_id=$1 AND name='Protected existing deal'`, organizationID).Scan(&protectedStageID); err != nil || protectedStageID != usedStageID {
 		t.Fatalf("existing deal lost stage identity: stage=%d err=%v", protectedStageID, err)
 	}
-	for len(configured.Stages) < 20 {
+	for len(configured.Stages) < moduledeals.MaxStagesPerPipeline-1 {
 		stageName := fmt.Sprintf("Bounded stage %02d", len(configured.Stages)+1)
 		configured, err = service.CreateStage(ctx, organizationID, created.ID, actorUserID, moduledeals.StageDefinitionInput{Name: stageName, Outcome: "open"})
 		if err != nil {
 			t.Fatalf("fill configured stage boundary: %v", err)
 		}
 	}
-	if _, err := service.CreateStage(ctx, organizationID, created.ID, actorUserID, moduledeals.StageDefinitionInput{Name: "Stage 21", Outcome: "open"}); !errors.Is(err, moduledeals.ErrInvalidDealPipeline) {
+	configured = createFinalPipelineStageConcurrently(t, ctx, service, organizationID, created.ID, actorUserID)
+	if len(configured.Stages) != moduledeals.MaxStagesPerPipeline {
+		t.Fatalf("concurrent final stage slot left %d stages", len(configured.Stages))
+	}
+	if _, err := service.CreateStage(ctx, organizationID, created.ID, actorUserID, moduledeals.StageDefinitionInput{Name: "Stage 21", Outcome: "open"}); !errors.Is(err, moduledeals.ErrStageLimit) {
 		t.Fatalf("stage boundary returned %v", err)
 	}
 	if _, err := service.CreatePipeline(ctx, organizationID, actorUserID, moduledeals.PipelineInput{Name: "renewals"}); !errors.Is(err, moduledeals.ErrInvalidDealPipeline) {
 		t.Fatalf("duplicate pipeline name returned %v", err)
 	}
-	for index := 3; index <= 10; index++ {
+	for index := 3; index < moduledeals.MaxPipelinesPerOrganization; index++ {
 		if _, err := service.CreatePipeline(ctx, organizationID, actorUserID, moduledeals.PipelineInput{Name: fmt.Sprintf("Pipeline %02d", index)}); err != nil {
 			t.Fatalf("fill pipeline boundary: %v", err)
 		}
 	}
-	if _, err := service.CreatePipeline(ctx, organizationID, actorUserID, moduledeals.PipelineInput{Name: "Pipeline 11"}); !errors.Is(err, moduledeals.ErrInvalidDealPipeline) {
+	createFinalPipelineConcurrently(t, ctx, service, organizationID, actorUserID)
+	if _, err := service.CreatePipeline(ctx, organizationID, actorUserID, moduledeals.PipelineInput{Name: "Pipeline 11"}); !errors.Is(err, moduledeals.ErrPipelineLimit) {
 		t.Fatalf("pipeline boundary returned %v", err)
 	}
 
@@ -177,7 +188,7 @@ func TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgre
 	if _, err := pool.Exec(ctx, `UPDATE organization_memberships SET membership_status='disabled' WHERE organization_id=$1 AND user_id=$2`, organizationID, actorUserID); err != nil {
 		t.Fatalf("disable pipeline actor: %v", err)
 	}
-	if _, err := service.UpdatePipeline(ctx, organizationID, created.ID, actorUserID, moduledeals.PipelineUpdateInput{Name: "Blocked"}); !errors.Is(err, moduleusers.ErrInvalidAssignee) {
+	if _, err := service.UpdatePipeline(ctx, organizationID, created.ID, actorUserID, moduledeals.PipelineUpdateInput{Name: "Blocked"}); !errors.Is(err, moduledeals.ErrPipelineForbidden) {
 		t.Fatalf("disabled pipeline actor returned %v", err)
 	}
 
@@ -185,6 +196,121 @@ func TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgre
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND event_type LIKE 'deal_%'`, organizationID).Scan(&auditCount); err != nil || auditCount != 30 {
 		t.Fatalf("unexpected pipeline audit count: count=%d err=%v", auditCount, err)
 	}
+}
+
+func assertPipelineWriterDenied(t *testing.T, ctx context.Context, service *moduledeals.Service, organizationID int64, pipeline moduledeals.Pipeline, actorUserID int64) {
+	t.Helper()
+	stage := pipeline.Stages[0]
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "create pipeline", run: func() error {
+			_, err := service.CreatePipeline(ctx, organizationID, actorUserID, moduledeals.PipelineInput{Name: "Member pipeline"})
+			return err
+		}},
+		{name: "update pipeline", run: func() error {
+			_, err := service.UpdatePipeline(ctx, organizationID, pipeline.ID, actorUserID, moduledeals.PipelineUpdateInput{Name: pipeline.Name})
+			return err
+		}},
+		{name: "create stage", run: func() error {
+			_, err := service.CreateStage(ctx, organizationID, pipeline.ID, actorUserID, moduledeals.StageDefinitionInput{Name: "Member stage", Outcome: "open"})
+			return err
+		}},
+		{name: "update stage", run: func() error {
+			_, err := service.UpdateStageDefinition(ctx, organizationID, pipeline.ID, stage.ID, actorUserID, moduledeals.StageDefinitionInput{Name: stage.Name, Outcome: pipelineStageOutcome(stage)})
+			return err
+		}},
+		{name: "reorder stages", run: func() error {
+			_, err := service.ReorderStages(ctx, organizationID, pipeline.ID, actorUserID, moduledeals.StageOrderInput{StageIDs: pipelineStageIDs(pipeline)})
+			return err
+		}},
+	}
+	for _, test := range tests {
+		if err := test.run(); !errors.Is(err, moduledeals.ErrPipelineForbidden) {
+			t.Fatalf("%s as ordinary member returned %v", test.name, err)
+		}
+	}
+}
+
+func pipelineStageIDs(pipeline moduledeals.Pipeline) []int64 {
+	stageIDs := make([]int64, 0, len(pipeline.Stages))
+	for _, stage := range pipeline.Stages {
+		stageIDs = append(stageIDs, stage.ID)
+	}
+	return stageIDs
+}
+
+func createFinalPipelineStageConcurrently(t *testing.T, ctx context.Context, service *moduledeals.Service, organizationID, pipelineID, actorUserID int64) moduledeals.Pipeline {
+	t.Helper()
+	type result struct {
+		pipeline moduledeals.Pipeline
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for _, name := range []string{"Concurrent stage A", "Concurrent stage B"} {
+		go func(name string) {
+			<-start
+			pipeline, err := service.CreateStage(ctx, organizationID, pipelineID, actorUserID, moduledeals.StageDefinitionInput{Name: name, Outcome: "open"})
+			results <- result{pipeline: pipeline, err: err}
+		}(name)
+	}
+	close(start)
+	var winner moduledeals.Pipeline
+	var succeeded, limited int
+	for range 2 {
+		result := <-results
+		switch {
+		case result.err == nil:
+			succeeded++
+			winner = result.pipeline
+		case errors.Is(result.err, moduledeals.ErrStageLimit):
+			limited++
+		default:
+			t.Fatalf("unexpected concurrent final-stage result: %v", result.err)
+		}
+	}
+	if succeeded != 1 || limited != 1 || winner.ID != pipelineID {
+		t.Fatalf("stage capacity was not serialized: succeeded=%d limited=%d winner=%+v", succeeded, limited, winner)
+	}
+	return winner
+}
+
+func createFinalPipelineConcurrently(t *testing.T, ctx context.Context, service *moduledeals.Service, organizationID, actorUserID int64) moduledeals.Pipeline {
+	t.Helper()
+	type result struct {
+		pipeline moduledeals.Pipeline
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for _, name := range []string{"Concurrent pipeline A", "Concurrent pipeline B"} {
+		go func(name string) {
+			<-start
+			pipeline, err := service.CreatePipeline(ctx, organizationID, actorUserID, moduledeals.PipelineInput{Name: name})
+			results <- result{pipeline: pipeline, err: err}
+		}(name)
+	}
+	close(start)
+	var winner moduledeals.Pipeline
+	var succeeded, limited int
+	for range 2 {
+		result := <-results
+		switch {
+		case result.err == nil:
+			succeeded++
+			winner = result.pipeline
+		case errors.Is(result.err, moduledeals.ErrPipelineLimit):
+			limited++
+		default:
+			t.Fatalf("unexpected concurrent final-pipeline result: %v", result.err)
+		}
+	}
+	if succeeded != 1 || limited != 1 || winner.ID == 0 {
+		t.Fatalf("pipeline capacity was not serialized: succeeded=%d limited=%d winner=%+v", succeeded, limited, winner)
+	}
+	return winner
 }
 
 func pipelineStage(t *testing.T, pipeline moduledeals.Pipeline, stageID int64) moduledeals.Stage {

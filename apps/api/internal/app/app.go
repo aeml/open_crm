@@ -191,6 +191,10 @@ type dealStagesResponse struct {
 type dealPipelinesResponse struct {
 	Data struct {
 		Pipelines []moduledeals.Pipeline `json:"pipelines"`
+		Capacity  struct {
+			MaxPipelines         int `json:"maxPipelines"`
+			MaxStagesPerPipeline int `json:"maxStagesPerPipeline"`
+		} `json:"capacity"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`

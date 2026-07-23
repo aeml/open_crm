@@ -20,7 +20,7 @@ describe('pipeline configuration', () => {
       const requestURL = new URL(String(url), 'http://localhost')
       const method = options.method || 'GET'
       if (requestURL.pathname.endsWith('/auth/me')) return response(session('owner'))
-      if (requestURL.pathname.endsWith('/api/deal-pipelines') && method === 'GET') return response({ data: { pipelines: [pipeline] } })
+      if (requestURL.pathname.endsWith('/api/deal-pipelines') && method === 'GET') return response({ data: { pipelines: [pipeline], capacity: { maxPipelines: 10, maxStagesPerPipeline: 20 } } })
       if (requestURL.pathname.endsWith('/api/deal-pipelines/9') && method === 'PATCH') {
         calls.push({ method, path: requestURL.pathname, body: JSON.parse(options.body) })
         pipeline = { ...pipeline, name: 'Client acquisition', isDefault: true }
@@ -68,6 +68,27 @@ describe('pipeline configuration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Lead' }))
     expect(await screen.findByText(/move existing deals out of this stage/i)).toBeInTheDocument()
     expect(calls.find((call) => call.path.endsWith('/stages/31')).body.probabilityPercent).toBe(100)
+  })
+
+  it('uses server-disclosed pipeline and stage capacity', async () => {
+    const pipeline = { id: 9, name: 'Sales', position: 1, isDefault: true, stages: [
+      { id: 31, pipelineId: 9, name: 'Lead', position: 1, isClosed: false, isWon: false },
+      { id: 32, pipelineId: 9, name: 'Closed Won', position: 2, isClosed: true, isWon: true }
+    ] }
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      if (path.endsWith('/auth/me')) return { ok: true, status: 200, json: async () => session('owner') }
+      if (path.endsWith('/api/deal-pipelines')) return { ok: true, status: 200, json: async () => ({ data: { pipelines: [pipeline], capacity: { maxPipelines: 1, maxStagesPerPipeline: 2 } } }) }
+      return { ok: true, status: 200, json: async () => ({ data: { unreadCount: 0 } }) }
+    }))
+    window.history.pushState({}, '', '/settings/pipelines')
+    render(<AppRouter />)
+
+    expect(await screen.findByText(/Create up to 1 pipelines and manage up to 2 stable stages/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create pipeline' })).toBeDisabled()
+    expect(screen.getByText('The 1-pipeline limit is reached.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add stage' })).toBeDisabled()
+    expect(screen.getByText('The 2-stage limit is reached.')).toBeInTheDocument()
   })
 
   it('keeps pipeline administration hidden from non-admin members', async () => {

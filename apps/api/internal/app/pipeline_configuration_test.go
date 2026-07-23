@@ -92,3 +92,27 @@ func TestPipelineConfigurationSurfacesProtectedStageConflict(t *testing.T) {
 		t.Fatalf("expected protected stage conflict, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestPipelineConfigurationSurfacesStageCapacityConflict(t *testing.T) {
+	service := &fakeDealsService{configurePipelineErr: moduledeals.ErrStageLimit}
+	request := httptest.NewRequest(http.MethodPost, "/api/deal-pipelines/9/stages", strings.NewReader(`{"name":"Overflow","outcome":"open"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	pipelineConfigurationServer("owner", service).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"STAGE_LIMIT"`) || !strings.Contains(recorder.Body.String(), "maximum of 20") {
+		t.Fatalf("unexpected stage capacity response: %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPipelineConfigurationSurfacesTransactionalRoleDenial(t *testing.T) {
+	service := &fakeDealsService{configurePipelineErr: moduledeals.ErrPipelineForbidden}
+	request := httptest.NewRequest(http.MethodPost, "/api/deal-pipelines/9/stages", strings.NewReader(`{"name":"Blocked","outcome":"open"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	pipelineConfigurationServer("owner", service).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), `"code":"FORBIDDEN"`) {
+		t.Fatalf("unexpected pipeline role response: %d %s", recorder.Code, recorder.Body.String())
+	}
+}

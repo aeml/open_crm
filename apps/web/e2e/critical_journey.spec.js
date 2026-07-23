@@ -1045,6 +1045,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   const reviewedDiscoveryStage = `Discovery reviewed ${runID}`
   await page.getByRole('link', { name: 'Pipelines', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Pipeline configuration' })).toBeVisible()
+  await expect(page.getByText('Create up to 10 pipelines and manage up to 20 stable stages in each.', { exact: false })).toBeVisible()
   await page.getByLabel('New stage name for Sales pipeline').fill(discoveryStage)
   await page.getByLabel('New stage probability for Sales pipeline', { exact: false }).fill('65')
   await page.getByRole('button', { name: 'Add stage' }).click()

@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -29,6 +30,8 @@ func handleListDealPipelines(auth authService, deals dealsService, w http.Respon
 
 	response := dealPipelinesResponse{}
 	response.Data.Pipelines = pipelines
+	response.Data.Capacity.MaxPipelines = moduledeals.MaxPipelinesPerOrganization
+	response.Data.Capacity.MaxStagesPerPipeline = moduledeals.MaxStagesPerPipeline
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -50,6 +53,14 @@ func handleCreateDealPipeline(auth authService, deals dealsService, w http.Respo
 	}
 	pipeline, err := deals.CreatePipeline(r.Context(), state.Organization.ID, state.User.ID, moduledeals.PipelineInput{Name: request.Name})
 	if err != nil {
+		if errors.Is(err, moduledeals.ErrPipelineForbidden) {
+			platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Owner or admin access required")
+			return
+		}
+		if errors.Is(err, moduledeals.ErrPipelineLimit) {
+			platformweb.WriteError(w, http.StatusConflict, requestID, "PIPELINE_LIMIT", fmt.Sprintf("This workspace already has the maximum of %d deal pipelines", moduledeals.MaxPipelinesPerOrganization))
+			return
+		}
 		if errors.Is(err, moduledeals.ErrInvalidDealPipeline) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a unique pipeline name")
 			return

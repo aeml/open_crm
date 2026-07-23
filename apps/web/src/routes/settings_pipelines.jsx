@@ -5,7 +5,7 @@ import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { isAbortError } from '../lib/api'
-import { createDealPipeline, createDealStage, listDealPipelines, reorderDealStages, updateDealPipeline, updateDealStageDefinition } from '../lib/deals'
+import { createDealPipeline, createDealStage, listDealPipelineCatalog, reorderDealStages, updateDealPipeline, updateDealStageDefinition } from '../lib/deals'
 import { usePageTitle } from '../lib/use_page_title'
 
 function stageOutcome(stage) {
@@ -36,6 +36,7 @@ export function SettingsPipelinesRoute() {
   const [stageEditing, setStageEditing] = useState({})
   const [stageForms, setStageForms] = useState({})
   const [newPipelineName, setNewPipelineName] = useState('')
+  const [capacity, setCapacity] = useState({ maxPipelines: 10, maxStagesPerPipeline: 20 })
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [isLoading, setIsLoading] = useState(true)
@@ -51,7 +52,9 @@ export function SettingsPipelinesRoute() {
     if (!canManage) return
     setIsLoading(true)
     try {
-      applyPipelines(await listDealPipelines({ signal }))
+      const catalog = await listDealPipelineCatalog({ signal })
+      applyPipelines(catalog.pipelines)
+      setCapacity(catalog.capacity)
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) setError(loadError.message || 'Unable to load pipelines.')
@@ -112,10 +115,10 @@ export function SettingsPipelinesRoute() {
     <section className="dashboard-grid settings-grid">
       <Card>
         <form className="card-stack" onSubmit={handleCreatePipeline}>
-          <div><h2>Pipeline configuration</h2><p>Create up to 10 pipelines and manage up to 20 stable stages in each. Existing deals stay attached by stage ID.</p></div>
+          <div><h2>Pipeline configuration</h2><p>Create up to {capacity.maxPipelines} pipelines and manage up to {capacity.maxStagesPerPipeline} stable stages in each. Existing deals stay attached by stage ID.</p></div>
           <Field label="New pipeline name"><input className="text-input" maxLength="100" required value={newPipelineName} onChange={(event) => setNewPipelineName(event.target.value)} /></Field>
-          <Button type="submit" disabled={isSaving || pipelines.length >= 10}>{isSaving ? 'Saving…' : 'Create pipeline'}</Button>
-          {pipelines.length >= 10 ? <p className="field-hint">The 10-pipeline limit is reached.</p> : null}
+          <Button type="submit" disabled={isSaving || pipelines.length >= capacity.maxPipelines}>{isSaving ? 'Saving…' : 'Create pipeline'}</Button>
+          {pipelines.length >= capacity.maxPipelines ? <p className="field-hint">The {capacity.maxPipelines}-pipeline limit is reached.</p> : null}
           {error ? <InlineError message={error} onRetry={() => load()} /> : null}
           {notice ? <div className="inline-note" role="status">{notice}</div> : null}
         </form>
@@ -154,8 +157,8 @@ export function SettingsPipelinesRoute() {
                 <Field label={`New stage name for ${pipeline.name}`}><input className="text-input" maxLength="100" required value={stageForm.name} onChange={(event) => setStageForms((current) => ({ ...current, [pipeline.id]: { ...stageForm, name: event.target.value } }))} /></Field>
                 <Field label={`New stage outcome for ${pipeline.name}`}><select className="text-input" value={stageForm.outcome} onChange={(event) => { const outcome = event.target.value; setStageForms((current) => ({ ...current, [pipeline.id]: { ...stageForm, outcome, probabilityPercent: probabilityForOutcome(outcome, stageForm.probabilityPercent) } })) }}><option value="open">Open</option><option value="won">Won</option><option value="lost">Lost</option></select></Field>
                 <Field label={`New stage probability for ${pipeline.name}`} hint="The percentage of open deal value counted in the weighted forecast."><input className="text-input" type="number" min="0" max="100" required disabled={stageForm.outcome !== 'open'} value={stageForm.probabilityPercent} onChange={(event) => setStageForms((current) => ({ ...current, [pipeline.id]: { ...stageForm, probabilityPercent: Number.parseInt(event.target.value, 10) } }))} /></Field>
-                <Button type="submit" disabled={isSaving || pipeline.stages.length >= 20}>Add stage</Button>
-                {pipeline.stages.length >= 20 ? <p className="field-hint">The 20-stage limit is reached.</p> : null}
+                <Button type="submit" disabled={isSaving || pipeline.stages.length >= capacity.maxStagesPerPipeline}>Add stage</Button>
+                {pipeline.stages.length >= capacity.maxStagesPerPipeline ? <p className="field-hint">The {capacity.maxStagesPerPipeline}-stage limit is reached.</p> : null}
               </form>
             </div>
           </Card>

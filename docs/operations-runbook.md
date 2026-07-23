@@ -601,7 +601,14 @@ references.
    deliberately and account for archived history before retrying. Do not use
    SQL to bypass this protection: outcome changes affect status and forecast
    interpretation.
-4. Stage deletion is intentionally unavailable. If an obsolete unused stage
+4. The server permits at most 10 pipelines per workspace and 20 stages per
+   pipeline. Settings displays the capacities returned by the API. A concurrent
+   final-slot loser receives `409 PIPELINE_LIMIT` or `409 STAGE_LIMIT`; reload
+   before deciding whether another definition is still needed. Do not bypass a
+   limit with SQL: ordinary reads preserve legacy/operator-created overflow, but
+   supported writes will continue refusing additions until the catalog is back
+   within its reviewed boundary.
+5. Stage deletion is intentionally unavailable. If an obsolete unused stage
    should disappear, record that limitation and retain it until a reviewed
    archive/replacement workflow exists. Restore a mistaken label or order from
    the captured configuration and confirm the corresponding audit trail.

@@ -6,10 +6,25 @@ function idempotentPost(path, input, idempotencyKey, fallbackMessage, signal) {
   }).then((payload) => payload?.data)
 }
 
-export async function listDealPipelines({ signal } = {}) {
+const rollingPipelineCapacity = { maxPipelines: 10, maxStagesPerPipeline: 20 }
+
+function pipelineCapacity(value) {
+  const maxPipelines = Number.isInteger(value?.maxPipelines) && value.maxPipelines > 0 ? value.maxPipelines : rollingPipelineCapacity.maxPipelines
+  const maxStagesPerPipeline = Number.isInteger(value?.maxStagesPerPipeline) && value.maxStagesPerPipeline > 0 ? value.maxStagesPerPipeline : rollingPipelineCapacity.maxStagesPerPipeline
+  return { maxPipelines, maxStagesPerPipeline }
+}
+
+export async function listDealPipelineCatalog({ signal } = {}) {
   const payload = await apiRequest('/api/deal-pipelines', { fallbackMessage: 'Unable to load deal pipelines.', signal })
 
-  return payload?.data?.pipelines || []
+  return {
+    pipelines: payload?.data?.pipelines || [],
+    capacity: pipelineCapacity(payload?.data?.capacity)
+  }
+}
+
+export async function listDealPipelines(options = {}) {
+  return (await listDealPipelineCatalog(options)).pipelines
 }
 
 export async function createDealPipeline(input, { signal } = {}) {

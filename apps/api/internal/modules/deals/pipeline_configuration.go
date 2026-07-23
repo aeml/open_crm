@@ -6,21 +6,23 @@ import (
 	"fmt"
 	"strings"
 
-	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	"github.com/jackc/pgx/v5"
 )
 
 const (
-	maxPipelinesPerOrganization = 10
-	maxStagesPerPipeline        = 20
+	MaxPipelinesPerOrganization = 10
+	MaxStagesPerPipeline        = 20
 	maxPipelineNameLength       = 100
 	maxStageNameLength          = 100
 	defaultOpenStageProbability = 50
 )
 
 var (
-	ErrDealStageInUse = errors.New("deal stage outcome cannot change while deals use the stage")
-	ErrStageOrder     = errors.New("stage order must contain every pipeline stage exactly once")
+	ErrDealStageInUse    = errors.New("deal stage outcome cannot change while deals use the stage")
+	ErrPipelineForbidden = errors.New("pipeline configuration action forbidden")
+	ErrPipelineLimit     = errors.New("deal pipeline limit reached")
+	ErrStageLimit        = errors.New("deal stage limit reached")
+	ErrStageOrder        = errors.New("stage order must contain every pipeline stage exactly once")
 )
 
 type PipelineUpdateInput struct {
@@ -46,15 +48,12 @@ func (s *Service) UpdatePipeline(ctx context.Context, organizationID, pipelineID
 	if organizationID <= 0 || pipelineID <= 0 || !validPipelineName(input.Name) {
 		return Pipeline{}, ErrInvalidDealPipeline
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Pipeline{}, fmt.Errorf("begin update pipeline transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
-		return Pipeline{}, err
-	}
-	if err := lockPipelineOrganization(ctx, tx, organizationID); err != nil {
+	if err := lockPipelineWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Pipeline{}, err
 	}
 	var oldName string
@@ -90,15 +89,12 @@ func (s *Service) CreateStage(ctx context.Context, organizationID, pipelineID, a
 	if organizationID <= 0 || pipelineID <= 0 || !validStageName(input.Name) || !ok || !probabilityOK {
 		return Pipeline{}, ErrInvalidDealPipeline
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Pipeline{}, fmt.Errorf("begin create stage transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
-		return Pipeline{}, err
-	}
-	if err := lockPipelineOrganization(ctx, tx, organizationID); err != nil {
+	if err := lockPipelineWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Pipeline{}, err
 	}
 	if err := requirePipeline(ctx, tx, organizationID, pipelineID); err != nil {
@@ -108,8 +104,8 @@ func (s *Service) CreateStage(ctx context.Context, organizationID, pipelineID, a
 	if err := tx.QueryRow(ctx, `SELECT COUNT(*),COALESCE(MAX(position),0)+1 FROM deal_stages WHERE organization_id=$1 AND pipeline_id=$2`, organizationID, pipelineID).Scan(&count, &position); err != nil {
 		return Pipeline{}, fmt.Errorf("count deal stages: %w", err)
 	}
-	if count >= maxStagesPerPipeline {
-		return Pipeline{}, ErrInvalidDealPipeline
+	if count >= MaxStagesPerPipeline {
+		return Pipeline{}, ErrStageLimit
 	}
 	var stageID int64
 	if err := tx.QueryRow(ctx, `INSERT INTO deal_stages (organization_id,pipeline_id,name,position,is_closed,is_won,probability_percent) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, organizationID, pipelineID, input.Name, position, isClosed, isWon, probability).Scan(&stageID); err != nil {
@@ -133,15 +129,12 @@ func (s *Service) UpdateStageDefinition(ctx context.Context, organizationID, pip
 	if organizationID <= 0 || pipelineID <= 0 || stageID <= 0 || !validStageName(input.Name) || !ok {
 		return Pipeline{}, ErrInvalidDealPipeline
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Pipeline{}, fmt.Errorf("begin update stage transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
-		return Pipeline{}, err
-	}
-	if err := lockPipelineOrganization(ctx, tx, organizationID); err != nil {
+	if err := lockPipelineWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Pipeline{}, err
 	}
 	var oldName string
@@ -185,18 +178,15 @@ func (s *Service) ReorderStages(ctx context.Context, organizationID, pipelineID,
 	if s == nil || s.pool == nil {
 		return Pipeline{}, fmt.Errorf("deals service not configured")
 	}
-	if organizationID <= 0 || pipelineID <= 0 || len(input.StageIDs) == 0 || len(input.StageIDs) > maxStagesPerPipeline {
+	if organizationID <= 0 || pipelineID <= 0 || len(input.StageIDs) == 0 || len(input.StageIDs) > MaxStagesPerPipeline {
 		return Pipeline{}, ErrStageOrder
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Pipeline{}, fmt.Errorf("begin reorder stages transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
-		return Pipeline{}, err
-	}
-	if err := lockPipelineOrganization(ctx, tx, organizationID); err != nil {
+	if err := lockPipelineWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Pipeline{}, err
 	}
 	rows, err := tx.Query(ctx, `SELECT id FROM deal_stages WHERE organization_id=$1 AND pipeline_id=$2 ORDER BY id FOR UPDATE`, organizationID, pipelineID)
@@ -256,7 +246,33 @@ func (s *Service) pipelineByID(ctx context.Context, organizationID, pipelineID i
 	return Pipeline{}, ErrNotFound
 }
 
+func lockPipelineWriter(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64) error {
+	if organizationID <= 0 || actorUserID <= 0 {
+		return ErrPipelineForbidden
+	}
+	var role string
+	err := tx.QueryRow(ctx, `
+		SELECT role
+		FROM organization_memberships
+		WHERE organization_id=$1
+		  AND user_id=$2
+		  AND COALESCE(membership_status,'active')='active'
+		FOR SHARE
+	`, organizationID, actorUserID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && role != "owner" && role != "admin") {
+		return ErrPipelineForbidden
+	}
+	if err != nil {
+		return fmt.Errorf("lock pipeline configuration actor: %w", err)
+	}
+	return lockPipelineOrganization(ctx, tx, organizationID)
+}
+
 func lockPipelineOrganization(ctx context.Context, tx pgx.Tx, organizationID int64) error {
+	// Every pipeline-definition writer uses this tenant row as its serialization
+	// point. Read committed transactions let a waiter observe the preceding
+	// writer after the lock is released, so a concurrent final-slot request gets
+	// the stable capacity error instead of an avoidable serialization abort.
 	var id int64
 	if err := tx.QueryRow(ctx, `SELECT id FROM organizations WHERE id=$1 FOR UPDATE`, organizationID).Scan(&id); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound

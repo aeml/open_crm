@@ -412,6 +412,10 @@ func TestListDealPipelinesUsesCurrentOrganization(t *testing.T) {
 	var response struct {
 		Data struct {
 			Pipelines []moduledeals.Pipeline `json:"pipelines"`
+			Capacity  struct {
+				MaxPipelines         int `json:"maxPipelines"`
+				MaxStagesPerPipeline int `json:"maxStagesPerPipeline"`
+			} `json:"capacity"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -419,6 +423,9 @@ func TestListDealPipelinesUsesCurrentOrganization(t *testing.T) {
 	}
 	if len(response.Data.Pipelines) != 1 || response.Data.Pipelines[0].Stages[0].PipelineID != 5 {
 		t.Fatalf("unexpected pipelines payload: %#v", response.Data.Pipelines)
+	}
+	if response.Data.Capacity.MaxPipelines != moduledeals.MaxPipelinesPerOrganization || response.Data.Capacity.MaxStagesPerPipeline != moduledeals.MaxStagesPerPipeline {
+		t.Fatalf("unexpected pipeline capacity: %#v", response.Data.Capacity)
 	}
 }
 
@@ -450,6 +457,30 @@ func TestCreateDealPipelineUsesCurrentOrganization(t *testing.T) {
 	}
 	if service.lastCreatePipelineInput.Name != "Services" {
 		t.Fatalf("unexpected pipeline create input: %#v", service.lastCreatePipelineInput)
+	}
+}
+
+func TestCreateDealPipelineSurfacesCapacityConflict(t *testing.T) {
+	service := &fakeDealsService{createPipelineErr: moduledeals.ErrPipelineLimit}
+	request := httptest.NewRequest(http.MethodPost, "/api/deal-pipelines", bytes.NewBufferString(`{"name":"Overflow"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	authenticatedDealsServer(service).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"PIPELINE_LIMIT"`) || !strings.Contains(recorder.Body.String(), "maximum of 10") {
+		t.Fatalf("unexpected pipeline capacity response: %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestCreateDealPipelineSurfacesTransactionalRoleDenial(t *testing.T) {
+	service := &fakeDealsService{createPipelineErr: moduledeals.ErrPipelineForbidden}
+	request := httptest.NewRequest(http.MethodPost, "/api/deal-pipelines", bytes.NewBufferString(`{"name":"Blocked"}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	authenticatedDealsServer(service).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), `"code":"FORBIDDEN"`) {
+		t.Fatalf("unexpected pipeline role response: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 

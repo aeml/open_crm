@@ -318,23 +318,20 @@ func (s *Service) CreatePipeline(ctx context.Context, organizationID, actorUserI
 		return Pipeline{}, ErrInvalidDealPipeline
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Pipeline{}, fmt.Errorf("begin create pipeline transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := moduleusers.RequireActiveMember(ctx, tx, organizationID, actorUserID); err != nil {
-		return Pipeline{}, err
-	}
-	if err := lockPipelineOrganization(ctx, tx, organizationID); err != nil {
+	if err := lockPipelineWriter(ctx, tx, organizationID, actorUserID); err != nil {
 		return Pipeline{}, err
 	}
 	var pipelineCount int
 	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM deal_pipelines WHERE organization_id=$1`, organizationID).Scan(&pipelineCount); err != nil {
 		return Pipeline{}, fmt.Errorf("count deal pipelines: %w", err)
 	}
-	if pipelineCount >= maxPipelinesPerOrganization {
-		return Pipeline{}, ErrInvalidDealPipeline
+	if pipelineCount >= MaxPipelinesPerOrganization {
+		return Pipeline{}, ErrPipelineLimit
 	}
 
 	position := 1
