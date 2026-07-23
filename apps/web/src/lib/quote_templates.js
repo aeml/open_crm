@@ -1,4 +1,5 @@
 import { apiRequest } from './api'
+import { loadCompleteCatalog } from './complete_catalog'
 
 export async function listQuoteTemplatePage({ search = '', status = 'all', page = 1, pageSize = 50, signal } = {}) {
   const query = new URLSearchParams()
@@ -15,20 +16,12 @@ export async function listQuoteTemplatePage({ search = '', status = 'all', page 
 }
 
 export async function listQuoteTemplates({ signal } = {}) {
-  const templatesById = new Map()
-  let expectedTotal = null
-  for (let page = 1; page <= 501; page += 1) {
-    const result = await listQuoteTemplatePage({ status: 'active', page, pageSize: 100, signal })
-    const total = Number(result.meta?.total)
-    if (!Number.isSafeInteger(total) || total < 0 || (expectedTotal !== null && total !== expectedTotal)) {
-      throw new Error('The quote template catalog changed while quote options were loading. Try again.')
-    }
-    expectedTotal = total
-    result.templates.forEach((template) => templatesById.set(template.id, template))
-    if (templatesById.size >= expectedTotal) return [...templatesById.values()]
-    if (result.templates.length === 0) break
-  }
-  throw new Error('The complete active quote template catalog could not be loaded. Archive legacy overflow and try again.')
+  return loadCompleteCatalog(
+    ({ page, pageSize }) => listQuoteTemplatePage({ status: 'active', page, pageSize, signal }),
+    'templates',
+    'The quote template catalog changed while quote options were loading. Try again.',
+    'The complete active quote template catalog could not be loaded. Archive legacy overflow and try again.'
+  )
 }
 
 export async function getQuoteTemplatePolicy({ signal } = {}) {

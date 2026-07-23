@@ -1,4 +1,5 @@
 import { apiRequest } from './api'
+import { loadCompleteCatalog } from './complete_catalog'
 
 export async function listSavedViewPage(entityType, { page = 1, pageSize = 50, signal } = {}) {
   const params = new URLSearchParams({ entityType, page: String(page), pageSize: String(pageSize) })
@@ -10,21 +11,12 @@ export async function listSavedViewPage(entityType, { page = 1, pageSize = 50, s
 }
 
 export async function listSavedViews(entityType, { signal } = {}) {
-  const viewsById = new Map()
-  let expectedTotal = null
-  for (let page = 1; page <= 501; page += 1) {
-    const result = await listSavedViewPage(entityType, { page, pageSize: 100, signal })
-    const total = Number(result.meta?.total)
-    if (!Number.isSafeInteger(total) || total < 0 || (expectedTotal !== null && total !== expectedTotal)) {
-      throw new Error('The saved-view catalog changed while options were loading. Try again.')
-    }
-    expectedTotal = total
-    result.views.forEach((view) => viewsById.set(view.id, view))
-    if (viewsById.size >= expectedTotal) return [...viewsById.values()]
-    if (result.views.length === 0) break
-  }
-
-  throw new Error('The complete saved-view catalog could not be loaded. Delete legacy overflow and try again.')
+  return loadCompleteCatalog(
+    ({ page, pageSize }) => listSavedViewPage(entityType, { page, pageSize, signal }),
+    'views',
+    'The saved-view catalog changed while options were loading. Try again.',
+    'The complete saved-view catalog could not be loaded. Delete legacy overflow and try again.'
+  )
 }
 
 export async function createSavedView(input, { signal } = {}) {

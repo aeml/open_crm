@@ -1,9 +1,24 @@
 import { apiRequest, apiURL } from './api'
+import { loadCompleteCatalog } from './complete_catalog'
 
-export async function listLeadCaptureForms({ signal } = {}) {
-  const payload = await apiRequest('/api/lead-capture-forms', { fallbackMessage: 'Unable to load lead forms.', signal })
+export async function listLeadCaptureFormPage({ status = 'all', page = 1, pageSize = 50, signal } = {}) {
+  const query = new URLSearchParams()
+  if (status && status !== 'all') query.set('status', status)
+  if (page) query.set('page', String(page))
+  if (pageSize) query.set('pageSize', String(pageSize))
+  const payload = await apiRequest(`/api/lead-capture-forms?${query.toString()}`, { fallbackMessage: 'Unable to load lead forms.', signal })
+  const data = payload?.data || {}
 
-  return payload?.data?.forms || []
+  return { forms: data.forms || [], meta: data.meta || { page, pageSize, total: (data.forms || []).length } }
+}
+
+export async function listLeadCaptureForms({ status = 'all', signal } = {}) {
+  return loadCompleteCatalog(
+    ({ page, pageSize }) => listLeadCaptureFormPage({ status, page, pageSize, signal }),
+    'forms',
+    'The lead form catalog changed while options were loading. Try again.',
+    'The complete lead form catalog could not be loaded. Review retained form history and try again.'
+  )
 }
 
 export async function createLeadCaptureForm(input, { signal } = {}) {

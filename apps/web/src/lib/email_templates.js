@@ -1,4 +1,5 @@
 import { apiRequest } from './api'
+import { loadCompleteCatalog } from './complete_catalog'
 
 export async function listEmailTemplatePage({ search = '', page = 1, pageSize = 50, signal } = {}) {
   const query = definitionQuery(search, page, pageSize)
@@ -71,19 +72,11 @@ function definitionQuery(search, page, pageSize) {
 }
 
 async function loadCompleteDefinitions(kind, loadPage) {
-  const rowsById = new Map()
-  let expectedTotal = null
   const field = kind === 'template' ? 'templates' : 'snippets'
-  for (let page = 1; page <= 501; page += 1) {
-    const result = await loadPage({ page, pageSize: 100 })
-    const total = Number(result.meta?.total)
-    if (!Number.isSafeInteger(total) || total < 0 || (expectedTotal !== null && total !== expectedTotal)) {
-      throw new Error(`The email ${kind} catalog changed while options were loading. Try again.`)
-    }
-    expectedTotal = total
-    result[field].forEach((row) => rowsById.set(row.id, row))
-    if (rowsById.size >= expectedTotal) return [...rowsById.values()]
-    if (result[field].length === 0) break
-  }
-  throw new Error(`The complete email ${kind} catalog could not be loaded. Delete legacy overflow and try again.`)
+  return loadCompleteCatalog(
+    loadPage,
+    field,
+    `The email ${kind} catalog changed while options were loading. Try again.`,
+    `The complete email ${kind} catalog could not be loaded. Delete legacy overflow and try again.`
+  )
 }

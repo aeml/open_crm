@@ -207,46 +207,6 @@ func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityM
 	return &Service{pool: pool, enforceHostedBilling: enforceHostedBilling, capacity: capacity, now: time.Now}
 }
 
-func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]Form, error) {
-	if s == nil || s.pool == nil {
-		return nil, fmt.Errorf("lead forms service not configured")
-	}
-
-	rows, err := s.pool.Query(ctx, `
-		SELECT f.id, f.name, f.slug, f.public_id, f.title, f.description, f.fields_json,
-			f.success_message, f.source_label, f.consent_text, f.is_active, COALESCE(f.revision, 1), COALESCE(sc.submission_count, 0), f.created_at, f.updated_at
-		FROM lead_capture_forms f
-		LEFT JOIN (
-			SELECT form_id, COUNT(*)::int AS submission_count
-			FROM lead_capture_submissions
-			WHERE organization_id = $1
-			GROUP BY form_id
-		) sc ON sc.form_id = f.id
-		WHERE f.organization_id = $1
-		ORDER BY f.updated_at DESC, f.id DESC
-	`, organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("list lead capture forms: %w", err)
-	}
-	defer rows.Close()
-
-	forms := make([]Form, 0)
-	for rows.Next() {
-		form, err := scanForm(rows)
-		if err != nil {
-			return nil, err
-		}
-		forms = append(forms, form)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate lead capture forms: %w", err)
-	}
-	if err := hydrateFormList(ctx, s.pool, organizationID, forms); err != nil {
-		return nil, err
-	}
-	return forms, nil
-}
-
 func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64, input Input) (Form, error) {
 	if s == nil || s.pool == nil {
 		return Form{}, fmt.Errorf("lead forms service not configured")

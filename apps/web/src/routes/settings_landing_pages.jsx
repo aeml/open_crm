@@ -68,7 +68,7 @@ export function SettingsLandingPagesRoute() {
     try {
       const [nextPages, nextForms] = await Promise.all([
         listLeadLandingPages({ signal }),
-        listLeadCaptureForms({ signal })
+        listLeadCaptureForms({ status: 'active', signal })
       ])
       setPages(nextPages)
       setLeadForms(nextForms)

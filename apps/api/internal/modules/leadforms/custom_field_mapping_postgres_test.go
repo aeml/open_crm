@@ -136,10 +136,11 @@ func TestLeadFormCustomFieldMappingIsTypedRevisionedAuditedAndTenantSafeAgainstP
 		t.Fatalf("stale challenge after mapped-definition update error=%v, want invalid challenge", err)
 	}
 
-	forms, err := service.ListByOrganization(ctx, organizationID)
-	if err != nil || len(forms) != 1 {
-		t.Fatalf("reload mapped form: forms=%#v err=%v", forms, err)
+	formPage, err := service.ListByOrganization(ctx, organizationID, FormListQuery{})
+	if err != nil || len(formPage.Forms) != 1 {
+		t.Fatalf("reload mapped form: page=%#v err=%v", formPage, err)
 	}
+	forms := formPage.Forms
 	form = forms[0]
 	if form.Revision != 2 || len(form.Fields[2].Options) != 3 || form.Fields[2].Options[2] != "West" {
 		t.Fatalf("mapped definition did not advance/hydrate form: %#v", form)
@@ -251,10 +252,11 @@ func TestLeadFormCustomFieldMappingIsTypedRevisionedAuditedAndTenantSafeAgainstP
 	if err := customFields.Archive(ctx, organizationID, ownerID, region.ID); err != nil {
 		t.Fatalf("archive field mapped only by inactive form: %v", err)
 	}
-	forms, err = service.ListByOrganization(ctx, organizationID)
-	if err != nil || len(forms) != 1 || forms[0].Revision != 5 {
-		t.Fatalf("archived mapping did not advance inactive form: forms=%#v err=%v", forms, err)
+	formPage, err = service.ListByOrganization(ctx, organizationID, FormListQuery{})
+	if err != nil || len(formPage.Forms) != 1 || formPage.Forms[0].Revision != 5 {
+		t.Fatalf("archived mapping did not advance inactive form: page=%#v err=%v", formPage, err)
 	}
+	forms = formPage.Forms
 	reactivate := inputFromLeadForm(forms[0])
 	active = true
 	reactivate.IsActive = &active

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
@@ -6,7 +6,7 @@ import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { listCustomFields } from '../lib/custom_fields'
-import { createLeadCaptureForm, listLeadCaptureForms, publicLeadCaptureFormChallengeURL, publicLeadCaptureFormSubmitURL, updateLeadCaptureForm } from '../lib/lead_forms'
+import { createLeadCaptureForm, listLeadCaptureFormPage, listLeadCaptureForms, publicLeadCaptureFormChallengeURL, publicLeadCaptureFormSubmitURL, updateLeadCaptureForm } from '../lib/lead_forms'
 import { usePageTitle } from '../lib/use_page_title'
 import { LeadSubmissionReview } from './lead_submission_review'
 
@@ -171,6 +171,9 @@ const coreDestinations = [
   ['postalCode', 'Contact postal code'], ['country', 'Contact country'], ['jobTitle', 'Contact job title']
 ]
 
+const leadFormPageSize = 50
+const emptyLeadFormMeta = { page: 1, pageSize: leadFormPageSize, total: 0 }
+
 function mappedFieldType(mapping, customFields, currentType) {
   const definition = customFields.find((field) => `custom:${field.fieldKey}` === mapping)
   if (definition) return fieldTypeForCustomField(definition, currentType)
@@ -183,6 +186,8 @@ export function SettingsLeadFormsRoute() {
   const { session, canAdminister: canManage } = useAuth()
   usePageTitle('Lead Forms')
   const [forms, setForms] = useState([])
+	const [reviewForms, setReviewForms] = useState([])
+	const [formMeta, setFormMeta] = useState(emptyLeadFormMeta)
 	const [customFields, setCustomFields] = useState([])
   const [form, setForm] = useState(() => emptyForm())
   const [editingId, setEditingId] = useState(null)
@@ -190,24 +195,40 @@ export function SettingsLeadFormsRoute() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+	const [statusFilter, setStatusFilter] = useState('all')
+	const [pageNumber, setPageNumber] = useState(1)
+	const latestLoad = useRef(0)
+	const dependenciesLoaded = useRef(false)
+	const operationPending = useRef(false)
 
-  async function loadForms({ signal } = {}) {
+  async function loadForms({ signal, requestedPage = pageNumber, formStatus = statusFilter, refreshDependencies = false } = {}) {
+	const loadID = latestLoad.current + 1
+	latestLoad.current = loadID
     setIsLoading(true)
     try {
-	  const [nextForms, nextCustomFields] = await Promise.all([
-		listLeadCaptureForms({ signal }),
-		listCustomFields('contact', { signal })
+	  const loadDependencies = refreshDependencies || !dependenciesLoaded.current
+	  const [catalog, allForms, nextCustomFields] = await Promise.all([
+		listLeadCaptureFormPage({ status: formStatus, page: requestedPage, pageSize: leadFormPageSize, signal }),
+		loadDependencies ? listLeadCaptureForms({ signal }) : Promise.resolve(null),
+		loadDependencies ? listCustomFields('contact', { signal }) : Promise.resolve(null)
 	  ])
-      setForms(nextForms)
-	  setCustomFields(nextCustomFields)
-	  setForm((current) => current.name || editingId ? current : emptyForm(nextCustomFields))
+	  if (signal?.aborted || loadID !== latestLoad.current) return null
+	  setForms(catalog.forms)
+	  setFormMeta(catalog.meta)
+	  if (loadDependencies) {
+		setReviewForms(allForms)
+		setCustomFields(nextCustomFields)
+		setForm((current) => current.name || editingId ? current : emptyForm(nextCustomFields))
+		dependenciesLoaded.current = true
+	  }
       setError('')
+	  return catalog
     } catch (loadError) {
-      if (!isAbortError(loadError)) {
+	  if (!isAbortError(loadError) && loadID === latestLoad.current) {
         setError(loadError.message || 'Unable to load lead forms.')
       }
     } finally {
-      if (!signal?.aborted) {
+	  if (!signal?.aborted && loadID === latestLoad.current) {
         setIsLoading(false)
       }
     }
@@ -219,7 +240,7 @@ export function SettingsLeadFormsRoute() {
     return () => {
       controller.abort()
     }
-  }, [])
+  }, [pageNumber, statusFilter])
 
   function resetForm() {
     setEditingId(null)
@@ -264,27 +285,30 @@ export function SettingsLeadFormsRoute() {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    if (!canManage) return
+	if (!canManage || operationPending.current) return
 
+	operationPending.current = true
     setIsSaving(true)
     setStatus('')
     try {
       const payload = leadFormPayload(form)
       if (editingId) {
-        const updated = await updateLeadCaptureForm(editingId, payload)
-        setForms((current) => current.map((item) => (item.id === editingId ? updated : item)))
+		await updateLeadCaptureForm(editingId, payload)
         setStatus('Lead form updated.')
       } else {
-        const created = await createLeadCaptureForm(payload)
-        setForms((current) => [created, ...current])
+		await createLeadCaptureForm(payload)
         setStatus('Lead form created.')
       }
       resetForm()
       setError('')
+	  dependenciesLoaded.current = false
+	  if (pageNumber === 1) await loadForms({ requestedPage: 1, refreshDependencies: true })
+	  else setPageNumber(1)
     } catch (saveError) {
       setError(saveError.message || 'Unable to save lead form.')
     } finally {
       setIsSaving(false)
+	  operationPending.current = false
     }
   }
 
@@ -301,6 +325,13 @@ export function SettingsLeadFormsRoute() {
           {isLoading ? <p className="field-hint">Loading lead forms...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadForms()} retryLabel="Retry lead forms" /> : null}
+		  <Field label="Lead form status">
+			<select className="text-input" value={statusFilter} disabled={isLoading || isSaving} onChange={(event) => { setPageNumber(1); setStatusFilter(event.target.value) }}>
+			  <option value="all">Active and inactive</option>
+			  <option value="active">Active</option>
+			  <option value="inactive">Inactive</option>
+			</select>
+		  </Field>
           <div className="record-list" role="list" aria-label="Lead forms">
             {!isLoading && forms.length === 0 ? (
               <article className="record-row" role="listitem">
@@ -324,10 +355,15 @@ export function SettingsLeadFormsRoute() {
               </article>
             ))}
           </div>
+		  <p className="field-hint" role="status">Showing {forms.length} of {formMeta.total} lead forms.</p>
+		  <div className="button-row">
+			<Button className="button-secondary" type="button" disabled={isLoading || isSaving || pageNumber <= 1} onClick={() => setPageNumber((current) => current - 1)}>Previous form page</Button>
+			<Button className="button-secondary" type="button" disabled={isLoading || isSaving || pageNumber * formMeta.pageSize >= formMeta.total} onClick={() => setPageNumber((current) => current + 1)}>Next form page</Button>
+		  </div>
         </div>
       </Card>
 
-	  {canManage ? <Card><LeadSubmissionReview forms={forms} /></Card> : null}
+	  {canManage ? <Card><LeadSubmissionReview forms={reviewForms} /></Card> : null}
 
       {canManage ? (
         <Card>

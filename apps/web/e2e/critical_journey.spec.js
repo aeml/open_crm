@@ -52,6 +52,18 @@ function seedLeadReviewContinuation(ownerEmail, runID) {
   })
 }
 
+function seedLeadFormContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_lead_forms', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 function seedProductCatalogContinuation(ownerEmail, runID) {
   execFileSync('go', ['run', './cmd/e2e_seed_product_catalog', ownerEmail, runID], {
     cwd: '../api',
@@ -402,6 +414,24 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await leadFormBuilder.getByRole('button', { name: 'Create lead form' }).click()
   await expect(page.getByText('Lead form created.', { exact: true })).toBeVisible()
   await expect(page.getByRole('listitem').filter({ hasText: `Pilot website form ${runID}` })).toBeVisible()
+
+	seedLeadFormContinuation(owner.email, runID)
+	await page.reload()
+	const oldestSeededLeadForm = `Browser lead form ${runID} #051`
+	await expect(page.getByRole('heading', { name: `Browser lead form ${runID} #001`, exact: true })).toBeVisible()
+	await expect(page.getByRole('heading', { name: oldestSeededLeadForm, exact: true })).toHaveCount(0)
+	await expect(page.getByText('Showing 50 of 52 lead forms.', { exact: true })).toBeVisible()
+	await page.getByRole('button', { name: 'Next form page' }).click()
+	await expect(page.getByRole('heading', { name: oldestSeededLeadForm, exact: true })).toBeVisible()
+	await expect(page.getByText('Showing 2 of 52 lead forms.', { exact: true })).toBeVisible()
+	const leadFormCatalogAccessibility = await new AxeBuilder({ page })
+		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+		.analyze()
+	await test.info().attach('axe-lead-form-catalog-continuation', {
+		body: JSON.stringify({ url: page.url(), violations: leadFormCatalogAccessibility.violations }, null, 2),
+		contentType: 'application/json'
+	})
+	expect(leadFormCatalogAccessibility.violations).toEqual([])
 
   seedLeadReviewContinuation(owner.email, runID)
 

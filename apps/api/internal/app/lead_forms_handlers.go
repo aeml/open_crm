@@ -7,6 +7,7 @@ import (
 
 	modulebilling "github.com/aeml/open_crm/apps/api/internal/modules/billing"
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	platformtelemetry "github.com/aeml/open_crm/apps/api/internal/platform/telemetry"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
@@ -14,6 +15,11 @@ import (
 type leadCaptureFormsListResponse struct {
 	Data struct {
 		Forms []moduleleadforms.Form `json:"forms"`
+		Meta  struct {
+			Page     int `json:"page"`
+			PageSize int `json:"pageSize"`
+			Total    int `json:"total"`
+		} `json:"meta"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -85,14 +91,26 @@ func handleListLeadCaptureForms(auth authService, forms leadFormsService, w http
 		return
 	}
 
-	result, err := forms.ListByOrganization(r.Context(), state.Organization.ID)
+	page, parseErr := platformpagination.Parse(r.URL.Query().Get("page"), r.URL.Query().Get("pageSize"), moduleleadforms.DefaultFormListPageSize)
+	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
+	if status == "" {
+		status = "all"
+	}
+	if parseErr != nil || (status != "all" && status != "active" && status != "inactive") {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid lead form status and page")
+		return
+	}
+	result, err := forms.ListByOrganization(r.Context(), state.Organization.ID, moduleleadforms.FormListQuery{Status: status, Page: page.Number, PageSize: page.Size})
 	if err != nil {
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load lead capture forms")
 		return
 	}
 
 	response := leadCaptureFormsListResponse{}
-	response.Data.Forms = result
+	response.Data.Forms = result.Forms
+	response.Data.Meta.Page = result.Page
+	response.Data.Meta.PageSize = result.PageSize
+	response.Data.Meta.Total = result.Total
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }

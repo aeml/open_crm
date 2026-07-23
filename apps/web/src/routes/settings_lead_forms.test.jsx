@@ -33,7 +33,50 @@ const contactCustomFields = [
 ]
 
 describe('settings lead forms route', () => {
+	it('shows exact totals and reaches the next stable form page', async () => {
+		const forms = Array.from({ length: 51 }, (_, index) => ({
+			id: index + 1,
+			name: `Browser lead form #${String(index + 1).padStart(3, '0')}`,
+			slug: `browser-lead-form-${index + 1}`,
+			publicId: `lf_browser_${index + 1}`,
+			revision: 1,
+			title: `Browser lead form ${index + 1}`,
+			isActive: true,
+			fields: standardFields
+		}))
+		const fetchMock = vi.fn(async (url) => {
+			const requestURL = new URL(String(url), 'http://localhost')
+			const path = requestURL.pathname
+			if (path.endsWith('/auth/me')) return sessionResponse()
+			if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+			if (path.endsWith('/api/custom-fields')) return jsonResponse({ data: { definitions: [] } })
+			if (path.endsWith('/api/lead-capture-submissions')) return jsonResponse({ data: { submissions: [], counts: { unreviewed: 0, legitimate: 0, spam: 0 }, limit: 50 } })
+			if (path.endsWith('/api/lead-capture-forms')) {
+				const page = Number(requestURL.searchParams.get('page') || 1)
+				const pageSize = Number(requestURL.searchParams.get('pageSize') || 50)
+				return jsonResponse({ data: { forms: forms.slice((page - 1) * pageSize, page * pageSize), meta: { page, pageSize, total: forms.length } } })
+			}
+			throw new Error(`Unexpected fetch: ${path}`)
+		})
+
+		vi.stubGlobal('fetch', fetchMock)
+		window.history.pushState({}, '', '/settings/lead-forms')
+		render(<AppRouter />)
+
+		expect(await screen.findByRole('heading', { name: 'Browser lead form #001' })).toBeInTheDocument()
+		expect(screen.queryByRole('heading', { name: 'Browser lead form #051' })).not.toBeInTheDocument()
+		expect(screen.getByText('Showing 50 of 51 lead forms.')).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Next form page' }))
+		expect(await screen.findByRole('heading', { name: 'Browser lead form #051' })).toBeInTheDocument()
+		expect(screen.getByText('Showing 1 of 51 lead forms.')).toBeInTheDocument()
+		expect(fetchMock.mock.calls.some(([url]) => {
+			const requestURL = new URL(String(url), 'http://localhost')
+			return requestURL.pathname.endsWith('/api/lead-capture-forms') && requestURL.searchParams.get('page') === '2' && requestURL.searchParams.get('pageSize') === '50'
+		})).toBe(true)
+	})
+
   it('lists lead forms and creates a mapped form', async () => {
+	let forms = [{ id: 3, name: 'Website Leads', slug: 'website-leads', publicId: 'lf_existing', revision: 7, title: 'Talk to sales', description: 'Main website form', successMessage: 'Thanks!', sourceLabel: 'Website form', consentText: 'I agree to receive a reply.', isActive: true, submissionCount: 2, fields: standardFields }]
     const fetchMock = vi.fn(async (url, options = {}) => {
       const requestURL = new URL(String(url), 'http://localhost')
       const path = requestURL.pathname
@@ -52,10 +95,14 @@ describe('settings lead forms route', () => {
 		return jsonResponse({ data: { submissions: [], counts: { unreviewed: 0, legitimate: 0, spam: 0 }, limit: 50 } })
 	  }
       if (path.endsWith('/api/lead-capture-forms') && method === 'POST') {
-        return jsonResponse({ data: { form: { id: 8, name: 'Demo request', slug: 'demo-request', publicId: 'lf_created', revision: 1, title: 'Book a demo', description: '', successMessage: 'Thanks!', sourceLabel: 'Demo form', consentText: 'I agree to be contacted about this request.', isActive: true, submissionCount: 0, fields: standardFields } } })
+		const created = { id: 8, name: 'Demo request', slug: 'demo-request', publicId: 'lf_created', revision: 1, title: 'Book a demo', description: '', successMessage: 'Thanks!', sourceLabel: 'Demo form', consentText: 'I agree to be contacted about this request.', isActive: true, submissionCount: 0, fields: standardFields }
+		forms = [created, ...forms]
+        return jsonResponse({ data: { form: created } })
       }
       if (path.endsWith('/api/lead-capture-forms')) {
-        return jsonResponse({ data: { forms: [{ id: 3, name: 'Website Leads', slug: 'website-leads', publicId: 'lf_existing', revision: 7, title: 'Talk to sales', description: 'Main website form', successMessage: 'Thanks!', sourceLabel: 'Website form', consentText: 'I agree to receive a reply.', isActive: true, submissionCount: 2, fields: standardFields }] } })
+		const page = Number(requestURL.searchParams.get('page') || 1)
+		const pageSize = Number(requestURL.searchParams.get('pageSize') || 50)
+        return jsonResponse({ data: { forms: forms.slice((page - 1) * pageSize, page * pageSize), meta: { page, pageSize, total: forms.length } } })
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })

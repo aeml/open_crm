@@ -675,6 +675,20 @@ complete Node 24 build is 810.46/251.90 KiB aggregate raw/gzip. Only aggregate
 ceilings advance from 806/251 to a measured 811/252 KiB; entry, per-route, CSS,
 hidden-foundation, and source ceilings remain unchanged.
 
+Bounded lead-form administration adds repeatable-read 50/default and
+100/maximum status pages, exact totals, stable active/update/ID ordering, and
+complete drift-checked consumers. Fresh PostgreSQL acceptance uses 1,001 forms,
+asserts the existing `idx_lead_capture_forms_org_active` plan, and requires both
+the active 100-row page and adjacent management page below two seconds. The
+shared complete-catalog client now centralizes the same ID-deduplication,
+total-drift, overlap, and 50,100-addressable-row failure contract already used
+by saved views, product/quote catalogs, and email definitions. The 444-line
+lead-form route is 20.64/6.55 KiB raw/gzip; entry and largest lazy chunks are
+179.00/58.06 and 55.16/15.74 KiB. The complete Node 24 build is
+812.36/252.49 KiB aggregate raw/gzip. Only aggregate ceilings advance from
+811/252 to a measured 813/253 KiB; entry, per-route, CSS, hidden-foundation,
+and source ceilings remain unchanged.
+
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and
 then its ordered outcomes with a tenant/run-array query. Reviewed execution

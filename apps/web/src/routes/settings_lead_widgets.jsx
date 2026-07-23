@@ -68,7 +68,7 @@ export function SettingsLeadWidgetsRoute() {
     try {
       const [nextWidgets, nextForms] = await Promise.all([
         listLeadChatWidgets({ signal }),
-        listLeadCaptureForms({ signal })
+        listLeadCaptureForms({ status: 'active', signal })
       ])
       setWidgets(nextWidgets)
       setLeadForms(nextForms)

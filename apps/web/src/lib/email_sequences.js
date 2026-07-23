@@ -1,4 +1,5 @@
 import { apiRequest } from './api'
+import { loadCompleteCatalog } from './complete_catalog'
 
 export async function listEmailSequencePage({ search = '', status = 'all', page = 1, pageSize = 50, signal } = {}) {
   const query = new URLSearchParams()
@@ -14,21 +15,12 @@ export async function listEmailSequencePage({ search = '', status = 'all', page 
 }
 
 export async function listEmailSequences({ signal } = {}) {
-  const sequencesById = new Map()
-  let expectedTotal = null
-  for (let page = 1; page <= 501; page += 1) {
-    const result = await listEmailSequencePage({ status: 'active', page, pageSize: 100, signal })
-    const total = Number(result.meta?.total)
-    if (!Number.isSafeInteger(total) || total < 0 || (expectedTotal !== null && total !== expectedTotal)) {
-      throw new Error('The active email sequence catalog changed while options were loading. Try again.')
-    }
-    expectedTotal = total
-    result.sequences.forEach((sequence) => sequencesById.set(sequence.id, sequence))
-    if (sequencesById.size >= expectedTotal) return [...sequencesById.values()]
-    if (result.sequences.length === 0) break
-  }
-
-  throw new Error('The complete active email sequence catalog could not be loaded. Pause legacy overflow and try again.')
+  return loadCompleteCatalog(
+    ({ page, pageSize }) => listEmailSequencePage({ status: 'active', page, pageSize, signal }),
+    'sequences',
+    'The active email sequence catalog changed while options were loading. Try again.',
+    'The complete active email sequence catalog could not be loaded. Pause legacy overflow and try again.'
+  )
 }
 
 export async function createEmailSequence(input, { signal } = {}) {

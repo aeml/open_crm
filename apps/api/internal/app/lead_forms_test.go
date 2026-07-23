@@ -18,7 +18,7 @@ import (
 )
 
 type fakeLeadFormsService struct {
-	listResult             []moduleleadforms.Form
+	listResult             moduleleadforms.FormListPage
 	listErr                error
 	createResult           moduleleadforms.Form
 	createErr              error
@@ -45,6 +45,7 @@ type fakeLeadFormsService struct {
 	submitResult           moduleleadforms.SubmissionResult
 	submitErr              error
 	lastListOrgID          int64
+	lastListQuery          moduleleadforms.FormListQuery
 	lastCreateOrgID        int64
 	lastCreateUserID       int64
 	lastCreateInput        moduleleadforms.Input
@@ -85,8 +86,9 @@ type fakeLeadFormsService struct {
 	lastReviewInput        moduleleadforms.SubmissionReviewInput
 }
 
-func (f *fakeLeadFormsService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleleadforms.Form, error) {
+func (f *fakeLeadFormsService) ListByOrganization(_ context.Context, organizationID int64, query moduleleadforms.FormListQuery) (moduleleadforms.FormListPage, error) {
 	f.lastListOrgID = organizationID
+	f.lastListQuery = query
 	return f.listResult, f.listErr
 }
 
@@ -194,10 +196,13 @@ func authenticatedLeadFormsServer(service *fakeLeadFormsService, role string) ht
 }
 
 func TestListLeadCaptureFormsScopesToOrganization(t *testing.T) {
-	service := &fakeLeadFormsService{listResult: []moduleleadforms.Form{{ID: 3, Name: "Website Leads", PublicID: "lf_test", IsActive: true, SubmissionCount: 2}}}
+	service := &fakeLeadFormsService{listResult: moduleleadforms.FormListPage{
+		Forms: []moduleleadforms.Form{{ID: 3, Name: "Website Leads", PublicID: "lf_test", IsActive: true, SubmissionCount: 2}},
+		Page:  2, PageSize: 25, Total: 31,
+	}}
 	server := authenticatedLeadFormsServer(service, "member")
 
-	request := httptest.NewRequest(http.MethodGet, "/api/lead-capture-forms", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/lead-capture-forms?status=active&page=2&pageSize=25", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -209,9 +214,17 @@ func TestListLeadCaptureFormsScopesToOrganization(t *testing.T) {
 	if service.lastListOrgID != 42 {
 		t.Fatalf("expected list scoped to org 42, got %d", service.lastListOrgID)
 	}
+	if service.lastListQuery != (moduleleadforms.FormListQuery{Status: "active", Page: 2, PageSize: 25}) {
+		t.Fatalf("unexpected lead form list query: %+v", service.lastListQuery)
+	}
 	var response struct {
 		Data struct {
 			Forms []moduleleadforms.Form `json:"forms"`
+			Meta  struct {
+				Page     int `json:"page"`
+				PageSize int `json:"pageSize"`
+				Total    int `json:"total"`
+			} `json:"meta"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -219,6 +232,33 @@ func TestListLeadCaptureFormsScopesToOrganization(t *testing.T) {
 	}
 	if len(response.Data.Forms) != 1 || response.Data.Forms[0].PublicID != "lf_test" {
 		t.Fatalf("unexpected forms payload: %#v", response.Data.Forms)
+	}
+	if response.Data.Meta.Page != 2 || response.Data.Meta.PageSize != 25 || response.Data.Meta.Total != 31 {
+		t.Fatalf("unexpected lead form page metadata: %+v", response.Data.Meta)
+	}
+}
+
+func TestListLeadCaptureFormsRejectsMalformedPaginationBeforeService(t *testing.T) {
+	for _, target := range []string{
+		"/api/lead-capture-forms?page=0",
+		"/api/lead-capture-forms?pageSize=101",
+		"/api/lead-capture-forms?page=502&pageSize=100",
+		"/api/lead-capture-forms?status=unknown",
+	} {
+		service := &fakeLeadFormsService{}
+		server := authenticatedLeadFormsServer(service, "member")
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		addSessionCookie(request)
+		recorder := httptest.NewRecorder()
+
+		server.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("%s: expected status %d, got %d", target, http.StatusBadRequest, recorder.Code)
+		}
+		if service.lastListOrgID != 0 {
+			t.Fatalf("%s: malformed list reached the service", target)
+		}
 	}
 }
 
