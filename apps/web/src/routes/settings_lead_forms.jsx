@@ -5,6 +5,7 @@ import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
+import { listCustomFields } from '../lib/custom_fields'
 import { createLeadCaptureForm, listLeadCaptureForms, publicLeadCaptureFormChallengeURL, publicLeadCaptureFormSubmitURL, updateLeadCaptureForm } from '../lib/lead_forms'
 import { usePageTitle } from '../lib/use_page_title'
 import { LeadSubmissionReview } from './lead_submission_review'
@@ -17,7 +18,34 @@ const defaultFields = [
   { key: 'message', label: 'How can we help?', fieldType: 'textarea', required: false, mapTo: '' }
 ]
 
-function emptyForm() {
+function fieldTypeForCustomField(definition, requestedType = '') {
+  if (definition?.dataType === 'text') return requestedType === 'textarea' ? 'textarea' : 'text'
+  if (definition?.dataType === 'boolean') return 'boolean'
+  return definition?.dataType || 'text'
+}
+
+function customFieldFormField(definition) {
+  return {
+    key: `custom_${definition.fieldKey}`,
+    label: definition.label,
+    fieldType: fieldTypeForCustomField(definition),
+    required: definition.required === true,
+    mapTo: `custom:${definition.fieldKey}`,
+    options: definition.options || []
+  }
+}
+
+function withRequiredCustomFields(fields, customFields) {
+  const mappings = new Set((fields || []).map((field) => field.mapTo))
+  return [
+    ...(fields || []).map((field) => ({ ...field, options: field.options || [] })),
+    ...(customFields || [])
+      .filter((definition) => definition.required && !mappings.has(`custom:${definition.fieldKey}`))
+      .map(customFieldFormField)
+  ]
+}
+
+function emptyForm(customFields = []) {
   return {
     name: '',
     slug: '',
@@ -27,11 +55,12 @@ function emptyForm() {
     sourceLabel: 'Lead capture form',
     consentText: 'I agree to be contacted about this request.',
     isActive: true,
-    fields: defaultFields.map((field) => ({ ...field }))
+    revision: 0,
+    fields: withRequiredCustomFields(defaultFields, customFields)
   }
 }
 
-function formFromLeadForm(form) {
+function formFromLeadForm(form, customFields = []) {
   return {
     name: form.name || '',
     slug: form.slug || '',
@@ -41,7 +70,8 @@ function formFromLeadForm(form) {
     sourceLabel: form.sourceLabel || 'Lead capture form',
     consentText: form.consentText || 'I agree to be contacted about this request.',
     isActive: form.isActive !== false,
-    fields: (form.fields && form.fields.length > 0 ? form.fields : defaultFields).map((field) => ({ ...field }))
+    revision: Number(form.revision || 0),
+    fields: withRequiredCustomFields(form.fields && form.fields.length > 0 ? form.fields : defaultFields, customFields)
   }
 }
 
@@ -55,6 +85,7 @@ function leadFormPayload(form) {
     sourceLabel: form.sourceLabel,
     consentText: form.consentText,
     isActive: form.isActive,
+    revision: form.revision,
     fields: form.fields
   }
 }
@@ -63,6 +94,8 @@ function fieldInputType(field) {
   if (field.fieldType === 'email') return 'email'
   if (field.fieldType === 'tel') return 'tel'
   if (field.fieldType === 'hidden') return 'hidden'
+	if (field.fieldType === 'number') return 'number'
+	if (field.fieldType === 'date') return 'date'
   return 'text'
 }
 
@@ -81,6 +114,13 @@ function embedSnippet(form) {
     if (field.fieldType === 'textarea') {
       return `  <label>${escapeHTML(field.label)}\n    <textarea name="${escapeHTML(field.key)}"${field.required ? ' required' : ''}></textarea>\n  </label>`
     }
+	if (field.fieldType === 'select') {
+	  const options = (field.options || []).map((option) => `      <option value="${escapeHTML(option)}">${escapeHTML(option)}</option>`)
+	  return [`  <label>${escapeHTML(field.label)}`, `    <select name="${escapeHTML(field.key)}"${field.required ? ' required' : ''}>`, '      <option value="">Select...</option>', ...options, '    </select>', '  </label>'].join('\n')
+	}
+	if (field.fieldType === 'boolean' || field.fieldType === 'checkbox') {
+	  return `  <label>${escapeHTML(field.label)}\n    <select name="${escapeHTML(field.key)}"${field.required ? ' required' : ''}><option value="">Select...</option><option value="true">Yes</option><option value="false">No</option></select>\n  </label>`
+	}
     return `  <label>${escapeHTML(field.label)}\n    <input name="${escapeHTML(field.key)}" type="${fieldInputType(field)}"${field.required ? ' required' : ''}>\n  </label>`
   })
 
@@ -108,6 +148,7 @@ function embedSnippet(form) {
     '    .then((response) => response.ok ? response.json() : Promise.reject(new Error(\'challenge failed\')))',
     '    .then((payload) => {',
     '      const challenge = payload.data.challenge',
+	`      if (Number(challenge.formRevision) !== ${Number(form.revision || 0)}) throw new Error('form changed')`,
     '      form.elements.challengeToken.value = challenge.token',
     '      form.querySelector(\'[data-open-crm-consent]\').textContent = challenge.consentText',
     '      const delay = Math.max(0, Date.parse(challenge.notBefore) - Date.now())',
@@ -120,14 +161,30 @@ function embedSnippet(form) {
 }
 
 function mappedFieldLabel(field) {
-  return field.mapTo ? `Maps to contact ${field.mapTo}` : 'Stored on the lead form submission'
+	return field.mapTo?.startsWith('custom:') ? `Maps to contact custom field ${field.mapTo.slice(7)}` : field.mapTo ? `Maps to contact ${field.mapTo}` : 'Stored only on the lead form submission'
+}
+
+const coreDestinations = [
+  ['', 'Submission only'], ['firstName', 'Contact first name'], ['lastName', 'Contact last name'],
+  ['email', 'Contact email'], ['phone', 'Contact phone'], ['addressLine1', 'Contact address line 1'],
+  ['addressLine2', 'Contact address line 2'], ['city', 'Contact city'], ['state', 'Contact state'],
+  ['postalCode', 'Contact postal code'], ['country', 'Contact country'], ['jobTitle', 'Contact job title']
+]
+
+function mappedFieldType(mapping, customFields, currentType) {
+  const definition = customFields.find((field) => `custom:${field.fieldKey}` === mapping)
+  if (definition) return fieldTypeForCustomField(definition, currentType)
+  if (mapping === 'email') return 'email'
+  if (mapping === 'phone') return 'tel'
+  return currentType === 'textarea' && mapping === '' ? 'textarea' : 'text'
 }
 
 export function SettingsLeadFormsRoute() {
   const { session, canAdminister: canManage } = useAuth()
   usePageTitle('Lead Forms')
   const [forms, setForms] = useState([])
-  const [form, setForm] = useState(emptyForm)
+	const [customFields, setCustomFields] = useState([])
+  const [form, setForm] = useState(() => emptyForm())
   const [editingId, setEditingId] = useState(null)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -137,8 +194,13 @@ export function SettingsLeadFormsRoute() {
   async function loadForms({ signal } = {}) {
     setIsLoading(true)
     try {
-      const nextForms = await listLeadCaptureForms({ signal })
+	  const [nextForms, nextCustomFields] = await Promise.all([
+		listLeadCaptureForms({ signal }),
+		listCustomFields('contact', { signal })
+	  ])
       setForms(nextForms)
+	  setCustomFields(nextCustomFields)
+	  setForm((current) => current.name || editingId ? current : emptyForm(nextCustomFields))
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -161,12 +223,12 @@ export function SettingsLeadFormsRoute() {
 
   function resetForm() {
     setEditingId(null)
-    setForm(emptyForm())
+	setForm(emptyForm(customFields))
   }
 
   function startEdit(nextForm) {
     setEditingId(nextForm.id)
-    setForm(formFromLeadForm(nextForm))
+	setForm(formFromLeadForm(nextForm, customFields))
     setStatus('')
   }
 
@@ -175,6 +237,29 @@ export function SettingsLeadFormsRoute() {
       ...current,
       fields: current.fields.map((field, fieldIndex) => (fieldIndex === index ? { ...field, ...patch } : field))
     }))
+  }
+
+  function updateFieldMapping(index, mapTo) {
+	const definition = customFields.find((field) => `custom:${field.fieldKey}` === mapTo)
+	updateField(index, {
+	  mapTo,
+	  fieldType: mappedFieldType(mapTo, customFields, form.fields[index].fieldType),
+	  required: definition?.required || mapTo === 'firstName' || mapTo === 'lastName' ? true : form.fields[index].required,
+	  options: definition?.options || []
+	})
+  }
+
+  function addField() {
+	setForm((current) => {
+	  const keys = new Set(current.fields.map((field) => field.key))
+	  let suffix = current.fields.length + 1
+	  while (keys.has(`field${suffix}`)) suffix += 1
+	  return { ...current, fields: [...current.fields, { key: `field${suffix}`, label: 'New field', fieldType: 'text', required: false, mapTo: '', options: [] }] }
+	})
+  }
+
+  function removeField(index) {
+	setForm((current) => ({ ...current, fields: current.fields.filter((_, fieldIndex) => fieldIndex !== index) }))
   }
 
   async function handleSubmit(event) {
@@ -249,7 +334,7 @@ export function SettingsLeadFormsRoute() {
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
             <div>
               <h2>{editingId ? 'Edit lead form' : 'New lead form'}</h2>
-              <p className="field-hint">This first form builder keeps mappings fixed to standard contact fields and stores extra message text on the submission.</p>
+			  <p className="field-hint">Map each visitor field to a standard or organization-defined contact field. Submission-only values remain available in lead review without changing the contact.</p>
             </div>
             <Field label="Name">
               <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Website contact form" required />
@@ -282,15 +367,35 @@ export function SettingsLeadFormsRoute() {
                     <Field label={`${field.key} label`} hint={mappedFieldLabel(field)}>
                       <input className="text-input" value={field.label} onChange={(event) => updateField(index, { label: event.target.value })} required />
                     </Field>
+					<Field label={`${field.key} destination`}>
+					  <select className="text-input" value={field.mapTo || ''} onChange={(event) => updateFieldMapping(index, event.target.value)}>
+						{coreDestinations.map(([value, label]) => <option key={value || 'submission'} value={value}>{label}</option>)}
+						{customFields.map((definition) => <option key={definition.id} value={`custom:${definition.fieldKey}`}>{definition.label} ({definition.dataType})</option>)}
+						{field.mapTo?.startsWith('custom:') && !customFields.some((definition) => `custom:${definition.fieldKey}` === field.mapTo) ? <option value={field.mapTo}>Unavailable custom field ({field.mapTo.slice(7)})</option> : null}
+					  </select>
+					</Field>
+					{!field.mapTo || !field.mapTo.startsWith('custom:') ? (
+					  <Field label={`${field.key} control`}>
+						<select className="text-input" value={field.fieldType} onChange={(event) => updateField(index, { fieldType: event.target.value, options: [] })}>
+						  <option value="text">Single-line text</option>
+						  <option value="textarea">Multi-line text</option>
+						  <option value="email">Email</option>
+						  <option value="tel">Telephone</option>
+						  <option value="hidden">Hidden</option>
+						</select>
+					  </Field>
+					) : null}
                   </div>
                   <div>
                     <label className="field-hint">
-                      <input type="checkbox" checked={field.required} onChange={(event) => updateField(index, { required: event.target.checked })} /> Required
+					  <input type="checkbox" checked={field.required} disabled={field.mapTo === 'firstName' || field.mapTo === 'lastName' || customFields.some((definition) => definition.required && `custom:${definition.fieldKey}` === field.mapTo)} onChange={(event) => updateField(index, { required: event.target.checked })} /> Required
                     </label>
+					<Button className="button-secondary" type="button" onClick={() => removeField(index)} disabled={form.fields.length <= 1}>Remove</Button>
                   </div>
                 </article>
               ))}
             </div>
+			<Button className="button-secondary" type="button" onClick={addField} disabled={form.fields.length >= 25}>Add field</Button>
             <div>
               <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save lead form' : 'Create lead form'}</Button>
               {editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}

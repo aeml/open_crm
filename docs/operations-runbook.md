@@ -1178,6 +1178,32 @@ bytes, tokens, or counters with ad hoc SQL.
    Review that task explicitly during rollback; never delete run/audit rows or
    task history with ad hoc SQL.
 
+### Lead form custom-field mappings
+
+1. Owners/admins manage contact definitions under **Settings > Custom Fields**
+   and form mappings under **Settings > Lead Forms**. An active form must map
+   first and last name and every required contact custom field. Its public
+   control type and select options come from the current definition; do not
+   duplicate those constraints in embed code.
+2. To introduce a new required contact field when active forms already exist,
+   create it as optional, map it on every active form, verify each public path,
+   then mark it required. The API refuses a required transition that would
+   strand an active form. To archive a mapped field, first deactivate or remap
+   every active form. Inactive forms may retain the historical mapping but
+   cannot reactivate until it is valid.
+3. Every form response has a positive `revision`. Admin updates must send the
+   exact loaded revision; `409 REVISION_CONFLICT` means reload and reapply the
+   intended change. A mapped custom-field definition change advances affected
+   form revisions and invalidates outstanding public challenges. A visitor who
+   sees the refresh error should reload the page; never edit revision or
+   challenge rows in SQL.
+4. Accepted submissions retain the submitted business payload, exact form
+   revision, consent evidence, and a value-free mapping snapshot. The typed
+   values live on the created contact. Use the lead-review queue, contact
+   record, activity, and `lead_form.*` audit events for diagnosis. Portable
+   workspace export includes form/submission mapping evidence but deliberately
+   excludes digest-only challenge rows.
+
 ### Durable lead follow-up automation
 
 1. Owners and admins manage this bounded outcome under **Settings >

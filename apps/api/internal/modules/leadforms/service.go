@@ -9,8 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"net/mail"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -31,6 +34,9 @@ var (
 	ErrConsentRequired   = errors.New("lead capture consent is required")
 	ErrChallengeInvalid  = errors.New("lead capture submission challenge is invalid")
 	ErrChallengeNotReady = errors.New("lead capture submission challenge is not ready")
+	ErrStaleRevision     = errors.New("lead capture form revision is stale")
+	ErrInvalidMapping    = errors.New("lead capture field mapping is invalid")
+	ErrFormUnavailable   = errors.New("lead capture form configuration is unavailable")
 	ErrInvalidWidget     = errors.New("invalid lead chat widget")
 	ErrNotFound          = errors.New("lead capture form not found")
 )
@@ -38,11 +44,12 @@ var (
 var fieldKeyPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 type Field struct {
-	Key       string `json:"key"`
-	Label     string `json:"label"`
-	FieldType string `json:"fieldType"`
-	Required  bool   `json:"required"`
-	MapTo     string `json:"mapTo"`
+	Key       string   `json:"key"`
+	Label     string   `json:"label"`
+	FieldType string   `json:"fieldType"`
+	Required  bool     `json:"required"`
+	MapTo     string   `json:"mapTo"`
+	Options   []string `json:"options,omitempty"`
 }
 
 type Form struct {
@@ -57,6 +64,7 @@ type Form struct {
 	SourceLabel     string    `json:"sourceLabel"`
 	ConsentText     string    `json:"consentText"`
 	IsActive        bool      `json:"isActive"`
+	Revision        int       `json:"revision"`
 	SubmissionCount int       `json:"submissionCount"`
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
@@ -72,6 +80,7 @@ type Input struct {
 	SourceLabel    string  `json:"sourceLabel"`
 	ConsentText    string  `json:"consentText"`
 	IsActive       *bool   `json:"isActive"`
+	Revision       int     `json:"revision"`
 }
 
 type Attribution struct {
@@ -105,10 +114,11 @@ type SubmissionResult struct {
 }
 
 type SubmissionChallenge struct {
-	Token       string    `json:"token"`
-	ConsentText string    `json:"consentText"`
-	NotBefore   time.Time `json:"notBefore"`
-	ExpiresAt   time.Time `json:"expiresAt"`
+	Token        string    `json:"token"`
+	ConsentText  string    `json:"consentText"`
+	FormRevision int       `json:"formRevision"`
+	NotBefore    time.Time `json:"notBefore"`
+	ExpiresAt    time.Time `json:"expiresAt"`
 }
 
 type LandingPage struct {
@@ -204,7 +214,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT f.id, f.name, f.slug, f.public_id, f.title, f.description, f.fields_json,
-			f.success_message, f.source_label, f.consent_text, f.is_active, COALESCE(sc.submission_count, 0), f.created_at, f.updated_at
+			f.success_message, f.source_label, f.consent_text, f.is_active, COALESCE(f.revision, 1), COALESCE(sc.submission_count, 0), f.created_at, f.updated_at
 		FROM lead_capture_forms f
 		LEFT JOIN (
 			SELECT form_id, COUNT(*)::int AS submission_count
@@ -231,6 +241,9 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate lead capture forms: %w", err)
 	}
+	if err := hydrateFormList(ctx, s.pool, organizationID, forms); err != nil {
+		return nil, err
+	}
 	return forms, nil
 }
 
@@ -239,10 +252,25 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		return Form{}, fmt.Errorf("lead forms service not configured")
 	}
 	input = normalizeInput(input)
+	isActive := true
+	if input.IsActive != nil {
+		isActive = *input.IsActive
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return Form{}, fmt.Errorf("begin lead capture form create: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := requireLeadFormAdmin(ctx, tx, organizationID, actorUserID); err != nil {
+		return Form{}, err
+	}
+	input.Fields, err = hydrateFormFields(ctx, tx, organizationID, input.Fields, isActive)
+	if err != nil {
+		return Form{}, err
+	}
 	if err := validateInput(input); err != nil {
 		return Form{}, err
 	}
-
 	publicID, err := newPublicID()
 	if err != nil {
 		return Form{}, err
@@ -251,19 +279,20 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if err != nil {
 		return Form{}, fmt.Errorf("encode lead capture fields: %w", err)
 	}
-	isActive := true
-	if input.IsActive != nil {
-		isActive = *input.IsActive
-	}
-
 	var form Form
-	form, err = scanForm(s.pool.QueryRow(ctx, `
+	form, err = scanForm(tx.QueryRow(ctx, `
 		INSERT INTO lead_capture_forms (organization_id, public_id, name, slug, title, description, fields_json, success_message, source_label, consent_text, is_active, created_by_user_id, updated_by_user_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $12)
-		RETURNING id, name, slug, public_id, title, description, fields_json, success_message, source_label, consent_text, is_active, 0, created_at, updated_at
+		RETURNING id, name, slug, public_id, title, description, fields_json, success_message, source_label, consent_text, is_active, COALESCE(revision, 1), 0, created_at, updated_at
 	`, organizationID, publicID, input.Name, input.Slug, input.Title, input.Description, string(fieldsJSON), input.SuccessMessage, input.SourceLabel, input.ConsentText, isActive, actorUserID))
 	if err != nil {
 		return Form{}, mapSaveError(err)
+	}
+	if err := auditLeadFormDefinition(ctx, tx, organizationID, actorUserID, form, "lead_form.created", "Created lead capture form", 0); err != nil {
+		return Form{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Form{}, fmt.Errorf("commit lead capture form create: %w", err)
 	}
 	return form, nil
 }
@@ -273,6 +302,41 @@ func (s *Service) Update(ctx context.Context, organizationID, formID, actorUserI
 		return Form{}, fmt.Errorf("lead forms service not configured")
 	}
 	input = normalizeInput(input)
+	if input.Revision <= 0 {
+		return Form{}, ErrInvalidInput
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return Form{}, fmt.Errorf("begin lead capture form update: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := requireLeadFormAdmin(ctx, tx, organizationID, actorUserID); err != nil {
+		return Form{}, err
+	}
+	var currentRevision int
+	var currentActive bool
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(revision, 1), is_active
+		FROM lead_capture_forms
+		WHERE organization_id=$1 AND id=$2
+		FOR UPDATE
+	`, organizationID, formID).Scan(&currentRevision, &currentActive); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Form{}, ErrNotFound
+		}
+		return Form{}, fmt.Errorf("lock lead capture form: %w", err)
+	}
+	if input.Revision != currentRevision {
+		return Form{}, ErrStaleRevision
+	}
+	targetActive := currentActive
+	if input.IsActive != nil {
+		targetActive = *input.IsActive
+	}
+	input.Fields, err = hydrateFormFields(ctx, tx, organizationID, input.Fields, targetActive)
+	if err != nil {
+		return Form{}, err
+	}
 	if err := validateInput(input); err != nil {
 		return Form{}, err
 	}
@@ -286,7 +350,7 @@ func (s *Service) Update(ctx context.Context, organizationID, formID, actorUserI
 	}
 
 	var form Form
-	form, err = scanForm(s.pool.QueryRow(ctx, `
+	form, err = scanForm(tx.QueryRow(ctx, `
 		UPDATE lead_capture_forms
 		SET name = $3,
 		    slug = $4,
@@ -298,13 +362,20 @@ func (s *Service) Update(ctx context.Context, organizationID, formID, actorUserI
 		    consent_text = $10,
 		    is_active = COALESCE($11::boolean, is_active),
 		    updated_by_user_id = $12,
+		    revision = COALESCE(revision, 1) + 1,
 		    updated_at = NOW()
-		WHERE organization_id = $1 AND id = $2
-		RETURNING id, name, slug, public_id, title, description, fields_json, success_message, source_label, consent_text, is_active,
+		WHERE organization_id = $1 AND id = $2 AND COALESCE(revision, 1) = $13
+		RETURNING id, name, slug, public_id, title, description, fields_json, success_message, source_label, consent_text, is_active, COALESCE(revision, 1),
 			(SELECT COUNT(*)::int FROM lead_capture_submissions WHERE organization_id = $1 AND form_id = lead_capture_forms.id), created_at, updated_at
-	`, organizationID, formID, input.Name, input.Slug, input.Title, input.Description, string(fieldsJSON), input.SuccessMessage, input.SourceLabel, input.ConsentText, isActive, actorUserID))
+	`, organizationID, formID, input.Name, input.Slug, input.Title, input.Description, string(fieldsJSON), input.SuccessMessage, input.SourceLabel, input.ConsentText, isActive, actorUserID, currentRevision))
 	if err != nil {
 		return Form{}, mapSaveError(err)
+	}
+	if err := auditLeadFormDefinition(ctx, tx, organizationID, actorUserID, form, "lead_form.updated", "Updated lead capture form", currentRevision); err != nil {
+		return Form{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Form{}, fmt.Errorf("commit lead capture form update: %w", err)
 	}
 	return form, nil
 }
@@ -432,7 +503,7 @@ func (s *Service) GetPublicLandingPage(ctx context.Context, slug string) (Public
 	page, form, err := scanPublicLandingPage(s.pool.QueryRow(ctx, `
 		SELECT p.id, p.name, p.slug, p.public_id, p.title, p.subtitle, p.body, p.cta_label, p.theme,
 			p.lead_capture_form_id, f.name, f.public_id, p.is_active, p.created_at, p.updated_at,
-			f.id, f.name, f.slug, f.public_id, f.title, f.description, f.fields_json, f.success_message, f.source_label, f.consent_text, f.is_active, 0, f.created_at, f.updated_at
+			f.id, f.name, f.slug, f.public_id, f.title, f.description, f.fields_json, f.success_message, f.source_label, f.consent_text, f.is_active, COALESCE(f.revision, 1), 0, f.created_at, f.updated_at
 		FROM lead_landing_pages p
 		JOIN lead_capture_forms f ON f.organization_id = p.organization_id AND f.id = p.lead_capture_form_id
 		WHERE p.slug = $1 AND p.is_active = TRUE AND f.is_active = TRUE
@@ -442,6 +513,20 @@ func (s *Service) GetPublicLandingPage(ctx context.Context, slug string) (Public
 			return PublicLandingPage{}, ErrNotFound
 		}
 		return PublicLandingPage{}, fmt.Errorf("get public lead landing page: %w", err)
+	}
+	var organizationID int64
+	if err := s.pool.QueryRow(ctx, `SELECT organization_id FROM lead_capture_forms WHERE id=$1 AND is_active=TRUE`, form.ID).Scan(&organizationID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return PublicLandingPage{}, ErrNotFound
+		}
+		return PublicLandingPage{}, fmt.Errorf("load public lead form workspace: %w", err)
+	}
+	form.Fields, err = hydrateFormFields(ctx, s.pool, organizationID, form.Fields, true)
+	if err != nil {
+		if errors.Is(err, ErrInvalidMapping) {
+			return PublicLandingPage{}, ErrFormUnavailable
+		}
+		return PublicLandingPage{}, err
 	}
 	return PublicLandingPage{Page: page, Form: form}, nil
 }
@@ -569,7 +654,7 @@ func (s *Service) GetPublicChatWidget(ctx context.Context, publicID string) (Pub
 	widget, form, err := scanPublicChatWidget(s.pool.QueryRow(ctx, `
 		SELECT w.id, w.name, w.public_id, w.title, w.welcome_message, w.prompt_label, w.cta_label, w.theme, w.position,
 			w.lead_capture_form_id, f.name, f.public_id, w.is_active, w.created_at, w.updated_at,
-			f.id, f.name, f.slug, f.public_id, f.title, f.description, f.fields_json, f.success_message, f.source_label, f.consent_text, f.is_active, 0, f.created_at, f.updated_at
+			f.id, f.name, f.slug, f.public_id, f.title, f.description, f.fields_json, f.success_message, f.source_label, f.consent_text, f.is_active, COALESCE(f.revision, 1), 0, f.created_at, f.updated_at
 		FROM lead_chat_widgets w
 		JOIN lead_capture_forms f ON f.organization_id = w.organization_id AND f.id = w.lead_capture_form_id
 		WHERE w.public_id = $1 AND w.is_active = TRUE AND f.is_active = TRUE
@@ -579,6 +664,20 @@ func (s *Service) GetPublicChatWidget(ctx context.Context, publicID string) (Pub
 			return PublicChatWidget{}, ErrNotFound
 		}
 		return PublicChatWidget{}, fmt.Errorf("get public lead chat widget: %w", err)
+	}
+	var organizationID int64
+	if err := s.pool.QueryRow(ctx, `SELECT organization_id FROM lead_capture_forms WHERE id=$1 AND is_active=TRUE`, form.ID).Scan(&organizationID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return PublicChatWidget{}, ErrNotFound
+		}
+		return PublicChatWidget{}, fmt.Errorf("load public lead widget workspace: %w", err)
+	}
+	form.Fields, err = hydrateFormFields(ctx, s.pool, organizationID, form.Fields, true)
+	if err != nil {
+		if errors.Is(err, ErrInvalidMapping) {
+			return PublicChatWidget{}, ErrFormUnavailable
+		}
+		return PublicChatWidget{}, err
 	}
 	return PublicChatWidget{Widget: widget, Form: form}, nil
 }
@@ -603,20 +702,23 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 	if err != nil {
 		return SubmissionResult{}, err
 	}
-	_, preflightPayload, err := contactInputFromSubmission(form, input.Values)
-	if err != nil {
-		return SubmissionResult{}, err
-	}
-	preflightSourceURL := trimMax(input.SourceURL, 2048)
-	preflightAttribution := normalizeAttribution(form, input, preflightSourceURL)
-	preflightDigest, err := submissionRequestDigest(form, preflightPayload, preflightSourceURL, preflightAttribution, preflightChallenge.consentText)
-	if err != nil {
-		return SubmissionResult{}, err
-	}
-	if result, replayed, err := s.replayedSubmission(ctx, s.pool, organizationID, form.ID, preflightChallenge, preflightDigest, form.SuccessMessage); err != nil {
+	if result, replayed, err := s.replayedSubmission(ctx, s.pool, organizationID, form.ID, preflightChallenge, input, form.SuccessMessage); err != nil {
 		return SubmissionResult{}, err
 	} else if replayed {
 		return result, nil
+	}
+	if preflightChallenge.formRevision != form.Revision {
+		return SubmissionResult{}, ErrChallengeInvalid
+	}
+	form.Fields, err = hydrateFormFields(ctx, s.pool, organizationID, form.Fields, true)
+	if err != nil {
+		if errors.Is(err, ErrInvalidMapping) {
+			return SubmissionResult{}, ErrFormUnavailable
+		}
+		return SubmissionResult{}, err
+	}
+	if _, err := prepareLeadContact(ctx, s.pool, organizationID, form, input.Values); err != nil {
+		return SubmissionResult{}, err
 	}
 	preflightNow := s.currentTime()
 	if preflightNow.Before(preflightChallenge.notBefore) {
@@ -650,20 +752,30 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 	if err != nil {
 		return SubmissionResult{}, err
 	}
-	contact, payload, err := contactInputFromSubmission(form, input.Values)
+	if result, replayed, err := s.replayedSubmission(ctx, tx, organizationID, form.ID, challenge, input, form.SuccessMessage); err != nil {
+		return SubmissionResult{}, err
+	} else if replayed {
+		return result, nil
+	}
+	if challenge.formRevision != form.Revision {
+		return SubmissionResult{}, ErrChallengeInvalid
+	}
+	form.Fields, err = hydrateFormFields(ctx, tx, organizationID, form.Fields, true)
+	if err != nil {
+		if errors.Is(err, ErrInvalidMapping) {
+			return SubmissionResult{}, ErrFormUnavailable
+		}
+		return SubmissionResult{}, err
+	}
+	prepared, err := prepareLeadContact(ctx, tx, organizationID, form, input.Values)
 	if err != nil {
 		return SubmissionResult{}, err
 	}
 	sourceURL := trimMax(input.SourceURL, 2048)
 	attribution := normalizeAttribution(form, input, sourceURL)
-	requestDigest, err := submissionRequestDigest(form, payload, sourceURL, attribution, challenge.consentText)
+	requestDigest, err := submissionRequestDigest(form, prepared.Payload, sourceURL, attribution, challenge.consentText)
 	if err != nil {
 		return SubmissionResult{}, err
-	}
-	if result, replayed, err := s.replayedSubmission(ctx, tx, organizationID, form.ID, challenge, requestDigest, form.SuccessMessage); err != nil {
-		return SubmissionResult{}, err
-	} else if replayed {
-		return result, nil
 	}
 	now := s.currentTime()
 	if now.Before(challenge.notBefore) {
@@ -700,20 +812,22 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 
 	var contactID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO contacts (organization_id, first_name, last_name, email, phone, address_line1, address_line2, city, state, postal_code, country, job_title, status, is_client, owner_user_id, lead_source, first_source_url, utm_source, utm_medium, utm_campaign, utm_term, utm_content)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), 'lead', FALSE, NULL, $13, $14, $15, $16, $17, $18, $19)
+		INSERT INTO contacts (organization_id, first_name, last_name, email, phone, address_line1, address_line2, city, state, postal_code, country, job_title, status, is_client, owner_user_id, lead_source, first_source_url, utm_source, utm_medium, utm_campaign, utm_term, utm_content, custom_fields)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), 'lead', FALSE, NULL, $13, $14, $15, $16, $17, $18, $19, $20::jsonb)
 		RETURNING id
-	`, organizationID, contact.FirstName, contact.LastName, contact.Email, contact.Phone, contact.AddressLine1, contact.AddressLine2, contact.City, contact.State, contact.PostalCode, contact.Country, contact.JobTitle, attribution.LeadSource, sourceURL, attribution.UTMSource, attribution.UTMMedium, attribution.UTMCampaign, attribution.UTMTerm, attribution.UTMContent).Scan(&contactID); err != nil {
+	`, organizationID, prepared.Contact.FirstName, prepared.Contact.LastName, prepared.Contact.Email, prepared.Contact.Phone, prepared.Contact.AddressLine1, prepared.Contact.AddressLine2, prepared.Contact.City, prepared.Contact.State, prepared.Contact.PostalCode, prepared.Contact.Country, prepared.Contact.JobTitle, attribution.LeadSource, sourceURL, attribution.UTMSource, attribution.UTMMedium, attribution.UTMCampaign, attribution.UTMTerm, attribution.UTMContent, string(prepared.CustomFieldsJSON)).Scan(&contactID); err != nil {
 		return SubmissionResult{}, mapSubmissionSaveError(err)
 	}
 
 	metadataJSON, err := json.Marshal(map[string]any{
-		"formId":          form.ID,
-		"formName":        form.Name,
-		"formPublicId":    form.PublicID,
-		"sourceUrl":       sourceURL,
-		"attribution":     attribution,
-		"consentRecorded": true,
+		"formId":           form.ID,
+		"formName":         form.Name,
+		"formPublicId":     form.PublicID,
+		"formRevision":     form.Revision,
+		"customFieldCount": countCustomFieldMappings(form.Fields),
+		"sourceUrl":        sourceURL,
+		"attribution":      attribution,
+		"consentRecorded":  true,
 	})
 	if err != nil {
 		return SubmissionResult{}, fmt.Errorf("encode lead capture activity metadata: %w", err)
@@ -725,7 +839,7 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 		return SubmissionResult{}, fmt.Errorf("insert lead capture activity: %w", err)
 	}
 
-	payloadJSON, err := json.Marshal(payload)
+	payloadJSON, err := json.Marshal(prepared.Payload)
 	if err != nil {
 		return SubmissionResult{}, fmt.Errorf("encode lead capture payload: %w", err)
 	}
@@ -734,11 +848,12 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 		INSERT INTO lead_capture_submissions (
 			organization_id, form_id, contact_id, payload_json, source_url,
 			remote_addr, user_agent, lead_source, utm_source, utm_medium,
-			utm_campaign, utm_term, utm_content, consent_text_snapshot, consented_at
+			utm_campaign, utm_term, utm_content, consent_text_snapshot, consented_at,
+			form_revision, field_mapping_snapshot_json
 		)
-		VALUES ($1, $2, $3, $4::jsonb, $5, '', '', $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES ($1, $2, $3, $4::jsonb, $5, '', '', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
 		RETURNING id, form_id, COALESCE(contact_id, 0), created_at
-	`, organizationID, form.ID, contactID, string(payloadJSON), sourceURL, attribution.LeadSource, attribution.UTMSource, attribution.UTMMedium, attribution.UTMCampaign, attribution.UTMTerm, attribution.UTMContent, challenge.consentText, now).Scan(&submission.ID, &submission.FormID, &submission.ContactID, &submission.CreatedAt); err != nil {
+	`, organizationID, form.ID, contactID, string(payloadJSON), sourceURL, attribution.LeadSource, attribution.UTMSource, attribution.UTMMedium, attribution.UTMCampaign, attribution.UTMTerm, attribution.UTMContent, challenge.consentText, now, form.Revision, string(prepared.MappingSnapshotJSON)).Scan(&submission.ID, &submission.FormID, &submission.ContactID, &submission.CreatedAt); err != nil {
 		return SubmissionResult{}, fmt.Errorf("insert lead capture submission: %w", err)
 	}
 	if err := moduleworkflowautomations.CaptureLeadFormSubmitted(ctx, tx, moduleworkflowautomations.LeadFormSubmittedEvent{
@@ -774,7 +889,7 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 
 func (s *Service) getActiveByPublicID(ctx context.Context, publicID string) (Form, int64, error) {
 	form, organizationID, err := scanFormWithOrganization(s.pool.QueryRow(ctx, `
-		SELECT id, organization_id, name, slug, public_id, title, description, fields_json, success_message, source_label, consent_text, is_active, 0, created_at, updated_at
+		SELECT id, organization_id, name, slug, public_id, title, description, fields_json, success_message, source_label, consent_text, is_active, COALESCE(revision, 1), 0, created_at, updated_at
 		FROM lead_capture_forms
 		WHERE public_id = $1 AND is_active = TRUE
 	`, publicID))
@@ -789,7 +904,7 @@ func (s *Service) getActiveByPublicID(ctx context.Context, publicID string) (For
 
 func (s *Service) getActiveByPublicIDTx(ctx context.Context, tx pgx.Tx, publicID string) (Form, int64, error) {
 	form, organizationID, err := scanFormWithOrganization(tx.QueryRow(ctx, `
-		SELECT id, organization_id, name, slug, public_id, title, description, fields_json, success_message, source_label, consent_text, is_active, 0, created_at, updated_at
+		SELECT id, organization_id, name, slug, public_id, title, description, fields_json, success_message, source_label, consent_text, is_active, COALESCE(revision, 1), 0, created_at, updated_at
 		FROM lead_capture_forms
 		WHERE public_id = $1 AND is_active = TRUE
 		FOR SHARE
@@ -818,7 +933,19 @@ type contactInput struct {
 }
 
 func contactInputFromSubmission(form Form, values map[string]string) (contactInput, map[string]string, error) {
-	normalizedValues := normalizeValues(values)
+	normalizedValues, err := normalizeValues(values)
+	if err != nil {
+		return contactInput{}, nil, err
+	}
+	configured := make(map[string]Field, len(form.Fields))
+	for _, field := range form.Fields {
+		configured[field.Key] = field
+	}
+	for key := range normalizedValues {
+		if _, ok := configured[key]; !ok {
+			return contactInput{}, nil, ErrInvalidSubmission
+		}
+	}
 	contact := contactInput{}
 	payload := make(map[string]string, len(normalizedValues))
 	for key, value := range normalizedValues {
@@ -828,6 +955,9 @@ func contactInputFromSubmission(form Form, values map[string]string) (contactInp
 	for _, field := range form.Fields {
 		value := strings.TrimSpace(normalizedValues[field.Key])
 		if field.Required && value == "" {
+			return contactInput{}, nil, ErrInvalidSubmission
+		}
+		if !validSubmissionFieldValue(field, value) {
 			return contactInput{}, nil, ErrInvalidSubmission
 		}
 		switch field.MapTo {
@@ -880,6 +1010,7 @@ func scanForm(scanner formScanner) (Form, error) {
 		&form.SourceLabel,
 		&form.ConsentText,
 		&form.IsActive,
+		&form.Revision,
 		&form.SubmissionCount,
 		&form.CreatedAt,
 		&form.UpdatedAt,
@@ -909,6 +1040,7 @@ func scanFormWithOrganization(scanner formScanner) (Form, int64, error) {
 		&form.SourceLabel,
 		&form.ConsentText,
 		&form.IsActive,
+		&form.Revision,
 		&form.SubmissionCount,
 		&form.CreatedAt,
 		&form.UpdatedAt,
@@ -976,6 +1108,7 @@ func scanPublicLandingPage(scanner formScanner) (LandingPage, Form, error) {
 		&form.SourceLabel,
 		&form.ConsentText,
 		&form.IsActive,
+		&form.Revision,
 		&form.SubmissionCount,
 		&form.CreatedAt,
 		&form.UpdatedAt,
@@ -1043,6 +1176,7 @@ func scanPublicChatWidget(scanner formScanner) (ChatWidget, Form, error) {
 		&form.SourceLabel,
 		&form.ConsentText,
 		&form.IsActive,
+		&form.Revision,
 		&form.SubmissionCount,
 		&form.CreatedAt,
 		&form.UpdatedAt,
@@ -1102,6 +1236,18 @@ func normalizeField(field Field) Field {
 	field.Label = strings.TrimSpace(field.Label)
 	field.FieldType = strings.TrimSpace(strings.ToLower(field.FieldType))
 	field.MapTo = strings.TrimSpace(field.MapTo)
+	options := make([]string, 0, len(field.Options))
+	seenOptions := make(map[string]bool, len(field.Options))
+	for _, raw := range field.Options {
+		option := strings.TrimSpace(raw)
+		key := strings.ToLower(option)
+		if option == "" || seenOptions[key] {
+			continue
+		}
+		seenOptions[key] = true
+		options = append(options, option)
+	}
+	field.Options = options
 	if field.FieldType == "" {
 		field.FieldType = "text"
 	}
@@ -1126,7 +1272,19 @@ func validateInput(input Input) error {
 			return ErrInvalidInput
 		}
 		seenKeys[key] = true
-		if !isAllowedFieldType(field.FieldType) || !isAllowedMapping(field.MapTo) {
+		if len(field.Label) > 200 || !isAllowedFieldType(field.FieldType) || !isAllowedMapping(field.MapTo) {
+			return ErrInvalidInput
+		}
+		if field.FieldType == "select" {
+			if len(field.Options) == 0 || len(field.Options) > 25 {
+				return ErrInvalidInput
+			}
+			for _, option := range field.Options {
+				if len(option) > 100 {
+					return ErrInvalidInput
+				}
+			}
+		} else if len(field.Options) > 0 {
 			return ErrInvalidInput
 		}
 		if field.MapTo != "" {
@@ -1138,6 +1296,11 @@ func validateInput(input Input) error {
 	}
 	if !seenMappings["firstName"] || !seenMappings["lastName"] {
 		return ErrInvalidInput
+	}
+	for _, field := range input.Fields {
+		if (field.MapTo == "firstName" || field.MapTo == "lastName") && !field.Required {
+			return ErrInvalidInput
+		}
 	}
 	return nil
 }
@@ -1234,7 +1397,7 @@ func isAllowedLandingPageTheme(theme string) bool {
 
 func isAllowedFieldType(fieldType string) bool {
 	switch fieldType {
-	case "text", "email", "tel", "textarea", "hidden":
+	case "text", "email", "tel", "textarea", "hidden", "number", "date", "checkbox", "boolean", "select":
 		return true
 	default:
 		return false
@@ -1242,6 +1405,10 @@ func isAllowedFieldType(fieldType string) bool {
 }
 
 func isAllowedMapping(mapping string) bool {
+	if strings.HasPrefix(mapping, customFieldMappingPrefix) {
+		key := strings.TrimPrefix(mapping, customFieldMappingPrefix)
+		return customFieldMappingKeyPattern.MatchString(key)
+	}
 	switch mapping {
 	case "", "firstName", "lastName", "email", "phone", "addressLine1", "addressLine2", "city", "state", "postalCode", "country", "jobTitle":
 		return true
@@ -1260,12 +1427,63 @@ func defaultFields() []Field {
 	}
 }
 
-func normalizeValues(values map[string]string) map[string]string {
+func normalizeValues(values map[string]string) (map[string]string, error) {
+	if len(values) > 25 {
+		return nil, ErrInvalidSubmission
+	}
 	normalized := make(map[string]string, len(values))
 	for key, value := range values {
-		normalized[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		key = strings.TrimSpace(key)
+		if key == "" || len(key) > 100 {
+			return nil, ErrInvalidSubmission
+		}
+		if _, exists := normalized[key]; exists {
+			return nil, ErrInvalidSubmission
+		}
+		value = strings.TrimSpace(value)
+		if len(value) > 4000 {
+			return nil, ErrInvalidSubmission
+		}
+		normalized[key] = value
 	}
-	return normalized
+	return normalized, nil
+}
+
+func validSubmissionFieldValue(field Field, value string) bool {
+	if value == "" {
+		return true
+	}
+	if field.FieldType == "textarea" {
+		return len(value) <= 4000
+	}
+	if len(value) > 500 {
+		return false
+	}
+	switch field.FieldType {
+	case "email":
+		if len(value) > 320 {
+			return false
+		}
+		parsed, err := mail.ParseAddress(value)
+		return err == nil && strings.EqualFold(parsed.Address, value)
+	case "number":
+		number, err := strconv.ParseFloat(value, 64)
+		return err == nil && !math.IsNaN(number) && !math.IsInf(number, 0)
+	case "date":
+		parsed, err := time.Parse("2006-01-02", value)
+		return err == nil && parsed.Format("2006-01-02") == value
+	case "checkbox", "boolean":
+		return value == "true" || value == "false"
+	case "select":
+		for _, option := range field.Options {
+			if value == option {
+				return true
+			}
+		}
+		return false
+	default:
+		return true
+	}
 }
 
 func normalizeAttribution(form Form, input SubmissionInput, sourceURL string) Attribution {

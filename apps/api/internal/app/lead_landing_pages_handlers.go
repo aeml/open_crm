@@ -135,6 +135,10 @@ func handleGetPublicLeadLandingPage(forms leadFormsService, w http.ResponseWrite
 
 	result, err := forms.GetPublicLandingPage(r.Context(), slug)
 	if err != nil {
+		if errors.Is(err, moduleleadforms.ErrFormUnavailable) {
+			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "FORM_UNAVAILABLE", "This lead form is temporarily unavailable")
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}

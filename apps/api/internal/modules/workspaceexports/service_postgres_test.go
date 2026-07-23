@@ -148,18 +148,21 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		WITH form AS (
 			INSERT INTO lead_capture_forms (
-				organization_id,public_id,name,slug,title,fields_json,consent_text,created_by_user_id,updated_by_user_id
+				organization_id,public_id,name,slug,title,fields_json,consent_text,revision,created_by_user_id,updated_by_user_id
 			) VALUES (
-				$1,'lf_portable','Portable lead form','portable-lead','Portable lead form','[]'::jsonb,
-				'I agree that Portable Pilot may contact me.',$2,$2
+				$1,'lf_portable','Portable lead form','portable-lead','Portable lead form',
+				'[{"key":"segment","label":"Relationship segment","fieldType":"select","required":true,"mapTo":"custom:relationship_segment","options":["Customer","Partner"]}]'::jsonb,
+				'I agree that Portable Pilot may contact me.',3,$2,$2
 			) RETURNING id
 		), submission AS (
 			INSERT INTO lead_capture_submissions (
 				organization_id,form_id,payload_json,source_url,lead_source,consent_text_snapshot,consented_at,
+				form_revision,field_mapping_snapshot_json,
 				review_status,review_version,review_note,reviewed_at,reviewed_by_user_id
 			)
 			SELECT $1,id,'{"message":"Portable inquiry"}'::jsonb,'https://portable.test/contact','Website',
 				'I agree that Portable Pilot may contact me.',NOW(),
+				3,'[{"formFieldKey":"segment","destination":"custom:relationship_segment","dataType":"select"}]'::jsonb,
 				'legitimate',1,'Verified pilot inquiry.',NOW(),$2
 			FROM form RETURNING id,form_id
 		), review_request AS (
@@ -171,10 +174,10 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		)
 		INSERT INTO lead_capture_submission_challenges (
 			organization_id,form_id,token_digest,consent_text_snapshot,request_digest,submission_id,
-			issued_at,not_before,expires_at,consumed_at
+			form_revision,issued_at,not_before,expires_at,consumed_at
 		)
 		SELECT $1,form_id,repeat('1',64),'I agree that Portable Pilot may contact me.',repeat('2',64),id,
-			NOW()-INTERVAL '3 seconds',NOW()-INTERVAL '1 second',NOW()+INTERVAL '30 minutes',NOW()
+			3,NOW()-INTERVAL '3 seconds',NOW()-INTERVAL '1 second',NOW()+INTERVAL '30 minutes',NOW()
 		FROM submission JOIN review_request ON review_request.submission_id=submission.id
 	`, organizationID, ownerID); err != nil {
 		t.Fatalf("seed portable lead consent evidence: %v", err)
@@ -499,7 +502,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	}
 	portableLeadForms := string(files["data/lead_capture_forms.ndjson"])
 	portableLeadSubmissions := string(files["data/lead_capture_submissions.ndjson"])
-	if !strings.Contains(portableLeadForms, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "consented_at") || !strings.Contains(portableLeadSubmissions, "Portable inquiry") || !strings.Contains(portableLeadSubmissions, "Verified pilot inquiry.") || !strings.Contains(portableLeadSubmissions, `"review_status": "legitimate"`) {
+	if !strings.Contains(portableLeadForms, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadForms, `"revision": 3`) || !strings.Contains(portableLeadForms, "custom:relationship_segment") || !strings.Contains(portableLeadSubmissions, "I agree that Portable Pilot may contact me.") || !strings.Contains(portableLeadSubmissions, "consented_at") || !strings.Contains(portableLeadSubmissions, "Portable inquiry") || !strings.Contains(portableLeadSubmissions, "Verified pilot inquiry.") || !strings.Contains(portableLeadSubmissions, `"review_status": "legitimate"`) || !strings.Contains(portableLeadSubmissions, `"form_revision": 3`) || !strings.Contains(portableLeadSubmissions, `"field_mapping_snapshot_json"`) || !strings.Contains(portableLeadSubmissions, `"formFieldKey": "segment"`) || !strings.Contains(portableLeadSubmissions, `"dataType": "select"`) {
 		t.Fatalf("portable lead consent evidence missing: forms=%s submissions=%s", portableLeadForms, portableLeadSubmissions)
 	}
 	if _, exists := files["data/lead_capture_submission_challenges.ndjson"]; exists {

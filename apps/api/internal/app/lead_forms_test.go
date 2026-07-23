@@ -267,7 +267,7 @@ func TestUpdateLeadCaptureFormScopesToOrganization(t *testing.T) {
 	service := &fakeLeadFormsService{updateResult: moduleleadforms.Form{ID: 9, Name: "Website Leads", IsActive: false}}
 	server := authenticatedLeadFormsServer(service, "admin")
 
-	body := bytes.NewBufferString(`{"name":"Website Leads","isActive":false,"fields":[{"key":"firstName","label":"First name","fieldType":"text","required":true,"mapTo":"firstName"},{"key":"lastName","label":"Last name","fieldType":"text","required":true,"mapTo":"lastName"}]}`)
+	body := bytes.NewBufferString(`{"name":"Website Leads","revision":7,"isActive":false,"fields":[{"key":"firstName","label":"First name","fieldType":"text","required":true,"mapTo":"firstName"},{"key":"lastName","label":"Last name","fieldType":"text","required":true,"mapTo":"lastName"}]}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/lead-capture-forms/9", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -283,6 +283,38 @@ func TestUpdateLeadCaptureFormScopesToOrganization(t *testing.T) {
 	}
 	if service.lastUpdateInput.IsActive == nil || *service.lastUpdateInput.IsActive != inactive {
 		t.Fatalf("expected inactive update input, got %#v", service.lastUpdateInput.IsActive)
+	}
+	if service.lastUpdateInput.Revision != 7 {
+		t.Fatalf("expected revision 7, got %d", service.lastUpdateInput.Revision)
+	}
+}
+
+func TestSaveLeadCaptureFormMapsStableMappingAndRevisionErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "invalid mapping", err: moduleleadforms.ErrInvalidMapping, statusCode: http.StatusUnprocessableEntity, code: "INVALID_FIELD_MAPPING"},
+		{name: "stale revision", err: moduleleadforms.ErrStaleRevision, statusCode: http.StatusConflict, code: "REVISION_CONFLICT"},
+	}
+
+	for _, current := range tests {
+		t.Run(current.name, func(t *testing.T) {
+			service := &fakeLeadFormsService{updateErr: current.err}
+			server := authenticatedLeadFormsServer(service, "admin")
+			request := httptest.NewRequest(http.MethodPatch, "/api/lead-capture-forms/9", bytes.NewBufferString(`{"name":"Website Leads","revision":7}`))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != current.statusCode || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"`+current.code+`"`)) {
+				t.Fatalf("unexpected response: status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 
@@ -506,7 +538,7 @@ func TestSubmitPublicLeadCaptureFormAcceptsFormEncodedBody(t *testing.T) {
 func TestIssuePublicLeadSubmissionChallengeDoesNotRequireAuth(t *testing.T) {
 	now := time.Now().UTC()
 	service := &fakeLeadFormsService{challengeResult: moduleleadforms.SubmissionChallenge{
-		Token: "opaque-token", ConsentText: "I agree to be contacted.", NotBefore: now.Add(time.Second), ExpiresAt: now.Add(30 * time.Minute),
+		Token: "opaque-token", FormRevision: 7, ConsentText: "I agree to be contacted.", NotBefore: now.Add(time.Second), ExpiresAt: now.Add(30 * time.Minute),
 	}}
 	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
 	request := httptest.NewRequest(http.MethodPost, "/api/public/lead-capture-forms/lf_public/challenge", nil)
@@ -517,8 +549,21 @@ func TestIssuePublicLeadSubmissionChallengeDoesNotRequireAuth(t *testing.T) {
 	if recorder.Code != http.StatusCreated || service.lastChallengePublicID != "lf_public" {
 		t.Fatalf("unexpected challenge response: status=%d publicID=%q body=%s", recorder.Code, service.lastChallengePublicID, recorder.Body.String())
 	}
-	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"consentText":"I agree to be contacted."`)) || !bytes.Contains(recorder.Body.Bytes(), []byte(`"token":"opaque-token"`)) {
+	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"consentText":"I agree to be contacted."`)) || !bytes.Contains(recorder.Body.Bytes(), []byte(`"token":"opaque-token"`)) || !bytes.Contains(recorder.Body.Bytes(), []byte(`"formRevision":7`)) {
 		t.Fatalf("challenge response omitted bounded public evidence: %s", recorder.Body.String())
+	}
+}
+
+func TestIssuePublicLeadSubmissionChallengeHidesInvalidMapping(t *testing.T) {
+	service := &fakeLeadFormsService{challengeErr: moduleleadforms.ErrFormUnavailable}
+	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
+	request := httptest.NewRequest(http.MethodPost, "/api/public/lead-capture-forms/lf_public/challenge", nil)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"FORM_UNAVAILABLE"`)) {
+		t.Fatalf("expected a leak-safe unavailable form response, got status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -644,6 +689,19 @@ func TestGetPublicLeadLandingPageDoesNotRequireAuth(t *testing.T) {
 	}
 }
 
+func TestGetPublicLeadLandingPageHidesInvalidFormMapping(t *testing.T) {
+	service := &fakeLeadFormsService{publicPageErr: moduleleadforms.ErrFormUnavailable}
+	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
+	request := httptest.NewRequest(http.MethodGet, "/api/public/landing-pages/demo", nil)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"FORM_UNAVAILABLE"`)) {
+		t.Fatalf("expected a leak-safe unavailable page response, got status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestListLeadChatWidgetsScopesToOrganization(t *testing.T) {
 	service := &fakeLeadFormsService{widgetListResult: []moduleleadforms.ChatWidget{{ID: 4, Name: "Website chat", PublicID: "cw_test", LeadCaptureFormID: 3, LeadCaptureFormName: "Website Leads", IsActive: true}}}
 	server := authenticatedLeadFormsServer(service, "member")
@@ -763,5 +821,18 @@ func TestGetPublicLeadChatWidgetDoesNotRequireAuth(t *testing.T) {
 	}
 	if response.Data.Widget.PublicID != "cw_public" || response.Data.Form.PublicID != "lf_public" {
 		t.Fatalf("unexpected public chat widget response: %#v", response.Data)
+	}
+}
+
+func TestGetPublicLeadChatWidgetHidesInvalidFormMapping(t *testing.T) {
+	service := &fakeLeadFormsService{publicWidgetErr: moduleleadforms.ErrFormUnavailable}
+	server := NewServer(config.Env{}, Dependencies{LeadFormsService: service})
+	request := httptest.NewRequest(http.MethodGet, "/api/public/lead-chat-widgets/cw_public", nil)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"FORM_UNAVAILABLE"`)) {
+		t.Fatalf("expected a leak-safe unavailable widget response, got status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

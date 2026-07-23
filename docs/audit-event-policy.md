@@ -15,7 +15,8 @@ The audited mutation classes are:
 - workspace provisioning, identity verification, invitation, role, member
   lifecycle, password recovery, and active-session revocation;
 - organization profile, pipeline, custom-field, quote-template, email-template,
-  email-snippet, and email-sequence definition lifecycle and approval, plus
+  email-snippet, email-sequence, and lead-form definition lifecycle and
+  approval, plus
   executable automation configuration, transactional workflow-approval
   request, decision, unavailability, and cancellation evidence, and causal
   automation-loop prevention;
@@ -39,9 +40,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `58`
+Producer source count: `60`
 
-Producer source digest: `7bd1f6e0a51e9a7d80d8cba11b2686211e675dafbd19d3a6bd3995bcdaa71252`
+Producer source digest: `652c17dba552c68b7d8b03bb196a22498b897ab60cdf0b9d1682f7909a75a7ae`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -78,6 +79,17 @@ ceiling. It commits with the skipped
 same-tenant run and records only automation/run/deal/action identifiers, finite
 depth, and one reviewed reason. It contains no notification body, recipient,
 customer value, trigger payload, or idempotency material.
+
+The lead-form mapping review adds transactional create/update producers and a
+custom-field-driven mapping-revision producer. The acting owner/admin is
+revalidated inside the serializable definition transaction; a failed audit
+insert rolls back the definition or custom-field change. Metadata contains
+only form identity, current/previous revision, active state, bounded field and
+mapping counts, and the stable custom-field key that invalidated a mapping. It
+contains no submitted value, consent statement, contact identity, public or
+challenge token, request digest, source URL, attribution, or provider data.
+The portable audit trail retains these configuration events; detailed form and
+submission evidence remains in its own portable datasets.
 
 Email-sequence create, update, delete, exact-revision approval, and effective
 pause events commit in the same tenant transaction as the definition change.

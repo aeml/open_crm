@@ -57,6 +57,7 @@ type leadCaptureFormRequest struct {
 	SourceLabel    string                  `json:"sourceLabel"`
 	ConsentText    string                  `json:"consentText"`
 	IsActive       *bool                   `json:"isActive"`
+	Revision       int                     `json:"revision"`
 }
 
 type leadCaptureSubmissionRequest struct {
@@ -168,6 +169,11 @@ func handleIssuePublicLeadSubmissionChallenge(forms leadFormsService, metrics *p
 			platformweb.WriteNotFound(w, requestID)
 			return
 		}
+		if errors.Is(err, moduleleadforms.ErrFormUnavailable) {
+			metrics.ObserveLeadSubmission("error")
+			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "FORM_UNAVAILABLE", "This lead form is temporarily unavailable")
+			return
+		}
 		metrics.ObserveLeadSubmission("error")
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to prepare lead capture form")
 		return
@@ -240,6 +246,7 @@ func leadCaptureFormInput(request leadCaptureFormRequest) moduleleadforms.Input 
 		SourceLabel:    request.SourceLabel,
 		ConsentText:    request.ConsentText,
 		IsActive:       request.IsActive,
+		Revision:       request.Revision,
 	}
 }
 
@@ -318,7 +325,11 @@ func leadCaptureSubmissionAttribution(request leadCaptureSubmissionRequest) modu
 func writeLeadCaptureFormError(w http.ResponseWriter, requestID string, err error) {
 	switch {
 	case errors.Is(err, moduleleadforms.ErrInvalidInput):
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid form name, slug, title, success message, and fields mapped to first and last name")
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid form name, revision, fields, and required first and last name mappings")
+	case errors.Is(err, moduleleadforms.ErrInvalidMapping):
+		platformweb.WriteError(w, http.StatusUnprocessableEntity, requestID, "INVALID_FIELD_MAPPING", "Map active contact custom fields with compatible form controls, including every required field")
+	case errors.Is(err, moduleleadforms.ErrStaleRevision):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "REVISION_CONFLICT", "This lead form changed. Reload it before saving again")
 	case errors.Is(err, moduleleadforms.ErrDuplicateSlug):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A lead capture form with that slug already exists")
 	case errors.Is(err, moduleleadforms.ErrNotFound):
@@ -342,6 +353,8 @@ func writeLeadCaptureSubmissionError(w http.ResponseWriter, requestID string, er
 	case errors.Is(err, moduleleadforms.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	case errors.Is(err, modulebilling.ErrSubscriptionInactive), errors.Is(err, modulebilling.ErrLimitReached), errors.Is(err, modulebilling.ErrCapacityUnavailable), errors.Is(err, modulebilling.ErrCapacityReservationExpired):
+		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "FORM_UNAVAILABLE", "This lead form is temporarily unavailable")
+	case errors.Is(err, moduleleadforms.ErrFormUnavailable):
 		platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "FORM_UNAVAILABLE", "This lead form is temporarily unavailable")
 	default:
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to submit lead capture form")

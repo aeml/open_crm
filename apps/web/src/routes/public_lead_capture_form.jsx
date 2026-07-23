@@ -9,7 +9,35 @@ function initialValues(fields = []) {
 }
 
 function inputType(field) {
-  return ['email', 'tel', 'hidden'].includes(field.fieldType) ? field.fieldType : 'text'
+	return ['email', 'tel', 'hidden', 'number', 'date'].includes(field.fieldType) ? field.fieldType : 'text'
+}
+
+function PublicLeadField({ field, value, onChange, textareaRows }) {
+	if (field.fieldType === 'textarea') {
+		return <Field label={field.label}><textarea className="text-input" rows={textareaRows} value={value} onChange={onChange} required={field.required} /></Field>
+	}
+	if (field.fieldType === 'select') {
+		return (
+			<Field label={field.label}>
+				<select className="text-input" value={value} onChange={onChange} required={field.required}>
+					<option value="">Select...</option>
+					{(field.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
+				</select>
+			</Field>
+		)
+	}
+	if (field.fieldType === 'boolean' || field.fieldType === 'checkbox') {
+		return (
+			<Field label={field.label}>
+				<select className="text-input" value={value} onChange={onChange} required={field.required}>
+					<option value="">Select...</option>
+					<option value="true">Yes</option>
+					<option value="false">No</option>
+				</select>
+			</Field>
+		)
+	}
+	return <Field label={field.label}><input className="text-input" type={inputType(field)} value={value} onChange={onChange} required={field.required} /></Field>
 }
 
 function attributionFromLocation(form) {
@@ -34,6 +62,9 @@ export function PublicLeadCaptureForm({ className = 'auth-form landing-page-form
     setChallenge(null)
     setConsentGranted(false)
     const nextChallenge = await issuePublicLeadSubmissionChallenge(publicId || '', { signal })
+	if (Number(nextChallenge?.formRevision || 0) !== Number(form?.revision || 0)) {
+		throw new Error('This form changed. Refresh the page before submitting.')
+	}
     setChallenge(nextChallenge || null)
   }
 
@@ -51,7 +82,7 @@ export function PublicLeadCaptureForm({ className = 'auth-form landing-page-form
       if (!isAbortError(prepareError)) setError(prepareError.message || 'Unable to prepare the form.')
     })
     return () => controller.abort()
-  }, [form?.publicId])
+  }, [form?.publicId, form?.revision])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -88,17 +119,7 @@ export function PublicLeadCaptureForm({ className = 'auth-form landing-page-form
         <h2>{form.title || submitLabel}</h2>
         {form.description ? <p className="field-hint">{form.description}</p> : null}
       </div>
-      {(form.fields || []).map((field) => (
-        field.fieldType === 'textarea' ? (
-          <Field key={field.key} label={field.label}>
-            <textarea className="text-input" rows={textareaRows} value={values[field.key] || ''} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} required={field.required} />
-          </Field>
-        ) : (
-          <Field key={field.key} label={field.label}>
-            <input className="text-input" type={inputType(field)} value={values[field.key] || ''} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} required={field.required} />
-          </Field>
-        )
-      ))}
+	  {(form.fields || []).map((field) => <PublicLeadField key={field.key} field={field} value={values[field.key] || ''} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} textareaRows={textareaRows} />)}
       <label className="field-hint checkbox-row">
         <input type="checkbox" checked={consentGranted} onChange={(event) => setConsentGranted(event.target.checked)} required />
         <span>{challenge?.consentText || form.consentText || 'I agree to be contacted about this request.'}</span>

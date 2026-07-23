@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 46
-	expectedTenantIsolationEvidenceDigest = "4aff4ecc09e4773ab5a4d2403a5096491b0043f2b38a568cf9a94e729bcf4080"
+	expectedTenantIsolationEvidenceCount  = 47
+	expectedTenantIsolationEvidenceDigest = "4e9d305de5b441b41e59ea15dd6afcf261d44ea6fc26a0d267fdef78b3fed09b"
 )
 
 type tenantIsolationEvidence struct {
@@ -57,6 +57,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "forecast", Source: "apps/api/internal/modules/dashboard/forecast_postgres_test.go", Test: "TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope"},
 	{Surface: "imports-and-rollback", Source: "apps/api/internal/modules/imports/service_postgres_test.go", Test: "TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres"},
 	{Surface: "invitations", Source: "apps/api/internal/modules/users/invitations_postgres_test.go", Test: "TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres"},
+	{Surface: "lead-form-custom-field-mapping", Source: "apps/api/internal/modules/leadforms/custom_field_mapping_postgres_test.go", Test: "TestLeadFormCustomFieldMappingIsTypedRevisionedAuditedAndTenantSafeAgainstPostgres"},
 	{Surface: "note-history", Source: "apps/api/internal/modules/notes/list_postgres_test.go", Test: "TestNoteCursorIsStableBoundedAndTenantScopedAgainstPostgres"},
 	{Surface: "pipeline-configuration", Source: "apps/api/internal/modules/deals/pipeline_configuration_postgres_test.go", Test: "TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgres"},
 	{Surface: "quote-template-management", Source: "apps/api/internal/modules/quotetemplates/service_postgres_test.go", Test: "TestQuoteTemplateCatalogIsBoundedTenantSafeAndCapacitySerialized"},

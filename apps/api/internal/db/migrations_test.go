@@ -2332,3 +2332,29 @@ func TestMigrationFilesIncludeScheduledReportDelivery(t *testing.T) {
 		t.Fatalf("scheduled report delivery migration deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeLeadFormCustomFieldMapping(t *testing.T) {
+	const name = "126_lead_form_custom_field_mapping.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"lead_capture_forms_revision_positive",
+		"lead_capture_submission_challenges_form_revision_positive",
+		"lead_capture_submissions_form_revision_positive",
+		"field_mapping_snapshot_json",
+		"lead_capture_submissions_mapping_snapshot_array",
+		"VALIDATE CONSTRAINT",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("lead form custom-field mapping migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("lead form custom-field mapping migration deployment class = %q", class)
+	}
+}

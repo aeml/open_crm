@@ -135,6 +135,10 @@ func handleGetPublicLeadChatWidget(forms leadFormsService, w http.ResponseWriter
 
 	result, err := forms.GetPublicChatWidget(r.Context(), publicID)
 	if err != nil {
+		if errors.Is(err, moduleleadforms.ErrFormUnavailable) {
+			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "FORM_UNAVAILABLE", "This lead form is temporarily unavailable")
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}

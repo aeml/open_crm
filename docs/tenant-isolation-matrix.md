@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-23
 
-Evidence row count: `46`
+Evidence row count: `47`
 
-Evidence digest: `4aff4ecc09e4773ab5a4d2403a5096491b0043f2b38a568cf9a94e729bcf4080`
+Evidence digest: `4e9d305de5b441b41e59ea15dd6afcf261d44ea6fc26a0d267fdef78b3fed09b`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -58,6 +58,7 @@ the assertions inside those tests remain the proof of behavior.
 | `forecast` | `apps/api/internal/modules/dashboard/forecast_postgres_test.go` | `TestForecastUsesConfiguredProbabilitiesDateRangeUnassignedDealsAndTenantScope` | The fixed dashboard's same-snapshot deal/task/contact/activity/client-review and forecast totals exclude an equal-size foreign tenant; foreign and disabled quota actors/targets remain missing, a blocked quota update rolls back, and the tenant-selective activity/contact plans remain indexed under pilot volume. |
 | `imports-and-rollback` | `apps/api/internal/modules/imports/service_postgres_test.go` | `TestTrackedImportIdempotencyErrorsIsolationAndRollbackAgainstPostgres` | Retained source, batch/job identity, checkpoints, imported rows, history, cleanup, idempotency, and rollback are tenant scoped; a foreign worker payload, history query, and rollback ID stay missing with no effect. |
 | `invitations` | `apps/api/internal/modules/users/invitations_postgres_test.go` | `TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres` | Foreign delivery, resend, and revoke attempts return not found and cannot consume or rotate the owner's token lineage. |
+| `lead-form-custom-field-mapping` | `apps/api/internal/modules/leadforms/custom_field_mapping_postgres_test.go` | `TestLeadFormCustomFieldMappingIsTypedRevisionedAuditedAndTenantSafeAgainstPostgres` | Form administration revalidates the active owner/admin and every mapped contact definition inside the tenant transaction; member and foreign actors/definitions fail without form or audit effects. Public challenges bind the exact form revision, typed values reach only the owning tenant's contact, stale challenges/updates fail closed, and required/archive definition changes cannot leave an active form invalid. |
 | `note-history` | `apps/api/internal/modules/notes/list_postgres_test.go` | `TestNoteCursorIsStableBoundedAndTenantScopedAgainstPostgres` | Note history remains bound to the session tenant and exact entity; foreign notes are absent while equal-time and concurrent-newer rows preserve stable cursor continuation. |
 | `pipeline-configuration` | `apps/api/internal/modules/deals/pipeline_configuration_postgres_test.go` | `TestPipelineConfigurationIsAuditedTenantSafeAndPreservesDealsAgainstPostgres` | Foreign pipelines and stages cannot be renamed, reordered, deleted, or assigned to local deals. |
 | `quote-template-management` | `apps/api/internal/modules/quotetemplates/service_postgres_test.go` | `TestQuoteTemplateCatalogIsBoundedTenantSafeAndCapacitySerialized` | Exact filtered totals, literal search, stable adjacent pages, active-only selection, and the serialized 100-active-template ceiling stay inside the owning workspace; foreign definitions and actors remain missing, and only one concurrent final-slot writer succeeds. |

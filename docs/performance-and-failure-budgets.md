@@ -667,6 +667,14 @@ aggregate raw/gzip. Only aggregate ceilings advance from 795/247 to 806/251
 KiB; entry, per-route, CSS, hidden-foundation, and source ceilings remain
 unchanged.
 
+Typed lead-form mapping adds current contact-definition loading, bounded field
+authoring, exact-revision embed guards, and shared public number/date/boolean/
+select controls. The 408-line lead-form route is 19.31/6.11 KiB raw/gzip; the
+entry and largest lazy chunks remain 178.92/58.01 and 55.12/15.73 KiB. The
+complete Node 24 build is 810.46/251.90 KiB aggregate raw/gzip. Only aggregate
+ceilings advance from 806/251 to a measured 811/252 KiB; entry, per-route, CSS,
+hidden-foundation, and source ceilings remain unchanged.
+
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and
 then its ordered outcomes with a tenant/run-array query. Reviewed execution

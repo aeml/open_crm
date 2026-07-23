@@ -26,6 +26,7 @@ describe('public lead widget route', () => {
               id: 3,
               name: 'Website Leads',
               publicId: 'lf_public',
+			  revision: 2,
               title: 'Talk to sales',
               description: 'We will follow up shortly.',
               successMessage: 'Thanks. We will be in touch soon.',
@@ -43,7 +44,7 @@ describe('public lead widget route', () => {
         })
       }
       if (path.endsWith('/api/public/lead-capture-forms/lf_public/challenge') && method === 'POST') {
-        return jsonResponse({ data: { challenge: { token: 'widget-challenge-token', consentText: 'I agree to receive a reply about this request.', notBefore: '2020-01-01T00:00:00Z', expiresAt: '2030-01-01T00:00:00Z' } } }, 201)
+        return jsonResponse({ data: { challenge: { token: 'widget-challenge-token', formRevision: 2, consentText: 'I agree to receive a reply about this request.', notBefore: '2020-01-01T00:00:00Z', expiresAt: '2030-01-01T00:00:00Z' } } }, 201)
       }
       if (path.endsWith('/api/public/lead-capture-forms/lf_public/submissions') && method === 'POST') {
         return jsonResponse({ data: { successMessage: 'Thanks. We will be in touch soon.' } }, 201)

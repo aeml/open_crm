@@ -28,6 +28,10 @@ const standardFields = [
   { key: 'message', label: 'How can we help?', fieldType: 'textarea', required: false, mapTo: '' }
 ]
 
+const contactCustomFields = [
+  { id: 19, fieldKey: 'relationship_segment', label: 'Relationship segment', dataType: 'select', required: true, options: ['Customer', 'Partner'] }
+]
+
 describe('settings lead forms route', () => {
   it('lists lead forms and creates a mapped form', async () => {
     const fetchMock = vi.fn(async (url, options = {}) => {
@@ -41,14 +45,17 @@ describe('settings lead forms route', () => {
       if (path.endsWith('/api/notifications/unread-count')) {
         return jsonResponse({ data: { unreadCount: 0 } })
       }
+	  if (path.endsWith('/api/custom-fields')) {
+		return jsonResponse({ data: { definitions: contactCustomFields } })
+	  }
 	  if (path.endsWith('/api/lead-capture-submissions')) {
 		return jsonResponse({ data: { submissions: [], counts: { unreviewed: 0, legitimate: 0, spam: 0 }, limit: 50 } })
 	  }
       if (path.endsWith('/api/lead-capture-forms') && method === 'POST') {
-        return jsonResponse({ data: { form: { id: 8, name: 'Demo request', slug: 'demo-request', publicId: 'lf_created', title: 'Book a demo', description: '', successMessage: 'Thanks!', sourceLabel: 'Demo form', consentText: 'I agree to be contacted about this request.', isActive: true, submissionCount: 0, fields: standardFields } } })
+        return jsonResponse({ data: { form: { id: 8, name: 'Demo request', slug: 'demo-request', publicId: 'lf_created', revision: 1, title: 'Book a demo', description: '', successMessage: 'Thanks!', sourceLabel: 'Demo form', consentText: 'I agree to be contacted about this request.', isActive: true, submissionCount: 0, fields: standardFields } } })
       }
       if (path.endsWith('/api/lead-capture-forms')) {
-        return jsonResponse({ data: { forms: [{ id: 3, name: 'Website Leads', slug: 'website-leads', publicId: 'lf_existing', title: 'Talk to sales', description: 'Main website form', successMessage: 'Thanks!', sourceLabel: 'Website form', consentText: 'I agree to receive a reply.', isActive: true, submissionCount: 2, fields: standardFields }] } })
+        return jsonResponse({ data: { forms: [{ id: 3, name: 'Website Leads', slug: 'website-leads', publicId: 'lf_existing', revision: 7, title: 'Talk to sales', description: 'Main website form', successMessage: 'Thanks!', sourceLabel: 'Website form', consentText: 'I agree to receive a reply.', isActive: true, submissionCount: 2, fields: standardFields }] } })
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })
@@ -61,7 +68,9 @@ describe('settings lead forms route', () => {
     expect(await screen.findByRole('heading', { name: /lead forms/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /website leads/i })).toBeInTheDocument()
     expect(screen.getByDisplayValue(/api\/public\/lead-capture-forms\/lf_existing\/submissions/)).toBeInTheDocument()
-    expect(screen.getByDisplayValue(/api\/public\/lead-capture-forms\/lf_existing\/challenge/).value).toContain('consentGranted')
+	const existingEmbed = screen.getByDisplayValue(/api\/public\/lead-capture-forms\/lf_existing\/challenge/).value
+	expect(existingEmbed).toContain('consentGranted')
+	expect(existingEmbed).toContain('Number(challenge.formRevision) !== 7')
 
     fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Demo request' } })
     fireEvent.change(screen.getByLabelText(/slug/i), { target: { value: 'demo-request' } })
@@ -81,9 +90,53 @@ describe('settings lead forms route', () => {
       expect(body.consentText).toBe('I agree to be contacted about this request.')
       expect(body.fields.find((field) => field.key === 'firstName').mapTo).toBe('firstName')
       expect(body.fields.find((field) => field.key === 'message').mapTo).toBe('')
+	  expect(body.fields.find((field) => field.key === 'custom_relationship_segment')).toEqual(expect.objectContaining({
+		fieldType: 'select',
+		mapTo: 'custom:relationship_segment',
+		required: true,
+		options: ['Customer', 'Partner']
+	  }))
     })
     expect(await screen.findByRole('heading', { name: /demo request/i })).toBeInTheDocument()
   })
+
+	it('sends the exact loaded revision when editing a form', async () => {
+		const fetchMock = vi.fn(async (url, options = {}) => {
+			const requestURL = new URL(String(url), 'http://localhost')
+			const path = requestURL.pathname
+			const method = options.method || 'GET'
+			if (path.endsWith('/auth/me')) return sessionResponse()
+			if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+			if (path.endsWith('/api/custom-fields')) return jsonResponse({ data: { definitions: [] } })
+			if (path.endsWith('/api/lead-capture-submissions')) return jsonResponse({ data: { submissions: [], counts: { unreviewed: 0, legitimate: 0, spam: 0 }, limit: 50 } })
+			if (path.endsWith('/api/lead-capture-forms/3') && method === 'PATCH') {
+				const body = JSON.parse(options.body)
+				return jsonResponse({ data: { form: { ...body, id: 3, publicId: 'lf_existing', revision: 8 } } })
+			}
+			if (path.endsWith('/api/lead-capture-forms')) {
+				return jsonResponse({ data: { forms: [{ id: 3, name: 'Website Leads', slug: 'website-leads', publicId: 'lf_existing', revision: 7, title: 'Talk to sales', successMessage: 'Thanks!', sourceLabel: 'Website form', consentText: 'I agree to receive a reply.', isActive: true, fields: standardFields }] } })
+			}
+			throw new Error(`Unexpected fetch: ${method} ${path}`)
+		})
+
+		vi.stubGlobal('fetch', fetchMock)
+		window.history.pushState({}, '', '/settings/lead-forms')
+		render(<AppRouter />)
+
+		expect(await screen.findByRole('heading', { name: 'Website Leads' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+		fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Website Leads revised' } })
+		fireEvent.click(screen.getByRole('button', { name: 'Save lead form' }))
+
+		await waitFor(() => {
+			const updateCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/lead-capture-forms/3') && call[1]?.method === 'PATCH')
+			expect(updateCall).toBeTruthy()
+			const body = JSON.parse(updateCall[1].body)
+			expect(body.name).toBe('Website Leads revised')
+			expect(body.revision).toBe(7)
+		})
+		expect(await screen.findByText('Lead form updated.')).toBeInTheDocument()
+	})
 
 	it('quarantines and recovers captured spam with explicit workflow effects', async () => {
 		let reviewStatus = 'unreviewed'
@@ -114,6 +167,7 @@ describe('settings lead forms route', () => {
 			const method = options.method || 'GET'
 			if (path.endsWith('/auth/me')) return sessionResponse()
 			if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+			if (path.endsWith('/api/custom-fields')) return jsonResponse({ data: { definitions: [] } })
 			if (path.endsWith('/api/lead-capture-forms')) {
 				return jsonResponse({ data: { forms: [{ id: 3, name: 'Website Leads', publicId: 'lf_existing', isActive: true, fields: standardFields }] } })
 			}
@@ -162,6 +216,7 @@ describe('settings lead forms route', () => {
 			const path = requestURL.pathname
 			if (path.endsWith('/auth/me')) return sessionResponse()
 			if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+			if (path.endsWith('/api/custom-fields')) return jsonResponse({ data: { definitions: [] } })
 			if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [{ id: 3, name: 'Website Leads', publicId: 'lf_existing', isActive: true, fields: standardFields }] } })
 			if (path.endsWith('/api/lead-capture-submissions')) {
 				if (requestURL.searchParams.get('cursor')) {

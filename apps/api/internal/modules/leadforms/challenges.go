@@ -23,6 +23,7 @@ const (
 
 type lockedSubmissionChallenge struct {
 	consentText   string
+	formRevision  int
 	requestDigest *string
 	submissionID  *int64
 	notBefore     time.Time
@@ -60,25 +61,38 @@ func (s *Service) IssueSubmissionChallenge(ctx context.Context, publicID string)
 		return SubmissionChallenge{}, fmt.Errorf("clean expired lead submission challenges: %w", err)
 	}
 
+	form, organizationID, err := s.getActiveByPublicID(ctx, publicID)
+	if err != nil {
+		return SubmissionChallenge{}, err
+	}
+	if _, err := hydrateFormFields(ctx, s.pool, organizationID, form.Fields, true); err != nil {
+		if errors.Is(err, ErrInvalidMapping) {
+			return SubmissionChallenge{}, ErrFormUnavailable
+		}
+		return SubmissionChallenge{}, err
+	}
+
 	token, err := newSubmissionChallengeToken()
 	if err != nil {
 		return SubmissionChallenge{}, err
 	}
 	challenge := SubmissionChallenge{
-		Token:     token,
-		NotBefore: now.Add(submissionChallengeMinAge),
-		ExpiresAt: now.Add(submissionChallengeTTL),
+		Token:        token,
+		FormRevision: form.Revision,
+		NotBefore:    now.Add(submissionChallengeMinAge),
+		ExpiresAt:    now.Add(submissionChallengeTTL),
 	}
 	if err := s.pool.QueryRow(ctx, `
 		INSERT INTO lead_capture_submission_challenges (
-			organization_id, form_id, token_digest, consent_text_snapshot,
+			organization_id, form_id, token_digest, consent_text_snapshot, form_revision,
 			issued_at, not_before, expires_at
 		)
-		SELECT organization_id, id, $2, consent_text, $3, $4, $5
+		SELECT organization_id, id, $2, consent_text, COALESCE(revision, 1), $3, $4, $5
 		FROM lead_capture_forms
-		WHERE public_id = $1 AND is_active = TRUE
+		WHERE public_id = $1 AND organization_id = $6 AND id = $7
+		  AND is_active = TRUE AND COALESCE(revision, 1) = $8
 		RETURNING consent_text_snapshot
-	`, publicID, submissionChallengeDigest(token), now, challenge.NotBefore, challenge.ExpiresAt).Scan(&challenge.ConsentText); err != nil {
+	`, publicID, submissionChallengeDigest(token), now, challenge.NotBefore, challenge.ExpiresAt, organizationID, form.ID, form.Revision).Scan(&challenge.ConsentText); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return SubmissionChallenge{}, ErrNotFound
 		}
@@ -93,12 +107,13 @@ func (s *Service) lockSubmissionChallenge(ctx context.Context, tx pgx.Tx, organi
 	}
 	var challenge lockedSubmissionChallenge
 	if err := tx.QueryRow(ctx, `
-		SELECT consent_text_snapshot, request_digest, submission_id, not_before, expires_at, consumed_at
+		SELECT consent_text_snapshot, COALESCE(form_revision, 1), request_digest, submission_id, not_before, expires_at, consumed_at
 		FROM lead_capture_submission_challenges
 		WHERE organization_id = $1 AND form_id = $2 AND token_digest = $3
 		FOR UPDATE
 	`, organizationID, formID, submissionChallengeDigest(token)).Scan(
 		&challenge.consentText,
+		&challenge.formRevision,
 		&challenge.requestDigest,
 		&challenge.submissionID,
 		&challenge.notBefore,
@@ -119,11 +134,12 @@ func (s *Service) loadSubmissionChallenge(ctx context.Context, organizationID, f
 	}
 	var challenge lockedSubmissionChallenge
 	if err := s.pool.QueryRow(ctx, `
-		SELECT consent_text_snapshot, request_digest, submission_id, not_before, expires_at, consumed_at
+		SELECT consent_text_snapshot, COALESCE(form_revision, 1), request_digest, submission_id, not_before, expires_at, consumed_at
 		FROM lead_capture_submission_challenges
 		WHERE organization_id = $1 AND form_id = $2 AND token_digest = $3
 	`, organizationID, formID, submissionChallengeDigest(token)).Scan(
 		&challenge.consentText,
+		&challenge.formRevision,
 		&challenge.requestDigest,
 		&challenge.submissionID,
 		&challenge.notBefore,
@@ -138,33 +154,119 @@ func (s *Service) loadSubmissionChallenge(ctx context.Context, organizationID, f
 	return challenge, nil
 }
 
-func (s *Service) replayedSubmission(ctx context.Context, queryer submissionQueryer, organizationID, formID int64, challenge lockedSubmissionChallenge, requestDigest, successMessage string) (SubmissionResult, bool, error) {
+func (s *Service) replayedSubmission(ctx context.Context, queryer submissionQueryer, organizationID, formID int64, challenge lockedSubmissionChallenge, input SubmissionInput, successMessage string) (SubmissionResult, bool, error) {
 	if challenge.consumedAt == nil {
 		return SubmissionResult{}, false, nil
 	}
-	if challenge.requestDigest == nil || challenge.submissionID == nil || *challenge.requestDigest != requestDigest {
+	if challenge.requestDigest == nil || challenge.submissionID == nil {
 		return SubmissionResult{}, false, ErrChallengeInvalid
 	}
 	var submission Submission
+	var payloadJSON []byte
+	var sourceURL, consentText string
+	var attribution Attribution
+	var formRevision int
 	if err := queryer.QueryRow(ctx, `
-		SELECT id, form_id, COALESCE(contact_id, 0), created_at
+		SELECT id, form_id, COALESCE(contact_id, 0), created_at,
+		       payload_json, source_url, lead_source, utm_source, utm_medium,
+		       utm_campaign, utm_term, utm_content, consent_text_snapshot,
+		       COALESCE(form_revision, 1)
 		FROM lead_capture_submissions
 		WHERE organization_id = $1 AND form_id = $2 AND id = $3
-	`, organizationID, formID, *challenge.submissionID).Scan(
+		  AND COALESCE(form_revision, 1) = $4
+	`, organizationID, formID, *challenge.submissionID, challenge.formRevision).Scan(
 		&submission.ID,
 		&submission.FormID,
 		&submission.ContactID,
 		&submission.CreatedAt,
+		&payloadJSON,
+		&sourceURL,
+		&attribution.LeadSource,
+		&attribution.UTMSource,
+		&attribution.UTMMedium,
+		&attribution.UTMCampaign,
+		&attribution.UTMTerm,
+		&attribution.UTMContent,
+		&consentText,
+		&formRevision,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return SubmissionResult{}, false, ErrChallengeInvalid
 		}
 		return SubmissionResult{}, false, fmt.Errorf("load replayed lead submission: %w", err)
 	}
+	var payload map[string]string
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return SubmissionResult{}, false, fmt.Errorf("decode replayed lead submission payload: %w", err)
+	}
+	storedDigest, err := submissionRequestDigest(Form{ID: formID, Revision: formRevision}, payload, sourceURL, attribution, consentText)
+	if err != nil {
+		return SubmissionResult{}, false, err
+	}
+	if storedDigest != *challenge.requestDigest {
+		// Challenges accepted before revision binding used the same canonical
+		// request without formRevision. Honor those retained 24-hour replay
+		// records while all newly consumed challenges use the revisioned digest.
+		legacyDigest, err := legacySubmissionRequestDigest(formID, payload, sourceURL, attribution, consentText)
+		if err != nil {
+			return SubmissionResult{}, false, err
+		}
+		if legacyDigest != *challenge.requestDigest {
+			return SubmissionResult{}, false, ErrChallengeInvalid
+		}
+	}
+	normalizedValues, err := normalizeValues(input.Values)
+	if err != nil {
+		return SubmissionResult{}, false, ErrChallengeInvalid
+	}
+	incomingSourceURL := trimMax(input.SourceURL, 2048)
+	// Use the retained lead-source value as the fallback so an exact retry stays
+	// idempotent even if an administrator edits the form after acceptance.
+	incomingAttribution := normalizeAttribution(Form{SourceLabel: attribution.LeadSource}, input, incomingSourceURL)
+	if !sameSubmissionValues(payload, normalizedValues) || incomingSourceURL != sourceURL || incomingAttribution != attribution || consentText != challenge.consentText || formRevision != challenge.formRevision {
+		return SubmissionResult{}, false, ErrChallengeInvalid
+	}
 	return SubmissionResult{Submission: submission, SuccessMessage: successMessage, Replayed: true}, true, nil
 }
 
+func sameSubmissionValues(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		candidate, ok := right[key]
+		if !ok || candidate != value {
+			return false
+		}
+	}
+	return true
+}
+
 func submissionRequestDigest(form Form, payload map[string]string, sourceURL string, attribution Attribution, consentText string) (string, error) {
+	canonical := struct {
+		FormID       int64             `json:"formId"`
+		FormRevision int               `json:"formRevision"`
+		Values       map[string]string `json:"values"`
+		SourceURL    string            `json:"sourceUrl"`
+		Attribution  Attribution       `json:"attribution"`
+		ConsentText  string            `json:"consentText"`
+	}{
+		FormID:       form.ID,
+		FormRevision: form.Revision,
+		Values:       payload,
+		SourceURL:    sourceURL,
+		Attribution:  attribution,
+		ConsentText:  consentText,
+	}
+	encoded, err := json.Marshal(canonical)
+	if err != nil {
+		return "", fmt.Errorf("encode lead submission request digest: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func legacySubmissionRequestDigest(formID int64, payload map[string]string, sourceURL string, attribution Attribution, consentText string) (string, error) {
 	canonical := struct {
 		FormID      int64             `json:"formId"`
 		Values      map[string]string `json:"values"`
@@ -172,7 +274,7 @@ func submissionRequestDigest(form Form, payload map[string]string, sourceURL str
 		Attribution Attribution       `json:"attribution"`
 		ConsentText string            `json:"consentText"`
 	}{
-		FormID:      form.ID,
+		FormID:      formID,
 		Values:      payload,
 		SourceURL:   sourceURL,
 		Attribution: attribution,
@@ -180,7 +282,7 @@ func submissionRequestDigest(form Form, payload map[string]string, sourceURL str
 	}
 	encoded, err := json.Marshal(canonical)
 	if err != nil {
-		return "", fmt.Errorf("encode lead submission request digest: %w", err)
+		return "", fmt.Errorf("encode legacy lead submission request digest: %w", err)
 	}
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:]), nil

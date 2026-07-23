@@ -54,6 +54,11 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 			return Definition{}, err
 		}
 	}
+	if input.EntityType == "contact" && input.Required {
+		if err := ensureRequiredLeadFormCoverage(ctx, tx, organizationID, input.FieldKey); err != nil {
+			return Definition{}, err
+		}
+	}
 	optionsJSON, _ := json.Marshal(input.Options)
 	definition, err := scanDefinition(tx.QueryRow(ctx, `
 		INSERT INTO custom_field_definitions (organization_id,created_by_user_id,entity_type,field_key,label,data_type,options_json,is_required,show_in_list,position)
@@ -106,6 +111,11 @@ func (s *Service) Update(ctx context.Context, organizationID, actorUserID, defin
 			return Definition{}, err
 		}
 	}
+	if current.EntityType == "contact" && input.Required {
+		if err := ensureRequiredLeadFormCoverage(ctx, tx, organizationID, current.FieldKey); err != nil {
+			return Definition{}, err
+		}
+	}
 	optionsJSON, _ := json.Marshal(input.Options)
 	definition, err := scanDefinition(tx.QueryRow(ctx, `
 		UPDATE custom_field_definitions SET label=$3,options_json=$4::jsonb,is_required=$5,show_in_list=$6,position=$7,updated_at=NOW()
@@ -120,6 +130,11 @@ func (s *Service) Update(ctx context.Context, organizationID, actorUserID, defin
 	}
 	if err := auditDefinition(ctx, tx, organizationID, actorUserID, definition, "custom_field.updated", "Updated custom field"); err != nil {
 		return Definition{}, err
+	}
+	if definition.EntityType == "contact" {
+		if err := advanceMappedLeadForms(ctx, tx, organizationID, actorUserID, definition.FieldKey, "Contact custom field definition changed"); err != nil {
+			return Definition{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Definition{}, fmt.Errorf("commit custom field update: %w", err)
@@ -139,6 +154,30 @@ func (s *Service) Archive(ctx context.Context, organizationID, actorUserID, defi
 	if err := requireActiveActor(ctx, tx, organizationID, actorUserID); err != nil {
 		return err
 	}
+	current, err := loadDefinitionForUpdate(ctx, tx, organizationID, definitionID)
+	if errors.Is(err, pgx.ErrNoRows) || current.ArchivedAt != nil {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load custom field for archive: %w", err)
+	}
+	if current.EntityType == "contact" {
+		var mappedByActiveForm bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM lead_capture_forms form
+				CROSS JOIN LATERAL jsonb_array_elements(form.fields_json) field
+				WHERE form.organization_id=$1 AND form.is_active=TRUE
+				  AND field->>'mapTo'=$2
+			)
+		`, organizationID, "custom:"+current.FieldKey).Scan(&mappedByActiveForm); err != nil {
+			return fmt.Errorf("check active lead form custom-field mapping: %w", err)
+		}
+		if mappedByActiveForm {
+			return fmt.Errorf("%w: deactivate or remap active lead forms before archiving this field", ErrConflict)
+		}
+	}
 	definition, err := scanDefinition(tx.QueryRow(ctx, `
 		UPDATE custom_field_definitions SET archived_at=NOW(),updated_at=NOW()
 		WHERE organization_id=$1 AND id=$2 AND archived_at IS NULL
@@ -152,6 +191,11 @@ func (s *Service) Archive(ctx context.Context, organizationID, actorUserID, defi
 	}
 	if err := auditDefinition(ctx, tx, organizationID, actorUserID, definition, "custom_field.archived", "Archived custom field"); err != nil {
 		return err
+	}
+	if definition.EntityType == "contact" {
+		if err := advanceMappedLeadForms(ctx, tx, organizationID, actorUserID, definition.FieldKey, "Mapped contact custom field was archived"); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit custom field archive: %w", err)

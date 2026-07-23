@@ -26,6 +26,7 @@ describe('public landing page route', () => {
               id: 3,
               name: 'Website Leads',
               publicId: 'lf_public',
+			  revision: 4,
               title: 'Talk to sales',
               description: 'We will follow up shortly.',
               successMessage: 'Thanks. We will be in touch soon.',
@@ -36,14 +37,18 @@ describe('public landing page route', () => {
                 { key: 'firstName', label: 'First name', fieldType: 'text', required: true, mapTo: 'firstName' },
                 { key: 'lastName', label: 'Last name', fieldType: 'text', required: true, mapTo: 'lastName' },
                 { key: 'email', label: 'Email', fieldType: 'email', required: true, mapTo: 'email' },
-                { key: 'message', label: 'Message', fieldType: 'textarea', required: false, mapTo: '' }
+				{ key: 'message', label: 'Message', fieldType: 'textarea', required: false, mapTo: '' },
+				{ key: 'relationship', label: 'Relationship segment', fieldType: 'select', required: true, mapTo: 'custom:relationship_segment', options: ['Customer', 'Partner'] },
+				{ key: 'seats', label: 'Team size', fieldType: 'number', required: false, mapTo: 'custom:team_size' },
+				{ key: 'renewal', label: 'Renewal date', fieldType: 'date', required: false, mapTo: 'custom:renewal_date' },
+				{ key: 'qualified', label: 'Qualified', fieldType: 'boolean', required: false, mapTo: 'custom:qualified' }
               ]
             }
           }
         })
       }
       if (path.endsWith('/api/public/lead-capture-forms/lf_public/challenge') && method === 'POST') {
-        return jsonResponse({ data: { challenge: { token: 'lead-challenge-token', consentText: 'I agree to receive a reply about this demo request.', notBefore: '2020-01-01T00:00:00Z', expiresAt: '2030-01-01T00:00:00Z' } } }, 201)
+        return jsonResponse({ data: { challenge: { token: 'lead-challenge-token', formRevision: 4, consentText: 'I agree to receive a reply about this demo request.', notBefore: '2020-01-01T00:00:00Z', expiresAt: '2030-01-01T00:00:00Z' } } }, 201)
       }
       if (path.endsWith('/api/public/lead-capture-forms/lf_public/submissions') && method === 'POST') {
         return jsonResponse({ data: { successMessage: 'Thanks. We will be in touch soon.' } }, 201)
@@ -65,6 +70,10 @@ describe('public landing page route', () => {
     fireEvent.change(screen.getByLabelText(/^last name$/i), { target: { value: 'Lovelace' } })
     fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'ada@example.com' } })
     fireEvent.change(screen.getByLabelText(/^message$/i), { target: { value: 'I want a walkthrough.' } })
+	fireEvent.change(screen.getByLabelText(/^relationship segment$/i), { target: { value: 'Partner' } })
+	fireEvent.change(screen.getByLabelText(/^team size$/i), { target: { value: '23' } })
+	fireEvent.change(screen.getByLabelText(/^renewal date$/i), { target: { value: '2027-04-12' } })
+	fireEvent.change(screen.getByLabelText(/^qualified$/i), { target: { value: 'true' } })
     fireEvent.click(screen.getByRole('checkbox', { name: /receive a reply about this demo request/i }))
     fireEvent.click(submitButton)
 
@@ -79,7 +88,11 @@ describe('public landing page route', () => {
           firstName: 'Ada',
           lastName: 'Lovelace',
           email: 'ada@example.com',
-          message: 'I want a walkthrough.'
+		  message: 'I want a walkthrough.',
+		  relationship: 'Partner',
+		  seats: '23',
+		  renewal: '2027-04-12',
+		  qualified: 'true'
         },
         sourceUrl: 'http://localhost:3000/lp/demo-request?utm_source=google&utm_medium=cpc&utm_campaign=spring-demo&utm_term=crm&utm_content=headline',
         attribution: {
@@ -95,4 +108,40 @@ describe('public landing page route', () => {
       })
     })
   })
+
+	it('blocks submission when the challenge belongs to an older form revision', async () => {
+		const fetchMock = vi.fn(async (url, options = {}) => {
+			const requestURL = new URL(String(url), 'http://localhost')
+			const path = requestURL.pathname
+			const method = options.method || 'GET'
+			if (path.endsWith('/auth/me')) return jsonResponse({ error: { message: 'Authentication required' } }, 401)
+			if (path.endsWith('/api/public/landing-pages/revised')) {
+				return jsonResponse({ data: {
+					page: { slug: 'revised', title: 'Revised form', ctaLabel: 'Send', isActive: true },
+					form: {
+						publicId: 'lf_revised',
+						revision: 5,
+						title: 'Revised form',
+						consentText: 'I agree to be contacted.',
+						fields: [
+							{ key: 'firstName', label: 'First name', fieldType: 'text', required: true, mapTo: 'firstName' },
+							{ key: 'lastName', label: 'Last name', fieldType: 'text', required: true, mapTo: 'lastName' }
+						]
+					}
+				} })
+			}
+			if (path.endsWith('/api/public/lead-capture-forms/lf_revised/challenge') && method === 'POST') {
+				return jsonResponse({ data: { challenge: { token: 'stale-token', formRevision: 4, consentText: 'Old consent', notBefore: '2020-01-01T00:00:00Z', expiresAt: '2030-01-01T00:00:00Z' } } }, 201)
+			}
+			throw new Error(`Unexpected fetch: ${method} ${path}`)
+		})
+
+		vi.stubGlobal('fetch', fetchMock)
+		window.history.pushState({}, '', '/lp/revised')
+		render(<AppRouter />)
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('This form changed. Refresh the page before submitting.')
+		expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+		expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/submissions'))).toBe(false)
+	})
 })

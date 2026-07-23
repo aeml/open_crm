@@ -64,6 +64,54 @@ func TestContactInputFromSubmissionRequiresConfiguredFields(t *testing.T) {
 	}
 }
 
+func TestContactInputFromSubmissionRejectsUnknownAndInvalidTypedValues(t *testing.T) {
+	form := Form{Fields: []Field{
+		{Key: "first", Label: "First", FieldType: "text", Required: true, MapTo: "firstName"},
+		{Key: "last", Label: "Last", FieldType: "text", Required: true, MapTo: "lastName"},
+		{Key: "email", Label: "Email", FieldType: "email", MapTo: "email"},
+		{Key: "amount", Label: "Amount", FieldType: "number"},
+		{Key: "renewal", Label: "Renewal", FieldType: "date"},
+		{Key: "qualified", Label: "Qualified", FieldType: "boolean"},
+		{Key: "segment", Label: "Segment", FieldType: "select", Options: []string{"Customer", "Partner"}},
+	}}
+	base := map[string]string{"first": "Ada", "last": "Lovelace"}
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "unknown", key: "unconfigured", value: "secret"},
+		{name: "email", key: "email", value: "not-an-email"},
+		{name: "number", key: "amount", value: "NaN"},
+		{name: "date", key: "renewal", value: "04/12/2027"},
+		{name: "boolean", key: "qualified", value: "yes"},
+		{name: "select", key: "segment", value: "Prospect"},
+	}
+	for _, current := range tests {
+		t.Run(current.name, func(t *testing.T) {
+			values := make(map[string]string, len(base)+1)
+			for key, value := range base {
+				values[key] = value
+			}
+			values[current.key] = current.value
+			if _, _, err := contactInputFromSubmission(form, values); !errors.Is(err, ErrInvalidSubmission) {
+				t.Fatalf("expected invalid submission for %s=%q, got %v", current.key, current.value, err)
+			}
+		})
+	}
+}
+
+func TestValidateInputRequiresCoreNameMappingsToBeRequired(t *testing.T) {
+	input := normalizeInput(Input{Name: "Website leads", Fields: []Field{
+		{Key: "first", Label: "First", FieldType: "text", Required: false, MapTo: "firstName"},
+		{Key: "last", Label: "Last", FieldType: "text", Required: true, MapTo: "lastName"},
+	}})
+
+	if err := validateInput(input); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected optional first-name mapping to be rejected, got %v", err)
+	}
+}
+
 func TestNormalizeAttributionDerivesUTMFromSourceURL(t *testing.T) {
 	form := Form{SourceLabel: "Website form"}
 	input := SubmissionInput{SourceURL: "https://example.com/lp/demo?utm_source=google&utm_medium=cpc&utm_campaign=spring-demo&utm_term=crm&utm_content=headline"}
@@ -150,5 +198,14 @@ func TestValidateChatWidgetInputRejectsInvalidValues(t *testing.T) {
 		if err := validateChatWidgetInput(input); !errors.Is(err, ErrInvalidWidget) {
 			t.Fatalf("expected invalid widget for %#v, got %v", input, err)
 		}
+	}
+}
+
+func TestSameSubmissionValuesRequiresTheSameKeys(t *testing.T) {
+	if sameSubmissionValues(map[string]string{"first": "", "last": "Lovelace"}, map[string]string{"other": "", "last": "Lovelace"}) {
+		t.Fatal("submission values with different empty-valued keys matched")
+	}
+	if !sameSubmissionValues(map[string]string{"first": "Ada"}, map[string]string{"first": "Ada"}) {
+		t.Fatal("identical submission values did not match")
 	}
 }
