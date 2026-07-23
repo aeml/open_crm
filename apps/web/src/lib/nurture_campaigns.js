@@ -3,7 +3,10 @@ import { apiRequest } from './api'
 export async function listNurtureCampaigns({ signal } = {}) {
   const payload = await apiRequest('/api/lead-nurture-campaigns', { fallbackMessage: 'Unable to load nurture campaigns.', signal })
 
-  return payload?.data?.campaigns || []
+  return {
+    campaigns: payload?.data?.campaigns || [],
+    capacity: payload?.data?.capacity || { maxCampaigns: 100 },
+  }
 }
 
 export async function createNurtureCampaign(input, { signal } = {}) {

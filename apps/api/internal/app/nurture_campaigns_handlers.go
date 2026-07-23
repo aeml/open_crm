@@ -12,6 +12,9 @@ import (
 type nurtureCampaignsListResponse struct {
 	Data struct {
 		Campaigns []modulenurturecampaigns.Campaign `json:"campaigns"`
+		Capacity  struct {
+			MaxCampaigns int `json:"maxCampaigns"`
+		} `json:"capacity"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -48,12 +51,13 @@ func handleListNurtureCampaigns(auth authService, campaigns nurtureCampaignsServ
 
 	result, err := campaigns.ListByOrganization(r.Context(), state.Organization.ID)
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load nurture campaigns")
+		writeNurtureCampaignError(w, requestID, err)
 		return
 	}
 
 	response := nurtureCampaignsListResponse{}
 	response.Data.Campaigns = result
+	response.Data.Capacity.MaxCampaigns = modulenurturecampaigns.MaxCampaignsPerOrganization
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -132,9 +136,15 @@ func writeNurtureCampaignError(w http.ResponseWriter, requestID string, err erro
 	case errors.Is(err, modulenurturecampaigns.ErrInvalidAudience):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an active lead audience for this nurture campaign")
 	case errors.Is(err, modulenurturecampaigns.ErrInvalidSequence):
-		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an email sequence; active nurture campaigns require an active sequence")
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an email sequence; active nurture campaigns require a currently approved active sequence")
 	case errors.Is(err, modulenurturecampaigns.ErrDuplicateName):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A nurture campaign with that name already exists")
+	case errors.Is(err, modulenurturecampaigns.ErrCampaignLimit):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "NURTURE_CAMPAIGN_LIMIT", "This workspace already has the maximum number of nurture campaigns")
+	case errors.Is(err, modulenurturecampaigns.ErrForbidden):
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Owner or admin access is required to manage nurture campaigns")
+	case errors.Is(err, modulenurturecampaigns.ErrQueryTimeout):
+		platformweb.WriteError(w, http.StatusGatewayTimeout, requestID, "NURTURE_CAMPAIGN_QUERY_TIMEOUT", "Nurture campaign processing exceeded the five-second query limit")
 	case errors.Is(err, modulenurturecampaigns.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	default:

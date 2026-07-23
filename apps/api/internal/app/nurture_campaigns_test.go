@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -82,6 +84,9 @@ func TestListNurtureCampaignsScopesToOrganization(t *testing.T) {
 	var response struct {
 		Data struct {
 			Campaigns []modulenurturecampaigns.Campaign `json:"campaigns"`
+			Capacity  struct {
+				MaxCampaigns int `json:"maxCampaigns"`
+			} `json:"capacity"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -89,6 +94,9 @@ func TestListNurtureCampaignsScopesToOrganization(t *testing.T) {
 	}
 	if len(response.Data.Campaigns) != 1 || response.Data.Campaigns[0].EligibleCount != 12 {
 		t.Fatalf("unexpected nurture campaigns payload: %#v", response.Data.Campaigns)
+	}
+	if response.Data.Capacity.MaxCampaigns != modulenurturecampaigns.MaxCampaignsPerOrganization {
+		t.Fatalf("unexpected nurture campaign capacity: %#v", response.Data.Capacity)
 	}
 }
 
@@ -149,5 +157,58 @@ func TestUpdateNurtureCampaignScopesToOrganization(t *testing.T) {
 	}
 	if service.lastUpdateOrgID != 42 || service.lastUpdateID != 9 || service.lastUpdateUserID != 1 || service.lastUpdateInput.Status != "paused" {
 		t.Fatalf("unexpected update routing/input: org=%d id=%d user=%d input=%#v", service.lastUpdateOrgID, service.lastUpdateID, service.lastUpdateUserID, service.lastUpdateInput)
+	}
+}
+
+func TestNurtureCampaignErrorsHaveStableCapacityAuthorizationAndTimeoutContracts(t *testing.T) {
+	for _, scenario := range []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "capacity", err: modulenurturecampaigns.ErrCampaignLimit, statusCode: http.StatusConflict, code: "NURTURE_CAMPAIGN_LIMIT"},
+		{name: "forbidden", err: modulenurturecampaigns.ErrForbidden, statusCode: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "timeout", err: modulenurturecampaigns.ErrQueryTimeout, statusCode: http.StatusGatewayTimeout, code: "NURTURE_CAMPAIGN_QUERY_TIMEOUT"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			service := &fakeNurtureCampaignsService{createErr: fmt.Errorf("wrapped: %w", scenario.err)}
+			server := authenticatedNurtureCampaignsServer(service, "owner")
+			request := httptest.NewRequest(http.MethodPost, "/api/lead-nurture-campaigns", bytes.NewBufferString(`{"name":"Demo nurture","audienceId":9,"sequenceId":3,"status":"draft"}`))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != scenario.statusCode {
+				t.Fatalf("expected status %d, got %d", scenario.statusCode, recorder.Code)
+			}
+			var response struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			if response.Error.Code != scenario.code {
+				t.Fatalf("expected code %q, got %q", scenario.code, response.Error.Code)
+			}
+		})
+	}
+}
+
+func TestListNurtureCampaignsMapsQueryTimeout(t *testing.T) {
+	service := &fakeNurtureCampaignsService{listErr: errors.Join(errors.New("query failed"), modulenurturecampaigns.ErrQueryTimeout)}
+	server := authenticatedNurtureCampaignsServer(service, "member")
+	request := httptest.NewRequest(http.MethodGet, "/api/lead-nurture-campaigns", nil)
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusGatewayTimeout || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"NURTURE_CAMPAIGN_QUERY_TIMEOUT"`)) {
+		t.Fatalf("unexpected timeout response: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

@@ -48,6 +48,7 @@ export function SettingsNurtureCampaignsRoute() {
   const { canAdminister: canManage } = useAuth()
   usePageTitle('Nurture Campaigns')
   const [campaigns, setCampaigns] = useState([])
+  const [maxCampaigns, setMaxCampaigns] = useState(100)
   const [audiences, setAudiences] = useState([])
   const [sequences, setSequences] = useState([])
   const [form, setForm] = useState(emptyForm)
@@ -60,12 +61,13 @@ export function SettingsNurtureCampaignsRoute() {
   async function loadData({ signal } = {}) {
     setIsLoading(true)
     try {
-      const [nextCampaigns, nextAudienceCatalog, nextSequences] = await Promise.all([
+      const [nextCampaignCatalog, nextAudienceCatalog, nextSequences] = await Promise.all([
         listNurtureCampaigns({ signal }),
         listLeadAudiences({ signal }),
         listEmailSequences({ signal })
       ])
-      setCampaigns(nextCampaigns)
+      setCampaigns(nextCampaignCatalog.campaigns)
+      setMaxCampaigns(nextCampaignCatalog.capacity.maxCampaigns)
       setAudiences(nextAudienceCatalog.audiences.filter((audience) => audience.isActive !== false))
       setSequences(nextSequences)
       setError('')
@@ -125,6 +127,8 @@ export function SettingsNurtureCampaignsRoute() {
     }
   }
 
+  const createAtCapacity = editingId === null && campaigns.length >= maxCampaigns
+
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
@@ -133,6 +137,7 @@ export function SettingsNurtureCampaignsRoute() {
             <div>
               <h2>Nurture campaigns</h2>
               <p>Connect saved audiences to email sequences before adding automatic enrollment rules.</p>
+              <p className="field-hint">{campaigns.length} of {maxCampaigns} stored campaigns.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading nurture campaigns...</p> : null}
@@ -169,13 +174,13 @@ export function SettingsNurtureCampaignsRoute() {
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
             <div>
               <h2>{editingId ? 'Edit nurture campaign' : 'New nurture campaign'}</h2>
-              <p className="field-hint">Active nurture campaigns require an active sequence. Automatic audience enrollment ships later.</p>
+              <p className="field-hint">Active nurture campaigns require a currently approved active sequence. Automatic audience enrollment ships later.</p>
             </div>
             <Field label="Campaign name">
-              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Demo request nurture" required />
+              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Demo request nurture" maxLength={120} required />
             </Field>
             <Field label="Description">
-              <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Contacts captured from demo campaigns." />
+              <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Contacts captured from demo campaigns." maxLength={1000} />
             </Field>
             <Field label="Audience" hint={audiences.length === 0 ? 'Create an active audience before saving a nurture campaign.' : ''}>
               <select className="text-input" value={form.audienceId} onChange={(event) => setForm({ ...form, audienceId: event.target.value })} required>
@@ -198,7 +203,7 @@ export function SettingsNurtureCampaignsRoute() {
               </select>
             </Field>
             <div className="button-row">
-              <Button type="submit" disabled={isSaving || audiences.length === 0 || sequences.length === 0}>{isSaving ? 'Saving...' : editingId ? 'Save nurture campaign' : 'Create nurture campaign'}</Button>
+              <Button type="submit" disabled={isSaving || audiences.length === 0 || sequences.length === 0 || createAtCapacity}>{isSaving ? 'Saving...' : editingId ? 'Save nurture campaign' : 'Create nurture campaign'}</Button>
               {editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}
             </div>
           </form>

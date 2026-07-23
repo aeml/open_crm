@@ -885,6 +885,17 @@ role/tenant/audience isolation, distinct tenant snapshots, and update recovery a
 capacity. This bounds a development-only definition path; it is not delivery or
 provider-performance evidence.
 
+The hidden nurture-campaign catalog now has the same five-second deadline and
+serialized 100-total definition ceiling. Definition writes revalidate the
+active owner/admin, lock the selected active audience and same-tenant sequence,
+calculate eligible contacts through the same transaction, and require an exact
+current-revision sequence approval before activation. Fresh-PostgreSQL
+acceptance deliberately blocks contact counting and proves timeout rollback,
+then covers the final-slot race, complete catalog, role/tenant/dependency and
+approval isolation, distinct counts, and update recovery at capacity. This
+bounds a development-only definition path; it is not enrollment, delivery, or
+provider-performance evidence.
+
 ## Source-size no-growth ratchet
 
 Source size is an imperfect complexity measure, so these limits are a temporary

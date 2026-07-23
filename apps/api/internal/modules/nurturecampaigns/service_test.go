@@ -2,6 +2,7 @@ package nurturecampaigns
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -27,6 +28,8 @@ func TestValidateInputRequiresAudienceSequenceAndValidStatus(t *testing.T) {
 		{Name: "Demo nurture", AudienceID: 0, SequenceID: 7, Status: "draft"},
 		{Name: "Demo nurture", AudienceID: 4, SequenceID: 0, Status: "draft"},
 		{Name: "Demo nurture", AudienceID: 4, SequenceID: 7, Status: "queued"},
+		{Name: strings.Repeat("界", MaxCampaignNameLength+1), AudienceID: 4, SequenceID: 7, Status: "draft"},
+		{Name: "Demo nurture", Description: strings.Repeat("界", MaxCampaignDescription+1), AudienceID: 4, SequenceID: 7, Status: "draft"},
 	} {
 		if err := validateInput(input); !errors.Is(err, ErrInvalidInput) {
 			t.Fatalf("expected invalid input for %#v, got %v", input, err)
