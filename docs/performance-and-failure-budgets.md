@@ -269,6 +269,14 @@ grouped numeric bar outcomes, but production filters its custom line/funnel/pie/
 controls and definitions from navigation. This
 preserves normal navigation for production-capable outcomes while keeping
 unfinished foundations available in development.
+
+The hidden calendar catalog is nevertheless bounded before provider/public-booking
+work: complete booking-link reads retain at most 100 links per workspace and 20
+hosts per link, while availability retains at most 28 blocks per user. All catalog
+reads and writes have a five-second deadline. A tenant row lock serializes the
+final link slot, and availability replacement returns its complete committed set
+from the same transaction; fresh-PostgreSQL acceptance covers concurrency,
+tenant-safe host projection, forced timeout rollback, and recovery at capacity.
 Future frontend slices must remain within the ratcheted ceilings. The complete custom-field outcome
 adds an isolated 6.66 KiB/2.27 KiB settings route plus shared typed forms,
 filtering, import/export, and duplicate-review code. Archive recovery adds a
@@ -754,9 +762,9 @@ ceiling remains unchanged.
 
 Bounded retained-team administration reuses the shared catalog controller and
 complete-catalog traversal while keeping disabled history out of ordinary
-active teammate selectors. The 400-line settings route is 13.61/4.28 KiB
-raw/gzip. The current production-URL Node 24 build measures 179.11/58.08 KiB
-entry, 54.10/15.64 KiB largest lazy chunk, and 810.25/255.34 KiB aggregate
+active teammate selectors. The 400-line settings route is 13.61/4.30 KiB
+raw/gzip. The current production-URL Node 24 build measures 179.11/58.09 KiB
+entry, 54.10/15.65 KiB largest lazy chunk, and 809.27/255.07 KiB aggregate
 raw/gzip. The measured user outcome advances only the aggregate gzip ceiling
 from 255 to 256 KiB; the 817 KiB aggregate-raw ceiling and every entry,
 per-route, CSS, hidden-foundation, and source ceiling remain unchanged.

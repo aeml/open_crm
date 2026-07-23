@@ -30,7 +30,10 @@ type calendarEventResponse struct {
 
 type calendarAvailabilityResponse struct {
 	Data struct {
-		Blocks []modulecalendar.AvailabilityBlock `json:"blocks"`
+		Blocks   []modulecalendar.AvailabilityBlock `json:"blocks"`
+		Capacity struct {
+			MaxBlocks int `json:"maxBlocks"`
+		} `json:"capacity"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -39,7 +42,11 @@ type calendarAvailabilityResponse struct {
 
 type calendarBookingLinksResponse struct {
 	Data struct {
-		Links []modulecalendar.BookingLink `json:"links"`
+		Links    []modulecalendar.BookingLink `json:"links"`
+		Capacity struct {
+			MaxLinks   int `json:"maxLinks"`
+			MaxMembers int `json:"maxMembers"`
+		} `json:"capacity"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -203,6 +210,7 @@ func handleListCalendarAvailability(auth authService, calendar calendarService, 
 
 	response := calendarAvailabilityResponse{}
 	response.Data.Blocks = blocks
+	response.Data.Capacity.MaxBlocks = modulecalendar.MaxAvailabilityBlocksPerUser
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -234,6 +242,7 @@ func handleUpdateCalendarAvailability(auth authService, calendar calendarService
 
 	response := calendarAvailabilityResponse{}
 	response.Data.Blocks = updated
+	response.Data.Capacity.MaxBlocks = modulecalendar.MaxAvailabilityBlocksPerUser
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -257,6 +266,8 @@ func handleListCalendarBookingLinks(auth authService, calendar calendarService, 
 
 	response := calendarBookingLinksResponse{}
 	response.Data.Links = links
+	response.Data.Capacity.MaxLinks = modulecalendar.MaxBookingLinksPerOrganization
+	response.Data.Capacity.MaxMembers = modulecalendar.MaxBookingLinkMembers
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -362,6 +373,18 @@ func writeCalendarError(w http.ResponseWriter, requestID string, err error, fall
 	}
 	if errors.Is(err, modulecalendar.ErrDuplicateBookingLinkSlug) {
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A booking link with that slug already exists")
+		return
+	}
+	if errors.Is(err, modulecalendar.ErrBookingLinkLimit) {
+		platformweb.WriteError(w, http.StatusConflict, requestID, "BOOKING_LINK_LIMIT", "The workspace booking-link limit has been reached")
+		return
+	}
+	if errors.Is(err, modulecalendar.ErrForbidden) {
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "You no longer have permission to manage calendar settings")
+		return
+	}
+	if errors.Is(err, modulecalendar.ErrQueryTimeout) {
+		platformweb.WriteError(w, http.StatusGatewayTimeout, requestID, "CALENDAR_QUERY_TIMEOUT", "Calendar settings timed out; retry safely")
 		return
 	}
 	if errors.Is(err, modulecalendar.ErrProviderUnavailable) {

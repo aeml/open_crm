@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
-
-const maxBookingLinkMembers = 20
 
 var ErrDuplicateBookingLinkSlug = errors.New("calendar booking link slug already exists")
 
@@ -60,15 +59,9 @@ func (s *Service) ListBookingLinks(ctx context.Context, organizationID int64) ([
 	if organizationID <= 0 {
 		return nil, ErrInvalidInput
 	}
-	rows, err := s.pool.Query(ctx, bookingLinkSelect+`
-		WHERE bl.organization_id = $1
-		ORDER BY bl.is_active DESC, lower(bl.name) ASC, bl.id ASC, COALESCE(m.position, 0) ASC, COALESCE(m.id, 0) ASC
-	`, organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("list calendar booking links: %w", err)
-	}
-	defer rows.Close()
-	return scanBookingLinks(rows)
+	queryCtx, cancel := context.WithTimeout(ctx, calendarCatalogQueryTimeout)
+	defer cancel()
+	return listBookingLinksWithQuerier(queryCtx, s.pool, organizationID)
 }
 
 func (s *Service) CreateBookingLink(ctx context.Context, organizationID, actorUserID int64, input BookingLinkInput) (BookingLink, error) {
@@ -79,18 +72,29 @@ func (s *Service) CreateBookingLink(ctx context.Context, organizationID, actorUs
 	if organizationID <= 0 || actorUserID <= 0 || !validBookingLinkInput(input) {
 		return BookingLink{}, ErrInvalidInput
 	}
-	if err := s.ensureBookingLinkMembers(ctx, organizationID, input.MemberUserIDs); err != nil {
+	queryCtx, cancel := context.WithTimeout(ctx, calendarCatalogQueryTimeout)
+	defer cancel()
+	tx, err := s.pool.BeginTx(queryCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return BookingLink{}, mapCalendarQueryError("begin calendar booking link create", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := lockCalendarWriter(queryCtx, tx, organizationID, actorUserID); err != nil {
+		return BookingLink{}, err
+	}
+	var linkCount int
+	if err := tx.QueryRow(queryCtx, `SELECT COUNT(*)::int FROM calendar_booking_links WHERE organization_id=$1`, organizationID).Scan(&linkCount); err != nil {
+		return BookingLink{}, mapCalendarQueryError("count calendar booking links", err)
+	}
+	if linkCount >= MaxBookingLinksPerOrganization {
+		return BookingLink{}, ErrBookingLinkLimit
+	}
+	if err := ensureBookingLinkMembers(queryCtx, tx, organizationID, input.MemberUserIDs); err != nil {
 		return BookingLink{}, err
 	}
 
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return BookingLink{}, fmt.Errorf("begin calendar booking link create: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
 	var linkID int64
-	err = tx.QueryRow(ctx, `
+	err = tx.QueryRow(queryCtx, `
 		INSERT INTO calendar_booking_links (organization_id, slug, name, description, duration_minutes, buffer_minutes, timezone, assignment_mode, is_active, created_by_user_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id
@@ -98,13 +102,17 @@ func (s *Service) CreateBookingLink(ctx context.Context, organizationID, actorUs
 	if err != nil {
 		return BookingLink{}, mapBookingLinkSaveError(err)
 	}
-	if err := insertBookingLinkMembers(ctx, tx, linkID, input.MemberUserIDs); err != nil {
+	if err := insertBookingLinkMembers(queryCtx, tx, linkID, input.MemberUserIDs); err != nil {
 		return BookingLink{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return BookingLink{}, fmt.Errorf("commit calendar booking link create: %w", err)
+	link, err := getBookingLinkWithQuerier(queryCtx, tx, organizationID, linkID)
+	if err != nil {
+		return BookingLink{}, err
 	}
-	return s.GetBookingLink(ctx, organizationID, linkID)
+	if err := tx.Commit(queryCtx); err != nil {
+		return BookingLink{}, mapCalendarQueryError("commit calendar booking link create", err)
+	}
+	return link, nil
 }
 
 func (s *Service) UpdateBookingLink(ctx context.Context, organizationID, actorUserID, bookingLinkID int64, input BookingLinkInput) (BookingLink, error) {
@@ -115,17 +123,31 @@ func (s *Service) UpdateBookingLink(ctx context.Context, organizationID, actorUs
 	if organizationID <= 0 || actorUserID <= 0 || bookingLinkID <= 0 || !validBookingLinkInput(input) {
 		return BookingLink{}, ErrInvalidInput
 	}
-	if err := s.ensureBookingLinkMembers(ctx, organizationID, input.MemberUserIDs); err != nil {
+	queryCtx, cancel := context.WithTimeout(ctx, calendarCatalogQueryTimeout)
+	defer cancel()
+	tx, err := s.pool.BeginTx(queryCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return BookingLink{}, mapCalendarQueryError("begin calendar booking link update", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := lockCalendarWriter(queryCtx, tx, organizationID, actorUserID); err != nil {
+		return BookingLink{}, err
+	}
+	var lockedLinkID int64
+	if err := tx.QueryRow(queryCtx, `
+		SELECT id FROM calendar_booking_links
+		WHERE organization_id=$1 AND id=$2
+		FOR UPDATE
+	`, organizationID, bookingLinkID).Scan(&lockedLinkID); errors.Is(err, pgx.ErrNoRows) {
+		return BookingLink{}, ErrNotFound
+	} else if err != nil {
+		return BookingLink{}, mapCalendarQueryError("lock calendar booking link", err)
+	}
+	if err := ensureBookingLinkMembers(queryCtx, tx, organizationID, input.MemberUserIDs); err != nil {
 		return BookingLink{}, err
 	}
 
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return BookingLink{}, fmt.Errorf("begin calendar booking link update: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	tag, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(queryCtx, `
 		UPDATE calendar_booking_links
 		SET slug = $3, name = $4, description = $5, duration_minutes = $6, buffer_minutes = $7, timezone = $8, assignment_mode = $9, is_active = $10, updated_at = NOW()
 		WHERE organization_id = $1 AND id = $2
@@ -136,51 +158,58 @@ func (s *Service) UpdateBookingLink(ctx context.Context, organizationID, actorUs
 	if tag.RowsAffected() == 0 {
 		return BookingLink{}, ErrNotFound
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM calendar_booking_link_members WHERE booking_link_id = $1`, bookingLinkID); err != nil {
-		return BookingLink{}, fmt.Errorf("replace calendar booking link members: %w", err)
+	if _, err := tx.Exec(queryCtx, `DELETE FROM calendar_booking_link_members WHERE booking_link_id = $1`, bookingLinkID); err != nil {
+		return BookingLink{}, mapCalendarQueryError("replace calendar booking link members", err)
 	}
-	if err := insertBookingLinkMembers(ctx, tx, bookingLinkID, input.MemberUserIDs); err != nil {
+	if err := insertBookingLinkMembers(queryCtx, tx, bookingLinkID, input.MemberUserIDs); err != nil {
 		return BookingLink{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return BookingLink{}, fmt.Errorf("commit calendar booking link update: %w", err)
+	link, err := getBookingLinkWithQuerier(queryCtx, tx, organizationID, bookingLinkID)
+	if err != nil {
+		return BookingLink{}, err
 	}
-	return s.GetBookingLink(ctx, organizationID, bookingLinkID)
+	if err := tx.Commit(queryCtx); err != nil {
+		return BookingLink{}, mapCalendarQueryError("commit calendar booking link update", err)
+	}
+	return link, nil
 }
 
 func (s *Service) GetBookingLink(ctx context.Context, organizationID, bookingLinkID int64) (BookingLink, error) {
 	if s == nil || s.pool == nil {
 		return BookingLink{}, fmt.Errorf("calendar service not configured")
 	}
-	rows, err := s.pool.Query(ctx, bookingLinkSelect+`
-		WHERE bl.organization_id = $1 AND bl.id = $2
-		ORDER BY COALESCE(m.position, 0) ASC, COALESCE(m.id, 0) ASC
-	`, organizationID, bookingLinkID)
-	if err != nil {
-		return BookingLink{}, fmt.Errorf("get calendar booking link: %w", err)
+	if organizationID <= 0 || bookingLinkID <= 0 {
+		return BookingLink{}, ErrInvalidInput
 	}
-	defer rows.Close()
-	links, err := scanBookingLinks(rows)
-	if err != nil {
-		return BookingLink{}, err
-	}
-	if len(links) == 0 {
-		return BookingLink{}, ErrNotFound
-	}
-	return links[0], nil
+	queryCtx, cancel := context.WithTimeout(ctx, calendarCatalogQueryTimeout)
+	defer cancel()
+	return getBookingLinkWithQuerier(queryCtx, s.pool, organizationID, bookingLinkID)
 }
 
-func (s *Service) ensureBookingLinkMembers(ctx context.Context, organizationID int64, userIDs []int64) error {
-	var count int
-	if err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(*)
+func ensureBookingLinkMembers(ctx context.Context, tx pgx.Tx, organizationID int64, userIDs []int64) error {
+	rows, err := tx.Query(ctx, `
+		SELECT user_id
 		FROM organization_memberships
 		WHERE organization_id = $1 AND user_id = ANY($2::bigint[])
 		  AND COALESCE(membership_status, 'active') = 'active'
-	`, organizationID, userIDs).Scan(&count); err != nil {
-		return fmt.Errorf("verify calendar booking link members: %w", err)
+		FOR SHARE
+	`, organizationID, userIDs)
+	if err != nil {
+		return mapCalendarQueryError("verify calendar booking link members", err)
 	}
-	if count != len(userIDs) {
+	defer rows.Close()
+	found := make(map[int64]struct{}, len(userIDs))
+	for rows.Next() {
+		var userID int64
+		if err := rows.Scan(&userID); err != nil {
+			return mapCalendarQueryError("scan calendar booking link member", err)
+		}
+		found[userID] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return mapCalendarQueryError("iterate calendar booking link members", err)
+	}
+	if len(found) != len(userIDs) {
 		return ErrInvalidInput
 	}
 	return nil
@@ -192,7 +221,7 @@ func insertBookingLinkMembers(ctx context.Context, tx pgx.Tx, bookingLinkID int6
 			INSERT INTO calendar_booking_link_members (booking_link_id, user_id, position)
 			VALUES ($1, $2, $3)
 		`, bookingLinkID, userID, i+1); err != nil {
-			return fmt.Errorf("save calendar booking link member: %w", err)
+			return mapCalendarQueryError("save calendar booking link member", err)
 		}
 	}
 	return nil
@@ -224,7 +253,14 @@ func normalizeBookingLinkInput(input BookingLinkInput, fallbackUserID int64) Boo
 }
 
 func validBookingLinkInput(input BookingLinkInput) bool {
-	return input.Name != "" && len(input.Name) <= 120 && input.Slug != "" && len(input.Slug) <= 80 && len(input.Description) <= 1000 && input.DurationMinutes >= 5 && input.DurationMinutes <= 480 && input.BufferMinutes >= 0 && input.BufferMinutes <= 240 && len(input.Timezone) <= 100 && validBookingAssignmentMode(input.AssignmentMode) && len(input.MemberUserIDs) > 0 && len(input.MemberUserIDs) <= maxBookingLinkMembers
+	return input.Name != "" && utf8.RuneCountInString(input.Name) <= MaxBookingLinkNameLength &&
+		input.Slug != "" && len(input.Slug) <= MaxBookingLinkSlugLength &&
+		utf8.RuneCountInString(input.Description) <= MaxBookingLinkDescription &&
+		input.DurationMinutes >= 5 && input.DurationMinutes <= 480 &&
+		input.BufferMinutes >= 0 && input.BufferMinutes <= 240 &&
+		input.Timezone != "" && utf8.RuneCountInString(input.Timezone) <= MaxCalendarTimezoneLength &&
+		validBookingAssignmentMode(input.AssignmentMode) &&
+		len(input.MemberUserIDs) > 0 && len(input.MemberUserIDs) <= MaxBookingLinkMembers
 }
 
 func validBookingAssignmentMode(value string) bool {
@@ -267,6 +303,9 @@ func slugifyBookingLink(value string) string {
 }
 
 func mapBookingLinkSaveError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrQueryTimeout
+	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		if pgErr.Code == "23505" {
@@ -282,13 +321,52 @@ func mapBookingLinkSaveError(err error) error {
 const bookingLinkSelect = `
 	SELECT bl.id, bl.slug, bl.name, bl.description, bl.duration_minutes, bl.buffer_minutes, bl.timezone, bl.assignment_mode, bl.is_active,
 	       bl.created_by_user_id, TRIM(COALESCE(cu.first_name, '') || ' ' || COALESCE(cu.last_name, '')), bl.created_at, bl.updated_at,
-	       COALESCE(m.user_id, 0), COALESCE(mu.first_name, ''), COALESCE(mu.last_name, ''), COALESCE(mu.email, ''), COALESCE(om.role, ''), COALESCE(m.position, 0)
+	       COALESCE(om.user_id, 0), COALESCE(mu.first_name, ''), COALESCE(mu.last_name, ''), COALESCE(mu.email, ''), COALESCE(om.role, ''), COALESCE(m.position, 0)
 	FROM calendar_booking_links bl
 	LEFT JOIN users cu ON cu.id = bl.created_by_user_id
 	LEFT JOIN calendar_booking_link_members m ON m.booking_link_id = bl.id
-	LEFT JOIN users mu ON mu.id = m.user_id
 	LEFT JOIN organization_memberships om ON om.organization_id = bl.organization_id AND om.user_id = m.user_id
+	LEFT JOIN users mu ON mu.id = om.user_id
 `
+
+type bookingLinkQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func listBookingLinksWithQuerier(ctx context.Context, query bookingLinkQuerier, organizationID int64) ([]BookingLink, error) {
+	rows, err := query.Query(ctx, bookingLinkSelect+`
+		WHERE bl.organization_id = $1
+		ORDER BY bl.is_active DESC, lower(bl.name) ASC, bl.id ASC, COALESCE(m.position, 0) ASC, COALESCE(m.id, 0) ASC
+	`, organizationID)
+	if err != nil {
+		return nil, mapCalendarQueryError("list calendar booking links", err)
+	}
+	defer rows.Close()
+	links, err := scanBookingLinks(rows)
+	if err != nil {
+		return nil, mapCalendarQueryError("scan calendar booking links", err)
+	}
+	return links, nil
+}
+
+func getBookingLinkWithQuerier(ctx context.Context, query bookingLinkQuerier, organizationID, bookingLinkID int64) (BookingLink, error) {
+	rows, err := query.Query(ctx, bookingLinkSelect+`
+		WHERE bl.organization_id = $1 AND bl.id = $2
+		ORDER BY COALESCE(m.position, 0) ASC, COALESCE(m.id, 0) ASC
+	`, organizationID, bookingLinkID)
+	if err != nil {
+		return BookingLink{}, mapCalendarQueryError("get calendar booking link", err)
+	}
+	defer rows.Close()
+	links, err := scanBookingLinks(rows)
+	if err != nil {
+		return BookingLink{}, mapCalendarQueryError("scan calendar booking link", err)
+	}
+	if len(links) == 0 {
+		return BookingLink{}, ErrNotFound
+	}
+	return links[0], nil
+}
 
 func scanBookingLinks(r rows) ([]BookingLink, error) {
 	links := make([]BookingLink, 0)

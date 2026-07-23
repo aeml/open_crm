@@ -110,4 +110,49 @@ describe('settings calendar route', () => {
     })
     expect(await screen.findByText(/availability updated/i)).toBeInTheDocument()
   })
+
+  it('disables only new catalog entries at capacity and keeps editing available', async () => {
+    const link = {
+      id: 9, slug: 'discovery', name: 'Discovery', description: '', durationMinutes: 30, bufferMinutes: 0,
+      timezone: 'UTC', assignmentMode: 'owner', isActive: true, createdByUserId: 1,
+      members: [{ userId: 1, firstName: 'Demo', lastName: 'Owner', email: 'owner@acme.test', role: 'owner', position: 1 }]
+    }
+    const fetchMock = vi.fn(async (url) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      if (path.endsWith('/auth/me')) {
+        return jsonResponse({ data: {
+          user: { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner' },
+          organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc', businessType: 'general' },
+          membership: { role: 'owner' }
+        } })
+      }
+      if (path.endsWith('/api/calendar-booking-links')) {
+        return jsonResponse({ data: { links: [link], capacity: { maxLinks: 1, maxMembers: 1 } } })
+      }
+      if (path.endsWith('/api/me/calendar-availability')) {
+        return jsonResponse({ data: { blocks: [{ id: 2, dayOfWeek: 1, startMinute: 540, endMinute: 1020, timezone: 'UTC' }], capacity: { maxBlocks: 1 } } })
+      }
+      if (path.endsWith('/api/users')) {
+        return jsonResponse({ data: { users: [
+          { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+          { id: 2, email: 'member@acme.test', firstName: 'Morgan', lastName: 'Member', role: 'member' }
+        ] } })
+      }
+      return jsonResponse({ data: { unreadCount: 0 } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/calendar')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByText('1 of 1 booking links')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /new booking link/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create booking link/i })).toBeDisabled()
+    expect(screen.getByText(/edit an existing link to recover space/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /add availability block/i })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    expect(await screen.findByRole('heading', { name: /edit booking link/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/morgan member/i)).toBeDisabled()
+    expect(screen.getByRole('button', { name: /save booking link/i })).toBeEnabled()
+  })
 })

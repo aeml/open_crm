@@ -200,6 +200,10 @@ func TestUpdateCalendarAvailabilityAllowsWriter(t *testing.T) {
 	if service.lastOrgID != 42 || service.lastUserID != 1 || len(service.lastAvailabilityInput.Blocks) != 1 || service.lastAvailabilityInput.Blocks[0].StartMinute != 540 {
 		t.Fatalf("unexpected availability input: org=%d user=%d input=%#v", service.lastOrgID, service.lastUserID, service.lastAvailabilityInput)
 	}
+	var response calendarAvailabilityResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.Data.Capacity.MaxBlocks != modulecalendar.MaxAvailabilityBlocksPerUser {
+		t.Fatalf("unexpected availability capacity: response=%#v err=%v", response, err)
+	}
 }
 
 func TestListCalendarBookingLinksAllowsMember(t *testing.T) {
@@ -226,6 +230,9 @@ func TestListCalendarBookingLinksAllowsMember(t *testing.T) {
 	}
 	if len(response.Data.Links) != 1 || response.Data.Links[0].Slug != "discovery" {
 		t.Fatalf("unexpected booking links payload: %#v", response.Data.Links)
+	}
+	if response.Data.Capacity.MaxLinks != modulecalendar.MaxBookingLinksPerOrganization || response.Data.Capacity.MaxMembers != modulecalendar.MaxBookingLinkMembers {
+		t.Fatalf("unexpected booking-link capacity: %#v", response.Data.Capacity)
 	}
 }
 
@@ -270,5 +277,27 @@ func TestUpdateCalendarBookingLinkAllowsWriter(t *testing.T) {
 	}
 	if service.lastOrgID != 42 || service.lastActorID != 1 || service.lastBookingLinkID != 12 || service.lastBookingLinkInput.DurationMinutes != 45 {
 		t.Fatalf("unexpected booking link update: org=%d actor=%d id=%d input=%#v", service.lastOrgID, service.lastActorID, service.lastBookingLinkID, service.lastBookingLinkInput)
+	}
+}
+
+func TestWriteCalendarErrorMapsCatalogBoundaries(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "capacity", err: modulecalendar.ErrBookingLinkLimit, statusCode: http.StatusConflict, code: "BOOKING_LINK_LIMIT"},
+		{name: "forbidden", err: modulecalendar.ErrForbidden, statusCode: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "timeout", err: modulecalendar.ErrQueryTimeout, statusCode: http.StatusGatewayTimeout, code: "CALENDAR_QUERY_TIMEOUT"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			writeCalendarError(recorder, "calendar-test", test.err, "fallback")
+			if recorder.Code != test.statusCode || !strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
+				t.Fatalf("unexpected calendar error response: status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }

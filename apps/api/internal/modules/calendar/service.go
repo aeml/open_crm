@@ -213,73 +213,6 @@ func (s *Service) Cancel(ctx context.Context, organizationID, actorUserID, event
 	return s.GetByID(ctx, organizationID, eventID)
 }
 
-func (s *Service) ListAvailability(ctx context.Context, organizationID, userID int64) ([]AvailabilityBlock, error) {
-	if s == nil || s.pool == nil {
-		return nil, fmt.Errorf("calendar service not configured")
-	}
-	if organizationID <= 0 || userID <= 0 {
-		return nil, ErrInvalidInput
-	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, day_of_week, start_minute, end_minute, timezone, created_at, updated_at
-		FROM calendar_availability_blocks
-		WHERE organization_id = $1 AND user_id = $2
-		ORDER BY day_of_week ASC, start_minute ASC, id ASC
-	`, organizationID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list calendar availability: %w", err)
-	}
-	defer rows.Close()
-	blocks := make([]AvailabilityBlock, 0)
-	for rows.Next() {
-		var block AvailabilityBlock
-		if err := rows.Scan(&block.ID, &block.DayOfWeek, &block.StartMinute, &block.EndMinute, &block.Timezone, &block.CreatedAt, &block.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan calendar availability: %w", err)
-		}
-		blocks = append(blocks, block)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate calendar availability: %w", err)
-	}
-	return blocks, nil
-}
-
-func (s *Service) SetAvailability(ctx context.Context, organizationID, userID int64, input AvailabilityInput) ([]AvailabilityBlock, error) {
-	if s == nil || s.pool == nil {
-		return nil, fmt.Errorf("calendar service not configured")
-	}
-	if organizationID <= 0 || userID <= 0 || len(input.Blocks) > 28 {
-		return nil, ErrInvalidInput
-	}
-	blocks := normalizeAvailabilityBlocks(input.Blocks)
-	for _, block := range blocks {
-		if block.DayOfWeek < 0 || block.DayOfWeek > 6 || block.StartMinute < 0 || block.EndMinute > 1440 || block.StartMinute >= block.EndMinute || block.Timezone == "" || len(block.Timezone) > 100 {
-			return nil, ErrInvalidInput
-		}
-	}
-
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin calendar availability transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `DELETE FROM calendar_availability_blocks WHERE organization_id = $1 AND user_id = $2`, organizationID, userID); err != nil {
-		return nil, fmt.Errorf("clear calendar availability: %w", err)
-	}
-	for _, block := range blocks {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO calendar_availability_blocks (organization_id, user_id, day_of_week, start_minute, end_minute, timezone)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, organizationID, userID, block.DayOfWeek, block.StartMinute, block.EndMinute, block.Timezone); err != nil {
-			return nil, fmt.Errorf("insert calendar availability: %w", err)
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit calendar availability transaction: %w", err)
-	}
-	return s.ListAvailability(ctx, organizationID, userID)
-}
-
 func (s *Service) GetByID(ctx context.Context, organizationID, eventID int64) (Event, error) {
 	event, err := scanEvent(s.pool.QueryRow(ctx, baseSelect+`
 		WHERE e.organization_id = $1 AND e.id = $2
@@ -304,18 +237,6 @@ func normalizeScheduleInput(input ScheduleInput) ScheduleInput {
 	}
 	input.Visibility = normalizeVisibility(input.Visibility)
 	return input
-}
-
-func normalizeAvailabilityBlocks(blocks []AvailabilityBlockInput) []AvailabilityBlockInput {
-	out := make([]AvailabilityBlockInput, 0, len(blocks))
-	for _, block := range blocks {
-		block.Timezone = strings.TrimSpace(block.Timezone)
-		if block.Timezone == "" {
-			block.Timezone = "UTC"
-		}
-		out = append(out, block)
-	}
-	return out
 }
 
 func normalizeVisibility(value string) string {

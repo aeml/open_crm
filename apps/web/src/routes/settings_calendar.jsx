@@ -10,6 +10,7 @@ import { listOrganizationUsers } from '../lib/users'
 import { usePageTitle } from '../lib/use_page_title'
 
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const defaultCalendarCapacity = { maxLinks: 100, maxMembers: 20, maxBlocks: 28 }
 
 function defaultTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
@@ -98,6 +99,7 @@ export function SettingsCalendarRoute() {
   const [links, setLinks] = useState([])
   const [users, setUsers] = useState([])
   const [availability, setAvailability] = useState([])
+  const [capacity, setCapacity] = useState(defaultCalendarCapacity)
   const [form, setForm] = useState(() => emptyBookingLinkForm(currentUserId))
   const [editingId, setEditingId] = useState(null)
   const [availabilityDraft, setAvailabilityDraft] = useState(emptyAvailabilityDraft)
@@ -111,13 +113,18 @@ export function SettingsCalendarRoute() {
   async function loadCalendarSettings({ signal } = {}) {
     setIsLoading(true)
     try {
-      const [nextLinks, nextAvailability, nextUsers] = await Promise.all([
+      const [linkCatalog, availabilityCatalog, nextUsers] = await Promise.all([
         listCalendarBookingLinks({ signal }),
         listCalendarAvailability({ signal }),
         listOrganizationUsers({ signal })
       ])
-      setLinks(nextLinks)
-      setAvailability(nextAvailability)
+      setLinks(linkCatalog.links)
+      setAvailability(availabilityCatalog.blocks)
+      setCapacity({
+        maxLinks: linkCatalog.capacity.maxLinks || defaultCalendarCapacity.maxLinks,
+        maxMembers: linkCatalog.capacity.maxMembers || defaultCalendarCapacity.maxMembers,
+        maxBlocks: availabilityCatalog.capacity.maxBlocks || defaultCalendarCapacity.maxBlocks
+      })
       setUsers(nextUsers)
       setError('')
     } catch (loadError) {
@@ -158,10 +165,15 @@ export function SettingsCalendarRoute() {
 
   function toggleMember(userId, checked) {
     const value = String(userId)
-    setForm((current) => ({
-      ...current,
-      memberUserIds: checked ? [...new Set([...current.memberUserIds, value])] : current.memberUserIds.filter((entry) => entry !== value)
-    }))
+    setForm((current) => {
+      if (!checked) {
+        return { ...current, memberUserIds: current.memberUserIds.filter((entry) => entry !== value) }
+      }
+      if (current.memberUserIds.includes(value) || current.memberUserIds.length >= capacity.maxMembers) {
+        return current
+      }
+      return { ...current, memberUserIds: [...current.memberUserIds, value] }
+    })
   }
 
   async function handleSaveBookingLink(event) {
@@ -189,6 +201,10 @@ export function SettingsCalendarRoute() {
   }
 
   function addAvailabilityBlock() {
+    if (availability.length >= capacity.maxBlocks) {
+      setError(`Availability is limited to ${capacity.maxBlocks} blocks.`)
+      return
+    }
     const block = {
       dayOfWeek: Number.parseInt(availabilityDraft.dayOfWeek, 10),
       startMinute: timeToMinutes(availabilityDraft.startTime),
@@ -231,6 +247,7 @@ export function SettingsCalendarRoute() {
             <div>
               <h2>Booking links</h2>
               <p>Create meeting links that use your team's saved weekly availability. Public scheduling and calendar sync can build on this foundation.</p>
+              <p className="field-hint">{links.length} of {capacity.maxLinks} booking links</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading calendar settings...</p> : null}
@@ -266,13 +283,13 @@ export function SettingsCalendarRoute() {
               <p className="field-hint">Round-robin links rotate across selected hosts once public booking is added.</p>
             </div>
             <Field label="Booking name">
-              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Discovery call" required />
+              <input className="text-input" maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Discovery call" required />
             </Field>
             <Field label="Booking slug">
-              <input className="text-input" value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} placeholder="discovery-call" />
+              <input className="text-input" maxLength={80} value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} placeholder="discovery-call" />
             </Field>
             <Field label="Description">
-              <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+              <textarea className="text-input" maxLength={1000} rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
             </Field>
             <Field label="Duration minutes">
               <input className="text-input" min="5" max="480" type="number" value={form.durationMinutes} onChange={(event) => setForm({ ...form, durationMinutes: event.target.value })} required />
@@ -281,7 +298,7 @@ export function SettingsCalendarRoute() {
               <input className="text-input" min="0" max="240" type="number" value={form.bufferMinutes} onChange={(event) => setForm({ ...form, bufferMinutes: event.target.value })} />
             </Field>
             <Field label="Timezone">
-              <input className="text-input" value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} required />
+              <input className="text-input" maxLength={100} value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} required />
             </Field>
             <Field label="Assignment mode">
               <select className="text-input" value={form.assignmentMode} onChange={(event) => setForm({ ...form, assignmentMode: event.target.value })}>
@@ -294,15 +311,17 @@ export function SettingsCalendarRoute() {
             </label>
             <div className="card-stack">
               <h3>Team members</h3>
+              <p className="field-hint">{form.memberUserIds.length} of {capacity.maxMembers} hosts selected</p>
               {users.length === 0 ? <p className="field-hint">No team members loaded. The current user will be used by default.</p> : users.map((user) => (
                 <label className="field-hint" key={user.id}>
-                  <input type="checkbox" checked={selectedMembers.has(String(user.id))} onChange={(event) => toggleMember(user.id, event.target.checked)} /> {user.firstName} {user.lastName} ({user.email})
+                  <input type="checkbox" checked={selectedMembers.has(String(user.id))} disabled={!selectedMembers.has(String(user.id)) && form.memberUserIds.length >= capacity.maxMembers} onChange={(event) => toggleMember(user.id, event.target.checked)} /> {user.firstName} {user.lastName} ({user.email})
                 </label>
               ))}
             </div>
             <div>
-              <Button type="submit" disabled={isSavingLink}>{isSavingLink ? 'Saving...' : editingId ? 'Save booking link' : 'Create booking link'}</Button>
+              <Button type="submit" disabled={isSavingLink || (!editingId && links.length >= capacity.maxLinks)}>{isSavingLink ? 'Saving...' : editingId ? 'Save booking link' : 'Create booking link'}</Button>
               {editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}
+              {!editingId && links.length >= capacity.maxLinks ? <p className="field-hint">Edit an existing link to recover space before creating another.</p> : null}
             </div>
           </form>
         </Card>
@@ -314,6 +333,7 @@ export function SettingsCalendarRoute() {
             <div>
               <h2>Weekly availability</h2>
               <p className="field-hint">These blocks feed booking-link availability until external free/busy sync is added.</p>
+              <p className="field-hint">{availability.length} of {capacity.maxBlocks} blocks</p>
             </div>
             <div className="record-list" role="list" aria-label="Weekly availability">
               {availability.length === 0 ? (
@@ -338,10 +358,10 @@ export function SettingsCalendarRoute() {
                 <input className="text-input" type="time" value={availabilityDraft.endTime} onChange={(event) => setAvailabilityDraft({ ...availabilityDraft, endTime: event.target.value })} />
               </Field>
               <Field label="Availability timezone">
-                <input className="text-input" value={availabilityDraft.timezone} onChange={(event) => setAvailabilityDraft({ ...availabilityDraft, timezone: event.target.value })} />
+                <input className="text-input" maxLength={100} value={availabilityDraft.timezone} onChange={(event) => setAvailabilityDraft({ ...availabilityDraft, timezone: event.target.value })} />
               </Field>
               <div>
-                <Button className="button-secondary" type="button" onClick={addAvailabilityBlock}>Add availability block</Button>
+                <Button className="button-secondary" type="button" onClick={addAvailabilityBlock} disabled={availability.length >= capacity.maxBlocks}>Add availability block</Button>
                 <Button type="button" onClick={saveAvailability} disabled={isSavingAvailability}>{isSavingAvailability ? 'Saving...' : 'Save availability'}</Button>
               </div>
             </div>

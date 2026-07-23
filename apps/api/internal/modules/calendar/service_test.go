@@ -2,6 +2,7 @@ package calendar
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -65,6 +66,31 @@ func TestNormalizeBookingLinkInputDeduplicatesMembers(t *testing.T) {
 	if !validBookingLinkInput(input) {
 		t.Fatalf("expected valid booking link input: %#v", input)
 	}
+}
+
+func TestCalendarCatalogInputsEnforceUnicodeAndCardinalityBounds(t *testing.T) {
+	valid := normalizeBookingLinkInput(BookingLinkInput{Slug: "call", Name: strings.Repeat("界", MaxBookingLinkNameLength), Description: strings.Repeat("界", MaxBookingLinkDescription), Timezone: strings.Repeat("界", MaxCalendarTimezoneLength), MemberUserIDs: []int64{1}}, 1)
+	if !validBookingLinkInput(valid) {
+		t.Fatalf("expected exact Unicode booking-link boundaries to be valid: %#v", valid)
+	}
+	for name, input := range map[string]BookingLinkInput{
+		"name":        {Name: strings.Repeat("界", MaxBookingLinkNameLength+1), Timezone: "UTC", MemberUserIDs: []int64{1}},
+		"description": {Name: "Call", Description: strings.Repeat("界", MaxBookingLinkDescription+1), Timezone: "UTC", MemberUserIDs: []int64{1}},
+		"timezone":    {Name: "Call", Timezone: strings.Repeat("界", MaxCalendarTimezoneLength+1), MemberUserIDs: []int64{1}},
+		"members":     {Name: "Call", Timezone: "UTC", MemberUserIDs: makeRangeIDs(MaxBookingLinkMembers + 1)},
+	} {
+		if validBookingLinkInput(normalizeBookingLinkInput(input, 1)) {
+			t.Fatalf("expected %s overflow to be invalid", name)
+		}
+	}
+}
+
+func makeRangeIDs(count int) []int64 {
+	ids := make([]int64, count)
+	for index := range ids {
+		ids[index] = int64(index + 1)
+	}
+	return ids
 }
 
 func TestReminderTimeSubtractsReminderWindow(t *testing.T) {

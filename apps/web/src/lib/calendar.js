@@ -26,7 +26,10 @@ export async function cancelCalendarEvent(eventId, { signal } = {}) {
 export async function listCalendarAvailability({ signal } = {}) {
   const payload = await apiRequest('/api/me/calendar-availability', { fallbackMessage: 'Unable to load calendar availability.', signal })
 
-  return payload?.data?.blocks || []
+  return {
+    blocks: payload?.data?.blocks || [],
+    capacity: payload?.data?.capacity || { maxBlocks: 28 }
+  }
 }
 
 export async function updateCalendarAvailability(input, { signal } = {}) {
@@ -38,7 +41,10 @@ export async function updateCalendarAvailability(input, { signal } = {}) {
 export async function listCalendarBookingLinks({ signal } = {}) {
   const payload = await apiRequest('/api/calendar-booking-links', { fallbackMessage: 'Unable to load booking links.', signal })
 
-  return payload?.data?.links || []
+  return {
+    links: payload?.data?.links || [],
+    capacity: payload?.data?.capacity || { maxLinks: 100, maxMembers: 20 }
+  }
 }
 
 export async function createCalendarBookingLink(input, { signal } = {}) {
