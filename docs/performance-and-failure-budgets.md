@@ -34,6 +34,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Each of the first two shared-inbox cursor pages (1,001 rows, 100/page) | 2 s |
 | Each of the first two filtered lead-review cursor pages (1,001 rows, 100/page) | 2 s |
 | Each adjacent team-member management page (1,001 retained memberships, 100/page) | 2 s each |
+| Notification center snapshot (1,001 equal-time rows, latest 50 plus exact unread count) | 2 s |
 | Each adjacent email-template and snippet management page (1,001 definitions/catalog, up to 100 returned) | 2 s each |
 | Each adjacent personal saved-view management page (1,001 definitions, up to 100 returned) | 2 s each |
 | Active and adjacent email-sequence definition pages (1,001 definitions, up to 100 returned) | 2 s each |
@@ -134,6 +135,20 @@ organization/status/user index, and proves direct bounds, literal wildcard
 search, exact active/disabled totals, and tenant exclusion. Chromium reaches
 retained row 51 through visible continuation, filters/searches it, and repeats
 WCAG A/AA scanning.
+
+The notification center is a focused current-work window rather than an
+unbounded history browser. Dedicated freshly migrated PostgreSQL acceptance
+seeds 1,001 equal-time unread rows for one tenant/recipient plus valid foreign
+tenant and recipient sentinels. It requires the exact newest 50 in immutable ID
+order and the exact unread total from one read-only repeatable-read snapshot
+below two seconds, asserts migration 130's tenant/user/time/ID index, preserves
+the first acknowledgement timestamp on replay, and proves foreign/missing
+acknowledgements do not disclose or mutate rows. Holding the complete unread
+backlog locked must produce the stable five-second-class timeout within the
+short test deadline and leave every row unread; after release, read-all must
+complete without touching either sentinel. The browser discloses the latest-50
+window, exact older-unread count, complete read-all behavior, and WCAG A/AA
+result.
 
 Personal saved-view management uses the compatible offset contract: 50 rows by
 default, 100 maximum, a 50,000-row maximum offset, and an exact repeatable-read
@@ -247,18 +262,19 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 782 KiB | 244 KiB |
+| All JavaScript and CSS | 817 KiB | 256 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 178.87 KiB/57.99 KiB entry, 55.12 KiB/15.74 KiB largest lazy
-chunk, and 781.77 KiB/243.34 KiB total assets. The production contact, company,
-deal, and task routes are 27.27/8.55, 45.09/13.08, 55.12/15.73, and 26.09/7.92
+Current production-URL evidence: 179.11 KiB/58.08 KiB entry, 54.10 KiB/15.64 KiB largest lazy
+chunk, and 810.43 KiB/255.41 KiB total assets. The production contact, company,
+deal, and task routes are 25.01/7.98, 44.01/12.98, 54.10/15.64, and 26.44/8.14
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.58 KiB/4.62 KiB settings route. Its
 OAuth-mailbox peer remains separately lazy loaded at 10.63 KiB/3.21 KiB;
-bounded template/snippet management is 11.02 KiB/2.92 KiB; and bounded
-sequence definition/history management remains in a 12.91 KiB/3.98 KiB route. The
-10.44 KiB/3.51 KiB background-operations route includes labeled replay, exact-filter
+bounded template/snippet management is 8.92 KiB/2.64 KiB; bounded
+sequence definition/history management remains in an 11.67 KiB/3.72 KiB route;
+and the production-capable notification center is 7.25 KiB/2.31 KiB. The
+10.44 KiB/3.50 KiB background-operations route includes labeled replay, exact-filter
 durable CRM export request/progress/download recovery, and an explicit lead-follow-up filter, while a
 0.15 KiB shared helper keeps retry-key generation consistent across billing,
 signup, import, merge, and bulk recovery paths. Production builds now omit the

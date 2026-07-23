@@ -268,7 +268,7 @@ type passwordResetService interface {
 }
 
 type notificationsService interface {
-	ListForUser(context.Context, int64, int64) ([]modulenotifications.Notification, error)
+	ListForUser(context.Context, int64, int64) (modulenotifications.Page, error)
 	MarkRead(context.Context, int64, int64, int64) error
 	MarkAllRead(context.Context, int64, int64) error
 	UnreadCount(context.Context, int64, int64) (int, error)

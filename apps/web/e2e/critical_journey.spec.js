@@ -1674,8 +1674,19 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await memberPage.goto('/notifications')
   const mentionNotification = memberPage.getByRole('listitem').filter({ hasText: `mentioned you on Website renewal ${runID}` })
   await expect(mentionNotification).toBeVisible()
+  await expect(memberPage.getByText(/\d+ unread notifications?\./)).toBeVisible()
   await expect(memberPage.getByRole('heading', { name: 'Activity digest' })).toBeVisible()
   await expect(memberPage.getByRole('list', { name: 'Activity digest' }).getByText(`Website renewal ${runID}: Note added`)).toBeVisible()
+  const notificationCenterAccessibility = await new AxeBuilder({ page: memberPage })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-notification-center', {
+    body: JSON.stringify({ url: memberPage.url(), violations: notificationCenterAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(notificationCenterAccessibility.violations, 'notification center must have no automated WCAG A/AA violations').toEqual([])
+  await memberPage.getByRole('button', { name: 'Mark all read' }).click()
+  await expect(memberPage.getByText(/0 unread notifications\./)).toBeVisible()
   await mentionNotification.getByRole('button', { name: 'Open record' }).click()
   await expect(memberPage).toHaveURL(/\/deals\/\d+$/)
   await memberPage.getByRole('button', { name: 'Followers' }).click()

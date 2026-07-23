@@ -2430,3 +2430,25 @@ func TestMigrationFilesIncludeUserCatalogPaging(t *testing.T) {
 		t.Fatalf("user catalog paging migration deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeNotificationCenterIndexes(t *testing.T) {
+	const name = "130_notification_center_indexes.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"idx_notifications_user_created_id",
+		"organization_id, user_id, created_at DESC, id DESC",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("notification center index migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("notification center index migration deployment class = %q", class)
+	}
+}

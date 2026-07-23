@@ -1001,8 +1001,27 @@ per-recipient concentration, cleanup failures, and deletion counts without
 tenant or user labels; unknown event values collapse into `other`.
 Disposable-PostgreSQL acceptance covers both retention boundaries,
 idempotency, bounded concurrent cleanup, 24-hour event aggregation, and the
-privacy-safe fallback. In-app delivery remains deliberately below
-production-capable until pilot noise and event selection are validated.
+privacy-safe fallback. At that point, in-app delivery remained below
+production-capable pending the focused center hardening recorded next.
+
+Completion evidence (2026-07-23): the exposed center is now production-capable
+locally. One five-second read-only repeatable-read transaction returns the
+latest 50 notifications and exact unread backlog, with immutable ID ordering
+for equal event times and explicit UI disclosure when older unread work is
+outside the visible window. Acknowledging one row is a single tenant/user-scoped
+idempotent update that preserves the first read timestamp; read-all covers the
+complete recipient backlog, and a canceled/blocked statement cannot partially
+acknowledge it. Stable `NOTIFICATION_QUERY_TIMEOUT` responses, retryable UI
+errors, and a tested old-API fallback keep rolling frontend/backend deployment
+compatible. Migration 130's exact tenant/user/time/ID index, handler/component tests,
+fresh 1,001-row PostgreSQL order/index/recipient/tenant/idempotency/forced-timeout
+rollback evidence, and the clean browser read-all/deep-link/WCAG journey close
+the local product path. The notification route remains 7.25/2.31 KiB raw/gzip;
+the production Node 24 build remains within its existing ceilings at
+179.11/58.08 KiB entry, 54.10/15.64 KiB largest lazy chunk, and
+810.43/255.41 KiB aggregate raw/gzip. Pilot review of event selection, the provisional
+100-event warning, workflow-message usefulness, and perceived noise remains
+required before claiming pilot validation.
 
 ## Version 0.4.5 - Mention And Follow Model
 

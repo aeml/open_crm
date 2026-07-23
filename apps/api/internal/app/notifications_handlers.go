@@ -12,6 +12,10 @@ import (
 type notificationsListResponse struct {
 	Data struct {
 		Notifications []modulenotifications.Notification `json:"notifications"`
+		UnreadCount   int                                `json:"unreadCount"`
+		Window        struct {
+			Limit int `json:"limit"`
+		} `json:"window"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -38,14 +42,16 @@ func handleListNotifications(auth authService, notifs notificationsService, w ht
 		return
 	}
 
-	list, err := notifs.ListForUser(r.Context(), state.Organization.ID, state.User.ID)
+	page, err := notifs.ListForUser(r.Context(), state.Organization.ID, state.User.ID)
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load notifications")
+		writeNotificationError(w, requestID, err, "Unable to load notifications")
 		return
 	}
 
 	response := notificationsListResponse{}
-	response.Data.Notifications = list
+	response.Data.Notifications = page.Notifications
+	response.Data.UnreadCount = page.UnreadCount
+	response.Data.Window.Limit = page.Limit
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -63,7 +69,7 @@ func handleGetNotificationUnreadCount(auth authService, notifs notificationsServ
 
 	count, err := notifs.UnreadCount(r.Context(), state.Organization.ID, state.User.ID)
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to count notifications")
+		writeNotificationError(w, requestID, err, "Unable to count notifications")
 		return
 	}
 
@@ -96,7 +102,7 @@ func handleMarkNotificationRead(auth authService, notifs notificationsService, w
 			platformweb.WriteNotFound(w, requestID)
 			return
 		}
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to mark notification read")
+		writeNotificationError(w, requestID, err, "Unable to mark notification read")
 		return
 	}
 
@@ -115,9 +121,17 @@ func handleMarkAllNotificationsRead(auth authService, notifs notificationsServic
 	}
 
 	if err := notifs.MarkAllRead(r.Context(), state.Organization.ID, state.User.ID); err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to mark notifications read")
+		writeNotificationError(w, requestID, err, "Unable to mark notifications read")
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeNotificationError(w http.ResponseWriter, requestID string, err error, fallback string) {
+	if errors.Is(err, modulenotifications.ErrQueryTimeout) {
+		platformweb.WriteError(w, http.StatusGatewayTimeout, requestID, "NOTIFICATION_QUERY_TIMEOUT", "Notification processing exceeded the five-second query limit; retry safely")
+		return
+	}
+	platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", fallback)
 }

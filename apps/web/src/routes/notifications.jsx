@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -35,6 +35,8 @@ export function NotificationsRoute() {
   usePageTitle('Notifications')
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [notificationLimit, setNotificationLimit] = useState(50)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isMarkingAll, setIsMarkingAll] = useState(false)
@@ -46,12 +48,16 @@ export function NotificationsRoute() {
   const [digest, setDigest] = useState({ totalActivities: 0, activeRecords: 0, activePeople: 0, activities: [] })
   const [digestError, setDigestError] = useState('')
   const [isDigestLoading, setIsDigestLoading] = useState(true)
+  const markingNotificationIds = useRef(new Set())
+  const [markingIds, setMarkingIds] = useState(new Set())
 
   const load = useCallback(({ signal } = {}) => {
     setIsLoading(true)
     listNotifications({ signal })
-      .then((list) => {
-        setNotifications(list)
+      .then((result) => {
+        setNotifications(result.notifications)
+        setUnreadCount(result.unreadCount)
+        setNotificationLimit(result.limit)
         setError('')
         setIsLoading(false)
       })
@@ -98,13 +104,23 @@ export function NotificationsRoute() {
   }, [digestActorUserId, digestDays, digestScope])
 
   async function handleMarkRead(id) {
+    if (markingNotificationIds.current.has(id)) return false
+    markingNotificationIds.current.add(id)
+    setMarkingIds(new Set(markingNotificationIds.current))
     try {
       await markNotificationRead(id)
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, readAt: new Date().toISOString() } : n))
       )
-    } catch {
-      // best-effort
+      setUnreadCount((previous) => Math.max(0, previous - 1))
+      setError('')
+      return true
+    } catch (err) {
+      setError(err.message || 'Unable to mark notification read.')
+      return false
+    } finally {
+      markingNotificationIds.current.delete(id)
+      setMarkingIds(new Set(markingNotificationIds.current))
     }
   }
 
@@ -119,6 +135,8 @@ export function NotificationsRoute() {
     try {
       await markAllNotificationsRead()
       setNotifications((prev) => prev.map((n) => ({ ...n, readAt: n.readAt || new Date().toISOString() })))
+      setUnreadCount(0)
+      setError('')
     } catch (err) {
       setError(err.message || 'Unable to mark notifications read.')
     } finally {
@@ -126,7 +144,8 @@ export function NotificationsRoute() {
     }
   }
 
-  const unreadCount = notifications.filter((n) => !n.readAt).length
+  const visibleUnreadCount = notifications.filter((n) => !n.readAt).length
+  const olderUnreadCount = Math.max(0, unreadCount - visibleUnreadCount)
   const visibleNotifications = notifications.filter((notification) => matchesNotificationFilter(notification, filter))
 
   return (
@@ -150,6 +169,14 @@ export function NotificationsRoute() {
           </div>
 
           {error ? <InlineError message={error} /> : null}
+
+          {!isLoading ? (
+            <p className="field-hint" aria-live="polite">
+              {unreadCount === 1 ? '1 unread notification.' : `${unreadCount} unread notifications.`}
+              {notifications.length >= notificationLimit ? ` Showing the latest ${notificationLimit} retained notifications.` : ''}
+              {olderUnreadCount > 0 ? ` ${olderUnreadCount} unread ${olderUnreadCount === 1 ? 'item is' : 'items are'} older than this window; Mark all read applies to the complete unread backlog.` : ''}
+            </p>
+          ) : null}
 
           <label className="field-label">
             Show
@@ -178,7 +205,9 @@ export function NotificationsRoute() {
                       <button className="button-ghost" onClick={() => handleOpen(n)}>Open record</button>
                     ) : null}
                     {!n.readAt ? (
-                      <button className="button-ghost" onClick={() => handleMarkRead(n.id)} aria-label="Mark as read">Mark read</button>
+                      <button className="button-ghost" onClick={() => handleMarkRead(n.id)} aria-label="Mark as read" disabled={markingIds.has(n.id)}>
+                        {markingIds.has(n.id) ? 'Marking…' : 'Mark read'}
+                      </button>
                     ) : null}
                   </div>
                 </li>

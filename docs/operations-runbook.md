@@ -1980,6 +1980,22 @@ mutation also fails and may be safely retried through the original UI/API action
 Assignment notifications are not background jobs and therefore do not appear in
 the Operations replay queue.
 
+### Notification center and acknowledgement behavior
+
+The notification center intentionally shows the newest 50 retained rows. Its
+response computes that window and the recipient's exact unread backlog in one
+five-second repeatable-read snapshot, and the UI says when unread work is older
+than the visible window. **Mark all read** applies to the complete unread
+backlog, not only the displayed rows. One-row acknowledgement is idempotent and
+preserves the original `read_at` timestamp on replay.
+
+All list/count/acknowledgement database paths return the stable
+`NOTIFICATION_QUERY_TIMEOUT` boundary when the five-second limit is exceeded.
+A canceled read-all statement rolls back every row, so the operator should
+release the database contention and retry the ordinary UI action; do not edit
+`read_at` manually. A foreign or already-retained-away row returns the same
+ordinary not-found response and reveals no other recipient state.
+
 ### Notification retention and noise
 
 Notification retention runs immediately when the API starts and hourly

@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 50
-	expectedTenantIsolationEvidenceDigest = "0b06ee0dd92e0d2c0c85278fe862489136a803a3bbb5077e758f0dc1a34640a3"
+	expectedTenantIsolationEvidenceCount  = 51
+	expectedTenantIsolationEvidenceDigest = "f2975ea02db22131085d0cbdaa5c9997cc3e789865a9990b5ac22c60e22ec686"
 )
 
 type tenantIsolationEvidence struct {
@@ -30,6 +30,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "bulk-operations", Source: "apps/api/internal/modules/bulkoperations/service_postgres_test.go", Test: "TestBulkOperationsAreIdempotentTenantSafeAndChangeAwareAgainstPostgres"},
 	{Surface: "client-review-schedules", Source: "apps/api/internal/modules/clientreviews/service_postgres_test.go", Test: "TestClientReviewSchedulesOwnARecoverableTenantSafeTaskLifecycleAgainstPostgres"},
 	{Surface: "collaboration", Source: "apps/api/internal/modules/collaboration/service_postgres_test.go", Test: "TestFollowersMentionsNotificationsAndDigestAgainstPostgres"},
+	{Surface: "notification-center", Source: "apps/api/internal/modules/notifications/service_postgres_test.go", Test: "TestNotificationCenterIsBoundedStableAndTenantScopedAgainstPostgres"},
 	{Surface: "company-linked-contacts", Source: "apps/api/internal/modules/companies/linked_contacts_postgres_test.go", Test: "TestLinkedContactsAreBoundedSearchableAndTenantScopedAgainstPostgres"},
 	{Surface: "core-csv-export", Source: "apps/api/internal/performance/pilot_load_postgres_test.go", Test: "TestPilotReadLoadAndFailureBudgetsAgainstPostgres"},
 	{Surface: "core-record-boundaries", Source: "apps/api/internal/app/core_tenant_isolation_postgres_test.go", Test: "TestCoreRecordTenantBoundariesAgainstPostgres"},

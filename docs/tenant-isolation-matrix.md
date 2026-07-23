@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-23
 
-Evidence row count: `50`
+Evidence row count: `51`
 
-Evidence digest: `0b06ee0dd92e0d2c0c85278fe862489136a803a3bbb5077e758f0dc1a34640a3`
+Evidence digest: `f2975ea02db22131085d0cbdaa5c9997cc3e789865a9990b5ac22c60e22ec686`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -30,6 +30,7 @@ the assertions inside those tests remain the proof of behavior.
 | `bulk-operations` | `apps/api/internal/modules/bulkoperations/service_postgres_test.go` | `TestBulkOperationsAreIdempotentTenantSafeAndChangeAwareAgainstPostgres` | Foreign records, assignees, operation history, and rollback IDs reject atomically. |
 | `client-review-schedules` | `apps/api/internal/modules/clientreviews/service_postgres_test.go` | `TestClientReviewSchedulesOwnARecoverableTenantSafeTaskLifecycleAgainstPostgres` | Foreign clients and tasks cannot be scheduled, advanced, cleared, or recovered through another tenant. |
 | `collaboration` | `apps/api/internal/modules/collaboration/service_postgres_test.go` | `TestFollowersMentionsNotificationsAndDigestAgainstPostgres` | Foreign records and actors cannot create follows, mentions, notifications, or digest entries. |
+| `notification-center` | `apps/api/internal/modules/notifications/service_postgres_test.go` | `TestNotificationCenterIsBoundedStableAndTenantScopedAgainstPostgres` | A freshly migrated 1,001-row equal-time recipient backlog returns only the session tenant/user's latest 50 plus its exact unread count; foreign recipient/tenant acknowledgements are not found, read-all cannot change their rows, exact replay preserves the first timestamp, and a blocked timeout rolls back the complete acknowledgement statement. |
 | `company-linked-contacts` | `apps/api/internal/modules/companies/linked_contacts_postgres_test.go` | `TestLinkedContactsAreBoundedSearchableAndTenantScopedAgainstPostgres` | Linked-person count, pages, search, detail embeds, existing-link mutation, primary repair, and unlink stay inside the exact active company/contact tenant; foreign company/contact IDs remain missing, ordinary company edits preserve unseen links, and individual clients atomically replace their sole active person but cannot be unlinked to zero. |
 | `core-csv-export` | `apps/api/internal/performance/pilot_load_postgres_test.go` | `TestPilotReadLoadAndFailureBudgetsAgainstPostgres` | Adjacent 100-row contact/company/deal/task pages retain stable totals and no overlap; the same contact page contains no foreign tenant ID, and a foreign marker is absent from the maximum supported contact export under representative multi-tenant load. |
 | `core-record-boundaries` | `apps/api/internal/app/core_tenant_isolation_postgres_test.go` | `TestCoreRecordTenantBoundariesAgainstPostgres` | Contacts, companies, deals, tasks, saved views, and notes reject foreign list/get/update/archive/delete, relationship, stage, entity, actor, and assignee paths without partial effects. |

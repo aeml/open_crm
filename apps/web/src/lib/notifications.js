@@ -2,7 +2,19 @@ import { apiRequest } from './api'
 
 export async function listNotifications({ signal } = {}) {
   const payload = await apiRequest('/api/notifications', { fallbackMessage: 'Unable to load notifications.', signal })
-  return payload?.data?.notifications || []
+  const notifications = payload?.data?.notifications
+  const unreadCount = payload?.data?.unreadCount
+  const limit = payload?.data?.window?.limit
+  if (!Array.isArray(notifications)) {
+    throw new Error('The notification response was incomplete. Reload to retry.')
+  }
+  if (unreadCount === undefined && limit === undefined) {
+    return { notifications, unreadCount: await getNotificationUnreadCount({ signal }), limit: 50 }
+  }
+  if (!Number.isInteger(unreadCount) || unreadCount < 0 || !Number.isInteger(limit) || limit < 1) {
+    throw new Error('The notification response was incomplete. Reload to retry.')
+  }
+  return { notifications, unreadCount, limit }
 }
 
 export async function getNotificationUnreadCount({ signal } = {}) {
