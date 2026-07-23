@@ -6,12 +6,18 @@ import (
 	"strings"
 
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
 type leadChatWidgetsListResponse struct {
 	Data struct {
 		Widgets []moduleleadforms.ChatWidget `json:"widgets"`
+		Meta    struct {
+			Page     int `json:"page"`
+			PageSize int `json:"pageSize"`
+			Total    int `json:"total"`
+		} `json:"meta"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -44,6 +50,7 @@ type leadChatWidgetRequest struct {
 	Position          string `json:"position"`
 	LeadCaptureFormID int64  `json:"leadCaptureFormId"`
 	IsActive          *bool  `json:"isActive"`
+	Revision          int    `json:"revision"`
 }
 
 func handleListLeadChatWidgets(auth authService, forms leadFormsService, w http.ResponseWriter, r *http.Request) {
@@ -57,14 +64,26 @@ func handleListLeadChatWidgets(auth authService, forms leadFormsService, w http.
 		return
 	}
 
-	widgets, err := forms.ListChatWidgetsByOrganization(r.Context(), state.Organization.ID)
+	page, parseErr := platformpagination.Parse(r.URL.Query().Get("page"), r.URL.Query().Get("pageSize"), moduleleadforms.DefaultLeadSurfaceListPageSize)
+	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
+	if status == "" {
+		status = "all"
+	}
+	if parseErr != nil || (status != "all" && status != "active" && status != "inactive") {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid website widget status and page")
+		return
+	}
+	result, err := forms.ListChatWidgetsByOrganization(r.Context(), state.Organization.ID, moduleleadforms.LeadSurfaceListQuery{Status: status, Page: page.Number, PageSize: page.Size})
 	if err != nil {
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load lead chat widgets")
 		return
 	}
 
 	response := leadChatWidgetsListResponse{}
-	response.Data.Widgets = widgets
+	response.Data.Widgets = result.Widgets
+	response.Data.Meta.Page = result.Page
+	response.Data.Meta.PageSize = result.PageSize
+	response.Data.Meta.Total = result.Total
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -169,6 +188,7 @@ func leadChatWidgetInput(request leadChatWidgetRequest) moduleleadforms.ChatWidg
 		Position:          request.Position,
 		LeadCaptureFormID: request.LeadCaptureFormID,
 		IsActive:          request.IsActive,
+		Revision:          request.Revision,
 	}
 }
 
@@ -176,6 +196,8 @@ func writeLeadChatWidgetError(w http.ResponseWriter, requestID string, err error
 	switch {
 	case errors.Is(err, moduleleadforms.ErrInvalidWidget):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid widget name, title, labels, theme, position, and lead form")
+	case errors.Is(err, moduleleadforms.ErrStaleWidget):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "Website widget changed. Reload and try again")
 	case errors.Is(err, moduleleadforms.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	default:

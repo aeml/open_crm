@@ -25,6 +25,30 @@ func TestMigrationFilesIncludeInitialSchema(t *testing.T) {
 	}
 }
 
+func TestMigrationFilesIncludeLeadSurfaceRevisions(t *testing.T) {
+	const name = "127_lead_surface_revisions.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	sql := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"lock_timeout",
+		"statement_timeout",
+		"lead_landing_pages_revision_positive",
+		"lead_chat_widgets_revision_positive",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("lead surface revision migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("lead surface revision deployment class = %q", class)
+	}
+}
+
 func TestMigrationFilesIncludeEmailTemplateDefinitionManagement(t *testing.T) {
 	const name = "116_email_template_definition_management.sql"
 	if !slices.Contains(MigrationFiles(), name) {

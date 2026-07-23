@@ -50,6 +50,48 @@ func auditLeadFormDefinition(ctx context.Context, tx pgx.Tx, organizationID, act
 	return nil
 }
 
+func auditLandingPageDefinition(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64, page LandingPage, eventType, summary string, previousRevision int) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO audit_events (
+			organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json
+		)
+		VALUES (
+			$1,$2,$3,'lead_landing_page',$4,$5,
+			jsonb_build_object(
+				'revision',$6::int,
+				'previousRevision',$7::int,
+				'isActive',$8::boolean,
+				'leadCaptureFormId',$9::bigint
+			)
+		)
+	`, organizationID, actorUserID, eventType, page.ID, summary, page.Revision, previousRevision, page.IsActive, page.LeadCaptureFormID)
+	if err != nil {
+		return fmt.Errorf("audit lead landing page definition: %w", err)
+	}
+	return nil
+}
+
+func auditChatWidgetDefinition(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64, widget ChatWidget, eventType, summary string, previousRevision int) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO audit_events (
+			organization_id,actor_user_id,event_type,entity_type,entity_id,summary,metadata_json
+		)
+		VALUES (
+			$1,$2,$3,'lead_chat_widget',$4,$5,
+			jsonb_build_object(
+				'revision',$6::int,
+				'previousRevision',$7::int,
+				'isActive',$8::boolean,
+				'leadCaptureFormId',$9::bigint
+			)
+		)
+	`, organizationID, actorUserID, eventType, widget.ID, summary, widget.Revision, previousRevision, widget.IsActive, widget.LeadCaptureFormID)
+	if err != nil {
+		return fmt.Errorf("audit lead chat widget definition: %w", err)
+	}
+	return nil
+}
+
 func countCustomFieldMappings(fields []Field) int {
 	count := 0
 	for _, field := range fields {

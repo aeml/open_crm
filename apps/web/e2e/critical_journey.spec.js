@@ -64,6 +64,18 @@ function seedLeadFormContinuation(ownerEmail, runID) {
   })
 }
 
+function seedLeadSurfaceContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_lead_surfaces', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 function seedProductCatalogContinuation(ownerEmail, runID) {
   execFileSync('go', ['run', './cmd/e2e_seed_product_catalog', ownerEmail, runID], {
     cwd: '../api',
@@ -478,6 +490,73 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   const landingPageRow = page.getByRole('listitem').filter({ hasText: `Pilot request page ${runID}` })
   const publicLeadURL = await landingPageRow.getByRole('link').getAttribute('href')
   expect(publicLeadURL).toBeTruthy()
+
+  await page.getByRole('link', { name: 'Website Widgets', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Website Widgets' })).toBeVisible()
+  const widgetBuilder = page.locator('form').filter({ has: page.getByRole('button', { name: 'Create website widget' }) })
+  await widgetBuilder.getByLabel('Lead form').selectOption({ label: `Pilot website form ${runID}` })
+  await widgetBuilder.getByLabel('Name', { exact: true }).fill(`Pilot website widget ${runID}`)
+  await widgetBuilder.getByLabel('Title', { exact: true }).fill(`Ask the pilot team ${runID}`)
+  await widgetBuilder.getByLabel('Welcome message').fill('Tell us what outcome you need and we will follow up.')
+  await widgetBuilder.getByLabel('Prompt label').fill('Talk to the pilot team')
+  await widgetBuilder.getByLabel('CTA label').fill('Send request')
+  await widgetBuilder.getByLabel('Position').selectOption('inline')
+  await widgetBuilder.getByRole('button', { name: 'Create website widget' }).click()
+  await expect(page.getByText('Website widget created.', { exact: true })).toBeVisible()
+  const widgetRow = page.getByRole('listitem').filter({ hasText: `Pilot website widget ${runID}` })
+  const publicWidgetURL = await widgetRow.getByRole('link').getAttribute('href')
+  expect(publicWidgetURL).toBeTruthy()
+
+  seedLeadSurfaceContinuation(owner.email, runID)
+  await page.reload()
+  const oldestSeededWidget = `Browser website widget ${runID} #051`
+  await expect(page.getByRole('heading', { name: `Browser website widget ${runID} #001`, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: oldestSeededWidget, exact: true })).toHaveCount(0)
+  await expect(page.getByText('Showing 50 of 52 website widgets.', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Next widget page' }).click()
+  await expect(page.getByRole('heading', { name: oldestSeededWidget, exact: true })).toBeVisible()
+  await expect(page.getByText('Showing 2 of 52 website widgets.', { exact: true })).toBeVisible()
+  const widgetCatalogAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-website-widget-catalog-continuation', {
+    body: JSON.stringify({ url: page.url(), violations: widgetCatalogAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(widgetCatalogAccessibility.violations).toEqual([])
+
+  const publicWidgetContext = await browser.newContext()
+  const publicWidgetPage = await publicWidgetContext.newPage()
+  await publicWidgetPage.goto(publicWidgetURL)
+  await expect(publicWidgetPage.getByRole('heading', { name: `Ask the pilot team ${runID}` })).toBeVisible()
+  await expect(publicWidgetPage.getByRole('button', { name: 'Send request' })).toBeEnabled()
+  const publicWidgetAccessibility = await new AxeBuilder({ page: publicWidgetPage })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-public-website-widget', {
+    body: JSON.stringify({ url: publicWidgetPage.url(), violations: publicWidgetAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(publicWidgetAccessibility.violations).toEqual([])
+  await publicWidgetContext.close()
+
+  await page.getByRole('link', { name: 'Landing Pages', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Landing Pages' })).toBeVisible()
+  const oldestSeededLandingPage = `Browser landing page ${runID} #051`
+  await expect(page.getByRole('heading', { name: `Browser landing page ${runID} #001`, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: oldestSeededLandingPage, exact: true })).toHaveCount(0)
+  await expect(page.getByText('Showing 50 of 52 landing pages.', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Next landing page' }).click()
+  await expect(page.getByRole('heading', { name: oldestSeededLandingPage, exact: true })).toBeVisible()
+  await expect(page.getByText('Showing 2 of 52 landing pages.', { exact: true })).toBeVisible()
+  const landingPageCatalogAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-landing-page-catalog-continuation', {
+    body: JSON.stringify({ url: page.url(), violations: landingPageCatalogAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(landingPageCatalogAccessibility.violations).toEqual([])
 
   const publicLeadContext = await browser.newContext()
   const publicLeadPage = await publicLeadContext.newPage()

@@ -15,7 +15,7 @@ The audited mutation classes are:
 - workspace provisioning, identity verification, invitation, role, member
   lifecycle, password recovery, and active-session revocation;
 - organization profile, pipeline, custom-field, quote-template, email-template,
-  email-snippet, email-sequence, and lead-form definition lifecycle and
+  email-snippet, email-sequence, lead-form, landing-page, and website-widget definition lifecycle and
   approval, plus
   executable automation configuration, transactional workflow-approval
   request, decision, unavailability, and cancellation evidence, and causal
@@ -90,6 +90,16 @@ contains no submitted value, consent statement, contact identity, public or
 challenge token, request digest, source URL, attribution, or provider data.
 The portable audit trail retains these configuration events; detailed form and
 submission evidence remains in its own portable datasets.
+
+Landing-page and website-widget create/update events commit in the same
+serializable tenant transaction as the definition. Metadata contains only the
+current and previous revision, active state, and same-tenant lead-form ID; it
+excludes page/widget copy, public IDs and slugs, embed code, consent text,
+visitor values, request material, and provider data. A failed audit insert
+rolls back the definition, while stale revisions and unauthorized or foreign
+actors/forms write neither mutation nor event. These producers remain in the
+already-reviewed `definition_audit.go` source, so the 60-file source-set digest
+does not change.
 
 Email-sequence create, update, delete, exact-revision approval, and effective
 pause events commit in the same tenant transaction as the definition change.

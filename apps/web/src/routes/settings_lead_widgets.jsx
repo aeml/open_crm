@@ -1,13 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
-import { isAbortError } from '../lib/api'
-import { listLeadCaptureForms } from '../lib/lead_forms'
-import { createLeadChatWidget, leadChatWidgetEmbedCode, listLeadChatWidgets, publicLeadChatWidgetURL, updateLeadChatWidget } from '../lib/lead_chat_widgets'
+import { createLeadChatWidget, leadChatWidgetEmbedCode, listLeadChatWidgetPage, publicLeadChatWidgetURL, updateLeadChatWidget } from '../lib/lead_chat_widgets'
 import { usePageTitle } from '../lib/use_page_title'
+import { LeadSurfaceCatalogControls, useLeadSurfaceCatalog } from './lead_surface_catalog'
 
 function emptyForm(firstLeadFormId = '') {
   return {
@@ -19,7 +18,9 @@ function emptyForm(firstLeadFormId = '') {
     theme: 'light',
     position: 'bottom-right',
     leadCaptureFormId: firstLeadFormId,
-    isActive: true
+	isActive: true,
+	revision: 0,
+	retainedLeadFormName: ''
   }
 }
 
@@ -33,7 +34,9 @@ function formFromWidget(widget) {
     theme: widget.theme || 'light',
     position: widget.position || 'bottom-right',
     leadCaptureFormId: String(widget.leadCaptureFormId || ''),
-    isActive: widget.isActive !== false
+	isActive: widget.isActive !== false,
+	revision: widget.revision,
+	retainedLeadFormName: widget.leadCaptureFormName || `Lead form ${widget.leadCaptureFormId}`
   }
 }
 
@@ -47,51 +50,28 @@ function payloadFromForm(form) {
     theme: form.theme,
     position: form.position,
     leadCaptureFormId: Number(form.leadCaptureFormId),
-    isActive: form.isActive
+	isActive: form.isActive,
+	...(form.revision > 0 ? { revision: form.revision } : {})
   }
 }
 
 export function SettingsLeadWidgetsRoute() {
   const { canAdminister: canManage } = useAuth()
   usePageTitle('Website Widgets')
-  const [widgets, setWidgets] = useState([])
-  const [leadForms, setLeadForms] = useState([])
-  const [form, setForm] = useState(emptyForm)
+  const {
+    items: widgets, meta: widgetMeta, leadForms, form, setForm, error, setError,
+    isLoading, statusFilter, setStatusFilter, pageNumber, setPageNumber,
+    load: loadWidgets
+  } = useLeadSurfaceCatalog({
+    listPage: listLeadChatWidgetPage,
+    itemKey: 'widgets',
+    emptyForm,
+    loadErrorMessage: 'Unable to load website widgets.'
+  })
   const [editingId, setEditingId] = useState(null)
   const [status, setStatus] = useState('')
-  const [error, setError] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-
-  async function loadWidgets({ signal } = {}) {
-    setIsLoading(true)
-    try {
-      const [nextWidgets, nextForms] = await Promise.all([
-        listLeadChatWidgets({ signal }),
-        listLeadCaptureForms({ status: 'active', signal })
-      ])
-      setWidgets(nextWidgets)
-      setLeadForms(nextForms)
-      setForm((current) => current.leadCaptureFormId ? current : emptyForm(nextForms[0]?.id ? String(nextForms[0].id) : ''))
-      setError('')
-    } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setError(loadError.message || 'Unable to load website widgets.')
-      }
-    } finally {
-      if (!signal?.aborted) {
-        setIsLoading(false)
-      }
-    }
-  }
-
-  useEffect(() => {
-    const controller = new AbortController()
-    loadWidgets({ signal: controller.signal })
-    return () => {
-      controller.abort()
-    }
-  }, [])
+  const operationPending = useRef(false)
 
   function resetForm() {
     setEditingId(null)
@@ -106,27 +86,29 @@ export function SettingsLeadWidgetsRoute() {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    if (!canManage) return
+    if (!canManage || operationPending.current) return
 
+    operationPending.current = true
     setIsSaving(true)
     setStatus('')
     try {
       const payload = payloadFromForm(form)
       if (editingId) {
-        const updated = await updateLeadChatWidget(editingId, payload)
-        setWidgets((current) => current.map((widget) => (widget.id === editingId ? updated : widget)))
+        await updateLeadChatWidget(editingId, payload)
         setStatus('Website widget updated.')
       } else {
-        const created = await createLeadChatWidget(payload)
-        setWidgets((current) => [created, ...current])
+		await createLeadChatWidget(payload)
         setStatus('Website widget created.')
       }
       resetForm()
       setError('')
+      if (pageNumber === 1) await loadWidgets({ requestedPage: 1 })
+      else setPageNumber(1)
     } catch (saveError) {
       setError(saveError.message || 'Unable to save website widget.')
     } finally {
       setIsSaving(false)
+      operationPending.current = false
     }
   }
 
@@ -143,6 +125,12 @@ export function SettingsLeadWidgetsRoute() {
           {isLoading ? <p className="field-hint">Loading website widgets...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadWidgets()} retryLabel="Retry widgets" /> : null}
+          <LeadSurfaceCatalogControls
+            label="Website widget status" itemCount={widgets.length} meta={widgetMeta} noun="website widgets"
+            statusFilter={statusFilter} setStatusFilter={setStatusFilter} pageNumber={pageNumber}
+            setPageNumber={setPageNumber} isLoading={isLoading} isSaving={isSaving}
+            previousLabel="Previous widget page" nextLabel="Next widget page"
+          >
           <div className="record-list" role="list" aria-label="Website widgets">
             {!isLoading && widgets.length === 0 ? (
               <article className="record-row" role="listitem">
@@ -166,6 +154,7 @@ export function SettingsLeadWidgetsRoute() {
               </article>
             ))}
           </div>
+          </LeadSurfaceCatalogControls>
         </div>
       </Card>
 
@@ -180,25 +169,26 @@ export function SettingsLeadWidgetsRoute() {
             <Field label="Lead form">
               <select className="text-input" value={form.leadCaptureFormId} onChange={(event) => setForm({ ...form, leadCaptureFormId: event.target.value })} required>
                 <option value="">Choose a lead form</option>
+				{form.leadCaptureFormId && !leadForms.some((leadForm) => String(leadForm.id) === String(form.leadCaptureFormId)) ? <option value={form.leadCaptureFormId}>{form.retainedLeadFormName} (inactive; retained)</option> : null}
                 {leadForms.map((leadForm) => (
                   <option key={leadForm.id} value={leadForm.id}>{leadForm.name}</option>
                 ))}
               </select>
             </Field>
             <Field label="Name">
-              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Website chat" required />
+			  <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Website chat" maxLength="100" required />
             </Field>
             <Field label="Title">
-              <input className="text-input" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Need help?" required />
+			  <input className="text-input" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Need help?" maxLength="200" required />
             </Field>
             <Field label="Welcome message">
-              <textarea className="text-input" rows={3} value={form.welcomeMessage} onChange={(event) => setForm({ ...form, welcomeMessage: event.target.value })} />
+			  <textarea className="text-input" rows={3} value={form.welcomeMessage} onChange={(event) => setForm({ ...form, welcomeMessage: event.target.value })} maxLength="2000" />
             </Field>
             <Field label="Prompt label">
-              <input className="text-input" value={form.promptLabel} onChange={(event) => setForm({ ...form, promptLabel: event.target.value })} required />
+			  <input className="text-input" value={form.promptLabel} onChange={(event) => setForm({ ...form, promptLabel: event.target.value })} maxLength="100" required />
             </Field>
             <Field label="CTA label">
-              <input className="text-input" value={form.ctaLabel} onChange={(event) => setForm({ ...form, ctaLabel: event.target.value })} required />
+			  <input className="text-input" value={form.ctaLabel} onChange={(event) => setForm({ ...form, ctaLabel: event.target.value })} maxLength="100" required />
             </Field>
             <Field label="Theme">
               <select className="text-input" value={form.theme} onChange={(event) => setForm({ ...form, theme: event.target.value })}>

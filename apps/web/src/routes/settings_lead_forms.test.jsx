@@ -33,6 +33,48 @@ const contactCustomFields = [
 ]
 
 describe('settings lead forms route', () => {
+	it('preserves in-progress input and appends required custom fields when dependencies finish late', async () => {
+		let resolveCustomFields
+		const customFieldsResponse = new Promise((resolve) => {
+			resolveCustomFields = resolve
+		})
+		let createBody
+		const fetchMock = vi.fn(async (url, options = {}) => {
+			const requestURL = new URL(String(url), 'http://localhost')
+			const path = requestURL.pathname
+			const method = options.method || 'GET'
+			if (path.endsWith('/auth/me')) return sessionResponse()
+			if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+			if (path.endsWith('/api/custom-fields')) return customFieldsResponse
+			if (path.endsWith('/api/lead-capture-submissions')) return jsonResponse({ data: { submissions: [], counts: { unreviewed: 0, legitimate: 0, spam: 0 }, limit: 50 } })
+			if (path.endsWith('/api/lead-capture-forms') && method === 'POST') {
+				createBody = JSON.parse(options.body)
+				return jsonResponse({ data: { form: { ...createBody, id: 8, publicId: 'lf_created', revision: 1 } } })
+			}
+			if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [], meta: { page: 1, pageSize: 50, total: 0 } } })
+			throw new Error(`Unexpected fetch: ${method} ${path}`)
+		})
+
+		vi.stubGlobal('fetch', fetchMock)
+		window.history.pushState({}, '', '/settings/lead-forms')
+		render(<AppRouter />)
+
+		expect(await screen.findByRole('heading', { name: 'New lead form' })).toBeInTheDocument()
+		fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Typed before dependencies' } })
+		resolveCustomFields(jsonResponse({ data: { definitions: contactCustomFields } }))
+
+		expect(await screen.findByLabelText('custom_relationship_segment destination')).toHaveValue('custom:relationship_segment')
+		expect(screen.getByLabelText(/^name$/i)).toHaveValue('Typed before dependencies')
+		fireEvent.click(screen.getByRole('button', { name: 'Create lead form' }))
+
+		await waitFor(() => {
+			expect(createBody?.fields.find((field) => field.key === 'custom_relationship_segment')).toEqual(expect.objectContaining({
+				mapTo: 'custom:relationship_segment',
+				required: true
+			}))
+		})
+	})
+
 	it('shows exact totals and reaches the next stable form page', async () => {
 		const forms = Array.from({ length: 51 }, (_, index) => ({
 			id: index + 1,

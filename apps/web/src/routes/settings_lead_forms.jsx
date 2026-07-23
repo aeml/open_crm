@@ -218,7 +218,9 @@ export function SettingsLeadFormsRoute() {
 	  if (loadDependencies) {
 		setReviewForms(allForms)
 		setCustomFields(nextCustomFields)
-		setForm((current) => current.name || editingId ? current : emptyForm(nextCustomFields))
+		setForm((current) => current.name || editingId
+		  ? { ...current, fields: withRequiredCustomFields(current.fields, nextCustomFields) }
+		  : emptyForm(nextCustomFields))
 		dependenciesLoaded.current = true
 	  }
       setError('')

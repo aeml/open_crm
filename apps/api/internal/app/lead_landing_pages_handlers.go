@@ -6,12 +6,18 @@ import (
 	"strings"
 
 	moduleleadforms "github.com/aeml/open_crm/apps/api/internal/modules/leadforms"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
 type leadLandingPagesListResponse struct {
 	Data struct {
 		Pages []moduleleadforms.LandingPage `json:"pages"`
+		Meta  struct {
+			Page     int `json:"page"`
+			PageSize int `json:"pageSize"`
+			Total    int `json:"total"`
+		} `json:"meta"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -44,6 +50,7 @@ type leadLandingPageRequest struct {
 	Theme             string `json:"theme"`
 	LeadCaptureFormID int64  `json:"leadCaptureFormId"`
 	IsActive          *bool  `json:"isActive"`
+	Revision          int    `json:"revision"`
 }
 
 func handleListLeadLandingPages(auth authService, forms leadFormsService, w http.ResponseWriter, r *http.Request) {
@@ -57,14 +64,26 @@ func handleListLeadLandingPages(auth authService, forms leadFormsService, w http
 		return
 	}
 
-	pages, err := forms.ListLandingPagesByOrganization(r.Context(), state.Organization.ID)
+	page, parseErr := platformpagination.Parse(r.URL.Query().Get("page"), r.URL.Query().Get("pageSize"), moduleleadforms.DefaultLeadSurfaceListPageSize)
+	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
+	if status == "" {
+		status = "all"
+	}
+	if parseErr != nil || (status != "all" && status != "active" && status != "inactive") {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid landing page status and page")
+		return
+	}
+	result, err := forms.ListLandingPagesByOrganization(r.Context(), state.Organization.ID, moduleleadforms.LeadSurfaceListQuery{Status: status, Page: page.Number, PageSize: page.Size})
 	if err != nil {
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load landing pages")
 		return
 	}
 
 	response := leadLandingPagesListResponse{}
-	response.Data.Pages = pages
+	response.Data.Pages = result.Pages
+	response.Data.Meta.Page = result.Page
+	response.Data.Meta.PageSize = result.PageSize
+	response.Data.Meta.Total = result.Total
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -169,6 +188,7 @@ func leadLandingPageInput(request leadLandingPageRequest) moduleleadforms.Landin
 		Theme:             request.Theme,
 		LeadCaptureFormID: request.LeadCaptureFormID,
 		IsActive:          request.IsActive,
+		Revision:          request.Revision,
 	}
 }
 
@@ -178,6 +198,8 @@ func writeLeadLandingPageError(w http.ResponseWriter, requestID string, err erro
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid landing page name, slug, title, CTA, theme, and lead form")
 	case errors.Is(err, moduleleadforms.ErrDuplicatePageSlug):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A landing page with that slug already exists")
+	case errors.Is(err, moduleleadforms.ErrStaleLandingPage):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "Landing page changed. Reload and try again")
 	case errors.Is(err, moduleleadforms.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	default:

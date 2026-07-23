@@ -1,13 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
-import { isAbortError } from '../lib/api'
-import { listLeadCaptureForms } from '../lib/lead_forms'
-import { createLeadLandingPage, listLeadLandingPages, publicLeadLandingPageURL, updateLeadLandingPage } from '../lib/landing_pages'
+import { createLeadLandingPage, listLeadLandingPagePage, publicLeadLandingPageURL, updateLeadLandingPage } from '../lib/landing_pages'
 import { usePageTitle } from '../lib/use_page_title'
+import { LeadSurfaceCatalogControls, useLeadSurfaceCatalog } from './lead_surface_catalog'
 
 function emptyForm(firstLeadFormId = '') {
   return {
@@ -19,7 +18,9 @@ function emptyForm(firstLeadFormId = '') {
     ctaLabel: 'Submit',
     theme: 'light',
     leadCaptureFormId: firstLeadFormId,
-    isActive: true
+    isActive: true,
+    revision: 0,
+    retainedLeadFormName: ''
   }
 }
 
@@ -33,7 +34,9 @@ function formFromPage(page) {
     ctaLabel: page.ctaLabel || 'Submit',
     theme: page.theme || 'light',
     leadCaptureFormId: String(page.leadCaptureFormId || ''),
-    isActive: page.isActive !== false
+    isActive: page.isActive !== false,
+    revision: page.revision,
+    retainedLeadFormName: page.leadCaptureFormName || `Lead form ${page.leadCaptureFormId}`
   }
 }
 
@@ -47,51 +50,28 @@ function landingPagePayload(form) {
     ctaLabel: form.ctaLabel,
     theme: form.theme,
     leadCaptureFormId: Number(form.leadCaptureFormId),
-    isActive: form.isActive
+	isActive: form.isActive,
+	...(form.revision > 0 ? { revision: form.revision } : {})
   }
 }
 
 export function SettingsLandingPagesRoute() {
   const { canAdminister: canManage } = useAuth()
   usePageTitle('Landing Pages')
-  const [pages, setPages] = useState([])
-  const [leadForms, setLeadForms] = useState([])
-  const [form, setForm] = useState(emptyForm)
+  const {
+    items: pages, meta: pageMeta, leadForms, form, setForm, error, setError,
+    isLoading, statusFilter, setStatusFilter, pageNumber, setPageNumber,
+    load: loadLandingPages
+  } = useLeadSurfaceCatalog({
+    listPage: listLeadLandingPagePage,
+    itemKey: 'pages',
+    emptyForm,
+    loadErrorMessage: 'Unable to load landing pages.'
+  })
   const [editingId, setEditingId] = useState(null)
   const [status, setStatus] = useState('')
-  const [error, setError] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-
-  async function loadLandingPages({ signal } = {}) {
-    setIsLoading(true)
-    try {
-      const [nextPages, nextForms] = await Promise.all([
-        listLeadLandingPages({ signal }),
-        listLeadCaptureForms({ status: 'active', signal })
-      ])
-      setPages(nextPages)
-      setLeadForms(nextForms)
-      setForm((current) => current.leadCaptureFormId ? current : emptyForm(nextForms[0]?.id ? String(nextForms[0].id) : ''))
-      setError('')
-    } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setError(loadError.message || 'Unable to load landing pages.')
-      }
-    } finally {
-      if (!signal?.aborted) {
-        setIsLoading(false)
-      }
-    }
-  }
-
-  useEffect(() => {
-    const controller = new AbortController()
-    loadLandingPages({ signal: controller.signal })
-    return () => {
-      controller.abort()
-    }
-  }, [])
+  const operationPending = useRef(false)
 
   function resetForm() {
     setEditingId(null)
@@ -106,27 +86,29 @@ export function SettingsLandingPagesRoute() {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    if (!canManage) return
+    if (!canManage || operationPending.current) return
 
+    operationPending.current = true
     setIsSaving(true)
     setStatus('')
     try {
       const payload = landingPagePayload(form)
       if (editingId) {
-        const updated = await updateLeadLandingPage(editingId, payload)
-        setPages((current) => current.map((page) => (page.id === editingId ? updated : page)))
+        await updateLeadLandingPage(editingId, payload)
         setStatus('Landing page updated.')
       } else {
-        const created = await createLeadLandingPage(payload)
-        setPages((current) => [created, ...current])
+		await createLeadLandingPage(payload)
         setStatus('Landing page created.')
       }
       resetForm()
       setError('')
+      if (pageNumber === 1) await loadLandingPages({ requestedPage: 1 })
+      else setPageNumber(1)
     } catch (saveError) {
       setError(saveError.message || 'Unable to save landing page.')
     } finally {
       setIsSaving(false)
+      operationPending.current = false
     }
   }
 
@@ -143,6 +125,12 @@ export function SettingsLandingPagesRoute() {
           {isLoading ? <p className="field-hint">Loading landing pages...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadLandingPages()} retryLabel="Retry landing pages" /> : null}
+          <LeadSurfaceCatalogControls
+            label="Landing page status" itemCount={pages.length} meta={pageMeta} noun="landing pages"
+            statusFilter={statusFilter} setStatusFilter={setStatusFilter} pageNumber={pageNumber}
+            setPageNumber={setPageNumber} isLoading={isLoading} isSaving={isSaving}
+            previousLabel="Previous landing page" nextLabel="Next landing page"
+          >
           <div className="record-list" role="list" aria-label="Landing pages">
             {!isLoading && pages.length === 0 ? (
               <article className="record-row" role="listitem">
@@ -165,6 +153,7 @@ export function SettingsLandingPagesRoute() {
               </article>
             ))}
           </div>
+          </LeadSurfaceCatalogControls>
         </div>
       </Card>
 
@@ -179,28 +168,29 @@ export function SettingsLandingPagesRoute() {
             <Field label="Lead form">
               <select className="text-input" value={form.leadCaptureFormId} onChange={(event) => setForm({ ...form, leadCaptureFormId: event.target.value })} required>
                 <option value="">Choose a lead form</option>
+				{form.leadCaptureFormId && !leadForms.some((leadForm) => String(leadForm.id) === String(form.leadCaptureFormId)) ? <option value={form.leadCaptureFormId}>{form.retainedLeadFormName} (inactive; retained)</option> : null}
                 {leadForms.map((leadForm) => (
                   <option key={leadForm.id} value={leadForm.id}>{leadForm.name}</option>
                 ))}
               </select>
             </Field>
             <Field label="Name">
-              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Demo campaign page" required />
+			  <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Demo campaign page" maxLength="100" required />
             </Field>
             <Field label="Slug" hint="Public URL path, globally unique across hosted pages.">
-              <input className="text-input" value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} placeholder="demo-request" />
+			  <input className="text-input" value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} placeholder="demo-request" maxLength="80" />
             </Field>
             <Field label="Title">
-              <input className="text-input" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Book a better CRM demo" />
+			  <input className="text-input" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Book a better CRM demo" maxLength="200" />
             </Field>
             <Field label="Subtitle">
-              <input className="text-input" value={form.subtitle} onChange={(event) => setForm({ ...form, subtitle: event.target.value })} placeholder="A focused page for one offer or campaign." />
+			  <input className="text-input" value={form.subtitle} onChange={(event) => setForm({ ...form, subtitle: event.target.value })} placeholder="A focused page for one offer or campaign." maxLength="500" />
             </Field>
             <Field label="Body">
-              <textarea className="text-input" rows={5} value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} placeholder="Explain the offer, audience, and next step." />
+			  <textarea className="text-input" rows={5} value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} placeholder="Explain the offer, audience, and next step." maxLength="10000" />
             </Field>
             <Field label="CTA label">
-              <input className="text-input" value={form.ctaLabel} onChange={(event) => setForm({ ...form, ctaLabel: event.target.value })} required />
+			  <input className="text-input" value={form.ctaLabel} onChange={(event) => setForm({ ...form, ctaLabel: event.target.value })} maxLength="100" required />
             </Field>
             <Field label="Theme">
               <select className="text-input" value={form.theme} onChange={(event) => setForm({ ...form, theme: event.target.value })}>

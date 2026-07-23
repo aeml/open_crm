@@ -36,6 +36,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Each adjacent email-template and snippet management page (1,001 definitions/catalog, up to 100 returned) | 2 s each |
 | Each adjacent personal saved-view management page (1,001 definitions, up to 100 returned) | 2 s each |
 | Active and adjacent email-sequence definition pages (1,001 definitions, up to 100 returned) | 2 s each |
+| Active and adjacent landing-page and website-widget management pages (1,001 definitions/catalog, up to 100 returned) | 2 s each |
 | Company linked-person page (1,000 links, 100 returned) | 2 s |
 | Transactional contact-create p95 | 1 s |
 | Any transactional contact create | 3 s |
@@ -688,6 +689,26 @@ lead-form route is 20.64/6.55 KiB raw/gzip; entry and largest lazy chunks are
 812.36/252.49 KiB aggregate raw/gzip. Only aggregate ceilings advance from
 811/252 to a measured 813/253 KiB; entry, per-route, CSS, hidden-foundation,
 and source ceilings remain unchanged.
+
+Bounded landing-page and website-widget administration adds the same
+50/default, 100/maximum, 50,000-offset and exact status-total contract with
+stable active/update/ID ordering. Fresh PostgreSQL acceptance seeds 1,001 rows
+per catalog plus foreign sentinels, asserts the existing
+`idx_lead_landing_pages_org_active` and `idx_lead_chat_widgets_org_active`
+plans, and keeps active and adjacent pages below two seconds. Exact revisions,
+transactional actor/form revalidation, audit rollback, a migration-126 rolling
+fixture that proves historical and old-writer revision defaults/constraints,
+and the clean 52-row
+Chromium/WCAG continuation journey cover failure and user-visible behavior. An
+86-line shared catalog controller keeps the landing and widget routes at 214
+and 219 lines and their chunks at 6.57/2.23 and 6.95/2.27 KiB raw/gzip; its
+shared chunk is 2.20/1.09 KiB. Delayed dependency tests prove both this shared
+controller and the 446-line lead-form route preserve an in-progress draft while
+merging the active or required form dependency. The Node 24 production build is
+179.04/58.06 KiB entry, 55.16/15.74 KiB largest lazy chunk, and 816.10/254.30 KiB aggregate
+raw/gzip. After extracting the shared controller, only aggregate ceilings
+advance from 813/253 to 817/255 KiB; entry, per-route, CSS,
+hidden-foundation, and source ceilings remain unchanged.
 
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and

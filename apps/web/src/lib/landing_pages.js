@@ -1,9 +1,14 @@
 import { apiRequest, apiURL } from './api'
 
-export async function listLeadLandingPages({ signal } = {}) {
-  const payload = await apiRequest('/api/lead-landing-pages', { fallbackMessage: 'Unable to load landing pages.', signal })
+export async function listLeadLandingPagePage({ status = 'all', page = 1, pageSize = 50, signal } = {}) {
+  const query = new URLSearchParams()
+  if (status && status !== 'all') query.set('status', status)
+  query.set('page', String(page))
+  query.set('pageSize', String(pageSize))
+  const payload = await apiRequest(`/api/lead-landing-pages?${query.toString()}`, { fallbackMessage: 'Unable to load landing pages.', signal })
+  const data = payload?.data || {}
 
-  return payload?.data?.pages || []
+  return { pages: data.pages || [], meta: data.meta || { page, pageSize, total: (data.pages || []).length } }
 }
 
 export async function createLeadLandingPage(input, { signal } = {}) {

@@ -24,7 +24,7 @@ type fakeLeadFormsService struct {
 	createErr              error
 	updateResult           moduleleadforms.Form
 	updateErr              error
-	pageListResult         []moduleleadforms.LandingPage
+	pageListResult         moduleleadforms.LandingPageListPage
 	pageListErr            error
 	pageCreateResult       moduleleadforms.LandingPage
 	pageCreateErr          error
@@ -32,7 +32,7 @@ type fakeLeadFormsService struct {
 	pageUpdateErr          error
 	publicPageResult       moduleleadforms.PublicLandingPage
 	publicPageErr          error
-	widgetListResult       []moduleleadforms.ChatWidget
+	widgetListResult       moduleleadforms.ChatWidgetListPage
 	widgetListErr          error
 	widgetCreateResult     moduleleadforms.ChatWidget
 	widgetCreateErr        error
@@ -54,6 +54,7 @@ type fakeLeadFormsService struct {
 	lastUpdateUserID       int64
 	lastUpdateInput        moduleleadforms.Input
 	lastPageListOrg        int64
+	lastPageListQuery      moduleleadforms.LeadSurfaceListQuery
 	lastPageCreateOrg      int64
 	lastPageCreateUser     int64
 	lastPageCreateInput    moduleleadforms.LandingPageInput
@@ -63,6 +64,7 @@ type fakeLeadFormsService struct {
 	lastPageUpdateInput    moduleleadforms.LandingPageInput
 	lastPublicPageSlug     string
 	lastWidgetListOrg      int64
+	lastWidgetListQuery    moduleleadforms.LeadSurfaceListQuery
 	lastWidgetCreateOrg    int64
 	lastWidgetCreateUser   int64
 	lastWidgetCreateInput  moduleleadforms.ChatWidgetInput
@@ -121,8 +123,9 @@ func (f *fakeLeadFormsService) ReviewSubmission(_ context.Context, organizationI
 	return f.reviewResult, f.reviewErr
 }
 
-func (f *fakeLeadFormsService) ListLandingPagesByOrganization(_ context.Context, organizationID int64) ([]moduleleadforms.LandingPage, error) {
+func (f *fakeLeadFormsService) ListLandingPagesByOrganization(_ context.Context, organizationID int64, query moduleleadforms.LeadSurfaceListQuery) (moduleleadforms.LandingPageListPage, error) {
 	f.lastPageListOrg = organizationID
+	f.lastPageListQuery = query
 	return f.pageListResult, f.pageListErr
 }
 
@@ -146,8 +149,9 @@ func (f *fakeLeadFormsService) GetPublicLandingPage(_ context.Context, slug stri
 	return f.publicPageResult, f.publicPageErr
 }
 
-func (f *fakeLeadFormsService) ListChatWidgetsByOrganization(_ context.Context, organizationID int64) ([]moduleleadforms.ChatWidget, error) {
+func (f *fakeLeadFormsService) ListChatWidgetsByOrganization(_ context.Context, organizationID int64, query moduleleadforms.LeadSurfaceListQuery) (moduleleadforms.ChatWidgetListPage, error) {
 	f.lastWidgetListOrg = organizationID
+	f.lastWidgetListQuery = query
 	return f.widgetListResult, f.widgetListErr
 }
 
@@ -608,10 +612,10 @@ func TestIssuePublicLeadSubmissionChallengeHidesInvalidMapping(t *testing.T) {
 }
 
 func TestListLeadLandingPagesScopesToOrganization(t *testing.T) {
-	service := &fakeLeadFormsService{pageListResult: []moduleleadforms.LandingPage{{ID: 4, Name: "Demo Page", Slug: "demo", PublicID: "lp_test", LeadCaptureFormID: 3, LeadCaptureFormName: "Website Leads", IsActive: true}}}
+	service := &fakeLeadFormsService{pageListResult: moduleleadforms.LandingPageListPage{Pages: []moduleleadforms.LandingPage{{ID: 4, Name: "Demo Page", Slug: "demo", PublicID: "lp_test", LeadCaptureFormID: 3, LeadCaptureFormName: "Website Leads", IsActive: true}}, Page: 2, PageSize: 25, Total: 31}}
 	server := authenticatedLeadFormsServer(service, "member")
 
-	request := httptest.NewRequest(http.MethodGet, "/api/lead-landing-pages", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/lead-landing-pages?status=inactive&page=2&pageSize=25", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -623,9 +627,17 @@ func TestListLeadLandingPagesScopesToOrganization(t *testing.T) {
 	if service.lastPageListOrg != 42 {
 		t.Fatalf("expected page list scoped to org 42, got %d", service.lastPageListOrg)
 	}
+	if service.lastPageListQuery != (moduleleadforms.LeadSurfaceListQuery{Status: "inactive", Page: 2, PageSize: 25}) {
+		t.Fatalf("unexpected landing page list query: %+v", service.lastPageListQuery)
+	}
 	var response struct {
 		Data struct {
 			Pages []moduleleadforms.LandingPage `json:"pages"`
+			Meta  struct {
+				Page     int `json:"page"`
+				PageSize int `json:"pageSize"`
+				Total    int `json:"total"`
+			} `json:"meta"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -633,6 +645,36 @@ func TestListLeadLandingPagesScopesToOrganization(t *testing.T) {
 	}
 	if len(response.Data.Pages) != 1 || response.Data.Pages[0].PublicID != "lp_test" {
 		t.Fatalf("unexpected landing pages payload: %#v", response.Data.Pages)
+	}
+	if response.Data.Meta.Page != 2 || response.Data.Meta.PageSize != 25 || response.Data.Meta.Total != 31 {
+		t.Fatalf("unexpected landing page metadata: %+v", response.Data.Meta)
+	}
+}
+
+func TestLeadSurfaceListsRejectInvalidPaginationBeforeService(t *testing.T) {
+	cases := []string{
+		"/api/lead-landing-pages?status=unknown",
+		"/api/lead-landing-pages?page=0",
+		"/api/lead-landing-pages?pageSize=101",
+		"/api/lead-landing-pages?page=502&pageSize=100",
+		"/api/lead-chat-widgets?status=unknown",
+		"/api/lead-chat-widgets?pageSize=101",
+	}
+	for _, target := range cases {
+		t.Run(target, func(t *testing.T) {
+			service := &fakeLeadFormsService{}
+			server := authenticatedLeadFormsServer(service, "member")
+			request := httptest.NewRequest(http.MethodGet, target, nil)
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("expected status %d, got %d body=%s", http.StatusBadRequest, recorder.Code, recorder.Body.String())
+			}
+			if service.lastPageListOrg != 0 || service.lastWidgetListOrg != 0 {
+				t.Fatal("invalid lead surface list reached the service")
+			}
+		})
 	}
 }
 
@@ -681,7 +723,7 @@ func TestUpdateLeadLandingPageScopesToOrganization(t *testing.T) {
 	service := &fakeLeadFormsService{pageUpdateResult: moduleleadforms.LandingPage{ID: 9, Name: "Demo Page", Slug: "demo", IsActive: false}}
 	server := authenticatedLeadFormsServer(service, "owner")
 
-	body := bytes.NewBufferString(`{"name":"Demo Page","slug":"demo","title":"Book a demo","ctaLabel":"Request demo","theme":"dark","leadCaptureFormId":3,"isActive":false}`)
+	body := bytes.NewBufferString(`{"name":"Demo Page","slug":"demo","title":"Book a demo","ctaLabel":"Request demo","theme":"dark","leadCaptureFormId":3,"isActive":false,"revision":7}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/lead-landing-pages/9", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -697,6 +739,36 @@ func TestUpdateLeadLandingPageScopesToOrganization(t *testing.T) {
 	}
 	if service.lastPageUpdateInput.IsActive == nil || *service.lastPageUpdateInput.IsActive != inactive {
 		t.Fatalf("expected inactive update input, got %#v", service.lastPageUpdateInput.IsActive)
+	}
+	if service.lastPageUpdateInput.Revision != 7 {
+		t.Fatalf("expected landing page revision 7, got %d", service.lastPageUpdateInput.Revision)
+	}
+}
+
+func TestLeadSurfaceUpdatesExposeRevisionConflicts(t *testing.T) {
+	cases := []struct {
+		name   string
+		target string
+		body   string
+		setup  func(*fakeLeadFormsService)
+	}{
+		{name: "landing page", target: "/api/lead-landing-pages/9", body: `{"name":"Demo","slug":"demo","title":"Demo","ctaLabel":"Submit","theme":"light","leadCaptureFormId":3,"revision":1}`, setup: func(service *fakeLeadFormsService) { service.pageUpdateErr = moduleleadforms.ErrStaleLandingPage }},
+		{name: "website widget", target: "/api/lead-chat-widgets/9", body: `{"name":"Widget","title":"Widget","promptLabel":"Chat","ctaLabel":"Send","theme":"light","position":"inline","leadCaptureFormId":3,"revision":1}`, setup: func(service *fakeLeadFormsService) { service.widgetUpdateErr = moduleleadforms.ErrStaleWidget }},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			service := &fakeLeadFormsService{}
+			testCase.setup(service)
+			server := authenticatedLeadFormsServer(service, "owner")
+			request := httptest.NewRequest(http.MethodPatch, testCase.target, strings.NewReader(testCase.body))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusConflict || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"CONFLICT"`)) {
+				t.Fatalf("expected revision conflict, got status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 
@@ -743,10 +815,10 @@ func TestGetPublicLeadLandingPageHidesInvalidFormMapping(t *testing.T) {
 }
 
 func TestListLeadChatWidgetsScopesToOrganization(t *testing.T) {
-	service := &fakeLeadFormsService{widgetListResult: []moduleleadforms.ChatWidget{{ID: 4, Name: "Website chat", PublicID: "cw_test", LeadCaptureFormID: 3, LeadCaptureFormName: "Website Leads", IsActive: true}}}
+	service := &fakeLeadFormsService{widgetListResult: moduleleadforms.ChatWidgetListPage{Widgets: []moduleleadforms.ChatWidget{{ID: 4, Name: "Website chat", PublicID: "cw_test", LeadCaptureFormID: 3, LeadCaptureFormName: "Website Leads", IsActive: true}}, Page: 2, PageSize: 25, Total: 32}}
 	server := authenticatedLeadFormsServer(service, "member")
 
-	request := httptest.NewRequest(http.MethodGet, "/api/lead-chat-widgets", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/lead-chat-widgets?status=active&page=2&pageSize=25", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 
@@ -758,9 +830,17 @@ func TestListLeadChatWidgetsScopesToOrganization(t *testing.T) {
 	if service.lastWidgetListOrg != 42 {
 		t.Fatalf("expected widget list scoped to org 42, got %d", service.lastWidgetListOrg)
 	}
+	if service.lastWidgetListQuery != (moduleleadforms.LeadSurfaceListQuery{Status: "active", Page: 2, PageSize: 25}) {
+		t.Fatalf("unexpected website widget list query: %+v", service.lastWidgetListQuery)
+	}
 	var response struct {
 		Data struct {
 			Widgets []moduleleadforms.ChatWidget `json:"widgets"`
+			Meta    struct {
+				Page     int `json:"page"`
+				PageSize int `json:"pageSize"`
+				Total    int `json:"total"`
+			} `json:"meta"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -768,6 +848,9 @@ func TestListLeadChatWidgetsScopesToOrganization(t *testing.T) {
 	}
 	if len(response.Data.Widgets) != 1 || response.Data.Widgets[0].PublicID != "cw_test" {
 		t.Fatalf("unexpected widgets payload: %#v", response.Data.Widgets)
+	}
+	if response.Data.Meta.Page != 2 || response.Data.Meta.PageSize != 25 || response.Data.Meta.Total != 32 {
+		t.Fatalf("unexpected website widget metadata: %+v", response.Data.Meta)
 	}
 }
 
@@ -816,7 +899,7 @@ func TestUpdateLeadChatWidgetScopesToOrganization(t *testing.T) {
 	service := &fakeLeadFormsService{widgetUpdateResult: moduleleadforms.ChatWidget{ID: 9, Name: "Website chat", PublicID: "cw_existing", IsActive: false}}
 	server := authenticatedLeadFormsServer(service, "owner")
 
-	body := bytes.NewBufferString(`{"name":"Website chat","title":"Need help?","promptLabel":"Chat with us","ctaLabel":"Send","theme":"dark","position":"inline","leadCaptureFormId":3,"isActive":false}`)
+	body := bytes.NewBufferString(`{"name":"Website chat","title":"Need help?","promptLabel":"Chat with us","ctaLabel":"Send","theme":"dark","position":"inline","leadCaptureFormId":3,"isActive":false,"revision":9}`)
 	request := httptest.NewRequest(http.MethodPatch, "/api/lead-chat-widgets/9", body)
 	request.Header.Set("Content-Type", "application/json")
 	addSessionCookie(request)
@@ -832,6 +915,9 @@ func TestUpdateLeadChatWidgetScopesToOrganization(t *testing.T) {
 	}
 	if service.lastWidgetUpdateInput.IsActive == nil || *service.lastWidgetUpdateInput.IsActive != inactive {
 		t.Fatalf("expected inactive update input, got %#v", service.lastWidgetUpdateInput.IsActive)
+	}
+	if service.lastWidgetUpdateInput.Revision != 9 {
+		t.Fatalf("expected website widget revision 9, got %d", service.lastWidgetUpdateInput.Revision)
 	}
 }
 

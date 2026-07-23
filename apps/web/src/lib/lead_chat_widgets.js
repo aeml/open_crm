@@ -1,9 +1,14 @@
 import { apiRequest } from './api'
 
-export async function listLeadChatWidgets({ signal } = {}) {
-  const payload = await apiRequest('/api/lead-chat-widgets', { fallbackMessage: 'Unable to load lead chat widgets.', signal })
+export async function listLeadChatWidgetPage({ status = 'all', page = 1, pageSize = 50, signal } = {}) {
+  const query = new URLSearchParams()
+  if (status && status !== 'all') query.set('status', status)
+  query.set('page', String(page))
+  query.set('pageSize', String(pageSize))
+  const payload = await apiRequest(`/api/lead-chat-widgets?${query.toString()}`, { fallbackMessage: 'Unable to load lead chat widgets.', signal })
+  const data = payload?.data || {}
 
-  return payload?.data?.widgets || []
+  return { widgets: data.widgets || [], meta: data.meta || { page, pageSize, total: (data.widgets || []).length } }
 }
 
 export async function createLeadChatWidget(input, { signal } = {}) {
