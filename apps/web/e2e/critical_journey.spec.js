@@ -212,7 +212,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   // This intentionally broad journey exercises the complete pilot contract and
   // can exceed the default wall-clock budget on a shared CI runner. Action and
   // assertion timeouts remain bounded by the global 10-second limits.
-  test.setTimeout(120_000)
+  test.setTimeout(150_000)
   const runID = uniqueRunID()
   const resetSMTP = await page.request.delete(`${smtpCaptureURL}/messages`)
   expect(resetSMTP.status()).toBe(200)
@@ -366,6 +366,18 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await memberPage.getByRole('button', { name: 'Sign in' }).click()
   await expect(memberPage).toHaveURL(/\/dashboard$/)
 
+  await memberPage.getByRole('link', { name: 'My Email', exact: true }).click()
+  await expect(memberPage.getByRole('heading', { name: 'My email connection' })).toBeVisible()
+  await memberPage.getByLabel('From email').fill(invitedEmail)
+  await memberPage.getByLabel('From name').fill('Jamie Pilot')
+  await memberPage.getByLabel('SMTP host').fill(smtpHost)
+  await memberPage.getByLabel('SMTP port').fill(smtpPort)
+  await memberPage.getByLabel('SMTP username').fill(invitedEmail)
+  await memberPage.getByLabel('SMTP password').fill(`smtp-sandbox-jamie-${runID}`)
+  await memberPage.getByRole('checkbox', { name: 'Use TLS / STARTTLS' }).uncheck()
+  await memberPage.getByRole('button', { name: 'Save connection' }).click()
+  await expect(memberPage.getByText('Email account saved. Emails you send to contacts will come from your address.')).toBeVisible()
+
   seedUserCatalogContinuation(owner.email, runID)
   await page.reload()
   const retainedMemberEmail = `browser-team-${runID}-49@example.test`
@@ -514,7 +526,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByLabel('Due in days', { exact: false }).fill('1')
   await page.getByRole('button', { name: 'Create workflow rule' }).click()
   await expect(page.getByRole('heading', { name: leadFollowUpRuleName })).toBeVisible()
-	await expect(page.getByText('1 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, and owner assignment uses one slot.')).toBeVisible()
+	await expect(page.getByText('1 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.')).toBeVisible()
 
 	seedWorkflowDefinitionContinuation(owner.email, runID)
 	await page.reload()
@@ -1124,6 +1136,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   const notificationTaskTitle = `Prepare new-deal briefing ${runID}`
   const dealNotificationMessage = `New-deal briefing is ready for Website renewal ${runID}.`
   const dealAssignmentRuleName = `Restore Jamie as deal owner ${runID}`
+  const dealSequenceRuleName = `Enroll new deal contacts in ${sequenceName}`
   await page.getByRole('link', { name: 'Automations', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Workflow automation rules' })).toBeVisible()
   await page.getByLabel('Rule name').fill(dealApprovalRuleName)
@@ -1152,7 +1165,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(page.getByRole('heading', { name: dealApprovalRuleName })).toBeVisible()
   await expect(page.getByText('Only if value amount is greater than 20000', { exact: true })).toBeVisible()
   await expect(page.getByText(/2-task playbook/)).toBeVisible()
-	await expect(page.getByText('4 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, and owner assignment uses one slot.')).toBeVisible()
+	await expect(page.getByText('4 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.')).toBeVisible()
 
   await page.getByLabel('Rule name').fill(dealNotificationRuleName)
   await page.getByLabel('Task title').fill(notificationTaskTitle)
@@ -1169,7 +1182,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   const notificationDefinition = page.getByRole('list', { name: 'Workflow automation rules' }).getByRole('listitem').filter({ hasText: dealNotificationRuleName })
   await expect(notificationDefinition).toContainText('1-task playbook · then notifies eligible teammates in the same transaction.')
   await expect(notificationDefinition).toContainText(`Notification: Workspace owners · “${dealNotificationMessage}”`)
-	await expect(page.getByText('6 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, and owner assignment uses one slot.')).toBeVisible()
+	await expect(page.getByText('6 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.')).toBeVisible()
 
   await page.getByLabel('Rule name').fill(dealAssignmentRuleName)
   await page.getByLabel('Outcome').selectOption('assign_owner')
@@ -1184,7 +1197,21 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(assignmentDefinition).toContainText('After every direct deal owner change')
   await expect(assignmentDefinition).toContainText('One transactional owner assignment · nested owner-change rules are causally bounded.')
   await expect(assignmentDefinition).toContainText('Assign deal to Jamie Pilot.')
-	await expect(page.getByText('7 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, and owner assignment uses one slot.')).toBeVisible()
+	await expect(page.getByText('7 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.')).toBeVisible()
+
+  await page.getByLabel('Rule name').fill(dealSequenceRuleName)
+  await page.getByLabel('Outcome').selectOption('add_to_sequence')
+  await page.getByRole('combobox', { name: /^Approved email sequence/ }).selectOption({ label: sequenceName })
+  const sequenceWorkflowAuthoringAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  expect(sequenceWorkflowAuthoringAccessibility.violations, 'sequence workflow authoring must have no automated WCAG A/AA violations').toEqual([])
+  await page.getByRole('button', { name: 'Create workflow rule' }).click()
+  const sequenceWorkflowDefinition = page.getByRole('list', { name: 'Workflow automation rules' }).getByRole('listitem').filter({ hasText: dealSequenceRuleName })
+  await expect(sequenceWorkflowDefinition).toContainText('When a deal is created')
+  await expect(sequenceWorkflowDefinition).toContainText('One transactional primary-contact enrollment · delivery remains durable and recoverable.')
+  await expect(sequenceWorkflowDefinition).toContainText(`Enroll the primary contact in ${sequenceName} using the current deal owner as sender.`)
+	await expect(page.getByText('8 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.')).toBeVisible()
 
   const quoteTemplateName = `Pilot services terms ${runID}`
   const quoteTemplateTerms = 'Net 30. Scope changes require written approval under the retained pilot services terms.'
@@ -1240,6 +1267,16 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(notificationTaskTitle)).toBeVisible()
   await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(automatedTaskTitle)).toHaveCount(0)
   await expect(page.getByRole('list', { name: 'Deal tasks list' }).getByText(automatedDecisionTaskTitle)).toHaveCount(0)
+  await expect.poll(async () => {
+    const response = await page.request.get(`${smtpCaptureURL}/messages`)
+    const payload = await response.json()
+    return payload.messages.filter((message) => message.data.includes(`Subject: ${sequenceSubject}`)).length
+  }).toBe(2)
+  const workflowSequenceMessagesResponse = await page.request.get(`${smtpCaptureURL}/messages`)
+  const workflowSequenceMessages = (await workflowSequenceMessagesResponse.json()).messages.filter((message) => message.data.includes(`Subject: ${sequenceSubject}`))
+  expect(workflowSequenceMessages).toHaveLength(2)
+  expect(workflowSequenceMessages.some((message) => message.envelopeFrom.includes(invitedEmail))).toBe(true)
+  expect(workflowSequenceMessages.every((message) => message.envelopeTo.includes(`avery-${runID}@example.test`))).toBe(true)
   const dealDetailsForm = page.getByRole('form', { name: 'Deal details form' })
   await dealDetailsForm.getByLabel('Owner').selectOption({ label: 'Pilot Owner' })
   await dealDetailsForm.getByRole('button', { name: 'Update deal' }).click()
@@ -1259,6 +1296,21 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(assignmentNestedRun).toContainText('0/1 actions completed')
   await expect(assignmentNestedRun.getByText('skipped', { exact: true })).toBeVisible()
   await expect(assignmentNestedRun).toContainText('Loop guard: Automation re-entry prevented.')
+  const sequenceAutomationRun = page.getByRole('list', { name: 'Workflow automation runs' }).getByRole('listitem').filter({ hasText: dealSequenceRuleName })
+  await expect(sequenceAutomationRun).toHaveCount(1)
+  await expect(sequenceAutomationRun).toContainText('1/1 actions completed')
+  await expect(sequenceAutomationRun.getByText('succeeded', { exact: true })).toBeVisible()
+  await expect(sequenceAutomationRun).toContainText('Root event · no workflow action caused this run.')
+  await sequenceAutomationRun.getByText('Inspect 1 action outcome').click()
+  const sequenceActionOutcomes = sequenceAutomationRun.getByRole('list', { name: `${dealSequenceRuleName} run actions` })
+  await expect(sequenceActionOutcomes).toContainText('1. Enroll primary contact in email sequence')
+  await expect(sequenceActionOutcomes).toContainText(`Enrolled Avery Buyer in ${sequenceName}; the first delivery is queued durably.`)
+  await expect(sequenceActionOutcomes).toContainText('Action succeeded · 1 attempt')
+  await expect(sequenceActionOutcomes.getByRole('link', { name: 'Open enrolled contact' })).toHaveAttribute('href', /\/contacts\/\d+$/)
+  const sequenceWorkflowRunAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  expect(sequenceWorkflowRunAccessibility.violations, 'sequence workflow outcomes must have no automated WCAG A/AA violations').toEqual([])
   const ownerAssignmentRunAccessibility = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
     .analyze()
@@ -1277,6 +1329,16 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
     .analyze()
   expect(notificationRunAccessibility.violations, 'workflow notification outcomes must have no automated WCAG A/AA violations').toEqual([])
+  await page.getByRole('link', { name: 'Email Sequences', exact: true }).click()
+  const workflowCompletedSequenceRow = page.getByRole('list', { name: 'Email sequences' }).getByRole('listitem').filter({ hasText: sequenceName })
+  await expect(workflowCompletedSequenceRow).toContainText('2 enrolled · 2 accepted · 0 bounced · 0 complaints · 0 replied · 2 finished · 0 suppressed · 0 review')
+  await workflowCompletedSequenceRow.getByRole('button', { name: 'View enrollments', exact: true }).click()
+  const workflowSequenceHistory = workflowCompletedSequenceRow.getByRole('list', { name: `${sequenceName} enrollments`, exact: true })
+  await expect(workflowSequenceHistory.getByRole('link', { name: 'Avery Buyer', exact: true })).toHaveCount(2)
+  await expect(workflowSequenceHistory).toContainText('by Pilot Owner')
+  await expect(workflowSequenceHistory).toContainText('by Jamie Pilot')
+  await expect(workflowSequenceHistory.getByText('Finished · 1 accepted', { exact: true })).toHaveCount(2)
+  await page.getByRole('link', { name: 'Automations', exact: true }).click()
   await page.goto('/notifications')
   const workflowNotification = page.getByRole('listitem').filter({ hasText: dealNotificationMessage })
   await expect(workflowNotification).toBeVisible()

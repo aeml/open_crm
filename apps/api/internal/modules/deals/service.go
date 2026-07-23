@@ -669,7 +669,7 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 		StageID: input.StageID, StageName: stageSnapshot.StageName, OwnerUserID: input.OwnerUserID,
 		EventType: moduleworkflowautomations.DealEventCreated, EventKey: fmt.Sprintf("deal:%d:activity:%d", dealID, activityID),
 	}); err != nil {
-		return Detail{}, fmt.Errorf("execute deal-created task rules: %w", err)
+		return Detail{}, fmt.Errorf("execute deal-created task rules: %w", mapDealWorkflowError(err))
 	}
 	if err := modulebilling.ConsumeCapacity(ctx, s.capacity, tx, reservation); err != nil {
 		return Detail{}, err
@@ -808,7 +808,7 @@ func (s *Service) Update(ctx context.Context, organizationID, dealID, actorUserI
 			StageID: currentStageID, StageName: currentStageName, OwnerUserID: nextOwnerUserID,
 			EventType: moduleworkflowautomations.DealEventOwnerChanged, EventKey: fmt.Sprintf("deal:%d:activity:%d", dealID, activityID),
 		}); err != nil {
-			return Detail{}, fmt.Errorf("execute deal-owner task rules: %w", err)
+			return Detail{}, fmt.Errorf("execute deal-owner task rules: %w", mapDealWorkflowError(err))
 		}
 	}
 
@@ -864,7 +864,7 @@ func (s *Service) Archive(ctx context.Context, organizationID, dealID, actorUser
 		StageID: stageID, StageName: stageName, OwnerUserID: ownerUserID,
 		EventType: moduleworkflowautomations.DealEventArchived, EventKey: fmt.Sprintf("deal:%d:activity:%d", dealID, activityID),
 	}); err != nil {
-		return fmt.Errorf("execute deal-archived task rules: %w", err)
+		return fmt.Errorf("execute deal-archived task rules: %w", mapDealWorkflowError(err))
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit archive deal transaction: %w", err)

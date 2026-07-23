@@ -6,6 +6,7 @@ import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { listDealPipelines } from '../lib/deals'
+import { listEmailSequences } from '../lib/email_sequences'
 import { listLeadCaptureForms } from '../lib/lead_forms'
 import { listOrganizationUsers } from '../lib/users'
 import { createIdempotencyKey } from '../lib/idempotency'
@@ -28,6 +29,7 @@ import {
   formFromAutomation,
   isApprovalTaskRule,
 	isDealOwnerAssignmentRule,
+	isDealSequenceEnrollmentRule,
   isExecutableTaskRule,
   isNotificationTaskRule,
   leadFormEvent,
@@ -54,6 +56,8 @@ export function SettingsAutomationsRoute() {
   const [pipelines, setPipelines] = useState([])
   const [leadForms, setLeadForms] = useState([])
   const [users, setUsers] = useState([])
+  const [sequences, setSequences] = useState([])
+	const [sequencesError, setSequencesError] = useState('')
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
   const [status, setStatus] = useState('')
@@ -74,13 +78,17 @@ export function SettingsAutomationsRoute() {
     definitionLoadVersion.current = definitionVersion
     setIsLoading(true)
     try {
-      const [nextDefinitions, nextRuns, nextApprovals, nextPipelines, nextLeadForms, nextUsers] = await Promise.all([
+	      const [nextDefinitions, nextRuns, nextApprovals, nextPipelines, nextLeadForms, nextUsers, nextSequences] = await Promise.all([
         listWorkflowAutomations({ signal }),
         listWorkflowAutomationRuns({ limit: 25, signal }),
         listWorkflowApprovals({ signal }),
         listDealPipelines({ signal }),
         listLeadCaptureForms({ signal }),
-        listOrganizationUsers({ signal })
+	        listOrganizationUsers({ signal }),
+					listEmailSequences({ signal }).then(
+						(values) => ({ values, error: '' }),
+						(loadError) => ({ values: [], error: isAbortError(loadError) ? '' : loadError.message || 'Unable to load approved email sequences.' })
+					)
       ])
       if (signal?.aborted || loadVersion.current !== version || definitionLoadVersion.current !== definitionVersion) return
       setAutomations(nextDefinitions.automations)
@@ -90,6 +98,8 @@ export function SettingsAutomationsRoute() {
       setPipelines(nextPipelines)
       setLeadForms(nextLeadForms)
       setUsers(nextUsers)
+			setSequences(nextSequences.values.filter((sequence) => sequence.status === 'active' && sequence.approvedAt && sequence.approvedRevision === sequence.revision))
+			setSequencesError(nextSequences.error)
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError) && loadVersion.current === version) setError(loadError.message || 'Unable to load workflow automation rules.')
@@ -169,6 +179,7 @@ export function SettingsAutomationsRoute() {
   const stagesById = useMemo(() => new Map(stages.map((stage) => [stage.id, `${stage.pipelineName} · ${stage.name}`])), [stages])
   const formsById = useMemo(() => new Map(leadForms.map((leadForm) => [leadForm.id, leadForm.name])), [leadForms])
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email])), [users])
+	const sequencesById = useMemo(() => new Map(sequences.map((sequence) => [sequence.id, sequence.name])), [sequences])
 
   function resetForm() {
     setEditingId(null)
@@ -236,7 +247,7 @@ export function SettingsAutomationsRoute() {
     }
   }
 
-  async function deactivateUnsupported(automation) {
+  async function deactivateDefinition(automation) {
     if (!canManage || mutationPending.current) return
     mutationPending.current = true
     setIsSaving(true)
@@ -246,9 +257,9 @@ export function SettingsAutomationsRoute() {
       if (!updated || updated.id !== automation.id || updated.isActive) throw new Error('The server did not confirm deactivation. Refresh before retrying.')
       setAutomations((current) => current.map((candidate) => candidate.id === automation.id ? updated : candidate))
       setDefinitionMeta((current) => ({ ...current, activeActionCount: Math.max(0, current.activeActionCount - activeActionSize(automation)) }))
-      await refreshDefinitionsAfterMutation(`${automation.name} deactivated. Its stored foundation remains available for future review.`)
+		await refreshDefinitionsAfterMutation(`${automation.name} deactivated. Its stored definition remains available for review.`)
     } catch (saveError) {
-      setError(saveError.message || 'Unable to deactivate the unsupported definition.')
+		setError(saveError.message || 'Unable to deactivate the workflow definition.')
     } finally {
       mutationPending.current = false
       setIsSaving(false)
@@ -290,7 +301,11 @@ export function SettingsAutomationsRoute() {
     ? users.filter((user) => user.status === 'active').map((user) => [user.id, usersById.get(user.id)])
     : form.conditionField === 'status' ? [['open', 'Open'], ['won', 'Won'], ['lost', 'Lost']] : null
 	const assignmentOutcome = form.outcome === 'assign_owner'
-	const visibleTriggerOptions = triggerOptions.filter((option) => assignmentOutcome
+	const sequenceOutcome = form.outcome === 'add_to_sequence'
+	const actionOutcome = assignmentOutcome || sequenceOutcome
+	const visibleTriggerOptions = triggerOptions.filter((option) => sequenceOutcome
+		? !['archived', ownerChangedEvent, leadFormEvent].includes(option.value)
+		: assignmentOutcome
 		? !['archived', leadFormEvent].includes(option.value)
 		: option.value !== ownerChangedEvent)
 
@@ -306,7 +321,8 @@ export function SettingsAutomationsRoute() {
           {isLoading ? <p className="field-hint">Loading workflow automation rules...</p> : null}
           {status ? <p className="field-hint" role="status">{status}</p> : null}
           {error ? <InlineError message={error} onRetry={() => loadAutomations()} retryLabel="Retry workflow automations" /> : null}
-					<p className="field-hint">{activeActionCount} of {maxActiveWorkflowActions} active workflow actions allocated. Each task, approval gate, teammate notification, and owner assignment uses one slot.</p>
+					{sequencesError ? <InlineError message={sequencesError} onRetry={() => loadAutomations()} retryLabel="Retry sequence options" /> : null}
+					<p className="field-hint">{activeActionCount} of {maxActiveWorkflowActions} active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.</p>
           <p className="field-hint">Showing {automations.length} of {definitionMeta.total} stored definitions.</p>
           {hiddenDefinitions > 0 ? <p className="field-hint">{hiddenDefinitions} unsupported loaded {hiddenDefinitions === 1 ? 'definition' : 'definitions'} hidden.</p> : null}
           {unsupportedActiveDefinitions.length > 0 ? (
@@ -315,7 +331,7 @@ export function SettingsAutomationsRoute() {
               {unsupportedActiveDefinitions.map((automation) => (
                 <article className="record-row record-row-alert" key={automation.id} role="listitem">
                   <div><p>{automation.name}</p><p className="field-hint">{(automation.actions || []).length} stored {(automation.actions || []).length === 1 ? 'action' : 'actions'} · unsupported active definition</p></div>
-                  {canManage ? <Button className="button-secondary" type="button" disabled={isSaving} onClick={() => deactivateUnsupported(automation)}>Deactivate stored definition</Button> : <span className="chip">Admin action required</span>}
+                  {canManage ? <Button className="button-secondary" type="button" disabled={isSaving} onClick={() => deactivateDefinition(automation)}>Deactivate stored definition</Button> : <span className="chip">Admin action required</span>}
                 </article>
               ))}
             </div>
@@ -328,25 +344,28 @@ export function SettingsAutomationsRoute() {
               const approvalPlan = isApprovalTaskRule(automation)
               const notificationPlan = isNotificationTaskRule(automation)
 								const assignmentPlan = isDealOwnerAssignmentRule(automation)
+								const sequencePlan = isDealSequenceEnrollmentRule(automation)
               const taskActions = taskActionsForAutomation(automation)
               const approvalAction = approvalPlan ? automation.actions[0] : null
               const notificationAction = notificationPlan ? automation.actions.at(-1) : null
 								const assignmentAction = assignmentPlan ? automation.actions[0] : null
+								const sequenceAction = sequencePlan ? automation.actions[0] : null
               return (
                 <article className={automation.isActive ? 'record-row' : 'record-row record-row-alert'} key={automation.id} role="listitem">
                   <div>
                     <h3>{automation.name}</h3>
                     <p>{triggerSummary(automation, stagesById, formsById)}</p>
                     {automation.targetEntityType === 'deal' && automation.conditions?.length ? <p className="field-hint">{conditionSummary(automation, usersById)}</p> : null}
-										<p className="field-hint">{leadFollowUp ? 'One durable task from retained submission evidence.' : assignmentPlan ? 'One transactional owner assignment · nested owner-change rules are causally bounded.' : approvalPlan ? `${taskActions.length}-task playbook · waits for a retained human decision.` : notificationPlan ? `${taskActions.length}-task playbook · then notifies eligible teammates in the same transaction.` : `${taskActions.length}-task playbook · all tasks commit with the deal event.`}</p>
+										<p className="field-hint">{leadFollowUp ? 'One durable task from retained submission evidence.' : assignmentPlan ? 'One transactional owner assignment · nested owner-change rules are causally bounded.' : sequencePlan ? 'One transactional primary-contact enrollment · delivery remains durable and recoverable.' : approvalPlan ? `${taskActions.length}-task playbook · waits for a retained human decision.` : notificationPlan ? `${taskActions.length}-task playbook · then notifies eligible teammates in the same transaction.` : `${taskActions.length}-task playbook · all tasks commit with the deal event.`}</p>
                     {approvalAction ? <p className="field-hint">Approval: {approvalAction.config.approvalName} · {approvalRoleOptions.find((option) => option.value === approvalAction.config.approverRole)?.label}</p> : null}
                     {notificationAction ? <p className="field-hint">Notification: {approvalRoleOptions.find((option) => option.value === notificationAction.config.recipientRole)?.label} · “{notificationAction.config.message}”</p> : null}
 											{assignmentAction ? <p className="field-hint">Assign deal to {usersById.get(Number(assignmentAction.config.userId)) || 'unavailable teammate'}.</p> : null}
+											{sequenceAction ? <p className="field-hint">Enroll the primary contact in {sequencesById.get(Number(sequenceAction.config.sequenceId)) || 'an unavailable sequence'} using the current deal owner as sender.</p> : null}
 											{taskActions.length ? <ol className="field-hint" aria-label={`${automation.name} task plan`}>
                       {taskActions.map((action, index) => <li key={`${index}-${action.config.title}`}>Create “{action.config.title}” · {taskTimingSummary(action, leadFollowUp)}{leadFollowUp ? ` · assign to ${usersById.get(Number(action.config.assignedToUserId)) || 'unavailable teammate'}` : ''}</li>)}
 											</ol> : null}
                   </div>
-                  <div><span className="chip">{automation.isActive ? 'Active' : 'Inactive'}</span>{canManage ? <Button className="button-secondary" type="button" onClick={() => startEdit(automation)}>Edit</Button> : null}</div>
+                  <div><span className="chip">{automation.isActive ? 'Active' : 'Inactive'}</span>{canManage && automation.isActive ? <Button className="button-secondary" type="button" disabled={isSaving} onClick={() => deactivateDefinition(automation)}>Deactivate rule</Button> : null}{canManage ? <Button className="button-secondary" type="button" onClick={() => startEdit(automation)}>Edit</Button> : null}</div>
                 </article>
               )
             })}
@@ -360,7 +379,7 @@ export function SettingsAutomationsRoute() {
       {canManage ? (
         <Card>
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
-							<div><h2>{editingId ? 'Edit workflow rule' : 'New workflow rule'}</h2><p className="field-hint">A deal event can create an ordered 1–5 task playbook or assign one active owner. Lead forms create one durable task.</p></div>
+							<div><h2>{editingId ? 'Edit workflow rule' : 'New workflow rule'}</h2><p className="field-hint">A deal event can create an ordered 1–5 task playbook, assign one owner, or enroll its primary contact in an approved sequence. Lead forms create one durable task.</p></div>
             <ControlledTextField form={form} label="Rule name" maxLength="120" name="name" placeholder="Proposal follow-up" required setForm={setForm} />
             <Field label="When"><select className="text-input" value={form.event} onChange={(event) => {
               const nextEvent = event.target.value
@@ -371,11 +390,11 @@ export function SettingsAutomationsRoute() {
 								setForm((current) => ({
 									...current,
 									outcome,
-									event: (outcome === 'assign_owner' && current.event === 'archived') || (outcome === 'tasks' && current.event === ownerChangedEvent) ? 'created' : current.event,
-									requiresApproval: outcome === 'assign_owner' ? false : current.requiresApproval,
-									notifyAfterTasks: outcome === 'assign_owner' ? false : current.notifyAfterTasks
+									event: (outcome !== 'tasks' && current.event === 'archived') || (outcome !== 'assign_owner' && current.event === ownerChangedEvent) ? 'created' : current.event,
+									requiresApproval: outcome !== 'tasks' ? false : current.requiresApproval,
+									notifyAfterTasks: outcome !== 'tasks' ? false : current.notifyAfterTasks
 								}))
-							}}><option value="tasks">Create follow-up tasks</option><option value="assign_owner">Assign deal owner</option></select></Field> : null}
+							}}><option value="tasks">Create follow-up tasks</option><option value="assign_owner">Assign deal owner</option><option value="add_to_sequence">Enroll primary contact in sequence</option></select></Field> : null}
             {form.event === stageChangedEvent ? (
               <Field label="Destination stage" hint="Choose any stage to run after every real stage change."><select className="text-input" value={form.stageId} onChange={(event) => setForm({ ...form, stageId: event.target.value })}><option value="">Any stage</option>{stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.pipelineName} · {stage.name}</option>)}</select></Field>
             ) : null}
@@ -399,7 +418,7 @@ export function SettingsAutomationsRoute() {
                 ) : null}
               </>
             ) : null}
-							{form.event !== leadFormEvent && !assignmentOutcome ? (
+							{form.event !== leadFormEvent && !actionOutcome ? (
               <fieldset className="card-stack">
                 <legend>Human approval gate</legend>
                 <label className="field-hint"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked, notifyAfterTasks: event.target.checked ? false : form.notifyAfterTasks })} /> Require a decision before creating any tasks</label>
@@ -413,7 +432,7 @@ export function SettingsAutomationsRoute() {
                 ) : null}
               </fieldset>
             ) : null}
-							{form.event !== leadFormEvent && !assignmentOutcome ? (
+							{form.event !== leadFormEvent && !actionOutcome ? (
               <fieldset className="card-stack">
                 <legend>Teammate notification</legend>
                 <label className="field-hint"><input type="checkbox" checked={form.notifyAfterTasks} onChange={(event) => setForm({ ...form, notifyAfterTasks: event.target.checked, requiresApproval: event.target.checked ? false : form.requiresApproval })} /> Notify eligible teammates after every task commits</label>
@@ -430,10 +449,11 @@ export function SettingsAutomationsRoute() {
               </>
             ) : null}
 							{assignmentOutcome ? <Field label="Assign deal owner to"><select className="text-input" required value={form.dealOwnerUserId} onChange={(event) => setForm({ ...form, dealOwnerUserId: event.target.value })}><option value="">Choose an active teammate</option>{users.filter((user) => user.status === 'active').map((user) => <option key={user.id} value={user.id}>{usersById.get(user.id)}</option>)}</select></Field> : null}
-							{!assignmentOutcome ? <><ControlledTextField form={form} label="Task title" maxLength="200" name="title" placeholder="Prepare proposal" required setForm={setForm} />
+							{sequenceOutcome ? <Field label="Approved email sequence" hint="The current active deal owner supplies the mailbox. The deal needs a primary contact with an email address."><select className="text-input" required value={form.sequenceId} onChange={(event) => setForm({ ...form, sequenceId: event.target.value })}><option value="">Choose an approved active sequence</option>{sequences.map((sequence) => <option key={sequence.id} value={sequence.id}>{sequence.name}</option>)}</select></Field> : null}
+							{!actionOutcome ? <><ControlledTextField form={form} label="Task title" maxLength="200" name="title" placeholder="Prepare proposal" required setForm={setForm} />
             <ControlledTextField form={form} label="Task description" maxLength="2000" multiline name="description" rows={3} setForm={setForm} />
 							<ControlledTextField form={form} hint={form.event === leadFormEvent ? 'From task creation; 0 is immediate; maximum 365.' : '0 is immediate; maximum 365.'} label="Due in days" max="365" min="0" name="dueDays" required setForm={setForm} step="1" type="number" /></> : null}
-							{form.event !== leadFormEvent && !assignmentOutcome ? form.additionalTasks.map((task, index) => (
+							{form.event !== leadFormEvent && !actionOutcome ? form.additionalTasks.map((task, index) => (
               <fieldset className="card-stack" key={index}>
                 <legend>Task {index + 2}</legend>
                 <Field label={`Task ${index + 2} title`}><input className="text-input" maxLength="200" required value={task.title} onChange={(event) => updateDealTask(index, 'title', event.target.value)} /></Field>
@@ -442,7 +462,7 @@ export function SettingsAutomationsRoute() {
                 <Button className="button-secondary" type="button" onClick={() => removeDealTask(index)}>Remove task {index + 2}</Button>
               </fieldset>
             )) : null}
-							{form.event !== leadFormEvent && !assignmentOutcome && form.additionalTasks.length < maxDealPlanTasks - 1 ? <Button className="button-secondary" type="button" onClick={addDealTask}>Add another task</Button> : null}
+							{form.event !== leadFormEvent && !actionOutcome && form.additionalTasks.length < maxDealPlanTasks - 1 ? <Button className="button-secondary" type="button" onClick={addDealTask}>Add another task</Button> : null}
             <label className="field-hint"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active rule</label>
 							<div className="button-row"><Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save workflow rule' : 'Create workflow rule'}</Button>{editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}</div>
           </form>

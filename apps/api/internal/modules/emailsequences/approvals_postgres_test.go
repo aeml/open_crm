@@ -57,6 +57,9 @@ func TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres(t *testing.
 	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id, user_id, role) VALUES ($1, $2, 'admin')`, organizationID, adminID); err != nil {
 		t.Fatalf("create approver membership: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO user_email_accounts(organization_id,user_id,from_email,smtp_host,smtp_port,smtp_username,smtp_password_enc,smtp_use_tls,provider,auth_method,sync_enabled,sync_status) VALUES($1,$2,$3,'smtp.example.test',587,$3,'encrypted-test-secret',TRUE,'smtp','password',FALSE,'disabled')`, organizationID, adminID, "sequence-approval-"+schema+"@example.test"); err != nil {
+		t.Fatalf("create approver sending mailbox: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id, user_id, role) VALUES ($1, $2, 'admin')`, otherOrganizationID, foreignUserID); err != nil {
 		t.Fatalf("create foreign enroller membership: %v", err)
 	}
@@ -92,6 +95,38 @@ func TestSequenceApprovalLifecycleAndTenantBoundariesAgainstPostgres(t *testing.
 	}
 	if _, err := service.EnrollContact(ctx, organizationID, EnrollmentInput{SequenceID: sequence.ID, ContactID: contactID, EnrolledByUserID: foreignUserID}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected a foreign actor to remain hidden during enrollment, got %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM user_email_accounts WHERE organization_id=$1 AND user_id=$2`, organizationID, adminID); err != nil {
+		t.Fatalf("remove approver sending mailbox: %v", err)
+	}
+	if _, err := service.EnrollContact(ctx, organizationID, EnrollmentInput{SequenceID: sequence.ID, ContactID: contactID, EnrolledByUserID: adminID}); !errors.Is(err, ErrSenderUnavailable) {
+		t.Fatalf("expected enrollment without a sending mailbox to fail, got %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_email_accounts(
+			organization_id,user_id,from_email,smtp_host,smtp_port,smtp_username,
+			smtp_password_enc,provider,auth_method,sync_enabled,sync_status,
+			oauth_refresh_token_enc,oauth_scopes
+		)
+		VALUES($1,$2,$3,'',587,'','','google','oauth',TRUE,'ready','encrypted-refresh-token',
+		       'https://www.googleapis.com/auth/gmail.readonly')
+	`, organizationID, adminID, "sequence-approval-"+schema+"@example.test"); err != nil {
+		t.Fatalf("create read-only OAuth mailbox: %v", err)
+	}
+	if _, err := service.EnrollContact(ctx, organizationID, EnrollmentInput{SequenceID: sequence.ID, ContactID: contactID, EnrolledByUserID: adminID}); !errors.Is(err, ErrSenderUnavailable) {
+		t.Fatalf("expected enrollment with a read-only Google mailbox to fail, got %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE user_email_accounts SET oauth_scopes='https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send' WHERE organization_id=$1 AND user_id=$2`, organizationID, adminID); err != nil {
+		t.Fatalf("grant Google send scope: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE contacts SET email = '' WHERE organization_id=$1 AND id=$2`, organizationID, contactID); err != nil {
+		t.Fatalf("remove contact email: %v", err)
+	}
+	if _, err := service.EnrollContact(ctx, organizationID, EnrollmentInput{SequenceID: sequence.ID, ContactID: contactID, EnrolledByUserID: adminID}); !errors.Is(err, ErrContactEmailRequired) {
+		t.Fatalf("expected enrollment without a contact email to fail, got %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE contacts SET email = 'pilot@example.test' WHERE organization_id=$1 AND id=$2`, organizationID, contactID); err != nil {
+		t.Fatalf("restore contact email: %v", err)
 	}
 	var enrollmentCount int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM email_sequence_enrollments WHERE organization_id=$1 AND sequence_id=$2`, organizationID, sequence.ID).Scan(&enrollmentCount); err != nil || enrollmentCount != 0 {

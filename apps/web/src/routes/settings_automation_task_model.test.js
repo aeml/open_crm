@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deactivationPayload, emptyForm, formFromAutomation, isApprovalTaskRule, isDealOwnerAssignmentRule, isExecutableTaskRule, isNotificationTaskRule, payloadFromForm, taskActionsForAutomation } from './settings_automation_task_model'
+import { deactivationPayload, emptyForm, formFromAutomation, isApprovalTaskRule, isDealOwnerAssignmentRule, isDealSequenceEnrollmentRule, isExecutableTaskRule, isNotificationTaskRule, payloadFromForm, taskActionsForAutomation } from './settings_automation_task_model'
 
 function dealAutomation(actions, triggerConfig = {}) {
   return {
@@ -167,6 +167,36 @@ describe('settings automation task model', () => {
     expect(() => payloadFromForm({ ...emptyForm(), name: 'Archived assignment', event: 'archived', outcome: 'assign_owner', dealOwnerUserId: '8' })).toThrow('supports creation, stage changes, or direct owner changes')
     expect(() => payloadFromForm({ ...emptyForm(), name: 'Missing target', outcome: 'assign_owner' })).toThrow('Choose an active teammate')
   })
+
+	it('builds, exposes, and restores one exact primary-contact sequence enrollment', () => {
+		const payload = payloadFromForm({
+			...emptyForm(),
+			name: 'Start proposal cadence',
+			event: 'stage_changed',
+			stageId: '12',
+			outcome: 'add_to_sequence',
+			sequenceId: '31',
+			conditionField: 'status',
+			conditionOperator: 'equals',
+			conditionValue: 'open'
+		})
+		expect(payload).toMatchObject({
+			description: 'Enrolls the current primary contact in one approved sequence using the active deal owner as sender.',
+			triggerType: 'stage_changed',
+			triggerConfig: { stageId: 12, conditionContract: 'deal_snapshot_v1', actionPlanContract: 'deal_add_to_sequence_v1' },
+			conditions: [{ field: 'status', operator: 'equals', value: 'open' }],
+			actions: [{ type: 'add_to_sequence', config: { sequenceId: 31 } }]
+		})
+		const automation = { ...dealAutomation(payload.actions, payload.triggerConfig), ...payload }
+		expect(isExecutableTaskRule(automation)).toBe(true)
+		expect(isDealSequenceEnrollmentRule(automation)).toBe(true)
+		expect(taskActionsForAutomation(automation)).toEqual([])
+		expect(formFromAutomation(automation)).toMatchObject({ outcome: 'add_to_sequence', sequenceId: '31' })
+
+		expect(isExecutableTaskRule({ ...automation, actions: [{ ...payload.actions[0], config: { sequenceId: 31, future: true } }] })).toBe(false)
+		expect(() => payloadFromForm({ ...emptyForm(), name: 'Archived cadence', event: 'archived', outcome: 'add_to_sequence', sequenceId: '31' })).toThrow('supports deal creation or stage changes')
+		expect(() => payloadFromForm({ ...emptyForm(), name: 'Missing cadence', outcome: 'add_to_sequence' })).toThrow('Choose an approved active email sequence')
+	})
 
   it('uses a safety-only deactivation intent without resubmitting an unknown definition', () => {
     expect(deactivationPayload()).toEqual({ deactivateOnly: true })

@@ -85,7 +85,7 @@ func validateExecutableActivation(input Input) error {
 	case "deal":
 		taskContract, _ := stringConfig(input.TriggerConfig, "taskPlanContract")
 		actionContract, _ := stringConfig(input.TriggerConfig, "actionPlanContract")
-		if taskContract == DealTaskPlanContract || taskContract == DealApprovalTaskPlanContract || taskContract == DealTaskNotifyPlanContract || actionContract == DealAssignOwnerContract {
+		if taskContract == DealTaskPlanContract || taskContract == DealApprovalTaskPlanContract || taskContract == DealTaskNotifyPlanContract || actionContract == DealAssignOwnerContract || actionContract == DealAddToSequenceContract {
 			if rawStageID, configured := input.TriggerConfig["stageId"]; configured {
 				if _, valid := exactPositiveInteger(rawStageID); !valid {
 					return ErrInvalidInput
@@ -120,7 +120,8 @@ func validExecutableDealActivation(input Input) bool {
 	actionContract, _ := stringConfig(input.TriggerConfig, "actionPlanContract")
 	taskPlan := taskContract == DealTaskPlanContract || taskContract == DealApprovalTaskPlanContract || taskContract == DealTaskNotifyPlanContract
 	assignmentPlan := actionContract == DealAssignOwnerContract && taskContract == ""
-	if !taskPlan && !assignmentPlan {
+	sequencePlan := actionContract == DealAddToSequenceContract && taskContract == ""
+	if !taskPlan && !assignmentPlan && !sequencePlan {
 		return false
 	}
 
@@ -145,7 +146,7 @@ func validExecutableDealActivation(input Input) bool {
 	case "record_updated":
 		allowedKeys["event"] = true
 		event, _ := stringConfig(input.TriggerConfig, "event")
-		if (taskPlan && event != DealEventArchived) || (assignmentPlan && event != DealEventOwnerChanged) {
+		if (taskPlan && event != DealEventArchived) || (assignmentPlan && event != DealEventOwnerChanged) || sequencePlan {
 			return false
 		}
 	default:
@@ -245,6 +246,30 @@ func validateExecutableReferences(ctx context.Context, tx pgx.Tx, organizationID
 			return fmt.Errorf("validate workflow owner assignment target: %w", err)
 		}
 		if !active {
+			return ErrInvalidInput
+		}
+	}
+	if contract, _ := stringConfig(input.TriggerConfig, "actionPlanContract"); contract == DealAddToSequenceContract {
+		sequenceID, valid := exactPositiveInteger(input.Actions[0].Config["sequenceId"])
+		if !valid {
+			return ErrInvalidInput
+		}
+		var executable bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS(
+			  SELECT 1
+			  FROM email_sequences sequence
+			  JOIN email_sequence_steps step
+			    ON step.sequence_id=sequence.id AND step.step_order=1
+			  WHERE sequence.organization_id=$1 AND sequence.id=$2
+			    AND sequence.status='active'
+			    AND sequence.approved_revision=sequence.revision
+			    AND sequence.approved_at IS NOT NULL
+			)
+		`, organizationID, sequenceID).Scan(&executable); err != nil {
+			return fmt.Errorf("validate workflow email sequence target: %w", err)
+		}
+		if !executable {
 			return ErrInvalidInput
 		}
 	}

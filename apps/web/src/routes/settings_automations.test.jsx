@@ -142,6 +142,129 @@ describe('settings task automations route', () => {
     expect(screen.getByRole('list', { name: 'Proposal follow-up task plan' })).toHaveTextContent('Schedule decision review')
   })
 
+  it('authors and inspects exact deal primary-contact sequence enrollment', async () => {
+    const sequence = {
+      id: 31,
+      name: 'Proposal cadence',
+      status: 'active',
+      revision: 2,
+      approvedRevision: 2,
+      approvedAt: '2026-07-23T12:00:00Z'
+    }
+    const storedRule = {
+      id: 41,
+      name: 'Start proposal cadence',
+      triggerType: 'stage_changed',
+      targetEntityType: 'deal',
+      triggerConfig: { stageId: 12, actionPlanContract: 'deal_add_to_sequence_v1' },
+      conditionLogic: 'all',
+      conditions: [],
+      actions: [{ type: 'add_to_sequence', config: { sequenceId: 31 } }],
+      isActive: true,
+      position: 0
+    }
+    const updatedRule = {
+      ...storedRule,
+      name: 'Start reviewed proposal cadence'
+    }
+    let storedDefinitions = [storedRule]
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const path = requestURL.pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [{ id: 3, name: 'Sales pipeline', stages: [{ id: 12, name: 'Proposal' }] }] } })
+      if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
+      if (path.endsWith('/api/email-sequences')) return jsonResponse({ data: { sequences: [sequence, { ...sequence, id: 32, name: 'Unreviewed cadence', approvedRevision: 1 }], meta: { page: 1, pageSize: 50, total: 2 } } })
+      if (path.endsWith('/api/workflow-approvals')) return jsonResponse({ data: { approvals: [] } })
+      if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [{
+        id: 51,
+        automationId: 41,
+        automationName: 'Start proposal cadence',
+        triggerEventKey: 'deal:7:activity:91',
+        status: 'succeeded',
+        actionsTotal: 1,
+        actionsCompleted: 1,
+        createdAt: '2026-07-23T12:05:00Z',
+        actions: [{
+          id: 61,
+          position: 1,
+          type: 'add_to_sequence',
+          label: 'Enroll primary contact in email sequence',
+          status: 'succeeded',
+          attempts: 1,
+          scheduledAt: '2026-07-23T12:05:00Z',
+          completedAt: '2026-07-23T12:05:00Z',
+          sequenceId: 31,
+          sequenceName: 'Proposal cadence',
+          sequenceEnrollmentId: 71,
+          sequenceContactId: 81,
+          sequenceContactName: 'Pilot Buyer',
+          sequenceEnrollmentCreated: true,
+          lastError: ''
+        }]
+      }] } })
+      if (path.endsWith('/api/workflow-automations/41') && method === 'PATCH') {
+		const payload = JSON.parse(options.body)
+		if (payload.deactivateOnly) {
+			const deactivated = { ...storedDefinitions[0], isActive: false }
+			storedDefinitions = [deactivated]
+			return jsonResponse({ data: { automation: deactivated } })
+		}
+        storedDefinitions = [updatedRule]
+        return jsonResponse({ data: { automation: updatedRule } })
+      }
+      if (path.endsWith('/api/workflow-automations')) return workflowPage(storedDefinitions)
+      throw new Error(`Unexpected fetch: ${method} ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/automations')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: 'Start proposal cadence' })).toBeInTheDocument()
+    expect(screen.getByText(/Enroll the primary contact in Proposal cadence using the current deal owner as sender/i)).toBeInTheDocument()
+    expect(screen.queryByText('Unreviewed cadence')).not.toBeInTheDocument()
+    const runList = screen.getByRole('list', { name: 'Workflow automation runs' })
+    fireEvent.click(within(runList).getByText('Inspect 1 action outcome'))
+    const actionList = screen.getByRole('list', { name: 'Start proposal cadence run actions' })
+    expect(actionList).toHaveTextContent('Enrolled Pilot Buyer in Proposal cadence; the first delivery is queued durably.')
+    expect(within(actionList).getByRole('link', { name: 'Open enrolled contact' })).toHaveAttribute('href', '/contacts/81')
+
+    const storedRuleArticle = screen.getByRole('heading', { name: 'Start proposal cadence' }).closest('article')
+    fireEvent.click(within(storedRuleArticle).getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Outcome')).toHaveValue('add_to_sequence')
+    expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Assign deal owner to')).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^Approved email sequence/)).toHaveValue('31')
+    fireEvent.change(screen.getByLabelText('Rule name'), { target: { value: 'Start reviewed proposal cadence' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow rule' }))
+
+    await waitFor(() => {
+      const updateCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations/41') && call[1]?.method === 'PATCH')
+      expect(JSON.parse(updateCall[1].body)).toEqual({
+        name: 'Start reviewed proposal cadence',
+        description: 'Enrolls the current primary contact in one approved sequence using the active deal owner as sender.',
+        triggerType: 'stage_changed',
+        targetEntityType: 'deal',
+        triggerConfig: { stageId: 12, actionPlanContract: 'deal_add_to_sequence_v1' },
+        conditionLogic: 'all',
+        conditions: [],
+        actions: [{ type: 'add_to_sequence', config: { sequenceId: 31 } }],
+        isActive: true,
+        position: 0
+      })
+    })
+    expect(await screen.findByRole('heading', { name: 'Start reviewed proposal cadence' })).toBeInTheDocument()
+	const updatedRuleArticle = screen.getByRole('heading', { name: 'Start reviewed proposal cadence' }).closest('article')
+	fireEvent.click(within(updatedRuleArticle).getByRole('button', { name: 'Deactivate rule' }))
+	await waitFor(() => expect(screen.getByText(/Start reviewed proposal cadence deactivated/i)).toBeInTheDocument())
+	const deactivationCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations/41') && call[1]?.method === 'PATCH' && JSON.parse(call[1].body).deactivateOnly)
+	expect(JSON.parse(deactivationCall[1].body)).toEqual({ deactivateOnly: true })
+  })
+
   it('creates an executable durable lead follow-up rule with retained attribution conditions', async () => {
     const createdRule = {
       id: 9,

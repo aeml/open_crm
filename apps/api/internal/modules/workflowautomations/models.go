@@ -11,6 +11,7 @@ import (
 var (
 	ErrDuplicateName    = errors.New("workflow automation name already exists")
 	ErrInvalidInput     = errors.New("invalid workflow automation")
+	ErrActionBlocked    = errors.New("workflow action prerequisites are not satisfied")
 	ErrNotFound         = errors.New("workflow automation not found")
 	ErrForbidden        = errors.New("workflow automation action forbidden")
 	ErrNotExecutable    = errors.New("workflow automation is not an executable task contract")

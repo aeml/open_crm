@@ -60,6 +60,16 @@ func TestCustomerEmailFeedbackCorrelationAgainstPostgres(t *testing.T) {
 	`, organizationID, senderID, otherSenderID, otherOrganizationID); err != nil {
 		t.Fatalf("create memberships: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_email_accounts(
+			organization_id,user_id,from_email,smtp_host,smtp_port,smtp_username,
+			smtp_password_enc,smtp_use_tls,provider,auth_method,sync_enabled,sync_status
+		)
+		VALUES($1,$2,$3,'smtp.example.test',587,$3,'encrypted-test-secret',TRUE,
+		       'smtp','password',FALSE,'disabled')
+	`, organizationID, senderID, "feedback-sender-"+schema+"@example.test"); err != nil {
+		t.Fatalf("create feedback sending mailbox: %v", err)
+	}
 	const recipient = "feedback-recipient@example.test"
 	if err := pool.QueryRow(ctx, `INSERT INTO contacts (organization_id, first_name, last_name, email, status) VALUES ($1, 'Feedback', 'Recipient', $2, 'lead') RETURNING id`, organizationID, recipient).Scan(&contactID); err != nil {
 		t.Fatalf("create contact: %v", err)

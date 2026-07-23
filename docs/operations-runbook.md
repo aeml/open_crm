@@ -1107,6 +1107,12 @@ bytes, tokens, or counters with ad hoc SQL.
    A rule can instead assign one exact active teammate after deal creation, a
    real stage change, or a direct owner edit. Assignment cannot be combined
    with tasks, approval, notification, or archive triggers.
+   A rule can instead enroll the deal's current primary contact in one exact
+   approved active email sequence after deal creation or a real stage change.
+   The current active deal owner is the sender and must have a usable connected
+   SMTP, Gmail, or Microsoft mailbox; the contact must have an email address.
+   Sequence enrollment cannot be combined with tasks, approval, notification,
+   owner assignment, owner-change, or archive triggers.
    Other stored workflow definitions are deliberately hidden and do not gain
    partial execution merely because their schema exists.
 2. Deal event, every task/activity/notification/owner change, one run record, one immutable
@@ -1184,7 +1190,33 @@ bytes, tokens, or counters with ad hoc SQL.
    failure rolls back the entire source event; repair the definition or
    membership through normal controls and retry the original user action.
    Never patch owner/action/causal evidence directly in SQL.
-8. Root events show no causal parent. Any action that emits another
+8. A `deal_add_to_sequence_v1` rule locks and revalidates the exact approved
+   active sequence, unarchived primary contact with an email address, active
+   current deal owner, and that owner's usable SMTP credentials or exact
+   provider-specific Gmail/Microsoft OAuth send scope inside the deal
+   transaction. A read-only OAuth grant is unavailable even when it retains a
+   refresh token. A new enrollment and its first `email_sequence.send` job commit
+   with the deal, run, typed action result, activity, and content-free audit. If
+   the same contact already has an active or paused enrollment in that sequence,
+   the action succeeds as an explicit retained no-op and queues nothing. A
+   completed or cancelled historical enrollment does not prevent a later
+   legitimate enrollment. Run inspection links the exact contact and states
+   whether the enrollment was created.
+
+   A missing primary contact/email, unavailable active owner/mailbox, paused or
+   stale-approved sequence, or foreign dependency returns
+   `409 WORKFLOW_ACTION_BLOCKED` from the originating deal write and commits no
+   partial deal, run, enrollment, job, activity, or audit. Add the contact email,
+   connect the current owner's sending mailbox, or choose/approve the intended
+   sequence, then retry the original deal mutation. An admin can use
+   **Deactivate rule** to invoke the safety-only deactivation path when a
+   referenced sequence is no longer selectable; this never re-submits stale
+   definition content. Manual enrollment reports
+   `SEQUENCE_CONTACT_EMAIL_REQUIRED` or `SEQUENCE_SENDER_UNAVAILABLE` directly.
+   Never create or reconnect the enrollment/job with SQL. Once committed, the
+   existing sequence delivery, suppression, hosted-limit deferral, uncertainty,
+   and Operations recovery procedures below govern the external effect.
+9. Root events show no causal parent. Any action that emits another
    workflow event must identify its exact successful same-tenant run/action.
    Nested runs retain that parent and causal depth. The same automation cannot
    appear twice in one ancestor chain, depth 9 is retained as a skipped run,
@@ -1197,7 +1229,7 @@ bytes, tokens, or counters with ad hoc SQL.
    `workflow_automation.loop_prevented` audit before changing the rule. Never
    bypass the guard or rewrite causal columns. The notification action remains
    intentionally non-recursive and does not emit a workflow event.
-9. To stop future work, deactivate the rule. Deactivation does not remove tasks
+10. To stop future work, deactivate the rule. Deactivation does not remove tasks
    already created; edit, complete, archive, or reassign those through normal
    task controls so the operational history remains honest. Restoring a directly
    or bulk-archived deal likewise does not delete its archive follow-up task.
@@ -2459,14 +2491,18 @@ those counts even though the compact settings summary does not.
 
 The CI-gated Chromium pilot journey exercises the local production-capable
 baseline against a fresh PostgreSQL database and the SMTP provider sandbox. It
-creates a draft, approves the exact revision, enrolls a contact, waits for the
-durable worker, requires one captured SMTP message with the merged contact,
-prepared `Message-ID`, multipart body, and unsubscribe fallback, then requires
-the management total and its individual contact drill-down to show exactly one
-accepted and one finished outcome.
-It also scans that populated screen for WCAG A/AA violations. A failure in any
-part of this path blocks deployment; do not replace the provider-boundary wait
-with a seeded delivery or mark the outcome accepted directly in SQL.
+creates a draft, approves the exact revision, manually enrolls a contact, waits
+for the durable worker, and requires one captured SMTP message with the merged
+contact, prepared `Message-ID`, multipart body, and unsubscribe fallback. It
+then connects the future deal owner's own sandbox mailbox, authors the exact
+deal-created sequence action, creates the deal, and requires a second provider
+effect from that owner's envelope identity plus typed workflow run/contact
+evidence. The management total and individual drill-down must reconcile two
+enrollments, two accepted deliveries, two finished cadences, and both enrollers.
+The authoring, run, and populated sequence screens are scanned for WCAG A/AA
+violations. A failure in any part of this path blocks deployment; do not replace
+either provider-boundary wait with a seeded delivery or mark the outcome
+accepted directly in SQL.
 
 This sandbox proves the same generic SMTP adapter and durable state transitions
 without using customer infrastructure. It does not validate downstream inbox

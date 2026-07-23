@@ -14,23 +14,59 @@ import (
 // workflow action. Task IDs are returned only when the target still belongs to
 // the same workspace as the run.
 type RunAction struct {
-	ID                int64              `json:"id"`
-	Position          int                `json:"position"`
-	Type              string             `json:"type"`
-	Label             string             `json:"label"`
-	Status            string             `json:"status"`
-	Attempts          int                `json:"attempts"`
-	ScheduledAt       string             `json:"scheduledAt"`
-	StartedAt         string             `json:"startedAt"`
-	CompletedAt       string             `json:"completedAt"`
-	TaskID            int64              `json:"taskId,omitempty"`
-	TaskDueAt         string             `json:"taskDueAt,omitempty"`
-	NotificationCount int                `json:"notificationCount,omitempty"`
-	AssignedUserID    int64              `json:"assignedUserId,omitempty"`
-	AssignedUserName  string             `json:"assignedUserName,omitempty"`
-	AssignmentChanged bool               `json:"assignmentChanged"`
-	LastError         string             `json:"lastError"`
-	Approval          *RunActionApproval `json:"approval,omitempty"`
+	ID                        int64              `json:"id"`
+	Position                  int                `json:"position"`
+	Type                      string             `json:"type"`
+	Label                     string             `json:"label"`
+	Status                    string             `json:"status"`
+	Attempts                  int                `json:"attempts"`
+	ScheduledAt               string             `json:"scheduledAt"`
+	StartedAt                 string             `json:"startedAt"`
+	CompletedAt               string             `json:"completedAt"`
+	TaskID                    int64              `json:"taskId,omitempty"`
+	TaskDueAt                 string             `json:"taskDueAt,omitempty"`
+	NotificationCount         int                `json:"notificationCount,omitempty"`
+	AssignedUserID            int64              `json:"assignedUserId,omitempty"`
+	AssignedUserName          string             `json:"assignedUserName,omitempty"`
+	AssignmentChanged         bool               `json:"assignmentChanged"`
+	SequenceID                int64              `json:"sequenceId,omitempty"`
+	SequenceName              string             `json:"sequenceName,omitempty"`
+	SequenceEnrollmentID      int64              `json:"sequenceEnrollmentId,omitempty"`
+	SequenceContactID         int64              `json:"sequenceContactId,omitempty"`
+	SequenceContactName       string             `json:"sequenceContactName,omitempty"`
+	SequenceEnrollmentCreated bool               `json:"sequenceEnrollmentCreated"`
+	LastError                 string             `json:"lastError"`
+	Approval                  *RunActionApproval `json:"approval,omitempty"`
+}
+
+func recordSequenceEnrollmentActionOutcome(
+	ctx context.Context,
+	tx pgx.Tx,
+	organizationID, runID int64,
+	action Action,
+	result dealSequenceEnrollmentResult,
+) error {
+	if result.SequenceID <= 0 || result.EnrollmentID <= 0 || result.ContactID <= 0 {
+		return ErrInvalidInput
+	}
+	if err := recordActionOutcome(ctx, tx, organizationID, runID, 1, action, "running", 1, nil, 0, nil, ""); err != nil {
+		return err
+	}
+	command, err := tx.Exec(ctx, `
+		UPDATE workflow_automation_action_outcomes
+		SET status='succeeded',sequence_id=$4,sequence_enrollment_id=$5,
+		    sequence_contact_id=$6,sequence_enrollment_created=$7,
+		    completed_at=NOW(),updated_at=NOW()
+		WHERE organization_id=$1 AND run_id=$2 AND action_position=$3
+		  AND action_type='add_to_sequence' AND status='running'
+	`, organizationID, runID, 1, result.SequenceID, result.EnrollmentID, result.ContactID, result.Created)
+	if err != nil {
+		return fmt.Errorf("record workflow sequence enrollment outcome: %w", err)
+	}
+	if command.RowsAffected() != 1 {
+		return ErrInvalidInput
+	}
+	return nil
 }
 
 func recordAssignmentActionOutcome(
@@ -207,6 +243,8 @@ func actionOutcomeLabel(action Action) string {
 		label = "Notify " + role
 	case "assign_owner":
 		label = "Assign deal owner"
+	case "add_to_sequence":
+		label = "Enroll primary contact in email sequence"
 	default:
 		label = strings.TrimSpace(stringValue(action.Config["title"]))
 		if label == "" {
@@ -238,7 +276,12 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 		       outcome.notification_count,COALESCE(outcome.assigned_user_id,0),
 		       CASE WHEN assigned_membership.user_id IS NULL THEN ''
 		            ELSE trim(CONCAT(assigned_user.first_name,' ',assigned_user.last_name)) END,
-		       outcome.assignment_changed,outcome.last_error,
+		       outcome.assignment_changed,
+		       COALESCE(sequence.id,0),COALESCE(sequence.name,''),
+		       COALESCE(enrollment.id,0),COALESCE(contact.id,0),
+		       CASE WHEN contact.id IS NULL THEN ''
+		            ELSE COALESCE(NULLIF(trim(CONCAT(contact.first_name,' ',contact.last_name)),''),contact.email,'') END,
+		       outcome.sequence_enrollment_created,outcome.last_error,
 		       COALESCE(approval.id,0),COALESCE(approval.status,''),COALESCE(approval.approver_role,''),
 		       COALESCE(approval.message,''),COALESCE(approval.requested_by_user_id,0),
 		       COALESCE(TO_CHAR(approval.requested_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
@@ -255,6 +298,15 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 		  ON assigned_membership.organization_id=outcome.organization_id
 		 AND assigned_membership.user_id=outcome.assigned_user_id
 		LEFT JOIN users assigned_user ON assigned_user.id=assigned_membership.user_id
+		LEFT JOIN email_sequences sequence
+		  ON sequence.organization_id=outcome.organization_id AND sequence.id=outcome.sequence_id
+		LEFT JOIN email_sequence_enrollments enrollment
+		  ON enrollment.organization_id=outcome.organization_id
+		 AND enrollment.id=outcome.sequence_enrollment_id
+		 AND enrollment.sequence_id=outcome.sequence_id
+		 AND enrollment.contact_id=outcome.sequence_contact_id
+		LEFT JOIN contacts contact
+		  ON contact.organization_id=outcome.organization_id AND contact.id=outcome.sequence_contact_id
 		WHERE outcome.organization_id=$1 AND outcome.run_id=ANY($2::bigint[])
 		ORDER BY outcome.run_id,outcome.action_position
 	`, organizationID, runIDs)
@@ -283,6 +335,12 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 			&action.AssignedUserID,
 			&action.AssignedUserName,
 			&action.AssignmentChanged,
+			&action.SequenceID,
+			&action.SequenceName,
+			&action.SequenceEnrollmentID,
+			&action.SequenceContactID,
+			&action.SequenceContactName,
+			&action.SequenceEnrollmentCreated,
 			&action.LastError,
 			&approval.ID,
 			&approval.Status,

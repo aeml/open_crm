@@ -2479,3 +2479,29 @@ func TestMigrationFilesIncludeSalesRevenueSnapshots(t *testing.T) {
 		t.Fatalf("sales revenue snapshot migration deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeWorkflowSequenceEnrollment(t *testing.T) {
+	const name = "132_workflow_sequence_enrollment.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"idx_email_sequence_enrollments_workflow_output",
+		"sequence_enrollment_created",
+		"workflow_action_outcomes_sequence_shape_check",
+		"workflow_action_outcomes_sequence_enrollment_fk",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("workflow sequence enrollment migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("workflow sequence enrollment migration deployment class = %q", class)
+	}
+}

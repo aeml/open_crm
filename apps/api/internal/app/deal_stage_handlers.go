@@ -38,6 +38,9 @@ func handleUpdateDealStage(auth authService, deals dealsService, w http.Response
 		StageID: request.StageID, CloseReasonCode: strings.TrimSpace(request.CloseReasonCode), CloseNotes: strings.TrimSpace(request.CloseNotes),
 	})
 	if err != nil {
+		if writeDealWorkflowActionError(w, requestID, err) {
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}

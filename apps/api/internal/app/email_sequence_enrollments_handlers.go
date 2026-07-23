@@ -160,6 +160,10 @@ func writeEmailSequenceEnrollmentError(w http.ResponseWriter, requestID string, 
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "Contact is already enrolled in that sequence")
 	case errors.Is(err, moduleemailsequences.ErrApprovalRequired):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "APPROVAL_REQUIRED", "Only an approved, active sequence can enroll contacts")
+	case errors.Is(err, moduleemailsequences.ErrContactEmailRequired):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "SEQUENCE_CONTACT_EMAIL_REQUIRED", "Add a contact email before enrolling in a sequence")
+	case errors.Is(err, moduleemailsequences.ErrSenderUnavailable):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "SEQUENCE_SENDER_UNAVAILABLE", "Configure a sending mailbox before enrolling contacts")
 	case errors.Is(err, moduleemailsequences.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	default:

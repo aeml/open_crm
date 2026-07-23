@@ -18,6 +18,48 @@ var ErrAlreadyEnrolled = errors.New("contact already enrolled in email sequence"
 
 const SequenceSendJobType = "email_sequence.send"
 
+// enrollmentSenderReadySQL must remain equivalent to the useremail delivery
+// boundary: password accounts need usable SMTP credentials, while OAuth
+// accounts need a retained refresh token and the provider-specific send scope.
+// OAuth scopes are normalized to a single space-separated list when the
+// connection is saved.
+const enrollmentSenderReadySQL = `(
+	(
+		sender_account.auth_method = 'password'
+		AND sender_account.provider IN ('smtp', 'imap')
+		AND COALESCE(BTRIM(sender_account.from_email), '') <> ''
+		AND COALESCE(BTRIM(sender_account.smtp_host), '') <> ''
+		AND COALESCE(BTRIM(sender_account.smtp_username), '') <> ''
+		AND COALESCE(sender_account.smtp_password_enc, '') <> ''
+	)
+	OR
+	(
+		sender_account.auth_method = 'oauth'
+		AND COALESCE(BTRIM(sender_account.from_email), '') <> ''
+		AND COALESCE(sender_account.oauth_refresh_token_enc, '') <> ''
+		AND (
+			(
+				sender_account.provider = 'google'
+				AND 'https://www.googleapis.com/auth/gmail.send' = ANY(
+					string_to_array(LOWER(BTRIM(COALESCE(sender_account.oauth_scopes, ''))), ' ')
+				)
+			)
+			OR
+			(
+				sender_account.provider = 'microsoft'
+				AND (
+					'https://graph.microsoft.com/mail.send' = ANY(
+						string_to_array(LOWER(BTRIM(COALESCE(sender_account.oauth_scopes, ''))), ' ')
+					)
+					OR 'mail.send' = ANY(
+						string_to_array(LOWER(BTRIM(COALESCE(sender_account.oauth_scopes, ''))), ' ')
+					)
+				)
+			)
+		)
+	)
+)`
+
 type Enrollment struct {
 	ID                  int64      `json:"id"`
 	SequenceID          int64      `json:"sequenceId"`
@@ -234,31 +276,66 @@ func (s *Service) EnrollContact(ctx context.Context, organizationID int64, input
 		FROM email_sequences seq
 		JOIN email_sequence_steps step ON step.sequence_id = seq.id AND step.step_order = 1
 		JOIN contacts contact ON contact.id = $3 AND contact.organization_id = $1 AND contact.archived_at IS NULL
+		 AND COALESCE(BTRIM(contact.email), '') <> ''
 		JOIN organization_memberships membership
 		  ON membership.organization_id = $1 AND membership.user_id = $4
 		 AND COALESCE(membership.membership_status, 'active') = 'active'
+		JOIN user_email_accounts sender_account
+		  ON sender_account.organization_id = $1 AND sender_account.user_id = $4
+		 AND `+enrollmentSenderReadySQL+`
 		WHERE seq.organization_id = $1 AND seq.id = $2
 		  AND seq.status = 'active' AND seq.approved_revision = seq.revision AND seq.approved_at IS NOT NULL
-		FOR SHARE OF seq, contact, membership
+		FOR SHARE OF seq, contact, membership, sender_account
 	`, organizationID, input.SequenceID, input.ContactID, input.EnrolledByUserID).Scan(&delayDays)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			var inactive, activeActor bool
+			var sequenceExists, sequenceExecutable, contactExists, contactHasEmail, activeActor, senderReady bool
 			stateErr := tx.QueryRow(ctx, `
-				SELECT TRUE, EXISTS (
+				SELECT
+				EXISTS (
+					SELECT 1 FROM email_sequences seq
+					WHERE seq.organization_id = $1 AND seq.id = $2
+				),
+				EXISTS (
+					SELECT 1
+					FROM email_sequences seq
+					JOIN email_sequence_steps step ON step.sequence_id = seq.id AND step.step_order = 1
+					WHERE seq.organization_id = $1 AND seq.id = $2
+					  AND seq.status = 'active' AND seq.approved_revision = seq.revision AND seq.approved_at IS NOT NULL
+				),
+				EXISTS (
+					SELECT 1 FROM contacts contact
+					WHERE contact.organization_id = $1 AND contact.id = $3 AND contact.archived_at IS NULL
+				),
+				EXISTS (
+					SELECT 1 FROM contacts contact
+					WHERE contact.organization_id = $1 AND contact.id = $3 AND contact.archived_at IS NULL
+					  AND COALESCE(BTRIM(contact.email), '') <> ''
+				),
+				EXISTS (
 					SELECT 1 FROM organization_memberships membership
 					WHERE membership.organization_id = $1 AND membership.user_id = $4
 					  AND COALESCE(membership.membership_status, 'active') = 'active'
+				),
+				EXISTS (
+					SELECT 1 FROM user_email_accounts sender_account
+					WHERE sender_account.organization_id = $1 AND sender_account.user_id = $4
+					  AND `+enrollmentSenderReadySQL+`
 				)
-				FROM email_sequences seq
-				JOIN contacts contact ON contact.id = $3 AND contact.organization_id = $1 AND contact.archived_at IS NULL
-				WHERE seq.organization_id = $1 AND seq.id = $2
-			`, organizationID, input.SequenceID, input.ContactID, input.EnrolledByUserID).Scan(&inactive, &activeActor)
+			`, organizationID, input.SequenceID, input.ContactID, input.EnrolledByUserID).Scan(
+				&sequenceExists, &sequenceExecutable, &contactExists, &contactHasEmail, &activeActor, &senderReady,
+			)
+			if stateErr == nil && sequenceExists && !sequenceExecutable {
+				return Enrollment{}, ErrApprovalRequired
+			}
+			if stateErr == nil && contactExists && !contactHasEmail {
+				return Enrollment{}, ErrContactEmailRequired
+			}
 			if stateErr == nil && !activeActor {
 				return Enrollment{}, ErrNotFound
 			}
-			if stateErr == nil && inactive {
-				return Enrollment{}, ErrApprovalRequired
+			if stateErr == nil && !senderReady {
+				return Enrollment{}, ErrSenderUnavailable
 			}
 			if stateErr != nil && !errors.Is(stateErr, pgx.ErrNoRows) {
 				return Enrollment{}, fmt.Errorf("load email sequence enrollment policy: %w", stateErr)

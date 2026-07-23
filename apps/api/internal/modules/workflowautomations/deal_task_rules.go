@@ -229,6 +229,12 @@ func ExecuteDealTaskRules(ctx context.Context, tx pgx.Tx, event DealTaskEvent) e
 			}
 			continue
 		}
+		if executableDealSequenceEnrollment(config, actions) {
+			if _, err := enrollDealPrimaryContactInSequence(ctx, tx, event, runID, rule.id, actions[0]); err != nil {
+				return err
+			}
+			continue
+		}
 
 		taskActions := actions
 		var notificationAction *Action
@@ -334,7 +340,7 @@ func executableTaskActions(config map[string]any, actions []Action) bool {
 }
 
 func executableDealActions(config map[string]any, actions []Action) bool {
-	return executableTaskActions(config, actions) || executableApprovalTaskActions(config, actions) || executableNotifyTaskActions(config, actions) || executableDealOwnerAssignment(config, actions)
+	return executableTaskActions(config, actions) || executableApprovalTaskActions(config, actions) || executableNotifyTaskActions(config, actions) || executableDealOwnerAssignment(config, actions) || executableDealSequenceEnrollment(config, actions)
 }
 
 func executableNotifyTaskActions(config map[string]any, actions []Action) bool {

@@ -67,6 +67,22 @@ func TestValidateExecutableActivationAcceptsReviewedTaskContracts(t *testing.T) 
 	if err := validateExecutableActivation(assignmentDeal); err != nil {
 		t.Fatalf("expected reviewed owner-change assignment contract to activate: %v", err)
 	}
+	sequenceDeal := normalizeInput(Input{
+		Name:             "Start proposal cadence",
+		TriggerType:      "stage_changed",
+		TargetEntityType: "deal",
+		TriggerConfig: map[string]any{
+			"stageId":            12,
+			"actionPlanContract": DealAddToSequenceContract,
+			"conditionContract":  DealSnapshotConditionContract,
+		},
+		ConditionLogic: "all",
+		Conditions:     []Condition{{Field: "status", Operator: "equals", Value: "open"}},
+		Actions:        []Action{{Type: "add_to_sequence", Config: map[string]any{"sequenceId": 31}}},
+	})
+	if err := validateExecutableActivation(sequenceDeal); err != nil {
+		t.Fatalf("expected reviewed deal sequence-enrollment contract to activate: %v", err)
+	}
 
 	lead := normalizeInput(Input{
 		Name:             "Lead follow-up",
@@ -135,8 +151,22 @@ func TestValidateExecutableActivationRejectsStoredFoundations(t *testing.T) {
 		TriggerConfig: map[string]any{"actionPlanContract": DealAssignOwnerContract, "event": "updated"},
 		Actions:       []Action{{Type: "assign_owner", Config: map[string]any{"userId": 7}}},
 	})
+	sequenceWithoutContract := normalizeInput(Input{
+		Name: "Legacy sequence action", TriggerType: "record_created", TargetEntityType: "deal",
+		Actions: []Action{{Type: "add_to_sequence", Config: map[string]any{"sequenceId": 31}}},
+	})
+	sequenceWithExtraConfig := normalizeInput(Input{
+		Name: "Expanded sequence action", TriggerType: "record_created", TargetEntityType: "deal",
+		TriggerConfig: map[string]any{"actionPlanContract": DealAddToSequenceContract},
+		Actions:       []Action{{Type: "add_to_sequence", Config: map[string]any{"sequenceId": 31, "future": true}}},
+	})
+	sequenceOnGenericUpdate := normalizeInput(Input{
+		Name: "Updated sequence action", TriggerType: "record_updated", TargetEntityType: "deal",
+		TriggerConfig: map[string]any{"actionPlanContract": DealAddToSequenceContract, "event": DealEventOwnerChanged},
+		Actions:       []Action{{Type: "add_to_sequence", Config: map[string]any{"sequenceId": 31}}},
+	})
 
-	for _, input := range []Input{withoutDealContract, dealExtraConfig, withoutLeadContract, withoutLeadDueContract, unsupportedAction, assignmentWithTaskContract, assignmentWithExtraConfig, assignmentOnGenericUpdate} {
+	for _, input := range []Input{withoutDealContract, dealExtraConfig, withoutLeadContract, withoutLeadDueContract, unsupportedAction, assignmentWithTaskContract, assignmentWithExtraConfig, assignmentOnGenericUpdate, sequenceWithoutContract, sequenceWithExtraConfig, sequenceOnGenericUpdate} {
 		input = normalizeInput(input)
 		if err := validateExecutableActivation(input); !errors.Is(err, ErrNotExecutable) {
 			t.Fatalf("expected stored foundation to fail executable activation: input=%#v err=%v", input, err)

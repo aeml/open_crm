@@ -109,7 +109,7 @@ func moveDealStageInTx(ctx context.Context, tx pgx.Tx, organizationID, dealID, a
 		StageID: input.StageID, StageName: nextStage.StageName, OwnerUserID: transition.OwnerUserID,
 		EventType: moduleworkflowautomations.DealEventStageChanged, EventKey: fmt.Sprintf("deal:%d:activity:%d", dealID, activityID),
 	}); err != nil {
-		return dealStageTransition{}, fmt.Errorf("execute deal-stage task rules: %w", err)
+		return dealStageTransition{}, fmt.Errorf("execute deal-stage task rules: %w", mapDealWorkflowError(err))
 	}
 	transition.Changed = true
 	return transition, nil

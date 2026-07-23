@@ -14,6 +14,7 @@ const dealTaskPlanContract = 'deal_task_plan_v1'
 const dealApprovalTaskPlanContract = 'deal_approval_task_plan_v1'
 const dealTaskNotifyPlanContract = 'deal_task_notify_plan_v1'
 const dealAssignOwnerContract = 'deal_assign_owner_v1'
+const dealAddToSequenceContract = 'deal_add_to_sequence_v1'
 const leadFollowUpTaskContract = 'lead_follow_up_task_v1'
 export const maxDealPlanTasks = 5
 export const maxActiveWorkflowActions = 50
@@ -53,7 +54,7 @@ export function emptyForm() {
     additionalTasks: [], requiresApproval: false, approvalName: 'Review task playbook', approverRole: 'admin',
     approvalMessage: 'Review this deal before creating the follow-up tasks.', notifyAfterTasks: false,
     notificationRecipientRole: 'record_owner', notificationMessage: 'The deal follow-up task plan is ready.',
-    outcome: 'tasks', dealOwnerUserId: '', isActive: true
+    outcome: 'tasks', dealOwnerUserId: '', sequenceId: '', isActive: true
   }
 }
 
@@ -81,8 +82,9 @@ export function isExecutableTaskRule(automation) {
   const taskPlanContract = automation.triggerConfig?.taskPlanContract
   if (automation.targetEntityType === 'deal') {
     const assignmentPlan = automation.triggerConfig?.actionPlanContract === dealAssignOwnerContract
-    if (assignmentPlan) {
-      const validAssignment = actions.length === 1 && validOwnerAssignmentAction(actions[0])
+    const sequencePlan = automation.triggerConfig?.actionPlanContract === dealAddToSequenceContract
+    if (assignmentPlan || sequencePlan) {
+      const validAction = actions.length === 1 && (assignmentPlan ? validOwnerAssignmentAction(actions[0]) : validSequenceEnrollmentAction(actions[0]))
       const conditions = automation.conditions || []
       const condition = conditions[0]
       const validCondition = conditions.length === 0 || (conditions.length === 1 && automation.conditionLogic === 'all' && automation.triggerConfig?.conditionContract === dealConditionContract && executableDealCondition(condition))
@@ -90,7 +92,8 @@ export function isExecutableTaskRule(automation) {
       if (event === stageChangedEvent) allowedTriggerFields.add('stageId')
       if (event === ownerChangedEvent) allowedTriggerFields.add('event')
       if (conditions.length === 1) allowedTriggerFields.add('conditionContract')
-      return ['created', stageChangedEvent, ownerChangedEvent].includes(event) && validAssignment && validCondition &&
+			const supportedEvent = assignmentPlan ? ['created', stageChangedEvent, ownerChangedEvent].includes(event) : ['created', stageChangedEvent].includes(event)
+      return supportedEvent && validAction && validCondition &&
         (event !== stageChangedEvent || !automation.triggerConfig?.stageId || (Number.isInteger(stageID) && stageID > 0)) &&
         Object.keys(automation.triggerConfig || {}).every((key) => allowedTriggerFields.has(key))
     }
@@ -128,6 +131,13 @@ export function isExecutableTaskRule(automation) {
     Object.keys(config).every((key) => ['title', 'description', 'assignedToUserId', 'dueDays'].includes(key)) &&
     (!hasDueDays || validWholeDays(dueDays)) &&
     conditions.every((condition) => allowedFields.has(condition.field) && allowedOperators.has(condition.operator) && (condition.operator === 'exists' || Boolean(String(condition.value || '').trim())))
+}
+
+function validSequenceEnrollmentAction(action) {
+  const config = action?.config || {}
+  const sequenceID = Number(config.sequenceId || 0)
+  return action?.type === 'add_to_sequence' && !action.scheduledAt && Number(action.delayMinutes || 0) === 0 &&
+    Object.keys(config).length === 1 && Number.isInteger(sequenceID) && sequenceID > 0
 }
 
 function validOwnerAssignmentAction(action) {
@@ -177,8 +187,12 @@ export function isDealOwnerAssignmentRule(automation) {
   return automation?.targetEntityType === 'deal' && automation?.triggerConfig?.actionPlanContract === dealAssignOwnerContract && isExecutableTaskRule(automation)
 }
 
+export function isDealSequenceEnrollmentRule(automation) {
+	return automation?.targetEntityType === 'deal' && automation?.triggerConfig?.actionPlanContract === dealAddToSequenceContract && isExecutableTaskRule(automation)
+}
+
 export function taskActionsForAutomation(automation) {
-  if (isDealOwnerAssignmentRule(automation)) return []
+	if (isDealOwnerAssignmentRule(automation) || isDealSequenceEnrollmentRule(automation)) return []
   if (isApprovalTaskRule(automation)) return automation.actions.slice(1)
   if (isNotificationTaskRule(automation)) return automation.actions.slice(0, -1)
   return automation.actions || []
@@ -186,6 +200,7 @@ export function taskActionsForAutomation(automation) {
 
 export function formFromAutomation(automation) {
   const assignmentPlan = isDealOwnerAssignmentRule(automation)
+  const sequencePlan = isDealSequenceEnrollmentRule(automation)
   const approvalPlan = isApprovalTaskRule(automation)
   const notificationPlan = isNotificationTaskRule(automation)
   const approvalAction = approvalPlan ? automation.actions[0] : null
@@ -219,18 +234,21 @@ export function formFromAutomation(automation) {
     notifyAfterTasks: notificationPlan,
     notificationRecipientRole: notificationAction?.config?.recipientRole || 'record_owner',
     notificationMessage: notificationAction?.config?.message || 'The deal follow-up task plan is ready.',
-    outcome: assignmentPlan ? 'assign_owner' : 'tasks',
+    outcome: assignmentPlan ? 'assign_owner' : sequencePlan ? 'add_to_sequence' : 'tasks',
     dealOwnerUserId: assignmentPlan ? String(automation.actions[0].config?.userId || '') : '',
+		sequenceId: sequencePlan ? String(automation.actions[0].config?.sequenceId || '') : '',
     isActive: automation.isActive === true
   }
 }
 
 export function payloadFromForm(form) {
   const assignmentPlan = form.event !== leadFormEvent && form.outcome === 'assign_owner'
+	const sequencePlan = form.event !== leadFormEvent && form.outcome === 'add_to_sequence'
+	const actionPlan = assignmentPlan || sequencePlan
   const dueDays = Number(form.dueDays)
-  if (!assignmentPlan && !validWholeDays(dueDays)) throw new Error('Due days must be a whole number from 0 to 365.')
+  if (!actionPlan && !validWholeDays(dueDays)) throw new Error('Due days must be a whole number from 0 to 365.')
   const leadFollowUp = form.event === leadFormEvent
-  const taskForms = assignmentPlan ? [] : leadFollowUp ? [{ title: form.title, description: form.description, dueDays: form.dueDays }] : [
+  const taskForms = actionPlan ? [] : leadFollowUp ? [{ title: form.title, description: form.description, dueDays: form.dueDays }] : [
     { title: form.title, description: form.description, dueDays: form.dueDays },
     ...(form.additionalTasks || [])
   ]
@@ -257,14 +275,20 @@ export function payloadFromForm(form) {
   if (leadFollowUp && !form.formId) triggerConfig.taskContract = leadFollowUpTaskContract
   const dealCondition = !leadFollowUp && form.conditionField
   if (dealCondition) triggerConfig.conditionContract = dealConditionContract
-  if (!leadFollowUp && !assignmentPlan) triggerConfig.taskPlanContract = dealTaskPlanContract
+  if (!leadFollowUp && !actionPlan) triggerConfig.taskPlanContract = dealTaskPlanContract
   if (assignmentPlan) {
     if (!['created', stageChangedEvent, ownerChangedEvent].includes(form.event)) throw new Error('Deal owner assignment supports creation, stage changes, or direct owner changes.')
     const targetUserID = Number(form.dealOwnerUserId)
     if (!Number.isInteger(targetUserID) || targetUserID <= 0) throw new Error('Choose an active teammate to receive the deal.')
     triggerConfig.actionPlanContract = dealAssignOwnerContract
   }
-  if (!leadFollowUp && !assignmentPlan && form.requiresApproval) {
+	if (sequencePlan) {
+		if (!['created', stageChangedEvent].includes(form.event)) throw new Error('Sequence enrollment supports deal creation or stage changes.')
+		const sequenceID = Number(form.sequenceId)
+		if (!Number.isInteger(sequenceID) || sequenceID <= 0) throw new Error('Choose an approved active email sequence.')
+		triggerConfig.actionPlanContract = dealAddToSequenceContract
+	}
+  if (!leadFollowUp && !actionPlan && form.requiresApproval) {
     if (!String(form.approvalName || '').trim()) throw new Error('Approval needs a name.')
     if (String(form.approvalName).trim().length > 200) throw new Error('Approval name exceeds 200 characters.')
     if (!approvalRoleOptions.some((option) => option.value === form.approverRole)) throw new Error('Choose a supported approval role.')
@@ -272,7 +296,7 @@ export function payloadFromForm(form) {
     if (String(form.approvalMessage).trim().length > 2000) throw new Error('Approval guidance exceeds 2,000 characters.')
     triggerConfig.taskPlanContract = dealApprovalTaskPlanContract
   }
-  if (!leadFollowUp && !assignmentPlan && form.notifyAfterTasks) {
+  if (!leadFollowUp && !actionPlan && form.notifyAfterTasks) {
     if (form.requiresApproval) throw new Error('Choose either a human approval gate or a teammate notification for this bounded plan.')
     if (!approvalRoleOptions.some((option) => option.value === form.notificationRecipientRole)) throw new Error('Choose a supported notification recipient role.')
     if (!String(form.notificationMessage || '').trim()) throw new Error('Teammate notification needs a message.')
@@ -297,6 +321,8 @@ export function payloadFromForm(form) {
   }
   let actions = assignmentPlan
     ? [{ type: 'assign_owner', config: { userId: Number(form.dealOwnerUserId) } }]
+		: sequencePlan
+		? [{ type: 'add_to_sequence', config: { sequenceId: Number(form.sequenceId) } }]
     : leadFollowUp
     ? [{ type: 'create_task', config, delayMinutes: waitDays * 1440 }]
     : taskForms.map((task) => {
@@ -305,7 +331,7 @@ export function payloadFromForm(form) {
       if (description) taskConfig.description = description
       return { type: 'create_task', config: taskConfig, delayMinutes: Number(task.dueDays) * 1440 }
     })
-  if (!leadFollowUp && !assignmentPlan && form.requiresApproval) {
+  if (!leadFollowUp && !actionPlan && form.requiresApproval) {
     actions = [{
       type: 'request_approval',
       config: {
@@ -315,7 +341,7 @@ export function payloadFromForm(form) {
       }
     }, ...actions]
   }
-  if (!leadFollowUp && !assignmentPlan && form.notifyAfterTasks) {
+  if (!leadFollowUp && !actionPlan && form.notifyAfterTasks) {
     actions = [...actions, {
       type: 'notify',
       config: {
@@ -330,6 +356,8 @@ export function payloadFromForm(form) {
       ? 'Creates one durable assigned follow-up task from an accepted lead form submission.'
       : assignmentPlan
         ? 'Assigns the deal to one active teammate and emits one causally bounded owner-change event.'
+				: sequencePlan
+					? 'Enrolls the current primary contact in one approved sequence using the active deal owner as sender.'
       : form.requiresApproval
         ? `Requests a human decision before creating ${taskForms.length} follow-up ${taskForms.length === 1 ? 'task' : 'tasks'} from a deal event.`
         : form.notifyAfterTasks

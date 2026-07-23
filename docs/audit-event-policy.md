@@ -40,9 +40,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `60`
+Producer source count: `61`
 
-Producer source digest: `652c17dba552c68b7d8b03bb196a22498b897ab60cdf0b9d1682f7909a75a7ae`
+Producer source digest: `6568afbd72a1a34d46e7d39fe36a0f82a50e3144530b90a45a4807f0f94a6f16`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -79,6 +79,18 @@ ceiling. It commits with the skipped
 same-tenant run and records only automation/run/deal/action identifiers, finite
 depth, and one reviewed reason. It contains no notification body, recipient,
 customer value, trigger payload, or idempotency material.
+
+The deal-sequence-enrollment review adds one focused producer for the exact
+`deal_add_to_sequence_v1` outcome. A created enrollment or explicit retained
+active/paused enrollment commits its `workflow_automation.executed` event with
+the deal mutation, run, action result, activity, enrollment, and first durable
+job or commits none of them. Metadata is limited to tenant-safe automation,
+deal, sequence, enrollment, and contact identifiers, the finite trigger event,
+and one creation boolean. It excludes contact and mailbox addresses, sequence
+subject/body, provider identifiers, credentials, message content, job payload,
+and request/idempotency material. The delivery ledger remains the detailed
+provider evidence and the portable workspace export retains the content-free
+audit row.
 
 Custom-field create/update/archive events commit in the same bounded-retry
 serializable tenant transaction as the exact-revision definition mutation. The

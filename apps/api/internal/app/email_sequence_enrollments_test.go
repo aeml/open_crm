@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -209,6 +210,36 @@ func TestCreateEmailSequenceEnrollmentMapsDuplicateConflict(t *testing.T) {
 
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("expected status %d, got %d", http.StatusConflict, recorder.Code)
+	}
+}
+
+func TestCreateEmailSequenceEnrollmentMapsMissingSenderMailbox(t *testing.T) {
+	service := &fakeEmailSequenceEnrollmentsService{enrollErr: moduleemailsequences.ErrSenderUnavailable}
+	server := authenticatedEmailSequenceEnrollmentsServer(service, "admin")
+
+	request := httptest.NewRequest(http.MethodPost, "/api/email-sequence-enrollments", bytes.NewBufferString(`{"sequenceId":4,"contactId":7}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"SEQUENCE_SENDER_UNAVAILABLE"`) || !strings.Contains(recorder.Body.String(), "Configure a sending mailbox") {
+		t.Fatalf("expected actionable sender-mailbox conflict, status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestCreateEmailSequenceEnrollmentMapsMissingContactEmail(t *testing.T) {
+	service := &fakeEmailSequenceEnrollmentsService{enrollErr: moduleemailsequences.ErrContactEmailRequired}
+	server := authenticatedEmailSequenceEnrollmentsServer(service, "admin")
+
+	request := httptest.NewRequest(http.MethodPost, "/api/email-sequence-enrollments", bytes.NewBufferString(`{"sequenceId":4,"contactId":7}`))
+	request.Header.Set("Content-Type", "application/json")
+	addSessionCookie(request)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"SEQUENCE_CONTACT_EMAIL_REQUIRED"`) || !strings.Contains(recorder.Body.String(), "Add a contact email") {
+		t.Fatalf("expected actionable contact-email conflict, status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

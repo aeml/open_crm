@@ -28,16 +28,18 @@ const (
 )
 
 var (
-	ErrActiveLimit       = errors.New("active email sequence limit reached")
-	ErrConflict          = errors.New("email sequence changed")
-	ErrDuplicateName     = errors.New("email sequence name already exists")
-	ErrInvalidInput      = errors.New("invalid email sequence")
-	ErrNotFound          = errors.New("email sequence not found")
-	ErrApprovalRequired  = errors.New("email sequence requires approval")
-	ErrSequenceActive    = errors.New("active email sequence must be paused first")
-	ErrSequenceInUse     = errors.New("email sequence has enrollment or campaign history")
-	ErrSequenceNotActive = errors.New("email sequence is not active")
-	ErrSequencePaused    = errors.New("email sequence delivery is paused")
+	ErrActiveLimit          = errors.New("active email sequence limit reached")
+	ErrConflict             = errors.New("email sequence changed")
+	ErrDuplicateName        = errors.New("email sequence name already exists")
+	ErrInvalidInput         = errors.New("invalid email sequence")
+	ErrNotFound             = errors.New("email sequence not found")
+	ErrApprovalRequired     = errors.New("email sequence requires approval")
+	ErrContactEmailRequired = errors.New("email sequence contact email required")
+	ErrSenderUnavailable    = errors.New("email sequence sender mailbox unavailable")
+	ErrSequenceActive       = errors.New("active email sequence must be paused first")
+	ErrSequenceInUse        = errors.New("email sequence has enrollment or campaign history")
+	ErrSequenceNotActive    = errors.New("email sequence is not active")
+	ErrSequencePaused       = errors.New("email sequence delivery is paused")
 )
 
 type Sequence struct {

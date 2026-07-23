@@ -179,6 +179,9 @@ func handleCreateDeal(auth authService, deals dealsService, billing billingServi
 		CloseNotes:        strings.TrimSpace(request.CloseNotes),
 	})
 	if err != nil {
+		if writeDealWorkflowActionError(w, requestID, err) {
+			return
+		}
 		if writeCapacityError(w, requestID, "deals", err) {
 			return
 		}
@@ -300,6 +303,9 @@ func handleUpdateDeal(auth authService, deals dealsService, w http.ResponseWrite
 		OwnerUserID:       request.OwnerUserID,
 	})
 	if err != nil {
+		if writeDealWorkflowActionError(w, requestID, err) {
+			return
+		}
 		if errors.Is(err, moduledeals.ErrInvalidAssignee) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an active team member as deal owner")
 			return
@@ -335,6 +341,9 @@ func handleArchiveDeal(auth authService, deals dealsService, w http.ResponseWrit
 	}
 
 	if err := deals.Archive(r.Context(), state.Organization.ID, dealID, state.User.ID); err != nil {
+		if writeDealWorkflowActionError(w, requestID, err) {
+			return
+		}
 		if writeResourceNotFound(w, requestID, err) {
 			return
 		}

@@ -58,6 +58,9 @@ func TestSequenceReplyQualificationAndOutcomeAnalyticsAgainstPostgres(t *testing
 	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id, user_id, role) VALUES ($1, $2, 'owner'), ($1, $3, 'member')`, organizationID, senderID, otherSenderID); err != nil {
 		t.Fatalf("create memberships: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO user_email_accounts(organization_id,user_id,from_email,smtp_host,smtp_port,smtp_username,smtp_password_enc,smtp_use_tls,provider,auth_method,sync_enabled,sync_status) VALUES($1,$2,$3,'smtp.example.test',587,$3,'encrypted-test-secret',TRUE,'smtp','password',FALSE,'disabled')`, organizationID, senderID, "sender-"+schema+"@example.test"); err != nil {
+		t.Fatalf("create sequence sender mailbox: %v", err)
+	}
 	if err := pool.QueryRow(ctx, `INSERT INTO contacts (organization_id, first_name, last_name, email, status) VALUES ($1, 'Pilot', 'Buyer', 'pilot-buyer@example.test', 'lead') RETURNING id`, organizationID).Scan(&contactID); err != nil {
 		t.Fatalf("create contact: %v", err)
 	}

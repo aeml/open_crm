@@ -1217,6 +1217,33 @@ func TestDealWritesRequireAnAccountForWonDeals(t *testing.T) {
 	}
 }
 
+func TestDealWritesReturnStableWorkflowActionConflict(t *testing.T) {
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		body    string
+		service *fakeDealsService
+	}{
+		{name: "create", method: http.MethodPost, path: "/api/deals", body: `{"name":"Blocked deal","stageId":5}`, service: &fakeDealsService{createErr: moduledeals.ErrWorkflowActionBlocked}},
+		{name: "update", method: http.MethodPatch, path: "/api/deals/12", body: `{"name":"Blocked deal"}`, service: &fakeDealsService{updateErr: moduledeals.ErrWorkflowActionBlocked}},
+		{name: "stage", method: http.MethodPatch, path: "/api/deals/12/stage", body: `{"stageId":5}`, service: &fakeDealsService{updateStageErr: moduledeals.ErrWorkflowActionBlocked}},
+		{name: "archive", method: http.MethodDelete, path: "/api/deals/12", service: &fakeDealsService{archiveErr: moduledeals.ErrWorkflowActionBlocked}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, test.path, bytes.NewBufferString(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			authenticatedDealsServer(test.service).ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"WORKFLOW_ACTION_BLOCKED"`) || !strings.Contains(recorder.Body.String(), "primary contact with an email") {
+				t.Fatalf("expected actionable workflow conflict, status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestReplaceDealLineItemsUsesCurrentOrganization(t *testing.T) {
 	service := &fakeDealsService{
 		replaceLineItemsResult: moduledeals.Detail{

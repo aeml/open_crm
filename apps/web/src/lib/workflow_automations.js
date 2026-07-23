@@ -81,6 +81,7 @@ const runActionStatuses = new Set(['queued', 'running', 'succeeded', 'failed', '
 
 function validRunAction(action) {
 	const assignmentSucceeded = action?.type === 'assign_owner' && action?.status === 'succeeded'
+	const sequenceSucceeded = action?.type === 'add_to_sequence' && action?.status === 'succeeded'
   return Number.isInteger(action?.id) && action.id > 0 &&
     Number.isInteger(action.position) && action.position > 0 &&
     typeof action.type === 'string' && action.type.length > 0 &&
@@ -93,6 +94,9 @@ function validRunAction(action) {
 		(!action.assignedUserId || (action.type === 'assign_owner' && Number.isInteger(action.assignedUserId) && action.assignedUserId > 0)) &&
 		(!assignmentSucceeded || (Number.isInteger(action.assignedUserId) && action.assignedUserId > 0 && typeof action.assignedUserName === 'string' && action.assignedUserName.length > 0 && typeof action.assignmentChanged === 'boolean')) &&
 		(!action.assignmentChanged || assignmentSucceeded) &&
+		(!action.sequenceEnrollmentId || (sequenceSucceeded && Number.isInteger(action.sequenceId) && action.sequenceId > 0 && typeof action.sequenceName === 'string' && action.sequenceName.length > 0 && Number.isInteger(action.sequenceEnrollmentId) && action.sequenceEnrollmentId > 0 && Number.isInteger(action.sequenceContactId) && action.sequenceContactId > 0 && typeof action.sequenceContactName === 'string' && action.sequenceContactName.length > 0 && typeof action.sequenceEnrollmentCreated === 'boolean')) &&
+		(!sequenceSucceeded || (Number.isInteger(action.sequenceId) && action.sequenceId > 0 && Number.isInteger(action.sequenceEnrollmentId) && action.sequenceEnrollmentId > 0 && Number.isInteger(action.sequenceContactId) && action.sequenceContactId > 0)) &&
+		(!action.sequenceEnrollmentCreated || sequenceSucceeded) &&
     (!action.approval || validRunActionApproval(action.approval))
 }
 
