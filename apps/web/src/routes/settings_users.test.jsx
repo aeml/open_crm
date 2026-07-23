@@ -102,6 +102,7 @@ describe('settings users route', () => {
         })
       )
     })
+    expect(await screen.findByText(/now has the admin role.*audit trail and portable workspace export/i)).toBeInTheDocument()
   })
 
   it('hides create form for non-admin members', async () => {

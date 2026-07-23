@@ -17,6 +17,7 @@ import (
 
 	moduledb "github.com/aeml/open_crm/apps/api/internal/db"
 	modulejobs "github.com/aeml/open_crm/apps/api/internal/modules/jobs"
+	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -334,6 +335,10 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 	`, organizationID, ownerID, strings.Repeat("a", 64), []byte(retainedImportSecret)); err != nil {
 		t.Fatalf("seed retained import source: %v", err)
 	}
+	roleChanged, err := moduleusers.NewService(pool).UpdateRole(ctx, organizationID, approverID, ownerID, "member")
+	if err != nil || roleChanged.Role != "member" {
+		t.Fatalf("seed portable transactional role history: user=%#v err=%v", roleChanged, err)
+	}
 
 	service := NewService(pool)
 	requested, err := service.Request(ctx, organizationID, ownerID, "portable-request-1")
@@ -402,8 +407,12 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		t.Fatalf("portable import ledger omitted history or leaked retained source: %s", portableImports)
 	}
 	portableAuditEvents := string(files["data/audit_events.ndjson"])
-	if !strings.Contains(portableAuditEvents, `"event_type": "workspace.export_requested"`) || strings.Contains(portableAuditEvents, "idempotency_key") {
+	if !strings.Contains(portableAuditEvents, `"event_type": "workspace.export_requested"`) || !strings.Contains(portableAuditEvents, `"event_type": "user.role_changed"`) || !strings.Contains(portableAuditEvents, `"previousRole": "admin"`) || !strings.Contains(portableAuditEvents, `"role": "member"`) || strings.Contains(portableAuditEvents, "idempotency_key") {
 		t.Fatalf("portable append-only audit history missing or leaked request correlation: %s", portableAuditEvents)
+	}
+	portableMembers := string(files["data/members.ndjson"])
+	if !strings.Contains(portableMembers, "approver@portable.test") || !strings.Contains(portableMembers, `"role": "member"`) || !strings.Contains(portableMembers, `"membership_status": "active"`) || strings.Contains(portableMembers, "owner@foreign.test") {
+		t.Fatalf("portable current membership state is incomplete or cross-tenant: %s", portableMembers)
 	}
 	portableLeadForms := string(files["data/lead_capture_forms.ndjson"])
 	portableLeadSubmissions := string(files["data/lead_capture_submissions.ndjson"])
@@ -479,7 +488,7 @@ func TestWorkspaceExportLifecycleAgainstPostgres(t *testing.T) {
 		}
 	}
 	var manifestValue manifest
-	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 2 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["deal_quote_approvals"] != 1 || manifestValue.DatasetCounts["quote_templates"] != 1 || manifestValue.DatasetCounts["organization_quote_policies"] != 1 || manifestValue.DatasetCounts["deal_signature_requests"] != 1 || manifestValue.DatasetCounts["lead_capture_forms"] != 1 || manifestValue.DatasetCounts["lead_capture_submissions"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 || manifestValue.DatasetCounts["record_email_deliveries"] != 1 {
+	if err := json.Unmarshal(files["manifest.json"], &manifestValue); err != nil || manifestValue.OmittedPrivateEmailMessages != 1 || manifestValue.OmittedPrivateEmailReplies != 1 || manifestValue.DatasetCounts["members"] != 2 || manifestValue.DatasetCounts["contacts"] != 1 || manifestValue.DatasetCounts["deal_quotes"] != 2 || manifestValue.DatasetCounts["deal_quote_deliveries"] != 1 || manifestValue.DatasetCounts["deal_quote_approvals"] != 1 || manifestValue.DatasetCounts["quote_templates"] != 1 || manifestValue.DatasetCounts["organization_quote_policies"] != 1 || manifestValue.DatasetCounts["deal_signature_requests"] != 1 || manifestValue.DatasetCounts["lead_capture_forms"] != 1 || manifestValue.DatasetCounts["lead_capture_submissions"] != 1 || manifestValue.DatasetCounts["email_reply_requests_shared"] != 1 || manifestValue.DatasetCounts["record_email_deliveries"] != 1 {
 		t.Fatalf("unexpected workspace export manifest: manifest=%#v err=%v", manifestValue, err)
 	}
 	if manifestValue.DatasetCounts["audit_events"] < 1 {

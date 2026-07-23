@@ -65,6 +65,7 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	memberEmail := "member-" + schema + "@example.test"
 	memberID := insertLifecycleUser(t, ctx, pool, memberEmail, passwordHash, "Disabled", "Member")
 	replacementID := insertLifecycleUser(t, ctx, pool, "replacement-"+schema+"@example.test", passwordHash, "Active", "Replacement")
+	disabledAdminID := insertLifecycleUser(t, ctx, pool, "disabled-admin-"+schema+"@example.test", passwordHash, "Disabled", "Admin")
 	foreignID := insertLifecycleUser(t, ctx, pool, "foreign-"+schema+"@example.test", passwordHash, "Foreign", "Owner")
 	for _, membership := range []struct {
 		organizationID int64
@@ -76,10 +77,14 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 		{organizationID, memberID, "member"},
 		{organizationID, replacementID, "member"},
 		{otherOrganizationID, foreignID, "owner"},
+		{otherOrganizationID, ownerID, "admin"},
 	} {
 		if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id, user_id, role) VALUES ($1, $2, $3)`, membership.organizationID, membership.userID, membership.role); err != nil {
 			t.Fatalf("create lifecycle membership: %v", err)
 		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO organization_memberships (organization_id,user_id,role,membership_status) VALUES ($1,$2,'admin','disabled')`, organizationID, disabledAdminID); err != nil {
+		t.Fatalf("create disabled lifecycle administrator: %v", err)
 	}
 	memberSessionToken := "member-session-token"
 	if _, err := pool.Exec(ctx, `
@@ -270,8 +275,70 @@ func TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPo
 	}
 
 	service := moduleusers.NewService(pool)
-	if _, err := service.SetStatus(ctx, organizationID, memberID, memberID, moduleusers.SetStatusInput{Status: "disabled"}); !errors.Is(err, moduleusers.ErrCannotChangeOwnStatus) {
+	if _, err := service.UpdateRole(ctx, organizationID, replacementID, memberID, "admin"); !errors.Is(err, moduleusers.ErrLifecycleForbidden) {
+		t.Fatalf("expected member role mutation denial, got %v", err)
+	}
+	if _, err := service.UpdateRole(ctx, organizationID, replacementID, foreignID, "admin"); !errors.Is(err, moduleusers.ErrLifecycleForbidden) {
+		t.Fatalf("expected foreign actor role mutation denial, got %v", err)
+	}
+	if _, err := service.UpdateRole(ctx, organizationID, replacementID, disabledAdminID, "admin"); !errors.Is(err, moduleusers.ErrLifecycleForbidden) {
+		t.Fatalf("expected disabled admin role mutation denial, got %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		CREATE FUNCTION reject_test_role_audit() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+		BEGIN
+			IF NEW.event_type='user.role_changed' THEN RAISE EXCEPTION 'forced role audit failure'; END IF;
+			RETURN NEW;
+		END $$;
+		CREATE TRIGGER reject_test_role_audit BEFORE INSERT ON audit_events
+		FOR EACH ROW EXECUTE FUNCTION reject_test_role_audit()
+	`); err != nil {
+		t.Fatalf("install role audit failure trigger: %v", err)
+	}
+	if _, err := service.UpdateRole(ctx, organizationID, replacementID, ownerID, "admin"); err == nil || !strings.Contains(err.Error(), "record user role audit") {
+		t.Fatalf("expected role mutation to fail with its audit insert, got %v", err)
+	}
+	var replacementRole string
+	var replacementRoleAudits int
+	if err := pool.QueryRow(ctx, `SELECT role FROM organization_memberships WHERE organization_id=$1 AND user_id=$2`, organizationID, replacementID).Scan(&replacementRole); err != nil || replacementRole != "member" {
+		t.Fatalf("role survived failed transactional audit: role=%q err=%v", replacementRole, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND entity_id=$2 AND event_type='user.role_changed'`, organizationID, replacementID).Scan(&replacementRoleAudits); err != nil || replacementRoleAudits != 0 {
+		t.Fatalf("failed role mutation retained audit history: count=%d err=%v", replacementRoleAudits, err)
+	}
+	if _, err := pool.Exec(ctx, `DROP TRIGGER reject_test_role_audit ON audit_events; DROP FUNCTION reject_test_role_audit()`); err != nil {
+		t.Fatalf("remove role audit failure trigger: %v", err)
+	}
+	roleChanged, err := service.UpdateRole(ctx, organizationID, replacementID, ownerID, "admin")
+	if err != nil || roleChanged.Role != "admin" {
+		t.Fatalf("change active member role: user=%#v err=%v", roleChanged, err)
+	}
+	if _, err := service.UpdateRole(ctx, organizationID, replacementID, ownerID, "admin"); err != nil {
+		t.Fatalf("repeat unchanged member role: %v", err)
+	}
+	var previousRole, currentRole string
+	var roleActorID int64
+	if err := pool.QueryRow(ctx, `
+		SELECT actor_user_id,metadata_json->>'previousRole',metadata_json->>'role'
+		FROM audit_events
+		WHERE organization_id=$1 AND entity_id=$2 AND event_type='user.role_changed'
+	`, organizationID, replacementID).Scan(&roleActorID, &previousRole, &currentRole); err != nil || roleActorID != ownerID || previousRole != "member" || currentRole != "admin" {
+		t.Fatalf("unexpected immutable role transition: actor=%d previous=%q current=%q err=%v", roleActorID, previousRole, currentRole, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_events WHERE organization_id=$1 AND entity_id=$2 AND event_type='user.role_changed'`, organizationID, replacementID).Scan(&replacementRoleAudits); err != nil || replacementRoleAudits != 1 {
+		t.Fatalf("unchanged role duplicated audit history: count=%d err=%v", replacementRoleAudits, err)
+	}
+	if _, err := service.SetStatus(ctx, organizationID, secondOwnerID, secondOwnerID, moduleusers.SetStatusInput{Status: "disabled"}); !errors.Is(err, moduleusers.ErrCannotChangeOwnStatus) {
 		t.Fatalf("expected self-deactivation denial, got %v", err)
+	}
+	if _, err := service.SetStatus(ctx, organizationID, memberID, memberID, moduleusers.SetStatusInput{Status: "disabled"}); !errors.Is(err, moduleusers.ErrLifecycleForbidden) {
+		t.Fatalf("expected member lifecycle mutation denial, got %v", err)
+	}
+	if _, err := service.SetStatus(ctx, organizationID, replacementID, memberID, moduleusers.SetStatusInput{Status: "active"}); !errors.Is(err, moduleusers.ErrLifecycleForbidden) {
+		t.Fatalf("expected member lifecycle no-op denial, got %v", err)
+	}
+	if _, err := service.SetStatus(ctx, organizationID, memberID, foreignID, moduleusers.SetStatusInput{Status: "disabled"}); !errors.Is(err, moduleusers.ErrLifecycleForbidden) {
+		t.Fatalf("expected foreign actor lifecycle mutation denial, got %v", err)
 	}
 	if _, err := service.SetStatus(ctx, organizationID, memberID, ownerID, moduleusers.SetStatusInput{Status: "disabled", ReassignToUserID: foreignID}); !errors.Is(err, moduleusers.ErrInvalidReassignment) {
 		t.Fatalf("expected foreign replacement denial, got %v", err)

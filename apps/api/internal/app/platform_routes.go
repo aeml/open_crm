@@ -62,7 +62,7 @@ func registerPlatformRoutes(mux *http.ServeMux, env config.Env, dependencies Dep
 		handleRevokeUserInvitation(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/users/{userID}/role", func(w http.ResponseWriter, r *http.Request) {
-		handleUpdateUserRole(dependencies.AuthService, dependencies.UsersService, dependencies.AuditService, w, r)
+		handleUpdateUserRole(dependencies.AuthService, dependencies.UsersService, w, r)
 	})
 	mux.HandleFunc("PATCH /api/users/{userID}/status", func(w http.ResponseWriter, r *http.Request) {
 		handleUpdateUserStatus(dependencies.AuthService, dependencies.UsersService, w, r)

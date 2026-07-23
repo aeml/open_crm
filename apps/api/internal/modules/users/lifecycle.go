@@ -64,13 +64,6 @@ func (s *Service) SetStatus(ctx context.Context, organizationID, userID, actorUs
 		if errors.Is(err, pgx.ErrNoRows) {
 			return LifecycleResult{}, ErrNotFound
 		}
-		if currentStatus == MembershipStatusActive {
-			user, err := loadUserSummary(ctx, s.pool, organizationID, userID)
-			if err != nil {
-				return LifecycleResult{}, err
-			}
-			return LifecycleResult{User: user}, nil
-		}
 		if currentStatus == MembershipStatusDisabled {
 			reservation, err = modulebilling.ReserveCapacity(ctx, s.capacity, organizationID, modulebilling.ResourceSeats, 1)
 			if err != nil {
@@ -101,6 +94,9 @@ func (s *Service) setStatusOnce(ctx context.Context, organizationID, userID, act
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := modulebilling.LockCapacityEffect(ctx, tx, reservation); err != nil {
+		return LifecycleResult{}, err
+	}
+	if err := authorizeLifecycleActor(ctx, tx, organizationID, actorUserID); err != nil {
 		return LifecycleResult{}, err
 	}
 
@@ -184,48 +180,6 @@ func retryableLifecycleTransaction(err error) bool {
 	return errors.As(err, &postgresError) && (postgresError.Code == "40001" || postgresError.Code == "40P01")
 }
 
-func (s *Service) updateRole(ctx context.Context, organizationID, userID int64, role string) (UserSummary, error) {
-	if s == nil || s.pool == nil {
-		return UserSummary{}, fmt.Errorf("users service not configured")
-	}
-	role = strings.ToLower(strings.TrimSpace(role))
-	if role != "owner" && role != "admin" && role != "member" && role != "viewer" {
-		return UserSummary{}, ErrInvalidRole
-	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return UserSummary{}, fmt.Errorf("begin role update transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	target, err := lockMembership(ctx, tx, organizationID, userID)
-	if err != nil {
-		return UserSummary{}, err
-	}
-	if target.Role == "owner" && role != "owner" && target.Status == MembershipStatusActive {
-		ownerCount, err := lockAndCountActiveOwners(ctx, tx, organizationID)
-		if err != nil {
-			return UserSummary{}, err
-		}
-		if ownerCount <= 1 {
-			return UserSummary{}, ErrLastActiveOwner
-		}
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE organization_memberships SET role = $3
-		WHERE organization_id = $1 AND user_id = $2
-	`, organizationID, userID, role); err != nil {
-		return UserSummary{}, fmt.Errorf("update user role: %w", err)
-	}
-	user, err := loadUserSummary(ctx, tx, organizationID, userID)
-	if err != nil {
-		return UserSummary{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return UserSummary{}, fmt.Errorf("commit role update: %w", err)
-	}
-	return user, nil
-}
-
 func lockMembership(ctx context.Context, tx pgx.Tx, organizationID, userID int64) (membershipRecord, error) {
 	var membership membershipRecord
 	err := tx.QueryRow(ctx, `
@@ -242,6 +196,26 @@ func lockMembership(ctx context.Context, tx pgx.Tx, organizationID, userID int64
 		return membershipRecord{}, fmt.Errorf("lock organization membership: %w", err)
 	}
 	return membership, nil
+}
+
+func authorizeLifecycleActor(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64) error {
+	var role, status string
+	err := tx.QueryRow(ctx, `
+		SELECT role,COALESCE(membership_status,'active')
+		FROM organization_memberships
+		WHERE organization_id=$1 AND user_id=$2
+		FOR SHARE
+	`, organizationID, actorUserID).Scan(&role, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrLifecycleForbidden
+	}
+	if err != nil {
+		return fmt.Errorf("authorize user lifecycle actor: %w", err)
+	}
+	if status != MembershipStatusActive || (role != "owner" && role != "admin") {
+		return ErrLifecycleForbidden
+	}
+	return nil
 }
 
 func lockAndCountActiveOwners(ctx context.Context, tx pgx.Tx, organizationID int64) (int, error) {

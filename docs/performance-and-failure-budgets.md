@@ -614,6 +614,13 @@ entry, 55.12/15.74 KiB largest lazy chunk, and 781.77/243.34 KiB aggregate
 raw/gzip. Only aggregate ceilings advance from 779/243 to 782/244 KiB; entry,
 per-route, CSS, and source ceilings remain unchanged.
 
+The transactional user-role audit slice adds one success confirmation to the
+bounded Users settings route without changing a feature family or loading more
+code into the entry chunk. The production build measures 178.87/58.00 KiB
+entry, 55.12/15.73 KiB largest lazy chunk, 12.09/3.78 KiB for Users settings,
+and 781.91/243.21 KiB aggregate raw/gzip. Every existing 782/244 KiB aggregate,
+entry, per-route, CSS, hidden-foundation, and source ceiling remains unchanged.
+
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and
 then its ordered outcomes with a tenant/run-array query. Reviewed execution

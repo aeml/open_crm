@@ -30,6 +30,7 @@ type fakeUsersService struct {
 	lastRoleUserID         int64
 	lastRoleActorID        int64
 	lastRole               string
+	roleErr                error
 	statusResult           moduleusers.LifecycleResult
 	statusErr              error
 	lastStatusOrgID        int64
@@ -86,7 +87,7 @@ func (f *fakeUsersService) UpdateRole(_ context.Context, organizationID, userID,
 	f.lastRoleUserID = userID
 	f.lastRoleActorID = actorUserID
 	f.lastRole = role
-	return moduleusers.UserSummary{ID: userID, Email: "admin@acme.test", FirstName: "Demo", LastName: "Admin", Role: role}, nil
+	return moduleusers.UserSummary{ID: userID, Email: "admin@acme.test", FirstName: "Demo", LastName: "Admin", Role: role}, f.roleErr
 }
 
 func (f *fakeUsersService) SetStatus(_ context.Context, organizationID, userID, actorUserID int64, input moduleusers.SetStatusInput) (moduleusers.LifecycleResult, error) {
@@ -288,6 +289,27 @@ func TestUpdateUserRoleRecordsCurrentOrganizationAndActor(t *testing.T) {
 	}
 }
 
+func TestUpdateUserRoleRejectsActorWhoLostAdminAccess(t *testing.T) {
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User:         moduleauth.User{ID: 1},
+			Organization: moduleauth.Organization{ID: 42},
+			Membership:   moduleauth.Membership{Role: "owner"},
+		}},
+		UsersService: &fakeUsersService{roleErr: moduleusers.ErrLifecycleForbidden},
+	})
+	request := httptest.NewRequest(http.MethodPatch, "/api/users/9/role", bytes.NewBufferString(`{"role":"admin"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected stale lifecycle authorization to return %d, got %d: %s", http.StatusForbidden, recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestUpdateUserStatusRoutesTenantActorAndReassignment(t *testing.T) {
 	usersService := &fakeUsersService{statusResult: moduleusers.LifecycleResult{
 		User:                moduleusers.UserSummary{ID: 9, Email: "member@acme.test", Status: moduleusers.MembershipStatusDisabled},
@@ -336,6 +358,7 @@ func TestUpdateUserStatusRejectsViewerAndUnsafeTransitions(t *testing.T) {
 		{name: "self", role: "owner", serviceErr: moduleusers.ErrCannotChangeOwnStatus, wantStatus: http.StatusConflict},
 		{name: "last owner", role: "owner", serviceErr: moduleusers.ErrLastActiveOwner, wantStatus: http.StatusConflict},
 		{name: "foreign replacement", role: "owner", serviceErr: moduleusers.ErrInvalidReassignment, wantStatus: http.StatusBadRequest},
+		{name: "stale admin authorization", role: "owner", serviceErr: moduleusers.ErrLifecycleForbidden, wantStatus: http.StatusForbidden},
 		{name: "reactivation limit", role: "owner", serviceErr: modulebilling.ErrLimitReached, wantStatus: http.StatusPaymentRequired},
 		{name: "capacity unavailable", role: "owner", serviceErr: modulebilling.ErrCapacityUnavailable, wantStatus: http.StatusServiceUnavailable},
 	}

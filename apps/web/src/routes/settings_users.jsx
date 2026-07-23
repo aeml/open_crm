@@ -162,9 +162,11 @@ export function SettingsUsersRoute() {
   async function handleRoleChange(userId, role) {
     setSavingRoleUserId(userId)
     setError('')
+    setLifecycleStatus('')
     try {
       const updated = await updateOrganizationUserRole(userId, role)
       setUsers((current) => current.map((user) => (user.id === userId ? updated : user)))
+      setLifecycleStatus(`${updated.firstName} ${updated.lastName} now has the ${updated.role} role. The access change is retained in the audit trail and portable workspace export.`)
     } catch (submitError) {
       setError(submitError.message || 'Unable to update user role.')
     } finally {

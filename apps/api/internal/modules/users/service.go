@@ -21,6 +21,7 @@ var (
 	ErrNotFound              = errors.New("user not found")
 	ErrInvalidRole           = errors.New("invalid membership role")
 	ErrInvalidStatus         = errors.New("invalid membership status")
+	ErrLifecycleForbidden    = errors.New("active organization owner or admin required")
 	ErrCannotChangeOwnStatus = errors.New("cannot change own membership status")
 	ErrLastActiveOwner       = errors.New("cannot remove the last active owner")
 	ErrInvalidReassignment   = errors.New("reassignment user must be another active organization member")
@@ -269,8 +270,8 @@ func (s *Service) CreateForOrganization(ctx context.Context, organizationID int6
 	}, nil
 }
 
-func (s *Service) UpdateRole(ctx context.Context, organizationID, userID, _ int64, role string) (UserSummary, error) {
-	return s.updateRole(ctx, organizationID, userID, role)
+func (s *Service) UpdateRole(ctx context.Context, organizationID, userID, actorUserID int64, role string) (UserSummary, error) {
+	return s.updateRole(ctx, organizationID, userID, actorUserID, role)
 }
 
 func (s *Service) CompleteSetup(ctx context.Context, input CompleteSetupInput) (SetupCompletion, error) {

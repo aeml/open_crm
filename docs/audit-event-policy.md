@@ -37,9 +37,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `51`
+Producer source count: `52`
 
-Producer source digest: `22a436d6d5508be16a4566160cd49df1ebaf9d01fd0161c56eda5b039a3fddd5`
+Producer source digest: `9af13601b13c78cca4cc668f2449a77c5665608d76b15eec38392bee0f691a8d`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -51,6 +51,16 @@ password-setup producers from the mixed authentication/user handler into the
 focused tenant user-lifecycle handler. The mutation classes, metadata, secret
 boundary, retention, and export behavior are unchanged; only the reviewed
 producer source path changed.
+
+The 2026-07-23 role-transition review replaces the handler's best-effort role
+event with a focused transactional producer. It revalidates the acting
+owner/admin inside the same serializable tenant transaction, writes the new
+role and exactly one append-only event together, and writes neither when audit
+insertion fails. The event retains the target email, previous/current finite
+role, and current finite membership status; it contains no session, invitation,
+credential, provider, or request-correlation material. Exact unchanged retries
+create no event. The current membership row and full transition event are both
+included in the portable workspace export.
 
 The workflow-approval review adds three focused producers for request or
 unavailable-reviewer capture, terminal decision, and definition/member-driven

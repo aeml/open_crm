@@ -145,7 +145,7 @@ func handleCreateUser(env config.Env, auth authService, users usersService, audi
 	platformweb.WriteJSON(w, http.StatusCreated, response)
 }
 
-func handleUpdateUserRole(auth authService, users usersService, audit auditService, w http.ResponseWriter, r *http.Request) {
+func handleUpdateUserRole(auth authService, users usersService, w http.ResponseWriter, r *http.Request) {
 	requestID := platformweb.RequestIDFromContext(r.Context())
 	state, ok := requireOrgAdmin(auth, w, r)
 	if !ok {
@@ -182,22 +182,13 @@ func handleUpdateUserRole(auth authService, users usersService, audit auditServi
 		case errors.Is(err, moduleusers.ErrLastActiveOwner):
 			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "Assign another active owner before changing the last owner's role")
 			return
+		case errors.Is(err, moduleusers.ErrLifecycleForbidden):
+			platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Active owner or admin access required")
+			return
 		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update user role")
 		return
 	}
-	recordAuditEvent(r, audit, state.Organization.ID, moduleaudit.RecordInput{
-		ActorUserID: state.User.ID,
-		EventType:   "user.role_changed",
-		EntityType:  "user",
-		EntityID:    updated.ID,
-		Summary:     fmt.Sprintf("Changed %s role to %s", updated.Email, updated.Role),
-		Metadata: map[string]string{
-			"email": updated.Email,
-			"role":  updated.Role,
-		},
-	})
-
 	response := userResponse{}
 	response.Data.User = updated
 	response.Meta.RequestID = requestID
@@ -241,6 +232,8 @@ func handleUpdateUserStatus(auth authService, users usersService, w http.Respons
 			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "You cannot deactivate your own access")
 		case errors.Is(err, moduleusers.ErrLastActiveOwner):
 			platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "Assign another active owner before deactivating the last owner")
+		case errors.Is(err, moduleusers.ErrLifecycleForbidden):
+			platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Active owner or admin access required")
 		default:
 			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to update user access")
 		}
