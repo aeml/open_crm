@@ -8,6 +8,8 @@ image_repository="open-crm-deploy-test-$$"
 good_release="test-good-$$"
 next_release="test-next-$$"
 failed_release="test-failed-$$"
+retired_release="test-retired-$$"
+unmanaged_release="test-unmanaged-$$"
 
 cleanup() {
   OPEN_CRM_RELEASE_ID="$good_release" \
@@ -16,7 +18,9 @@ cleanup() {
   COMPOSE_PROJECT_NAME="$project_name" \
     docker compose -f "$REPO_ROOT/docker-compose.deploy.yml" --env-file "$test_root/test.env" \
     down -v --remove-orphans >/dev/null 2>&1 || true
-  docker image rm "$image_repository:$good_release" "$image_repository:$next_release" "$image_repository:$failed_release" >/dev/null 2>&1 || true
+  docker image rm "$image_repository:$good_release" "$image_repository:$next_release" \
+    "$image_repository:$failed_release" "$image_repository:$retired_release" \
+    "$image_repository:$unmanaged_release" >/dev/null 2>&1 || true
   rm -rf -- "$test_root"
 }
 trap cleanup EXIT
@@ -41,6 +45,7 @@ export DEPLOY_COMPOSE_FILE="$REPO_ROOT/docker-compose.deploy.yml"
 export DEPLOY_STATE_DIR="$test_root/state"
 export OPEN_CRM_API_IMAGE_REPOSITORY="$image_repository"
 export OPEN_CRM_DEPLOY_STABILITY_SECONDS=2
+export OPEN_CRM_DEPLOY_RETAIN_IMAGES=2
 
 compose_good_release() {
   OPEN_CRM_RELEASE_ID="$good_release" \
@@ -54,10 +59,25 @@ if OPEN_CRM_DEPLOY_STABILITY_SECONDS=121 \
   echo "out-of-range deployment stabilization unexpectedly succeeded" >&2
   exit 1
 fi
+if OPEN_CRM_DEPLOY_RETAIN_IMAGES=1 \
+  "$REPO_ROOT/scripts/remote-deploy.sh" "$REPO_ROOT" "$good_release"; then
+  echo "out-of-range deployment image retention unexpectedly succeeded" >&2
+  exit 1
+fi
 
 "$REPO_ROOT/scripts/remote-deploy.sh" "$REPO_ROOT" "$good_release"
 grep -qx "$good_release" "$test_root/state/current-release"
 grep -q '"status":"succeeded"' "$test_root/state/last-deploy.json"
+
+# Seed one eligible old release image and one operator-managed tag. A future
+# accepted deploy must prune only the exact revision-labeled release while
+# preserving both rollback images and the tag whose label does not match.
+printf 'FROM %s:%s\nLABEL org.opencontainers.image.revision="%s"\n' \
+  "$image_repository" "$good_release" "$retired_release" \
+  | docker image build --quiet --tag "$image_repository:$retired_release" - >/dev/null
+docker tag "$image_repository:$good_release" "$image_repository:$unmanaged_release"
+docker image inspect "$image_repository:$retired_release" >/dev/null
+docker image inspect "$image_repository:$unmanaged_release" >/dev/null
 
 # A rotated/mistyped protected database secret must fail against the running
 # database before Compose can recreate PostgreSQL and strand the healthy API.
@@ -161,6 +181,27 @@ echo "database_startup_recovery_succeeded release=$good_release restart_count=$r
 "$REPO_ROOT/scripts/remote-deploy.sh" "$REPO_ROOT" "$next_release"
 grep -qx "$next_release" "$test_root/state/current-release"
 grep -qx "$good_release" "$test_root/state/previous-release"
+docker image inspect "$image_repository:$next_release" >/dev/null
+docker image inspect "$image_repository:$good_release" >/dev/null
+if docker image inspect "$image_repository:$retired_release" >/dev/null 2>&1; then
+  echo "retention kept an eligible image outside the current/previous boundary" >&2
+  exit 1
+fi
+docker image inspect "$image_repository:$unmanaged_release" >/dev/null
+grep -q '"status":"succeeded"' "$test_root/state/last-image-retention.json"
+grep -q '"retainImages":2' "$test_root/state/last-image-retention.json"
+grep -Eq '"prunedImages":[1-9][0-9]*' "$test_root/state/last-image-retention.json"
+echo "deploy_image_retention_acceptance_succeeded current=$next_release previous=$good_release pruned=$retired_release"
+
+# Re-running deployment for the already-current commit can refresh protected
+# configuration, but it must not replace the usable rollback pointer with the
+# current release itself.
+"$REPO_ROOT/scripts/remote-deploy.sh" "$REPO_ROOT" "$next_release"
+grep -qx "$next_release" "$test_root/state/current-release"
+grep -qx "$good_release" "$test_root/state/previous-release"
+docker image inspect "$image_repository:$next_release" >/dev/null
+docker image inspect "$image_repository:$good_release" >/dev/null
+echo "same_release_redeploy_preserved_rollback_succeeded current=$next_release previous=$good_release"
 
 "$REPO_ROOT/scripts/rollback-release.sh" "$REPO_ROOT" "$good_release"
 grep -qx "$good_release" "$test_root/state/current-release"
@@ -199,6 +240,7 @@ fi
 grep -qx "$good_release" "$test_root/state/current-release"
 
 python3 -m json.tool "$test_root/state/last-deploy.json" >/dev/null
+python3 -m json.tool "$test_root/state/last-image-retention.json" >/dev/null
 python3 -m json.tool "$test_root/state/releases/$good_release/manifest.json" >/dev/null
 python3 -m json.tool "$test_root/state/releases/$next_release/manifest.json" >/dev/null
 

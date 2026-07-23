@@ -1628,14 +1628,36 @@ or mistyped protected password therefore exits nonzero while the current API,
 database container, and accepted release state remain untouched. A first-time
 bootstrap instead starts PostgreSQL and then migrates it. The deploy recreates
 the API only after that boundary and accepts the release only when it is
-healthy and `/readyz` reports the exact expected `X-Open-CRM-Release` header continuously
-for 45 seconds. This stabilization window covers dependency or container-daemon
+healthy and `/readyz` reports the exact expected `X-Open-CRM-Release` header
+continuously for 45 seconds. This stabilization window covers dependency or container-daemon
 restarts immediately after the first successful probe. It can be configured
 from 0 through 120 seconds with `OPEN_CRM_DEPLOY_STABILITY_SECONDS`; retain the
 45-second production default and use a shorter value only in disposable
 acceptance tests. Zero disables the observation window and is reserved for
 focused script diagnostics. Atomic state and per-release manifests are retained
 under `var/deploy/`.
+
+Only after the release is accepted, the deploy bounds eligible API images with
+`OPEN_CRM_DEPLOY_RETAIN_IMAGES` (default `5`, allowed range `2`–`50`). Current
+and recorded-previous releases are always protected and count toward the limit.
+The remaining slots keep the newest eligible images by immutable creation time.
+Eligibility requires a syntactically valid release tag in the configured API
+repository and an embedded `org.opencontainers.image.revision` label that
+exactly matches that tag. Mismatched, malformed, legacy, foreign, and
+operator-managed tags are ignored; cleanup never uses force. Historical release
+manifests remain under `var/deploy/releases/` even after an image is pruned, so
+the deployment record is retained without promising an indefinite local binary
+cache. Rebuild an intentionally selected older commit through the CI-gated
+deployment path instead of retagging an image by hand.
+
+The result is written atomically to
+`var/deploy/last-image-retention.json`. `status=succeeded` means every selected
+tag was removed or no removal was due. `status=partial` leaves the accepted
+release healthy but identifies a failed non-forced removal in the deploy log;
+correct the competing container or Docker state before the next deploy retries
+the bounded cleanup. Re-running the already-current SHA to refresh protected
+configuration preserves the recorded older rollback target rather than
+pointing both state files at the current image.
 
 Every migration from `056` onward must begin with one of these classifications:
 
@@ -1659,6 +1681,7 @@ If a normal expand deployment fails its post-migration readiness check,
 image, verifies its release header and health, records `rolled_back` in
 `var/deploy/last-deploy.json`, and exits nonzero so CI remains failed. The
 disposable CI acceptance test proves pre-restart credential-drift refusal,
+bounded selective image cleanup, exact-SHA rollback-pointer preservation,
 failed-readiness recovery, a manual rollback without reversing database
 migrations, and database-unavailable boot recovery. A production-configured API
 exits before opening HTTP whenever its database configuration is invalid or its
@@ -1720,6 +1743,7 @@ docker compose -f docker-compose.deploy.yml --env-file .env.production ps
 docker compose -f docker-compose.deploy.yml --env-file .env.production logs --tail=200 api
 docker compose -f docker-compose.deploy.yml --env-file .env.production logs --tail=200 migrate
 cat var/deploy/last-deploy.json
+cat var/deploy/last-image-retention.json
 cat var/deploy/current-release
 cat var/deploy/previous-release
 ```

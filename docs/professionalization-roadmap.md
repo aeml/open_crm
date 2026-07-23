@@ -143,7 +143,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.9.6` Restore Drill Automation: complete (real off-host validation remains required for pilot evidence).
 - `0.9.7` Monitoring And Alerting Hooks: in progress (implementation complete; production scrape/destination validation pending).
 - `0.9.8` Load And Failure Testing: in progress (read/write/query/database-failure/export/import/provider/bundle budgets complete; production-like host evidence remains).
-- `0.9.9` Reliability Release Review: in progress (immutable deploy recovery, pre-restart database-credential/migration validation, and migration compatibility complete; load/failure review remains).
+- `0.9.9` Reliability Release Review: in progress (immutable deploy recovery, pre-restart database-credential/migration validation, bounded rollback-safe image retention, and migration compatibility complete; load/failure review remains).
 - `0.10.0` Production Beta: in progress (license inventory/notice gate complete; approved pilot readiness evidence remains).
 
 ### Part II — Competitive SaaS Platform
@@ -2580,6 +2580,17 @@ continues through normal deployment and every existing recovery case. The
 operations runbook treats persistent-role rotation as an explicitly approved,
 backup-gated, secret-safe maintenance action rather than something a deploy
 silently guesses or performs.
+
+Accepted deployments now apply a configurable 2–50-image retention policy with
+a default of five. The cleanup is post-acceptance, never force-removes an image,
+always protects the current/previous rollback pair, and considers only valid
+tags in the configured repository whose immutable revision label exactly names
+the tag. Historical manifests remain as deployment evidence. Atomic cleanup
+status distinguishes complete and partial pruning, and an exact-SHA redeploy
+preserves the earlier rollback target instead of replacing it with the current
+release. The disposable recovery suite proves the protected pair remains
+available, one eligible old revision is pruned, a mismatched operator tag is
+untouched, and the same-release redeploy remains manually rollback-capable.
 
 Goal: close the reliability milestone before production beta.
 

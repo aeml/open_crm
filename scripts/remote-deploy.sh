@@ -33,7 +33,8 @@ open_crm_load_env_keys "$DEPLOY_ENV_FILE" \
   OPEN_CRM_API_IMAGE_REPOSITORY \
   BACKUP_STATUS_DIR \
   ALLOW_CONTRACT_MIGRATIONS \
-  OPEN_CRM_DEPLOY_STABILITY_SECONDS
+  OPEN_CRM_DEPLOY_STABILITY_SECONDS \
+  OPEN_CRM_DEPLOY_RETAIN_IMAGES
 export OPEN_CRM_RELEASE_ID="$requested_release"
 export OPEN_CRM_ENV_FILE="$DEPLOY_ENV_FILE"
 OPEN_CRM_API_IMAGE_REPOSITORY="${OPEN_CRM_API_IMAGE_REPOSITORY:-open-crm-api}"
@@ -41,6 +42,11 @@ export OPEN_CRM_API_IMAGE_REPOSITORY
 deploy_stability_seconds="${OPEN_CRM_DEPLOY_STABILITY_SECONDS:-45}"
 [[ "$deploy_stability_seconds" =~ ^([0-9]|[1-9][0-9]|1[01][0-9]|120)$ ]] || \
   deploy_error "OPEN_CRM_DEPLOY_STABILITY_SECONDS must be an integer from 0 through 120"
+retain_release_images="${OPEN_CRM_DEPLOY_RETAIN_IMAGES:-5}"
+if [[ ! "$retain_release_images" =~ ^[0-9]+$ ]] || \
+  (( retain_release_images < 2 || retain_release_images > 50 )); then
+  deploy_error "OPEN_CRM_DEPLOY_RETAIN_IMAGES must be an integer from 2 through 50"
+fi
 readiness_attempts="$(( 90 + (deploy_stability_seconds + 1) / 2 ))"
 
 mkdir -p "$DEPLOY_STATE_DIR" "$DEPLOY_STATE_DIR/releases"
@@ -73,6 +79,81 @@ write_deploy_status() {
   atomic_write "$DEPLOY_STATE_DIR/last-deploy.json" \
     "$(printf '{\"status\":\"%s\",\"phase\":\"%s\",\"releaseId\":\"%s\",\"previousReleaseId\":\"%s\",\"startedAt\":\"%s\",\"completedAt\":\"%s\",\"durationSeconds\":%d}' \
       "$status" "$phase" "$release" "$previous" "$started_at" "$completed_at" "$duration")"
+}
+
+prune_release_images() {
+  local current_release="$1"
+  local previous_release="$2"
+  local completed_at retention_status image release embedded_release created
+  local candidate_line protected_release
+  local eligible=0 kept=0 pruned=0 failures=0
+  local -a candidates=()
+  declare -A retained=()
+
+  # Current and previous are the only supported application rollback pair and
+  # are never eligible for cleanup, even when manual rollback makes them older
+  # than the configured history window.
+  for protected_release in "$current_release" "$previous_release"; do
+    [[ -n "$protected_release" ]] || continue
+    if [[ -z "${retained[$protected_release]+present}" ]]; then
+      retained["$protected_release"]=true
+      ((kept += 1))
+    fi
+  done
+
+  # Limit cleanup to syntactically valid commit-style tags in the configured
+  # repository whose immutable build label exactly names that tag. Foreign,
+  # operator-managed, legacy, and malformed tags are ignored rather than
+  # guessed at or force-removed.
+  mapfile -t candidates < <(
+    while IFS=$'\t' read -r image_repository release; do
+      [[ "$image_repository" == "$OPEN_CRM_API_IMAGE_REPOSITORY" ]] || continue
+      valid_release_id "$release" || continue
+      image="$OPEN_CRM_API_IMAGE_REPOSITORY:$release"
+      embedded_release="$(docker image inspect \
+        --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+        "$image" 2>/dev/null || true)"
+      [[ "$embedded_release" == "$release" ]] || continue
+      created="$(docker image inspect --format '{{.Created}}' "$image" 2>/dev/null || true)"
+      [[ -n "$created" ]] || continue
+      printf '%s\t%s\n' "$created" "$release"
+    done < <(docker image ls \
+      --filter "reference=$OPEN_CRM_API_IMAGE_REPOSITORY:*" \
+      --format '{{.Repository}}\t{{.Tag}}') \
+      | sort -r -k1,1 -k2,2
+  )
+  eligible="${#candidates[@]}"
+
+  for candidate_line in "${candidates[@]}"; do
+    release="${candidate_line#*$'\t'}"
+    if [[ -n "${retained[$release]+present}" ]]; then
+      continue
+    fi
+    if (( kept < retain_release_images )); then
+      retained["$release"]=true
+      ((kept += 1))
+      continue
+    fi
+    image="$OPEN_CRM_API_IMAGE_REPOSITORY:$release"
+    echo "deploy_image_prune_selected release=$release image=$image"
+    if docker image rm "$image" >/dev/null 2>&1; then
+      ((pruned += 1))
+      echo "deploy_image_pruned release=$release image=$image"
+    else
+      ((failures += 1))
+      echo "deploy_image_prune_failed release=$release image=$image" >&2
+    fi
+  done
+
+  retention_status="succeeded"
+  if (( failures > 0 )); then
+    retention_status="partial"
+  fi
+  completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  atomic_write "$DEPLOY_STATE_DIR/last-image-retention.json" \
+    "$(printf '{\"status\":\"%s\",\"releaseId\":\"%s\",\"retainImages\":%d,\"eligibleImages\":%d,\"keptImages\":%d,\"prunedImages\":%d,\"failedImages\":%d,\"completedAt\":\"%s\"}' \
+      "$retention_status" "$current_release" "$retain_release_images" "$eligible" "$kept" "$pruned" "$failures" "$completed_at")"
+  echo "deploy_image_retention status=$retention_status release=$current_release retain_images=$retain_release_images eligible_images=$eligible kept_images=$kept pruned_images=$pruned failed_images=$failures"
 }
 
 wait_for_release() {
@@ -132,20 +213,32 @@ if [[ "$backup_status_dir" != /* ]]; then
 fi
 install -d -m 755 "$backup_status_dir"
 
-previous_release=""
+current_release=""
 if [[ -f "$DEPLOY_STATE_DIR/current-release" ]]; then
-  previous_release="$(tr -d '[:space:]' < "$DEPLOY_STATE_DIR/current-release")"
-  valid_release_id "$previous_release" || deploy_error "stored current release ID is invalid"
+  current_release="$(tr -d '[:space:]' < "$DEPLOY_STATE_DIR/current-release")"
+  valid_release_id "$current_release" || deploy_error "stored current release ID is invalid"
 fi
 
 current_container="$("${COMPOSE[@]}" ps -q api 2>/dev/null || true)"
 if [[ -n "$current_container" ]]; then
   current_image_id="$(docker inspect --format '{{.Image}}' "$current_container")"
-  if [[ -z "$previous_release" ]]; then
-    previous_release="legacy-$(date -u +%Y%m%d%H%M%S)"
+  if [[ -z "$current_release" ]]; then
+    current_release="legacy-$(date -u +%Y%m%d%H%M%S)"
   fi
-  if ! docker image inspect "$OPEN_CRM_API_IMAGE_REPOSITORY:$previous_release" >/dev/null 2>&1; then
-    docker tag "$current_image_id" "$OPEN_CRM_API_IMAGE_REPOSITORY:$previous_release"
+  if ! docker image inspect "$OPEN_CRM_API_IMAGE_REPOSITORY:$current_release" >/dev/null 2>&1; then
+    docker tag "$current_image_id" "$OPEN_CRM_API_IMAGE_REPOSITORY:$current_release"
+  fi
+fi
+
+previous_release="$current_release"
+if [[ -n "$current_release" && "$requested_release" == "$current_release" && \
+  -f "$DEPLOY_STATE_DIR/previous-release" ]]; then
+  recorded_previous_release="$(tr -d '[:space:]' < "$DEPLOY_STATE_DIR/previous-release")"
+  valid_release_id "$recorded_previous_release" || \
+    deploy_error "stored previous release ID is invalid"
+  if [[ "$recorded_previous_release" != "$current_release" ]]; then
+    previous_release="$recorded_previous_release"
+    echo "deploy_preserving_rollback_target current_release=$current_release previous_release=$previous_release"
   fi
 fi
 
@@ -216,6 +309,7 @@ atomic_write "$release_dir/manifest.json" \
 atomic_write "$DEPLOY_STATE_DIR/previous-release" "$previous_release"
 atomic_write "$DEPLOY_STATE_DIR/current-release" "$requested_release"
 write_deploy_status "succeeded" "complete" "$requested_release" "$previous_release"
+prune_release_images "$requested_release" "$previous_release"
 
 "${COMPOSE[@]}" ps
 echo "deploy_succeeded release=$requested_release previous_release=${previous_release:-none} image_id=$image_id"
