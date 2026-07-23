@@ -714,11 +714,13 @@ Revision-safe custom-field administration retains one complete active catalog
 per contact/company record type under the existing 25-field ceiling. The
 server-derived total, serialized final-slot write, exact revisions, stale-load
 rejection, and mutation serialization add no paging or hidden traversal. The
-settings route remains 168 lines and 7.07/2.36 KiB raw/gzip. The current Node 24
-production build is 179.04/58.06 KiB entry, 55.16/15.75 KiB largest lazy chunk,
-and 816.93/254.62 KiB aggregate raw/gzip under the unchanged 817/255 KiB
-aggregate ceilings; every entry, per-route, CSS, hidden-foundation, and source
-ceiling remains unchanged.
+settings route remains 168 lines and 7.07/2.36 KiB raw/gzip. A follow-up shared
+lead-surface boundary reduces the landing-page and website-widget route files
+to 117/125 lines and their chunks to 4.02/1.59 and 4.47/1.69 KiB raw/gzip. The
+current Node 24 production build is 179.04/58.06 KiB entry, 55.16/15.74 KiB
+largest lazy chunk, and 816.13/254.51 KiB aggregate raw/gzip under the unchanged
+817/255 KiB aggregate ceilings; every entry, per-route, CSS, hidden-foundation,
+and source ceiling remains unchanged.
 
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and

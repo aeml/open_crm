@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../components/ui/button'
+import { Card } from '../components/ui/card'
 import { Field } from '../components/ui/field'
+import { InlineError } from '../components/ui/inline_error'
 import { isAbortError } from '../lib/api'
 import { listLeadCaptureForms } from '../lib/lead_forms'
 
@@ -62,6 +64,58 @@ export function useLeadSurfaceCatalog({ listPage, itemKey, emptyForm, loadErrorM
   }
 }
 
+export function useLeadSurfaceEditor({
+  canManage, leadForms, form, setForm, setError, pageNumber, setPageNumber,
+  load, emptyForm, formFromItem, payloadFromForm, createItem, updateItem,
+  createdMessage, updatedMessage, saveErrorMessage
+}) {
+  const [editingId, setEditingId] = useState(null)
+  const [status, setStatus] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const operationPending = useRef(false)
+
+  function resetForm() {
+    setEditingId(null)
+    setForm(emptyForm(leadForms[0]?.id ? String(leadForms[0].id) : ''))
+  }
+
+  function startEdit(item) {
+    setEditingId(item.id)
+    setForm(formFromItem(item))
+    setStatus('')
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    if (!canManage || operationPending.current) return
+
+    operationPending.current = true
+    setIsSaving(true)
+    setStatus('')
+    try {
+      const payload = payloadFromForm(form)
+      if (editingId !== null) {
+        await updateItem(editingId, payload)
+        setStatus(updatedMessage)
+      } else {
+        await createItem(payload)
+        setStatus(createdMessage)
+      }
+      resetForm()
+      setError('')
+      if (pageNumber === 1) await load({ requestedPage: 1 })
+      else setPageNumber(1)
+    } catch (saveError) {
+      setError(saveError.message || saveErrorMessage)
+    } finally {
+      setIsSaving(false)
+      operationPending.current = false
+    }
+  }
+
+  return { editingId, status, isSaving, resetForm, startEdit, handleSubmit }
+}
+
 export function LeadSurfaceCatalogControls({
   label, itemCount, meta, noun, statusFilter, setStatusFilter,
   pageNumber, setPageNumber, isLoading, isSaving, previousLabel, nextLabel, children
@@ -82,5 +136,107 @@ export function LeadSurfaceCatalogControls({
         <Button className="button-secondary" type="button" disabled={isLoading || isSaving || pageNumber * meta.pageSize >= meta.total} onClick={() => setPageNumber((current) => current + 1)}>{nextLabel}</Button>
       </div>
     </>
+  )
+}
+
+export function LeadSurfaceCatalogCard({
+  title, description, loadingMessage, status, error, onRetry, retryLabel,
+  items, meta, noun, statusLabel, statusFilter, setStatusFilter, pageNumber,
+  setPageNumber, isLoading, isSaving, previousLabel, nextLabel, ariaLabel,
+  emptyMessage, emptyHint, renderItem
+}) {
+  return (
+    <Card>
+      <div className="card-stack">
+        <div className="section-header"><div><h2>{title}</h2><p>{description}</p></div></div>
+        {isLoading ? <p className="field-hint">{loadingMessage}</p> : null}
+        {status ? <p className="field-hint" role="status">{status}</p> : null}
+        {error ? <InlineError message={error} onRetry={onRetry} retryLabel={retryLabel} /> : null}
+        <LeadSurfaceCatalogControls
+          label={statusLabel} itemCount={items.length} meta={meta} noun={noun}
+          statusFilter={statusFilter} setStatusFilter={setStatusFilter}
+          pageNumber={pageNumber} setPageNumber={setPageNumber}
+          isLoading={isLoading} isSaving={isSaving}
+          previousLabel={previousLabel} nextLabel={nextLabel}
+        >
+          <div className="record-list" role="list" aria-label={ariaLabel}>
+            {!isLoading && items.length === 0 ? (
+              <article className="record-row" role="listitem">
+                <div><p>{emptyMessage}</p><p className="field-hint">{emptyHint}</p></div>
+              </article>
+            ) : items.map(renderItem)}
+          </div>
+        </LeadSurfaceCatalogControls>
+      </div>
+    </Card>
+  )
+}
+
+export function LeadSurfaceCatalogItem({ item, canManage, onEdit, children }) {
+  return (
+    <article className={item.isActive ? 'record-row' : 'record-row record-row-alert'} role="listitem">
+      <div>{children}</div>
+      <div>
+        <span className="chip">{item.isActive ? 'Active' : 'Inactive'}</span>
+        {canManage ? <Button className="button-secondary" type="button" onClick={() => onEdit(item)}>Edit</Button> : null}
+      </div>
+    </article>
+  )
+}
+
+export function LeadSurfaceEditorCard({
+  editingId, editTitle, newTitle, description, noFormsMessage, leadForms,
+  form, setForm, activeLabel, isSaving, onSubmit, saveLabel, createLabel,
+  onCancel, children
+}) {
+  const editing = editingId !== null
+  return (
+    <Card>
+      <form className="auth-form card-stack" onSubmit={onSubmit}>
+        <div><h2>{editing ? editTitle : newTitle}</h2><p className="field-hint">{description}</p></div>
+        {leadForms.length === 0 ? <p className="form-error" role="alert">{noFormsMessage}</p> : null}
+        <Field label="Lead form">
+          <select className="text-input" value={form.leadCaptureFormId} onChange={(event) => setForm((current) => ({ ...current, leadCaptureFormId: event.target.value }))} required>
+            <option value="">Choose a lead form</option>
+            {form.leadCaptureFormId && !leadForms.some((leadForm) => String(leadForm.id) === String(form.leadCaptureFormId)) ? <option value={form.leadCaptureFormId}>{form.retainedLeadFormName} (inactive; retained)</option> : null}
+            {leadForms.map((leadForm) => <option key={leadForm.id} value={leadForm.id}>{leadForm.name}</option>)}
+          </select>
+        </Field>
+        {children}
+        <label className="field-hint">
+          <input type="checkbox" checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} /> {activeLabel}
+        </label>
+        <div>
+          <Button type="submit" disabled={isSaving || leadForms.length === 0}>{isSaving ? 'Saving...' : editing ? saveLabel : createLabel}</Button>
+          {editing ? <Button className="button-secondary" type="button" onClick={onCancel}>Cancel</Button> : null}
+        </div>
+      </form>
+    </Card>
+  )
+}
+
+export function LeadSurfaceTextField({ label, hint, name, form, setForm, multiline = false, ...props }) {
+  const controlProps = {
+    ...props,
+    className: 'text-input',
+    value: form[name],
+    onChange: (event) => setForm((current) => ({ ...current, [name]: event.target.value }))
+  }
+  return (
+    <Field label={label} hint={hint}>
+      {multiline ? <textarea {...controlProps} /> : <input {...controlProps} />}
+    </Field>
+  )
+}
+
+export function LeadSurfaceThemeField({ form, setForm }) {
+  return (
+    <Field label="Theme">
+      <select className="text-input" value={form.theme} onChange={(event) => setForm((current) => ({ ...current, theme: event.target.value }))}>
+        <option value="light">Light</option>
+        <option value="blue">Blue</option>
+        <option value="dark">Dark</option>
+      </select>
+    </Field>
   )
 }
