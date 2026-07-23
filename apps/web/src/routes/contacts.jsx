@@ -16,7 +16,6 @@ import {
 } from './contact_view'
 import { ContactCreateWorkspace, ContactWorkspace } from './contact_workspace'
 import { useContactDetail } from './use_contact_detail'
-import { useContactLeadScore } from './use_contact_lead_score'
 import { useContactOutreach } from './use_contact_outreach'
 import { requireRecordResponse } from './use_record_selection'
 
@@ -75,7 +74,6 @@ export function ContactsRoute() {
     work: contactWork
   } = contactDetail
   const contactOutreach = useContactOutreach({ selectedContactId, onError: setError })
-  const contactLeadScore = useContactLeadScore({ selectedContactId, onScored: handleLeadScoreEvaluated, onError: setError })
   const {
     activities: selectedActivities,
     load: loadWork,
@@ -360,15 +358,6 @@ export function ContactsRoute() {
     }
   }
 
-  function handleLeadScoreEvaluated(scoredContact, contactKey) {
-    setDetail((current) => {
-      if (current?.contact?.id !== contactKey) return current
-      const next = { ...current, contact: scoredContact }
-      return next
-    })
-    setContacts((current) => current.map((entry) => (entry.id === contactKey ? scoredContact : entry)))
-  }
-
   return (
     <section className="dashboard-grid contacts-grid">
       <ContactListCard
@@ -433,7 +422,6 @@ export function ContactsRoute() {
           isArchiving={isArchivingContact}
           isLoading={isDetailLoading}
           isSaving={isSavingContact}
-          leadScore={contactLeadScore}
           onArchive={handleArchive}
           onCreateDeal={handleCreateRelatedDeal}
           onError={setError}

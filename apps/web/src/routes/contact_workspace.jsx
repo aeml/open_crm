@@ -7,7 +7,7 @@ import { ClientReviewSchedule } from './client_review_schedule'
 import { ContactSequencesCard } from './contact_communications'
 import { ContactFoundationCommunications } from './contact_foundation_communications'
 import { ContactForm } from './contact_form'
-import { ContactAttributionCard, ContactLeadScoreCard } from './contact_insights'
+import { ContactAttributionCard, ContactLeadScoreEvidenceCard } from './contact_insights'
 import { formatContactAddress, fullContactName } from './contact_view'
 import { RecordWorkCards } from './record_work'
 import { TouchpointSummary } from './touchpoint_summary'
@@ -37,7 +37,6 @@ export function ContactWorkspace({
   isArchiving,
   isLoading,
   isSaving,
-  leadScore,
   onArchive,
   onCreateDeal,
   onError,
@@ -74,13 +73,7 @@ export function ContactWorkspace({
             </Button>
           ) : null}
         </div>
-        <ContactLeadScoreCard
-          canWrite={canWrite}
-          contact={contact}
-          isEvaluating={leadScore.isEvaluatingLeadScore}
-          onEvaluate={leadScore.handleEvaluateLeadScore}
-          status={leadScore.leadScoreStatus}
-        />
+        <ContactLeadScoreEvidenceCard contact={contact} />
         <ContactForm
           canSubmit={canWrite}
           customDefinitions={customDefinitions}

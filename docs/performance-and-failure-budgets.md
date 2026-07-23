@@ -780,8 +780,8 @@ modules. Shared collaboration-aware record-work cards now serve contacts, compan
 company editor/view helpers, deal quote/signature/view helpers, and task view
 logic are also separated. Bulk-action, custom-field, reminder, touchpoint/health,
 and client-review integration plus focused development-only communications and
-production outreach and lead-score orchestrators, a focused contact create/detail workspace and detail orchestrator, plus focused company-directory, linked-
-people, create/detail workspace presentation, directory/detail orchestration, and shared record selection/work leave the parent routes at 453 contact lines,
+production outreach, read-only historical score evidence, a focused contact create/detail workspace and detail orchestrator, plus focused company-directory, linked-
+people, create/detail workspace presentation, directory/detail orchestration, and shared record selection/work leave the parent routes at 441 contact lines,
 463 company lines, 474 deal lines, and
 298 task lines, down from 2,038, 1,364, 1,365, and 1,093 respectively, without
 changing their lazy-load boundaries. Tested 68-line selection and 207-line work
@@ -790,9 +790,9 @@ A-to-B-to-A visits, serialize per-record mutations, validate record/work
 identities, and keep late saves and work off the active contact. The 123-line
 contact outreach hook clears record-scoped sequence state on selection changes
 and rejects late responses from prior selection epochs; the shared 303-line
-record-email composer owns direct-send state and recovery. A 59-line lead-score hook rejects
+record-email composer owns direct-send state and recovery. A 59-line lead-score hook remains a tested development/API seam that rejects
 duplicate evaluations, wrong-contact responses, and late results across
-leave-and-return navigation. Deal directory, shared form, and editor
+leave-and-return navigation; production contact orchestration and bundles exclude scoring execution. Deal directory, shared form, and editor
 presentation live in focused 157-, 74-, and 87-line modules, while a 107-line
 detail workspace composes editor, commercial, stage, email, and work cards. The shared selection
 and work hooks plus a 164-line detail orchestrator apply the same visit identity,

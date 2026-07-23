@@ -71,6 +71,8 @@ for (const hiddenFoundationUI of [
   'Start an outbound call and log the outcome on this contact.',
   'Send compliant one-to-one texts and log inbound replies.',
   'Schedule meetings and keep a contact-level calendar history.',
+  'Evaluate active scoring rules and route unassigned leads.',
+  '/lead-score',
   '/api/calls',
   '/api/sms-messages',
   '/api/calendar-events',

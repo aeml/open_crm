@@ -796,6 +796,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(linkedPeople.getByRole('listitem').filter({ hasText: 'Avery Buyer' })).toContainText('Primary')
 
   await page.getByRole('button', { name: 'Avery Buyer', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Evaluate score', exact: true })).toHaveCount(0)
   const contactFollowUp = page.locator('.touchpoint-summary-card')
   await expect(contactFollowUp.getByText(/No qualifying touch yet/)).toBeVisible()
   const directEmailSubject = `Pilot introduction ${runID}`

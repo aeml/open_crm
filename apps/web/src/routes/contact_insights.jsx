@@ -1,4 +1,3 @@
-import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 
 export function hasAttribution(contact = {}) {
@@ -39,26 +38,22 @@ function safeHTTPURL(value = '') {
   }
 }
 
-export function ContactLeadScoreCard({ canWrite, contact, isEvaluating, onEvaluate, status }) {
+export function ContactLeadScoreEvidenceCard({ contact }) {
+  if (!hasLeadScore(contact)) {
+    return null
+  }
+
   return (
     <Card>
       <div className="card-stack">
-        <div className="section-header">
-          <div>
-            <h3>Lead score</h3>
-            <p className="field-hint">Evaluate active scoring rules and route unassigned leads.</p>
-          </div>
-          {canWrite ? (
-            <Button className="button-secondary" type="button" onClick={onEvaluate} disabled={isEvaluating}>
-              {isEvaluating ? 'Scoring...' : 'Evaluate score'}
-            </Button>
-          ) : null}
+        <div>
+          <h3>Lead score evidence</h3>
+          <p className="field-hint">Retained from the last scoring evaluation.</p>
         </div>
-        {status ? <p className="field-hint" role="status">{status}</p> : null}
         <div className="record-list" role="list" aria-label="Lead score summary">
           <article className="record-row" role="listitem">
             <div>
-              <p>{hasLeadScore(contact) ? `Score ${leadScoreLabel(contact)}` : 'Not scored yet'}</p>
+              <p>{`Score ${leadScoreLabel(contact)}`}</p>
               <p className="field-hint">{formatLeadScoreTime(contact.leadScoredAt)}</p>
             </div>
             <div><span className="chip">Owner: {contact.ownerUserName || 'Unassigned'}</span></div>
