@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
+import { ControlledTextField } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { MergeFieldCatalog } from '../components/merge_field_catalog'
 import { useAuth } from '../app/providers'
@@ -17,7 +18,7 @@ import {
   updateEmailTemplate
 } from '../lib/email_templates'
 import { usePageTitle } from '../lib/use_page_title'
-import { DefinitionCatalogFilters, DefinitionCatalogPagination, DefinitionTextField, useDefinitionCatalog } from './definition_catalog'
+import { DefinitionCatalogFilters, DefinitionCatalogPagination, useDefinitionCatalog } from './definition_catalog'
 
 const emptyForm = { name: '', subject: '', body: '', expectedRevision: 0 }
 const emptySnippetForm = { name: '', body: '', expectedRevision: 0 }
@@ -259,9 +260,9 @@ export function SettingsEmailTemplatesRoute() {
         </div>
       </Card>
 
-      {canManage ? <Card><form className="auth-form card-stack" aria-label={editingId ? 'Edit email template' : 'Create email template'} onSubmit={handleSubmit}><h2>{editingId ? 'Edit template' : 'New template'}</h2><DefinitionTextField form={form} label="Name" maxLength={120} name="name" required setForm={setForm} /><DefinitionTextField form={form} label="Subject" maxLength={500} name="subject" required setForm={setForm} /><DefinitionTextField form={form} label="Body" maxLength={10000} multiline name="body" required rows={8} setForm={setForm} /><div className="button-row"><Button type="submit" disabled={mutationPending}>{isSaving ? 'Saving…' : editingId ? 'Save changes' : 'Create template'}</Button>{editingId ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={resetForm}>Cancel</Button> : null}</div></form></Card> : null}
+      {canManage ? <Card><form className="auth-form card-stack" aria-label={editingId ? 'Edit email template' : 'Create email template'} onSubmit={handleSubmit}><h2>{editingId ? 'Edit template' : 'New template'}</h2><ControlledTextField form={form} label="Name" maxLength={120} name="name" required setForm={setForm} /><ControlledTextField form={form} label="Subject" maxLength={500} name="subject" required setForm={setForm} /><ControlledTextField form={form} label="Body" maxLength={10000} multiline name="body" required rows={8} setForm={setForm} /><div className="button-row"><Button type="submit" disabled={mutationPending}>{isSaving ? 'Saving…' : editingId ? 'Save changes' : 'Create template'}</Button>{editingId ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={resetForm}>Cancel</Button> : null}</div></form></Card> : null}
 
-      {canManage ? <Card><form className="auth-form card-stack" aria-label={editingSnippetId ? 'Edit email snippet' : 'Create email snippet'} onSubmit={handleSnippetSubmit}><h2>{editingSnippetId ? 'Edit snippet' : 'New snippet'}</h2><DefinitionTextField form={snippetForm} label="Snippet name" maxLength={120} name="name" required setForm={setSnippetForm} /><DefinitionTextField form={snippetForm} label="Snippet body" maxLength={10000} multiline name="body" rows={5} setForm={setSnippetForm} /><div className="button-row"><Button type="submit" disabled={mutationPending}>{isSavingSnippet ? 'Saving…' : editingSnippetId ? 'Save snippet' : 'Create snippet'}</Button>{editingSnippetId ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={resetSnippetForm}>Cancel</Button> : null}</div></form></Card> : null}
+      {canManage ? <Card><form className="auth-form card-stack" aria-label={editingSnippetId ? 'Edit email snippet' : 'Create email snippet'} onSubmit={handleSnippetSubmit}><h2>{editingSnippetId ? 'Edit snippet' : 'New snippet'}</h2><ControlledTextField form={snippetForm} label="Snippet name" maxLength={120} name="name" required setForm={setSnippetForm} /><ControlledTextField form={snippetForm} label="Snippet body" maxLength={10000} multiline name="body" rows={5} setForm={setSnippetForm} /><div className="button-row"><Button type="submit" disabled={mutationPending}>{isSavingSnippet ? 'Saving…' : editingSnippetId ? 'Save snippet' : 'Create snippet'}</Button>{editingSnippetId ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={resetSnippetForm}>Cancel</Button> : null}</div></form></Card> : null}
     </section>
   )
 }

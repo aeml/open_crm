@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { signatureCertificateURL } from '../lib/deals'
 import { CloseReviewFields, emptyCloseReview } from './deal_close_review'
 import { formatMoney, formatSignatureTime, signatureStatusLabel } from './deal_view'
@@ -22,7 +22,6 @@ export function DealLineItemsCard({
   totals
 }) {
   const currency = totals.currency || deal.valueCurrency
-  const setField = (name) => (event) => onSetForm((current) => ({ ...current, [name]: event.target.value }))
   return (
     <Card>
       <div className="card-stack">
@@ -66,30 +65,18 @@ export function DealLineItemsCard({
                   {products.map((item) => <option key={item.id} value={item.id}>{item.sku ? `${item.name} (${item.sku})` : item.name}</option>)}
                 </select>
               </Field>
-              <Field label="Line item name">
-                <input className="text-input" value={form.name} onChange={setField('name')} required />
-              </Field>
+              <ControlledTextField form={form} label="Line item name" name="name" required setForm={onSetForm} />
               <Field label="Line item type">
-                <select className="text-input" value={form.itemType} onChange={setField('itemType')}>
+                <select className="text-input" value={form.itemType} onChange={(event) => onSetForm((current) => ({ ...current, itemType: event.target.value }))}>
                   <option value="product">Product</option>
                   <option value="service">Service</option>
                 </select>
               </Field>
-              <Field label="Line item quantity">
-                <input className="text-input" inputMode="decimal" value={form.quantity} onChange={setField('quantity')} required />
-              </Field>
-              <Field label="Line item unit">
-                <input className="text-input" value={form.unitName} onChange={setField('unitName')} required />
-              </Field>
-              <Field label="Line item unit price">
-                <input className="text-input" inputMode="decimal" value={form.unitPrice} onChange={setField('unitPrice')} required />
-              </Field>
-              <Field label="Line item discount">
-                <input className="text-input" inputMode="decimal" value={form.discountAmount} onChange={setField('discountAmount')} />
-              </Field>
-              <Field label="Line item tax rate">
-                <input className="text-input" inputMode="decimal" value={form.taxRate} onChange={setField('taxRate')} />
-              </Field>
+              <ControlledTextField form={form} inputMode="decimal" label="Line item quantity" name="quantity" required setForm={onSetForm} />
+              <ControlledTextField form={form} label="Line item unit" name="unitName" required setForm={onSetForm} />
+              <ControlledTextField form={form} inputMode="decimal" label="Line item unit price" name="unitPrice" required setForm={onSetForm} />
+              <ControlledTextField form={form} inputMode="decimal" label="Line item discount" name="discountAmount" setForm={onSetForm} />
+              <ControlledTextField form={form} inputMode="decimal" label="Line item tax rate" name="taxRate" setForm={onSetForm} />
               <Field label="Line item currency">
                 <input className="text-input" maxLength={3} value={form.currency} onChange={(event) => onSetForm((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} required />
               </Field>

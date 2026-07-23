@@ -1,5 +1,5 @@
 import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { CustomFieldsForm } from '../components/ui/custom_fields_form'
 import { ContactLookupSelect } from './contact_lookup_select'
 import {
@@ -10,7 +10,6 @@ import {
 } from './company_view'
 
 export function CompanyForm({ canSubmit = true, contactLookup, customDefinitions = [], form, includeLinkedContact = true, includeStatus = false, isSubmitting = false, onSetForm, onSubmit, submitLabel }) {
-  const setField = (name) => (event) => onSetForm((current) => ({ ...current, [name]: event.target.value }))
   return (
     <form className="auth-form" onSubmit={onSubmit}>
       <Field label="Client type">
@@ -28,38 +27,20 @@ export function CompanyForm({ canSubmit = true, contactLookup, customDefinitions
           <option value="individual">Individual</option>
         </select>
       </Field>
-      <Field label={nameFieldLabel(form.clientType)}>
-        <input className="text-input" value={form.name} onChange={setField('name')} required />
-      </Field>
-      <Field label={phoneFieldLabel(form.clientType)}>
-        <input className="text-input" value={form.phone} onChange={setField('phone')} />
-      </Field>
+      <ControlledTextField form={form} label={nameFieldLabel(form.clientType)} name="name" required setForm={onSetForm} />
+      <ControlledTextField form={form} label={phoneFieldLabel(form.clientType)} name="phone" setForm={onSetForm} />
       {isIndividualClient(form.clientType) ? (
-        <Field label="Email">
-          <input className="text-input" type="email" value={form.email} onChange={setField('email')} />
-        </Field>
+        <ControlledTextField form={form} label="Email" name="email" setForm={onSetForm} type="email" />
       ) : null}
-      <Field label="Address line 1">
-        <input className="text-input" value={form.addressLine1} onChange={setField('addressLine1')} />
-      </Field>
-      <Field label="Address line 2">
-        <input className="text-input" value={form.addressLine2} onChange={setField('addressLine2')} />
-      </Field>
-      <Field label="City">
-        <input className="text-input" value={form.city} onChange={setField('city')} />
-      </Field>
-      <Field label="State">
-        <input className="text-input" value={form.state} onChange={setField('state')} />
-      </Field>
-      <Field label="Postal code">
-        <input className="text-input" value={form.postalCode} onChange={setField('postalCode')} />
-      </Field>
-      <Field label="Country">
-        <input className="text-input" value={form.country} onChange={setField('country')} />
-      </Field>
+      <ControlledTextField form={form} label="Address line 1" name="addressLine1" setForm={onSetForm} />
+      <ControlledTextField form={form} label="Address line 2" name="addressLine2" setForm={onSetForm} />
+      <ControlledTextField form={form} label="City" name="city" setForm={onSetForm} />
+      <ControlledTextField form={form} label="State" name="state" setForm={onSetForm} />
+      <ControlledTextField form={form} label="Postal code" name="postalCode" setForm={onSetForm} />
+      <ControlledTextField form={form} label="Country" name="country" setForm={onSetForm} />
       {includeStatus ? (
         <Field label="Status">
-          <select className="text-input" value={form.status} onChange={setField('status')}>
+          <select className="text-input" value={form.status} onChange={(event) => onSetForm((current) => ({ ...current, status: event.target.value }))}>
             <option value="prospect">Prospect</option>
             <option value="customer">Customer</option>
             <option value="lead">Lead</option>
@@ -69,12 +50,8 @@ export function CompanyForm({ canSubmit = true, contactLookup, customDefinitions
       {includeLinkedContact && contactLookup ? <ContactLookupSelect form={form} lookup={contactLookup} onSetForm={onSetForm} /> : null}
       {!isIndividualClient(form.clientType) ? (
         <>
-          <Field label="Industry">
-            <input className="text-input" value={form.industry} onChange={setField('industry')} />
-          </Field>
-          <Field label="Website" hint="Company site, like https://acme.com.">
-            <input className="text-input" value={form.website} onChange={setField('website')} />
-          </Field>
+          <ControlledTextField form={form} label="Industry" name="industry" setForm={onSetForm} />
+          <ControlledTextField form={form} hint="Company site, like https://acme.com." label="Website" name="website" setForm={onSetForm} />
         </>
       ) : null}
       {!isIndividualClient(form.clientType) ? <CustomFieldsForm definitions={customDefinitions} values={form.customFields || {}} onChange={(customFields) => onSetForm((current) => ({ ...current, customFields }))} /> : null}

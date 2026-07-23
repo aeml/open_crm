@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { createEmailSequence, deleteEmailSequence, listEmailSequencePage, transitionEmailSequence, updateEmailSequence } from '../lib/email_sequences'
 import { usePageTitle } from '../lib/use_page_title'
 import { EmailSequenceEnrollmentHistory } from './email_sequence_enrollment_history'
-import { DefinitionCatalogFilters, DefinitionCatalogPagination, DefinitionTextField, useDefinitionCatalog } from './definition_catalog'
+import { DefinitionCatalogFilters, DefinitionCatalogPagination, useDefinitionCatalog } from './definition_catalog'
 
 const emptyStep = { delayDays: 0, subject: '', body: '' }
 const emptyForm = { name: '', description: '', steps: [emptyStep], expectedRevision: 0 }
@@ -224,8 +224,8 @@ export function SettingsEmailSequencesRoute() {
               <h2>{editingId ? 'Edit sequence' : 'New sequence'}</h2>
               <p className="field-hint">Saves as a draft for admin approval.</p>
             </div>
-            <DefinitionTextField form={form} label="Sequence name" maxLength={120} name="name" required setForm={setForm} />
-            <DefinitionTextField form={form} label="Description" maxLength={1000} multiline name="description" rows={3} setForm={setForm} />
+            <ControlledTextField form={form} label="Sequence name" maxLength={120} name="name" required setForm={setForm} />
+            <ControlledTextField form={form} label="Description" maxLength={1000} multiline name="description" rows={3} setForm={setForm} />
             <div className="card-stack">
               <div className="section-header">
                 <div>

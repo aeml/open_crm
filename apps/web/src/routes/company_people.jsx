@@ -1,7 +1,7 @@
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { CustomFieldsForm } from '../components/ui/custom_fields_form'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { isIndividualClient } from './company_view'
 import { PagedSearchControls } from './paged_search_controls'
 
@@ -77,9 +77,7 @@ export function CompanyPeople({
             </Field>
             <p className="field-hint" role="status">Showing {contactLookup.contacts.length} of {contactLookup.meta.total} matching contacts.</p>
             {contactLookup.contacts.length < contactLookup.meta.total ? <Button className="button-secondary" type="button" onClick={contactLookup.loadMore} disabled={contactLookup.isLoading}>Load more contacts</Button> : null}
-            <Field label="Relationship title">
-              <input className="text-input" maxLength={200} value={linkForm.relationshipTitle} onChange={(event) => onSetLinkForm((current) => ({ ...current, relationshipTitle: event.target.value }))} />
-            </Field>
+            <ControlledTextField form={linkForm} label="Relationship title" maxLength={200} name="relationshipTitle" setForm={onSetLinkForm} />
             {!isIndividual ? <label className="field-hint">
               <input type="checkbox" checked={linkForm.isPrimary} onChange={(event) => onSetLinkForm((current) => ({ ...current, isPrimary: event.target.checked }))} /> Make this the primary contact
             </label> : null}
@@ -88,21 +86,11 @@ export function CompanyPeople({
         ) : null}
         {showForm && !isIndividual && canWrite ? (
           <form className="auth-form" onSubmit={onSubmit}>
-            <Field label="First name">
-              <input className="text-input" value={form.firstName} onChange={(event) => onSetForm((current) => ({ ...current, firstName: event.target.value }))} required />
-            </Field>
-            <Field label="Last name">
-              <input className="text-input" value={form.lastName} onChange={(event) => onSetForm((current) => ({ ...current, lastName: event.target.value }))} required />
-            </Field>
-            <Field label="Email">
-              <input className="text-input" type="email" value={form.email} onChange={(event) => onSetForm((current) => ({ ...current, email: event.target.value }))} />
-            </Field>
-            <Field label="Phone">
-              <input className="text-input" value={form.phone} onChange={(event) => onSetForm((current) => ({ ...current, phone: event.target.value }))} />
-            </Field>
-            <Field label="Job title">
-              <input className="text-input" value={form.jobTitle} onChange={(event) => onSetForm((current) => ({ ...current, jobTitle: event.target.value }))} />
-            </Field>
+            <ControlledTextField form={form} label="First name" name="firstName" required setForm={onSetForm} />
+            <ControlledTextField form={form} label="Last name" name="lastName" required setForm={onSetForm} />
+            <ControlledTextField form={form} label="Email" name="email" setForm={onSetForm} type="email" />
+            <ControlledTextField form={form} label="Phone" name="phone" setForm={onSetForm} />
+            <ControlledTextField form={form} label="Job title" name="jobTitle" setForm={onSetForm} />
             <CustomFieldsForm definitions={customDefinitions} values={form.customFields} onChange={(customFields) => onSetForm((current) => ({ ...current, customFields }))} />
             <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : 'Save person'}</Button>
           </form>

@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { ActivityTimeline } from '../components/ui/activity_timeline'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { getRecordFollowers, setRecordFollowing } from '../lib/collaboration'
 
 export function RecordWorkCards({
@@ -145,20 +145,14 @@ export function RecordWorkCards({
           </div>
           {canWrite && !isLoading ? (
             <form className="auth-form" onSubmit={onCreateTask}>
-              <Field label="Task title">
-                <input className="text-input" value={taskForm.title} onChange={(event) => onSetTaskForm((current) => ({ ...current, title: event.target.value }))} required />
-              </Field>
-              <Field label="Task description">
-                <textarea className="text-input" value={taskForm.description} onChange={(event) => onSetTaskForm((current) => ({ ...current, description: event.target.value }))} rows={3} />
-              </Field>
+              <ControlledTextField form={taskForm} label="Task title" name="title" required setForm={onSetTaskForm} />
+              <ControlledTextField form={taskForm} label="Task description" multiline name="description" rows={3} setForm={onSetTaskForm} />
               <Field label="Assigned to">
                 <select className="text-input" value={taskForm.assignedToUserId} onChange={(event) => onSetTaskForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
                   {users.map((user) => <option key={user.id} value={user.id}>{`${user.firstName} ${user.lastName}`.trim() || user.email}</option>)}
                 </select>
               </Field>
-              <Field label="Due at">
-                <input className="text-input" type="datetime-local" value={taskForm.dueAt} onChange={(event) => onSetTaskForm((current) => ({ ...current, dueAt: event.target.value }))} />
-              </Field>
+              <ControlledTextField form={taskForm} label="Due at" name="dueAt" setForm={onSetTaskForm} type="datetime-local" />
               <Button type="submit" disabled={isCreatingTask}>{isCreatingTask ? 'Saving…' : 'Save task'}</Button>
             </form>
           ) : null}

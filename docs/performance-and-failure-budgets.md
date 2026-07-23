@@ -716,13 +716,16 @@ server-derived total, serialized final-slot write, exact revisions, stale-load
 rejection, and mutation serialization add no paging or hidden traversal. The
 settings route remains 168 lines and 7.07/2.36 KiB raw/gzip. Shared definition
 catalog and lead-surface boundaries keep abortable request identity, exact-page
-search/status loading, page-one reconciliation, filters, pagination, mutation
-exclusion, and controlled fields out of seven route-specific implementations.
+search/status loading, page-one reconciliation, filters, pagination, and
+mutation exclusion out of seven route-specific implementations. A shared
+23-line controlled field in the existing UI chunk removes another 131
+production lines across core, definition, mailbox, workflow, and reporting
+forms without adding a route dependency or asynchronous chunk.
 Product, quote-template, email-sequence, and email-template/snippet routes are
 218/310/266/267 lines and 6.29/2.26, 10.51/3.56, 11.67/3.73, and 8.92/2.64 KiB
 raw/gzip. Landing-page and website-widget routes are 118/126 lines and
-4.07/1.61 and 4.52/1.71 KiB. The current Node 24 production build is
-179.10/58.09 KiB entry, 55.16/15.75 KiB largest lazy chunk, and 812.78/254.72
+4.02/1.59 and 4.47/1.69 KiB. The current Node 24 production build is
+179.10/58.09 KiB entry, 54.10/15.64 KiB largest lazy chunk, and 807.89/254.33
 KiB aggregate raw/gzip under the unchanged 817/255 KiB aggregate ceilings;
 every entry, per-route, CSS, hidden-foundation, and source ceiling remains
 unchanged.

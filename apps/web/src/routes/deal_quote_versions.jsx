@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { quoteVersionPDFURL } from '../lib/deals'
 import { formatMoney, formatSignatureTime, quoteCurrencyDisclosure, signatureStatusLabel } from './deal_view'
 
@@ -82,7 +82,6 @@ function QuoteVersionRow({ canAdminister, canWrite, currentUserId, deal, isDecid
   const approvalStatus = quote.approval?.status || 'not_required'
   const approvalBlocksDelivery = approvalStatus === 'pending' || approvalStatus === 'rejected'
   const signed = signatureRequests.some((request) => request.quoteId === quote.id && request.status === 'signed')
-  const setField = (name) => (event) => setDeliveryForm((current) => ({ ...current, [name]: event.target.value }))
 
   return (
     <article className="record-row quote-version-row" role="listitem">
@@ -149,12 +148,8 @@ function QuoteVersionRow({ canAdminister, canWrite, currentUserId, deal, isDecid
         <details className="quote-delivery-composer">
           <summary>{deliveries.length > 0 ? 'Deliver again' : 'Deliver by email'}</summary>
           <form className="auth-form" aria-label={`Deliver ${quote.quoteNumber}`} onSubmit={(event) => { event.preventDefault(); onDeliver(quote, deliveryForm) }}>
-            <Field label={`Email subject for ${quote.quoteNumber}`}>
-              <input className="text-input" maxLength={500} value={deliveryForm.subject} onChange={setField('subject')} required />
-            </Field>
-            <Field label={`Message for ${quote.quoteNumber}`}>
-              <textarea className="text-input" maxLength={10000} rows="4" value={deliveryForm.messageBody} onChange={setField('messageBody')} required />
-            </Field>
+            <ControlledTextField form={deliveryForm} label={`Email subject for ${quote.quoteNumber}`} maxLength={500} name="subject" required setForm={setDeliveryForm} />
+            <ControlledTextField form={deliveryForm} label={`Message for ${quote.quoteNumber}`} maxLength={10000} multiline name="messageBody" required rows="4" setForm={setDeliveryForm} />
             <label className="checkbox-row">
               <input type="checkbox" checked={deliveryForm.requestSignature} onChange={(event) => setDeliveryForm((current) => ({ ...current, requestSignature: event.target.checked }))} />
               Request signature from {quote.recipientName}
@@ -194,7 +189,6 @@ export function DealQuoteVersionsCard({
   resolvingDeliveryId,
   signatureRequests
 }) {
-  const setField = (name) => (event) => onSetForm((current) => ({ ...current, [name]: event.target.value }))
   const canFinalize = lineItems.length > 0 && !areLineItemsDirty
   const availableTemplates = quoteTemplates || []
   const approvalPolicy = quoteApprovalPolicy || { approvalRequired: false, activeApprovers: 0 }
@@ -249,18 +243,10 @@ export function DealQuoteVersionsCard({
                 ))}
               </select>
             </Field>
-            <Field label="Recipient name">
-              <input className="text-input" maxLength={200} value={form.recipientName} onChange={setField('recipientName')} required />
-            </Field>
-            <Field label="Recipient email">
-              <input className="text-input" type="email" maxLength={320} value={form.recipientEmail} onChange={setField('recipientEmail')} required />
-            </Field>
-            <Field label="Valid until">
-              <input className="text-input" type="date" value={form.validUntil} onChange={setField('validUntil')} required />
-            </Field>
-            <Field label="Terms">
-              <textarea className="text-input" maxLength={10000} readOnly={Boolean(selectedTemplate)} rows="4" value={form.terms} onChange={setField('terms')} required />
-            </Field>
+            <ControlledTextField form={form} label="Recipient name" maxLength={200} name="recipientName" required setForm={onSetForm} />
+            <ControlledTextField form={form} label="Recipient email" maxLength={320} name="recipientEmail" required setForm={onSetForm} type="email" />
+            <ControlledTextField form={form} label="Valid until" name="validUntil" required setForm={onSetForm} type="date" />
+            <ControlledTextField form={form} label="Terms" maxLength={10000} multiline name="terms" readOnly={Boolean(selectedTemplate)} required rows="4" setForm={onSetForm} />
             {selectedTemplate ? <p className="field-hint">Terms are locked to {selectedTemplate.name} revision {selectedTemplate.revision}. Choose Custom terms to edit them.</p> : null}
             <label className="checkbox-row">
               <input

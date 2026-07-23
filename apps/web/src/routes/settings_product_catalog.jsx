@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { archiveProductCatalogItem, createProductCatalogItem, listProductCatalogPage, updateProductCatalogItem } from '../lib/product_catalog'
 import { usePageTitle } from '../lib/use_page_title'
-import { DefinitionCatalogFilters, DefinitionCatalogPagination, DefinitionTextField, useDefinitionCatalog } from './definition_catalog'
+import { DefinitionCatalogFilters, DefinitionCatalogPagination, useDefinitionCatalog } from './definition_catalog'
 
 const emptyForm = {
   name: '',
@@ -189,20 +189,20 @@ export function SettingsProductCatalogRoute() {
               <h2>{editingId ? 'Edit catalog item' : 'New catalog item'}</h2>
               <p className="field-hint">Prices are stored as fixed two-decimal amounts with a three-letter currency.</p>
             </div>
-            <DefinitionTextField form={form} label="Name" maxLength={150} name="name" placeholder="Implementation package" required setForm={setForm} />
-            <DefinitionTextField form={form} label="SKU" maxLength={80} name="sku" placeholder="SERV-001" setForm={setForm} />
+            <ControlledTextField form={form} label="Name" maxLength={150} name="name" placeholder="Implementation package" required setForm={setForm} />
+            <ControlledTextField form={form} label="SKU" maxLength={80} name="sku" placeholder="SERV-001" setForm={setForm} />
             <Field label="Type">
               <select className="text-input" value={form.itemType} onChange={(event) => setForm({ ...form, itemType: event.target.value })}>
                 <option value="product">Product</option>
                 <option value="service">Service</option>
               </select>
             </Field>
-            <DefinitionTextField form={form} inputMode="decimal" label="Unit price" maxLength={13} name="unitPrice" pattern="\d{1,10}(\.\d{1,2})?" placeholder="150.00" required setForm={setForm} />
+            <ControlledTextField form={form} inputMode="decimal" label="Unit price" maxLength={13} name="unitPrice" pattern="\d{1,10}(\.\d{1,2})?" placeholder="150.00" required setForm={setForm} />
             <Field label="Currency">
               <input className="text-input" maxLength={3} value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} required />
             </Field>
-            <DefinitionTextField form={form} label="Unit" maxLength={50} name="unitName" placeholder="hour" required setForm={setForm} />
-            <DefinitionTextField form={form} label="Description" maxLength={2000} multiline name="description" rows={4} setForm={setForm} />
+            <ControlledTextField form={form} label="Unit" maxLength={50} name="unitName" placeholder="hour" required setForm={setForm} />
+            <ControlledTextField form={form} label="Description" maxLength={2000} multiline name="description" rows={4} setForm={setForm} />
             <label className="field-hint">
               <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active catalog item
             </label>

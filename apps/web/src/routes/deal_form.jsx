@@ -1,5 +1,5 @@
 import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { CloseReviewFields, emptyCloseReview, stageOutcome } from './deal_close_review'
 import { stageLabel } from './deal_view'
 
@@ -21,9 +21,7 @@ export function DealForm({
 
   return (
     <form className="auth-form" aria-label={showStage ? undefined : 'Deal details form'} onSubmit={onSubmit}>
-      <Field label={`${labels.singular} name`}>
-        <input className="text-input" value={form.name} onChange={(event) => onSetForm((current) => ({ ...current, name: event.target.value }))} required />
-      </Field>
+      <ControlledTextField form={form} label={`${labels.singular} name`} name="name" required setForm={onSetForm} />
       {showStage ? (
         <>
           <Field label="Stage">
@@ -52,15 +50,9 @@ export function DealForm({
           ))}
         </select>
       </Field>
-      <Field label={labels.valueLabel}>
-        <input className="text-input" value={form.valueAmount} onChange={(event) => onSetForm((current) => ({ ...current, valueAmount: event.target.value }))} />
-      </Field>
-      <Field label="Value currency">
-        <input className="text-input" value={form.valueCurrency} onChange={(event) => onSetForm((current) => ({ ...current, valueCurrency: event.target.value }))} />
-      </Field>
-      <Field label={labels.dateLabel}>
-        <input className="text-input" type="date" value={form.expectedCloseDate} onChange={(event) => onSetForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} />
-      </Field>
+      <ControlledTextField form={form} label={labels.valueLabel} name="valueAmount" setForm={onSetForm} />
+      <ControlledTextField form={form} label="Value currency" name="valueCurrency" setForm={onSetForm} />
+      <ControlledTextField form={form} label={labels.dateLabel} name="expectedCloseDate" setForm={onSetForm} type="date" />
       <Field label="Owner">
         <select className="text-input" value={form.ownerUserId} onChange={(event) => onSetForm((current) => ({ ...current, ownerUserId: event.target.value }))}>
           {users.map((user) => (

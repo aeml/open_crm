@@ -1,5 +1,5 @@
 import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 
 function defaultEntityId(entityType, dealOptions, companyOptions, contactOptions) {
   if (entityType === 'deal') return dealOptions[0] ? String(dealOptions[0].id) : ''
@@ -27,9 +27,7 @@ export function TaskForm({
 }) {
   return (
     <form className="auth-form" onSubmit={onSubmit}>
-      <Field label="Task title">
-        <input className="text-input" value={form.title} onChange={(event) => onSetForm((current) => ({ ...current, title: event.target.value }))} required />
-      </Field>
+      <ControlledTextField form={form} label="Task title" name="title" required setForm={onSetForm} />
       {showEntityFields ? (
         <Field label={labels.entityTypeLabel}>
           <select className="text-input" value={form.entityType} onChange={(event) => onSetForm((current) => ({ ...current, entityType: event.target.value, entityId: defaultEntityId(event.target.value, dealOptions, companyOptions, contactOptions) }))}>
@@ -66,9 +64,7 @@ export function TaskForm({
           </select>
         </Field>
       ) : null}
-      <Field label="Description">
-        <textarea className="text-input" value={form.description} onChange={(event) => onSetForm((current) => ({ ...current, description: event.target.value }))} />
-      </Field>
+      <ControlledTextField form={form} label="Description" multiline name="description" setForm={onSetForm} />
       <Field label="Assigned to">
         <select className="text-input" value={form.assignedToUserId} onChange={(event) => onSetForm((current) => ({ ...current, assignedToUserId: event.target.value }))}>
           {userOptions.map((user) => (
@@ -84,13 +80,9 @@ export function TaskForm({
           </select>
         </Field>
       ) : null}
-      <Field label="Due at">
-        <input className="text-input" type="datetime-local" value={form.dueAt} onChange={(event) => onSetForm((current) => ({ ...current, dueAt: event.target.value }))} />
-      </Field>
+      <ControlledTextField form={form} label="Due at" name="dueAt" setForm={onSetForm} type="datetime-local" />
       {showStatusFields ? (
-        <Field label="Completed at">
-          <input className="text-input" type="datetime-local" value={form.completedAt} onChange={(event) => onSetForm((current) => ({ ...current, completedAt: event.target.value }))} />
-        </Field>
+        <ControlledTextField form={form} label="Completed at" name="completedAt" setForm={onSetForm} type="datetime-local" />
       ) : null}
       {canSubmit ? <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving…' : submitLabel}</Button> : null}
       {canArchive ? <Button className="button-danger" type="button" disabled={isSubmitting} onClick={onArchive}>Archive task</Button> : null}

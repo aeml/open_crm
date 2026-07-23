@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
@@ -361,7 +361,7 @@ export function SettingsAutomationsRoute() {
         <Card>
           <form className="auth-form card-stack" onSubmit={handleSubmit}>
 							<div><h2>{editingId ? 'Edit workflow rule' : 'New workflow rule'}</h2><p className="field-hint">A deal event can create an ordered 1–5 task playbook or assign one active owner. Lead forms create one durable task.</p></div>
-            <Field label="Rule name"><input className="text-input" maxLength="120" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Proposal follow-up" /></Field>
+            <ControlledTextField form={form} label="Rule name" maxLength="120" name="name" placeholder="Proposal follow-up" required setForm={setForm} />
             <Field label="When"><select className="text-input" value={form.event} onChange={(event) => {
               const nextEvent = event.target.value
 								setForm((current) => ({ ...current, event: nextEvent, outcome: nextEvent === leadFormEvent ? 'tasks' : current.outcome, stageId: '', conditionField: '', conditionOperator: equalsOperator, conditionValue: '', additionalTasks: nextEvent === leadFormEvent ? [] : current.additionalTasks, requiresApproval: nextEvent === leadFormEvent ? false : current.requiresApproval, notifyAfterTasks: nextEvent === leadFormEvent ? false : current.notifyAfterTasks }))
@@ -405,9 +405,9 @@ export function SettingsAutomationsRoute() {
                 <label className="field-hint"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked, notifyAfterTasks: event.target.checked ? false : form.notifyAfterTasks })} /> Require a decision before creating any tasks</label>
                 {form.requiresApproval ? (
                   <>
-                    <Field label="Approval name"><input className="text-input" maxLength="200" required value={form.approvalName} onChange={(event) => setForm({ ...form, approvalName: event.target.value })} /></Field>
+                    <ControlledTextField form={form} label="Approval name" maxLength="200" name="approvalName" required setForm={setForm} />
                     <Field label="Who can approve"><select className="text-input" value={form.approverRole} onChange={(event) => setForm({ ...form, approverRole: event.target.value })}>{approvalRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-                    <Field label="Reviewer guidance"><textarea className="text-input" rows={3} maxLength="2000" required value={form.approvalMessage} onChange={(event) => setForm({ ...form, approvalMessage: event.target.value })} /></Field>
+                    <ControlledTextField form={form} label="Reviewer guidance" maxLength="2000" multiline name="approvalMessage" required rows={3} setForm={setForm} />
                     <p className="field-hint">The deal event, decision, and exact task plan remain inspectable. Rejection, definition changes, deactivation, or requester deactivation create no tasks.</p>
                   </>
                 ) : null}
@@ -417,7 +417,7 @@ export function SettingsAutomationsRoute() {
               <fieldset className="card-stack">
                 <legend>Teammate notification</legend>
                 <label className="field-hint"><input type="checkbox" checked={form.notifyAfterTasks} onChange={(event) => setForm({ ...form, notifyAfterTasks: event.target.checked, requiresApproval: event.target.checked ? false : form.requiresApproval })} /> Notify eligible teammates after every task commits</label>
-                {form.notifyAfterTasks ? <><Field label="Notify"><select className="text-input" value={form.notificationRecipientRole} onChange={(event) => setForm({ ...form, notificationRecipientRole: event.target.value })}>{approvalRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Notification message"><textarea className="text-input" rows={3} maxLength="500" required value={form.notificationMessage} onChange={(event) => setForm({ ...form, notificationMessage: event.target.value })} /></Field><p className="field-hint">At most 50 active recipients are allowed. If membership changes beyond that boundary, the whole deal event fails without partial tasks or notifications.</p></> : null}
+                {form.notifyAfterTasks ? <><Field label="Notify"><select className="text-input" value={form.notificationRecipientRole} onChange={(event) => setForm({ ...form, notificationRecipientRole: event.target.value })}>{approvalRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><ControlledTextField form={form} label="Notification message" maxLength="500" multiline name="notificationMessage" required rows={3} setForm={setForm} /><p className="field-hint">At most 50 active recipients are allowed. If membership changes beyond that boundary, the whole deal event fails without partial tasks or notifications.</p></> : null}
               </fieldset>
             ) : null}
             {form.event === leadFormEvent ? (
@@ -426,13 +426,13 @@ export function SettingsAutomationsRoute() {
                 <Field label="Optional attribution condition"><select className="text-input" value={form.conditionField} onChange={(event) => setForm({ ...form, conditionField: event.target.value, conditionValue: '' })}><option value="">No condition</option><option value="leadSource">Lead source</option><option value="utmSource">UTM source</option><option value="utmMedium">UTM medium</option><option value="utmCampaign">UTM campaign</option><option value="sourceUrl">Source URL</option></select></Field>
                 {form.conditionField ? <Field label="Condition"><div className="filter-row"><select className="text-input" aria-label="Condition operator" value={form.conditionOperator} onChange={(event) => setForm({ ...form, conditionOperator: event.target.value })}><option value={equalsOperator}>Equals</option><option value="notEquals">Does not equal</option><option value="contains">Contains</option><option value={existsOperator}>Exists</option></select>{form.conditionOperator !== existsOperator ? <input className="text-input" aria-label="Condition value" maxLength="500" required value={form.conditionValue} onChange={changeConditionValue} /> : null}</div></Field> : null}
                 <Field label="Assign task to"><select className="text-input" required value={form.assignedToUserId} onChange={(event) => setForm({ ...form, assignedToUserId: event.target.value })}><option value="">Choose a teammate</option>{users.map((user) => <option key={user.id} value={user.id}>{usersById.get(user.id)}</option>)}</select></Field>
-                <Field label="Create task after days" hint="0 runs immediately; maximum 365."><input className="text-input" type="number" min="0" max="365" step="1" required value={form.waitDays} onChange={(event) => setForm({ ...form, waitDays: event.target.value })} /></Field>
+                <ControlledTextField form={form} hint="0 runs immediately; maximum 365." label="Create task after days" max="365" min="0" name="waitDays" required setForm={setForm} step="1" type="number" />
               </>
             ) : null}
 							{assignmentOutcome ? <Field label="Assign deal owner to"><select className="text-input" required value={form.dealOwnerUserId} onChange={(event) => setForm({ ...form, dealOwnerUserId: event.target.value })}><option value="">Choose an active teammate</option>{users.filter((user) => user.status === 'active').map((user) => <option key={user.id} value={user.id}>{usersById.get(user.id)}</option>)}</select></Field> : null}
-							{!assignmentOutcome ? <><Field label="Task title"><input className="text-input" maxLength="200" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Prepare proposal" /></Field>
-            <Field label="Task description"><textarea className="text-input" rows={3} maxLength="2000" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
-							<Field label="Due in days" hint={form.event === leadFormEvent ? 'From task creation; 0 is immediate; maximum 365.' : '0 is immediate; maximum 365.'}><input className="text-input" type="number" min="0" max="365" step="1" required value={form.dueDays} onChange={(event) => setForm({ ...form, dueDays: event.target.value })} /></Field></> : null}
+							{!assignmentOutcome ? <><ControlledTextField form={form} label="Task title" maxLength="200" name="title" placeholder="Prepare proposal" required setForm={setForm} />
+            <ControlledTextField form={form} label="Task description" maxLength="2000" multiline name="description" rows={3} setForm={setForm} />
+							<ControlledTextField form={form} hint={form.event === leadFormEvent ? 'From task creation; 0 is immediate; maximum 365.' : '0 is immediate; maximum 365.'} label="Due in days" max="365" min="0" name="dueDays" required setForm={setForm} step="1" type="number" /></> : null}
 							{form.event !== leadFormEvent && !assignmentOutcome ? form.additionalTasks.map((task, index) => (
               <fieldset className="card-stack" key={index}>
                 <legend>Task {index + 2}</legend>

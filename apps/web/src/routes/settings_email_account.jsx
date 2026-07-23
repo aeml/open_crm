@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
@@ -245,26 +245,14 @@ export function SettingsEmailAccountRoute() {
           {error ? <InlineError message={error} /> : null}
           {!isLoading && configured ? (
             <form className="auth-form card-stack" onSubmit={handleSubmit}>
-              <Field label="From email">
-                <input className="text-input" type="email" value={form.fromEmail} onChange={(event) => setForm({ ...form, fromEmail: event.target.value })} required />
-              </Field>
-              <Field label="From name">
-                <input className="text-input" value={form.fromName} onChange={(event) => setForm({ ...form, fromName: event.target.value })} />
-              </Field>
+              <ControlledTextField form={form} label="From email" name="fromEmail" required setForm={setForm} type="email" />
+              <ControlledTextField form={form} label="From name" name="fromName" setForm={setForm} />
               {!usesOAuthDelivery ? (
                 <div className="card-stack">
-                  <Field label="SMTP host">
-                    <input className="text-input" value={form.smtpHost} onChange={(event) => setForm({ ...form, smtpHost: event.target.value })} placeholder="smtp.example.com" required />
-                  </Field>
-                  <Field label="SMTP port">
-                    <input className="text-input" type="number" value={form.smtpPort} onChange={(event) => setForm({ ...form, smtpPort: event.target.value })} required />
-                  </Field>
-                  <Field label="SMTP username">
-                    <input className="text-input" value={form.smtpUsername} onChange={(event) => setForm({ ...form, smtpUsername: event.target.value })} required />
-                  </Field>
-                  <Field label={hasAccount ? 'SMTP password (leave blank to keep current)' : 'SMTP password'}>
-                    <input className="text-input" type="password" value={form.smtpPassword} onChange={(event) => setForm({ ...form, smtpPassword: event.target.value })} autoComplete="new-password" />
-                  </Field>
+                  <ControlledTextField form={form} label="SMTP host" name="smtpHost" placeholder="smtp.example.com" required setForm={setForm} />
+                  <ControlledTextField form={form} label="SMTP port" name="smtpPort" required setForm={setForm} type="number" />
+                  <ControlledTextField form={form} label="SMTP username" name="smtpUsername" required setForm={setForm} />
+                  <ControlledTextField autoComplete="new-password" form={form} label={hasAccount ? 'SMTP password (leave blank to keep current)' : 'SMTP password'} name="smtpPassword" setForm={setForm} type="password" />
                   <label className="checkbox-row">
                     <input type="checkbox" checked={form.smtpUseTls} onChange={(event) => setForm({ ...form, smtpUseTls: event.target.checked })} />
                     <span>Use TLS / STARTTLS</span>
@@ -303,18 +291,10 @@ export function SettingsEmailAccountRoute() {
                       </Field>
                       {form.provider === 'imap' ? (
                         <div className="card-stack">
-                          <Field label="IMAP host">
-                            <input className="text-input" value={form.imapHost} onChange={(event) => setForm({ ...form, imapHost: event.target.value })} placeholder="imap.gmail.com" required />
-                          </Field>
-                          <Field label="IMAP port">
-                            <input className="text-input" type="number" value={form.imapPort} onChange={(event) => setForm({ ...form, imapPort: event.target.value })} required />
-                          </Field>
-                          <Field label="IMAP username">
-                            <input className="text-input" value={form.imapUsername} onChange={(event) => setForm({ ...form, imapUsername: event.target.value })} required />
-                          </Field>
-                          <Field label={hasAccount ? 'IMAP password (leave blank to keep current)' : 'IMAP password'}>
-                            <input className="text-input" type="password" value={form.imapPassword} onChange={(event) => setForm({ ...form, imapPassword: event.target.value })} autoComplete="new-password" />
-                          </Field>
+                          <ControlledTextField form={form} label="IMAP host" name="imapHost" placeholder="imap.gmail.com" required setForm={setForm} />
+                          <ControlledTextField form={form} label="IMAP port" name="imapPort" required setForm={setForm} type="number" />
+                          <ControlledTextField form={form} label="IMAP username" name="imapUsername" required setForm={setForm} />
+                          <ControlledTextField autoComplete="new-password" form={form} label={hasAccount ? 'IMAP password (leave blank to keep current)' : 'IMAP password'} name="imapPassword" setForm={setForm} type="password" />
                           <label className="checkbox-row">
                             <input type="checkbox" checked={form.imapUseTls} onChange={(event) => setForm({ ...form, imapUseTls: event.target.checked })} />
                             <span>Use IMAP TLS / SSL</span>

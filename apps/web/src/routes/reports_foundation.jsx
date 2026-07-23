@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
@@ -268,12 +268,8 @@ export function ReportsFoundationRoute() {
               <h2>{editingId ? 'Edit report definition' : 'New report definition'}</h2>
               <p className="field-hint">Tables show selected fields. Grouped bars require one category plus a count, sum, or average and always include an exact accessible data table.</p>
             </div>
-            <Field label="Name">
-              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Pipeline revenue by stage" required />
-            </Field>
-            <Field label="Description">
-              <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Tracks open pipeline value by stage." />
-            </Field>
+            <ControlledTextField form={form} label="Name" name="name" placeholder="Pipeline revenue by stage" required setForm={setForm} />
+            <ControlledTextField form={form} label="Description" multiline name="description" placeholder="Tracks open pipeline value by stage." rows={3} setForm={setForm} />
             <Field label="Source object">
               <select className="text-input" value={form.sourceType} onChange={(event) => setSourceType(event.target.value)}>
                 {sourceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}

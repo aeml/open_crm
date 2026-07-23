@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../app/providers'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
-import { Field } from '../components/ui/field'
+import { ControlledTextField, Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { decideDealQuoteApproval } from '../lib/deals'
 import { createIdempotencyKey } from '../lib/idempotency'
@@ -19,7 +19,7 @@ import {
 } from '../lib/quote_templates'
 import { usePageTitle } from '../lib/use_page_title'
 import { formatMoney, formatSignatureTime } from './deal_view'
-import { DefinitionCatalogFilters, DefinitionCatalogPagination, DefinitionTextField, useDefinitionCatalog } from './definition_catalog'
+import { DefinitionCatalogFilters, DefinitionCatalogPagination, useDefinitionCatalog } from './definition_catalog'
 
 const emptyForm = {
   name: '',
@@ -281,11 +281,11 @@ export function SettingsQuoteTemplatesRoute() {
         <Card>
           <form className="auth-form" aria-label={editingId ? 'Edit quote template' : 'Create quote template'} onSubmit={handleSubmit}>
             <h2>{editingId ? 'Edit quote template' : 'Create quote template'}</h2>
-            <DefinitionTextField form={form} label="Template name" maxLength={120} name="name" required setForm={setForm} />
-            <DefinitionTextField form={form} label="Default validity days" max="366" min="1" name="defaultValidityDays" required setForm={setForm} type="number" />
-            <DefinitionTextField form={form} label="Quote terms" maxLength={10000} multiline name="terms" required rows="5" setForm={setForm} />
-            <DefinitionTextField form={form} label="Delivery subject" maxLength={500} name="deliverySubjectTemplate" required setForm={setForm} />
-            <DefinitionTextField form={form} label="Delivery message" maxLength={10000} multiline name="deliveryMessageTemplate" required rows="5" setForm={setForm} />
+            <ControlledTextField form={form} label="Template name" maxLength={120} name="name" required setForm={setForm} />
+            <ControlledTextField form={form} label="Default validity days" max="366" min="1" name="defaultValidityDays" required setForm={setForm} type="number" />
+            <ControlledTextField form={form} label="Quote terms" maxLength={10000} multiline name="terms" required rows="5" setForm={setForm} />
+            <ControlledTextField form={form} label="Delivery subject" maxLength={500} name="deliverySubjectTemplate" required setForm={setForm} />
+            <ControlledTextField form={form} label="Delivery message" maxLength={10000} multiline name="deliveryMessageTemplate" required rows="5" setForm={setForm} />
             <label className="checkbox-row"><input type="checkbox" checked={form.requestSignature} onChange={(event) => setForm({ ...form, requestSignature: event.target.checked })} /> Request electronic signature by default</label>
             <label className="checkbox-row"><input type="checkbox" checked={form.requiresApproval} onChange={(event) => setForm({ ...form, requiresApproval: event.target.checked })} /> Require independent approval for this template</label>
             <div className="button-row"><Button type="submit" disabled={mutationPending}>{isSaving ? 'Saving…' : editingId ? 'Save new revision' : 'Create template'}</Button>{editingId ? <Button className="button-secondary" type="button" disabled={mutationPending} onClick={resetForm}>Cancel</Button> : null}</div>

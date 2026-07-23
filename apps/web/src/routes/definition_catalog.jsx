@@ -109,17 +109,3 @@ export function DefinitionCatalogPagination({
     </>
   )
 }
-
-export function DefinitionTextField({ form, hint, label, multiline = false, name, setForm, ...props }) {
-  const controlProps = {
-    ...props,
-    className: 'text-input',
-    value: form[name],
-    onChange: (event) => setForm((current) => ({ ...current, [name]: event.target.value }))
-  }
-  return (
-    <Field label={label} hint={hint}>
-      {multiline ? <textarea {...controlProps} /> : <input {...controlProps} />}
-    </Field>
-  )
-}
