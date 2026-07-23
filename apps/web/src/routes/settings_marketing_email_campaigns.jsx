@@ -82,12 +82,12 @@ export function SettingsMarketingEmailCampaignsRoute() {
   async function loadData({ signal } = {}) {
     setIsLoading(true)
     try {
-      const [nextCampaigns, nextAudiences] = await Promise.all([
+      const [nextCampaigns, nextAudienceCatalog] = await Promise.all([
         listMarketingEmailCampaigns({ signal }),
         listLeadAudiences({ signal })
       ])
       setCampaigns(nextCampaigns)
-      setAudiences(nextAudiences.filter((audience) => audience.isActive !== false))
+      setAudiences(nextAudienceCatalog.audiences.filter((audience) => audience.isActive !== false))
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {

@@ -92,6 +92,9 @@ func TestListLeadAudiencesScopesToOrganization(t *testing.T) {
 	var response struct {
 		Data struct {
 			Audiences []moduleleadaudiences.Audience `json:"audiences"`
+			Capacity  struct {
+				MaxAudiences int `json:"maxAudiences"`
+			} `json:"capacity"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -99,6 +102,48 @@ func TestListLeadAudiencesScopesToOrganization(t *testing.T) {
 	}
 	if len(response.Data.Audiences) != 1 || response.Data.Audiences[0].MemberCount != 12 {
 		t.Fatalf("unexpected lead audiences payload: %#v", response.Data.Audiences)
+	}
+	if response.Data.Capacity.MaxAudiences != moduleleadaudiences.MaxAudiencesPerOrganization {
+		t.Fatalf("unexpected lead audience capacity: %#v", response.Data.Capacity)
+	}
+}
+
+func TestLeadAudienceStableBoundaryErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "capacity", err: moduleleadaudiences.ErrAudienceLimit, statusCode: http.StatusConflict, code: "LEAD_AUDIENCE_LIMIT"},
+		{name: "forbidden", err: moduleleadaudiences.ErrForbidden, statusCode: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "timeout", err: moduleleadaudiences.ErrQueryTimeout, statusCode: http.StatusGatewayTimeout, code: "LEAD_AUDIENCE_QUERY_TIMEOUT"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &fakeLeadAudiencesService{createErr: test.err}
+			server := authenticatedLeadAudiencesServer(service, "owner")
+			request := httptest.NewRequest(http.MethodPost, "/api/lead-audiences", bytes.NewBufferString(`{"name":"Audience","filters":{"status":"lead"}}`))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != test.statusCode {
+				t.Fatalf("expected status %d, got %d", test.statusCode, recorder.Code)
+			}
+			var response struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode error response: %v", err)
+			}
+			if response.Error.Code != test.code {
+				t.Fatalf("expected code %q, got %q", test.code, response.Error.Code)
+			}
+		})
 	}
 }
 

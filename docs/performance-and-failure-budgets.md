@@ -865,6 +865,15 @@ concurrent final slot, active-role revalidation, tenant isolation, and stale
 routing targets. This is maintainability and failure-boundary evidence only;
 the production bundle continues to exclude scoring management and execution.
 
+The hidden lead-audience module is split into 323-line storage/orchestration and
+134-line filter-compiler boundaries. Its complete definition catalog and every
+dynamic count run from one read-only repeatable-read snapshot under a shared
+five-second deadline; a serialized 100-total ceiling bounds the former N+1
+query family. Fresh-PostgreSQL acceptance blocks the post-insert count and
+proves the timeout rolls back the definition, then covers the final-slot race,
+complete capacity list, role checks, and distinct tenant counts. This does not
+promote the feature or add it to the production bundle.
+
 ## Source-size no-growth ratchet
 
 Source size is an imperfect complexity measure, so these limits are a temporary

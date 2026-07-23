@@ -66,6 +66,7 @@ export function SettingsLeadAudiencesRoute() {
   const { canAdminister: canManage } = useAuth()
   usePageTitle('Lead Audiences')
   const [audiences, setAudiences] = useState([])
+  const [maxAudiences, setMaxAudiences] = useState(100)
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
   const [previewCount, setPreviewCount] = useState(null)
@@ -78,8 +79,9 @@ export function SettingsLeadAudiencesRoute() {
   async function loadAudiences({ signal } = {}) {
     setIsLoading(true)
     try {
-      const nextAudiences = await listLeadAudiences({ signal })
-      setAudiences(nextAudiences)
+      const nextCatalog = await listLeadAudiences({ signal })
+      setAudiences(nextCatalog.audiences)
+      setMaxAudiences(nextCatalog.capacity.maxAudiences)
       setError('')
     } catch (loadError) {
       if (!isAbortError(loadError)) {
@@ -158,6 +160,8 @@ export function SettingsLeadAudiencesRoute() {
     }
   }
 
+  const createAtCapacity = editingId === null && audiences.length >= maxAudiences
+
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
@@ -166,6 +170,7 @@ export function SettingsLeadAudiencesRoute() {
             <div>
               <h2>Lead audiences</h2>
               <p>Save dynamic contact segments for campaigns, nurture flows, and follow-up lists.</p>
+              <p className="field-hint">{audiences.length} of {maxAudiences} stored audiences.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading lead audiences...</p> : null}
@@ -205,10 +210,10 @@ export function SettingsLeadAudiencesRoute() {
               <p className="field-hint">Audiences are dynamic: member counts update as contacts match these filters.</p>
             </div>
             <Field label="Name">
-              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Spring demo leads" required />
+              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Spring demo leads" maxLength={120} required />
             </Field>
             <Field label="Description">
-              <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Contacts captured from the spring demo campaign." />
+              <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Contacts captured from the spring demo campaign." maxLength={1000} />
             </Field>
             <Field label="Status">
               <select className="text-input" value={form.filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
@@ -219,13 +224,13 @@ export function SettingsLeadAudiencesRoute() {
               </select>
             </Field>
             <Field label="Lead source">
-              <input className="text-input" value={form.filters.leadSource} onChange={(event) => updateFilter('leadSource', event.target.value)} placeholder="Website form" />
+              <input className="text-input" value={form.filters.leadSource} onChange={(event) => updateFilter('leadSource', event.target.value)} placeholder="Website form" maxLength={120} />
             </Field>
             <Field label="UTM campaign">
-              <input className="text-input" value={form.filters.utmCampaign} onChange={(event) => updateFilter('utmCampaign', event.target.value)} placeholder="spring-demo" />
+              <input className="text-input" value={form.filters.utmCampaign} onChange={(event) => updateFilter('utmCampaign', event.target.value)} placeholder="spring-demo" maxLength={120} />
             </Field>
             <Field label="UTM source">
-              <input className="text-input" value={form.filters.utmSource} onChange={(event) => updateFilter('utmSource', event.target.value)} placeholder="google" />
+              <input className="text-input" value={form.filters.utmSource} onChange={(event) => updateFilter('utmSource', event.target.value)} placeholder="google" maxLength={120} />
             </Field>
             <Field label="Email availability">
               <select className="text-input" value={form.filters.hasEmail} onChange={(event) => updateFilter('hasEmail', event.target.value)}>
@@ -239,7 +244,7 @@ export function SettingsLeadAudiencesRoute() {
             </label>
             <div className="button-row">
               <Button className="button-secondary" type="button" onClick={handlePreview} disabled={isPreviewing}>{isPreviewing ? 'Previewing...' : 'Preview count'}</Button>
-              <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save audience' : 'Create audience'}</Button>
+              <Button type="submit" disabled={isSaving || createAtCapacity}>{isSaving ? 'Saving...' : editingId ? 'Save audience' : 'Create audience'}</Button>
               {editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}
             </div>
             {previewCount !== null ? <p className="inline-note" role="status">{previewCount} matching contacts.</p> : null}

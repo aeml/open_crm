@@ -60,13 +60,13 @@ export function SettingsNurtureCampaignsRoute() {
   async function loadData({ signal } = {}) {
     setIsLoading(true)
     try {
-      const [nextCampaigns, nextAudiences, nextSequences] = await Promise.all([
+      const [nextCampaigns, nextAudienceCatalog, nextSequences] = await Promise.all([
         listNurtureCampaigns({ signal }),
         listLeadAudiences({ signal }),
         listEmailSequences({ signal })
       ])
       setCampaigns(nextCampaigns)
-      setAudiences(nextAudiences.filter((audience) => audience.isActive !== false))
+      setAudiences(nextAudienceCatalog.audiences.filter((audience) => audience.isActive !== false))
       setSequences(nextSequences)
       setError('')
     } catch (loadError) {

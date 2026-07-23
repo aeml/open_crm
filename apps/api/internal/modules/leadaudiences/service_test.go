@@ -19,8 +19,8 @@ func TestNormalizeFiltersKeepsSupportedAudienceFilters(t *testing.T) {
 	if filters["q"] != "demo" || filters["status"] != "lead" || filters["leadSource"] != "Website form" || filters["utmCampaign"] != "spring-demo" || filters["hasEmail"] != "true" {
 		t.Fatalf("unexpected normalized filters: %#v", filters)
 	}
-	if _, ok := filters["ignored"]; ok {
-		t.Fatalf("unsupported filters should be dropped: %#v", filters)
+	if filters["ignored"] != "value" {
+		t.Fatalf("unsupported non-empty filters must survive normalization so validation can reject them: %#v", filters)
 	}
 }
 
@@ -30,6 +30,28 @@ func TestValidateFiltersRejectsInvalidValues(t *testing.T) {
 	}
 	if err := validateFilters(map[string]string{"hasEmail": "sometimes"}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected invalid hasEmail, got %v", err)
+	}
+	if err := validateFilters(map[string]string{"ignored": "value"}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected unsupported filter to fail closed, got %v", err)
+	}
+	if err := validateFilters(map[string]string{"q": strings.Repeat("q", MaxAudienceQueryLength+1)}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected oversized query to fail, got %v", err)
+	}
+}
+
+func TestValidateInputEnforcesDefinitionBounds(t *testing.T) {
+	valid := Input{Name: strings.Repeat("名", MaxAudienceNameLength), Description: strings.Repeat("d", MaxAudienceDescription), Filters: map[string]string{"leadSource": strings.Repeat("s", MaxAudienceFilterLength)}}
+	if err := validateInput(valid); err != nil {
+		t.Fatalf("expected boundary input to pass: %v", err)
+	}
+	for name, input := range map[string]Input{
+		"name":        {Name: strings.Repeat("名", MaxAudienceNameLength+1)},
+		"description": {Name: "Audience", Description: strings.Repeat("d", MaxAudienceDescription+1)},
+		"filter":      {Name: "Audience", Filters: map[string]string{"utmCampaign": strings.Repeat("c", MaxAudienceFilterLength+1)}},
+	} {
+		if err := validateInput(input); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("expected %s bound to fail, got %v", name, err)
+		}
 	}
 }
 

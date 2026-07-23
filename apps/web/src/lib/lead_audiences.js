@@ -3,7 +3,10 @@ import { apiRequest } from './api'
 export async function listLeadAudiences({ signal } = {}) {
   const payload = await apiRequest('/api/lead-audiences', { fallbackMessage: 'Unable to load lead audiences.', signal })
 
-  return payload?.data?.audiences || []
+  return {
+    audiences: payload?.data?.audiences || [],
+    capacity: payload?.data?.capacity || { maxAudiences: 100 },
+  }
 }
 
 export async function createLeadAudience(input, { signal } = {}) {

@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,9 +14,21 @@ import (
 )
 
 var (
+	ErrAudienceLimit = errors.New("lead audience limit reached")
 	ErrDuplicateName = errors.New("lead audience name already exists")
+	ErrForbidden     = errors.New("lead audience action forbidden")
 	ErrInvalidInput  = errors.New("invalid lead audience")
 	ErrNotFound      = errors.New("lead audience not found")
+	ErrQueryTimeout  = errors.New("lead audience query timed out")
+)
+
+const (
+	MaxAudiencesPerOrganization = 100
+	MaxAudienceNameLength       = 120
+	MaxAudienceDescription      = 1000
+	MaxAudienceQueryLength      = 200
+	MaxAudienceFilterLength     = 120
+	audienceQueryTimeout        = 5 * time.Second
 )
 
 type Audience struct {
@@ -57,14 +67,21 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		return nil, fmt.Errorf("lead audiences service not configured")
 	}
 
-	rows, err := s.pool.Query(ctx, `
+	queryCtx, cancel := context.WithTimeout(ctx, audienceQueryTimeout)
+	defer cancel()
+	tx, err := s.pool.BeginTx(queryCtx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, mapQueryError("begin lead audience list", err)
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(queryCtx, `
 		SELECT id, name, description, filters_json, is_active, created_at, updated_at
 		FROM lead_audiences
 		WHERE organization_id = $1
 		ORDER BY is_active DESC, updated_at DESC, id DESC
 	`, organizationID)
 	if err != nil {
-		return nil, fmt.Errorf("list lead audiences: %w", err)
+		return nil, mapQueryError("list lead audiences", err)
 	}
 	defer rows.Close()
 
@@ -77,15 +94,18 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		audiences = append(audiences, audience)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate lead audiences: %w", err)
+		return nil, mapQueryError("iterate lead audiences", err)
 	}
 	rows.Close()
 	for index := range audiences {
-		memberCount, err := s.countMembers(ctx, organizationID, audiences[index].Filters)
+		memberCount, err := countMembers(queryCtx, tx, organizationID, audiences[index].Filters)
 		if err != nil {
 			return nil, err
 		}
 		audiences[index].MemberCount = memberCount
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return nil, mapQueryError("commit lead audience list", err)
 	}
 	return audiences, nil
 }
@@ -106,8 +126,25 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if input.IsActive != nil {
 		isActive = *input.IsActive
 	}
+	queryCtx, cancel := context.WithTimeout(ctx, audienceQueryTimeout)
+	defer cancel()
+	tx, err := s.pool.BeginTx(queryCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return Audience{}, mapQueryError("begin lead audience create", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lockAudienceWriter(queryCtx, tx, organizationID, actorUserID); err != nil {
+		return Audience{}, err
+	}
+	var audienceCount int
+	if err := tx.QueryRow(queryCtx, `SELECT COUNT(*)::int FROM lead_audiences WHERE organization_id=$1`, organizationID).Scan(&audienceCount); err != nil {
+		return Audience{}, mapQueryError("count lead audiences", err)
+	}
+	if audienceCount >= MaxAudiencesPerOrganization {
+		return Audience{}, ErrAudienceLimit
+	}
 
-	audience, err := scanAudience(s.pool.QueryRow(ctx, `
+	audience, err := scanAudience(tx.QueryRow(queryCtx, `
 		INSERT INTO lead_audiences (organization_id, name, description, filters_json, is_active, created_by_user_id, updated_by_user_id)
 		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $6)
 		RETURNING id, name, description, filters_json, is_active, created_at, updated_at
@@ -115,9 +152,12 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if err != nil {
 		return Audience{}, mapSaveError(err)
 	}
-	audience.MemberCount, err = s.countMembers(ctx, organizationID, audience.Filters)
+	audience.MemberCount, err = countMembers(queryCtx, tx, organizationID, audience.Filters)
 	if err != nil {
 		return Audience{}, err
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return Audience{}, mapQueryError("commit lead audience create", err)
 	}
 	return audience, nil
 }
@@ -138,8 +178,18 @@ func (s *Service) Update(ctx context.Context, organizationID, audienceID, actorU
 	if input.IsActive != nil {
 		isActive = *input.IsActive
 	}
+	queryCtx, cancel := context.WithTimeout(ctx, audienceQueryTimeout)
+	defer cancel()
+	tx, err := s.pool.BeginTx(queryCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return Audience{}, mapQueryError("begin lead audience update", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lockAudienceWriter(queryCtx, tx, organizationID, actorUserID); err != nil {
+		return Audience{}, err
+	}
 
-	audience, err := scanAudience(s.pool.QueryRow(ctx, `
+	audience, err := scanAudience(tx.QueryRow(queryCtx, `
 		UPDATE lead_audiences
 		SET name = $3,
 		    description = $4,
@@ -153,9 +203,12 @@ func (s *Service) Update(ctx context.Context, organizationID, audienceID, actorU
 	if err != nil {
 		return Audience{}, mapSaveError(err)
 	}
-	audience.MemberCount, err = s.countMembers(ctx, organizationID, audience.Filters)
+	audience.MemberCount, err = countMembers(queryCtx, tx, organizationID, audience.Filters)
 	if err != nil {
 		return Audience{}, err
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return Audience{}, mapQueryError("commit lead audience update", err)
 	}
 	return audience, nil
 }
@@ -168,21 +221,28 @@ func (s *Service) Preview(ctx context.Context, organizationID int64, filters map
 	if err := validateFilters(filters); err != nil {
 		return Preview{}, err
 	}
-	memberCount, err := s.countMembers(ctx, organizationID, filters)
+	queryCtx, cancel := context.WithTimeout(ctx, audienceQueryTimeout)
+	defer cancel()
+	memberCount, err := countMembers(queryCtx, s.pool, organizationID, filters)
 	if err != nil {
 		return Preview{}, err
 	}
 	return Preview{Filters: filters, MemberCount: memberCount}, nil
 }
 
-func (s *Service) countMembers(ctx context.Context, organizationID int64, filters map[string]string) (int, error) {
+type audienceQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func countMembers(ctx context.Context, query audienceQuerier, organizationID int64, filters map[string]string) (int, error) {
 	filterSQL, args, err := buildMemberFilter(organizationID, filters)
 	if err != nil {
 		return 0, err
 	}
 	var count int
-	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM contacts c `+filterSQL, args...).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count lead audience members: %w", err)
+	if err := query.QueryRow(ctx, `SELECT COUNT(*)::int FROM contacts c `+filterSQL, args...).Scan(&count); err != nil {
+		return 0, mapQueryError("count lead audience members", err)
 	}
 	return count, nil
 }
@@ -208,127 +268,10 @@ func scanAudience(row rowScanner) (Audience, error) {
 	return audience, nil
 }
 
-func normalizeInput(input Input) Input {
-	input.Name = strings.TrimSpace(input.Name)
-	input.Description = strings.TrimSpace(input.Description)
-	input.Filters = normalizeFilters(input.Filters)
-	return input
-}
-
-func normalizeFilters(filters map[string]string) map[string]string {
-	normalized := make(map[string]string, len(filters))
-	for key, value := range filters {
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-		if key == "" || value == "" {
-			continue
-		}
-		switch key {
-		case "q", "leadSource", "utmSource", "utmMedium", "utmCampaign":
-			normalized[key] = value
-		case "status", "hasEmail", "hasPhone":
-			normalized[key] = strings.ToLower(value)
-		}
-	}
-	return normalized
-}
-
-func validateInput(input Input) error {
-	if input.Name == "" {
-		return ErrInvalidInput
-	}
-	return validateFilters(input.Filters)
-}
-
-func validateFilters(filters map[string]string) error {
-	for key, value := range filters {
-		switch key {
-		case "q", "leadSource", "utmSource", "utmMedium", "utmCampaign":
-			if strings.TrimSpace(value) == "" {
-				return ErrInvalidInput
-			}
-		case "status":
-			if !isAllowedStatus(value) {
-				return ErrInvalidInput
-			}
-		case "hasEmail", "hasPhone":
-			if _, err := strconv.ParseBool(value); err != nil {
-				return ErrInvalidInput
-			}
-		default:
-			return ErrInvalidInput
-		}
-	}
-	return nil
-}
-
-func isAllowedStatus(status string) bool {
-	switch status {
-	case "lead", "prospect", "customer":
-		return true
-	default:
-		return false
-	}
-}
-
-func buildMemberFilter(organizationID int64, filters map[string]string) (string, []any, error) {
-	filters = normalizeFilters(filters)
-	if err := validateFilters(filters); err != nil {
-		return "", nil, err
-	}
-	args := []any{organizationID}
-	clauses := []string{"c.organization_id = $1", "c.archived_at IS NULL"}
-	if value := filters["q"]; value != "" {
-		args = append(args, "%"+value+"%")
-		arg := len(args)
-		clauses = append(clauses, fmt.Sprintf(`(
-			c.first_name ILIKE $%[1]d OR
-			c.last_name ILIKE $%[1]d OR
-			(c.first_name || ' ' || c.last_name) ILIKE $%[1]d OR
-			COALESCE(c.email, '') ILIKE $%[1]d OR
-			COALESCE(c.phone, '') ILIKE $%[1]d OR
-			COALESCE(c.job_title, '') ILIKE $%[1]d OR
-			COALESCE(c.lead_source, '') ILIKE $%[1]d OR
-			COALESCE(c.utm_source, '') ILIKE $%[1]d OR
-			COALESCE(c.utm_medium, '') ILIKE $%[1]d OR
-			COALESCE(c.utm_campaign, '') ILIKE $%[1]d
-		)`, arg))
-	}
-	if value := filters["status"]; value != "" {
-		args = append(args, value)
-		clauses = append(clauses, fmt.Sprintf("COALESCE(c.status, '') = $%d", len(args)))
-	}
-	for key, column := range map[string]string{
-		"leadSource":  "c.lead_source",
-		"utmSource":   "c.utm_source",
-		"utmMedium":   "c.utm_medium",
-		"utmCampaign": "c.utm_campaign",
-	} {
-		if value := filters[key]; value != "" {
-			args = append(args, value)
-			clauses = append(clauses, fmt.Sprintf("lower(COALESCE(%s, '')) = lower($%d)", column, len(args)))
-		}
-	}
-	for key, column := range map[string]string{
-		"hasEmail": "c.email",
-		"hasPhone": "c.phone",
-	} {
-		if value := filters[key]; value != "" {
-			wantValue, err := strconv.ParseBool(value)
-			if err != nil {
-				return "", nil, ErrInvalidInput
-			}
-			operator := "<>"
-			if !wantValue {
-				operator = "="
-			}
-			clauses = append(clauses, fmt.Sprintf("COALESCE(%s, '') %s ''", column, operator))
-		}
-	}
-	return "WHERE " + strings.Join(clauses, " AND "), args, nil
-}
-
 func mapSaveError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrQueryTimeout
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -342,4 +285,39 @@ func mapSaveError(err error) error {
 		}
 	}
 	return fmt.Errorf("save lead audience: %w", err)
+}
+
+func lockAudienceWriter(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64) error {
+	if organizationID <= 0 || actorUserID <= 0 {
+		return ErrForbidden
+	}
+	var role string
+	if err := tx.QueryRow(ctx, `
+		SELECT role
+		FROM organization_memberships
+		WHERE organization_id=$1 AND user_id=$2
+		  AND COALESCE(membership_status,'active')='active'
+		FOR SHARE
+	`, organizationID, actorUserID).Scan(&role); errors.Is(err, pgx.ErrNoRows) {
+		return ErrForbidden
+	} else if err != nil {
+		return mapQueryError("lock lead audience actor", err)
+	}
+	if role != "owner" && role != "admin" {
+		return ErrForbidden
+	}
+	var lockedOrganizationID int64
+	if err := tx.QueryRow(ctx, `SELECT id FROM organizations WHERE id=$1 FOR UPDATE`, organizationID).Scan(&lockedOrganizationID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return mapQueryError("lock lead audience organization", err)
+	}
+	return nil
+}
+
+func mapQueryError(operation string, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrQueryTimeout
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }

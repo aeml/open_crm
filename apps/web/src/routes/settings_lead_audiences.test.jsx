@@ -36,7 +36,7 @@ describe('settings lead audiences route', () => {
         return jsonResponse({ data: { audience: { id: 8, name: 'Spring demo leads', description: 'Campaign leads', filters: { status: 'lead', leadSource: 'Website form', utmCampaign: 'spring-demo', utmSource: 'google', hasEmail: 'true' }, memberCount: 14, isActive: true } } }, 201)
       }
       if (path.endsWith('/api/lead-audiences')) {
-        return jsonResponse({ data: { audiences: [{ id: 5, name: 'Website leads', description: 'All website leads', filters: { status: 'lead', leadSource: 'Website form' }, memberCount: 9, isActive: true }] } })
+        return jsonResponse({ data: { audiences: [{ id: 5, name: 'Website leads', description: 'All website leads', filters: { status: 'lead', leadSource: 'Website form' }, memberCount: 9, isActive: true }], capacity: { maxAudiences: 100 } } })
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })
@@ -49,6 +49,7 @@ describe('settings lead audiences route', () => {
     expect(await screen.findByRole('heading', { name: /lead audiences/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /website leads/i })).toBeInTheDocument()
     expect(screen.getByText(/9 members/i)).toBeInTheDocument()
+    expect(screen.getByText('1 of 100 stored audiences.')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Spring demo leads' } })
     fireEvent.change(screen.getByLabelText(/^description$/i), { target: { value: 'Campaign leads' } })
@@ -80,5 +81,26 @@ describe('settings lead audiences route', () => {
       })
     })
     expect(await screen.findByRole('heading', { name: /spring demo leads/i })).toBeInTheDocument()
+  })
+
+  it('disables only new creation at the server-disclosed capacity', async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/lead-audiences') && method === 'GET') {
+        return jsonResponse({ data: { audiences: [{ id: 5, name: 'Retained audience', filters: { status: 'lead' }, memberCount: 1, isActive: true }], capacity: { maxAudiences: 1 } } })
+      }
+      throw new Error(`Unexpected fetch: ${method} ${path}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/lead-audiences')
+    render(<AppRouter />)
+
+    expect(await screen.findByText('1 of 1 stored audiences.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create audience/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /preview count/i })).toBeEnabled()
   })
 })

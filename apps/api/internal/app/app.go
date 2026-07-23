@@ -319,6 +319,9 @@ type savedViewResponse struct {
 type leadAudiencesListResponse struct {
 	Data struct {
 		Audiences []moduleleadaudiences.Audience `json:"audiences"`
+		Capacity  struct {
+			MaxAudiences int `json:"maxAudiences"`
+		} `json:"capacity"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`

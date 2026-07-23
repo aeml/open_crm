@@ -33,12 +33,13 @@ func handleListLeadAudiences(auth authService, audiences leadAudiencesService, w
 
 	result, err := audiences.ListByOrganization(r.Context(), state.Organization.ID)
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load lead audiences")
+		writeLeadAudienceError(w, requestID, err)
 		return
 	}
 
 	response := leadAudiencesListResponse{}
 	response.Data.Audiences = result
+	response.Data.Capacity.MaxAudiences = moduleleadaudiences.MaxAudiencesPerOrganization
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -140,6 +141,12 @@ func writeLeadAudienceError(w http.ResponseWriter, requestID string, err error) 
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid audience name and supported filters")
 	case errors.Is(err, moduleleadaudiences.ErrDuplicateName):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A lead audience with that name already exists")
+	case errors.Is(err, moduleleadaudiences.ErrAudienceLimit):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "LEAD_AUDIENCE_LIMIT", "This workspace already has the maximum number of lead audiences")
+	case errors.Is(err, moduleleadaudiences.ErrForbidden):
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Owner or admin access is required to manage lead audiences")
+	case errors.Is(err, moduleleadaudiences.ErrQueryTimeout):
+		platformweb.WriteError(w, http.StatusGatewayTimeout, requestID, "LEAD_AUDIENCE_QUERY_TIMEOUT", "Lead audience matching exceeded the five-second query limit")
 	case errors.Is(err, moduleleadaudiences.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	default:
