@@ -13,6 +13,9 @@ import (
 type marketingCampaignsListResponse struct {
 	Data struct {
 		Campaigns []modulemarketingcampaigns.Campaign `json:"campaigns"`
+		Capacity  struct {
+			MaxCampaigns int `json:"maxCampaigns"`
+		} `json:"capacity"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -52,12 +55,13 @@ func handleListMarketingCampaigns(auth authService, campaigns marketingCampaigns
 
 	result, err := campaigns.ListByOrganization(r.Context(), state.Organization.ID)
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load marketing campaigns")
+		writeMarketingCampaignError(w, requestID, err)
 		return
 	}
 
 	response := marketingCampaignsListResponse{}
 	response.Data.Campaigns = result
+	response.Data.Capacity.MaxCampaigns = modulemarketingcampaigns.MaxCampaignsPerOrganization
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -140,6 +144,12 @@ func writeMarketingCampaignError(w http.ResponseWriter, requestID string, err er
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose an active lead audience for this campaign")
 	case errors.Is(err, modulemarketingcampaigns.ErrDuplicateName):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A marketing campaign with that name already exists")
+	case errors.Is(err, modulemarketingcampaigns.ErrCampaignLimit):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "MARKETING_CAMPAIGN_LIMIT", "This workspace already has the maximum number of marketing campaigns")
+	case errors.Is(err, modulemarketingcampaigns.ErrForbidden):
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Owner or admin access is required to manage marketing campaigns")
+	case errors.Is(err, modulemarketingcampaigns.ErrQueryTimeout):
+		platformweb.WriteError(w, http.StatusGatewayTimeout, requestID, "MARKETING_CAMPAIGN_QUERY_TIMEOUT", "Marketing campaign processing exceeded the five-second query limit")
 	case errors.Is(err, modulemarketingcampaigns.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	default:

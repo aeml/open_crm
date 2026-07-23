@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	moduleleadaudiences "github.com/aeml/open_crm/apps/api/internal/modules/leadaudiences"
 	"github.com/jackc/pgx/v5"
@@ -18,10 +19,23 @@ import (
 )
 
 var (
+	ErrCampaignLimit   = errors.New("marketing email campaign limit reached")
 	ErrDuplicateName   = errors.New("marketing email campaign name already exists")
+	ErrForbidden       = errors.New("marketing email campaign action forbidden")
 	ErrInvalidAudience = errors.New("invalid marketing email campaign audience")
 	ErrInvalidInput    = errors.New("invalid marketing email campaign")
 	ErrNotFound        = errors.New("marketing email campaign not found")
+	ErrQueryTimeout    = errors.New("marketing email campaign query timed out")
+)
+
+const (
+	MaxCampaignsPerOrganization = 100
+	MaxCampaignNameLength       = 120
+	MaxCampaignDescription      = 1000
+	MaxCampaignSubjectLength    = 300
+	MaxCampaignPreviewLength    = 300
+	MaxCampaignBodyLength       = 100_000
+	campaignQueryTimeout        = 5 * time.Second
 )
 
 type Campaign struct {
@@ -74,7 +88,9 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		return nil, fmt.Errorf("marketing campaigns service not configured")
 	}
 
-	rows, err := s.pool.Query(ctx, `
+	queryCtx, cancel := context.WithTimeout(ctx, campaignQueryTimeout)
+	defer cancel()
+	rows, err := s.pool.Query(queryCtx, `
 		SELECT c.id, c.name, c.description, c.audience_id, a.name, c.subject, c.preview_text, c.body, c.status,
 		       c.scheduled_at, c.sent_at, c.recipient_count, c.sent_count, c.opened_count, c.clicked_count,
 		       c.bounced_count, c.unsubscribed_count, c.created_at, c.updated_at
@@ -85,7 +101,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		         c.scheduled_at NULLS LAST, c.updated_at DESC, c.id DESC
 	`, organizationID)
 	if err != nil {
-		return nil, fmt.Errorf("list marketing email campaigns: %w", err)
+		return nil, mapQueryError("list marketing email campaigns", err)
 	}
 	defer rows.Close()
 
@@ -93,12 +109,12 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 	for rows.Next() {
 		campaign, err := scanCampaign(rows)
 		if err != nil {
-			return nil, err
+			return nil, mapQueryError("scan marketing email campaign", err)
 		}
 		campaigns = append(campaigns, campaign)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate marketing email campaigns: %w", err)
+		return nil, mapQueryError("iterate marketing email campaigns", err)
 	}
 	return campaigns, nil
 }
@@ -111,12 +127,29 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if err := validateInput(input); err != nil {
 		return Campaign{}, err
 	}
-	audienceName, recipientCount, err := s.audienceSnapshot(ctx, organizationID, input.AudienceID)
+	queryCtx, cancel := context.WithTimeout(ctx, campaignQueryTimeout)
+	defer cancel()
+	tx, err := s.pool.BeginTx(queryCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return Campaign{}, mapQueryError("begin marketing campaign create", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lockCampaignWriter(queryCtx, tx, organizationID, actorUserID); err != nil {
+		return Campaign{}, err
+	}
+	var campaignCount int
+	if err := tx.QueryRow(queryCtx, `SELECT COUNT(*)::int FROM marketing_email_campaigns WHERE organization_id=$1`, organizationID).Scan(&campaignCount); err != nil {
+		return Campaign{}, mapQueryError("count marketing campaigns", err)
+	}
+	if campaignCount >= MaxCampaignsPerOrganization {
+		return Campaign{}, ErrCampaignLimit
+	}
+	audienceName, recipientCount, err := audienceSnapshot(queryCtx, tx, organizationID, input.AudienceID)
 	if err != nil {
 		return Campaign{}, err
 	}
 
-	campaign, err := scanCampaign(s.pool.QueryRow(ctx, `
+	campaign, err := scanCampaign(tx.QueryRow(queryCtx, `
 		INSERT INTO marketing_email_campaigns (
 			organization_id, audience_id, name, description, subject, preview_text, body, status, scheduled_at,
 			recipient_count, created_by_user_id, updated_by_user_id
@@ -129,6 +162,9 @@ func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64,
 	if err != nil {
 		return Campaign{}, mapSaveError(err)
 	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return Campaign{}, mapQueryError("commit marketing campaign create", err)
+	}
 	return campaign, nil
 }
 
@@ -140,12 +176,25 @@ func (s *Service) Update(ctx context.Context, organizationID, campaignID, actorU
 	if err := validateInput(input); err != nil {
 		return Campaign{}, err
 	}
-	audienceName, recipientCount, err := s.audienceSnapshot(ctx, organizationID, input.AudienceID)
+	queryCtx, cancel := context.WithTimeout(ctx, campaignQueryTimeout)
+	defer cancel()
+	tx, err := s.pool.BeginTx(queryCtx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return Campaign{}, mapQueryError("begin marketing campaign update", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := lockCampaignWriter(queryCtx, tx, organizationID, actorUserID); err != nil {
+		return Campaign{}, err
+	}
+	if err := lockCampaign(queryCtx, tx, organizationID, campaignID); err != nil {
+		return Campaign{}, err
+	}
+	audienceName, recipientCount, err := audienceSnapshot(queryCtx, tx, organizationID, input.AudienceID)
 	if err != nil {
 		return Campaign{}, err
 	}
 
-	campaign, err := scanCampaign(s.pool.QueryRow(ctx, `
+	campaign, err := scanCampaign(tx.QueryRow(queryCtx, `
 		UPDATE marketing_email_campaigns
 		SET audience_id = $3,
 		    name = $4,
@@ -167,21 +216,25 @@ func (s *Service) Update(ctx context.Context, organizationID, campaignID, actorU
 	if err != nil {
 		return Campaign{}, mapSaveError(err)
 	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return Campaign{}, mapQueryError("commit marketing campaign update", err)
+	}
 	return campaign, nil
 }
 
-func (s *Service) audienceSnapshot(ctx context.Context, organizationID, audienceID int64) (string, int, error) {
+func audienceSnapshot(ctx context.Context, tx pgx.Tx, organizationID, audienceID int64) (string, int, error) {
 	var audienceName string
 	var filtersJSON []byte
-	if err := s.pool.QueryRow(ctx, `
+	if err := tx.QueryRow(ctx, `
 		SELECT name, filters_json
 		FROM lead_audiences
 		WHERE organization_id = $1 AND id = $2 AND is_active = TRUE
+		FOR SHARE
 	`, organizationID, audienceID).Scan(&audienceName, &filtersJSON); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", 0, ErrInvalidAudience
 		}
-		return "", 0, fmt.Errorf("load marketing campaign audience: %w", err)
+		return "", 0, mapQueryError("load marketing campaign audience", err)
 	}
 
 	filters := map[string]string{}
@@ -190,8 +243,11 @@ func (s *Service) audienceSnapshot(ctx context.Context, organizationID, audience
 			return "", 0, fmt.Errorf("decode marketing campaign audience filters: %w", err)
 		}
 	}
-	preview, err := moduleleadaudiences.NewService(s.pool).Preview(ctx, organizationID, filters)
+	preview, err := moduleleadaudiences.PreviewWithQuerier(ctx, tx, organizationID, filters)
 	if err != nil {
+		if errors.Is(err, moduleleadaudiences.ErrQueryTimeout) {
+			return "", 0, ErrQueryTimeout
+		}
 		return "", 0, fmt.Errorf("preview marketing campaign audience: %w", err)
 	}
 	return audienceName, preview.MemberCount, nil
@@ -253,7 +309,11 @@ func normalizeInput(input Input) Input {
 }
 
 func validateInput(input Input) error {
-	if input.Name == "" || input.AudienceID <= 0 || input.Subject == "" || input.Body == "" || !validStatus(input.Status) {
+	if input.Name == "" || utf8.RuneCountInString(input.Name) > MaxCampaignNameLength ||
+		utf8.RuneCountInString(input.Description) > MaxCampaignDescription ||
+		input.AudienceID <= 0 || input.Subject == "" || utf8.RuneCountInString(input.Subject) > MaxCampaignSubjectLength ||
+		utf8.RuneCountInString(input.PreviewText) > MaxCampaignPreviewLength ||
+		input.Body == "" || utf8.RuneCountInString(input.Body) > MaxCampaignBodyLength || !validStatus(input.Status) {
 		return ErrInvalidInput
 	}
 	if input.Status == "scheduled" && input.ScheduledAt == nil {
@@ -264,7 +324,7 @@ func validateInput(input Input) error {
 
 func validStatus(status string) bool {
 	switch status {
-	case "draft", "scheduled", "paused", "sent", "cancelled":
+	case "draft", "scheduled", "paused", "cancelled":
 		return true
 	default:
 		return false
@@ -272,6 +332,9 @@ func validStatus(status string) bool {
 }
 
 func mapSaveError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrQueryTimeout
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -287,4 +350,53 @@ func mapSaveError(err error) error {
 		}
 	}
 	return fmt.Errorf("save marketing email campaign: %w", err)
+}
+
+func lockCampaignWriter(ctx context.Context, tx pgx.Tx, organizationID, actorUserID int64) error {
+	if organizationID <= 0 || actorUserID <= 0 {
+		return ErrForbidden
+	}
+	var role string
+	if err := tx.QueryRow(ctx, `
+		SELECT role
+		FROM organization_memberships
+		WHERE organization_id=$1 AND user_id=$2
+		  AND COALESCE(membership_status,'active')='active'
+		FOR SHARE
+	`, organizationID, actorUserID).Scan(&role); errors.Is(err, pgx.ErrNoRows) {
+		return ErrForbidden
+	} else if err != nil {
+		return mapQueryError("lock marketing campaign actor", err)
+	}
+	if role != "owner" && role != "admin" {
+		return ErrForbidden
+	}
+	var lockedOrganizationID int64
+	if err := tx.QueryRow(ctx, `SELECT id FROM organizations WHERE id=$1 FOR UPDATE`, organizationID).Scan(&lockedOrganizationID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return mapQueryError("lock marketing campaign organization", err)
+	}
+	return nil
+}
+
+func lockCampaign(ctx context.Context, tx pgx.Tx, organizationID, campaignID int64) error {
+	var lockedCampaignID int64
+	if err := tx.QueryRow(ctx, `
+		SELECT id FROM marketing_email_campaigns
+		WHERE organization_id=$1 AND id=$2
+		FOR UPDATE
+	`, organizationID, campaignID).Scan(&lockedCampaignID); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return mapQueryError("lock marketing campaign", err)
+	}
+	return nil
+}
+
+func mapQueryError(operation string, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrQueryTimeout
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }

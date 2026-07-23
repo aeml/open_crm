@@ -83,6 +83,9 @@ func TestListMarketingCampaignsScopesToOrganization(t *testing.T) {
 	var response struct {
 		Data struct {
 			Campaigns []modulemarketingcampaigns.Campaign `json:"campaigns"`
+			Capacity  struct {
+				MaxCampaigns int `json:"maxCampaigns"`
+			} `json:"capacity"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -90,6 +93,48 @@ func TestListMarketingCampaignsScopesToOrganization(t *testing.T) {
 	}
 	if len(response.Data.Campaigns) != 1 || response.Data.Campaigns[0].Analytics.RecipientCount != 12 {
 		t.Fatalf("unexpected marketing campaigns payload: %#v", response.Data.Campaigns)
+	}
+	if response.Data.Capacity.MaxCampaigns != modulemarketingcampaigns.MaxCampaignsPerOrganization {
+		t.Fatalf("unexpected marketing campaign capacity: %#v", response.Data.Capacity)
+	}
+}
+
+func TestMarketingCampaignStableBoundaryErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "capacity", err: modulemarketingcampaigns.ErrCampaignLimit, statusCode: http.StatusConflict, code: "MARKETING_CAMPAIGN_LIMIT"},
+		{name: "forbidden", err: modulemarketingcampaigns.ErrForbidden, statusCode: http.StatusForbidden, code: "FORBIDDEN"},
+		{name: "timeout", err: modulemarketingcampaigns.ErrQueryTimeout, statusCode: http.StatusGatewayTimeout, code: "MARKETING_CAMPAIGN_QUERY_TIMEOUT"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &fakeMarketingCampaignsService{createErr: test.err}
+			server := authenticatedMarketingCampaignsServer(service, "owner")
+			request := httptest.NewRequest(http.MethodPost, "/api/marketing-email-campaigns", bytes.NewBufferString(`{"name":"Campaign","audienceId":9,"subject":"Subject","body":"Body"}`))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != test.statusCode {
+				t.Fatalf("expected status %d, got %d", test.statusCode, recorder.Code)
+			}
+			var response struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode error response: %v", err)
+			}
+			if response.Error.Code != test.code {
+				t.Fatalf("expected code %q, got %q", test.code, response.Error.Code)
+			}
+		})
 	}
 }
 

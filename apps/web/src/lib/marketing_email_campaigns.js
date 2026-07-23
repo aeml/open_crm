@@ -3,7 +3,10 @@ import { apiRequest } from './api'
 export async function listMarketingEmailCampaigns({ signal } = {}) {
   const payload = await apiRequest('/api/marketing-email-campaigns', { fallbackMessage: 'Unable to load marketing campaigns.', signal })
 
-  return payload?.data?.campaigns || []
+  return {
+    campaigns: payload?.data?.campaigns || [],
+    capacity: payload?.data?.capacity || { maxCampaigns: 100 },
+  }
 }
 
 export async function createMarketingEmailCampaign(input, { signal } = {}) {

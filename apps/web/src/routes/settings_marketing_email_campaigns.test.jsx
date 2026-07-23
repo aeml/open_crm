@@ -38,7 +38,7 @@ describe('settings marketing email campaigns route', () => {
         return jsonResponse({ data: { campaign: { id: 8, name: 'Spring demo blast', audienceId: 5, audienceName: 'Spring leads', subject: 'Join the spring demo', body: 'Campaign body', status: 'scheduled', scheduledAt: expectedScheduledAt, analytics: { recipientCount: 14, sentCount: 0, openedCount: 0, clickedCount: 0 } } } }, 201)
       }
       if (path.endsWith('/api/marketing-email-campaigns')) {
-        return jsonResponse({ data: { campaigns: [{ id: 3, name: 'Website newsletter', audienceId: 5, audienceName: 'Spring leads', subject: 'Newsletter', status: 'draft', analytics: { recipientCount: 9, sentCount: 0, openedCount: 0, clickedCount: 0 } }] } })
+        return jsonResponse({ data: { campaigns: [{ id: 3, name: 'Website newsletter', audienceId: 5, audienceName: 'Spring leads', subject: 'Newsletter', status: 'draft', analytics: { recipientCount: 9, sentCount: 0, openedCount: 0, clickedCount: 0 } }], capacity: { maxCampaigns: 100 } } })
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })
@@ -51,6 +51,7 @@ describe('settings marketing email campaigns route', () => {
     expect(await screen.findByRole('heading', { name: /email campaigns/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /website newsletter/i })).toBeInTheDocument()
     expect(screen.getByText(/9 recipients/i)).toBeInTheDocument()
+    expect(screen.getByText('1 of 100 stored campaigns.')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/^campaign name$/i), { target: { value: 'Spring demo blast' } })
     fireEvent.change(screen.getByLabelText(/^audience$/i), { target: { value: '5' } })
@@ -78,5 +79,30 @@ describe('settings marketing email campaigns route', () => {
       })
     })
     expect(await screen.findByRole('heading', { name: /spring demo blast/i })).toBeInTheDocument()
+  })
+
+  it('disables only new creation at the server-disclosed capacity', async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/lead-audiences')) {
+        return jsonResponse({ data: { audiences: [{ id: 5, name: 'Retained audience', memberCount: 1, isActive: true }], capacity: { maxAudiences: 100 } } })
+      }
+      if (path.endsWith('/api/marketing-email-campaigns') && method === 'GET') {
+        return jsonResponse({ data: { campaigns: [{ id: 3, name: 'Retained campaign', audienceId: 5, audienceName: 'Retained audience', subject: 'Subject', body: 'Body', status: 'draft', analytics: { recipientCount: 1 } }], capacity: { maxCampaigns: 1 } } })
+      }
+      throw new Error(`Unexpected fetch: ${method} ${path}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/marketing-email-campaigns')
+    render(<AppRouter />)
+
+    expect(await screen.findByText('1 of 1 stored campaigns.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create campaign/i })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }))
+    expect(screen.getByRole('button', { name: /save campaign/i })).toBeEnabled()
   })
 })

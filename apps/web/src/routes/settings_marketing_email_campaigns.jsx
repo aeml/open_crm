@@ -71,6 +71,7 @@ export function SettingsMarketingEmailCampaignsRoute() {
   const { canAdminister: canManage } = useAuth()
   usePageTitle('Email Campaigns')
   const [campaigns, setCampaigns] = useState([])
+  const [maxCampaigns, setMaxCampaigns] = useState(100)
   const [audiences, setAudiences] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
@@ -82,11 +83,12 @@ export function SettingsMarketingEmailCampaignsRoute() {
   async function loadData({ signal } = {}) {
     setIsLoading(true)
     try {
-      const [nextCampaigns, nextAudienceCatalog] = await Promise.all([
+      const [nextCampaignCatalog, nextAudienceCatalog] = await Promise.all([
         listMarketingEmailCampaigns({ signal }),
         listLeadAudiences({ signal })
       ])
-      setCampaigns(nextCampaigns)
+      setCampaigns(nextCampaignCatalog.campaigns)
+      setMaxCampaigns(nextCampaignCatalog.capacity.maxCampaigns)
       setAudiences(nextAudienceCatalog.audiences.filter((audience) => audience.isActive !== false))
       setError('')
     } catch (loadError) {
@@ -145,6 +147,8 @@ export function SettingsMarketingEmailCampaignsRoute() {
     }
   }
 
+  const createAtCapacity = editingId === null && campaigns.length >= maxCampaigns
+
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
@@ -153,6 +157,7 @@ export function SettingsMarketingEmailCampaignsRoute() {
             <div>
               <h2>Email campaigns</h2>
               <p>Plan one-time marketing sends against saved audiences, with schedule metadata and campaign analytics.</p>
+              <p className="field-hint">{campaigns.length} of {maxCampaigns} stored campaigns.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading email campaigns...</p> : null}
@@ -195,10 +200,10 @@ export function SettingsMarketingEmailCampaignsRoute() {
               <p className="field-hint">This foundation stores campaign plans and analytics counters. Bulk delivery and tracking workers ship later.</p>
             </div>
             <Field label="Campaign name">
-              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Spring demo blast" required />
+              <input className="text-input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Spring demo blast" maxLength={120} required />
             </Field>
             <Field label="Description">
-              <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="One-time send for demo campaign leads." />
+              <textarea className="text-input" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="One-time send for demo campaign leads." maxLength={1000} />
             </Field>
             <Field label="Audience" hint={audiences.length === 0 ? 'Create an active audience before saving a campaign.' : ''}>
               <select className="text-input" value={form.audienceId} onChange={(event) => setForm({ ...form, audienceId: event.target.value })} required>
@@ -218,16 +223,16 @@ export function SettingsMarketingEmailCampaignsRoute() {
               <input className="text-input" type="datetime-local" value={form.scheduledAt} onChange={(event) => setForm({ ...form, scheduledAt: event.target.value })} required={form.status === 'scheduled'} />
             </Field>
             <Field label="Subject">
-              <input className="text-input" value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} placeholder="See what is new this spring" required />
+              <input className="text-input" value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} placeholder="See what is new this spring" maxLength={300} required />
             </Field>
             <Field label="Preview text">
-              <input className="text-input" value={form.previewText} onChange={(event) => setForm({ ...form, previewText: event.target.value })} placeholder="A short inbox preview." />
+              <input className="text-input" value={form.previewText} onChange={(event) => setForm({ ...form, previewText: event.target.value })} placeholder="A short inbox preview." maxLength={300} />
             </Field>
             <Field label="Body">
-              <textarea className="text-input" rows={8} value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} placeholder="Write the campaign email body." required />
+              <textarea className="text-input" rows={8} value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} placeholder="Write the campaign email body." maxLength={100000} required />
             </Field>
             <div className="button-row">
-              <Button type="submit" disabled={isSaving || audiences.length === 0}>{isSaving ? 'Saving...' : editingId ? 'Save campaign' : 'Create campaign'}</Button>
+              <Button type="submit" disabled={isSaving || audiences.length === 0 || createAtCapacity}>{isSaving ? 'Saving...' : editingId ? 'Save campaign' : 'Create campaign'}</Button>
               {editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}
             </div>
           </form>

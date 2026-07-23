@@ -89,7 +89,7 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 	for rows.Next() {
 		audience, err := scanAudience(rows)
 		if err != nil {
-			return nil, err
+			return nil, mapQueryError("scan lead audience", err)
 		}
 		audiences = append(audiences, audience)
 	}
@@ -217,25 +217,36 @@ func (s *Service) Preview(ctx context.Context, organizationID int64, filters map
 	if s == nil || s.pool == nil {
 		return Preview{}, fmt.Errorf("lead audiences service not configured")
 	}
+	queryCtx, cancel := context.WithTimeout(ctx, audienceQueryTimeout)
+	defer cancel()
+	return PreviewWithQuerier(queryCtx, s.pool, organizationID, filters)
+}
+
+// AudienceMemberQuerier is the minimum database seam required to count the
+// contacts matching an audience definition. A transaction can implement this
+// seam so a dependent definition and its audience snapshot commit together.
+type AudienceMemberQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+// PreviewWithQuerier evaluates an audience through the supplied connection or
+// transaction. The caller owns the context deadline.
+func PreviewWithQuerier(ctx context.Context, query AudienceMemberQuerier, organizationID int64, filters map[string]string) (Preview, error) {
+	if query == nil {
+		return Preview{}, fmt.Errorf("lead audience member query not configured")
+	}
 	filters = normalizeFilters(filters)
 	if err := validateFilters(filters); err != nil {
 		return Preview{}, err
 	}
-	queryCtx, cancel := context.WithTimeout(ctx, audienceQueryTimeout)
-	defer cancel()
-	memberCount, err := countMembers(queryCtx, s.pool, organizationID, filters)
+	memberCount, err := countMembers(ctx, query, organizationID, filters)
 	if err != nil {
 		return Preview{}, err
 	}
 	return Preview{Filters: filters, MemberCount: memberCount}, nil
 }
 
-type audienceQuerier interface {
-	Query(context.Context, string, ...any) (pgx.Rows, error)
-	QueryRow(context.Context, string, ...any) pgx.Row
-}
-
-func countMembers(ctx context.Context, query audienceQuerier, organizationID int64, filters map[string]string) (int, error) {
+func countMembers(ctx context.Context, query AudienceMemberQuerier, organizationID int64, filters map[string]string) (int, error) {
 	filterSQL, args, err := buildMemberFilter(organizationID, filters)
 	if err != nil {
 		return 0, err
