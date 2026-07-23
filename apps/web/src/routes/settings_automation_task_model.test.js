@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deactivationPayload, emptyForm, formFromAutomation, isApprovalTaskRule, isDealOwnerAssignmentRule, isDealSequenceEnrollmentRule, isExecutableTaskRule, isNotificationTaskRule, payloadFromForm, taskActionsForAutomation } from './settings_automation_task_model'
+import { deactivationPayload, emptyForm, formFromAutomation, isApprovalTaskRule, isDealExpectedCloseRule, isDealOwnerAssignmentRule, isDealSequenceEnrollmentRule, isExecutableTaskRule, isNotificationTaskRule, payloadFromForm, taskActionsForAutomation } from './settings_automation_task_model'
 
 function dealAutomation(actions, triggerConfig = {}) {
   return {
@@ -197,6 +197,38 @@ describe('settings automation task model', () => {
 		expect(() => payloadFromForm({ ...emptyForm(), name: 'Archived cadence', event: 'archived', outcome: 'add_to_sequence', sequenceId: '31' })).toThrow('supports deal creation or stage changes')
 		expect(() => payloadFromForm({ ...emptyForm(), name: 'Missing cadence', outcome: 'add_to_sequence' })).toThrow('Choose an approved active email sequence')
 	})
+
+  it('builds, exposes, and restores one exact expected-close-date update', () => {
+    const payload = payloadFromForm({
+      ...emptyForm(),
+      name: 'Set proposal decision date',
+      event: 'stage_changed',
+      stageId: '12',
+      outcome: 'set_expected_close',
+      expectedCloseDays: '30',
+      conditionField: 'status',
+      conditionOperator: 'equals',
+      conditionValue: 'open'
+    })
+    expect(payload).toMatchObject({
+      description: 'Sets the expected close date to a reviewed whole-day offset from the triggering deal event.',
+      triggerType: 'stage_changed',
+      triggerConfig: { stageId: 12, conditionContract: 'deal_snapshot_v1', actionPlanContract: 'deal_set_expected_close_v1' },
+      conditions: [{ field: 'status', operator: 'equals', value: 'open' }],
+      actions: [{ type: 'update_field', config: { field: 'expectedCloseDate', value: 30 } }]
+    })
+    const automation = { ...dealAutomation(payload.actions, payload.triggerConfig), ...payload }
+    expect(isExecutableTaskRule(automation)).toBe(true)
+    expect(isDealExpectedCloseRule(automation)).toBe(true)
+    expect(taskActionsForAutomation(automation)).toEqual([])
+    expect(formFromAutomation(automation)).toMatchObject({ outcome: 'set_expected_close', expectedCloseDays: '30' })
+
+    expect(isExecutableTaskRule({ ...automation, actions: [{ ...payload.actions[0], config: { field: 'expectedCloseDate', value: 30, future: true } }] })).toBe(false)
+    expect(isExecutableTaskRule({ ...automation, actions: [{ ...payload.actions[0], config: { field: 'status', value: 30 } }] })).toBe(false)
+    expect(() => payloadFromForm({ ...emptyForm(), name: 'Archived expected close', event: 'archived', outcome: 'set_expected_close' })).toThrow('supports deal creation or stage changes')
+    expect(() => payloadFromForm({ ...emptyForm(), name: 'Fractional expected close', outcome: 'set_expected_close', expectedCloseDays: '1.5' })).toThrow('whole number from 0 to 365')
+    expect(() => payloadFromForm({ ...emptyForm(), name: 'Distant expected close', outcome: 'set_expected_close', expectedCloseDays: '366' })).toThrow('whole number from 0 to 365')
+  })
 
   it('uses a safety-only deactivation intent without resubmitting an unknown definition', () => {
     expect(deactivationPayload()).toEqual({ deactivateOnly: true })

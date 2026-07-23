@@ -265,6 +265,104 @@ describe('settings task automations route', () => {
 	expect(JSON.parse(deactivationCall[1].body)).toEqual({ deactivateOnly: true })
   })
 
+  it('authors and inspects an exact transactional expected-close-date update', async () => {
+    const storedRule = {
+      id: 42,
+      name: 'Set proposal decision date',
+      triggerType: 'stage_changed',
+      targetEntityType: 'deal',
+      triggerConfig: { stageId: 12, actionPlanContract: 'deal_set_expected_close_v1' },
+      conditionLogic: 'all',
+      conditions: [],
+      actions: [{ type: 'update_field', config: { field: 'expectedCloseDate', value: 30 } }],
+      isActive: true,
+      position: 0
+    }
+    let storedDefinitions = [storedRule]
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const path = requestURL.pathname
+      const method = options.method || 'GET'
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/deal-pipelines')) return jsonResponse({ data: { pipelines: [{ id: 3, name: 'Sales pipeline', stages: [{ id: 12, name: 'Proposal' }] }] } })
+      if (path.endsWith('/api/lead-capture-forms')) return jsonResponse({ data: { forms: [] } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
+      if (path.endsWith('/api/email-sequences')) return jsonResponse({ data: { sequences: [], meta: { page: 1, pageSize: 50, total: 0 } } })
+      if (path.endsWith('/api/workflow-approvals')) return jsonResponse({ data: { approvals: [] } })
+      if (path.endsWith('/api/workflow-automation-runs')) return jsonResponse({ data: { runs: [{
+        id: 52,
+        automationId: 42,
+        automationName: 'Set proposal decision date',
+        triggerEventKey: 'deal:7:activity:92',
+        status: 'succeeded',
+        actionsTotal: 1,
+        actionsCompleted: 1,
+        createdAt: '2026-07-23T12:05:00Z',
+        actions: [{
+          id: 62,
+          position: 1,
+          type: 'update_field',
+          label: 'Set expected close date',
+          status: 'succeeded',
+          attempts: 1,
+          scheduledAt: '2026-07-23T12:05:00Z',
+          completedAt: '2026-07-23T12:05:00Z',
+          updatedField: 'expectedCloseDate',
+          previousValue: '2026-07-31',
+          currentValue: '2026-08-22',
+          fieldValueChanged: true,
+          lastError: ''
+        }]
+      }] } })
+      if (path.endsWith('/api/workflow-automations/42') && method === 'PATCH') {
+        const payload = JSON.parse(options.body)
+        const updated = { ...storedRule, ...payload }
+        storedDefinitions = [updated]
+        return jsonResponse({ data: { automation: updated } })
+      }
+      if (path.endsWith('/api/workflow-automations')) return workflowPage(storedDefinitions)
+      throw new Error(`Unexpected fetch: ${method} ${path}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/automations')
+
+    render(<AppRouter />)
+
+    expect(await screen.findByRole('heading', { name: 'Set proposal decision date' })).toBeInTheDocument()
+    expect(screen.getByText('One transactional expected-close update · exact no-op evidence is retained.')).toBeInTheDocument()
+    expect(screen.getByText('Set expected close to 30 days from the triggering event.')).toBeInTheDocument()
+    const runList = screen.getByRole('list', { name: 'Workflow automation runs' })
+    fireEvent.click(within(runList).getByText('Inspect 1 action outcome'))
+    const actionList = screen.getByRole('list', { name: 'Set proposal decision date run actions' })
+    expect(actionList).toHaveTextContent('Expected close changed from 2026-07-31 to 2026-08-22.')
+
+    const ruleArticle = screen.getByRole('heading', { name: 'Set proposal decision date' }).closest('article')
+    fireEvent.click(within(ruleArticle).getByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Outcome')).toHaveValue('set_expected_close')
+    expect(screen.queryByLabelText('Task title')).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/^Expected close in days/)).toHaveValue(30)
+    fireEvent.change(screen.getByLabelText(/^Expected close in days/), { target: { value: '45' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save workflow rule' }))
+
+    await waitFor(() => {
+      const updateCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/api/workflow-automations/42') && call[1]?.method === 'PATCH')
+      expect(JSON.parse(updateCall[1].body)).toEqual({
+        name: 'Set proposal decision date',
+        description: 'Sets the expected close date to a reviewed whole-day offset from the triggering deal event.',
+        triggerType: 'stage_changed',
+        targetEntityType: 'deal',
+        triggerConfig: { stageId: 12, actionPlanContract: 'deal_set_expected_close_v1' },
+        conditionLogic: 'all',
+        conditions: [],
+        actions: [{ type: 'update_field', config: { field: 'expectedCloseDate', value: 45 } }],
+        isActive: true,
+        position: 0
+      })
+    })
+    expect(await screen.findByText('Set expected close to 45 days from the triggering event.')).toBeInTheDocument()
+  })
+
   it('creates an executable durable lead follow-up rule with retained attribution conditions', async () => {
     const createdRule = {
       id: 9,

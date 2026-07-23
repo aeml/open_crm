@@ -526,7 +526,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await page.getByLabel('Due in days', { exact: false }).fill('1')
   await page.getByRole('button', { name: 'Create workflow rule' }).click()
   await expect(page.getByRole('heading', { name: leadFollowUpRuleName })).toBeVisible()
-	await expect(page.getByText('1 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.')).toBeVisible()
+	await expect(page.getByText('1 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, sequence enrollment, and expected-close update uses one slot.')).toBeVisible()
 
 	seedWorkflowDefinitionContinuation(owner.email, runID)
 	await page.reload()
@@ -1137,6 +1137,10 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   const dealNotificationMessage = `New-deal briefing is ready for Website renewal ${runID}.`
   const dealAssignmentRuleName = `Restore Jamie as deal owner ${runID}`
   const dealSequenceRuleName = `Enroll new deal contacts in ${sequenceName}`
+  const dealExpectedCloseRuleName = `Set new deal close date ${runID}`
+  const expectedCloseDate = new Date()
+  expectedCloseDate.setUTCDate(expectedCloseDate.getUTCDate() + 30)
+  const expectedCloseDateValue = expectedCloseDate.toISOString().slice(0, 10)
   await page.getByRole('link', { name: 'Automations', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Workflow automation rules' })).toBeVisible()
   await page.getByLabel('Rule name').fill(dealApprovalRuleName)
@@ -1165,7 +1169,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(page.getByRole('heading', { name: dealApprovalRuleName })).toBeVisible()
   await expect(page.getByText('Only if value amount is greater than 20000', { exact: true })).toBeVisible()
   await expect(page.getByText(/2-task playbook/)).toBeVisible()
-	await expect(page.getByText('4 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.')).toBeVisible()
+	await expect(page.getByText('4 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, sequence enrollment, and expected-close update uses one slot.')).toBeVisible()
 
   await page.getByLabel('Rule name').fill(dealNotificationRuleName)
   await page.getByLabel('Task title').fill(notificationTaskTitle)
@@ -1182,7 +1186,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   const notificationDefinition = page.getByRole('list', { name: 'Workflow automation rules' }).getByRole('listitem').filter({ hasText: dealNotificationRuleName })
   await expect(notificationDefinition).toContainText('1-task playbook · then notifies eligible teammates in the same transaction.')
   await expect(notificationDefinition).toContainText(`Notification: Workspace owners · “${dealNotificationMessage}”`)
-	await expect(page.getByText('6 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.')).toBeVisible()
+	await expect(page.getByText('6 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, sequence enrollment, and expected-close update uses one slot.')).toBeVisible()
 
   await page.getByLabel('Rule name').fill(dealAssignmentRuleName)
   await page.getByLabel('Outcome').selectOption('assign_owner')
@@ -1197,7 +1201,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(assignmentDefinition).toContainText('After every direct deal owner change')
   await expect(assignmentDefinition).toContainText('One transactional owner assignment · nested owner-change rules are causally bounded.')
   await expect(assignmentDefinition).toContainText('Assign deal to Jamie Pilot.')
-	await expect(page.getByText('7 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.')).toBeVisible()
+	await expect(page.getByText('7 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, sequence enrollment, and expected-close update uses one slot.')).toBeVisible()
 
   await page.getByLabel('Rule name').fill(dealSequenceRuleName)
   await page.getByLabel('Outcome').selectOption('add_to_sequence')
@@ -1211,7 +1215,21 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(sequenceWorkflowDefinition).toContainText('When a deal is created')
   await expect(sequenceWorkflowDefinition).toContainText('One transactional primary-contact enrollment · delivery remains durable and recoverable.')
   await expect(sequenceWorkflowDefinition).toContainText(`Enroll the primary contact in ${sequenceName} using the current deal owner as sender.`)
-	await expect(page.getByText('8 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, and sequence enrollment uses one slot.')).toBeVisible()
+	await expect(page.getByText('8 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, sequence enrollment, and expected-close update uses one slot.')).toBeVisible()
+
+  await page.getByLabel('Rule name').fill(dealExpectedCloseRuleName)
+  await page.getByLabel('Outcome').selectOption('set_expected_close')
+  await page.getByLabel(/^Expected close in days/).fill('30')
+  const expectedCloseAuthoringAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  expect(expectedCloseAuthoringAccessibility.violations, 'expected-close workflow authoring must have no automated WCAG A/AA violations').toEqual([])
+  await page.getByRole('button', { name: 'Create workflow rule' }).click()
+  const expectedCloseDefinition = page.getByRole('list', { name: 'Workflow automation rules' }).getByRole('listitem').filter({ hasText: dealExpectedCloseRuleName })
+  await expect(expectedCloseDefinition).toContainText('When a deal is created')
+  await expect(expectedCloseDefinition).toContainText('One transactional expected-close update · exact no-op evidence is retained.')
+  await expect(expectedCloseDefinition).toContainText('Set expected close to 30 days from the triggering event.')
+	await expect(page.getByText('9 of 50 active workflow actions allocated. Each task, approval gate, teammate notification, owner assignment, sequence enrollment, and expected-close update uses one slot.')).toBeVisible()
 
   const quoteTemplateName = `Pilot services terms ${runID}`
   const quoteTemplateTerms = 'Net 30. Scope changes require written approval under the retained pilot services terms.'
@@ -1278,6 +1296,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   expect(workflowSequenceMessages.some((message) => message.envelopeFrom.includes(invitedEmail))).toBe(true)
   expect(workflowSequenceMessages.every((message) => message.envelopeTo.includes(`avery-${runID}@example.test`))).toBe(true)
   const dealDetailsForm = page.getByRole('form', { name: 'Deal details form' })
+  await expect(dealDetailsForm.getByLabel('Expected close date')).toHaveValue(expectedCloseDateValue)
   await dealDetailsForm.getByLabel('Owner').selectOption({ label: 'Pilot Owner' })
   await dealDetailsForm.getByRole('button', { name: 'Update deal' }).click()
   await expect(dealDetailsForm.getByLabel('Owner').locator('option:checked')).toHaveText('Jamie Pilot')
@@ -1307,6 +1326,19 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(sequenceActionOutcomes).toContainText(`Enrolled Avery Buyer in ${sequenceName}; the first delivery is queued durably.`)
   await expect(sequenceActionOutcomes).toContainText('Action succeeded · 1 attempt')
   await expect(sequenceActionOutcomes.getByRole('link', { name: 'Open enrolled contact' })).toHaveAttribute('href', /\/contacts\/\d+$/)
+  const expectedCloseAutomationRun = page.getByRole('list', { name: 'Workflow automation runs' }).getByRole('listitem').filter({ hasText: dealExpectedCloseRuleName })
+  await expect(expectedCloseAutomationRun).toHaveCount(1)
+  await expect(expectedCloseAutomationRun).toContainText('1/1 actions completed')
+  await expect(expectedCloseAutomationRun.getByText('succeeded', { exact: true })).toBeVisible()
+  await expectedCloseAutomationRun.getByText('Inspect 1 action outcome').click()
+  const expectedCloseActionOutcomes = expectedCloseAutomationRun.getByRole('list', { name: `${dealExpectedCloseRuleName} run actions` })
+  await expect(expectedCloseActionOutcomes).toContainText('1. Set expected close date')
+  await expect(expectedCloseActionOutcomes).toContainText(`Expected close changed from not set to ${expectedCloseDateValue}.`)
+  await expect(expectedCloseActionOutcomes).toContainText('Action succeeded · 1 attempt')
+  const expectedCloseRunAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  expect(expectedCloseRunAccessibility.violations, 'expected-close workflow outcomes must have no automated WCAG A/AA violations').toEqual([])
   const sequenceWorkflowRunAccessibility = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
     .analyze()
@@ -1561,7 +1593,8 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(followUpReport.getByText(/No records need follow-up/)).toBeVisible()
   await expect(followUpReport.getByText(/How the follow-up queue is calculated/)).toBeVisible()
   const incompleteDealReport = page.getByRole('listitem').filter({ hasText: 'Incomplete open deals' })
-  await expect(incompleteDealReport).toContainText('Missing expected close date')
+  await expect(incompleteDealReport).toContainText('No matching issues.')
+  await expect(incompleteDealReport).not.toContainText('Missing expected close date')
 
   const savedReportName = `Captured leads ${runID}`
   const savedReportForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Create report definition' }) })
@@ -1702,7 +1735,7 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await sharedReportDashboard.getByRole('button', { name: 'Manage reports' }).click()
   await expect(page).toHaveURL(/\/reports$/)
 
-  await incompleteDealReport.getByRole('link', { name: `Website renewal ${runID}` }).click()
+  await page.locator('.sales-activity-card').getByRole('link', { name: `Website renewal ${runID}` }).click()
   await expect(page).toHaveURL(/\/deals\/\d+/)
 
   const noteForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Add note' }) })

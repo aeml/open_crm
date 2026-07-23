@@ -35,8 +35,42 @@ type RunAction struct {
 	SequenceContactID         int64              `json:"sequenceContactId,omitempty"`
 	SequenceContactName       string             `json:"sequenceContactName,omitempty"`
 	SequenceEnrollmentCreated bool               `json:"sequenceEnrollmentCreated"`
+	UpdatedField              string             `json:"updatedField,omitempty"`
+	PreviousValue             string             `json:"previousValue,omitempty"`
+	CurrentValue              string             `json:"currentValue,omitempty"`
+	FieldValueChanged         bool               `json:"fieldValueChanged"`
 	LastError                 string             `json:"lastError"`
 	Approval                  *RunActionApproval `json:"approval,omitempty"`
+}
+
+func recordExpectedCloseActionOutcome(
+	ctx context.Context,
+	tx pgx.Tx,
+	organizationID, runID int64,
+	action Action,
+	result dealExpectedCloseResult,
+) error {
+	if result.Current == "" {
+		return ErrInvalidInput
+	}
+	if err := recordActionOutcome(ctx, tx, organizationID, runID, 1, action, "running", 1, nil, 0, nil, ""); err != nil {
+		return err
+	}
+	command, err := tx.Exec(ctx, `
+		UPDATE workflow_automation_action_outcomes
+		SET status='succeeded',updated_field_name='expectedCloseDate',
+		    previous_date_value=NULLIF($4,'')::date,current_date_value=$5::date,
+		    field_value_changed=$6,completed_at=NOW(),updated_at=NOW()
+		WHERE organization_id=$1 AND run_id=$2 AND action_position=$3
+		  AND action_type='update_field' AND status='running'
+	`, organizationID, runID, 1, result.Previous, result.Current, result.Changed)
+	if err != nil {
+		return fmt.Errorf("record workflow expected close date outcome: %w", err)
+	}
+	if command.RowsAffected() != 1 {
+		return ErrInvalidInput
+	}
+	return nil
 }
 
 func recordSequenceEnrollmentActionOutcome(
@@ -245,6 +279,12 @@ func actionOutcomeLabel(action Action) string {
 		label = "Assign deal owner"
 	case "add_to_sequence":
 		label = "Enroll primary contact in email sequence"
+	case "update_field":
+		if field, _ := stringConfig(action.Config, "field"); field == "expectedCloseDate" {
+			label = "Set expected close date"
+		} else {
+			label = "Update field"
+		}
 	default:
 		label = strings.TrimSpace(stringValue(action.Config["title"]))
 		if label == "" {
@@ -281,7 +321,11 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 		       COALESCE(enrollment.id,0),COALESCE(contact.id,0),
 		       CASE WHEN contact.id IS NULL THEN ''
 		            ELSE COALESCE(NULLIF(trim(CONCAT(contact.first_name,' ',contact.last_name)),''),contact.email,'') END,
-		       outcome.sequence_enrollment_created,outcome.last_error,
+		       outcome.sequence_enrollment_created,
+		       COALESCE(outcome.updated_field_name,''),
+		       COALESCE(TO_CHAR(outcome.previous_date_value,'YYYY-MM-DD'),''),
+		       COALESCE(TO_CHAR(outcome.current_date_value,'YYYY-MM-DD'),''),
+		       outcome.field_value_changed,outcome.last_error,
 		       COALESCE(approval.id,0),COALESCE(approval.status,''),COALESCE(approval.approver_role,''),
 		       COALESCE(approval.message,''),COALESCE(approval.requested_by_user_id,0),
 		       COALESCE(TO_CHAR(approval.requested_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),''),
@@ -341,6 +385,10 @@ func attachRunActions(ctx context.Context, tx pgx.Tx, organizationID int64, runs
 			&action.SequenceContactID,
 			&action.SequenceContactName,
 			&action.SequenceEnrollmentCreated,
+			&action.UpdatedField,
+			&action.PreviousValue,
+			&action.CurrentValue,
+			&action.FieldValueChanged,
 			&action.LastError,
 			&approval.ID,
 			&approval.Status,

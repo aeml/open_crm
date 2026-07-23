@@ -40,9 +40,9 @@ security-surface digest, while adding an audit producer source changes the
 inventory below; both gates require an explicit review instead of silently
 expanding the boundary.
 
-Producer source count: `61`
+Producer source count: `62`
 
-Producer source digest: `6568afbd72a1a34d46e7d39fe36a0f82a50e3144530b90a45a4807f0f94a6f16`
+Producer source digest: `6c8f43cb2e664ff3e33e13ba1a01a051c5162a434167618dd42fc998db617e89`
 
 The producer digest covers production Go files that insert `audit_events`
 directly or construct the shared audit record input. It is a change detector,
@@ -91,6 +91,16 @@ subject/body, provider identifiers, credentials, message content, job payload,
 and request/idempotency material. The delivery ledger remains the detailed
 provider evidence and the portable workspace export retains the content-free
 audit row.
+
+The expected-close-date review adds one focused producer for the exact
+`deal_set_expected_close_v1` outcome. Its event commits with the source deal
+mutation, typed before/after action evidence, and customer timeline activity,
+or none of them commit. Audit metadata contains only the deal identifier,
+finite trigger event, fixed `expectedCloseDate` field name, resulting ISO date,
+and changed/no-op boolean. The previous value remains in the tenant-scoped
+action/activity evidence rather than the admin audit row. No customer identity,
+commercial value, arbitrary field name/value, provider content, credential,
+request fingerprint, or idempotency material is retained.
 
 Custom-field create/update/archive events commit in the same bounded-retry
 serializable tenant transaction as the exact-revision definition mutation. The

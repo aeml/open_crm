@@ -82,6 +82,9 @@ const runActionStatuses = new Set(['queued', 'running', 'succeeded', 'failed', '
 function validRunAction(action) {
 	const assignmentSucceeded = action?.type === 'assign_owner' && action?.status === 'succeeded'
 	const sequenceSucceeded = action?.type === 'add_to_sequence' && action?.status === 'succeeded'
+	const updateFieldSucceeded = action?.type === 'update_field' && action?.status === 'succeeded'
+	const expectedCloseSucceeded = updateFieldSucceeded && action?.updatedField === 'expectedCloseDate'
+	const hasFieldEvidence = Boolean(action?.updatedField || action?.previousValue || action?.currentValue || action?.fieldValueChanged)
   return Number.isInteger(action?.id) && action.id > 0 &&
     Number.isInteger(action.position) && action.position > 0 &&
     typeof action.type === 'string' && action.type.length > 0 &&
@@ -97,6 +100,8 @@ function validRunAction(action) {
 		(!action.sequenceEnrollmentId || (sequenceSucceeded && Number.isInteger(action.sequenceId) && action.sequenceId > 0 && typeof action.sequenceName === 'string' && action.sequenceName.length > 0 && Number.isInteger(action.sequenceEnrollmentId) && action.sequenceEnrollmentId > 0 && Number.isInteger(action.sequenceContactId) && action.sequenceContactId > 0 && typeof action.sequenceContactName === 'string' && action.sequenceContactName.length > 0 && typeof action.sequenceEnrollmentCreated === 'boolean')) &&
 		(!sequenceSucceeded || (Number.isInteger(action.sequenceId) && action.sequenceId > 0 && Number.isInteger(action.sequenceEnrollmentId) && action.sequenceEnrollmentId > 0 && Number.isInteger(action.sequenceContactId) && action.sequenceContactId > 0)) &&
 		(!action.sequenceEnrollmentCreated || sequenceSucceeded) &&
+		(!updateFieldSucceeded || expectedCloseSucceeded) &&
+		(!hasFieldEvidence || (expectedCloseSucceeded && /^\d{4}-\d{2}-\d{2}$/.test(action.currentValue || '') && (!action.previousValue || /^\d{4}-\d{2}-\d{2}$/.test(action.previousValue)) && typeof action.fieldValueChanged === 'boolean')) &&
     (!action.approval || validRunActionApproval(action.approval))
 }
 

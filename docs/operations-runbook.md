@@ -1216,7 +1216,18 @@ bytes, tokens, or counters with ad hoc SQL.
    Never create or reconnect the enrollment/job with SQL. Once committed, the
    existing sequence delivery, suppression, hosted-limit deferral, uncertainty,
    and Operations recovery procedures below govern the external effect.
-9. Root events show no causal parent. Any action that emits another
+9. A `deal_set_expected_close_v1` rule locks the unarchived source deal and
+   derives one date from the transaction's UTC event date plus its captured
+   0–365-day offset. Run inspection shows `expectedCloseDate`, the previous and
+   current dates, and whether the field changed. An already-equal date and exact
+   replay are explicit successful no-ops and create no duplicate activity. A
+   downstream audit failure rolls back the source deal mutation, run, action,
+   activity, and audit together; retry the original deal creation or real stage
+   change after correcting the failure. Deactivate the rule to stop future
+   changes. Never patch the deal date or typed action evidence in SQL when
+   reconciling an ambiguous client response, and never assume a generic legacy
+   `update_field` definition executed.
+10. Root events show no causal parent. Any action that emits another
    workflow event must identify its exact successful same-tenant run/action.
    Nested runs retain that parent and causal depth. The same automation cannot
    appear twice in one ancestor chain, depth 9 is retained as a skipped run,
@@ -1229,7 +1240,7 @@ bytes, tokens, or counters with ad hoc SQL.
    `workflow_automation.loop_prevented` audit before changing the rule. Never
    bypass the guard or rewrite causal columns. The notification action remains
    intentionally non-recursive and does not emit a workflow event.
-10. To stop future work, deactivate the rule. Deactivation does not remove tasks
+11. To stop future work, deactivate the rule. Deactivation does not remove tasks
    already created; edit, complete, archive, or reassign those through normal
    task controls so the operational history remains honest. Restoring a directly
    or bulk-archived deal likewise does not delete its archive follow-up task.

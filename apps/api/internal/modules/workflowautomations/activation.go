@@ -85,7 +85,7 @@ func validateExecutableActivation(input Input) error {
 	case "deal":
 		taskContract, _ := stringConfig(input.TriggerConfig, "taskPlanContract")
 		actionContract, _ := stringConfig(input.TriggerConfig, "actionPlanContract")
-		if taskContract == DealTaskPlanContract || taskContract == DealApprovalTaskPlanContract || taskContract == DealTaskNotifyPlanContract || actionContract == DealAssignOwnerContract || actionContract == DealAddToSequenceContract {
+		if taskContract == DealTaskPlanContract || taskContract == DealApprovalTaskPlanContract || taskContract == DealTaskNotifyPlanContract || actionContract == DealAssignOwnerContract || actionContract == DealAddToSequenceContract || actionContract == DealSetExpectedCloseContract {
 			if rawStageID, configured := input.TriggerConfig["stageId"]; configured {
 				if _, valid := exactPositiveInteger(rawStageID); !valid {
 					return ErrInvalidInput
@@ -121,7 +121,8 @@ func validExecutableDealActivation(input Input) bool {
 	taskPlan := taskContract == DealTaskPlanContract || taskContract == DealApprovalTaskPlanContract || taskContract == DealTaskNotifyPlanContract
 	assignmentPlan := actionContract == DealAssignOwnerContract && taskContract == ""
 	sequencePlan := actionContract == DealAddToSequenceContract && taskContract == ""
-	if !taskPlan && !assignmentPlan && !sequencePlan {
+	expectedClosePlan := actionContract == DealSetExpectedCloseContract && taskContract == ""
+	if !taskPlan && !assignmentPlan && !sequencePlan && !expectedClosePlan {
 		return false
 	}
 
@@ -146,7 +147,7 @@ func validExecutableDealActivation(input Input) bool {
 	case "record_updated":
 		allowedKeys["event"] = true
 		event, _ := stringConfig(input.TriggerConfig, "event")
-		if (taskPlan && event != DealEventArchived) || (assignmentPlan && event != DealEventOwnerChanged) || sequencePlan {
+		if (taskPlan && event != DealEventArchived) || (assignmentPlan && event != DealEventOwnerChanged) || sequencePlan || expectedClosePlan {
 			return false
 		}
 	default:

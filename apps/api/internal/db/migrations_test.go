@@ -2505,3 +2505,30 @@ func TestMigrationFilesIncludeWorkflowSequenceEnrollment(t *testing.T) {
 		t.Fatalf("workflow sequence enrollment migration deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeWorkflowExpectedCloseDate(t *testing.T) {
+	const name = "133_workflow_expected_close_date.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"updated_field_name",
+		"previous_date_value",
+		"current_date_value",
+		"field_value_changed",
+		"workflow_action_outcomes_expected_close_shape_check",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("workflow expected-close migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("workflow expected-close migration deployment class = %q", class)
+	}
+}

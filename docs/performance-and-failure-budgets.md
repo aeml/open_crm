@@ -262,11 +262,11 @@ level-9-gzip bytes using only Node's standard library.
 | --- | ---: | ---: |
 | Initial JavaScript entry | 190 KiB | 65 KiB |
 | Any lazy JavaScript chunk | 60 KiB | 16 KiB |
-| All JavaScript and CSS | 817 KiB | 256 KiB |
+| All JavaScript and CSS | 819 KiB | 259 KiB |
 | All CSS | 20 KiB | 5 KiB |
 
-Current production-URL evidence: 179.11 KiB/58.08 KiB entry, 54.10 KiB/15.64 KiB largest lazy
-chunk, and 810.43 KiB/255.41 KiB total assets. The production contact, company,
+Current production-URL evidence: 179.16 KiB/58.10 KiB entry, 54.10 KiB/15.64 KiB largest lazy
+chunk, and 818.43 KiB/258.12 KiB total assets. The production contact, company,
 deal, and task routes are 25.01/7.98, 44.01/12.98, 54.10/15.64, and 26.44/8.14
 KiB raw/gzip respectively. Hosted billing, invoice/payment visibility, explicit self-hosted mode,
 portable workspace export, and measured usage remain isolated in a 14.58 KiB/4.62 KiB settings route. Its
@@ -793,6 +793,14 @@ outcomes; the stored-definition validation ceiling of 25 keeps even legacy
 history bounded at 2,500 outcomes for the maximum direct request. A larger
 action history needs an explicit cursor contract and query-plan evidence rather
 than a higher hidden limit.
+
+The exact expected-close workflow outcome adds only one bounded authoring field,
+strict contract validation, typed previous/current/change run evidence, and its
+acceptance path. The automation route/model/run boundaries are 479/451/71 lines,
+the focused backend executor is 125 lines, and every production workflow source
+remains below the 500-line ratchet. The measured build advances aggregate limits
+from 817/258 to 819/259 KiB raw/gzip for 818.43/258.12 KiB evidence; initial,
+per-route, CSS, hidden-foundation, and source ceilings do not change.
 
 Hashes may change; the byte budgets do not. Raising a budget requires a measured
 user outcome and an update to this document in the same reviewed slice.

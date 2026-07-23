@@ -21,6 +21,7 @@ function RunActionOutcome({ action }) {
       {action.notificationCount ? <p className="field-hint">Delivered to {action.notificationCount} eligible {action.notificationCount === 1 ? 'teammate' : 'teammates'}.</p> : null}
 			{action.assignedUserId ? <p className="field-hint">{action.assignmentChanged ? `Assigned to ${action.assignedUserName}.` : `Already assigned to ${action.assignedUserName}; no record change was needed.`}</p> : null}
 			{action.sequenceEnrollmentId ? <p className="field-hint">{action.sequenceEnrollmentCreated ? `Enrolled ${action.sequenceContactName} in ${action.sequenceName}; the first delivery is queued durably.` : `${action.sequenceContactName} already had an active or paused enrollment in ${action.sequenceName}; no duplicate was created.`}</p> : null}
+			{action.updatedField === 'expectedCloseDate' ? <p className="field-hint">{action.fieldValueChanged ? `Expected close changed from ${action.previousValue || 'not set'} to ${action.currentValue}.` : `Expected close was already ${action.currentValue}; no record change was needed.`}</p> : null}
       {action.lastError ? <p>Action issue: {action.lastError}</p> : null}
       {action.taskId ? <Link to={`/tasks/${action.taskId}`}>Open created task</Link> : null}
 			{action.sequenceContactId ? <Link to={`/contacts/${action.sequenceContactId}`}>Open enrolled contact</Link> : null}

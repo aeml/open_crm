@@ -15,6 +15,7 @@ const dealApprovalTaskPlanContract = 'deal_approval_task_plan_v1'
 const dealTaskNotifyPlanContract = 'deal_task_notify_plan_v1'
 const dealAssignOwnerContract = 'deal_assign_owner_v1'
 const dealAddToSequenceContract = 'deal_add_to_sequence_v1'
+const dealSetExpectedCloseContract = 'deal_set_expected_close_v1'
 const leadFollowUpTaskContract = 'lead_follow_up_task_v1'
 export const maxDealPlanTasks = 5
 export const maxActiveWorkflowActions = 50
@@ -54,7 +55,7 @@ export function emptyForm() {
     additionalTasks: [], requiresApproval: false, approvalName: 'Review task playbook', approverRole: 'admin',
     approvalMessage: 'Review this deal before creating the follow-up tasks.', notifyAfterTasks: false,
     notificationRecipientRole: 'record_owner', notificationMessage: 'The deal follow-up task plan is ready.',
-    outcome: 'tasks', dealOwnerUserId: '', sequenceId: '', isActive: true
+    outcome: 'tasks', dealOwnerUserId: '', sequenceId: '', expectedCloseDays: '30', isActive: true
   }
 }
 
@@ -83,8 +84,13 @@ export function isExecutableTaskRule(automation) {
   if (automation.targetEntityType === 'deal') {
     const assignmentPlan = automation.triggerConfig?.actionPlanContract === dealAssignOwnerContract
     const sequencePlan = automation.triggerConfig?.actionPlanContract === dealAddToSequenceContract
-    if (assignmentPlan || sequencePlan) {
-      const validAction = actions.length === 1 && (assignmentPlan ? validOwnerAssignmentAction(actions[0]) : validSequenceEnrollmentAction(actions[0]))
+    const expectedClosePlan = automation.triggerConfig?.actionPlanContract === dealSetExpectedCloseContract
+    if (assignmentPlan || sequencePlan || expectedClosePlan) {
+      const validAction = actions.length === 1 && (assignmentPlan
+        ? validOwnerAssignmentAction(actions[0])
+        : sequencePlan
+          ? validSequenceEnrollmentAction(actions[0])
+          : validExpectedCloseAction(actions[0]))
       const conditions = automation.conditions || []
       const condition = conditions[0]
       const validCondition = conditions.length === 0 || (conditions.length === 1 && automation.conditionLogic === 'all' && automation.triggerConfig?.conditionContract === dealConditionContract && executableDealCondition(condition))
@@ -147,6 +153,13 @@ function validOwnerAssignmentAction(action) {
     Object.keys(config).length === 1 && Number.isInteger(userID) && userID > 0
 }
 
+function validExpectedCloseAction(action) {
+  const config = action?.config || {}
+  const days = Number(config.value)
+  return action?.type === 'update_field' && !action.scheduledAt && Number(action.delayMinutes || 0) === 0 &&
+    Object.keys(config).length === 2 && config.field === 'expectedCloseDate' && validWholeDays(days)
+}
+
 function validDealTaskActions(actions, exactReviewedConfig) {
   return actions.length > 0 && actions.length <= maxDealPlanTasks && actions.every((candidate) => {
     const title = String(candidate?.config?.title || '')
@@ -191,8 +204,12 @@ export function isDealSequenceEnrollmentRule(automation) {
 	return automation?.targetEntityType === 'deal' && automation?.triggerConfig?.actionPlanContract === dealAddToSequenceContract && isExecutableTaskRule(automation)
 }
 
+export function isDealExpectedCloseRule(automation) {
+  return automation?.targetEntityType === 'deal' && automation?.triggerConfig?.actionPlanContract === dealSetExpectedCloseContract && isExecutableTaskRule(automation)
+}
+
 export function taskActionsForAutomation(automation) {
-	if (isDealOwnerAssignmentRule(automation) || isDealSequenceEnrollmentRule(automation)) return []
+	if (isDealOwnerAssignmentRule(automation) || isDealSequenceEnrollmentRule(automation) || isDealExpectedCloseRule(automation)) return []
   if (isApprovalTaskRule(automation)) return automation.actions.slice(1)
   if (isNotificationTaskRule(automation)) return automation.actions.slice(0, -1)
   return automation.actions || []
@@ -201,6 +218,7 @@ export function taskActionsForAutomation(automation) {
 export function formFromAutomation(automation) {
   const assignmentPlan = isDealOwnerAssignmentRule(automation)
   const sequencePlan = isDealSequenceEnrollmentRule(automation)
+  const expectedClosePlan = isDealExpectedCloseRule(automation)
   const approvalPlan = isApprovalTaskRule(automation)
   const notificationPlan = isNotificationTaskRule(automation)
   const approvalAction = approvalPlan ? automation.actions[0] : null
@@ -234,9 +252,10 @@ export function formFromAutomation(automation) {
     notifyAfterTasks: notificationPlan,
     notificationRecipientRole: notificationAction?.config?.recipientRole || 'record_owner',
     notificationMessage: notificationAction?.config?.message || 'The deal follow-up task plan is ready.',
-    outcome: assignmentPlan ? 'assign_owner' : sequencePlan ? 'add_to_sequence' : 'tasks',
+    outcome: assignmentPlan ? 'assign_owner' : sequencePlan ? 'add_to_sequence' : expectedClosePlan ? 'set_expected_close' : 'tasks',
     dealOwnerUserId: assignmentPlan ? String(automation.actions[0].config?.userId || '') : '',
 		sequenceId: sequencePlan ? String(automation.actions[0].config?.sequenceId || '') : '',
+    expectedCloseDays: expectedClosePlan ? String(automation.actions[0].config?.value ?? '') : '30',
     isActive: automation.isActive === true
   }
 }
@@ -244,7 +263,8 @@ export function formFromAutomation(automation) {
 export function payloadFromForm(form) {
   const assignmentPlan = form.event !== leadFormEvent && form.outcome === 'assign_owner'
 	const sequencePlan = form.event !== leadFormEvent && form.outcome === 'add_to_sequence'
-	const actionPlan = assignmentPlan || sequencePlan
+  const expectedClosePlan = form.event !== leadFormEvent && form.outcome === 'set_expected_close'
+	const actionPlan = assignmentPlan || sequencePlan || expectedClosePlan
   const dueDays = Number(form.dueDays)
   if (!actionPlan && !validWholeDays(dueDays)) throw new Error('Due days must be a whole number from 0 to 365.')
   const leadFollowUp = form.event === leadFormEvent
@@ -288,6 +308,12 @@ export function payloadFromForm(form) {
 		if (!Number.isInteger(sequenceID) || sequenceID <= 0) throw new Error('Choose an approved active email sequence.')
 		triggerConfig.actionPlanContract = dealAddToSequenceContract
 	}
+  if (expectedClosePlan) {
+    if (!['created', stageChangedEvent].includes(form.event)) throw new Error('Expected close date automation supports deal creation or stage changes.')
+    const days = Number(form.expectedCloseDays)
+    if (!validWholeDays(days)) throw new Error('Expected close days must be a whole number from 0 to 365.')
+    triggerConfig.actionPlanContract = dealSetExpectedCloseContract
+  }
   if (!leadFollowUp && !actionPlan && form.requiresApproval) {
     if (!String(form.approvalName || '').trim()) throw new Error('Approval needs a name.')
     if (String(form.approvalName).trim().length > 200) throw new Error('Approval name exceeds 200 characters.')
@@ -321,8 +347,10 @@ export function payloadFromForm(form) {
   }
   let actions = assignmentPlan
     ? [{ type: 'assign_owner', config: { userId: Number(form.dealOwnerUserId) } }]
-		: sequencePlan
-		? [{ type: 'add_to_sequence', config: { sequenceId: Number(form.sequenceId) } }]
+			: sequencePlan
+			? [{ type: 'add_to_sequence', config: { sequenceId: Number(form.sequenceId) } }]
+      : expectedClosePlan
+        ? [{ type: 'update_field', config: { field: 'expectedCloseDate', value: Number(form.expectedCloseDays) } }]
     : leadFollowUp
     ? [{ type: 'create_task', config, delayMinutes: waitDays * 1440 }]
     : taskForms.map((task) => {
@@ -356,8 +384,10 @@ export function payloadFromForm(form) {
       ? 'Creates one durable assigned follow-up task from an accepted lead form submission.'
       : assignmentPlan
         ? 'Assigns the deal to one active teammate and emits one causally bounded owner-change event.'
-				: sequencePlan
-					? 'Enrolls the current primary contact in one approved sequence using the active deal owner as sender.'
+					: sequencePlan
+						? 'Enrolls the current primary contact in one approved sequence using the active deal owner as sender.'
+            : expectedClosePlan
+              ? 'Sets the expected close date to a reviewed whole-day offset from the triggering deal event.'
       : form.requiresApproval
         ? `Requests a human decision before creating ${taskForms.length} follow-up ${taskForms.length === 1 ? 'task' : 'tasks'} from a deal event.`
         : form.notifyAfterTasks
