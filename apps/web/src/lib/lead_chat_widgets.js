@@ -1,4 +1,4 @@
-import { apiRequest } from './api'
+import { apiRequest, escapeEmbedHTML } from './api'
 
 export async function listLeadChatWidgetPage({ status = 'all', page = 1, pageSize = 50, signal } = {}) {
   const query = new URLSearchParams()
@@ -46,5 +46,5 @@ export function leadChatWidgetEmbedCode(widget) {
     ? 'border:0;width:360px;max-width:100%;height:620px;'
     : `border:0;width:360px;max-width:calc(100vw - 32px);height:620px;${fixedStyle}`
 
-  return `<iframe src="${src}" title="${widget?.title || 'Lead chat widget'}" style="${style}"></iframe>`
+  return `<iframe src="${escapeEmbedHTML(src)}" title="${escapeEmbedHTML(widget?.title || 'Lead chat widget')}" style="${escapeEmbedHTML(style)}"></iframe>`
 }

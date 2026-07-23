@@ -76,6 +76,8 @@ func (s *Service) SubmissionReviewOperationalStats(ctx context.Context) (Submiss
 	if s == nil || s.pool == nil {
 		return SubmissionReviewOperationalStats{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	var result SubmissionReviewOperationalStats
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FILTER (WHERE review_status='unreviewed')::bigint,
@@ -96,6 +98,8 @@ func (s *Service) ReviewSubmission(ctx context.Context, organizationID, submissi
 	if s == nil || s.pool == nil {
 		return ReviewedSubmission{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	input.Status = strings.ToLower(strings.TrimSpace(input.Status))
 	input.Note = strings.TrimSpace(input.Note)
 	input.IdempotencyKey = strings.TrimSpace(input.IdempotencyKey)

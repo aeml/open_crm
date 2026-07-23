@@ -41,7 +41,10 @@ var (
 	ErrFormUnavailable   = errors.New("lead capture form configuration is unavailable")
 	ErrInvalidWidget     = errors.New("invalid lead chat widget")
 	ErrNotFound          = errors.New("lead capture form not found")
+	ErrQueryTimeout      = errors.New("lead capture operation timed out")
 )
+
+const leadFormOperationTimeout = 5 * time.Second
 
 var fieldKeyPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
@@ -202,21 +205,36 @@ type Service struct {
 	enforceHostedBilling bool
 	capacity             modulebilling.CapacityManager
 	now                  func() time.Time
+	operationTimeout     time.Duration
 }
 
 func NewService(pool *pgxpool.Pool, enforceHostedBilling ...bool) *Service {
 	enforce := len(enforceHostedBilling) > 0 && enforceHostedBilling[0]
-	return &Service{pool: pool, enforceHostedBilling: enforce, now: time.Now}
+	return &Service{pool: pool, enforceHostedBilling: enforce, now: time.Now, operationTimeout: leadFormOperationTimeout}
 }
 
 func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityManager, enforceHostedBilling bool) *Service {
-	return &Service{pool: pool, enforceHostedBilling: enforceHostedBilling, capacity: capacity, now: time.Now}
+	return &Service{pool: pool, enforceHostedBilling: enforceHostedBilling, capacity: capacity, now: time.Now, operationTimeout: leadFormOperationTimeout}
+}
+
+func (s *Service) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := s.operationTimeout
+	if timeout <= 0 {
+		timeout = leadFormOperationTimeout
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func IsQueryTimeout(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrQueryTimeout)
 }
 
 func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64, input Input) (Form, error) {
 	if s == nil || s.pool == nil {
 		return Form{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	input = normalizeInput(input)
 	isActive := true
 	if input.IsActive != nil {
@@ -267,6 +285,8 @@ func (s *Service) Update(ctx context.Context, organizationID, formID, actorUserI
 	if s == nil || s.pool == nil {
 		return Form{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	input = normalizeInput(input)
 	if input.Revision <= 0 {
 		return Form{}, ErrInvalidInput
@@ -350,6 +370,8 @@ func (s *Service) GetPublicLandingPage(ctx context.Context, slug string) (Public
 	if s == nil || s.pool == nil {
 		return PublicLandingPage{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	slug = normalizeSlug(slug)
 	if slug == "" {
 		return PublicLandingPage{}, ErrNotFound
@@ -390,6 +412,8 @@ func (s *Service) GetPublicChatWidget(ctx context.Context, publicID string) (Pub
 	if s == nil || s.pool == nil {
 		return PublicChatWidget{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	publicID = strings.TrimSpace(publicID)
 	if publicID == "" {
 		return PublicChatWidget{}, ErrNotFound
@@ -430,6 +454,8 @@ func (s *Service) SubmitByPublicID(ctx context.Context, publicID string, input S
 	if s == nil || s.pool == nil {
 		return SubmissionResult{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	publicID = strings.TrimSpace(publicID)
 	if publicID == "" {
 		return SubmissionResult{}, ErrNotFound

@@ -82,7 +82,12 @@ describe('public landing page route', () => {
       const submitCall = fetchMock.mock.calls.find(
         (call) => String(call[0]).endsWith('/api/public/lead-capture-forms/lf_public/submissions') && call[1]?.method === 'POST'
       )
+      const challengeCall = fetchMock.mock.calls.find(
+        (call) => String(call[0]).endsWith('/api/public/lead-capture-forms/lf_public/challenge') && call[1]?.method === 'POST'
+      )
       expect(submitCall).toBeTruthy()
+      expect(challengeCall?.[1]?.credentials).toBe('omit')
+      expect(submitCall[1].credentials).toBe('omit')
       expect(JSON.parse(submitCall[1].body)).toEqual({
         values: {
           firstName: 'Ada',

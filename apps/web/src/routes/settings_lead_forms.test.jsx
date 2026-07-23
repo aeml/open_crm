@@ -159,7 +159,9 @@ describe('settings lead forms route', () => {
     expect(screen.getByDisplayValue(/api\/public\/lead-capture-forms\/lf_existing\/submissions/)).toBeInTheDocument()
 	const existingEmbed = screen.getByDisplayValue(/api\/public\/lead-capture-forms\/lf_existing\/challenge/).value
 	expect(existingEmbed).toContain('consentGranted')
-	expect(existingEmbed).toContain('Number(challenge.formRevision) !== 7')
+  expect(existingEmbed).toContain('/challenge",7,"Thanks!"')
+	expect(existingEmbed).toContain("form.addEventListener('submit'")
+	expect(existingEmbed).toContain("credentials: 'omit'")
 
     fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Demo request' } })
     fireEvent.change(screen.getByLabelText(/slug/i), { target: { value: 'demo-request' } })

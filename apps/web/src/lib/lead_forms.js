@@ -72,6 +72,7 @@ export function publicLeadCaptureFormChallengeURL(publicId) {
 export async function issuePublicLeadSubmissionChallenge(publicId, { signal } = {}) {
   const payload = await apiRequest(`/api/public/lead-capture-forms/${encodeURIComponent(publicId)}/challenge`, {
     method: 'POST',
+    credentials: 'omit',
     fallbackMessage: 'Unable to prepare the form.',
     signal
   })
@@ -89,7 +90,7 @@ export async function waitForPublicLeadChallenge(challenge) {
 }
 
 export async function submitPublicLeadCaptureForm(publicId, input, { signal } = {}) {
-  const payload = await apiRequest(`/api/public/lead-capture-forms/${encodeURIComponent(publicId)}/submissions`, { method: 'POST', body: input, fallbackMessage: 'Unable to submit the form.', signal })
+  const payload = await apiRequest(`/api/public/lead-capture-forms/${encodeURIComponent(publicId)}/submissions`, { method: 'POST', body: input, credentials: 'omit', fallbackMessage: 'Unable to submit the form.', signal })
 
   return payload?.data
 }

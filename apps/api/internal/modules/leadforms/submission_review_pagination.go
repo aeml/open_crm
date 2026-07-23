@@ -35,6 +35,8 @@ func (s *Service) ListSubmissionReviews(ctx context.Context, organizationID int6
 	if s == nil || s.pool == nil || organizationID <= 0 {
 		return SubmissionReviewPage{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	query.Status = strings.ToLower(strings.TrimSpace(query.Status))
 	if query.Status != "" && !validReviewStatus(query.Status) {
 		return SubmissionReviewPage{}, ErrInvalidReview

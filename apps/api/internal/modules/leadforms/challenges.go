@@ -39,6 +39,8 @@ func (s *Service) IssueSubmissionChallenge(ctx context.Context, publicID string)
 	if s == nil || s.pool == nil {
 		return SubmissionChallenge{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	publicID = strings.TrimSpace(publicID)
 	if publicID == "" {
 		return SubmissionChallenge{}, ErrNotFound

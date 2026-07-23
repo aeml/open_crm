@@ -362,6 +362,58 @@ func TestSaveLeadCaptureFormMapsStableMappingAndRevisionErrors(t *testing.T) {
 	}
 }
 
+func TestLeadCaptureHandlersMapOperationTimeout(t *testing.T) {
+	tests := []struct {
+		name          string
+		method        string
+		target        string
+		body          string
+		authenticated bool
+		setup         func(*fakeLeadFormsService)
+	}{
+		{name: "form list", method: http.MethodGet, target: "/api/lead-capture-forms", authenticated: true, setup: func(service *fakeLeadFormsService) { service.listErr = context.DeadlineExceeded }},
+		{name: "form create", method: http.MethodPost, target: "/api/lead-capture-forms", body: `{}`, authenticated: true, setup: func(service *fakeLeadFormsService) { service.createErr = context.DeadlineExceeded }},
+		{name: "form update", method: http.MethodPatch, target: "/api/lead-capture-forms/9", body: `{}`, authenticated: true, setup: func(service *fakeLeadFormsService) { service.updateErr = context.DeadlineExceeded }},
+		{name: "review list", method: http.MethodGet, target: "/api/lead-capture-submissions", authenticated: true, setup: func(service *fakeLeadFormsService) { service.reviewListErr = context.DeadlineExceeded }},
+		{name: "review write", method: http.MethodPost, target: "/api/lead-capture-submissions/17/review", body: `{"status":"spam"}`, authenticated: true, setup: func(service *fakeLeadFormsService) { service.reviewErr = context.DeadlineExceeded }},
+		{name: "landing page list", method: http.MethodGet, target: "/api/lead-landing-pages", authenticated: true, setup: func(service *fakeLeadFormsService) { service.pageListErr = context.DeadlineExceeded }},
+		{name: "landing page create", method: http.MethodPost, target: "/api/lead-landing-pages", body: `{}`, authenticated: true, setup: func(service *fakeLeadFormsService) { service.pageCreateErr = context.DeadlineExceeded }},
+		{name: "landing page update", method: http.MethodPatch, target: "/api/lead-landing-pages/9", body: `{}`, authenticated: true, setup: func(service *fakeLeadFormsService) { service.pageUpdateErr = context.DeadlineExceeded }},
+		{name: "public landing page", method: http.MethodGet, target: "/api/public/landing-pages/demo", setup: func(service *fakeLeadFormsService) { service.publicPageErr = context.DeadlineExceeded }},
+		{name: "widget list", method: http.MethodGet, target: "/api/lead-chat-widgets", authenticated: true, setup: func(service *fakeLeadFormsService) { service.widgetListErr = context.DeadlineExceeded }},
+		{name: "widget create", method: http.MethodPost, target: "/api/lead-chat-widgets", body: `{}`, authenticated: true, setup: func(service *fakeLeadFormsService) { service.widgetCreateErr = context.DeadlineExceeded }},
+		{name: "widget update", method: http.MethodPatch, target: "/api/lead-chat-widgets/9", body: `{}`, authenticated: true, setup: func(service *fakeLeadFormsService) { service.widgetUpdateErr = context.DeadlineExceeded }},
+		{name: "public widget", method: http.MethodGet, target: "/api/public/lead-chat-widgets/cw_public", setup: func(service *fakeLeadFormsService) { service.publicWidgetErr = context.DeadlineExceeded }},
+		{name: "public challenge", method: http.MethodPost, target: "/api/public/lead-capture-forms/lf_public/challenge", setup: func(service *fakeLeadFormsService) { service.challengeErr = moduleleadforms.ErrQueryTimeout }},
+		{name: "public submission", method: http.MethodPost, target: "/api/public/lead-capture-forms/lf_public/submissions", body: `{}`, setup: func(service *fakeLeadFormsService) { service.submitErr = context.DeadlineExceeded }},
+	}
+
+	for _, current := range tests {
+		t.Run(current.name, func(t *testing.T) {
+			service := &fakeLeadFormsService{}
+			current.setup(service)
+			server := authenticatedLeadFormsServer(service, "admin")
+			request := httptest.NewRequest(current.method, current.target, strings.NewReader(current.body))
+			if current.body != "" {
+				request.Header.Set("Content-Type", "application/json")
+			}
+			if current.authenticated {
+				addSessionCookie(request)
+			}
+			if current.name == "review write" {
+				request.Header.Set("Idempotency-Key", "lead-timeout-handler-key-0001")
+			}
+			recorder := httptest.NewRecorder()
+
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusGatewayTimeout || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"LEAD_CAPTURE_QUERY_TIMEOUT"`)) {
+				t.Fatalf("expected stable lead capture timeout, got status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestListLeadSubmissionReviewsRequiresAdminAndScopesFilters(t *testing.T) {
 	cursor, err := platformtimeline.Encode(time.Date(2026, 7, 22, 12, 0, 0, 123456000, time.UTC), 17)
 	if err != nil {

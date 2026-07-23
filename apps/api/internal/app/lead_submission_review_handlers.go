@@ -62,6 +62,9 @@ func handleListLeadSubmissionReviews(auth authService, forms leadFormsService, w
 	}
 	page, err := forms.ListSubmissionReviews(r.Context(), state.Organization.ID, query)
 	if err != nil {
+		if writeLeadCaptureQueryTimeout(w, requestID, err) {
+			return
+		}
 		if errors.Is(err, moduleleadforms.ErrInvalidReview) {
 			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid lead review filter")
 			return
@@ -110,6 +113,8 @@ func handleReviewLeadSubmission(auth authService, forms leadFormsService, w http
 
 func writeLeadSubmissionReviewError(w http.ResponseWriter, requestID string, err error) {
 	switch {
+	case moduleleadforms.IsQueryTimeout(err):
+		writeLeadCaptureQueryTimeout(w, requestID, err)
 	case errors.Is(err, moduleleadforms.ErrInvalidReview):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose legitimate or spam and provide a valid idempotency key")
 	case errors.Is(err, moduleleadforms.ErrNotFound):

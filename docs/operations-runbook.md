@@ -1659,13 +1659,30 @@ New submissions leave the legacy `remote_addr` and `user_agent` columns empty;
 historical values were not rewritten by the expand migration and remain subject
 to the approved retention/deletion policy.
 
-Hosted `/lp/...` pages and `/widget/...` surfaces are same-origin. An embed on a
-different website must add that website's exact scheme/host/port to
-`CORS_ALLOWED_ORIGINS`, because its credential-free preparation script must read
-the challenge response. Verify the browser's challenge request, consent text,
-two-second preparation delay, submission success, and expected Origin before
-publishing. Do not use `*`, weaken the CSRF origin policy, or copy challenge
-tokens into logs while troubleshooting.
+Hosted `/lp/...` pages and `/widget/...` surfaces are same-origin. Generated
+form embeds also work on a different website without adding that customer site
+to `ALLOWED_ORIGINS`: only the exact public challenge and submission routes
+return `Access-Control-Allow-Origin: *` for `POST`/`OPTIONS`, never return
+`Access-Control-Allow-Credentials`, and permit only `Content-Type`. Generated
+embeds and the first-party public clients explicitly omit credentials. Private
+CRM session routes retain the exact credentialed `ALLOWED_ORIGINS` policy, and
+a cross-site request carrying a session cookie remains CSRF-rejected. Do not
+widen the wildcard route family or weaken that private origin boundary.
+
+Before publishing an embed, verify the browser sends the customer site's exact
+`Origin` and no `Cookie`, displays the challenge-bound consent text, observes
+the two-second preparation delay, submits inline without leaving the customer
+URL, and retains the expected source URL and UTM values. Do not copy challenge
+tokens into logs while troubleshooting. Generated markup escapes definition-
+owned HTML and script values; operators should still review the rendered form
+and accessible live status in the destination site's own content policy.
+
+Every public and authenticated lead-capture operation has one five-second
+service deadline. A blocked operation returns `504
+LEAD_CAPTURE_QUERY_TIMEOUT`; its transaction leaves no partial effect. Retrying
+the exact submission with the same challenge is safe after the underlying
+database condition clears because an uncommitted timeout does not consume the
+challenge, while an already committed submission returns its original effect.
 
 Monitor `open_crm_rate_limit_decisions_total{scope,outcome}`. The reference
 rules alert on any sustained `error` decision and elevated `rejected` traffic.
@@ -1687,7 +1704,8 @@ These application budgets coordinate replicas but are not a volumetric DDoS
 boundary or a reputation system. The delayed one-time lead challenge raises the
 cost of blind submissions but does not replace an approved production edge/WAF,
 IP/domain reputation, or an accessible escalation challenge. Validate that edge
-boundary before promoting public lead generation beyond foundation maturity.
+boundary before an approved real pilot or high-volume public exposure; local
+production-capable maturity does not claim a volumetric network boundary.
 
 ## Deploy
 

@@ -75,6 +75,9 @@ func handleListLeadChatWidgets(auth authService, forms leadFormsService, w http.
 	}
 	result, err := forms.ListChatWidgetsByOrganization(r.Context(), state.Organization.ID, moduleleadforms.LeadSurfaceListQuery{Status: status, Page: page.Number, PageSize: page.Size})
 	if err != nil {
+		if writeLeadCaptureQueryTimeout(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load lead chat widgets")
 		return
 	}
@@ -154,6 +157,9 @@ func handleGetPublicLeadChatWidget(forms leadFormsService, w http.ResponseWriter
 
 	result, err := forms.GetPublicChatWidget(r.Context(), publicID)
 	if err != nil {
+		if writeLeadCaptureQueryTimeout(w, requestID, err) {
+			return
+		}
 		if errors.Is(err, moduleleadforms.ErrFormUnavailable) {
 			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "FORM_UNAVAILABLE", "This lead form is temporarily unavailable")
 			return
@@ -194,6 +200,8 @@ func leadChatWidgetInput(request leadChatWidgetRequest) moduleleadforms.ChatWidg
 
 func writeLeadChatWidgetError(w http.ResponseWriter, requestID string, err error) {
 	switch {
+	case moduleleadforms.IsQueryTimeout(err):
+		writeLeadCaptureQueryTimeout(w, requestID, err)
 	case errors.Is(err, moduleleadforms.ErrInvalidWidget):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid widget name, title, labels, theme, position, and lead form")
 	case errors.Is(err, moduleleadforms.ErrStaleWidget):

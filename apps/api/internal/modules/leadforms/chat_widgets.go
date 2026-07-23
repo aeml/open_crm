@@ -14,6 +14,8 @@ func (s *Service) ListChatWidgetsByOrganization(ctx context.Context, organizatio
 	if s == nil || s.pool == nil || organizationID <= 0 {
 		return ChatWidgetListPage{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	query, page, err := normalizeLeadSurfaceListQuery(query)
 	if err != nil {
 		return ChatWidgetListPage{}, err
@@ -63,6 +65,8 @@ func (s *Service) CreateChatWidget(ctx context.Context, organizationID, actorUse
 	if s == nil || s.pool == nil {
 		return ChatWidget{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	input = normalizeChatWidgetInput(input)
 	if err := validateChatWidgetInput(input); err != nil {
 		return ChatWidget{}, err
@@ -117,6 +121,8 @@ func (s *Service) UpdateChatWidget(ctx context.Context, organizationID, widgetID
 	if s == nil || s.pool == nil {
 		return ChatWidget{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	input = normalizeChatWidgetInput(input)
 	if input.Revision <= 0 {
 		return ChatWidget{}, ErrInvalidWidget

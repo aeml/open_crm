@@ -102,6 +102,9 @@ func handleListLeadCaptureForms(auth authService, forms leadFormsService, w http
 	}
 	result, err := forms.ListByOrganization(r.Context(), state.Organization.ID, moduleleadforms.FormListQuery{Status: status, Page: page.Number, PageSize: page.Size})
 	if err != nil {
+		if writeLeadCaptureQueryTimeout(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load lead capture forms")
 		return
 	}
@@ -182,6 +185,10 @@ func handleIssuePublicLeadSubmissionChallenge(forms leadFormsService, metrics *p
 	}
 	challenge, err := forms.IssueSubmissionChallenge(r.Context(), publicID)
 	if err != nil {
+		if writeLeadCaptureQueryTimeout(w, requestID, err) {
+			metrics.ObserveLeadSubmission("error")
+			return
+		}
 		if errors.Is(err, moduleleadforms.ErrNotFound) {
 			metrics.ObserveLeadSubmission("rejected")
 			platformweb.WriteNotFound(w, requestID)
@@ -342,6 +349,8 @@ func leadCaptureSubmissionAttribution(request leadCaptureSubmissionRequest) modu
 
 func writeLeadCaptureFormError(w http.ResponseWriter, requestID string, err error) {
 	switch {
+	case moduleleadforms.IsQueryTimeout(err):
+		writeLeadCaptureQueryTimeout(w, requestID, err)
 	case errors.Is(err, moduleleadforms.ErrInvalidInput):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid form name, revision, fields, and required first and last name mappings")
 	case errors.Is(err, moduleleadforms.ErrInvalidMapping):
@@ -359,6 +368,8 @@ func writeLeadCaptureFormError(w http.ResponseWriter, requestID string, err erro
 
 func writeLeadCaptureSubmissionError(w http.ResponseWriter, requestID string, err error) {
 	switch {
+	case moduleleadforms.IsQueryTimeout(err):
+		writeLeadCaptureQueryTimeout(w, requestID, err)
 	case errors.Is(err, moduleleadforms.ErrInvalidSubmission):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide all required lead capture fields")
 	case errors.Is(err, moduleleadforms.ErrConsentRequired):
@@ -377,6 +388,14 @@ func writeLeadCaptureSubmissionError(w http.ResponseWriter, requestID string, er
 	default:
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to submit lead capture form")
 	}
+}
+
+func writeLeadCaptureQueryTimeout(w http.ResponseWriter, requestID string, err error) bool {
+	if !moduleleadforms.IsQueryTimeout(err) {
+		return false
+	}
+	platformweb.WriteError(w, http.StatusGatewayTimeout, requestID, "LEAD_CAPTURE_QUERY_TIMEOUT", "Lead capture processing exceeded the five-second query limit; retry safely")
+	return true
 }
 
 func leadSubmissionErrorOutcome(err error) string {

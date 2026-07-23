@@ -25,11 +25,11 @@ export async function readJSON(response) {
   return response.json()
 }
 
-export async function apiRequest(path, { method = 'GET', body, headers = {}, fallbackMessage = 'Request failed.', signal } = {}) {
+export async function apiRequest(path, { method = 'GET', body, headers = {}, fallbackMessage = 'Request failed.', signal, credentials = 'include' } = {}) {
   const requestHeaders = { ...headers }
   const request = {
     method,
-    credentials: 'include',
+    credentials,
     headers: requestHeaders,
     signal
   }
@@ -68,4 +68,13 @@ export async function apiRequest(path, { method = 'GET', body, headers = {}, fal
 
 export function apiURL(path) {
   return `${API_BASE_URL}${path}`
+}
+
+export function escapeEmbedHTML(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }

@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
+import { createServer } from 'node:http'
 
 const apiURL = process.env.OPEN_CRM_E2E_API_URL || 'http://127.0.0.1:8081'
 const smtpCaptureURL = process.env.OPEN_CRM_E2E_SMTP_CAPTURE_URL || 'http://127.0.0.1:2526'
@@ -672,6 +673,69 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
 	await expect(quarantinedSubmission).toBeVisible()
 	await quarantinedSubmission.getByRole('button', { name: 'Recover as legitimate' }).click()
 	await expect(page.getByText(/Lead restored as legitimate\. 0 follow-ups rescheduled\./)).toBeVisible()
+
+  const externalLeadEmail = `external-embed-${runID}@example.test`
+  const pilotFormRow = page.getByRole('list', { name: 'Lead forms' }).getByRole('listitem').filter({ hasText: `Pilot website form ${runID}` })
+  const externalEmbedCode = await pilotFormRow.getByLabel(`Embed code for Pilot website form ${runID}`).inputValue()
+  expect(externalEmbedCode).toContain("credentials: 'omit'")
+  const externalLeadContext = await browser.newContext()
+  const externalLeadPage = await externalLeadContext.newPage()
+  const externalLeadRequestEvidence = []
+  externalLeadPage.on('request', (request) => {
+    if (!request.url().startsWith(`${apiURL}/api/public/lead-capture-forms/`)) return
+    externalLeadRequestEvidence.push(request.allHeaders().then((headers) => ({ url: request.url(), origin: headers.origin || '', cookie: headers.cookie || '' })))
+  })
+  const externalLeadServer = createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    response.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Customer contact page</title></head><body><main><h1>Contact the pilot team</h1>${externalEmbedCode}</main></body></html>`)
+  })
+  await new Promise((resolve, reject) => {
+    externalLeadServer.once('error', reject)
+    externalLeadServer.listen(0, '127.0.0.1', resolve)
+  })
+  const externalLeadAddress = externalLeadServer.address()
+  expect(externalLeadAddress).toEqual(expect.objectContaining({ port: expect.any(Number) }))
+  const externalLeadOrigin = `http://127.0.0.1:${externalLeadAddress.port}`
+  const externalSourceURL = `${externalLeadOrigin}/contact?utm_source=external-browser&utm_medium=e2e&utm_campaign=embedded-form`
+  await externalLeadPage.goto(externalSourceURL)
+  await expect(externalLeadPage.getByRole('button', { name: 'Submit' })).toBeEnabled()
+  const externalLeadAccessibility = await new AxeBuilder({ page: externalLeadPage })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-external-lead-form-embed', {
+    body: JSON.stringify({ url: externalLeadPage.url(), violations: externalLeadAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(externalLeadAccessibility.violations, 'external lead form embed must have no automated WCAG A/AA violations').toEqual([])
+  await externalLeadPage.getByLabel('First name').fill('Morgan')
+  await externalLeadPage.getByLabel('Last name').fill(`External ${runID}`)
+  await externalLeadPage.getByLabel('Email').fill(externalLeadEmail)
+  await externalLeadPage.getByLabel('How can we help?').fill(`Embedded website request ${runID}`)
+  await externalLeadPage.getByLabel('Relationship segment').selectOption('Partner')
+  await externalLeadPage.getByRole('checkbox', { name: publicLeadConsent, exact: true }).check()
+  await externalLeadPage.getByRole('button', { name: 'Submit' }).click()
+  await expect(externalLeadPage.getByText('Thanks. We will be in touch soon.', { exact: true })).toBeVisible()
+  await expect(externalLeadPage).toHaveURL(externalSourceURL)
+  const externalLeadRequests = await Promise.all(externalLeadRequestEvidence)
+  const externalSubmissionRequest = externalLeadRequests.find((request) => request.url.endsWith('/submissions'))
+  expect(externalSubmissionRequest).toEqual(expect.objectContaining({ origin: externalLeadOrigin, cookie: '' }))
+  await externalLeadContext.close()
+  await new Promise((resolve, reject) => externalLeadServer.close((error) => error ? reject(error) : resolve()))
+
+  await page.getByLabel('Review status').selectOption('unreviewed')
+  const externalSubmission = page.getByRole('list', { name: 'Lead submissions awaiting review' }).getByRole('listitem').filter({ hasText: externalLeadEmail })
+  await expect(externalSubmission).toBeVisible()
+  await expect(externalSubmission).toContainText('Source: Lead capture form · external-browser · embedded-form')
+  const externalContactHref = await externalSubmission.getByRole('link', { name: 'Open contact' }).getAttribute('href')
+  expect(externalContactHref).toMatch(/^\/contacts\/\d+$/)
+  await externalSubmission.getByRole('button', { name: 'Mark legitimate' }).click()
+  await expect(page.getByText(/Lead restored as legitimate\. 0 follow-ups rescheduled\./)).toBeVisible()
+  await page.goto(externalContactHref)
+  const externalLeadAttribution = page.getByRole('list', { name: 'Lead attribution' })
+  await expect(externalLeadAttribution).toContainText('Lead capture form')
+  await expect(externalLeadAttribution).toContainText('embedded-form')
+  await expect(externalLeadAttribution).toContainText('external-browser / e2e')
+  await expect(externalLeadAttribution).toContainText(externalSourceURL)
 
   await page.getByRole('link', { name: 'Contacts', exact: true }).click()
   seedSavedViewContinuation(owner.email, runID)

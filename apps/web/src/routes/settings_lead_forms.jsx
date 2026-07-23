@@ -6,7 +6,8 @@ import { InlineError } from '../components/ui/inline_error'
 import { useAuth } from '../app/providers'
 import { isAbortError } from '../lib/api'
 import { listCustomFields } from '../lib/custom_fields'
-import { createLeadCaptureForm, listLeadCaptureFormPage, listLeadCaptureForms, publicLeadCaptureFormChallengeURL, publicLeadCaptureFormSubmitURL, updateLeadCaptureForm } from '../lib/lead_forms'
+import { createLeadCaptureForm, listLeadCaptureFormPage, listLeadCaptureForms, updateLeadCaptureForm } from '../lib/lead_forms'
+import { leadFormEmbedSnippet } from '../lib/lead_form_embed'
 import { usePageTitle } from '../lib/use_page_title'
 import { LeadSubmissionReview } from './lead_submission_review'
 
@@ -88,76 +89,6 @@ function leadFormPayload(form) {
     revision: form.revision,
     fields: form.fields
   }
-}
-
-function fieldInputType(field) {
-  if (field.fieldType === 'email') return 'email'
-  if (field.fieldType === 'tel') return 'tel'
-  if (field.fieldType === 'hidden') return 'hidden'
-	if (field.fieldType === 'number') return 'number'
-	if (field.fieldType === 'date') return 'date'
-  return 'text'
-}
-
-function escapeHTML(value) {
-  return String(value || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
-function embedSnippet(form) {
-  const action = publicLeadCaptureFormSubmitURL(form.publicId || '')
-  const challengeURL = publicLeadCaptureFormChallengeURL(form.publicId || '')
-  const controls = (form.fields || defaultFields).map((field) => {
-    if (field.fieldType === 'textarea') {
-      return `  <label>${escapeHTML(field.label)}\n    <textarea name="${escapeHTML(field.key)}"${field.required ? ' required' : ''}></textarea>\n  </label>`
-    }
-	if (field.fieldType === 'select') {
-	  const options = (field.options || []).map((option) => `      <option value="${escapeHTML(option)}">${escapeHTML(option)}</option>`)
-	  return [`  <label>${escapeHTML(field.label)}`, `    <select name="${escapeHTML(field.key)}"${field.required ? ' required' : ''}>`, '      <option value="">Select...</option>', ...options, '    </select>', '  </label>'].join('\n')
-	}
-	if (field.fieldType === 'boolean' || field.fieldType === 'checkbox') {
-	  return `  <label>${escapeHTML(field.label)}\n    <select name="${escapeHTML(field.key)}"${field.required ? ' required' : ''}><option value="">Select...</option><option value="true">Yes</option><option value="false">No</option></select>\n  </label>`
-	}
-    return `  <label>${escapeHTML(field.label)}\n    <input name="${escapeHTML(field.key)}" type="${fieldInputType(field)}"${field.required ? ' required' : ''}>\n  </label>`
-  })
-
-  return [
-    `<form method="post" action="${action}">`,
-    ...controls,
-    '  <input type="hidden" name="sourceUrl" value="https://example.com/contact?utm_source=google&utm_medium=cpc&utm_campaign=spring-demo">',
-    `  <input type="hidden" name="leadSource" value="${form.sourceLabel || 'Lead capture form'}">`,
-    '  <input type="hidden" name="utm_source" value="">',
-    '  <input type="hidden" name="utm_medium" value="">',
-    '  <input type="hidden" name="utm_campaign" value="">',
-    '  <input type="hidden" name="utm_term" value="">',
-    '  <input type="hidden" name="utm_content" value="">',
-    `  <label><input type="checkbox" name="consentGranted" value="true" required> <span data-open-crm-consent>${escapeHTML(form.consentText || 'I agree to be contacted about this request.')}</span></label>`,
-    '  <input type="hidden" name="challengeToken">',
-    '  <p data-open-crm-status role="status">Preparing secure form...</p>',
-    '  <button type="submit" disabled>Submit</button>',
-    '</form>',
-    '<script>',
-    '(() => {',
-    '  const form = document.currentScript.previousElementSibling',
-    '  const button = form.querySelector(\'button[type="submit"]\')',
-    '  const status = form.querySelector(\'[data-open-crm-status]\')',
-    `  fetch(${JSON.stringify(challengeURL)}, { method: 'POST', headers: { Accept: 'application/json' } })`,
-    '    .then((response) => response.ok ? response.json() : Promise.reject(new Error(\'challenge failed\')))',
-    '    .then((payload) => {',
-    '      const challenge = payload.data.challenge',
-	`      if (Number(challenge.formRevision) !== ${Number(form.revision || 0)}) throw new Error('form changed')`,
-    '      form.elements.challengeToken.value = challenge.token',
-    '      form.querySelector(\'[data-open-crm-consent]\').textContent = challenge.consentText',
-    '      const delay = Math.max(0, Date.parse(challenge.notBefore) - Date.now())',
-    '      setTimeout(() => { button.disabled = false; status.textContent = \'\' }, delay)',
-    '    })',
-    '    .catch(() => { status.textContent = \'This form is temporarily unavailable.\' })',
-    '})()',
-    '</script>'
-  ].join('\n')
 }
 
 function mappedFieldLabel(field) {
@@ -348,7 +279,7 @@ export function SettingsLeadFormsRoute() {
                   <h3>{item.name}</h3>
                   <p className="field-hint">/{item.slug} · {item.submissionCount || 0} submissions · public id {item.publicId}</p>
                   {item.description ? <p className="field-hint">{item.description}</p> : null}
-                  {item.publicId ? <textarea className="text-input" readOnly rows={8} aria-label={`Embed code for ${item.name}`} value={embedSnippet(item)} /> : null}
+                  {item.publicId ? <textarea className="text-input" readOnly rows={8} aria-label={`Embed code for ${item.name}`} value={leadFormEmbedSnippet(item)} /> : null}
                 </div>
                 <div>
                   <span className="chip">{item.isActive ? 'Active' : 'Inactive'}</span>

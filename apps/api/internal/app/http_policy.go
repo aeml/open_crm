@@ -268,6 +268,25 @@ func requestScheme(r *http.Request) string {
 
 func withCORS(env config.Env, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isCredentialFreeLeadEmbedRequest(r) {
+			// Lead form challenge and submission responses contain no authenticated
+			// workspace data and the generated embed explicitly omits credentials.
+			// A route-specific wildcard lets the public form work on a customer's
+			// website without adding that site to the credentialed application CORS
+			// allowlist. The challenge, consent, rate-limit, and idempotency controls
+			// remain the authority for the public effect.
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Add("Vary", "Access-Control-Request-Method")
+			w.Header().Add("Vary", "Access-Control-Request-Headers")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
 		origin := strings.TrimSpace(r.Header.Get("Origin"))
 		if isAllowedOrigin(origin, env.AllowedOrigins) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -288,6 +307,21 @@ func withCORS(env config.Env, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isCredentialFreeLeadEmbedRequest(r *http.Request) bool {
+	if r == nil || (r.Method != http.MethodPost && r.Method != http.MethodOptions) {
+		return false
+	}
+	if r.Method == http.MethodOptions && !strings.EqualFold(strings.TrimSpace(r.Header.Get("Access-Control-Request-Method")), http.MethodPost) {
+		return false
+	}
+	const prefix = "/api/public/lead-capture-forms/"
+	if !strings.HasPrefix(r.URL.Path, prefix) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, prefix), "/")
+	return len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && (parts[1] == "challenge" || parts[1] == "submissions")
 }
 
 func isAllowedOrigin(origin string, allowedOrigins []string) bool {

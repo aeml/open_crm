@@ -14,6 +14,8 @@ func (s *Service) ListLandingPagesByOrganization(ctx context.Context, organizati
 	if s == nil || s.pool == nil || organizationID <= 0 {
 		return LandingPageListPage{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	query, page, err := normalizeLeadSurfaceListQuery(query)
 	if err != nil {
 		return LandingPageListPage{}, err
@@ -63,6 +65,8 @@ func (s *Service) CreateLandingPage(ctx context.Context, organizationID, actorUs
 	if s == nil || s.pool == nil {
 		return LandingPage{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	input = normalizeLandingPageInput(input)
 	if err := validateLandingPageInput(input); err != nil {
 		return LandingPage{}, err
@@ -117,6 +121,8 @@ func (s *Service) UpdateLandingPage(ctx context.Context, organizationID, pageID,
 	if s == nil || s.pool == nil {
 		return LandingPage{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	input = normalizeLandingPageInput(input)
 	if input.Revision <= 0 {
 		return LandingPage{}, ErrInvalidPage

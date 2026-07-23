@@ -119,6 +119,56 @@ func TestNewServerDoesNotAllowUnknownOrigin(t *testing.T) {
 	}
 }
 
+func TestPublicLeadEmbedCORSIsCredentialFreeAndRouteBound(t *testing.T) {
+	server := NewServer(config.Env{GOEnv: "production", AllowedOrigins: []string{"https://crm.mendola.tech"}})
+
+	request := httptest.NewRequest(http.MethodOptions, "/api/public/lead-capture-forms/lf_public/challenge", nil)
+	request.Header.Set("Origin", "https://customer.example")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	request.Header.Set("Access-Control-Request-Headers", "Content-Type")
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("public lead embed preflight status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("public lead embed allow origin=%q", got)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Fatalf("public lead embed must not allow credentials, got %q", got)
+	}
+	if got := recorder.Header().Get("Access-Control-Allow-Methods"); got != "POST, OPTIONS" {
+		t.Fatalf("public lead embed allow methods=%q", got)
+	}
+
+	request = httptest.NewRequest(http.MethodOptions, "/api/public/lead-capture-forms/lf_public/challenge/extra", nil)
+	request.Header.Set("Origin", "https://customer.example")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	recorder = httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden || recorder.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("expanded public lead CORS path status=%d allow-origin=%q", recorder.Code, recorder.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
+func TestPublicLeadEmbedDoesNotBypassSessionCSRF(t *testing.T) {
+	server := NewServer(config.Env{GOEnv: "production", AllowedOrigins: []string{"https://crm.mendola.tech"}})
+	request := httptest.NewRequest(http.MethodPost, "/api/public/lead-capture-forms/lf_public/challenge", nil)
+	request.Header.Set("Origin", "https://customer.example")
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("credentialed cross-site public lead request status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Header().Get("Access-Control-Allow-Credentials") != "" {
+		t.Fatal("credentialed public lead response unexpectedly enabled CORS credentials")
+	}
+}
+
 func TestNewServerSetsSecurityHeaders(t *testing.T) {
 	server := NewServer(config.Env{})
 

@@ -32,6 +32,8 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64, 
 	if s == nil || s.pool == nil || organizationID <= 0 {
 		return FormListPage{}, fmt.Errorf("lead forms service not configured")
 	}
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
 	query, page, err := normalizeFormListQuery(query)
 	if err != nil {
 		return FormListPage{}, err

@@ -75,6 +75,9 @@ func handleListLeadLandingPages(auth authService, forms leadFormsService, w http
 	}
 	result, err := forms.ListLandingPagesByOrganization(r.Context(), state.Organization.ID, moduleleadforms.LeadSurfaceListQuery{Status: status, Page: page.Number, PageSize: page.Size})
 	if err != nil {
+		if writeLeadCaptureQueryTimeout(w, requestID, err) {
+			return
+		}
 		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load landing pages")
 		return
 	}
@@ -154,6 +157,9 @@ func handleGetPublicLeadLandingPage(forms leadFormsService, w http.ResponseWrite
 
 	result, err := forms.GetPublicLandingPage(r.Context(), slug)
 	if err != nil {
+		if writeLeadCaptureQueryTimeout(w, requestID, err) {
+			return
+		}
 		if errors.Is(err, moduleleadforms.ErrFormUnavailable) {
 			platformweb.WriteError(w, http.StatusServiceUnavailable, requestID, "FORM_UNAVAILABLE", "This lead form is temporarily unavailable")
 			return
@@ -194,6 +200,8 @@ func leadLandingPageInput(request leadLandingPageRequest) moduleleadforms.Landin
 
 func writeLeadLandingPageError(w http.ResponseWriter, requestID string, err error) {
 	switch {
+	case moduleleadforms.IsQueryTimeout(err):
+		writeLeadCaptureQueryTimeout(w, requestID, err)
 	case errors.Is(err, moduleleadforms.ErrInvalidPage):
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Provide a valid landing page name, slug, title, CTA, theme, and lead form")
 	case errors.Is(err, moduleleadforms.ErrDuplicatePageSlug):
