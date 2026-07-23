@@ -4,7 +4,6 @@ package leadscoring
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,16 +12,19 @@ import (
 	modulecontacts "github.com/aeml/open_crm/apps/api/internal/modules/contacts"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
 	ErrDuplicateName   = errors.New("lead scoring rule name already exists")
+	ErrForbidden       = errors.New("lead scoring action forbidden")
 	ErrInvalidAssignee = errors.New("invalid lead scoring assignee")
 	ErrInvalidInput    = errors.New("invalid lead scoring rule")
 	ErrNotFound        = errors.New("lead scoring resource not found")
+	ErrRuleLimit       = errors.New("lead scoring rule limit reached")
 )
+
+const MaxRulesPerOrganization = 100
 
 type Rule struct {
 	ID               int64     `json:"id"`
@@ -103,276 +105,6 @@ func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) 
 		return nil, fmt.Errorf("iterate lead scoring rules: %w", err)
 	}
 	return rules, nil
-}
-
-func (s *Service) Create(ctx context.Context, organizationID, actorUserID int64, input Input) (Rule, error) {
-	if s == nil || s.pool == nil {
-		return Rule{}, fmt.Errorf("lead scoring service not configured")
-	}
-	input = normalizeInput(input)
-	if err := validateInput(input); err != nil {
-		return Rule{}, err
-	}
-	if err := s.ensureAssignee(ctx, organizationID, input.AssignToUserID); err != nil {
-		return Rule{}, err
-	}
-	isActive := true
-	if input.IsActive != nil {
-		isActive = *input.IsActive
-	}
-
-	var ruleID int64
-	if err := s.pool.QueryRow(ctx, `
-		INSERT INTO lead_scoring_rules (organization_id, name, description, field, operator, value, score_delta, assign_to_user_id, is_active, position, created_by_user_id, updated_by_user_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, 0), $9, $10, $11, $11)
-		RETURNING id
-	`, organizationID, input.Name, input.Description, input.Field, input.Operator, input.Value, input.ScoreDelta, input.AssignToUserID, isActive, input.Position, actorUserID).Scan(&ruleID); err != nil {
-		return Rule{}, mapSaveError(err)
-	}
-	return s.getByID(ctx, organizationID, ruleID)
-}
-
-func (s *Service) Update(ctx context.Context, organizationID, ruleID, actorUserID int64, input Input) (Rule, error) {
-	if s == nil || s.pool == nil {
-		return Rule{}, fmt.Errorf("lead scoring service not configured")
-	}
-	input = normalizeInput(input)
-	if err := validateInput(input); err != nil {
-		return Rule{}, err
-	}
-	if err := s.ensureAssignee(ctx, organizationID, input.AssignToUserID); err != nil {
-		return Rule{}, err
-	}
-	var isActive any
-	if input.IsActive != nil {
-		isActive = *input.IsActive
-	}
-
-	updated, err := s.pool.Exec(ctx, `
-		UPDATE lead_scoring_rules
-		SET name = $3,
-		    description = $4,
-		    field = $5,
-		    operator = $6,
-		    value = $7,
-		    score_delta = $8,
-		    assign_to_user_id = NULLIF($9, 0),
-		    is_active = COALESCE($10::boolean, is_active),
-		    position = $11,
-		    updated_by_user_id = $12,
-		    updated_at = NOW()
-		WHERE organization_id = $1 AND id = $2
-	`, organizationID, ruleID, input.Name, input.Description, input.Field, input.Operator, input.Value, input.ScoreDelta, input.AssignToUserID, isActive, input.Position, actorUserID)
-	if err != nil {
-		return Rule{}, mapSaveError(err)
-	}
-	if updated.RowsAffected() == 0 {
-		return Rule{}, ErrNotFound
-	}
-	return s.getByID(ctx, organizationID, ruleID)
-}
-
-func (s *Service) EvaluateContact(ctx context.Context, organizationID, contactID, actorUserID int64) (Evaluation, error) {
-	if s == nil || s.pool == nil {
-		return Evaluation{}, fmt.Errorf("lead scoring service not configured")
-	}
-	contact, err := s.loadContact(ctx, organizationID, contactID)
-	if err != nil {
-		return Evaluation{}, err
-	}
-	rules, err := s.activeRules(ctx, organizationID)
-	if err != nil {
-		return Evaluation{}, err
-	}
-
-	rawScore := 0
-	matchedRules := make([]MatchedRule, 0)
-	assignedToUserID := int64(0)
-	assignedToUserName := ""
-	for _, rule := range rules {
-		if !matchesRule(rule, contact) {
-			continue
-		}
-		rawScore += rule.ScoreDelta
-		matchedRules = append(matchedRules, MatchedRule{
-			ID:               rule.ID,
-			Name:             rule.Name,
-			ScoreDelta:       rule.ScoreDelta,
-			AssignToUserID:   rule.AssignToUserID,
-			AssignToUserName: rule.AssignToUserName,
-		})
-		if contact.OwnerUserID == 0 && assignedToUserID == 0 && rule.AssignToUserID > 0 {
-			assignedToUserID = rule.AssignToUserID
-			assignedToUserName = rule.AssignToUserName
-		}
-	}
-
-	score := clampScore(rawScore)
-	grade := gradeForScore(score)
-	breakdownJSON, err := json.Marshal(matchedRules)
-	if err != nil {
-		return Evaluation{}, fmt.Errorf("encode lead score breakdown: %w", err)
-	}
-	metadataJSON, err := json.Marshal(map[string]any{
-		"score":              score,
-		"grade":              grade,
-		"matchedRules":       matchedRules,
-		"assignedToUserId":   assignedToUserID,
-		"assignedToUserName": assignedToUserName,
-	})
-	if err != nil {
-		return Evaluation{}, fmt.Errorf("encode lead score activity metadata: %w", err)
-	}
-
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return Evaluation{}, fmt.Errorf("begin lead scoring transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	updated, err := tx.Exec(ctx, `
-		UPDATE contacts
-		SET lead_score = $3,
-		    lead_grade = $4,
-		    lead_scored_at = NOW(),
-		    lead_score_breakdown = $5::jsonb,
-		    owner_user_id = COALESCE(owner_user_id, NULLIF($6, 0)),
-		    updated_at = NOW()
-		WHERE organization_id = $1 AND id = $2 AND archived_at IS NULL
-	`, organizationID, contactID, score, grade, string(breakdownJSON), assignedToUserID)
-	if err != nil {
-		return Evaluation{}, fmt.Errorf("update contact lead score: %w", err)
-	}
-	if updated.RowsAffected() == 0 {
-		return Evaluation{}, ErrNotFound
-	}
-	summary := fmt.Sprintf("Lead scored: %d points", score)
-	if grade != "" {
-		summary += " (" + grade + ")"
-	}
-	if assignedToUserName != "" {
-		summary += " and routed to " + assignedToUserName
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO activities (organization_id, entity_type, entity_id, actor_user_id, action, summary, metadata_json)
-		VALUES ($1, 'contact', $2, $3, 'lead.scored', $4, $5::jsonb)
-	`, organizationID, contactID, actorUserID, summary, string(metadataJSON)); err != nil {
-		return Evaluation{}, fmt.Errorf("insert lead score activity: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Evaluation{}, fmt.Errorf("commit lead scoring transaction: %w", err)
-	}
-
-	contact, err = s.loadContact(ctx, organizationID, contactID)
-	if err != nil {
-		return Evaluation{}, err
-	}
-	return Evaluation{
-		Contact:            contact,
-		Score:              score,
-		Grade:              grade,
-		MatchedRules:       matchedRules,
-		AssignedToUserID:   assignedToUserID,
-		AssignedToUserName: assignedToUserName,
-	}, nil
-}
-
-func (s *Service) getByID(ctx context.Context, organizationID, ruleID int64) (Rule, error) {
-	rule, err := scanRule(s.pool.QueryRow(ctx, ruleSelect+`
-		WHERE r.organization_id = $1 AND r.id = $2
-	`, organizationID, ruleID))
-	if err != nil {
-		return Rule{}, mapSaveError(err)
-	}
-	return rule, nil
-}
-
-func (s *Service) activeRules(ctx context.Context, organizationID int64) ([]Rule, error) {
-	rows, err := s.pool.Query(ctx, ruleSelect+`
-		WHERE r.organization_id = $1 AND r.is_active = TRUE
-		ORDER BY r.position ASC, r.id ASC
-	`, organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("list active lead scoring rules: %w", err)
-	}
-	defer rows.Close()
-
-	rules := make([]Rule, 0)
-	for rows.Next() {
-		rule, err := scanRule(rows)
-		if err != nil {
-			return nil, err
-		}
-		rules = append(rules, rule)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate active lead scoring rules: %w", err)
-	}
-	return rules, nil
-}
-
-func (s *Service) ensureAssignee(ctx context.Context, organizationID, userID int64) error {
-	if userID <= 0 {
-		return nil
-	}
-	var exists bool
-	if err := s.pool.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM organization_memberships
-			WHERE organization_id = $1 AND user_id = $2
-			  AND COALESCE(membership_status, 'active') = 'active'
-		)
-	`, organizationID, userID).Scan(&exists); err != nil {
-		return fmt.Errorf("check lead scoring assignee: %w", err)
-	}
-	if !exists {
-		return ErrInvalidAssignee
-	}
-	return nil
-}
-
-func (s *Service) loadContact(ctx context.Context, organizationID, contactID int64) (modulecontacts.Summary, error) {
-	var contact modulecontacts.Summary
-	var scoredAt pgtype.Timestamptz
-	if err := s.pool.QueryRow(ctx, `
-		SELECT co.id, co.first_name, co.last_name,
-			COALESCE(co.email, ''), COALESCE(co.phone, ''),
-			COALESCE(co.address_line1, ''), COALESCE(co.address_line2, ''),
-			COALESCE(co.city, ''), COALESCE(co.state, ''),
-			COALESCE(co.postal_code, ''), COALESCE(co.country, ''),
-			COALESCE(co.job_title, ''), COALESCE(co.status, ''), co.is_client,
-			COALESCE(co.owner_user_id, 0),
-			COALESCE(NULLIF(TRIM(COALESCE(ou.first_name, '') || ' ' || COALESCE(ou.last_name, '')), ''), COALESCE(ou.email, '')),
-			COALESCE(co.lead_source, ''), COALESCE(co.first_source_url, ''),
-			COALESCE(co.utm_source, ''), COALESCE(co.utm_medium, ''),
-			COALESCE(co.utm_campaign, ''), COALESCE(co.utm_term, ''), COALESCE(co.utm_content, ''),
-			co.lead_score, COALESCE(co.lead_grade, ''), co.lead_scored_at
-		FROM contacts co
-		LEFT JOIN users ou ON ou.id = co.owner_user_id
-		WHERE co.organization_id = $1 AND co.id = $2 AND co.archived_at IS NULL
-	`, organizationID, contactID).Scan(
-		&contact.ID, &contact.FirstName, &contact.LastName,
-		&contact.Email, &contact.Phone,
-		&contact.AddressLine1, &contact.AddressLine2,
-		&contact.City, &contact.State, &contact.PostalCode, &contact.Country,
-		&contact.JobTitle, &contact.Status, &contact.IsClient,
-		&contact.OwnerUserID, &contact.OwnerUserName,
-		&contact.LeadSource, &contact.FirstSourceURL,
-		&contact.UTMSource, &contact.UTMMedium,
-		&contact.UTMCampaign, &contact.UTMTerm, &contact.UTMContent,
-		&contact.LeadScore, &contact.LeadGrade, &scoredAt,
-	); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return modulecontacts.Summary{}, ErrNotFound
-		}
-		return modulecontacts.Summary{}, fmt.Errorf("load lead scoring contact: %w", err)
-	}
-	if scoredAt.Valid {
-		value := scoredAt.Time
-		contact.LeadScoredAt = &value
-	}
-	return contact, nil
 }
 
 const ruleSelect = `

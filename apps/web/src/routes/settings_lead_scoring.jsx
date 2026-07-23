@@ -84,6 +84,7 @@ export function SettingsLeadScoringRoute() {
   const { canAdminister: canManage } = useAuth()
   usePageTitle('Lead Scoring')
   const [rules, setRules] = useState([])
+  const [maxRules, setMaxRules] = useState(100)
   const [users, setUsers] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
@@ -95,11 +96,12 @@ export function SettingsLeadScoringRoute() {
   async function loadData({ signal } = {}) {
     setIsLoading(true)
     try {
-      const [nextRules, nextUsers] = await Promise.all([
+      const [nextCatalog, nextUsers] = await Promise.all([
         listLeadScoringRules({ signal }),
         listOrganizationUsers({ signal })
       ])
-      setRules(nextRules)
+      setRules(nextCatalog.rules)
+      setMaxRules(nextCatalog.capacity.maxRules)
       setUsers(nextUsers)
       setError('')
     } catch (loadError) {
@@ -158,6 +160,8 @@ export function SettingsLeadScoringRoute() {
     }
   }
 
+  const createAtCapacity = editingId === null && rules.length >= maxRules
+
   return (
     <section className="dashboard-grid settings-grid">
       <Card>
@@ -166,6 +170,7 @@ export function SettingsLeadScoringRoute() {
             <div>
               <h2>Lead scoring and routing</h2>
               <p>Score leads from contact fields and route unassigned matches to the right owner.</p>
+              <p className="field-hint">{rules.length} of {maxRules} stored rules.</p>
             </div>
           </div>
           {isLoading ? <p className="field-hint">Loading lead scoring rules...</p> : null}
@@ -241,7 +246,7 @@ export function SettingsLeadScoringRoute() {
               <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /> Active rule
             </label>
             <div className="button-row">
-              <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Save scoring rule' : 'Create scoring rule'}</Button>
+              <Button type="submit" disabled={isSaving || createAtCapacity}>{isSaving ? 'Saving...' : editingId ? 'Save scoring rule' : 'Create scoring rule'}</Button>
               {editingId ? <Button className="button-secondary" type="button" onClick={resetForm}>Cancel</Button> : null}
             </div>
           </form>

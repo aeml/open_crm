@@ -3,7 +3,10 @@ import { apiRequest } from './api'
 export async function listLeadScoringRules({ signal } = {}) {
   const payload = await apiRequest('/api/lead-scoring-rules', { fallbackMessage: 'Unable to load lead scoring rules.', signal })
 
-  return payload?.data?.rules || []
+  return {
+    rules: payload?.data?.rules || [],
+    capacity: payload?.data?.capacity || { maxRules: 100 },
+  }
 }
 
 export async function createLeadScoringRule(input, { signal } = {}) {

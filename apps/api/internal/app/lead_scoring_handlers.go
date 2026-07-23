@@ -11,7 +11,10 @@ import (
 
 type leadScoringRulesListResponse struct {
 	Data struct {
-		Rules []moduleleadscoring.Rule `json:"rules"`
+		Rules    []moduleleadscoring.Rule `json:"rules"`
+		Capacity struct {
+			MaxRules int `json:"maxRules"`
+		} `json:"capacity"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -67,6 +70,7 @@ func handleListLeadScoringRules(auth authService, leadScoring leadScoringService
 
 	response := leadScoringRulesListResponse{}
 	response.Data.Rules = rules
+	response.Data.Capacity.MaxRules = moduleleadscoring.MaxRulesPerOrganization
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
 }
@@ -177,6 +181,10 @@ func writeLeadScoringError(w http.ResponseWriter, requestID string, err error) {
 		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Choose a valid team member for lead assignment")
 	case errors.Is(err, moduleleadscoring.ErrDuplicateName):
 		platformweb.WriteError(w, http.StatusConflict, requestID, "CONFLICT", "A lead scoring rule with that name already exists")
+	case errors.Is(err, moduleleadscoring.ErrRuleLimit):
+		platformweb.WriteError(w, http.StatusConflict, requestID, "LEAD_SCORING_RULE_LIMIT", "This workspace already has the maximum number of lead scoring rules")
+	case errors.Is(err, moduleleadscoring.ErrForbidden):
+		platformweb.WriteError(w, http.StatusForbidden, requestID, "FORBIDDEN", "Owner or admin access is required to manage rules, and active workspace access is required to evaluate them")
 	case errors.Is(err, moduleleadscoring.ErrNotFound):
 		platformweb.WriteNotFound(w, requestID)
 	default:

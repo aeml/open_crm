@@ -36,7 +36,7 @@ describe('settings lead scoring route', () => {
         return jsonResponse({ data: { rule: { id: 8, name: 'High-intent demo', field: 'utmCampaign', operator: 'contains', value: 'demo', scoreDelta: 30, assignToUserId: 2, assignToUserName: 'Alex Admin', isActive: true, position: 1 } } }, 201)
       }
       if (path.endsWith('/api/lead-scoring-rules')) {
-        return jsonResponse({ data: { rules: [{ id: 5, name: 'Website lead', field: 'leadSource', operator: 'equals', value: 'Website form', scoreDelta: 20, isActive: true, position: 0 }] } })
+        return jsonResponse({ data: { rules: [{ id: 5, name: 'Website lead', field: 'leadSource', operator: 'equals', value: 'Website form', scoreDelta: 20, isActive: true, position: 0 }], capacity: { maxRules: 100 } } })
       }
       throw new Error(`Unexpected fetch: ${method} ${path}`)
     })
@@ -49,6 +49,7 @@ describe('settings lead scoring route', () => {
     expect(await screen.findByRole('heading', { name: /lead scoring and routing/i })).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: /website lead/i })).toBeInTheDocument()
     expect(screen.getByText(/lead source equals website form/i)).toBeInTheDocument()
+    expect(screen.getByText('1 of 100 stored rules.')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText(/^rule name$/i), { target: { value: 'High-intent demo' } })
     fireEvent.change(screen.getByLabelText(/^field$/i), { target: { value: 'utmCampaign' } })
@@ -77,5 +78,34 @@ describe('settings lead scoring route', () => {
       })
     })
     expect(await screen.findByRole('heading', { name: /high-intent demo/i })).toBeInTheDocument()
+  })
+
+  it('disables only new rule creation at the server-disclosed capacity', async () => {
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      const path = requestURL.pathname
+      const method = options.method || 'GET'
+
+      if (path.endsWith('/auth/me')) return sessionResponse()
+      if (path.endsWith('/api/notifications/unread-count')) return jsonResponse({ data: { unreadCount: 0 } })
+      if (path.endsWith('/api/users')) return jsonResponse({ data: { users: [] } })
+      if (path.endsWith('/api/lead-scoring-rules') && method === 'GET') {
+        return jsonResponse({
+          data: {
+            rules: [{ id: 5, name: 'Retained rule', field: 'status', operator: 'equals', value: 'lead', scoreDelta: 10, isActive: true, position: 0 }],
+            capacity: { maxRules: 1 }
+          }
+        })
+      }
+      throw new Error(`Unexpected fetch: ${method} ${path}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/lead-scoring')
+    render(<AppRouter />)
+
+    expect(await screen.findByText('1 of 1 stored rules.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create scoring rule/i })).toBeDisabled()
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === 'POST')).toBe(false)
   })
 })

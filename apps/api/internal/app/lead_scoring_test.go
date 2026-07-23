@@ -94,7 +94,10 @@ func TestListLeadScoringRulesScopesToOrganization(t *testing.T) {
 	}
 	var response struct {
 		Data struct {
-			Rules []moduleleadscoring.Rule `json:"rules"`
+			Rules    []moduleleadscoring.Rule `json:"rules"`
+			Capacity struct {
+				MaxRules int `json:"maxRules"`
+			} `json:"capacity"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -102,6 +105,48 @@ func TestListLeadScoringRulesScopesToOrganization(t *testing.T) {
 	}
 	if len(response.Data.Rules) != 1 || response.Data.Rules[0].ScoreDelta != 20 {
 		t.Fatalf("unexpected lead scoring rules payload: %#v", response.Data.Rules)
+	}
+	if response.Data.Capacity.MaxRules != moduleleadscoring.MaxRulesPerOrganization {
+		t.Fatalf("unexpected lead scoring capacity: %#v", response.Data.Capacity)
+	}
+}
+
+func TestLeadScoringStableCapacityAndForbiddenErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		statusCode int
+		code       string
+	}{
+		{name: "capacity", err: moduleleadscoring.ErrRuleLimit, statusCode: http.StatusConflict, code: "LEAD_SCORING_RULE_LIMIT"},
+		{name: "forbidden", err: moduleleadscoring.ErrForbidden, statusCode: http.StatusForbidden, code: "FORBIDDEN"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &fakeLeadScoringService{createErr: test.err}
+			server := authenticatedLeadScoringServer(service, "owner")
+			request := httptest.NewRequest(http.MethodPost, "/api/lead-scoring-rules", bytes.NewBufferString(`{"name":"Rule","field":"status","operator":"equals","value":"lead","scoreDelta":10}`))
+			request.Header.Set("Content-Type", "application/json")
+			addSessionCookie(request)
+			recorder := httptest.NewRecorder()
+
+			server.ServeHTTP(recorder, request)
+
+			if recorder.Code != test.statusCode {
+				t.Fatalf("expected status %d, got %d", test.statusCode, recorder.Code)
+			}
+			var response struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode error response: %v", err)
+			}
+			if response.Error.Code != test.code {
+				t.Fatalf("expected code %q, got %q", test.code, response.Error.Code)
+			}
+		})
 	}
 }
 

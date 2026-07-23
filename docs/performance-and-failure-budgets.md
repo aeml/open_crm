@@ -857,6 +857,14 @@ and recovery seams. Every production file in `internal/app` and
 `internal/modules/workflowautomations` now has headroom under the default
 500-line ceiling.
 
+The hidden lead-scoring module's former 567-line mixed service is now a
+291-line shared model/query boundary plus 197-line evaluation, 131-line
+management, and 89-line authorization/locking files. Its complete rule catalog
+has a serialized 100-total ceiling, and fresh-PostgreSQL acceptance covers the
+concurrent final slot, active-role revalidation, tenant isolation, and stale
+routing targets. This is maintainability and failure-boundary evidence only;
+the production bundle continues to exclude scoring management and execution.
+
 ## Source-size no-growth ratchet
 
 Source size is an imperfect complexity measure, so these limits are a temporary
