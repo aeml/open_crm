@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
 import { isAbortError } from '../lib/api'
 import { getUserEmailAccount, saveUserEmailAccount } from '../lib/user_email'
+import { listOrganizationUsers } from '../lib/users'
 
 const emptyForm = {
   fromEmail: '',
@@ -16,13 +17,35 @@ const emptyForm = {
   smtpUseTls: true
 }
 
-export function AdminMemberEmail({ users = [] }) {
+export function AdminMemberEmail({ users = [], loadUsers = listOrganizationUsers }) {
   const [selectedUserId, setSelectedUserId] = useState('')
+  const [memberChoices, setMemberChoices] = useState(users)
+  const [memberChoicesLoaded, setMemberChoicesLoaded] = useState(false)
+  const [isLoadingMemberChoices, setIsLoadingMemberChoices] = useState(false)
+  const [memberChoicesError, setMemberChoicesError] = useState('')
   const [form, setForm] = useState(emptyForm)
   const [configured, setConfigured] = useState(true)
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    if (!memberChoicesLoaded) setMemberChoices(users)
+  }, [memberChoicesLoaded, users])
+
+  async function loadCompleteMemberChoices() {
+    if (memberChoicesLoaded || isLoadingMemberChoices) return
+    setIsLoadingMemberChoices(true)
+    setMemberChoicesError('')
+    try {
+      setMemberChoices(await loadUsers())
+      setMemberChoicesLoaded(true)
+    } catch (loadError) {
+      if (!isAbortError(loadError)) setMemberChoicesError(loadError.message || 'Unable to load every active team member.')
+    } finally {
+      setIsLoadingMemberChoices(false)
+    }
+  }
 
   async function handleSelect(userId) {
     setSelectedUserId(userId)
@@ -80,13 +103,15 @@ export function AdminMemberEmail({ users = [] }) {
           <p>Connect a team member&apos;s mailbox so their customer emails send from their address.</p>
         </div>
         <Field label="Team member">
-          <select className="text-input" value={selectedUserId} onChange={(event) => handleSelect(event.target.value)}>
+          <select className="text-input" value={selectedUserId} onFocus={loadCompleteMemberChoices} onChange={(event) => handleSelect(event.target.value)}>
             <option value="">Select a member...</option>
-            {users.map((user) => (
+            {memberChoices.map((user) => (
               <option key={user.id} value={user.id}>{user.firstName} {user.lastName} ({user.email})</option>
             ))}
           </select>
         </Field>
+        {isLoadingMemberChoices ? <p className="field-hint" role="status">Loading every active team member…</p> : null}
+        {memberChoicesError ? <InlineError message={memberChoicesError} onRetry={loadCompleteMemberChoices} retryLabel="Retry team members" /> : null}
         {status ? <p className="field-hint" role="status">{status}</p> : null}
         {error ? <InlineError message={error} /> : null}
         {!configured ? (

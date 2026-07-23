@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Card } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Field } from '../components/ui/field'
 import { InlineError } from '../components/ui/inline_error'
-import { createOrganizationUser, listOrganizationUsers, resendOrganizationUserInvitation, revokeOrganizationUserInvitation, updateOrganizationUserRole, updateOrganizationUserStatus } from '../lib/users'
-import { isAbortError } from '../lib/api'
+import { createOrganizationUser, listOrganizationUsers, listOrganizationUsersPage, resendOrganizationUserInvitation, revokeOrganizationUserInvitation, updateOrganizationUserRole, updateOrganizationUserStatus } from '../lib/users'
 import { useAuth } from '../app/providers'
 import { usePageTitle } from '../lib/use_page_title'
 import { AdminMemberEmail } from './admin_member_email'
+import { DefinitionCatalogFilters, DefinitionCatalogPagination, useDefinitionCatalog } from './definition_catalog'
 
 const emptyForm = {
   firstName: '',
@@ -59,52 +59,58 @@ function invitationSummary(user) {
 export function SettingsUsersRoute() {
   const { session, canAdminister: canManageUsers } = useAuth()
   usePageTitle('Users')
-  const [users, setUsers] = useState([])
-  const [error, setError] = useState('')
   const [form, setForm] = useState(emptyForm)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
   const [savingRoleUserId, setSavingRoleUserId] = useState(0)
   const [changingStatusUserId, setChangingStatusUserId] = useState(0)
   const [deactivatingUserId, setDeactivatingUserId] = useState(0)
+  const [preparingDeactivationUserId, setPreparingDeactivationUserId] = useState(0)
   const [resendingUserId, setResendingUserId] = useState(0)
   const [revokingUserId, setRevokingUserId] = useState(0)
   const [replacementUserId, setReplacementUserId] = useState('')
+  const [replacementUsers, setReplacementUsers] = useState([])
   const [lifecycleStatus, setLifecycleStatus] = useState('')
   const [latestSetupLink, setLatestSetupLink] = useState('')
+  const {
+    appliedSearch, error, handleSearch, isLoading, items: users, load: loadUsers,
+    meta, pageNumber, searchInput, setAppliedSearch, setError, setPageNumber,
+    setSearchInput, setStatusFilter, statusFilter
+  } = useDefinitionCatalog({
+    requestPage: canManageUsers ? listOrganizationUsersPage : async () => { throw new Error('Admin access required') },
+    itemsKey: 'users',
+    loadErrorMessage: 'Unable to load users.',
+    reloadKey: canManageUsers
+  })
 
-  async function loadUsers({ signal } = {}) {
-    if (!canManageUsers) {
-      setError('Admin access required')
-      setUsers([])
-      return
+  async function reconcileUsers({ firstPage = false } = {}) {
+    if (firstPage) {
+      const alreadyOnFirstUnfilteredPage = pageNumber === 1 && appliedSearch === '' && statusFilter === 'all'
+      setSearchInput('')
+      setAppliedSearch('')
+      setStatusFilter('all')
+      setPageNumber(1)
+      return alreadyOnFirstUnfilteredPage ? loadUsers({ requestedPage: 1, search: '', itemStatus: 'all' }) : null
     }
-
-    setIsLoading(true)
-    try {
-      const entries = await listOrganizationUsers({ signal, includeDisabled: true })
-      setUsers(entries)
-      setError('')
-    } catch (loadError) {
-      if (!isAbortError(loadError)) {
-        setError(loadError.message || 'Unable to load users.')
-        setUsers([])
-      }
-    } finally {
-      if (!signal?.aborted) {
-        setIsLoading(false)
-      }
-    }
+    const page = await loadUsers()
+    if (page && page.users.length === 0 && page.meta.total > 0 && pageNumber > 1) setPageNumber((current) => current - 1)
+    return page
   }
 
-  useEffect(() => {
-    const controller = new AbortController()
-
-    loadUsers({ signal: controller.signal })
-    return () => {
-      controller.abort()
+  async function startDeactivation(user) {
+    if (preparingDeactivationUserId) return
+    setPreparingDeactivationUserId(user.id)
+    setError('')
+    setLifecycleStatus('')
+    setReplacementUserId('')
+    try {
+      setReplacementUsers(await listOrganizationUsers())
+      setDeactivatingUserId(user.id)
+    } catch (loadError) {
+      setError(loadError.message || 'Unable to load reassignment choices.')
+    } finally {
+      setPreparingDeactivationUserId(0)
     }
-  }, [canManageUsers])
+  }
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -114,10 +120,10 @@ export function SettingsUsersRoute() {
 
     try {
       const created = await createOrganizationUser(form)
-      setUsers((current) => [...current, created])
       setLatestSetupLink(created?.setupLink || '')
       setLifecycleStatus(`Invited ${created.email}; review delivery below.`)
       setForm(emptyForm)
+      await reconcileUsers({ firstPage: true })
     } catch (submitError) {
       setError(submitError.message || 'Unable to create user.')
     } finally {
@@ -132,9 +138,9 @@ export function SettingsUsersRoute() {
     setLatestSetupLink('')
     try {
       const updated = await resendOrganizationUserInvitation(user.id)
-      setUsers((current) => current.map((entry) => (entry.id === user.id ? updated : entry)))
       setLatestSetupLink(updated?.setupLink || '')
       setLifecycleStatus(`Invitation sent to ${user.email}; old links are invalid.`)
+      await reconcileUsers()
     } catch (submitError) {
       setError(submitError.message || 'Unable to resend invitation.')
     } finally {
@@ -148,10 +154,10 @@ export function SettingsUsersRoute() {
     setLifecycleStatus('')
     setLatestSetupLink('')
     try {
-      const result = await revokeOrganizationUserInvitation(user.id)
-      setUsers((current) => current.map((entry) => (entry.id === user.id ? result.user : entry)))
+      await revokeOrganizationUserInvitation(user.id)
       setLifecycleStatus(`Invitation revoked for ${user.email}; all links are invalid.`)
       setRevokingUserId(0)
+      await reconcileUsers()
     } catch (submitError) {
       setError(submitError.message || 'Unable to revoke invitation.')
     } finally {
@@ -165,8 +171,8 @@ export function SettingsUsersRoute() {
     setLifecycleStatus('')
     try {
       const updated = await updateOrganizationUserRole(userId, role)
-      setUsers((current) => current.map((user) => (user.id === userId ? updated : user)))
       setLifecycleStatus(`${updated.firstName} ${updated.lastName} now has the ${updated.role} role. The access change is retained in the audit trail and portable workspace export.`)
+      await reconcileUsers()
     } catch (submitError) {
       setError(submitError.message || 'Unable to update user role.')
     } finally {
@@ -184,7 +190,6 @@ export function SettingsUsersRoute() {
         status,
         reassignToUserId: status === 'disabled' ? Number(replacementUserId) || 0 : 0
       })
-      setUsers((current) => current.map((entry) => (entry.id === user.id ? result.user : entry)))
       if (status === 'disabled') {
         const reassigned = Object.values(result.reassigned || {}).reduce((total, count) => total + Number(count || 0), 0)
         setLifecycleStatus(`${user.firstName} ${user.lastName} was deactivated. ${reassigned} active work item${reassigned === 1 ? '' : 's'} reassigned; ${result.sessionsInvalidated || 0} session${result.sessionsInvalidated === 1 ? '' : 's'} ended.`)
@@ -195,6 +200,8 @@ export function SettingsUsersRoute() {
       }
       setDeactivatingUserId(0)
       setReplacementUserId('')
+      setReplacementUsers([])
+      await reconcileUsers()
     } catch (submitError) {
       setError(submitError.message || 'Unable to update user access.')
     } finally {
@@ -203,6 +210,7 @@ export function SettingsUsersRoute() {
   }
 
   const activeUsers = users.filter((user) => (user.status || 'active') === 'active')
+  const catalogDisabled = isSubmitting || changingStatusUserId > 0 || preparingDeactivationUserId > 0 || savingRoleUserId > 0
 
   return (
     <section className="dashboard-grid settings-grid">
@@ -219,6 +227,17 @@ export function SettingsUsersRoute() {
             <InlineError message={error} onRetry={canManageUsers ? () => loadUsers() : undefined} retryLabel="Retry users" />
           ) : null}
           {lifecycleStatus ? <p className="inline-note" role="status">{lifecycleStatus}</p> : null}
+          <DefinitionCatalogFilters
+            applyLabel="Search team" disabled={catalogDisabled}
+            handleSearch={handleSearch} isLoading={isLoading} searchInput={searchInput}
+            searchLabel="Search team access" searchPlaceholder="Name or email"
+            setPageNumber={setPageNumber} setSearchInput={setSearchInput}
+            setStatusFilter={setStatusFilter} statusFilter={statusFilter} statusLabel="Access status"
+          >
+            <option value="all">Active and disabled</option>
+            <option value="active">Active</option>
+            <option value="disabled">Disabled</option>
+          </DefinitionCatalogFilters>
           <div className="record-list" role="list" aria-label="Organization users">
             {!isLoading && users.length === 0 ? (
               <article className="record-row" role="listitem">
@@ -268,8 +287,8 @@ export function SettingsUsersRoute() {
                       </Button>
                     </div>
                   ) : !isSelf && !isDeactivating ? (
-                    <Button className="button-danger" type="button" onClick={() => { setDeactivatingUserId(user.id); setReplacementUserId(''); setLifecycleStatus('') }}>
-                      Deactivate
+                    <Button className="button-danger" type="button" onClick={() => startDeactivation(user)} disabled={preparingDeactivationUserId > 0}>
+                      {preparingDeactivationUserId === user.id ? 'Loading…' : 'Deactivate'}
                     </Button>
                   ) : null}
                   {isDeactivating ? (
@@ -280,7 +299,7 @@ export function SettingsUsersRoute() {
                         <span className="field-label">Reassign active work</span>
                         <select className="text-input" aria-label={`Reassign work from ${user.email}`} value={replacementUserId} onChange={(event) => setReplacementUserId(event.target.value)}>
                           <option value="">Leave unassigned</option>
-                          {activeUsers.filter((candidate) => candidate.id !== user.id).map((candidate) => (
+                          {replacementUsers.filter((candidate) => candidate.id !== user.id).map((candidate) => (
                             <option key={candidate.id} value={candidate.id}>{candidate.firstName} {candidate.lastName} ({candidate.email})</option>
                           ))}
                         </select>
@@ -289,7 +308,7 @@ export function SettingsUsersRoute() {
                         <Button className="button-danger" type="button" onClick={() => handleStatusChange(user, 'disabled')} disabled={changingStatusUserId === user.id}>
                           {changingStatusUserId === user.id ? 'Deactivating…' : 'Confirm deactivation'}
                         </Button>
-                        <Button className="button-secondary" type="button" onClick={() => { setDeactivatingUserId(0); setReplacementUserId('') }} disabled={changingStatusUserId === user.id}>Cancel</Button>
+                        <Button className="button-secondary" type="button" onClick={() => { setDeactivatingUserId(0); setReplacementUserId(''); setReplacementUsers([]) }} disabled={changingStatusUserId === user.id}>Cancel</Button>
                       </div>
                     </div>
                   ) : null}
@@ -310,6 +329,12 @@ export function SettingsUsersRoute() {
               )
             })}
           </div>
+          <DefinitionCatalogPagination
+            appliedSearch={appliedSearch} disabled={catalogDisabled}
+            isLoading={isLoading} itemCount={users.length}
+            limitHint="Disabled history is paged."
+            meta={meta} noun="team members" pageNumber={pageNumber} setPageNumber={setPageNumber}
+          />
         </div>
       </Card>
 

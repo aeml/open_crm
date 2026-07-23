@@ -17,7 +17,8 @@ export async function listLeadCaptureForms({ status = 'all', signal } = {}) {
     ({ page, pageSize }) => listLeadCaptureFormPage({ status, page, pageSize, signal }),
     'forms',
     'The lead form catalog changed while options were loading. Try again.',
-    'The complete lead form catalog could not be loaded. Review retained form history and try again.'
+    'The complete lead form catalog could not be loaded. Review retained form history and try again.',
+    true
   )
 }
 

@@ -61,7 +61,7 @@ type authService interface {
 }
 
 type usersService interface {
-	ListByOrganization(context.Context, int64) ([]moduleusers.UserSummary, error)
+	ListByOrganization(context.Context, int64, moduleusers.ListQuery) (moduleusers.ListPage, error)
 	CreateForOrganization(context.Context, int64, moduleusers.CreateUserInput) (moduleusers.UserSummary, error)
 	ResendInvitation(context.Context, int64, int64, int64) (moduleusers.UserSummary, error)
 	RecordInvitationDelivery(context.Context, int64, int64, string, string, string) (string, error)

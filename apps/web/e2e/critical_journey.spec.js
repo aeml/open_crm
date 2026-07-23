@@ -172,6 +172,18 @@ function seedSavedViewContinuation(ownerEmail, runID) {
   })
 }
 
+function seedUserCatalogContinuation(ownerEmail, runID) {
+  execFileSync('go', ['run', './cmd/e2e_seed_user_catalog', ownerEmail, runID], {
+    cwd: '../api',
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseURL,
+      GO_ENV: 'test'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+}
+
 async function bootstrapWorkspace(page, runID, prefix = 'Pilot') {
   const email = `${prefix.toLowerCase()}-owner-${runID}@example.test`
   const password = 'Correct-Horse-Battery-27!'
@@ -352,6 +364,28 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await memberPage.getByLabel('Password').fill(invitedPassword)
   await memberPage.getByRole('button', { name: 'Sign in' }).click()
   await expect(memberPage).toHaveURL(/\/dashboard$/)
+
+  seedUserCatalogContinuation(owner.email, runID)
+  await page.reload()
+  const retainedMemberEmail = `browser-team-${runID}-49@example.test`
+  await expect(page.getByText('Showing 50 of 51 team members', { exact: false })).toBeVisible()
+  await expect(page.getByText(retainedMemberEmail, { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(page.getByText(retainedMemberEmail, { exact: true })).toBeVisible()
+  await expect(page.getByText('Showing 1 of 51 team members', { exact: false })).toBeVisible()
+  await page.getByLabel('Access status').selectOption('disabled')
+  await expect(page.getByText('Showing 1 of 1 team members', { exact: false })).toBeVisible()
+  await page.getByLabel('Search team access').fill('Retained %_')
+  await page.getByRole('button', { name: 'Search team' }).click()
+  await expect(page.getByText('Showing 1 of 1 team members matching “Retained %_”', { exact: false })).toBeVisible()
+  const userCatalogAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-user-catalog-continuation', {
+    body: JSON.stringify({ url: page.url(), violations: userCatalogAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(userCatalogAccessibility.violations).toEqual([])
 
   await page.getByRole('link', { name: 'Custom Fields', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Custom fields' })).toBeVisible()

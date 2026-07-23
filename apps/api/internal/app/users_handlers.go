@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
 	moduleaudit "github.com/aeml/open_crm/apps/api/internal/modules/audit"
 	moduleusers "github.com/aeml/open_crm/apps/api/internal/modules/users"
+	platformpagination "github.com/aeml/open_crm/apps/api/internal/platform/pagination"
 	platformweb "github.com/aeml/open_crm/apps/api/internal/platform/web"
 )
 
@@ -31,6 +33,11 @@ type updateUserStatusRequest struct {
 type usersListResponse struct {
 	Data struct {
 		Users []moduleusers.UserSummary `json:"users"`
+		Meta  struct {
+			Page     int `json:"page"`
+			PageSize int `json:"pageSize"`
+			Total    int `json:"total"`
+		} `json:"meta"`
 	} `json:"data"`
 	Meta struct {
 		RequestID string `json:"requestId"`
@@ -64,16 +71,41 @@ func handleListUsers(auth authService, users usersService, w http.ResponseWriter
 		return
 	}
 
-	entries, err := users.ListByOrganization(r.Context(), state.Organization.ID)
+	query, ok := parseUserListQuery(w, r, requestID)
+	if !ok {
+		return
+	}
+	page, err := users.ListByOrganization(r.Context(), state.Organization.ID, query)
 	if err != nil {
-		platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load users")
+		if errors.Is(err, moduleusers.ErrInvalidListQuery) {
+			platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid user list query")
+		} else {
+			platformweb.WriteError(w, http.StatusInternalServerError, requestID, "INTERNAL_SERVER_ERROR", "Unable to load users")
+		}
 		return
 	}
 
 	response := usersListResponse{}
-	response.Data.Users = entries
+	response.Data.Users = page.Users
+	response.Data.Meta.Page = page.Page
+	response.Data.Meta.PageSize = page.PageSize
+	response.Data.Meta.Total = page.Total
 	response.Meta.RequestID = requestID
 	platformweb.WriteJSON(w, http.StatusOK, response)
+}
+
+func parseUserListQuery(w http.ResponseWriter, r *http.Request, requestID string) (moduleusers.ListQuery, bool) {
+	page, err := platformpagination.Parse(r.URL.Query().Get("page"), r.URL.Query().Get("pageSize"), moduleusers.DefaultListPageSize)
+	search := strings.TrimSpace(r.URL.Query().Get("q"))
+	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
+	if status == "" {
+		status = "all"
+	}
+	if err != nil || utf8.RuneCountInString(search) > moduleusers.MaxListSearchLength || (status != "all" && status != moduleusers.MembershipStatusActive && status != moduleusers.MembershipStatusDisabled) {
+		platformweb.WriteError(w, http.StatusBadRequest, requestID, "BAD_REQUEST", "Invalid user list query")
+		return moduleusers.ListQuery{}, false
+	}
+	return moduleusers.ListQuery{Search: search, Status: status, Page: page.Number, PageSize: page.Size}, true
 }
 
 func handleCreateUser(env config.Env, auth authService, users usersService, audit auditService, billing billingService, mailer emailService, w http.ResponseWriter, r *http.Request) {

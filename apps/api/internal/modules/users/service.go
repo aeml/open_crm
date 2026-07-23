@@ -123,64 +123,6 @@ func NewServiceWithCapacity(pool *pgxpool.Pool, capacity modulebilling.CapacityM
 	return &Service{pool: pool, capacity: capacity}
 }
 
-func (s *Service) ListByOrganization(ctx context.Context, organizationID int64) ([]UserSummary, error) {
-	if s == nil || s.pool == nil {
-		return nil, fmt.Errorf("users service not configured")
-	}
-
-	rows, err := s.pool.Query(ctx, `
-		SELECT u.id, u.email, u.first_name, u.last_name, om.role,
-			COALESCE(om.membership_status, 'active'), om.status_changed_at,
-			(SELECT COUNT(*) FROM contacts record WHERE record.organization_id = om.organization_id AND record.owner_user_id = u.id AND record.archived_at IS NULL),
-			(SELECT COUNT(*) FROM companies record WHERE record.organization_id = om.organization_id AND record.owner_user_id = u.id AND record.archived_at IS NULL),
-			(SELECT COUNT(*) FROM deals record WHERE record.organization_id = om.organization_id AND record.owner_user_id = u.id AND record.archived_at IS NULL),
-			(SELECT COUNT(*) FROM tasks record WHERE record.organization_id = om.organization_id AND record.assigned_to_user_id = u.id AND record.archived_at IS NULL),
-			(SELECT COUNT(*) FROM email_messages record WHERE record.organization_id = om.organization_id AND record.shared_inbox_assigned_to_user_id = u.id AND record.direction = 'inbound' AND record.visibility = 'shared' AND record.shared_inbox_status = 'open'),
-			(SELECT COUNT(*) FROM lead_scoring_rules record WHERE record.organization_id = om.organization_id AND record.assign_to_user_id = u.id AND record.is_active = TRUE),
-			(SELECT COUNT(*) FROM calendar_events record WHERE record.organization_id = om.organization_id AND record.calendar_user_id = u.id AND record.status = 'scheduled' AND record.end_at > NOW()),
-			(u.password_setup_token_hash IS NOT NULL AND u.password_setup_consumed_at IS NULL AND u.password_setup_revoked_at IS NULL) AS setup_pending,
-			CASE
-				WHEN u.password_setup_consumed_at IS NOT NULL THEN 'accepted'
-				WHEN u.password_setup_revoked_at IS NOT NULL THEN 'revoked'
-				WHEN u.password_setup_token_hash IS NOT NULL AND u.password_setup_expires_at <= NOW() THEN 'expired'
-				WHEN u.password_setup_token_hash IS NOT NULL THEN 'pending'
-				ELSE ''
-			END AS invitation_status,
-			u.password_setup_expires_at,
-			COALESCE(u.password_setup_delivery_status, '')
-		FROM organization_memberships om
-		JOIN users u ON u.id = om.user_id
-		WHERE om.organization_id = $1
-		ORDER BY u.id ASC
-	`, organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("list users: %w", err)
-	}
-	defer rows.Close()
-
-	users := make([]UserSummary, 0)
-	for rows.Next() {
-		var entry UserSummary
-		if err := rows.Scan(
-			&entry.ID, &entry.Email, &entry.FirstName, &entry.LastName, &entry.Role,
-			&entry.Status, &entry.StatusChangedAt,
-			&entry.OwnedWork.Contacts, &entry.OwnedWork.Companies, &entry.OwnedWork.Deals,
-			&entry.OwnedWork.Tasks, &entry.OwnedWork.SharedInbox, &entry.OwnedWork.LeadRoutingRules,
-			&entry.OwnedWork.CalendarEvents, &entry.SetupPending,
-			&entry.InvitationStatus, &entry.InvitationExpiresAt, &entry.InvitationDeliveryStatus,
-		); err != nil {
-			return nil, fmt.Errorf("scan user: %w", err)
-		}
-		users = append(users, entry)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate users: %w", err)
-	}
-
-	return users, nil
-}
-
 func (s *Service) CreateForOrganization(ctx context.Context, organizationID int64, input CreateUserInput) (UserSummary, error) {
 	if s == nil || s.pool == nil {
 		return UserSummary{}, fmt.Errorf("users service not configured")

@@ -56,11 +56,27 @@ describe('settings users route', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ data: { users: [
+          { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+          { id: 2, email: 'admin@acme.test', firstName: 'Demo', lastName: 'Admin', role: 'admin' },
+          { id: 3, email: 'ops@acme.test', firstName: 'Ops', lastName: 'Lead', role: 'member', invitationDeliveryStatus: 'sent', setupLink: '/setup-password?token=setup-token-123' }
+        ], meta: { page: 1, pageSize: 50, total: 3 } } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({
           data: {
             user: { id: 3, email: 'ops@acme.test', firstName: 'Ops', lastName: 'Lead', role: 'admin' }
           }
         })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: { users: [
+          { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
+          { id: 2, email: 'admin@acme.test', firstName: 'Demo', lastName: 'Admin', role: 'admin' },
+          { id: 3, email: 'ops@acme.test', firstName: 'Ops', lastName: 'Lead', role: 'admin' }
+        ], meta: { page: 1, pageSize: 50, total: 3 } } })
       })
 
     vi.stubGlobal('fetch', fetchMock)
@@ -160,6 +176,7 @@ describe('settings users route', () => {
       })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [owner, member] } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [owner, member], meta: { page: 1, pageSize: 50, total: 2 } } }) })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -171,10 +188,12 @@ describe('settings users route', () => {
           }
         })
       })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [owner, { ...member, status: 'disabled', ownedWork: {} }], meta: { page: 1, pageSize: 50, total: 2 } } }) })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ data: { user: { ...member, status: 'active', ownedWork: {} }, reassigned: {}, sessionsInvalidated: 0, changed: true } })
       })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [owner, { ...member, status: 'active', ownedWork: {} }], meta: { page: 1, pageSize: 50, total: 2 } } }) })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/settings/users')
@@ -183,7 +202,7 @@ describe('settings users route', () => {
     expect(await screen.findByText('member@acme.test')).toBeInTheDocument()
     expect(screen.getByText(/2 contacts, 1 tasks/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^deactivate$/i }))
-    fireEvent.change(screen.getByLabelText(/reassign work from member@acme.test/i), { target: { value: '1' } })
+    fireEvent.change(await screen.findByLabelText(/reassign work from member@acme.test/i), { target: { value: '1' } })
     fireEvent.click(screen.getByRole('button', { name: /confirm deactivation/i }))
 
     await waitFor(() => {
@@ -193,11 +212,12 @@ describe('settings users route', () => {
       )
     })
     expect(await screen.findByText(/3 active work items reassigned; 2 sessions ended/i)).toBeInTheDocument()
-    expect(screen.getByText('Disabled')).toBeInTheDocument()
+    expect(within(screen.getByText('member@acme.test').closest('article')).getByText('Disabled')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^reactivate$/i }))
 
     expect(await screen.findByText(/can sign in again; mailbox sync remains off/i)).toBeInTheDocument()
-    expect(screen.getAllByText('Active')).toHaveLength(2)
+    expect(within(screen.getByText('owner@acme.test').closest('article')).getByText('Active')).toBeInTheDocument()
+    expect(within(screen.getByText('member@acme.test').closest('article')).getByText('Active')).toBeInTheDocument()
   })
 
   it('shows invitation expiry, resends with token rotation, and confirms revocation', async () => {
@@ -210,7 +230,9 @@ describe('settings users route', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { unreadCount: 0 } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [owner, expiredInvite] } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { user: pendingInvite } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [owner, pendingInvite], meta: { page: 1, pageSize: 50, total: 2 } } }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { user: { ...pendingInvite, status: 'disabled', invitationStatus: 'revoked', invitationExpiresAt: null, setupLink: undefined }, reassigned: {}, sessionsInvalidated: 0, changed: true } }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { users: [owner, { ...pendingInvite, status: 'disabled', invitationStatus: 'revoked', invitationExpiresAt: null, setupLink: undefined }], meta: { page: 1, pageSize: 50, total: 2 } } }) })
 
     vi.stubGlobal('fetch', fetchMock)
     window.history.pushState({}, '', '/settings/users')
@@ -233,7 +255,63 @@ describe('settings users route', () => {
     expect(await screen.findByText(/all links are invalid/i)).toBeInTheDocument()
     expect(screen.queryByText('/setup-password?token=new-local-token')).not.toBeInTheDocument()
     expect(screen.getByText('Invitation revoked')).toBeInTheDocument()
-    expect(screen.getByText('Disabled')).toBeInTheDocument()
+    expect(within(screen.getByText('invitee@acme.test').closest('article')).getByText('Disabled')).toBeInTheDocument()
+  })
+
+  it('continues to retained row 51 and applies literal search and status filters', async () => {
+    const owner = { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner', status: 'active', ownedWork: {} }
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      id: index + 1,
+      email: index === 0 ? owner.email : `active-${index + 1}@acme.test`,
+      firstName: index === 0 ? owner.firstName : 'Active',
+      lastName: index === 0 ? owner.lastName : `Member ${index + 1}`,
+      role: index === 0 ? owner.role : 'viewer',
+      status: 'active',
+      ownedWork: {}
+    }))
+    const retained = { id: 51, email: 'retained-51@acme.test', firstName: 'Retained', lastName: 'Member', role: 'viewer', status: 'disabled', ownedWork: {} }
+    const literal = { ...retained, email: 'literal_%@acme.test' }
+    const fetchMock = vi.fn(async (url) => {
+      const requestURL = new URL(String(url), 'http://localhost')
+      if (requestURL.pathname === '/auth/me') {
+        return { ok: true, json: async () => ({ data: { user: owner, organization: { id: 1, name: 'Acme, Inc.', slug: 'acme-inc' }, membership: { role: 'owner' } } }) }
+      }
+      if (requestURL.pathname === '/api/notifications/unread-count') {
+        return { ok: true, json: async () => ({ data: { unreadCount: 0 } }) }
+      }
+      const page = Number(requestURL.searchParams.get('page') || 1)
+      const search = requestURL.searchParams.get('q') || ''
+      const status = requestURL.searchParams.get('status') || 'all'
+      if (search === 'literal_%') {
+        return { ok: true, json: async () => ({ data: { users: [literal], meta: { page: 1, pageSize: 50, total: 1 } } }) }
+      }
+      if (status === 'disabled') {
+        return { ok: true, json: async () => ({ data: { users: [retained], meta: { page: 1, pageSize: 50, total: 1 } } }) }
+      }
+      return {
+        ok: true,
+        json: async () => ({ data: { users: page === 1 ? firstPage : [retained], meta: { page, pageSize: 50, total: 51 } } })
+      }
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+    window.history.pushState({}, '', '/settings/users')
+    render(<AppRouter />)
+
+    expect(await screen.findByText('active-50@acme.test')).toBeInTheDocument()
+    expect(screen.getByText(/showing 50 of 51 team members/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /next page/i }))
+    expect(await screen.findByText('retained-51@acme.test')).toBeInTheDocument()
+    expect(screen.getByText(/showing 1 of 51 team members/i)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/access status/i), { target: { value: 'disabled' } })
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('status=disabled'))).toBe(true)
+    })
+    fireEvent.change(screen.getByLabelText(/search team access/i), { target: { value: 'literal_%' } })
+    fireEvent.click(screen.getByRole('button', { name: /search team/i }))
+    expect(await screen.findByText('literal_%@acme.test')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('q=literal_%25'))).toBe(true)
   })
 
   it('shows provider feedback and blocks resend after a spam complaint', async () => {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aeml/open_crm/apps/api/internal/config"
@@ -25,6 +26,7 @@ type fakeUsersService struct {
 	revokeErr              error
 	setupErr               error
 	lastListOrgID          int64
+	lastListQuery          moduleusers.ListQuery
 	lastCreateOrgID        int64
 	lastRoleOrgID          int64
 	lastRoleUserID         int64
@@ -52,9 +54,10 @@ type fakeUsersService struct {
 	lastPreferences        moduleusers.UserPreferences
 }
 
-func (f *fakeUsersService) ListByOrganization(_ context.Context, organizationID int64) ([]moduleusers.UserSummary, error) {
+func (f *fakeUsersService) ListByOrganization(_ context.Context, organizationID int64, query moduleusers.ListQuery) (moduleusers.ListPage, error) {
 	f.lastListOrgID = organizationID
-	return f.listResult, f.listErr
+	f.lastListQuery = query
+	return moduleusers.ListPage{Users: f.listResult, Page: query.Page, PageSize: query.PageSize, Total: len(f.listResult)}, f.listErr
 }
 
 func (f *fakeUsersService) CreateForOrganization(_ context.Context, organizationID int64, input moduleusers.CreateUserInput) (moduleusers.UserSummary, error) {
@@ -173,6 +176,11 @@ func TestListUsersUsesCurrentSessionOrganization(t *testing.T) {
 	var response struct {
 		Data struct {
 			Users []moduleusers.UserSummary `json:"users"`
+			Meta  struct {
+				Page     int `json:"page"`
+				PageSize int `json:"pageSize"`
+				Total    int `json:"total"`
+			} `json:"meta"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -181,6 +189,56 @@ func TestListUsersUsesCurrentSessionOrganization(t *testing.T) {
 
 	if len(response.Data.Users) != 1 || response.Data.Users[0].Email != "owner@acme.test" {
 		t.Fatalf("expected returned user list, got %#v", response.Data.Users)
+	}
+	if response.Data.Meta.Page != 1 || response.Data.Meta.PageSize != moduleusers.DefaultListPageSize || response.Data.Meta.Total != 1 {
+		t.Fatalf("unexpected user list metadata: %#v", response.Data.Meta)
+	}
+}
+
+func TestListUsersParsesBoundedSearchAndStatus(t *testing.T) {
+	usersService := &fakeUsersService{}
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User: moduleauth.User{ID: 1}, Organization: moduleauth.Organization{ID: 42}, Membership: moduleauth.Membership{Role: "member"},
+		}},
+		UsersService: usersService,
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/users?q=Casey&status=disabled&page=2&pageSize=25", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	if usersService.lastListQuery != (moduleusers.ListQuery{Search: "Casey", Status: "disabled", Page: 2, PageSize: 25}) {
+		t.Fatalf("unexpected user list query: %#v", usersService.lastListQuery)
+	}
+}
+
+func TestListUsersRejectsMalformedOrExcessiveQueries(t *testing.T) {
+	server := NewServer(config.Env{}, Dependencies{
+		AuthService: &fakeAuthService{currentSessionResult: moduleauth.SessionState{
+			User: moduleauth.User{ID: 1}, Organization: moduleauth.Organization{ID: 42}, Membership: moduleauth.Membership{Role: "member"},
+		}},
+		UsersService: &fakeUsersService{},
+	})
+
+	for _, target := range []string{
+		"/api/users?page=0",
+		"/api/users?pageSize=101",
+		"/api/users?page=1002&pageSize=50",
+		"/api/users?status=unknown",
+		"/api/users?q=" + strings.Repeat("x", moduleusers.MaxListSearchLength+1),
+	} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "session-token-123"})
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("%s: expected status %d, got %d: %s", target, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 

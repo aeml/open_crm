@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AppRouter } from '../app/router'
+import { AdminMemberEmail } from './admin_member_email'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -56,5 +57,27 @@ describe('admin member email management', () => {
       expect(JSON.parse(putCall[1].body).smtpHost).toBe('smtp.acme.test')
     })
     expect(await screen.findByText(/email connection saved for this member/i)).toBeInTheDocument()
+  })
+
+  it('loads the complete active member catalog when the selector is used', async () => {
+    const initialUsers = [{ id: 1, firstName: 'First', lastName: 'Member', email: 'first@example.test' }]
+    const completeUsers = [
+      ...initialUsers,
+      { id: 51, firstName: 'Later', lastName: 'Member', email: 'later@example.test' }
+    ]
+    const loadUsers = vi.fn().mockResolvedValue(completeUsers)
+
+    render(<AdminMemberEmail users={initialUsers} loadUsers={loadUsers} />)
+
+    const selector = screen.getByLabelText('Team member')
+    expect(screen.queryByRole('option', { name: /later member/i })).not.toBeInTheDocument()
+    fireEvent.focus(selector)
+
+    await waitFor(() => expect(screen.getByRole('option', { name: /later member/i })).toBeInTheDocument())
+    expect(loadUsers).toHaveBeenCalledTimes(1)
+
+    fireEvent.blur(selector)
+    fireEvent.focus(selector)
+    expect(loadUsers).toHaveBeenCalledTimes(1)
   })
 })

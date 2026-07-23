@@ -859,12 +859,13 @@ describe('companies flow', () => {
         })
       }
 
-      if (requestURL.endsWith('/api/users')) {
+      if (new URL(requestURL, 'http://localhost').pathname.endsWith('/api/users')) {
         return jsonResponse({
           data: {
             users: [
               { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
-            ]
+            ],
+            meta: { page: 1, pageSize: 100, total: 1 }
           }
         })
       }
@@ -953,12 +954,13 @@ describe('companies flow', () => {
         })
       }
 
-      if (requestURL.endsWith('/api/users')) {
+      if (new URL(requestURL, 'http://localhost').pathname.endsWith('/api/users')) {
         return jsonResponse({
           data: {
             users: [
               { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' }
-            ]
+            ],
+            meta: { page: 1, pageSize: 100, total: 1 }
           }
         })
       }

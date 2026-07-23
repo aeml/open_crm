@@ -2,9 +2,9 @@
 
 Last reconciled: 2026-07-23
 
-Evidence row count: `49`
+Evidence row count: `50`
 
-Evidence digest: `cc5ada60d815f18ca2efdd4f0be3678bef704eb4b874ce83570a94b039b911eb`
+Evidence digest: `0b06ee0dd92e0d2c0c85278fe862489136a803a3bbb5077e758f0dc1a34640a3`
 
 This is the executable Phase 2 negative-path matrix for capabilities promoted
 into the pilot workflow. It complements, rather than replaces,
@@ -70,6 +70,7 @@ the assertions inside those tests remain the proof of behavior.
 | `session-management` | `apps/api/internal/modules/auth/sessions_postgres_test.go` | `TestSessionManagementIsPrivateGlobalAndAuditedAgainstPostgres` | A user cannot list or revoke another user's session, including a session in a foreign workspace. |
 | `task-reminders` | `apps/api/internal/modules/taskreminders/service_postgres_test.go` | `TestTaskRemindersAreDurablePreferenceAwareAndIdempotentAgainstPostgres` | A foreign tenant cannot consume another tenant's reminder job or receive its notification/activity effects. |
 | `touchpoints` | `apps/api/internal/modules/touchpoints/service_postgres_test.go` | `TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres` | Foreign contact/client IDs and activity remain absent from history, follow-up queues, client-period counts, source links, and health summaries; private sources remain viewer-aware. |
+| `user-catalog` | `apps/api/internal/modules/users/catalog_postgres_test.go` | `TestUserCatalogIsBoundedSearchableTenantSafeAndIndexedAgainstPostgres` | Exact searchable/status-filtered totals, stable active-first adjacent pages, literal wildcard search, retained disabled history, and per-row active-work summaries remain inside the selected workspace; a foreign workspace contributes only its own member, and direct oversized/deep requests fail before a query. |
 | `user-lifecycle` | `apps/api/internal/modules/users/lifecycle_postgres_test.go` | `TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPostgres` | Role and status writes revalidate the current active owner/admin inside their serializable tenant transaction. Member, disabled, missing, and foreign actors/targets/replacements reject; forced role-audit failure leaves the role unchanged; exact retries do not duplicate history; membership, sessions, work, current state, and portable audit history stay in the owning workspace. |
 | `workspace-bootstrap` | `apps/api/internal/modules/onboarding/service_postgres_test.go` | `TestVerifiedWorkspaceSignupIsIdempotentAndStartsTrialAfterVerificationAgainstPostgres` | Provisioning commits one isolated organization/owner/pipeline only after token verification; conflicting retry identity cannot create a second tenant. |
 | `workspace-portability` | `apps/api/internal/modules/workspaceexports/service_postgres_test.go` | `TestWorkspaceExportLifecycleAgainstPostgres` | Dataset queries, job/artifact IDs, downloads, redaction, checksum evidence, and expiry remain tenant scoped. |

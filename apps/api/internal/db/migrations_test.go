@@ -2407,3 +2407,26 @@ func TestMigrationFilesIncludeCustomFieldRevisions(t *testing.T) {
 		t.Fatalf("custom-field revision migration deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeUserCatalogPaging(t *testing.T) {
+	const name = "129_user_catalog_paging.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"idx_organization_memberships_org_status_user",
+		"organization_memberships",
+		"membership_status",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("user catalog paging migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("user catalog paging migration deployment class = %q", class)
+	}
+}

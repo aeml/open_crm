@@ -50,17 +50,6 @@ describe('entity task visibility', () => {
         ok: true,
         json: async () => ({
           data: {
-            contacts: [
-              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
-            ],
-            meta: { page: 1, pageSize: 20, total: 1 }
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
             users: [
               { id: 1, email: 'owner@acme.test', firstName: 'Demo', lastName: 'Owner', role: 'owner' },
               { id: 2, email: 'alex@acme.test', firstName: 'Alex', lastName: 'Admin', role: 'admin' }
@@ -71,6 +60,17 @@ describe('entity task visibility', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ data: { definitions: [] } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            contacts: [
+              { id: 7, firstName: 'Morgan', lastName: 'Lee', email: 'morgan@acme.test', phone: '555-0100', jobTitle: 'Head of RevOps', status: 'lead', isClient: false }
+            ],
+            meta: { page: 1, pageSize: 20, total: 1 }
+          }
+        })
       })
       .mockResolvedValueOnce({
         ok: true,

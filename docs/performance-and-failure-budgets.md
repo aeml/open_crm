@@ -33,6 +33,7 @@ the other tenant to prove denial, and exact post-write totals are checked.
 | Two adjacent record-history cursor pages (1,001 rows, 100/page) | 2 s |
 | Each of the first two shared-inbox cursor pages (1,001 rows, 100/page) | 2 s |
 | Each of the first two filtered lead-review cursor pages (1,001 rows, 100/page) | 2 s |
+| Each adjacent team-member management page (1,001 retained memberships, 100/page) | 2 s each |
 | Each adjacent email-template and snippet management page (1,001 definitions/catalog, up to 100 returned) | 2 s each |
 | Each adjacent personal saved-view management page (1,001 definitions, up to 100 returned) | 2 s each |
 | Active and adjacent email-sequence definition pages (1,001 definitions, up to 100 returned) | 2 s each |
@@ -116,6 +117,22 @@ on refresh; a review mutation intentionally reconciles through the same refresh
 because status filters describe a live work queue. Migration 111 also adds the
 unfiltered tenant/time/ID access path with bounded deployment lock and statement
 timeouts.
+
+Team-member administration uses the compatible offset shape because retained
+disabled membership history is append-only product evidence while the target
+workspace has at most 50 active pilot members. The API defaults to 50, caps at
+100 and offset 50,000, returns an exact repeatable-read total, supports literal
+name/email search plus active/disabled filters, and orders active rows before
+immutable user ID. Only selected-page rows execute the seven active-work count
+subqueries. Complete dependent selectors request active pages unless historical
+report filters explicitly need all statuses, ID-deduplicate every page, and fail
+on total drift or overlap. Fresh PostgreSQL acceptance seeds 1,001 local
+memberships plus a foreign sentinel, budgets adjacent 100-row pages individually
+below two seconds, preserves one exact work count, asserts migration 129's
+organization/status/user index, and proves direct bounds, literal wildcard
+search, exact active/disabled totals, and tenant exclusion. Chromium reaches
+retained row 51 through visible continuation, filters/searches it, and repeats
+WCAG A/AA scanning.
 
 Personal saved-view management uses the compatible offset contract: 50 rows by
 default, 100 maximum, a 50,000-row maximum offset, and an exact repeatable-read
@@ -733,6 +750,15 @@ normalization, formatting, adaptive labels, setup state, record deduplication,
 and pipeline-attention derivation. Five deterministic model tests cover the
 extracted branches. Every entry, per-route, CSS, hidden-foundation, and source
 ceiling remains unchanged.
+
+Bounded retained-team administration reuses the shared catalog controller and
+complete-catalog traversal while keeping disabled history out of ordinary
+active teammate selectors. The 400-line settings route is 13.61/4.28 KiB
+raw/gzip. The current production-URL Node 24 build measures 179.11/58.08 KiB
+entry, 54.10/15.64 KiB largest lazy chunk, and 810.25/255.34 KiB aggregate
+raw/gzip. The measured user outcome advances only the aggregate gzip ceiling
+from 255 to 256 KiB; the 817 KiB aggregate-raw ceiling and every entry,
+per-route, CSS, hidden-foundation, and source ceiling remain unchanged.
 
 The workflow-run API still defaults to 20 and caps at 100 runs; the normal UI
 requests 25. One repeatable-read transaction selects that bounded run page and

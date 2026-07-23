@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	expectedTenantIsolationEvidenceCount  = 49
-	expectedTenantIsolationEvidenceDigest = "cc5ada60d815f18ca2efdd4f0be3678bef704eb4b874ce83570a94b039b911eb"
+	expectedTenantIsolationEvidenceCount  = 50
+	expectedTenantIsolationEvidenceDigest = "0b06ee0dd92e0d2c0c85278fe862489136a803a3bbb5077e758f0dc1a34640a3"
 )
 
 type tenantIsolationEvidence struct {
@@ -69,6 +69,7 @@ var promotedTenantIsolationEvidence = []tenantIsolationEvidence{
 	{Surface: "session-management", Source: "apps/api/internal/modules/auth/sessions_postgres_test.go", Test: "TestSessionManagementIsPrivateGlobalAndAuditedAgainstPostgres"},
 	{Surface: "task-reminders", Source: "apps/api/internal/modules/taskreminders/service_postgres_test.go", Test: "TestTaskRemindersAreDurablePreferenceAwareAndIdempotentAgainstPostgres"},
 	{Surface: "touchpoints", Source: "apps/api/internal/modules/touchpoints/service_postgres_test.go", Test: "TestTouchpointsAreTraceableTenantSafeAndViewerAwareAgainstPostgres"},
+	{Surface: "user-catalog", Source: "apps/api/internal/modules/users/catalog_postgres_test.go", Test: "TestUserCatalogIsBoundedSearchableTenantSafeAndIndexedAgainstPostgres"},
 	{Surface: "user-lifecycle", Source: "apps/api/internal/modules/users/lifecycle_postgres_test.go", Test: "TestUserLifecycleReassignsWorkInvalidatesAccessAndPreservesHistoryAgainstPostgres"},
 	{Surface: "workflow-activation", Source: "apps/api/internal/modules/workflowautomations/activation_postgres_test.go", Test: "TestWorkflowActivationAuthorizationCapacityAndRecovery"},
 	{Surface: "workspace-bootstrap", Source: "apps/api/internal/modules/onboarding/service_postgres_test.go", Test: "TestVerifiedWorkspaceSignupIsIdempotentAndStartsTrialAfterVerificationAgainstPostgres"},

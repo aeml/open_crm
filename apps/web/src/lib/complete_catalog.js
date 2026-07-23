@@ -1,4 +1,4 @@
-export async function loadCompleteCatalog(loadPage, field, changedMessage, incompleteMessage) {
+export async function loadCompleteCatalog(loadPage, field, changedMessage, incompleteMessage, rejectOverlap = false) {
   const rowsById = new Map()
   let expectedTotal = null
   for (let page = 1; page <= 501; page += 1) {
@@ -8,7 +8,10 @@ export async function loadCompleteCatalog(loadPage, field, changedMessage, incom
       throw new Error(changedMessage)
     }
     expectedTotal = total
-    result[field].forEach((row) => rowsById.set(row.id, row))
+    for (const row of result[field]) {
+      if (rejectOverlap && rowsById.has(row.id)) throw new Error(changedMessage)
+      rowsById.set(row.id, row)
+    }
     if (rowsById.size >= expectedTotal) return [...rowsById.values()]
     if (result[field].length === 0) break
   }

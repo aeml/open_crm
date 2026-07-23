@@ -86,7 +86,8 @@ func TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres(t *
 		t.Fatalf("record invitation delivery: status=%q err=%v", status, err)
 	}
 
-	listed, err := service.ListByOrganization(ctx, organizationID)
+	listedPage, err := service.ListByOrganization(ctx, organizationID, moduleusers.ListQuery{})
+	listed := listedPage.Users
 	if err != nil || len(listed) != 2 || listed[1].InvitationStatus != moduleusers.InvitationStatusPending || listed[1].InvitationDeliveryStatus != "sent" || listed[1].InvitationExpiresAt == nil {
 		t.Fatalf("unexpected listed pending invitation: users=%#v err=%v", listed, err)
 	}
@@ -100,7 +101,8 @@ func TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres(t *
 	if _, err := pool.Exec(ctx, `UPDATE users SET password_setup_expires_at=NOW()-INTERVAL '1 minute' WHERE id=$1`, created.ID); err != nil {
 		t.Fatalf("expire invitation: %v", err)
 	}
-	listed, err = service.ListByOrganization(ctx, organizationID)
+	listedPage, err = service.ListByOrganization(ctx, organizationID, moduleusers.ListQuery{})
+	listed = listedPage.Users
 	if err != nil || listed[1].InvitationStatus != moduleusers.InvitationStatusExpired {
 		t.Fatalf("expected explicit expired state, users=%#v err=%v", listed, err)
 	}
@@ -156,7 +158,8 @@ func TestInvitationLifecycleRotatesExpiresRevokesAndCompletesAgainstPostgres(t *
 	if _, err := service.CompleteSetup(ctx, moduleusers.CompleteSetupInput{Token: finalInvite.SetupToken, Password: newPassword}); !errors.Is(err, moduleusers.ErrInvalidSetupToken) {
 		t.Fatalf("expected one-time setup token rejection, got %v", err)
 	}
-	listed, err = service.ListByOrganization(ctx, organizationID)
+	listedPage, err = service.ListByOrganization(ctx, organizationID, moduleusers.ListQuery{})
+	listed = listedPage.Users
 	if err != nil || listed[1].InvitationStatus != moduleusers.InvitationStatusAccepted || listed[1].SetupPending || listed[1].InvitationExpiresAt != nil {
 		t.Fatalf("unexpected accepted invitation state: users=%#v err=%v", listed, err)
 	}

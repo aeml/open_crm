@@ -136,7 +136,7 @@ What Open CRM has today (through `0.4.x`) vs. what table-stakes CRM SaaS product
 - `0.8.9` Integration Release Review: planned.
 - `0.9.0` Scale And Reliability: in progress.
 - `0.9.1` Query Performance Review: in progress (core tenant and fixed-dashboard query plans and representative budgets are CI-gated; later report/provider review remains).
-- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded company-linked-person, product-catalog, quote-template, email-sequence-definition, and personal saved-view management, stable bounded workflow- and saved-report-definition management with exact same-snapshot summaries, PostgreSQL page evidence, serialized stored/active catalog ceilings, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
+- `0.9.2` Pagination And Large Dataset Hardening: in progress (all registered GET routes are digest-gated through a cardinality/pagination inventory; core page size/offset bounds, bounded cursor continuation for record notes/activity, the mutable shared inbox, and lead review, searchable bounded team-member, company-linked-person, product-catalog, quote-template, email-sequence-definition, and personal saved-view management, stable bounded workflow- and saved-report-definition management with exact same-snapshot summaries, PostgreSQL page evidence, serialized stored/active catalog ceilings, and explicit 10,000-row export refusal are tested and documented; the other mutable-catalog ceilings remain explicit decisions).
 - `0.9.3` Background Job Runner: complete.
 - `0.9.4` Async Import And Export Jobs: complete locally (imports and exact-filter core CSV artifacts are durable; pilot workload validation remains).
 - `0.9.5` Backup Automation: complete (production repository credentials and timer activation remain an operator deployment step).
@@ -2353,6 +2353,25 @@ Fresh and rolling PostgreSQL acceptance proves 1,001-row indexed adjacent and
 repeat pages, direct limits, tenant/user/role/entity isolation, default revision
 transitions, and one-success/one-limit final-slot concurrency. Chromium loads
 row 51, creates/defaults/updates/deletes a pilot view, and repeats WCAG scanning.
+Retained team-member administration now uses the same exact 50/default,
+100/maximum, and 50,000-offset boundary with literal name/email search,
+active/disabled filters, stable active-first/ID ordering, and a count plus page
+from one read-only repeatable-read snapshot. Team access exposes previous/next
+pages, preserves authoritative lifecycle mutation refresh, and loads the
+complete active reassignment set on demand through the shared ID-deduplicating,
+total-drift-detecting traversal rather than expanding every selector with
+disabled history. Migration 129 supplies the matching membership index; fresh
+PostgreSQL acceptance seeds 1,001 local rows plus a foreign sentinel, preserves
+selected-page work counts, asserts adjacent 100-row pages below two seconds,
+and proves literal wildcard search, exact status totals, direct bounds, and
+tenant isolation. Handler/library/route tests plus Chromium retained-row-51
+search/filter/WCAG acceptance cover the product boundary.
+The 400-line route is 13.61/4.28 KiB raw/gzip, and the complete production-URL
+Node 24 build is 179.11/58.08 KiB entry, 54.10/15.64 KiB largest lazy chunk,
+and 810.25/255.34 KiB aggregate raw/gzip. Only the aggregate gzip ceiling
+advances from 255 to 256 KiB for this measured outcome; the 817 KiB
+aggregate-raw ceiling and every entry, per-route, CSS, hidden-foundation, and
+source ceiling remain unchanged.
 Workflow-definition
 management now defaults to 50, caps at 100 and
   offset 50,000, and returns exact stored-definition and workspace active-action

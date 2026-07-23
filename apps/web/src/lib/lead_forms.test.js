@@ -38,7 +38,7 @@ describe('lead form API', () => {
     await expect(listLeadCaptureForms()).rejects.toThrow('changed while options were loading')
   })
 
-  it('fails visibly when overlapping pages cannot satisfy the exact total', async () => {
+  it('fails visibly when pages overlap', async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) => ({ id: index + 1, name: `Lead form ${index + 1}` }))
     const fetchMock = vi.fn(async (url) => {
       const page = Number(new URL(String(url), 'http://localhost').searchParams.get('page'))
@@ -47,6 +47,6 @@ describe('lead form API', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(listLeadCaptureForms()).rejects.toThrow('complete lead form catalog could not be loaded')
+    await expect(listLeadCaptureForms()).rejects.toThrow('changed while options were loading')
   })
 })
