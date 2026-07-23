@@ -42,13 +42,14 @@ func salesReportsServer(service salesReportsService) http.Handler {
 }
 
 func TestSalesActivityReportAllowsViewerAndScopesFilters(t *testing.T) {
-	service := &fakeSalesReportsService{report: modulesalesreports.Report{FromDate: "2026-06-01", ToDate: "2026-06-30", Totals: modulesalesreports.Totals{DealsCreated: 2}}}
+	service := &fakeSalesReportsService{report: modulesalesreports.Report{FromDate: "2026-06-01", ToDate: "2026-06-30", BaseCurrency: "USD", RevenueMeaning: "Immutable event-time revenue.", Totals: modulesalesreports.Totals{DealsCreated: 2, WonRevenueBase: "1250.00", WonRevenueCaptured: 1}}}
 	server := salesReportsServer(service)
 	request := httptest.NewRequest(http.MethodGet, "/api/reports/sales-activity?from=2026-06-01&to=2026-06-30&ownerUserId=9", nil)
 	addSessionCookie(request)
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || service.lastOrgID != 42 || service.lastQuery.FromDate != "2026-06-01" || service.lastQuery.ToDate != "2026-06-30" || service.lastQuery.OwnerUserID != 9 || !strings.Contains(recorder.Body.String(), `"dealsCreated":2`) {
+	body := recorder.Body.String()
+	if recorder.Code != http.StatusOK || service.lastOrgID != 42 || service.lastQuery.FromDate != "2026-06-01" || service.lastQuery.ToDate != "2026-06-30" || service.lastQuery.OwnerUserID != 9 || !strings.Contains(body, `"dealsCreated":2`) || !strings.Contains(body, `"baseCurrency":"USD"`) || !strings.Contains(body, `"wonRevenueBase":"1250.00"`) || !strings.Contains(body, `"wonRevenueCaptured":1`) {
 		t.Fatalf("unexpected sales report: status=%d service=%#v body=%s", recorder.Code, service, recorder.Body.String())
 	}
 }

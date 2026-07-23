@@ -68,17 +68,24 @@ cross-tenant collection exclusion.
 - Deal metrics use the owner snapshotted on each deal-stage event. Note and task
   metrics use the teammate who performed the activity. Disabled teammates remain
   available for historical filtering; a foreign-tenant teammate is rejected.
+- Won revenue sums the immutable deal value converted to workspace base currency
+  at each real transition into won. The event retains the value, currencies,
+  effective exchange rate/date/source, and converted amount. Missing value or
+  event-time FX inputs are counted and excluded rather than inferred from the
+  mutable deal or today's rates; a reopened deal won again is another outcome.
 - Stage conversion is event-based, not a deal-cohort funnel. Reclosing a reopened
   deal creates another real outcome.
-- Stage and close-reason tracking start times are disclosed independently, so
-  pre-ledger history is never presented as complete.
+- Stage, won-revenue, and close-reason tracking start times are disclosed
+  independently, so pre-ledger history is never presented as complete. All
+  panels in one Sales activity response share one repeatable-read snapshot.
 - Report ranges are inclusive UTC dates, limited to 366 days, recent event output
   is capped at 50 rows, and the fixed sales-activity calculation remains
   separate from saved reports. Saved contact, company, deal, and task tables
   use typed filters and optional grouping/aggregation; grouped bars require the
   explicit `grouped_bar_v1` execution contract, one category, and a count,
   numeric sum, or numeric average and retain an exact accessible table.
-  Historical unversioned bars remain hidden. Both use a five-second query deadline and pagination capped
+  Historical unversioned bars remain hidden. Fixed sales activity and both saved
+  report contracts use a five-second query deadline; saved results use pagination capped
   at 100 rows across at most 100 pages. Owners/admins can download the same query
   as a formula-safe audited CSV; the server refuses row 10,001 instead of
   returning a partial file.

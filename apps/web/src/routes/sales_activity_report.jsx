@@ -28,6 +28,18 @@ function metricValue(value) {
   return Number(value || 0).toLocaleString()
 }
 
+function baseAmount(value, currency) {
+  return `${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} ${currency || 'base'}`
+}
+
+function CoverageNote({ complete, label, startedAt, missing }) {
+  return (
+    <p className={complete ? 'inline-note' : 'inline-note sales-report-coverage-warning'} role="status">
+      {label}: {complete ? 'complete' : 'partial'} since {formatTimestamp(startedAt)}.{complete ? '' : ` ${missing}`}
+    </p>
+  )
+}
+
 function outcomeLabel(value) {
   if (value === 'won') return 'won'
   if (value === 'lost') return 'lost'
@@ -85,12 +97,15 @@ export function SalesActivityReport() {
   }
 
   const totals = report?.totals || {}
+  const baseCurrency = report?.baseCurrency || ''
+  const wonRevenue = baseAmount(totals.wonRevenueBase, baseCurrency)
   const metrics = [
     ['Deals created', totals.dealsCreated],
     ['Stage moves', totals.stageMoves],
     ['Won outcomes', totals.dealsWon],
     ['Lost outcomes', totals.dealsLost],
     ['Outcome win rate', totals.winRatePercent ? `${totals.winRatePercent}%` : '—'],
+    [`Won revenue${baseCurrency ? ` (${baseCurrency})` : ''}`, wonRevenue],
     ['Notes added', totals.notesAdded],
     ['Tasks created', totals.tasksCreated],
     ['Tasks completed', totals.tasksCompleted]
@@ -123,16 +138,9 @@ export function SalesActivityReport() {
         {isLoading ? <p className="field-hint" role="status">Running sales activity report...</p> : null}
         {!isLoading && !error && report ? (
           <>
-            <p className={report.historyComplete ? 'inline-note' : 'inline-note sales-report-coverage-warning'} role="status">
-              {report.historyComplete
-                ? `Complete event coverage for this window. Tracking began ${formatTimestamp(report.coverageStartedAt)}.`
-                : `Partial event history: tracking began ${formatTimestamp(report.coverageStartedAt)}. Deal events before that moment are not inferred.`}
-            </p>
-            <p className={report.closeReasonHistoryComplete ? 'inline-note' : 'inline-note sales-report-coverage-warning'}>
-              {report.closeReasonHistoryComplete
-                ? `Complete close-reason coverage for this window. Tracking began ${formatTimestamp(report.closeReasonCoverageStartedAt)}.`
-                : `Partial close-reason history: tracking began ${formatTimestamp(report.closeReasonCoverageStartedAt)}. Earlier outcomes are labeled not captured.`}
-            </p>
+            <CoverageNote complete={report.historyComplete} label="Event history" startedAt={report.coverageStartedAt} missing="Earlier events are not inferred." />
+            <CoverageNote complete={report.closeReasonHistoryComplete} label="Close-reason history" startedAt={report.closeReasonCoverageStartedAt} missing="Earlier reasons are not captured." />
+            <CoverageNote complete={report.revenueHistoryComplete} label="Won-revenue history" startedAt={report.revenueTrackingStartedAt} missing="Earlier value and FX are not inferred." />
             <div className="sales-report-metrics" role="list" aria-label="Sales activity totals">
               {metrics.map(([label, value]) => (
                 <div className="sales-report-metric" role="listitem" key={label}>
@@ -141,7 +149,10 @@ export function SalesActivityReport() {
                 </div>
               ))}
             </div>
-            <p className="field-hint">{report.outcomeMeaning}</p>
+            <p className="field-hint">{report.outcomeMeaning} {report.revenueMeaning}</p>
+            <p className={(totals.wonRevenueMissingValue || totals.wonRevenueMissingRate) ? 'inline-note sales-report-coverage-warning' : 'inline-note'} role="status">
+              Revenue inputs: {metricValue(totals.wonRevenueCaptured)} backed, {metricValue(totals.wonRevenueMissingValue)} missing value/currency, {metricValue(totals.wonRevenueMissingRate)} missing event-time FX.
+            </p>
             <div className="card-stack">
               <div>
                 <h3>Win/loss reasons</h3>
@@ -167,6 +178,7 @@ export function SalesActivityReport() {
                     <div>
                       <h4>{owner.userName || owner.email}</h4>
                       <p>{owner.dealsCreated} created · {owner.stageMoves} stage moves · {owner.dealsWon} won · {owner.dealsLost} lost</p>
+                      <p>{baseAmount(owner.wonRevenueBase, baseCurrency)} won revenue · {owner.wonRevenueCaptured} backed</p>
                       <p>{owner.notesAdded} notes · {owner.tasksCreated} tasks created · {owner.tasksCompleted} completed</p>
                     </div>
                     <span className="chip">{owner.status || 'active'}</span>

@@ -1487,9 +1487,10 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
   await expect(page.getByRole('button', { name: 'Load more stored report definitions' })).toHaveCount(0)
   const salesActivityCard = page.locator('.sales-activity-card')
   await expect(salesActivityCard.getByRole('heading', { name: 'Sales activity' })).toBeVisible()
-  await expect(salesActivityCard.getByText('Complete event coverage', { exact: false })).toBeVisible()
+  await expect(salesActivityCard.getByText('Event history: complete', { exact: false })).toBeVisible()
   const salesTotals = salesActivityCard.getByRole('list', { name: 'Sales activity totals' })
   await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Deals created' })).toContainText('1')
+  await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Won revenue (USD)' })).toContainText('0.00 USD')
   await expect(salesTotals.getByRole('listitem').filter({ hasText: 'Tasks created' })).toContainText('6')
   await expect(salesActivityCard.getByRole('list', { name: 'Stage movement report' }).getByText(`Sales pipeline / ${discoveryStage}`)).toBeVisible()
   await expect(salesActivityCard.getByRole('list', { name: 'Recent deal events' }).getByText(`Created in Sales pipeline / ${discoveryStage}`)).toBeVisible()
@@ -1759,9 +1760,20 @@ test('pilot lead-to-client journey persists data and isolates tenants', async ({
 
   await page.getByRole('link', { name: 'Reports', exact: true }).click()
   await expect(salesActivityCard.getByRole('list', { name: 'Sales activity totals' }).getByRole('listitem').filter({ hasText: 'Won outcomes' })).toContainText('1')
+  await expect(salesActivityCard.getByRole('list', { name: 'Sales activity totals' }).getByRole('listitem').filter({ hasText: 'Won revenue (USD)' })).toContainText('25,000.00 USD')
+  await expect(salesActivityCard.getByText('Revenue inputs: 1 backed, 0 missing value/currency, 0 missing event-time FX.', { exact: true })).toBeVisible()
   const closeReasonReport = salesActivityCard.getByRole('list', { name: 'Win and loss reasons' })
   await expect(closeReasonReport.getByRole('listitem').filter({ hasText: 'Best solution fit' })).toContainText('1')
   await expect(salesActivityCard.getByRole('list', { name: 'Recent deal events' }).getByText('Strong service fit and a clear implementation plan.', { exact: false })).toBeVisible()
+  const salesActivityAccessibility = await new AxeBuilder({ page })
+    .include('.sales-activity-card')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
+    .analyze()
+  await test.info().attach('axe-sales-activity-revenue', {
+    body: JSON.stringify({ url: page.url(), violations: salesActivityAccessibility.violations }, null, 2),
+    contentType: 'application/json'
+  })
+  expect(salesActivityAccessibility.violations, 'sales activity and revenue report must have no automated WCAG A/AA violations').toEqual([])
 
   const pipelineFunnel = page.locator('.pipeline-funnel-report-card')
   await expect(pipelineFunnel.getByRole('heading', { name: 'Pipeline conversion and velocity' })).toBeVisible()

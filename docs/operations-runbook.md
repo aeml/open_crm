@@ -654,22 +654,36 @@ references.
    with current assignment or treat it as employee-adoption measurement.
 3. Win rate is won outcomes divided by won plus lost outcomes in the window.
    Each is a real transition into an outcome; a deal reopened and closed again
-   contributes another outcome. A stage's forward-exit rate is forward moves within the same pipeline, plus
+   contributes another outcome. **Won revenue** uses the deal value and workspace-
+   base conversion captured at that same transition. Live deal edits and later
+   exchange-rate changes do not rewrite it; a second win contributes a second
+   revenue outcome. A stage's forward-exit rate is forward moves within the same pipeline, plus
    exits to a won stage, divided by every exit from that stage in the window.
    It is event-based and is not a cohort funnel or stage-to-stage velocity.
 4. Deal create/change writes the ordinary activity and an event-time snapshot
    in one transaction. Pipeline, stage, outcome, deal-name, and owner edits do
-   not rewrite an older event. Use **Recent deal events** and its deal link when
+   not rewrite an older event. Value, currency, workspace base currency, and the
+   effective rate/date/source are also immutable on the event. Use **Recent deal events** and its deal link when
    reconciling a count; a repeated same-stage request creates no event.
-5. **Partial event history** means the requested window starts before the shown
+5. Revenue-backed wins have every required value and conversion input. The UI
+   separately counts won outcomes with no captured value/currency or no matching
+   event-time exchange rate and excludes them from the sum. Correct missing
+   current deal values or add an approved dated workspace exchange rate for
+   future transitions; never rewrite a closed event to make an old report match.
+6. **Partial event history** or **Partial won-revenue history** means the requested window starts before the shown
    tracking time for a workspace that already existed when the ledger shipped.
    Older deal events are deliberately not inferred from mutable current records.
    A newly provisioned workspace is fully covered from its creation, even when
    the selected calendar window begins earlier because no workspace records
    could predate it. Shorten a partial window to the coverage boundary or
    disclose the limitation; never backfill or edit `deal_stage_events` manually.
-   Record the filters, coverage time, generated time, and request ID when
-   escalating a mismatch.
+   Record the filters, each coverage time, generated time, base currency, missing-
+   input counts, and request ID when escalating a mismatch.
+7. Every panel in one response is computed in one read-only repeatable-read
+   PostgreSQL snapshot under a five-second deadline. A `504 REPORT_TIMEOUT`
+   returns no partial report. Retry once after checking database saturation and
+   `idx_deal_stage_events_org_won_revenue` plus the existing tenant/date and
+   owner/date plans; do not raise the deadline or add revenue outside the report.
 
 ### Pipeline cohort conversion and velocity reconciliation
 

@@ -93,7 +93,7 @@ func (s *Service) Funnel(ctx context.Context, organizationID int64, query Funnel
 	if query.OwnerUserID > 0 {
 		var exists bool
 		if err := s.pool.QueryRow(queryCtx, `SELECT EXISTS(SELECT 1 FROM organization_memberships WHERE organization_id=$1 AND user_id=$2)`, organizationID, query.OwnerUserID).Scan(&exists); err != nil {
-			return FunnelReport{}, funnelQueryError(queryCtx, "validate funnel owner", err)
+			return FunnelReport{}, salesReportQueryError(queryCtx, "validate funnel owner", err)
 		}
 		if !exists {
 			return FunnelReport{}, ErrInvalidInput
@@ -109,7 +109,7 @@ func (s *Service) Funnel(ctx context.Context, organizationID int64, query Funnel
 	`, organizationID, query.PipelineID, query.EntryStageID).Scan(&pipelineName, &entryStageName); errors.Is(err, pgx.ErrNoRows) {
 		return FunnelReport{}, ErrInvalidInput
 	} else if err != nil {
-		return FunnelReport{}, funnelQueryError(queryCtx, "validate funnel pipeline and entry stage", err)
+		return FunnelReport{}, salesReportQueryError(queryCtx, "validate funnel pipeline and entry stage", err)
 	}
 
 	var coverageStartedAt, organizationCreatedAt time.Time
@@ -119,7 +119,7 @@ func (s *Service) Funnel(ctx context.Context, organizationID int64, query Funnel
 	`, organizationID).Scan(&coverageStartedAt, &organizationCreatedAt); errors.Is(err, pgx.ErrNoRows) {
 		return FunnelReport{}, ErrInvalidInput
 	} else if err != nil {
-		return FunnelReport{}, funnelQueryError(queryCtx, "load funnel coverage", err)
+		return FunnelReport{}, salesReportQueryError(queryCtx, "load funnel coverage", err)
 	}
 
 	report := FunnelReport{
@@ -133,7 +133,7 @@ func (s *Service) Funnel(ctx context.Context, organizationID int64, query Funnel
 
 	rows, err := s.pool.Query(queryCtx, funnelSQL, organizationID, query.PipelineID, query.EntryStageID, from, toExclusive, query.OwnerUserID, asOfExclusive)
 	if err != nil {
-		return FunnelReport{}, funnelQueryError(queryCtx, "load pipeline funnel", err)
+		return FunnelReport{}, salesReportQueryError(queryCtx, "load pipeline funnel", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -156,7 +156,7 @@ func (s *Service) Funnel(ctx context.Context, organizationID int64, query Funnel
 		report.Stages = append(report.Stages, stage)
 	}
 	if err := rows.Err(); err != nil {
-		return FunnelReport{}, funnelQueryError(queryCtx, "iterate pipeline funnel", err)
+		return FunnelReport{}, salesReportQueryError(queryCtx, "iterate pipeline funnel", err)
 	}
 	report.Totals.ClosedDeals = report.Totals.WonDeals + report.Totals.LostDeals
 	report.Totals.WinRatePercent = rate(report.Totals.WonDeals, report.Totals.ClosedDeals)
@@ -189,8 +189,11 @@ func normalizeFunnelQuery(query FunnelQuery, now time.Time) (time.Time, time.Tim
 	return from, to.AddDate(0, 0, 1), asOf.AddDate(0, 0, 1), query, nil
 }
 
-func funnelQueryError(ctx context.Context, operation string, err error) error {
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+func salesReportQueryError(ctx context.Context, operation string, err error) error {
+	if errors.Is(err, ErrQueryTimeout) {
+		return err
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return ErrQueryTimeout
 	}
 	return fmt.Errorf("%s: %w", operation, err)

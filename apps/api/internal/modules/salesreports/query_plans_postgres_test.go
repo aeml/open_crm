@@ -9,6 +9,7 @@ import (
 	"time"
 
 	moduledb "github.com/aeml/open_crm/apps/api/internal/db"
+	modulesalesreports "github.com/aeml/open_crm/apps/api/internal/modules/salesreports"
 )
 
 func TestSalesReportAccessPathsStayTenantAndOwnerBoundedAgainstPostgres(t *testing.T) {
@@ -89,6 +90,22 @@ func TestSalesReportAccessPathsStayTenantAndOwnerBoundedAgainstPostgres(t *testi
 	`, organizationID, foreignOrganizationID, ownerAID, ownerBID); err != nil {
 		t.Fatalf("seed activity plan fixtures: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO deal_stage_events (
+			organization_id,deal_id,deal_name,event_type,actor_user_id,owner_user_id,
+			from_pipeline_id,from_pipeline_name,from_stage_id,from_stage_name,from_stage_position,from_stage_outcome,
+			to_pipeline_id,to_pipeline_name,to_stage_id,to_stage_name,to_stage_position,to_stage_outcome,occurred_at,
+			deal_value_amount,deal_value_currency,revenue_base_currency,revenue_exchange_rate_to_base,
+			revenue_exchange_rate_effective_date,revenue_exchange_rate_source,deal_value_in_base_currency
+		)
+		SELECT CASE WHEN value % 7=0 THEN $2::bigint ELSE $1::bigint END,
+		       value,'Won plan deal '||value,'stage_changed',$3,$3,
+		       1,'Sales',1,'Open',1,'open',1,'Sales',2,'Won',2,'won',NOW()-(value % 7200)*INTERVAL '1 hour',
+		       100,'USD','USD',1,CURRENT_DATE,'identity',100
+		FROM generate_series(20001,26000) AS value
+	`, organizationID, foreignOrganizationID, ownerAID); err != nil {
+		t.Fatalf("seed won revenue plan fixtures: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `ANALYZE deal_stage_events; ANALYZE activities`); err != nil {
 		t.Fatalf("analyze sales report plan fixtures: %v", err)
 	}
@@ -117,6 +134,14 @@ func TestSalesReportAccessPathsStayTenantAndOwnerBoundedAgainstPostgres(t *testi
 			query: `SELECT id FROM deal_stage_events WHERE organization_id=$1 AND occurred_at >= $2 AND occurred_at < $3 AND owner_user_id=$4 ORDER BY occurred_at DESC,id DESC LIMIT 50`,
 			args:  []any{organizationID, from, to, ownerAID},
 			index: "idx_deal_stage_events_org_owner_occurred",
+		},
+		{
+			name: "tenant won revenue",
+			query: `SELECT COALESCE(SUM(deal_value_in_base_currency),0),COUNT(*) FILTER (WHERE deal_value_in_base_currency IS NOT NULL)
+				FROM deal_stage_events WHERE organization_id=$1 AND occurred_at >= $2 AND occurred_at < $3
+				AND to_stage_outcome='won' AND COALESCE(from_stage_outcome,'')<>'won'`,
+			args:  []any{organizationID, from, to},
+			index: "idx_deal_stage_events_org_won_revenue",
 		},
 		{
 			name: "tenant sales activities",
@@ -158,5 +183,19 @@ func TestSalesReportAccessPathsStayTenantAndOwnerBoundedAgainstPostgres(t *testi
 		if !strings.Contains(plan, check.index) {
 			t.Fatalf("%s did not use %s:\n%s", check.name, check.index, plan)
 		}
+	}
+
+	reportStarted := time.Now()
+	report, err := modulesalesreports.NewService(pool).Activity(ctx, organizationID, modulesalesreports.Query{
+		FromDate: from.Format("2006-01-02"), ToDate: to.AddDate(0, 0, -1).Format("2006-01-02"),
+	})
+	if err != nil {
+		t.Fatalf("run pilot-volume sales activity report: %v", err)
+	}
+	if elapsed := time.Since(reportStarted); elapsed > 2*time.Second {
+		t.Fatalf("pilot-volume sales activity report exceeded two-second budget: %s", elapsed)
+	}
+	if report.Totals.DealsWon == 0 || report.Totals.WonRevenueCaptured != report.Totals.DealsWon || report.Totals.WonRevenueBase == "0.00" {
+		t.Fatalf("pilot-volume revenue result was incomplete: %#v", report.Totals)
 	}
 }

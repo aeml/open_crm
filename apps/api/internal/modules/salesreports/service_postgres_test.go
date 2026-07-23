@@ -89,13 +89,22 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 		}
 		stageIDs[stage.name] = stageID
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO organization_exchange_rates(
+			organization_id,base_currency,quote_currency,rate_to_base,effective_date,source,created_by_user_id,updated_by_user_id
+		) VALUES
+			($1,'USD','EUR',1.25,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,'Sales report acceptance',$2,$2),
+			($3,'USD','EUR',9,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date,'Foreign rate must stay isolated',$2,$2)
+	`, organizationID, ownerAID, foreignOrganizationID); err != nil {
+		t.Fatalf("create sales report exchange rate: %v", err)
+	}
 
 	var reportCompanyID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO companies (organization_id,name,status,owner_user_id) VALUES ($1,'Expansion account','prospect',$2) RETURNING id`, organizationID, ownerAID).Scan(&reportCompanyID); err != nil {
 		t.Fatalf("create won-deal report account: %v", err)
 	}
 	dealsService := moduledeals.NewService(pool)
-	dealA, err := dealsService.Create(ctx, organizationID, ownerAID, moduledeals.CreateInput{Name: "Expansion A", StageID: stageIDs["Open"], OwnerUserID: ownerAID, CompanyID: reportCompanyID})
+	dealA, err := dealsService.Create(ctx, organizationID, ownerAID, moduledeals.CreateInput{Name: "Expansion A", StageID: stageIDs["Open"], OwnerUserID: ownerAID, CompanyID: reportCompanyID, ValueAmount: "800", ValueCurrency: "EUR"})
 	if err != nil {
 		t.Fatalf("create owner A deal: %v", err)
 	}
@@ -158,6 +167,12 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 	if _, err := pool.Exec(ctx, `UPDATE deals SET name='Expansion A renamed' WHERE organization_id=$1 AND id=$2`, organizationID, dealA.Summary.ID); err != nil {
 		t.Fatalf("rename live deal: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE deals SET value_amount=999,value_currency='USD' WHERE organization_id=$1 AND id=$2`, organizationID, dealA.Summary.ID); err != nil {
+		t.Fatalf("change live deal value after won snapshot: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE organization_exchange_rates SET rate_to_base=2 WHERE organization_id=$1 AND quote_currency='EUR'`, organizationID); err != nil {
+		t.Fatalf("change live exchange rate after won snapshot: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE organization_memberships SET membership_status='disabled' WHERE organization_id=$1 AND user_id=$2`, organizationID, ownerBID); err != nil {
 		t.Fatalf("disable retained report owner: %v", err)
 	}
@@ -179,17 +194,17 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 	if err != nil {
 		t.Fatalf("load sales activity report: %v", err)
 	}
-	if report.HistoryComplete || report.CloseReasonHistoryComplete || report.CoverageStartedAt.IsZero() || report.CloseReasonCoverageStartedAt.IsZero() || report.OwnerFilterMeaning == "" || report.OutcomeMeaning == "" || report.CloseReasonMeaning == "" || report.StageConversionMeaning == "" {
+	if report.HistoryComplete || report.RevenueHistoryComplete || report.CloseReasonHistoryComplete || report.CoverageStartedAt.IsZero() || report.RevenueTrackingStartedAt.IsZero() || report.CloseReasonCoverageStartedAt.IsZero() || report.BaseCurrency != "USD" || report.OwnerFilterMeaning == "" || report.OutcomeMeaning == "" || report.RevenueMeaning == "" || report.CloseReasonMeaning == "" || report.StageConversionMeaning == "" {
 		t.Fatalf("missing honest report coverage or definitions: %#v", report)
 	}
-	wantTotals := modulesalesreports.Totals{DealsCreated: 3, StageMoves: 4, DealsWon: 1, DealsLost: 1, ClosedOutcomes: 2, WinRatePercent: "50.0", NotesAdded: 1, TasksCreated: 1, TasksCompleted: 1}
+	wantTotals := modulesalesreports.Totals{DealsCreated: 3, StageMoves: 4, DealsWon: 1, DealsLost: 1, ClosedOutcomes: 2, WinRatePercent: "50.0", WonRevenueBase: "1000.00", WonRevenueCaptured: 1, NotesAdded: 1, TasksCreated: 1, TasksCompleted: 1}
 	if report.Totals != wantTotals {
 		t.Fatalf("unexpected report totals: got=%#v want=%#v", report.Totals, wantTotals)
 	}
 	if len(report.CloseReasons) != 2 || closeReasonCount(report, "won", "solution_fit") != 1 || closeReasonCount(report, "lost", "competitor") != 1 {
 		t.Fatalf("unexpected close reason summaries: %#v", report.CloseReasons)
 	}
-	if len(report.Owners) != 2 || salesOwner(t, report, ownerAID).DealsCreated != 2 || salesOwner(t, report, ownerAID).StageMoves != 3 || salesOwner(t, report, ownerAID).DealsWon != 1 || salesOwner(t, report, ownerAID).TasksCreated != 1 || salesOwner(t, report, ownerAID).TasksCompleted != 1 {
+	if len(report.Owners) != 2 || salesOwner(t, report, ownerAID).DealsCreated != 2 || salesOwner(t, report, ownerAID).StageMoves != 3 || salesOwner(t, report, ownerAID).DealsWon != 1 || salesOwner(t, report, ownerAID).WonRevenueBase != "1000.00" || salesOwner(t, report, ownerAID).WonRevenueCaptured != 1 || salesOwner(t, report, ownerAID).TasksCreated != 1 || salesOwner(t, report, ownerAID).TasksCompleted != 1 {
 		t.Fatalf("unexpected owner A report: %#v", report.Owners)
 	}
 	ownerB := salesOwner(t, report, ownerBID)
@@ -277,9 +292,14 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 	if _, err := service.Activity(ctx, organizationID, modulesalesreports.Query{FromDate: "2025-01-01", ToDate: "2026-07-19"}); !errors.Is(err, modulesalesreports.ErrInvalidInput) {
 		t.Fatalf("unbounded date range returned %v", err)
 	}
+	expiredCtx, expire := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+	defer expire()
+	if _, err := service.Activity(expiredCtx, organizationID, modulesalesreports.Query{}); !errors.Is(err, modulesalesreports.ErrQueryTimeout) {
+		t.Fatalf("expired sales activity report returned %v", err)
+	}
 	tomorrow := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
 	completeEmpty, err := service.Activity(ctx, organizationID, modulesalesreports.Query{FromDate: tomorrow, ToDate: tomorrow})
-	if err != nil || !completeEmpty.HistoryComplete || completeEmpty.Totals != (modulesalesreports.Totals{}) {
+	if err != nil || !completeEmpty.HistoryComplete || !completeEmpty.RevenueHistoryComplete || completeEmpty.Totals != (modulesalesreports.Totals{WonRevenueBase: "0.00"}) {
 		t.Fatalf("unexpected fully covered empty report: report=%#v err=%v", completeEmpty, err)
 	}
 
@@ -291,6 +311,28 @@ func TestSalesActivityReportingUsesDurableSnapshotsAndTenantSafeActorSemanticsAg
 		WHERE e.organization_id=$1
 	`, organizationID).Scan(&eventCount, &linkedActivityCount); err != nil || eventCount != 7 || linkedActivityCount != 7 {
 		t.Fatalf("stage event ledger lost activity linkage: events=%d linked=%d err=%v", eventCount, linkedActivityCount, err)
+	}
+
+	missingRateDeal, err := dealsService.Create(ctx, organizationID, ownerAID, moduledeals.CreateInput{Name: "Missing FX win", StageID: stageIDs["Open"], OwnerUserID: ownerAID, CompanyID: reportCompanyID, ValueAmount: "500", ValueCurrency: "GBP"})
+	if err != nil {
+		t.Fatalf("create missing-rate revenue deal: %v", err)
+	}
+	if _, err := dealsService.UpdateStage(ctx, organizationID, missingRateDeal.Summary.ID, ownerAID, moduledeals.UpdateStageInput{StageID: stageIDs["Won"], CloseReasonCode: "solution_fit"}); err != nil {
+		t.Fatalf("win missing-rate revenue deal: %v", err)
+	}
+	missingValueDeal, err := dealsService.Create(ctx, organizationID, ownerAID, moduledeals.CreateInput{Name: "Missing value win", StageID: stageIDs["Open"], OwnerUserID: ownerAID, CompanyID: reportCompanyID})
+	if err != nil {
+		t.Fatalf("create missing-value revenue deal: %v", err)
+	}
+	if _, err := dealsService.UpdateStage(ctx, organizationID, missingValueDeal.Summary.ID, ownerAID, moduledeals.UpdateStageInput{StageID: stageIDs["Won"], CloseReasonCode: "solution_fit"}); err != nil {
+		t.Fatalf("win missing-value revenue deal: %v", err)
+	}
+	revenueExceptions, err := service.Activity(ctx, organizationID, modulesalesreports.Query{OwnerUserID: ownerAID})
+	if err != nil {
+		t.Fatalf("load revenue exception report: %v", err)
+	}
+	if revenueExceptions.Totals.DealsWon != 3 || revenueExceptions.Totals.WonRevenueBase != "1000.00" || revenueExceptions.Totals.WonRevenueCaptured != 1 || revenueExceptions.Totals.WonRevenueMissingRate != 1 || revenueExceptions.Totals.WonRevenueMissingValue != 1 {
+		t.Fatalf("revenue exceptions were not explicit: %#v", revenueExceptions.Totals)
 	}
 }
 

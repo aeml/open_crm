@@ -2452,3 +2452,30 @@ func TestMigrationFilesIncludeNotificationCenterIndexes(t *testing.T) {
 		t.Fatalf("notification center index migration deployment class = %q", class)
 	}
 }
+
+func TestMigrationFilesIncludeSalesRevenueSnapshots(t *testing.T) {
+	const name = "131_sales_revenue_snapshots.sql"
+	if !slices.Contains(MigrationFiles(), name) {
+		t.Fatalf("expected %s to be registered", name)
+	}
+	content := MigrationSQL(name)
+	for _, expected := range []string{
+		"-- open-crm-deploy: expand",
+		"sales_revenue_tracking_started_at",
+		"deal_value_in_base_currency",
+		"deal_stage_events_revenue_snapshot_check",
+		"ROUND(deal_value_amount * revenue_exchange_rate_to_base, 2)",
+		"idx_deal_stage_events_org_won_revenue",
+		"NOT VALID",
+		"VALIDATE CONSTRAINT",
+		"lock_timeout",
+		"statement_timeout",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("sales revenue snapshot migration missing %q", expected)
+		}
+	}
+	if class := MigrationDeploymentClass(name); class != "expand" {
+		t.Fatalf("sales revenue snapshot migration deployment class = %q", class)
+	}
+}

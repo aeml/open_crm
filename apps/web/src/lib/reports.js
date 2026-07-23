@@ -168,6 +168,7 @@ export async function getSalesActivityReport({ from, to, ownerUserId = 0, signal
     totals: data.totals || {},
     owners: Array.isArray(data.owners) ? data.owners : [],
     stages: Array.isArray(data.stages) ? data.stages : [],
+    closeReasons: Array.isArray(data.closeReasons) ? data.closeReasons : [],
     dealEvents: Array.isArray(data.dealEvents) ? data.dealEvents : []
   }
 }
