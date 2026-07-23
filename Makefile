@@ -4,14 +4,16 @@ API_DIR := apps/api
 WEB_DIR := apps/web
 ENV_FILE ?= .env
 DEV_ENV := ./scripts/run-with-env.sh --if-present "$(ENV_FILE)" --
+DEV_COMPOSE_PROJECT ?= open-crm-dev
+DEV_COMPOSE := docker compose --project-name "$(DEV_COMPOSE_PROJECT)" --file docker-compose.yml
 
 .PHONY: db-up db-down db-migrate db-seed api-dev web-dev check-dev-environment check-licenses test-api test-web test-backup-restore test-deploy-recovery test-monitoring test
 
 db-up:
-	docker compose up -d postgres
+	$(DEV_COMPOSE) up -d postgres
 
 db-down:
-	docker compose down
+	$(DEV_COMPOSE) down
 
 db-migrate:
 	$(DEV_ENV) go -C $(API_DIR) run ./cmd/migrate

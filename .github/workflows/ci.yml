@@ -7,6 +7,7 @@ on:
     paths:
       - 'apps/api/**'
       - 'apps/web/**'
+      - 'docker-compose.yml'
       - 'docker-compose.deploy.yml'
       - 'scripts/**'
       - 'ops/**'

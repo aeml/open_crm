@@ -140,6 +140,17 @@ make api-dev
 make web-dev
 ```
 
+The development database always uses the explicit Compose project
+`open-crm-dev`; it does not derive an identity from the checkout directory.
+`make db-up` and `make db-down` also pass that identity and this repository's
+development Compose file explicitly, so a checkout named `open_crm` cannot
+discover or stop a deployed `open_crm` stack. The development PostgreSQL volume
+is retained by `make db-down`. `DEV_COMPOSE_PROJECT` is available only for an
+intentional isolated development project override; never point it at a
+production project. An older basename-derived `open_crm_postgres_data` volume
+is not adopted automatically because it may belong to a deployment—export and
+restore any confirmed development data deliberately instead.
+
 Useful repo commands:
 
 ```bash

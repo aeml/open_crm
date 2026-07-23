@@ -2669,6 +2669,14 @@ all advertised fake defaults. The same runner replaces unsafe `source`
 examples in diagnosis and deliberate restore instructions. Postmark now safely
 formats the configured `EMAIL_FROM_NAME` into its real sender envelope and
 rejects invalid or injected sender configuration before a provider call.
+The development database now has a second executable safety boundary: both the
+Compose file and Make commands name the isolated `open-crm-dev` project and the
+commands name the development file explicitly. This closes a reproduced case
+where a repository checkout and deployment checkout both derived `open_crm`,
+causing a read-only development `docker compose ps` to resolve the live API and
+PostgreSQL containers and making `make db-down` capable of stopping them. CI
+proves the default and override command shapes plus the declared Compose name;
+the existing production project and volume are never adopted automatically.
 
 Goal: close the reliability milestone before production beta.
 

@@ -1,6 +1,11 @@
 # Operations Runbook
 
 This runbook covers the production Docker Compose deployment used by `scripts/remote-deploy.sh`.
+The root development Compose file declares the separate `open-crm-dev` project,
+and the development `make db-*` commands repeat that identity explicitly. Do
+not override `DEV_COMPOSE_PROJECT` to a production project or use development
+database commands as deployment operations. Production commands in this
+runbook always name `docker-compose.deploy.yml` and `.env.production`.
 
 ## Request Tracing
 

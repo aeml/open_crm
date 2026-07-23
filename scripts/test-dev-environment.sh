@@ -117,4 +117,41 @@ if [[ "$make_env_value" != "loaded-by-make" || "$make_args" != "-C apps/api run 
   exit 1
 fi
 
+# The checkout directory and a deployment checkout may share the same basename.
+# Exercise the Make boundary without invoking Docker so a future edit cannot let
+# local database commands discover or stop a deployment project by accident.
+compose_capture="$test_root/compose-capture"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'set -euo pipefail' \
+  'printf "%s\n" "$*" >> "$COMPOSE_CAPTURE"' > "$test_root/bin/docker"
+chmod +x "$test_root/bin/docker"
+PATH="$test_root/bin:$PATH" COMPOSE_CAPTURE="$compose_capture" \
+  make --no-print-directory --silent -C "$REPO_ROOT" db-up db-down
+expected_compose_calls="$(printf '%s\n' \
+  'compose --project-name open-crm-dev --file docker-compose.yml up -d postgres' \
+  'compose --project-name open-crm-dev --file docker-compose.yml down')"
+if [[ "$(< "$compose_capture")" != "$expected_compose_calls" ]]; then
+  echo "Makefile database targets are not isolated to the development Compose project" >&2
+  exit 1
+fi
+
+: > "$compose_capture"
+PATH="$test_root/bin:$PATH" COMPOSE_CAPTURE="$compose_capture" \
+  make --no-print-directory --silent -C "$REPO_ROOT" \
+  DEV_COMPOSE_PROJECT=open-crm-review db-up
+if [[ "$(< "$compose_capture")" != \
+  'compose --project-name open-crm-review --file docker-compose.yml up -d postgres' ]]; then
+  echo "Makefile database target did not preserve an explicit development project override" >&2
+  exit 1
+fi
+
+compose_name="$(docker compose --file "$REPO_ROOT/docker-compose.yml" config --format json | \
+  sed -n 's/^[[:space:]]*"name":[[:space:]]*"\([^"]*\)".*/\1/p' | \
+  head -n 1)"
+if [[ "$compose_name" != "open-crm-dev" ]]; then
+  echo "development Compose file does not declare the isolated open-crm-dev project" >&2
+  exit 1
+fi
+
 echo "development_environment_contract_succeeded"
