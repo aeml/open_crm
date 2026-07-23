@@ -15,20 +15,16 @@ const (
 )
 
 // Service builds and sends templated CRM emails through the configured
-// provider. It owns the "from" identity and the web base URL used to build
-// links in message bodies.
+// provider. The provider owns its sender identity; the service owns the web
+// base URL used to build links in message bodies.
 type Service struct {
 	provider   Provider
-	fromName   string
-	fromAddr   string
 	webBaseURL string
 }
 
-func NewService(provider Provider, fromName, fromAddr, webBaseURL string) *Service {
+func NewService(provider Provider, webBaseURL string) *Service {
 	return &Service{
 		provider:   provider,
-		fromName:   strings.TrimSpace(fromName),
-		fromAddr:   strings.TrimSpace(fromAddr),
 		webBaseURL: strings.TrimRight(strings.TrimSpace(webBaseURL), "/"),
 	}
 }

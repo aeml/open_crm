@@ -52,9 +52,12 @@ func TestObservedProviderRecordsFailureWithoutChangingError(t *testing.T) {
 }
 
 func TestNewProviderPostmark(t *testing.T) {
-	configured := NewProvider(ProviderConfig{Name: "postmark", PostmarkServerToken: "tok", PostmarkFromEmail: "from@acme.test"})
+	configured := NewProvider(ProviderConfig{Name: "postmark", PostmarkServerToken: "tok", PostmarkFromName: "Open CRM", PostmarkFromEmail: "from@acme.test"})
 	if configured.Name() != "postmark" {
 		t.Fatalf("expected postmark provider, got %q", configured.Name())
+	}
+	if postmark, ok := configured.(*PostmarkProvider); !ok || postmark.fromName != "Open CRM" {
+		t.Fatalf("expected configured Postmark sender name, got %#v", configured)
 	}
 
 	// Without credentials, the postmark provider must refuse to send (fails
@@ -77,7 +80,7 @@ func TestFakeProviderRecordsSentMessages(t *testing.T) {
 }
 
 func TestSetupLinkBuildsEncodedURL(t *testing.T) {
-	service := NewService(NewFakeProvider(nil), "Open CRM", "no-reply@example.com", "https://app.example.com/")
+	service := NewService(NewFakeProvider(nil), "https://app.example.com/")
 	link := service.SetupLink("tok en+/")
 	if !strings.HasPrefix(link, "https://app.example.com/setup-password?token=") {
 		t.Fatalf("unexpected link base: %q", link)
@@ -89,7 +92,7 @@ func TestSetupLinkBuildsEncodedURL(t *testing.T) {
 
 func TestSendUserInviteDeliversActivationLink(t *testing.T) {
 	provider := NewFakeProvider(nil)
-	service := NewService(provider, "Open CRM", "no-reply@example.com", "https://app.example.com")
+	service := NewService(provider, "https://app.example.com")
 
 	if _, err := service.SendUserInvite(context.Background(), "new@acme.test", "Ada", "secret-token", 42, 9, "delivery-key-that-is-long-enough-123"); err != nil {
 		t.Fatalf("send invite failed: %v", err)
@@ -119,7 +122,7 @@ func TestSendUserInviteDeliversActivationLink(t *testing.T) {
 
 func TestSendEmailVerificationDeliversExpiringTrialActivationLink(t *testing.T) {
 	provider := NewFakeProvider(nil)
-	service := NewService(provider, "Open CRM", "no-reply@example.com", "https://app.example.com/")
+	service := NewService(provider, "https://app.example.com/")
 
 	if _, err := service.SendEmailVerification(context.Background(), "owner@acme.test", "Morgan", "verify token+1", 42, 9, "delivery-key-that-is-long-enough-456"); err != nil {
 		t.Fatalf("send verification failed: %v", err)
@@ -146,7 +149,7 @@ func TestSendEmailVerificationDeliversExpiringTrialActivationLink(t *testing.T) 
 
 func TestSendPasswordResetDeliversExpiringGlobalSignOutLink(t *testing.T) {
 	provider := NewFakeProvider(nil)
-	service := NewService(provider, "Open CRM", "no-reply@example.com", "https://app.example.com/")
+	service := NewService(provider, "https://app.example.com/")
 
 	if _, err := service.SendPasswordReset(context.Background(), "owner@acme.test", "Morgan", "reset token+1", 9, "delivery-key-that-is-long-enough-789"); err != nil {
 		t.Fatalf("send password reset failed: %v", err)

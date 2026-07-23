@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 )
@@ -20,11 +21,10 @@ var ErrNotConfigured = errors.New("email provider not configured")
 
 const postmarkSendURL = "https://api.postmarkapp.com/email"
 
-// PostmarkProvider sends email through Postmark's transactional API. It mirrors
-// the sender used by the Mendola customer panel so the same Postmark server
-// token, from address, and message stream apply.
+// PostmarkProvider sends system email through Postmark's transactional API.
 type PostmarkProvider struct {
 	serverToken   string
+	fromName      string
 	fromEmail     string
 	messageStream string
 	client        *http.Client
@@ -32,8 +32,13 @@ type PostmarkProvider struct {
 }
 
 func NewPostmarkProvider(serverToken, fromEmail, messageStream string, logger *slog.Logger) *PostmarkProvider {
+	return NewPostmarkProviderWithName(serverToken, "", fromEmail, messageStream, logger)
+}
+
+func NewPostmarkProviderWithName(serverToken, fromName, fromEmail, messageStream string, logger *slog.Logger) *PostmarkProvider {
 	return &PostmarkProvider{
 		serverToken:   strings.TrimSpace(serverToken),
+		fromName:      strings.TrimSpace(fromName),
 		fromEmail:     strings.TrimSpace(fromEmail),
 		messageStream: strings.TrimSpace(messageStream),
 		client:        &http.Client{Timeout: 10 * time.Second},
@@ -75,6 +80,10 @@ func (p *PostmarkProvider) Send(ctx context.Context, msg Message) (SendResult, e
 	if !p.Configured() {
 		return SendResult{}, ErrNotConfigured
 	}
+	from, err := p.senderAddress()
+	if err != nil {
+		return SendResult{}, err
+	}
 
 	to := strings.TrimSpace(msg.To)
 	subject := strings.TrimSpace(msg.Subject)
@@ -87,7 +96,7 @@ func (p *PostmarkProvider) Send(ctx context.Context, msg Message) (SendResult, e
 	}
 
 	payload := postmarkSendRequest{
-		From:          p.fromEmail,
+		From:          from,
 		To:            to,
 		Subject:       subject,
 		HtmlBody:      msg.HTMLBody,
@@ -139,6 +148,20 @@ func (p *PostmarkProvider) Send(ctx context.Context, msg Message) (SendResult, e
 		p.logger.Info("postmark email sent")
 	}
 	return SendResult{ProviderMessageID: messageID}, nil
+}
+
+func (p *PostmarkProvider) senderAddress() (string, error) {
+	parsed, err := mail.ParseAddress(p.fromEmail)
+	if err != nil || strings.TrimSpace(parsed.Address) == "" {
+		return "", fmt.Errorf("%w: invalid Postmark sender address", ErrNotConfigured)
+	}
+	if p.fromName == "" {
+		return p.fromEmail, nil
+	}
+	if len(p.fromName) > 200 || strings.ContainsAny(p.fromName, "\x00\r\n") {
+		return "", fmt.Errorf("%w: invalid Postmark sender name", ErrNotConfigured)
+	}
+	return (&mail.Address{Name: p.fromName, Address: parsed.Address}).String(), nil
 }
 
 func postmarkAttachments(values []Attachment) ([]postmarkAttachment, error) {

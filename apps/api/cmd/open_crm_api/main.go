@@ -116,10 +116,11 @@ func main() {
 		Name:                  env.EmailProvider,
 		Logger:                logger,
 		PostmarkServerToken:   env.PostmarkServerToken,
+		PostmarkFromName:      env.EmailFromName,
 		PostmarkFromEmail:     env.PostmarkFromEmail,
 		PostmarkMessageStream: env.PostmarkMessageStream,
 	}), metrics)
-	emailService := moduleemail.NewService(emailProvider, env.EmailFromName, env.EmailFromAddress, env.WebBaseURL)
+	emailService := moduleemail.NewService(emailProvider, env.WebBaseURL)
 	var notesService *modulenotes.Service
 	var collaborationService *modulecollaboration.Service
 	var callLogsService *modulecalllogs.Service

@@ -15,6 +15,7 @@ func TestLoadUsesProductionPortAndAllowedOrigins(t *testing.T) {
 	t.Setenv("STRIPE_PRICE_PRO", "price_config_pro")
 	t.Setenv("OPEN_CRM_TEST_STRIPE_API_BASE_URL", "http://127.0.0.1:2527/")
 	t.Setenv("GO_ENV", "test")
+	t.Setenv("EMAIL_FROM_NAME", "Open CRM")
 	t.Setenv("POSTMARK_WEBHOOK_USERNAME", "postmark-open-crm")
 	t.Setenv("POSTMARK_WEBHOOK_PASSWORD", "postmark-feedback-secret")
 	t.Setenv("SEQUENCE_TENANT_SEND_LIMIT_24H", "2400")
@@ -38,6 +39,9 @@ func TestLoadUsesProductionPortAndAllowedOrigins(t *testing.T) {
 	}
 	if env.PostmarkWebhookUsername != "postmark-open-crm" || env.PostmarkWebhookPassword != "postmark-feedback-secret" {
 		t.Fatalf("Postmark webhook configuration did not load: %#v", env)
+	}
+	if env.EmailFromName != "Open CRM" {
+		t.Fatalf("system-email sender name did not load: %#v", env)
 	}
 	tenantLimit, senderLimit, err := env.HostedSequenceSendLimits()
 	if err != nil || tenantLimit != 2400 || senderLimit != 120 {

@@ -28,7 +28,6 @@ type Env struct {
 	TelephonyProvider          string
 	CalendarProvider           string
 	EmailProvider              string
-	EmailFromAddress           string
 	EmailFromName              string
 	PostmarkServerToken        string
 	PostmarkFromEmail          string
@@ -106,7 +105,6 @@ func Load() Env {
 		TelephonyProvider:          telephonyProvider,
 		CalendarProvider:           calendarProvider,
 		EmailProvider:              emailProvider,
-		EmailFromAddress:           os.Getenv("EMAIL_FROM_ADDRESS"),
 		EmailFromName:              os.Getenv("EMAIL_FROM_NAME"),
 		PostmarkServerToken:        os.Getenv("POSTMARK_SERVER_TOKEN"),
 		PostmarkFromEmail:          os.Getenv("POSTMARK_FROM_EMAIL"),

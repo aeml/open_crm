@@ -137,6 +137,7 @@ type ProviderConfig struct {
 
 	// Postmark settings, used when Name is "postmark".
 	PostmarkServerToken   string
+	PostmarkFromName      string
 	PostmarkFromEmail     string
 	PostmarkMessageStream string
 }
@@ -150,7 +151,7 @@ func NewProvider(cfg ProviderConfig) Provider {
 	case "", "fake":
 		return NewFakeProvider(cfg.Logger)
 	case "postmark":
-		return NewPostmarkProvider(cfg.PostmarkServerToken, cfg.PostmarkFromEmail, cfg.PostmarkMessageStream, cfg.Logger)
+		return NewPostmarkProviderWithName(cfg.PostmarkServerToken, cfg.PostmarkFromName, cfg.PostmarkFromEmail, cfg.PostmarkMessageStream, cfg.Logger)
 	default:
 		return unconfiguredProvider{name: cfg.Name}
 	}

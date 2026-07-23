@@ -81,6 +81,47 @@ func TestPostmarkSendCarriesCorrelationMetadataAndReturnsMessageID(t *testing.T)
 	}
 }
 
+func TestPostmarkSendFormatsConfiguredSenderName(t *testing.T) {
+	provider := NewPostmarkProviderWithName("server-token", "Open CRM", "from@acme.test", "outbound", nil)
+	var sent postmarkSendRequest
+	provider.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(request.Body).Decode(&sent); err != nil {
+			t.Fatalf("decode Postmark request: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"ErrorCode":0,"Message":"OK","MessageID":"postmark-message-named"}`)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})}
+	if _, err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Identity"}); err != nil {
+		t.Fatalf("send named Postmark message: %v", err)
+	}
+	if sent.From != "\"Open CRM\" <from@acme.test>" {
+		t.Fatalf("Postmark sender name was not applied safely: %q", sent.From)
+	}
+}
+
+func TestPostmarkSendRejectsUnsafeSenderBeforeProvider(t *testing.T) {
+	for _, provider := range []*PostmarkProvider{
+		NewPostmarkProviderWithName("server-token", "Open CRM\r\nBcc: victim@example.test", "from@acme.test", "outbound", nil),
+		NewPostmarkProviderWithName("server-token", "Open CRM", "not-an-address", "outbound", nil),
+	} {
+		called := false
+		provider.client = &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+			called = true
+			return nil, errors.New("provider must not be called")
+		})}
+		if _, err := provider.Send(context.Background(), Message{To: "person@example.test", Subject: "Identity"}); !errors.Is(err, ErrNotConfigured) {
+			t.Fatalf("unsafe Postmark sender returned %v", err)
+		}
+		if called {
+			t.Fatal("unsafe Postmark sender reached the provider boundary")
+		}
+	}
+}
+
 func TestPostmarkSendRejectsUnsafeOrEmptyAttachmentsBeforeProvider(t *testing.T) {
 	provider := NewPostmarkProvider("tok", "from@acme.test", "outbound", nil)
 	for _, attachment := range []Attachment{

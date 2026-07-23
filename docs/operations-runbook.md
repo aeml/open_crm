@@ -1726,6 +1726,11 @@ their explicit operational allowlist and pass the complete file to Compose.
 Keep paths explicit rather than relying on shell expansion, and never add shell
 commands or command substitutions to the file.
 
+For a one-off repository command that needs the complete file, use
+`scripts/run-with-env.sh .env.production -- <command>`. It validates every
+assignment and exports literal values without evaluating or printing them;
+already exported values take precedence. Never `source` an Open CRM env file.
+
 From the remote host:
 
 ```sh
@@ -2482,10 +2487,12 @@ editing `background_jobs` alone.
 For read-only diagnosis from the database host:
 
 ```sh
-source .env.production
+scripts/run-with-env.sh .env.production -- bash -s <<'OPEN_CRM_DIAG'
+set -euo pipefail
 docker compose -f docker-compose.deploy.yml --env-file .env.production exec -T postgres \
   psql -U "${POSTGRES_USER:-open_crm}" -d "${POSTGRES_DB:-open_crm}" \
   -c "SELECT organization_id, job_type, status, attempts, max_attempts, run_at, lease_expires_at, left(last_error, 200) AS last_error FROM background_jobs WHERE status IN ('running', 'retryable', 'dead') ORDER BY updated_at DESC LIMIT 100;"
+OPEN_CRM_DIAG
 ```
 
 Do not mutate job or delivery tables manually while an API worker is running.
@@ -2615,14 +2622,17 @@ Run `scripts/restore-drill.sh` against that same snapshot before replacing live
 data. Then, after explicit incident approval:
 
 ```sh
-docker compose -f docker-compose.deploy.yml --env-file .env.production stop api
-source .env.production
-docker compose -f docker-compose.deploy.yml --env-file .env.production exec -T postgres dropdb -U "${POSTGRES_USER:-open_crm}" --if-exists "${POSTGRES_DB:-open_crm}"
-docker compose -f docker-compose.deploy.yml --env-file .env.production exec -T postgres createdb -U "${POSTGRES_USER:-open_crm}" "${POSTGRES_DB:-open_crm}"
-docker compose -f docker-compose.deploy.yml --env-file .env.production exec -T postgres pg_restore -U "${POSTGRES_USER:-open_crm}" -d "${POSTGRES_DB:-open_crm}" --no-owner --no-acl < var/restore/open_crm.dump
-docker compose -f docker-compose.deploy.yml --env-file .env.production run --rm migrate
-docker compose -f docker-compose.deploy.yml --env-file .env.production up -d api
+scripts/run-with-env.sh .env.production -- bash -s <<'OPEN_CRM_RESTORE'
+set -euo pipefail
+compose=(docker compose -f docker-compose.deploy.yml --env-file .env.production)
+"${compose[@]}" stop api
+"${compose[@]}" exec -T postgres dropdb -U "${POSTGRES_USER:-open_crm}" --if-exists "${POSTGRES_DB:-open_crm}"
+"${compose[@]}" exec -T postgres createdb -U "${POSTGRES_USER:-open_crm}" "${POSTGRES_DB:-open_crm}"
+"${compose[@]}" exec -T postgres pg_restore -U "${POSTGRES_USER:-open_crm}" -d "${POSTGRES_DB:-open_crm}" --no-owner --no-acl < var/restore/open_crm.dump
+"${compose[@]}" run --rm migrate
+"${compose[@]}" up -d api
 curl --fail --show-error --silent http://127.0.0.1:18089/readyz
+OPEN_CRM_RESTORE
 ```
 
 Move the extracted plaintext dump to an approved encrypted incident store or

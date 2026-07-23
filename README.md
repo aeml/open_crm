@@ -149,6 +149,7 @@ make db-migrate
 make db-seed
 make api-dev
 make web-dev
+make check-dev-environment
 make test
 make test-backup-restore
 make test-monitoring
@@ -186,6 +187,13 @@ WEB_PORT=5173
 API_BASE_URL=http://localhost:8080
 WEB_BASE_URL=http://localhost:5173
 ```
+
+The development `make` targets load the root `.env` when it exists; already
+exported variables take precedence. The loader treats values literally and
+never executes the file, so Compose-style values such as
+`EMAIL_FROM_NAME=Open CRM` work safely. Do not `source .env`. Use
+`ENV_FILE=/explicit/path make api-dev` for another file. With no `.env`, the
+targets preserve the previous process-environment behavior.
 
 ## Deployment Notes
 

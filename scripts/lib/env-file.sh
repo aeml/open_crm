@@ -12,7 +12,7 @@ open_crm_load_env_keys() {
   local requested_name env_line parsed_name parsed_value found first last
   for requested_name in "$@"; do
     [[ "$requested_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
-    if [[ -v "$requested_name" ]]; then
+    if [[ ${!requested_name+x} ]]; then
       continue
     fi
 

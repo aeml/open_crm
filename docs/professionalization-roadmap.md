@@ -2658,6 +2658,18 @@ release. The disposable recovery suite proves the protected pair remains
 available, one eligible old revision is pruned, a mismatched operator tag is
 untouched, and the same-release redeploy remains manually rollback-capable.
 
+The documented local bootstrap now has an executable configuration contract.
+The root `example.env` uses credential-free fake billing and system email,
+contains no project-specific sender, and is loaded by development `make`
+targets through a validated literal parser that never evaluates file content;
+exported variables retain precedence and missing `.env` preserves the previous
+process-environment path. CI proves literal spaces, `#`, `=`, empty values,
+command-substitution non-execution, malformed-line rejection, overrides, and
+all advertised fake defaults. The same runner replaces unsafe `source`
+examples in diagnosis and deliberate restore instructions. Postmark now safely
+formats the configured `EMAIL_FROM_NAME` into its real sender envelope and
+rejects invalid or injected sender configuration before a provider call.
+
 Goal: close the reliability milestone before production beta.
 
 - Re-run full verification, restore drills, smoke tests, and deploy checks.
