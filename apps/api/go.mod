@@ -3,7 +3,7 @@ module github.com/aeml/open_crm/apps/api
 go 1.26.5
 
 require (
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	golang.org/x/crypto v0.54.0
 )
 
